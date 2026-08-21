@@ -1,0 +1,114 @@
+{
+  "kind": "portico.tv-interaction-outcomes",
+  "version": 1,
+  "status": "source-contract",
+  "vocabulary": {
+    "current": "The one durable destination rendered by the navigation authority.",
+    "focused": "The one ephemeral remote target that would receive Select now.",
+    "selected": "A durable product choice independent of current focus."
+  },
+  "cases": [
+    {
+      "id": "destination-primary-replaces-history",
+      "category": "navigation",
+      "initial": {"current": "home", "history": [], "routeEpoch": 1},
+      "events": [{"kind": "push", "destination": "detail"}, {"kind": "primary", "destination": "library"}],
+      "expected": {"current": "library", "history": [], "routeEpoch": 3}
+    },
+    {
+      "id": "back-history-before-root-reveal",
+      "category": "back",
+      "initial": {"history": ["home"], "rail": "closed", "railOrigin": "none"},
+      "events": [{"kind": "back"}],
+      "expected": {"outcomes": ["navigate-back"]}
+    },
+    {
+      "id": "back-root-reveal-then-system",
+      "category": "back",
+      "initial": {"history": [], "rail": "closed", "railOrigin": "none"},
+      "events": [{"kind": "back"}, {"kind": "back"}],
+      "expected": {"outcomes": ["open-rail", "system-exit"]}
+    },
+    {
+      "id": "back-dpad-rail-restores-invoker",
+      "category": "back",
+      "initial": {"history": ["home"], "rail": "open", "railOrigin": "dpad", "invoker": "library.media.item-7"},
+      "events": [{"kind": "back"}],
+      "expected": {"outcomes": ["close-rail"], "focused": "library.media.item-7"}
+    },
+    {
+      "id": "activation-held-select-coalesces",
+      "category": "activation",
+      "initial": {"viewerEpoch": 8, "routeEpoch": 12},
+      "events": [{"kind": "down", "intent": "detail.action.play"}, {"kind": "down", "intent": "detail.action.play"}, {"kind": "up"}],
+      "expected": {"commits": 1, "coalesced": 1, "finalState": "committed"}
+    },
+    {
+      "id": "activation-stale-completion-cancelled",
+      "category": "activation",
+      "initial": {"viewerEpoch": 8, "routeEpoch": 12},
+      "events": [{"kind": "down", "intent": "detail.action.play"}, {"kind": "route-epoch", "value": 13}, {"kind": "complete"}],
+      "expected": {"commits": 0, "coalesced": 0, "finalState": "cancelled"}
+    },
+    {
+      "id": "focus-content-to-rail-boundary",
+      "category": "focus",
+      "initial": {"containers": {"scene.content": ["home.row.continue.item-42"], "scene.rail": ["rail.home", "rail.library"]}, "focused": "home.row.continue.item-42"},
+      "events": [{"kind": "boundary", "direction": "left", "to": "scene.rail"}],
+      "expected": {"focused": "rail.home", "container": "scene.rail"}
+    },
+    {
+      "id": "focus-removed-item-falls-back-semantically",
+      "category": "focus",
+      "initial": {"container": ["library.media.a", "library.media.b", "library.media.c"], "focused": "library.media.b"},
+      "events": [{"kind": "replace-targets", "targets": ["library.media.a", "library.media.c"]}],
+      "expected": {"focused": "library.media.a"}
+    },
+    {
+      "id": "focus-reorder-preserves-semantic-id",
+      "category": "focus",
+      "initial": {"container": ["channels.program.a", "channels.program.b", "channels.program.c"], "focused": "channels.program.b"},
+      "events": [{"kind": "replace-targets", "targets": ["channels.program.c", "channels.program.b", "channels.program.a"]}],
+      "expected": {"focused": "channels.program.b"}
+    },
+    {
+      "id": "focus-modal-traps-and-restores-invoker",
+      "category": "focus",
+      "initial": {"focused": "settings.row.preferred-audio"},
+      "events": [{"kind": "open-modal", "target": "settings.modal.audio.english"}, {"kind": "boundary", "direction": "left", "to": "scene.rail"}, {"kind": "close-modal"}],
+      "expected": {"focused": "settings.row.preferred-audio", "blockedBoundaries": 1}
+    },
+    {
+      "id": "player-five-transport-to-utilities",
+      "category": "player",
+      "initial": {"container": "transport", "focused": "player.transport.play-pause", "capabilities": ["volume", "subtitles", "quality", "speed", "sleep", "queue"]},
+      "events": [{"kind": "right"}, {"kind": "right"}, {"kind": "right"}],
+      "expected": {"transportOrder": ["previous", "seek-back", "play-pause", "seek-forward", "next"], "utilityOrder": ["volume", "subtitles", "quality", "speed", "sleep", "queue"], "container": "utility", "focused": "player.utility.volume"}
+    },
+    {
+      "id": "player-back-unwinds-panel-before-exit",
+      "category": "player",
+      "initial": {"container": "panel", "focused": "player.panel.quality.original", "mediaKind": "video"},
+      "events": [{"kind": "back"}, {"kind": "back"}, {"kind": "back"}],
+      "expected": {"outcomes": ["close-panel", "close-utility", "exit-video"], "stopPlayback": true}
+    },
+    {
+      "id": "player-audio-back-returns-to-browsing",
+      "category": "player",
+      "initial": {"container": "transport", "focused": "player.transport.play-pause", "mediaKind": "audio"},
+      "events": [{"kind": "back"}],
+      "expected": {"outcomes": ["return-to-browsing"], "stopPlayback": false, "persistenceScope": "in-app-only"}
+    }
+  ],
+  "auditTrace": [
+    {"issue": "RK-31", "outcome": "Up Next publishes distinct title and visible countdown fields and does not republish an unchanged visible second."},
+    {"issue": "RK-33", "outcome": "Valid viewer-scoped cached Library resources remain focusable while offline or stale."},
+    {"issue": "RK-34", "outcome": "Library filters expose Clear Filters, derive focus only from visible actions, and reject hidden Apply activation."},
+    {"issue": "RK-35", "outcome": "Saved mutation failure is visible on its initiating surface or through a focus-safe global notice."},
+    {"issue": "RK-36", "outcome": "Permanent Library Channel unavailability has no retry affordance; transient failure may retry."},
+    {"issue": "RK-37", "outcome": "Only lifecycle and active realtime or playback tasks remain resident; hidden domains do not short-poll."},
+    {"issue": "RK-38", "outcome": "The player controller owns focus and remote keys; the native video node never owns focus."},
+    {"issue": "RK-39", "outcome": "Fatal player actions are real focus targets and show Retry only when retry is truthful, plus Back to Details."},
+    {"issue": "RK-40", "outcome": "Search-history deletion uses the same confirmation policy in Search and Settings."}
+  ]
+}

@@ -1,0 +1,622 @@
+{
+  "kind": "portico.native-acceptance-matrix",
+  "version": 2,
+  "program": "P07",
+  "requirements": ["RN-009", "RN-010", "RN-012"],
+  "platforms": [
+    {
+      "id": "ios",
+      "family": "apple",
+      "formFactor": "mobile",
+      "playerAuthority": "avkit",
+      "sourceStatus": "source-only",
+      "runtimeStatus": "pending-runtime"
+    },
+    {
+      "id": "tvos",
+      "family": "apple",
+      "formFactor": "television",
+      "playerAuthority": "avkit",
+      "sourceStatus": "source-only",
+      "runtimeStatus": "pending-runtime"
+    },
+    {
+      "id": "android",
+      "family": "android",
+      "formFactor": "mobile",
+      "playerAuthority": "media3",
+      "sourceStatus": "source-only",
+      "runtimeStatus": "pending-runtime"
+    },
+    {
+      "id": "android_tv",
+      "family": "android",
+      "formFactor": "television",
+      "playerAuthority": "media3",
+      "sourceStatus": "source-only",
+      "runtimeStatus": "pending-runtime"
+    },
+    {
+      "id": "fire_tv",
+      "family": "android",
+      "formFactor": "television",
+      "playerAuthority": "fire-tv",
+      "sourceStatus": "source-only",
+      "runtimeStatus": "pending-runtime"
+    }
+  ],
+  "execution": {
+    "mode": "source-only",
+    "deterministic": true,
+    "sourceAssertionsExecuted": false,
+    "sourceHashesComputed": true,
+    "deviceRun": false,
+    "simulatorRun": false,
+    "emulatorRun": false,
+    "networkRun": false,
+    "providerCredentials": "not-supplied",
+    "runtimeStatus": "not-run",
+    "claim": "source-evidence-only"
+  },
+  "cases": [
+    {
+      "id": "RN-009-clean-install-auth-device-setup",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "clean-install-auth-device-setup",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/installation.ts",
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/deviceAuthorization.ts"
+      ],
+      "assertions": [
+        "A clean install can establish account auth and the selected device setup boundary without persisting a credential in route or media state."
+      ]
+    },
+    {
+      "id": "RN-009-zero-servers",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "zero-servers",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/clientEnvironment.ts",
+        "apps/portico-react-native/packages/infrastructure/src/nearbyDevices.ts",
+        "apps/portico-react-native/packages/infrastructure/src/nearbyDevices.test.ts"
+      ],
+      "assertions": ["An empty server catalog is an explicit empty state and does not select an implicit server."]
+    },
+    {
+      "id": "RN-009-one-server",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "one-server",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/clientEnvironment.ts",
+        "apps/portico-react-native/packages/infrastructure/src/serverResource.ts"
+      ],
+      "assertions": ["A single trusted server remains explicitly bound to its server identity and origin."]
+    },
+    {
+      "id": "RN-009-many-servers",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "many-servers",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/clientEnvironment.ts",
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/serverResource.ts"
+      ],
+      "assertions": ["Multiple servers remain independently addressable; switching cannot cross-publish credentials or viewer scope."]
+    },
+    {
+      "id": "RN-009-zero-profiles",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "zero-profiles",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/account.ts"
+      ],
+      "assertions": ["No available profile produces a deliberate profile setup state rather than an invented viewer."]
+    },
+    {
+      "id": "RN-009-one-profile",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "one-profile",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/viewerRuntime.tsx"
+      ],
+      "assertions": ["One profile is activated only after the verified server and account scope are available."]
+    },
+    {
+      "id": "RN-009-many-profiles",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "many-profiles",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/viewerRuntime.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/viewerPreferences.tsx"
+      ],
+      "assertions": ["Profile switching preserves the selected server/account fence and does not reuse another profile's viewer state."]
+    },
+    {
+      "id": "RN-009-pin-and-revocation",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "pin-and-revocation",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/secureStorage.ts",
+        "apps/portico-react-native/packages/infrastructure/src/secureStorage.test.ts"
+      ],
+      "assertions": ["PIN-gated profile access and server/account revocation clear or quarantine durable credentials before publication."]
+    },
+    {
+      "id": "RN-009-process-death-credential-publication",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "process-death-credential-publication",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/deviceAuthorization.ts",
+        "apps/portico-react-native/packages/infrastructure/src/deviceAuthorization.test.ts",
+        "apps/portico-react-native/packages/infrastructure/src/secureStorage.ts"
+      ],
+      "assertions": ["A process death at credential publication is recoverable only through the durable transaction boundary; partial credentials are not accepted."]
+    },
+    {
+      "id": "RN-009-process-death-viewer-publication",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "process-death-viewer-publication",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/viewerSessionPublication.ts",
+        "apps/portico-react-native/packages/infrastructure/src/viewerSessionPublication.test.ts",
+        "apps/portico-react-native/packages/infrastructure/src/viewerPreferences.tsx"
+      ],
+      "assertions": ["A process death at viewer publication never leaves an unverified viewer scope visible to routes or preferences."]
+    },
+    {
+      "id": "RN-009-offline-lan-recovery",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "offline-lan-recovery",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/nearbyDevices.ts",
+        "apps/portico-react-native/packages/infrastructure/src/nearbyDevices.subscription.test.ts",
+        "apps/portico-react-native/packages/infrastructure/src/clientEnvironment.ts"
+      ],
+      "assertions": ["Offline state is retained honestly and LAN discovery can recover the same trusted server without broadening its origin scope."]
+    },
+    {
+      "id": "RN-009-token-expiry",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "token-expiry",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx",
+        "apps/portico-react-native/packages/infrastructure/src/clientEnvironment.ts",
+        "apps/portico-react-native/packages/infrastructure/src/secureStorage.ts"
+      ],
+      "assertions": ["Expired account or server-session tokens fail closed and require the documented re-authentication path."]
+    },
+    {
+      "id": "RN-009-route-expiry",
+      "requirement": "RN-009",
+      "surface": "setup",
+      "scenario": "route-expiry",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/infrastructure/src/navigationRestoration.ts",
+        "apps/portico-react-native/packages/infrastructure/src/navigationRestoration.test.ts",
+        "apps/portico-react-native/packages/infrastructure/src/auth.tsx"
+      ],
+      "assertions": ["Expired or stale route restoration is discarded before it can publish a different viewer or server scope."]
+    },
+    {
+      "id": "RN-010-direct-playback",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "direct-playback",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/player/src/index.tsx"
+      ],
+      "assertions": ["Direct playback uses a server-issued, origin-scoped resource and never promotes account credentials to the native player."]
+    },
+    {
+      "id": "RN-010-hls-playback",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "hls-playback",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.ts",
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.test.ts",
+        "apps/portico-react-native/packages/app/src/data/playback.ts"
+      ],
+      "assertions": ["HLS descriptors and child playlists remain within the selected server origins while continuation grants rotate safely."]
+    },
+    {
+      "id": "RN-010-live-playback",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "live-playback",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/liveTv.ts",
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/player/src/index.tsx"
+      ],
+      "assertions": ["Live playback preserves live semantics and uses the live route contract rather than treating a channel as a media id."]
+    },
+    {
+      "id": "RN-010-dvr-playback",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "dvr-playback",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/liveTv.ts",
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/app/src/data/playback.test.ts"
+      ],
+      "assertions": ["Completed DVR recordings use the recording playback contract and keep the recording id distinct from a media id."]
+    },
+    {
+      "id": "RN-010-seek",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "seek",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/player/src/index.tsx",
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.ts"
+      ],
+      "assertions": ["Seek commands preserve the active descriptor generation and are bounded to the current playback route."]
+    },
+    {
+      "id": "RN-010-resume",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "resume",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.ts",
+        "apps/portico-react-native/packages/infrastructure/src/playbackReceiver.ts"
+      ],
+      "assertions": ["Resume restores position only for the same authorized route and playback generation."]
+    },
+    {
+      "id": "RN-010-progress",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "progress",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/player/src/index.tsx",
+        "apps/portico-react-native/packages/app/src/data/playback.ts"
+      ],
+      "assertions": ["Progress events are scoped to the active item and do not publish stale viewer or server state."]
+    },
+    {
+      "id": "RN-010-tracks",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "tracks",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/app/src/data/playback.test.ts",
+        "apps/portico-react-native/packages/player/src/index.tsx"
+      ],
+      "assertions": ["Audio and subtitle selections are resolved only from server-published tracks and preserve subtitle mode semantics."]
+    },
+    {
+      "id": "RN-010-grant-renewal",
+      "requirement": "RN-010",
+      "surface": "playback",
+      "scenario": "grant-renewal",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/data/playback.ts",
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.ts",
+        "apps/portico-react-native/packages/player/src/applePlaybackContinuity.test.ts"
+      ],
+      "assertions": ["An expired media grant permits one transparent, scoped renewal; repeated renewal loops fail closed."]
+    },
+    {
+      "id": "RN-012-tvos-focus",
+      "requirement": "RN-012",
+      "surface": "tvos",
+      "scenario": "tvos-focus",
+      "platforms": ["tvos"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/tv-focus/src/index.ts",
+        "apps/portico-react-native/packages/tv-focus/src/index.test.ts"
+      ],
+      "assertions": ["Focus memory is route-, viewer-, server-, and authorization-generation scoped and restores only mounted semantic targets."]
+    },
+    {
+      "id": "RN-012-tvos-remote",
+      "requirement": "RN-012",
+      "surface": "tvos",
+      "scenario": "tvos-remote",
+      "platforms": ["tvos"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/player/src/index.tsx",
+        "apps/portico-react-native/packages/player/src/appleRemoteAuthoritySource.test.ts",
+        "apps/portico-react-native/packages/tv-focus/src/index.ts"
+      ],
+      "assertions": ["Remote commands target the active playback authority and cannot mutate a stale route after viewer or server switching."]
+    },
+    {
+      "id": "RN-012-tvos-modal",
+      "requirement": "RN-012",
+      "surface": "tvos",
+      "scenario": "tvos-modal",
+      "platforms": ["tvos"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/tv-focus/src/index.ts",
+        "apps/portico-react-native/packages/tv-focus/src/index.test.ts"
+      ],
+      "assertions": ["Modal presentation and dismissal fence focus restoration so a detached modal target cannot capture focus."]
+    },
+    {
+      "id": "RN-012-tvos-voiceover",
+      "requirement": "RN-012",
+      "surface": "tvos",
+      "scenario": "tvos-voiceover",
+      "platforms": ["tvos"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/tv-focus/src/index.ts"
+      ],
+      "assertions": ["VoiceOver/accessibility activation remains inside the current route scope and does not rely on native view identity persistence."]
+    },
+    {
+      "id": "RN-012-android-tv-focus",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "android-tv-focus",
+      "platforms": ["android_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFocus.tsx",
+        "apps/portico-react-native/packages/tv-focus/src/index.ts",
+        "apps/portico-react-native/packages/tv-focus/src/index.test.ts"
+      ],
+      "assertions": ["Android TV focus is inventoried through the shared semantic focus boundary; device focus traversal and restoration remain pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-android-tv-remote",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "android-tv-remote",
+      "platforms": ["android_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationBack.ts",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFrame.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx"
+      ],
+      "assertions": ["Android TV remote/back handling is inventoried at the route boundary; hardware command delivery and stale-route rejection remain pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-android-tv-modal",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "android-tv-modal",
+      "platforms": ["android_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFocus.tsx",
+        "apps/portico-react-native/packages/app/src/ui/engagement.tsx"
+      ],
+      "assertions": ["Android TV modal focus ownership is inventoried through the shared presentation boundary; native modal traversal remains pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-android-tv-accessibility",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "android-tv-accessibility",
+      "platforms": ["android_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/primitives.tsx",
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx"
+      ],
+      "assertions": ["Android TV accessibility labels and focus semantics are inventoried in shared controls; TalkBack/device verification remains pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-fire-tv-focus",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "fire-tv-focus",
+      "platforms": ["fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFocus.tsx",
+        "apps/portico-react-native/packages/tv-focus/src/index.ts",
+        "apps/portico-react-native/packages/tv-focus/src/index.test.ts"
+      ],
+      "assertions": ["Fire TV focus is inventoried through the shared semantic focus boundary; device focus traversal and restoration remain pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-fire-tv-remote",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "fire-tv-remote",
+      "platforms": ["fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationBack.ts",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFrame.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx"
+      ],
+      "assertions": ["Fire TV remote/back handling is inventoried at the route boundary; hardware command delivery and stale-route rejection remain pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-fire-tv-modal",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "fire-tv-modal",
+      "platforms": ["fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigationFocus.tsx",
+        "apps/portico-react-native/packages/app/src/ui/engagement.tsx"
+      ],
+      "assertions": ["Fire TV modal focus ownership is inventoried through the shared presentation boundary; native modal traversal remains pending runtime evidence."]
+    },
+    {
+      "id": "RN-012-fire-tv-accessibility",
+      "requirement": "RN-012",
+      "surface": "tv",
+      "scenario": "fire-tv-accessibility",
+      "platforms": ["fire_tv"],
+      "status": "source-only",
+      "sourceRefs": [
+        "apps/portico-react-native/packages/app/src/ui/primitives.tsx",
+        "apps/portico-react-native/packages/app/src/PorticoApp.tsx",
+        "apps/portico-react-native/packages/app/src/ui/tvNavigation.tsx"
+      ],
+      "assertions": ["Fire TV accessibility labels and focus semantics are inventoried in shared controls; platform screen-reader/device verification remains pending runtime evidence."]
+    }
+  ],
+  "externalCases": [
+    {
+      "id": "EXT-ios-runtime-acceptance",
+      "platforms": ["ios"],
+      "surface": "runtime",
+      "scenario": "physical-ios-auth-playback-expiry-recovery",
+      "execution": "physical-device",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a release-authorized physical iOS device and operator-supplied test account; source hashes do not execute auth, playback, expiry, or recovery.",
+      "requires": ["physical iOS device", "operator-supplied test account", "release-authorized app artifact"]
+    },
+    {
+      "id": "EXT-tvos-runtime-focus-acceptance",
+      "platforms": ["tvos"],
+      "surface": "runtime",
+      "scenario": "physical-tvos-focus-remote-modal-voiceover-playback",
+      "execution": "physical-device",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a physical Apple TV, Siri Remote, VoiceOver interaction, and authorized playback corpus; source-only output makes no simulator or device claim.",
+      "requires": ["physical Apple TV", "Siri Remote", "VoiceOver-enabled operator", "authorized playback corpus"]
+    },
+    {
+      "id": "EXT-android-mobile-runtime-acceptance",
+      "platforms": ["android"],
+      "surface": "runtime",
+      "scenario": "physical-android-auth-playback-direct-hls-live-dvr-tracks-expiry",
+      "execution": "physical-device",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a release-authorized Android mobile artifact, device, server account, and media corpus; the source-only runner cannot execute Media3 playback or recovery.",
+      "requires": ["physical Android mobile device", "release-authorized Android artifact", "authorized Portico server", "direct/HLS/live/DVR corpus"]
+    },
+    {
+      "id": "EXT-android-tv-runtime-focus-acceptance",
+      "platforms": ["android_tv"],
+      "surface": "runtime",
+      "scenario": "physical-android-tv-focus-remote-modal-playback",
+      "execution": "physical-device",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a release-authorized Android TV artifact, TV device, remote, authorized server, and playback corpus; source hashes cannot prove focus, Media3, or expiry behavior.",
+      "requires": ["physical Android TV device", "Android TV remote", "release-authorized Android TV artifact", "authorized Portico server", "playback corpus"]
+    },
+    {
+      "id": "EXT-fire-tv-runtime-focus-acceptance",
+      "platforms": ["fire_tv"],
+      "surface": "runtime",
+      "scenario": "physical-fire-tv-focus-remote-modal-playback",
+      "execution": "physical-device",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a release-authorized Fire TV artifact, Fire TV device, remote, authorized server, and playback corpus; source hashes cannot prove native runtime behavior.",
+      "requires": ["physical Fire TV device", "Fire TV remote", "release-authorized Fire TV artifact", "authorized Portico server", "playback corpus"]
+    },
+    {
+      "id": "EXT-lan-recovery",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "surface": "network",
+      "scenario": "offline-lan-recovery",
+      "execution": "physical-network",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires a controlled LAN with an authorized server and link interruption on each target family; source-only execution performs no network mutation or discovery.",
+      "requires": ["controlled LAN", "authorized Portico server", "link interruption control", "one artifact per target platform"]
+    },
+    {
+      "id": "EXT-provider-backed-playback",
+      "platforms": ["ios", "tvos", "android", "android_tv", "fire_tv"],
+      "surface": "provider",
+      "scenario": "provider-backed-direct-hls-live-dvr-tracks-grant-route-expiry-renewal",
+      "execution": "provider-backed",
+      "status": "pending-external",
+      "notRun": true,
+      "providerCredentials": "not-supplied",
+      "reason": "Requires release-authorized provider media and credentials supplied outside the repository; source hashes do not execute direct/HLS/live/DVR, tracks, grant renewal, or route expiry.",
+      "requires": ["operator-supplied provider credentials", "provider media with expiring route/grant", "one artifact per target platform"]
+    }
+  ]
+}

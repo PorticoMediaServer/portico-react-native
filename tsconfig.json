@@ -1,0 +1,18 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "noEmit": true,
+    "strict": true,
+    "types": ["jest"],
+    "paths": {
+      "@portico-react-native/app": ["packages/app/src/index.tsx"],
+      "@portico-react-native/icons": ["packages/icons/src/index.tsx"],
+      "@portico-react-native/infrastructure": ["packages/infrastructure/src/index.ts"],
+      "@portico-react-native/player": ["packages/player/src/index.ts"],
+      "@portico-react-native/tv-focus": ["packages/tv-focus/src/index.ts"]
+    }
+  },
+  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx"],
+  "exclude": ["**/node_modules", "**/Pods", "**/build", "packages/app/design-reference/**"]
+}

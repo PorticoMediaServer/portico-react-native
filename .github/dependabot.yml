@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: cocoapods
+    directory: /apps/apple-mobile/ios
+    schedule: {interval: monthly}
+  - package-ecosystem: cocoapods
+    directory: /apps/apple-tv/ios
+    schedule: {interval: monthly}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}

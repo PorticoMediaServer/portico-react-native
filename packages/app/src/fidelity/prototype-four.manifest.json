@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "reference": "packages/app/design-reference/approved-prototype-4",
+  "policy": "immutable-known-good-copy",
+  "files": [
+    {
+      "path": "brandAssets.ts",
+      "bytes": 24909,
+      "sha256": "ede6df6a91f62c2648a2200031e09674974d05e691b7d4b704eb1c0909fd56e2"
+    },
+    {
+      "path": "navigation.test.tsx",
+      "bytes": 1597,
+      "sha256": "f5d4075539e65deff29a26c9c7ce86843aff35f99cd641f27f659d26360938ef"
+    },
+    {
+      "path": "navigation.tsx",
+      "bytes": 2503,
+      "sha256": "727bd0351c5ce697136553a7863c33ac0420e646d6e9705ca6c4a94896f1700b"
+    },
+    {
+      "path": "overlays.tsx",
+      "bytes": 17066,
+      "sha256": "fe4a1a5781e28667c92cb9c4ab87cbce1c85995f25c013743030a1fc3dae3b5c"
+    },
+    {
+      "path": "PorticoFourApp.test.tsx",
+      "bytes": 4652,
+      "sha256": "e90d91226c6952bd1691efd6e3753aa5cc4359f24be5c1b7e0fb855222cf8741"
+    },
+    {
+      "path": "PorticoFourApp.tsx",
+      "bytes": 7418,
+      "sha256": "4cd35d7f39fb15e8b25feea02f8d0c8bdc15268a2c3471ddc2b03c80fe477caa"
+    },
+    {
+      "path": "primitives.tsx",
+      "bytes": 19695,
+      "sha256": "29fd46b12063aee89e8d754403edcac7e1da60d5aa7dcc75487c42d698a8c8ae"
+    },
+    {
+      "path": "screens/ChannelsScreen.tsx",
+      "bytes": 16435,
+      "sha256": "088e425d11d9c8b3922f63488c1c62aa3d4e7d848b901adb6d0303d658511c57"
+    },
+    {
+      "path": "screens/DetailPlayerScreens.tsx",
+      "bytes": 22672,
+      "sha256": "1b2190b512f5abeb2e4a026a831556ed9ddbb70026e31617d37d38612072e035"
+    },
+    {
+      "path": "screens/HomeScreen.tsx",
+      "bytes": 9623,
+      "sha256": "f716c3a4aa6689d2935b612ecb6326629581e46816f5c18869b48f3aff7b271e"
+    },
+    {
+      "path": "screens/LibraryScreen.tsx",
+      "bytes": 7726,
+      "sha256": "fbd2facff0945581faf19ca12d5c9b670d39296e1f44ed5ff85fa9e28021b444"
+    },
+    {
+      "path": "screens/SavedDownloadsScreens.tsx",
+      "bytes": 12865,
+      "sha256": "6ea367c7bf0950b7d524c3af5cea9509e11b22723c534d4fc5f37bbd953ba6b0"
+    },
+    {
+      "path": "screens/SearchScreen.tsx",
+      "bytes": 8764,
+      "sha256": "07edd432a84a1caef39a547d1b39161ee7259ef32aa5ed2045c1449835cd3f45"
+    },
+    {
+      "path": "screens/SettingsEntryScreens.tsx",
+      "bytes": 16127,
+      "sha256": "edcc85aa4578abbc5fb450846759a369e6d8e5deb4077402af3ec22ff2997401"
+    },
+    {
+      "path": "sharedComponents.tsx",
+      "bytes": 13615,
+      "sha256": "dc65bb59c86b95944837cd85a8816a074bd56dfa8d39775da9bfd298bdccff20"
+    },
+    {
+      "path": "shells.tsx",
+      "bytes": 13379,
+      "sha256": "06df249663a028236c1a83b819c8823bd416844b9e605399f5d14c2b04766fd8"
+    },
+    {
+      "path": "tokens.ts",
+      "bytes": 2518,
+      "sha256": "4189c29085fd632a2075ea1dd2d1e7bc5f3f5f02cb581e59f6581935be3d65c6"
+    },
+    {
+      "path": "uiState.tsx",
+      "bytes": 3310,
+      "sha256": "98e4296c27f272c161b1551cdb3ddb162da42eb51594277b002ebca027ba1c22"
+    },
+    {
+      "path": "useReducedMotion.ts",
+      "bytes": 564,
+      "sha256": "f59e56d920d7761f4ba469d356a6fb1187882ac9ec0ad9fe7ceddcf83dc68290"
+    }
+  ]
+}

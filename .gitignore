@@ -1,0 +1,10 @@
+node_modules/
+/Project Architecture
+**/Pods/
+**/build/
+**/.bundle/
+**/.xcode.env.local
+.metro-health-check*
+coverage/
+*.xcuserstate
+DerivedData/

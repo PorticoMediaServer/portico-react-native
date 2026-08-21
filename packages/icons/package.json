@@ -1,0 +1,18 @@
+{
+  "name": "@portico-react-native/icons",
+  "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "dependencies": {
+    "react": "19.2.7",
+    "react-native-svg": "15.15.5"
+  },
+  "devDependencies": {
+    "lucide-react-native": "1.24.0"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

@@ -1,0 +1,16 @@
+pluginManagement { includeBuild("../../../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+// RN-003: this app is an npm workspace. The CLI runs from the app root, while
+// dependency resolution is controlled by the workspace manifest and lockfile.
+// Include both in the cache key so a stale generated config cannot retain
+// pre-workspace module paths after dependency layout changes.
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex ->
+    ex.autolinkLibrariesFromCommand(
+        ["npx", "@react-native-community/cli", "config"],
+        file("../"),
+        files(file("../package.json"), file("../../../package.json"), file("../../../package-lock.json"))
+    )
+}
+rootProject.name = 'portico.androidtv'
+include ':app'
+includeBuild('../../../node_modules/@react-native/gradle-plugin')
