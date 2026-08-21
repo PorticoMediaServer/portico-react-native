@@ -4,6 +4,9 @@ on:
   pull_request:
   schedule: [{cron: '31 8 * * 1'}]
 permissions: {contents: read, security-events: write}
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   secrets:
     runs-on: ubuntu-24.04
