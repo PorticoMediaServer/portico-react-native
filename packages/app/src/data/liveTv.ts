@@ -1,4 +1,4 @@
-import type {DVRRecording, LiveTVChannel, LiveTVProgram} from '@portico/client-core';
+import type {DVRRecording, LiveTVChannel, LiveTVProgram} from '@porticomediaserver/client-core';
 
 export function programsByChannel(programs: LiveTVProgram[]): Map<string, LiveTVProgram[]> {
   const grouped = new Map<string, LiveTVProgram[]>();

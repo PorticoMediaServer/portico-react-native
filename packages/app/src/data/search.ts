@@ -1,4 +1,4 @@
-import type {PorticoClient, SearchResponse} from '@portico/client-core';
+import type {PorticoClient, SearchResponse} from '@porticomediaserver/client-core';
 import type {MediaViewModel} from './contracts';
 import {mediaViewModel} from './mediaAdapters';
 

@@ -2,7 +2,7 @@ import {Platform, UIManager} from 'react-native';
 import {
   applePlaybackCapabilityProfile,
   type PlaybackClientProfile,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   PORTICO_PLAYBACK_CAPABILITY_CONTRACT_VERSION,
   type PorticoPlatform,

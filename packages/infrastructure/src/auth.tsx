@@ -37,7 +37,7 @@ import {
   type ProfileTransitionReason,
   type SessionStore,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   beginServerSessionEnvironment,
   announceCurrentServerRouteChange,

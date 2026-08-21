@@ -1,4 +1,4 @@
-import type {PlayerContentMode} from '@portico/client-core';
+import type {PlayerContentMode} from '@porticomediaserver/client-core';
 
 export interface ApplePlaybackPlatform {
   isTV: boolean;

@@ -1,4 +1,4 @@
-import type {MediaCard, MediaItem, MediaPerson, PorticoClient} from '@portico/client-core';
+import type {MediaCard, MediaItem, MediaPerson, PorticoClient} from '@porticomediaserver/client-core';
 import {consumerMediaActions, type PorticoPlatform} from '@portico-react-native/infrastructure';
 import type {MediaDetailViewModel, MediaViewModel} from './contracts';
 import {mediaCardViewModel, mediaViewModel} from './mediaAdapters';

@@ -17,15 +17,13 @@ This repository contains Portico's shared React Native application and native pr
 
 ## Working with the source
 
-The clients share a generated API package with `portico-server`. Clone both repositories into the same parent directory:
+The clients consume the separately versioned
+[`@porticomediaserver/client-core`](https://github.com/PorticoMediaServer/portico-server/releases/tag/client-core-v0.1.0)
+package from an immutable Portico Server GitHub prerelease. The exact artifact
+URL and integrity hash are locked in this repository, so a server checkout is
+not required to build or test the clients.
 
-```text
-Portico Workspace/
-├── portico-server/
-└── portico-react-native/
-```
-
-Then install and validate the JavaScript source:
+Install and validate the JavaScript source:
 
 ```sh
 npm ci

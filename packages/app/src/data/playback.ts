@@ -1,4 +1,4 @@
-import {genericPlaybackClientProfile, type CastBootstrapResponse, type PlaybackClientProfile, type PlaybackIntent, type PlaybackResponse, type PlaybackSourceContext, type PorticoClient, type RequestSignal} from '@portico/client-core';
+import {genericPlaybackClientProfile, type CastBootstrapResponse, type PlaybackClientProfile, type PlaybackIntent, type PlaybackResponse, type PlaybackSourceContext, type PorticoClient, type RequestSignal} from '@porticomediaserver/client-core';
 import {applePlaybackClientProfile, getPorticoRuntimeDescriptor, languageMatches, type AppleViewerPreferences, type PreferredLanguage} from '@portico-react-native/infrastructure';
 
 export type RoutedPlaybackKind = 'media' | 'live' | 'dvr' | 'library-channel';

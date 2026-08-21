@@ -20,7 +20,7 @@ import {
   type ProfileTransitionReason,
   type ViewerRuntimeAdapter,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   dehydrate,
   hashKey,

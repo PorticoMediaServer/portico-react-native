@@ -1,4 +1,4 @@
-import type {CursorListResponse, MediaItem} from '@portico/client-core';
+import type {CursorListResponse, MediaItem} from '@porticomediaserver/client-core';
 import {normalizeSavedTab, savedMediaViewModels} from './saved';
 
 const media = {

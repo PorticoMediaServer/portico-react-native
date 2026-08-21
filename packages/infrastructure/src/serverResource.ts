@@ -4,7 +4,7 @@ import {
   viewerCacheKey,
   type LocalServerSession,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   getServerSession,
   serverSessionEnvironmentMatches,

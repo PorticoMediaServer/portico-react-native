@@ -16,7 +16,7 @@ import {
   usePorticoAuth,
   useViewerRuntime,
 } from '@portico-react-native/infrastructure';
-import {ApiError} from '@portico/client-core';
+import {ApiError} from '@porticomediaserver/client-core';
 import type {
   DVRRecording,
   DVRConsumerStatus,
@@ -25,7 +25,7 @@ import type {
   LiveTVSourceSummary,
   LibraryChannelSummary,
   PorticoClient,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 type LibraryChannelGuideEntry = Awaited<
   ReturnType<PorticoClient['libraryChannelsGuide']>
 >['programs'][number];

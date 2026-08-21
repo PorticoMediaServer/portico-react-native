@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import type {PorticoClient, WatchWithFriendsGroup} from '@portico/client-core';
+import type {PorticoClient, WatchWithFriendsGroup} from '@porticomediaserver/client-core';
 import {PorticoIcon} from '@portico-react-native/icons';
 import type {PrototypePlatform} from '../ui-compat/contract';
 import {color, font, mobileType, radius, tvType} from './tokens';

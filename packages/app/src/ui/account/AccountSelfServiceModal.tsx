@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import {PorticoIcon, type PorticoIconId} from '@portico-react-native/icons';
-import {validPorticoUsername, type PorticoDevice} from '@portico/client-core';
+import {validPorticoUsername, type PorticoDevice} from '@porticomediaserver/client-core';
 import {
   porticoAccountService,
   productErrorMessageId,

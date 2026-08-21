@@ -1,4 +1,4 @@
-import type {WatchWithFriendsGroup} from '@portico/client-core';
+import type {WatchWithFriendsGroup} from '@porticomediaserver/client-core';
 import type {AppleWatchWithFriendsControlPolicy} from '@portico-react-native/player';
 
 export type WatchWithFriendsConnectionStatus =

@@ -28,7 +28,7 @@ import {
   porticoProductContractRevision,
   type PorticoDestination,
   type PorticoDestinationCapabilities,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import type {
   TVFocusFence,
   TVLogicalFocusContainer,

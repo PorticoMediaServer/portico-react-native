@@ -1,4 +1,4 @@
-import type {MediaItem, PorticoClient} from '@portico/client-core';
+import type {MediaItem, PorticoClient} from '@porticomediaserver/client-core';
 import type {MediaViewModel} from './types';
 
 export function mediaViewModel(item: MediaItem, client: Pick<PorticoClient, 'imageResourceUrl'>): MediaViewModel {

@@ -1,4 +1,4 @@
-import type {LiveTVChannel} from '@portico/client-core';
+import type {LiveTVChannel} from '@porticomediaserver/client-core';
 import {
   boundedGuideChannelWindow,
   dvrCapabilityState,

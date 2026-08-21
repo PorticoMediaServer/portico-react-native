@@ -73,7 +73,7 @@ import {
   porticoProductContractRevision,
   type PorticoDestinationCapabilities,
   type PorticoDestination,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   authorizePorticoDestination,
   createPorticoReactNavigationLinking,

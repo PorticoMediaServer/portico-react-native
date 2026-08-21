@@ -4,7 +4,7 @@ import {
   type HostedDeviceAuthorizationSession,
   type HostedDeviceAuthorizationSessionRequest,
   type HostedDeviceAuthorizationStatus,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {formatTVSetupCode} from './tvSetupCode';
 import type {HostedAccountSession} from './types';
 import type {StoredDeviceAuthorizationSession} from './secureStorage';

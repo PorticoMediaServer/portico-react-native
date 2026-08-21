@@ -1,4 +1,4 @@
-import type {PorticoAccountUser, PorticoDevice} from '@portico/client-core';
+import type {PorticoAccountUser, PorticoDevice} from '@porticomediaserver/client-core';
 import {hostedClient} from './clientEnvironment';
 import {NativeModules} from 'react-native';
 

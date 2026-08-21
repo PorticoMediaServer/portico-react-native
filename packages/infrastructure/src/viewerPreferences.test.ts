@@ -4,7 +4,7 @@ import {
   defaultProfileServerPreferences,
   type PreferenceScopeIdentity,
   type ServerViewerPreferenceBundle,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   createScopedAppleViewerPreferencesStore,
   parseScopedApplePreferenceBundle,

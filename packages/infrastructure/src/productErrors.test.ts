@@ -1,4 +1,4 @@
-import {ApiError} from '@portico/client-core';
+import {ApiError} from '@porticomediaserver/client-core';
 import {
   ProductMessageError,
   productErrorMessageId,

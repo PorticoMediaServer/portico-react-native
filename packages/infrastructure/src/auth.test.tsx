@@ -14,7 +14,7 @@ import {
   type ProfileAccountAuthenticationResponse,
   type ProfileSelectionGrant,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   __authRecoveryTestHooks,
   HOSTED_SERVER_DIRECTORY_PAGE_SIZE,

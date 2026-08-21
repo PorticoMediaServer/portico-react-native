@@ -8,11 +8,11 @@ import type {
   MediaItem,
   PlaybackClientProfile,
   PorticoNativeSessionResponse,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   PORTICO_API_VERSION,
   PORTICO_FOUNDATION_COMPATIBILITY,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 export type PorticoPlatform = 'mobile' | 'tv';
 export type AuthenticationMode = 'portico-account' | 'local';

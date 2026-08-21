@@ -19,11 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: {path: portico-react-native}
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: {repository: PorticoMediaServer/portico-server, path: portico-server}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: {node-version: 24, cache: npm, cache-dependency-path: portico-react-native/package-lock.json}
-      - run: npm --prefix portico-server/packages/portico-client-core ci --no-audit --no-fund
       - run: npm ci --no-audit --no-fund
         working-directory: portico-react-native
       - run: npm run typecheck

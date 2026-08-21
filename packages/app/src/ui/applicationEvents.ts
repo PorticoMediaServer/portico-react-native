@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {useQueryClient, type QueryClient, type QueryKey} from '@tanstack/react-query';
-import type {AppEvent, PorticoClient} from '@portico/client-core';
+import type {AppEvent, PorticoClient} from '@porticomediaserver/client-core';
 import {
   useViewerRuntime,
   useViewerRuntimeSnapshot,

@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
 import * as Keychain from 'react-native-keychain';
 import {NativeModules, Platform, Settings} from 'react-native';
-import {createSerializedTrustedServerConnectionAdapter} from '@portico/client-core';
+import {createSerializedTrustedServerConnectionAdapter} from '@porticomediaserver/client-core';
 import type {
   CredentialAdapter,
   HostedDeviceAuthorizationSession,
@@ -11,7 +11,7 @@ import type {
   TrustedServerConnectionAdapter,
   TrustedServerConnectionRecord,
   TrustedServerRemovalTombstone,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import type {HostedAccountSession} from './types';
 
 const HOSTED_SERVICE = 'tv.getportico.account-session.v1';

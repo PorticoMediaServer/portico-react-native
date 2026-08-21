@@ -15,7 +15,7 @@ import {
   type HostedServer,
   type HostedProfileSelectionEnvelope,
   type HostedRoutePreference,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {ed25519} from '@noble/curves/ed25519.js';
 import {toByteArray} from 'base64-js';
 import {

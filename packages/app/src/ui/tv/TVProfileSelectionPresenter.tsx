@@ -5,7 +5,7 @@ import {
   productMessageText,
   usePorticoAuth,
 } from '@portico-react-native/infrastructure';
-import {productMessage} from '@portico/client-core';
+import {productMessage} from '@porticomediaserver/client-core';
 import {
   ControlButton,
   Focusable,

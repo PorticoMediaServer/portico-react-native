@@ -1,4 +1,4 @@
-import type {WatchWithFriendsGroup} from '@portico/client-core';
+import type {WatchWithFriendsGroup} from '@porticomediaserver/client-core';
 import {watchWithFriendsPlaybackAuthority} from './watchWithFriendsPlaybackAuthority';
 
 const group = (canControl: boolean) =>

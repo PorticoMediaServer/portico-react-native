@@ -25,7 +25,7 @@ import {
   type PorticoClient,
   type ProductMessageId,
   type ProductMessageVariables,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {PorticoIcon} from '@portico-react-native/icons';
 import type {PrototypePlatform} from '../../ui-compat/contract';
 import {

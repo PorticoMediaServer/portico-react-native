@@ -1,5 +1,5 @@
-import type {ViewerScope} from '@portico/client-core';
-import {isValidLocalServerRouteURL, localServerRouteAddressClass} from '@portico/client-core/local-discovery';
+import type {ViewerScope} from '@porticomediaserver/client-core';
+import {isValidLocalServerRouteURL, localServerRouteAddressClass} from '@porticomediaserver/client-core/local-discovery';
 import {
   beginServerSessionEnvironment,
   createServerCredentialMutationGate,

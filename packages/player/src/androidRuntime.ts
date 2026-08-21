@@ -1,5 +1,5 @@
 import {NativeModules, Platform} from 'react-native';
-import {type PlaybackClientProfile} from '@portico/client-core';
+import {type PlaybackClientProfile} from '@porticomediaserver/client-core';
 import type {ApplePlayerCapabilities} from './index';
 
 export const ANDROID_PLAYBACK_CAPABILITY_CONTRACT_VERSION = 'playback-capability-v2' as const;

@@ -12,7 +12,7 @@ import {
   reserveOrderedSurfaceSlots,
   resolveReservedSurfaceSlot,
   type PorticoClient,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   useMutation,
   useQueries,
@@ -534,7 +534,7 @@ function HomeCustomizationSheet({
 }: {
   onClose(): void;
   platform: PrototypePlatform;
-  rows: import('@portico/client-core').HomeRow[];
+  rows: import('@porticomediaserver/client-core').HomeRow[];
   visible: boolean;
 }) {
   const television = platform === 'tv';
@@ -549,7 +549,7 @@ function HomeCustomizationSheet({
   const hidden = new Set(preferences.values.hiddenHomeRowIds ?? []);
   const orderedRows = currentOrder
     .map(id => rows.find(row => row.id === id))
-    .filter((row): row is import('@portico/client-core').HomeRow =>
+    .filter((row): row is import('@porticomediaserver/client-core').HomeRow =>
       Boolean(row),
     );
   const saveMutation = useRevisionFencedMutation(

@@ -1,4 +1,4 @@
-import type {DVRRecording, LiveTVChannel, LiveTVProgram} from '@portico/client-core';
+import type {DVRRecording, LiveTVChannel, LiveTVProgram} from '@porticomediaserver/client-core';
 import {channelMark, completedRecordings, currentProgram, programsByChannel} from './liveTv';
 
 test('guide programs are grouped and ordered by their real channel identity', () => {

@@ -9,16 +9,15 @@
     "packages/*"
   ],
   "scripts": {
-    "build:client-core": "npm --prefix ../portico-server/packages/portico-client-core run build",
     "verify:build-contract": "node scripts/verify-build-contract.mjs",
     "verify:apple-native-source": "node scripts/verify-apple-native-source.cjs",
     "verify:product-copy": "node scripts/verify-product-copy.cjs",
     "verify:prototype-four": "node scripts/verify-prototype-four.cjs",
     "acceptance:native": "node scripts/acceptance/run-native-acceptance.mjs --json",
-    "pretypecheck": "npm run build:client-core && npm run verify:build-contract && npm run verify:prototype-four && npm run verify:product-copy && npm run verify:apple-native-source",
+    "pretypecheck": "npm run verify:build-contract && npm run verify:prototype-four && npm run verify:product-copy && npm run verify:apple-native-source",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint apps packages --ext .js,.jsx,.ts,.tsx",
-    "pretest": "npm run build:client-core && npm run verify:build-contract && npm run verify:prototype-four && npm run verify:product-copy && npm run verify:apple-native-source",
+    "pretest": "npm run verify:build-contract && npm run verify:prototype-four && npm run verify:product-copy && npm run verify:apple-native-source",
     "test": "jest --config jest.config.js --runInBand",
     "start:ios": "npm --workspace @portico-react-native/apple-mobile run start",
     "start:tvos": "npm --workspace @portico-react-native/apple-tv run start",

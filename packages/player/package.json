@@ -6,7 +6,7 @@
   "main": "src/index.tsx",
   "types": "src/index.tsx",
   "dependencies": {
-    "@portico/client-core": "file:../../../portico-server/packages/portico-client-core",
+    "@porticomediaserver/client-core": "https://github.com/PorticoMediaServer/portico-server/releases/download/client-core-v0.1.0/portico-client-core-0.1.0.tgz",
     "react": "19.2.7",
     "react-native": "npm:react-native-tvos@0.83.10-0"
   }

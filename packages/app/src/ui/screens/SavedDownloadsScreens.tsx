@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import {PorticoIcon} from '@portico-react-native/icons';
-import type {MediaCard, PorticoClient} from '@portico/client-core';
+import type {MediaCard, PorticoClient} from '@porticomediaserver/client-core';
 import {useInfiniteQuery} from '@tanstack/react-query';
 import {
   downloadsSupported,

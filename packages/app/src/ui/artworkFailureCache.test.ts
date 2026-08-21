@@ -7,7 +7,7 @@ import {
   rememberMediaArtworkFailure,
   subscribeMediaArtworkFailureCache,
 } from './artworkFailureCache';
-import type {ViewerScope} from '@portico/client-core';
+import type {ViewerScope} from '@porticomediaserver/client-core';
 import {ViewerRuntimeCoordinator} from '@portico-react-native/infrastructure';
 
 const viewerScope: ViewerScope = {

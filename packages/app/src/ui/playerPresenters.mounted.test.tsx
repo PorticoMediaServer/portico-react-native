@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import type {PlaybackResponse} from '@portico/client-core';
+import type {PlaybackResponse} from '@porticomediaserver/client-core';
 import {createPlayerSessionController} from '@portico-react-native/player';
 import {Focusable} from './primitives';
 import {FiveControlTransport} from './playerPresenters';

@@ -1,4 +1,4 @@
-import type {PorticoClient} from '@portico/client-core';
+import type {PorticoClient} from '@porticomediaserver/client-core';
 import type {PorticoDownload} from '@portico-react-native/infrastructure';
 import {Platform, UIManager} from 'react-native';
 import {synchronizePendingDownloadProgress} from '../data/downloadProgressSync';

@@ -3,7 +3,7 @@ import {gcm} from '@noble/ciphers/aes.js';
 import {hkdf} from '@noble/hashes/hkdf.js';
 import {sha256} from '@noble/hashes/sha2.js';
 import {fromByteArray, toByteArray} from 'base64-js';
-import {ApiError, type HostedTVSetupSession} from '@portico/client-core';
+import {ApiError, type HostedTVSetupSession} from '@porticomediaserver/client-core';
 import {
   authorizeNearbyTV,
   selectedServerFromTVSetupGrant,

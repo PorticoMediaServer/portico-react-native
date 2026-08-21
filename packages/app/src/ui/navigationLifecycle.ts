@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {AccessibilityInfo} from 'react-native';
-import type {PorticoPlatformClass} from '@portico/client-core';
+import type {PorticoPlatformClass} from '@porticomediaserver/client-core';
 import type {PorticoRoute} from './navigation';
 import {productText} from './productCopy';
 

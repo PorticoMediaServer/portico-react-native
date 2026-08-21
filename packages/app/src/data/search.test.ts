@@ -1,4 +1,4 @@
-import type {MediaItem, SearchResponse} from '@portico/client-core';
+import type {MediaItem, SearchResponse} from '@porticomediaserver/client-core';
 import {hasSearchResults, searchGroupViewModels} from './search';
 
 const media = {

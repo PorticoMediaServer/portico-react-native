@@ -17,7 +17,7 @@ import {
   serverImageSource,
   usePorticoAuth,
 } from '@portico-react-native/infrastructure';
-import type {SearchRequest} from '@portico/client-core';
+import type {SearchRequest} from '@porticomediaserver/client-core';
 import type {PrototypePlatform} from '../../ui-compat/contract';
 import {
   hasSearchResults,

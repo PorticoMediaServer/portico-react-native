@@ -3,8 +3,8 @@ import type {
   DownloadPreparation,
   MediaItem,
   PorticoClient,
-} from '@portico/client-core';
-import {NativeDownloadWorkflowError} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
+import {NativeDownloadWorkflowError} from '@porticomediaserver/client-core';
 import {
   appleInstallationPreferences,
   defaultAppleInstallationPreferences,

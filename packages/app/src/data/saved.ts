@@ -1,4 +1,4 @@
-import type {CursorListResponse, MediaCard, MediaItem, PorticoClient} from '@portico/client-core';
+import type {CursorListResponse, MediaCard, MediaItem, PorticoClient} from '@porticomediaserver/client-core';
 import type {MediaViewModel} from './contracts';
 import {mediaCardViewModel, mediaViewModel} from './mediaAdapters';
 

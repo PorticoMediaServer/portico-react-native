@@ -3,7 +3,7 @@ import {
   resolveProductProblem,
   type ProductMessageId,
   type ProductMessageVariables,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 const unresolvedToken = /\{[A-Za-z][A-Za-z0-9]*\}/;
 const genericProductFallback = "Portico couldn't complete this request.";

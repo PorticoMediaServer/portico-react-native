@@ -4,7 +4,7 @@ import {
   sameViewerScope,
   viewerCacheKey,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 export type DownloadState =
   | 'queued'

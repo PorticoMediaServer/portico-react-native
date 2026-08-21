@@ -1,5 +1,5 @@
 import {useSyncExternalStore} from 'react';
-import type {ProductMessageId} from '@portico/client-core';
+import type {ProductMessageId} from '@porticomediaserver/client-core';
 
 export interface RuntimeNotice {
   id: string;

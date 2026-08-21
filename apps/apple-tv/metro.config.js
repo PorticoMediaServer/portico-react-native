@@ -8,10 +8,9 @@ const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
  * @type {import('@react-native/metro-config').MetroConfig}
  */
 const workspaceRoot = path.resolve(__dirname, '../..');
-const clientCoreRoot = path.resolve(workspaceRoot, '../portico-server/packages/portico-client-core');
 const config = {
   projectRoot: __dirname,
-  watchFolders: [workspaceRoot, clientCoreRoot],
+  watchFolders: [workspaceRoot],
   resolver: {
     unstable_enablePackageExports: true,
     nodeModulesPaths: [
@@ -19,7 +18,6 @@ const config = {
       path.join(__dirname, 'node_modules'),
     ],
     disableHierarchicalLookup: true,
-    extraNodeModules: {'@portico/client-core': clientCoreRoot},
   },
 };
 

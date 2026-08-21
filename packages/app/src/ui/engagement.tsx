@@ -27,7 +27,7 @@ import {
   type ViewerFeedbackCategory,
   type ViewerFeedbackKind,
   type ViewerNotification,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   dismissRuntimeNotice,
   productErrorMessageId,

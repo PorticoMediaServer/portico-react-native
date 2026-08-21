@@ -1,4 +1,4 @@
-import type {PorticoClient, ViewerScope} from '@portico/client-core';
+import type {PorticoClient, ViewerScope} from '@porticomediaserver/client-core';
 import {
   downloadBelongsToScope,
   type PorticoDownload,

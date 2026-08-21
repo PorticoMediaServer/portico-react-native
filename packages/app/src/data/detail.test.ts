@@ -1,4 +1,4 @@
-import type {MediaItem} from '@portico/client-core';
+import type {MediaItem} from '@porticomediaserver/client-core';
 import {
   detailViewModel,
   initialTVSeasonId,

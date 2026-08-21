@@ -14,7 +14,7 @@ import type {
   PorticoClient,
   ProductMessageId,
   SuggestionsResponse,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {usePorticoAuth} from '@portico-react-native/infrastructure';
 import type {MediaAction, MediaItem, MediaShape} from '../ui-compat/contract';
 import {cursorPageState, mergeUniqueById} from './pagination';

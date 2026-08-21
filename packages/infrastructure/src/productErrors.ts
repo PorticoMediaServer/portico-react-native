@@ -4,7 +4,7 @@ import {
   type ProductMessageId,
   type ProductMessagePresentation,
   type ProductMessageVariables,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 /** A reviewed catalog message carried through validation or local boundaries. */
 export class ProductMessageError extends Error {

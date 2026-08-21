@@ -2,7 +2,7 @@ import type {
   CollectionSummary,
   PlaylistSummary,
   PorticoClient,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 export type DetailSavedTargetKind = 'playlist' | 'collection';
 export type DetailSavedTarget = PlaylistSummary | CollectionSummary;

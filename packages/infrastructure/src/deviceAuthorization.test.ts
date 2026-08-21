@@ -1,7 +1,7 @@
 import {
   ApiError,
   type HostedDeviceAuthorizationSession,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   authorizeDeviceAccount,
   type DeviceAuthorizationClient,

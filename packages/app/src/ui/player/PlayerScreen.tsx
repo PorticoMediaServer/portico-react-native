@@ -62,7 +62,7 @@ import {
   type WatchWithFriendsGroup,
   type WatchWithFriendsSyncState,
   type UpNextCountdownState,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {PorticoIcon} from '@portico-react-native/icons';
 import type {PrototypePlatform} from '../../ui-compat/contract';

@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import type {AppEvent, PorticoClient, ViewerScope} from '@portico/client-core';
+import type {AppEvent, PorticoClient, ViewerScope} from '@porticomediaserver/client-core';
 import {PorticoViewerRuntimeProvider, ViewerRuntimeCoordinator} from '@portico-react-native/infrastructure';
 import {
   applicationEventQueryPrefixesFromSemanticTags,

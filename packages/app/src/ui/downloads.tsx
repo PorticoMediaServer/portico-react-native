@@ -12,7 +12,7 @@ import type {
   DownloadOption,
   MediaItem,
   PorticoClient,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   downloadsSupported,
   activeDownloadViewerScope,

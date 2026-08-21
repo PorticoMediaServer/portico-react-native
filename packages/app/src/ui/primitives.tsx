@@ -34,7 +34,7 @@ import {
   productMessage,
   type ProductMessageId,
   type ProductMessageVariables,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import type {PrototypePlatform} from '../ui-compat/contract';
 import type {MediaCardRenderItem} from '../data/contracts';
 import {serverImageSource} from '@portico-react-native/infrastructure';

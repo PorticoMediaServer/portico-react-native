@@ -6,7 +6,7 @@ import {
   beginServerSessionEnvironment,
   setServerSession,
 } from './clientEnvironment';
-import type {ViewerScope} from '@portico/client-core';
+import type {ViewerScope} from '@porticomediaserver/client-core';
 
 const viewerScope: ViewerScope = {
   accountId: 'account-one',

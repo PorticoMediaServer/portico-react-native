@@ -1,4 +1,4 @@
-import type {HomeResponse, MediaCard, MediaItem} from '@portico/client-core';
+import type {HomeResponse, MediaCard, MediaItem} from '@porticomediaserver/client-core';
 import {formatDuration, homeViewModel, mediaCardViewModel, mediaViewModel} from './mediaAdapters';
 
 const client = {

@@ -2,7 +2,7 @@ import {
   PORTICO_NAVIGATION_CONTRACT_REVISION,
   type PorticoNavigationRestoration,
   type PorticoNavigationRestorationFence,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   BoundedNavigationRestorationStore,
   createSettingsNavigationRestorationStorage,

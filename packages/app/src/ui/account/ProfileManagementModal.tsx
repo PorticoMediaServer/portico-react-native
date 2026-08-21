@@ -16,7 +16,7 @@ import {
 import {
   unrestrictedProfilePolicy,
   type ServerManagedProfileDirectory,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {color, font} from '../tokens';
 import {ControlButton, Focusable, IconButton} from '../primitives';
 import {useModalAnimationType} from '../useReducedMotion';

@@ -24,7 +24,7 @@ import {
   type QualityRequestMode,
   type ServerViewerPreferenceBundle,
   type TranscodePreference,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {usePorticoAuth} from './auth';
 import {installationId, profileSelectionStore} from './installation';
 import {ProductMessageError} from './productErrors';

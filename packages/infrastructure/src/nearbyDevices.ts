@@ -4,7 +4,7 @@ import {
   normalizePorticoDiscoveryRecord,
   PORTICO_LAN_SERVICE_TYPE,
   type NormalizedPorticoDiscoveryRecord,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {formatTVSetupCode} from './tvSetupCode';
 import {
   parseAuthorizedNearbyReceiver,

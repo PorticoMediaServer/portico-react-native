@@ -10,7 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import {applePlaybackPolicyFor, type ApplePlaybackPolicy} from './applePlaybackPolicy';
-import type {PlayerContentMode} from '@portico/client-core';
+import type {PlayerContentMode} from '@porticomediaserver/client-core';
 import {createCancellablePublisher} from './cancellablePublisher';
 import type {ApplePlaybackDescriptor} from './applePlaybackContinuity';
 export {applePlaybackPolicyFor} from './applePlaybackPolicy';

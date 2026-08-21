@@ -1,4 +1,4 @@
-import type {MediaItem as ClientMediaItem} from '@portico/client-core';
+import type {MediaItem as ClientMediaItem} from '@porticomediaserver/client-core';
 
 export type ServerMediaAction = ClientMediaItem['actions'][number];
 

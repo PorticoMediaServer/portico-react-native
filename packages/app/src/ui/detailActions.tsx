@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import {useQuery, useQueryClient} from '@tanstack/react-query';
-import type {PorticoClient} from '@portico/client-core';
+import type {PorticoClient} from '@porticomediaserver/client-core';
 import {
   productErrorMessageId,
   useViewerRuntime,

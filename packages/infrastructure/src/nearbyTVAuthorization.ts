@@ -1,4 +1,4 @@
-import {ApiError, type HostedTVSetupSession} from '@portico/client-core';
+import {ApiError, type HostedTVSetupSession} from '@porticomediaserver/client-core';
 import {
   advertiseNearbyTVSetup,
   PORTICO_SETUP_PROTOCOL_VERSION,

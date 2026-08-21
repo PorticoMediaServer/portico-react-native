@@ -3,7 +3,7 @@ import {
   sameViewerScope,
   type PorticoClient,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 
 export type ViewerPublicationSnapshot = {
   acceptingWrites: boolean;

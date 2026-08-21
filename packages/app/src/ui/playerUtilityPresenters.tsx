@@ -2,7 +2,7 @@ import React, {useRef} from 'react';
 import {FlatList, ScrollView, StyleSheet, Text, TVFocusGuideView, View} from 'react-native';
 import {PorticoIcon, type PorticoIconId} from '@portico-react-native/icons';
 import type {TVLogicalFocusContainer} from '@portico-react-native/tv-focus';
-import type {PlaybackResponse, PortableSleepTimer} from '@portico/client-core';
+import type {PlaybackResponse, PortableSleepTimer} from '@porticomediaserver/client-core';
 import {formatPlayerTime} from '@portico-react-native/player';
 import type {PrototypePlatform} from '../ui-compat/contract';
 import {Focusable, TVLogicalFocusContainerBoundary} from './primitives';

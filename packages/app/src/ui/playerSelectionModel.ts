@@ -1,4 +1,4 @@
-import type {PlaybackResponse} from '@portico/client-core';
+import type {PlaybackResponse} from '@porticomediaserver/client-core';
 
 export function playerQualitySelectionAllowed(playback: PlaybackResponse, qualityId: string, input: {busy: boolean; isLive: boolean}): boolean {
   return !input.busy && !input.isLive && playback.streamFormat === 'hls' && playback.qualities.some(quality => quality.available !== false && quality.id === qualityId);

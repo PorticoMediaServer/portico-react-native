@@ -42,7 +42,7 @@ import {
   resolveProductContinuity,
   validPorticoUsername,
   type NormalizedPorticoDiscoveryRecord,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {color, font, mobileType, tvType} from './tokens';
 import {PorticoV4App} from './ui/PorticoV4App';
 import {AmbientArtworkGlow, EmptyState} from './ui/primitives';

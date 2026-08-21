@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@portico/client-core": "file:../../../portico-server/packages/portico-client-core",
+    "@porticomediaserver/client-core": "https://github.com/PorticoMediaServer/portico-server/releases/download/client-core-v0.1.0/portico-client-core-0.1.0.tgz",
     "@react-native-community/netinfo": "12.0.1",
     "@tanstack/react-query": "5.101.2",
     "@noble/curves": "2.0.1",

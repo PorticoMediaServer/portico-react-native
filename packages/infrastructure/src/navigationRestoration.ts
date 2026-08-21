@@ -8,7 +8,7 @@ import {
   type PorticoPrimaryDestination,
   type ProfileTransitionReason,
   type ViewerScope,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {Settings} from 'react-native';
 
 const NAVIGATION_RESTORATION_KEY = 'portico.navigation.restoration.v1';

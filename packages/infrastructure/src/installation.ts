@@ -5,7 +5,7 @@ import {
   normalizeAccountServerInstallationPreferences,
   type AccountServerInstallationPreferences,
   type PreferenceScopeIdentity,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import type {PorticoPlatform} from './types';
 
 const INSTALLATION_ID_SERVICE = 'tv.getportico.installation-id.v1';

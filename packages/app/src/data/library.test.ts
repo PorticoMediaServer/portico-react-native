@@ -3,7 +3,7 @@ import type {
   MediaCard,
   MediaItem,
   PorticoClient,
-} from '@portico/client-core';
+} from '@porticomediaserver/client-core';
 import {
   combineBrowseExpressions,
   facetPredicate,

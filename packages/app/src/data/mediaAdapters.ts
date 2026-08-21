@@ -1,4 +1,4 @@
-import type {HomeResponse, HomeRow, MediaCard, MediaItem, PorticoClient} from '@portico/client-core';
+import type {HomeResponse, HomeRow, MediaCard, MediaItem, PorticoClient} from '@porticomediaserver/client-core';
 import type {
   HomeRowViewModel,
   HomeViewModel,
