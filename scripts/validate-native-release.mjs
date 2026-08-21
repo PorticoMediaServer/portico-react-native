@@ -12,7 +12,6 @@ const sharedSourceHooks = Object.freeze([
   `${reactNativeRoot}/scripts/validate-native-release.mjs`,
   `${reactNativeRoot}/scripts/verify-apple-native-source.cjs`,
   `${reactNativeRoot}/scripts/verify-product-copy.cjs`,
-  `${reactNativeRoot}/scripts/verify-prototype-four.cjs`,
 ]);
 
 const NATIVE_TARGETS = {
@@ -129,7 +128,6 @@ export { NATIVE_TARGETS };
 const sourceHookScripts = Object.freeze([
   "verify:apple-native-source",
   "verify:product-copy",
-  "verify:prototype-four",
 ]);
 
 function escapeRegExp(value) {

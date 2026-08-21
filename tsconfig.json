@@ -14,5 +14,5 @@
     }
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods", "**/build", "packages/app/design-reference/**"]
+  "exclude": ["**/node_modules", "**/Pods", "**/build"]
 }
