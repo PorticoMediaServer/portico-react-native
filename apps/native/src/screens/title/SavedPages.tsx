@@ -1,0 +1,268 @@
+import React, {useCallback, useMemo, useState} from 'react';
+import {View, type LayoutChangeEvent} from 'react-native';
+import {useNavigation, type RouteProp} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {PlaylistOccurrence, SavedEntry} from '../../../../../packages/client-core/src/saved';
+import {captionFor, formatDuration, iconFor, progressFor, shapeFor, useArtwork} from '../../app/content';
+import {say} from '../../app/errors';
+import {useI18n} from '../../app/i18n';
+import {useOpenEntry} from '../../app/open';
+import {useInvoker} from '../../app/playback-events';
+import {sequenceContainer} from '../../app/container-play';
+import {usePlayerActions} from '../../app/player-actions';
+import type {ContentStackParams} from '../../app/routes';
+import {Card, Divider, Grid, ListRow, Menu, Notice, Page, Ring, Skeleton, StateView, useEntryFocus, useTheme, type MenuItem} from '../../ui';
+import {usePlaylist, useSavedResource} from './saved-hooks';
+import {mosaicPaths} from './layout';
+import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
+import {useAppendedPages, useEndReached} from '../../app/paging';
+import {usePullToRefresh} from '../../app/refresh';
+
+const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
+
+/** Plays a list from the start (or shuffled) and remembers the control for TV focus return. */
+function usePlayList() {
+  const player = usePlayerActions();
+  const invoker = useInvoker();
+  // `container`: on Playback v1 the playlist or collection plays as one server request (the
+  // server shuffles the whole set for Shuffle); the entries are what a failed v1 request plays.
+  // Without one (a saved view) Shuffle shuffles the loaded entries locally.
+  const play = useCallback((list: readonly ContentEntry[], shuffle = false, container?: {kind: string; id: string}) => {
+    const playable = list.filter(e => e.playback);
+    if (!playable.length) return;
+    invoker.remember();
+    const resolved = sequenceContainer(container?.kind, container?.id, {shuffle});
+    player.playSequence(shuffle && !resolved ? shuffled(playable) : playable, 0, 0, resolved);
+  }, [player, invoker]);
+  return {play, invoker};
+}
+
+/**
+ * A playlist on the shared hero (Spec — Title Pages §1, "Collection / Playlist"): "N items ·
+ * length", Play and Shuffle, then its entries in the owner's order. Pressing an entry plays the
+ * playlist from there. Hidden entries (items this profile can't see) keep their number, so the
+ * order still reads correctly.
+ */
+export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'Playlist'>}) {
+  const {playlistId, title} = route.params;
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const {space, isTV} = useTheme();
+  const i18n = useI18n();
+  const artwork = useArtwork();
+  const open = useOpenEntry();
+  const {play, invoker} = usePlayList();
+  const {snapshot, refresh, retry, next, mutate, loadOrder} = usePlaylist(playlistId);
+  const playlist = snapshot.playlist;
+  const sections = useMemo(() => snapshot.projection?.sections ?? [], [snapshot.projection]);
+  const page = useMemo(() => sections.flatMap(s => s.entries).filter(isOccurrence), [sections]);
+  // APL-SYS-08: pages append as the viewer scrolls; nothing pages backwards.
+  const occurrences = useAppendedPages(playlistId, snapshot.pagination.cursor, page, occurrenceKey);
+  const media = useMemo(() => occurrences.flatMap(o => (o.hidden ? [] : [o.media])), [occurrences]);
+  const pageable = sections.find(s => s.nextCursor);
+  const whole = !pageable && snapshot.pagination.cursor === null;
+  const pull = usePullToRefresh(refresh, {busy: snapshot.phase === 'loading'});
+  const onScroll = useEndReached(() => { if (pageable && snapshot.phase === 'ready') next(pageable.id); });
+  const count = playlist?.entryCount ?? sections[0]?.totalCount;
+  // Total length only when the whole playlist is on screen; a page's sum would be wrong.
+  const length = whole ? media.reduce((n, m) => n + (m.duration ?? 0), 0) : 0;
+  const claim = useEntryFocus(media.some(m => m.playback));
+  const cover = media.find(m => m.posterUrl);
+  // M26 item 5: playlists have no custom art — the hero shows a 2×2 mosaic of
+  // the first 4 item posters or covers (nothing when no item has art).
+  const mosaic = mosaicPaths({}, media);
+  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(media, true, {kind: 'playlist', id: playlistId})}] : [];
+  // M32 (web parity): playlist management the server offers — windowed
+  // reorder and remove — through the service's intents. A failure is
+  // presented, never thrown at the page.
+  const can = (action: string) => !!playlist?.actions.includes(action);
+  const [rowMenu, setRowMenu] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const change = useCallback(async (work: () => Promise<unknown>) => {
+    setProblem(null);
+    try { await work(); } catch (e) { setProblem(say(e, 'playlist', 'save')); }
+  }, []);
+  const order = snapshot.order;
+  const orderReady = !!playlist && !!order && order.revision === playlist.revision && order.viewerFence === playlist.viewerFence;
+  const ids = occurrences.map(o => o.id);
+  // Moves send only the moved occurrence with an anchor — never the whole
+  // order. The anchor is "" to prepend to the front.
+  const move = (index: number, by: -1 | 1) => {
+    const mover = ids[index];
+    if (!mover || !playlist || !can('reorder')) return;
+    const anchor = by === -1 ? (index <= 1 ? '' : ids[index - 2]!) : ids[index + 1]!;
+    if (anchor === undefined) return;
+    const run = () => mutate({action: 'reorder', entryIds: [mover], afterEntryId: anchor});
+    if (orderReady && order!.entryIds.includes(mover) && (anchor === '' || order!.entryIds.includes(anchor))) { void change(run); return; }
+    void change(() => loadOrder().then(run));
+  };
+  const menuFor = (occurrenceId: string): MenuItem[] => {
+    const index = ids.indexOf(occurrenceId);
+    const items: MenuItem[] = [];
+    if (can('reorder') && index > 0) items.push({id: 'up', label: i18n.t('web.profile.moveUp')});
+    if (can('reorder') && index < ids.length - 1) items.push({id: 'down', label: i18n.t('web.profile.moveDown')});
+    if (can('remove')) items.push({id: 'remove', label: i18n.t('web.saved.removeFromPlaylist'), destructive: true, ...(items.length ? {section: ''} : {})});
+    return items;
+  };
+  const onRowMenu = (occurrenceId: string, id: string) => {
+    const index = ids.indexOf(occurrenceId);
+    if (id === 'up') move(index, -1);
+    else if (id === 'down') move(index, 1);
+    else if (id === 'remove') void change(() => mutate({action: 'remove', entryId: occurrenceId}));
+  };
+  const menuEntry = rowMenu ? occurrences.find(o => o.id === rowMenu) : undefined;
+  const menuTitle = menuEntry && !menuEntry.hidden ? menuEntry.media.title : undefined;
+  return (
+    <View style={{flex: 1}}>
+      <Page contentStyle={{paddingTop: 0}} refreshControl={pull} onScroll={onScroll} scrollEventThrottle={100}>
+        <TitleHero
+          ref={invoker.ref}
+          loading={!playlist && snapshot.phase === 'loading'}
+          art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'square', icon: cover ? undefined : 'queue', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
+          eyebrow={i18n.t('title.kind', {kind: 'playlist'})}
+          title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback}
+          facts={[count !== undefined && count > 0 ? i18n.t('count.items', {count}) : undefined, length ? formatDuration(length) : undefined]}
+          synopsis={playlist?.summary || undefined}
+          primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, {kind: 'playlist', id: playlistId})} : undefined}
+          secondary={secondary}
+        />
+        {snapshot.phase === 'error' && !sections.length ? (
+          <StateView icon="error" title={i18n.t('error.title.load', {subject: 'playlist'})} message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
+        ) : snapshot.phase === 'error' ? (
+          <Notice tone="error" message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('title.retry')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
+        ) : snapshot.phase === 'refresh-required' ? (
+          <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'playlist', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
+        ) : null}
+        {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
+        {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
+        {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+        <View style={{paddingHorizontal: space.page - space.sm}}>
+          {occurrences.map((occurrence, index) => {
+            const ordinal = index + 1;
+            if (occurrence.hidden) {
+              return (
+                <View key={occurrence.id}>
+                  {index > 0 ? <Divider inset={space.sm} /> : null}
+                  <ListRow ordinal={ordinal} title={i18n.t('title.unavailableItem')} subtitle={i18n.t('title.notVisible')} icon="eyeOff" disabled />
+                </View>
+              );
+            }
+            const m = occurrence.media;
+            const shape = shapeFor(m.kind);
+            const from = media.indexOf(m);
+            const managed = can('reorder') || can('remove');
+            return (
+              <View key={occurrence.id}>
+                {index > 0 ? <Divider inset={space.sm} /> : null}
+                <ListRow
+                  ordinal={ordinal}
+                  title={m.title}
+                  subtitle={captionFor(m)}
+                  meta={formatDuration(m.duration) || undefined}
+                  source={artwork(m.posterUrl ?? m.backdropUrl)}
+                  shape={shape === 'square' ? 'square' : 'poster'}
+                  icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)}
+                  progress={progressFor(m)}
+                  watched={m.watched === true && m.kind !== 'song'}
+                  onPress={() => (m.playback ? play(media.slice(from), false, {kind: 'playlist', id: playlistId}) : open(m))}
+                  onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
+                />
+              </View>
+            );
+          })}
+        </View>
+        <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />
+      </Page>
+      <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
+      {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
+    </View>
+  );
+}
+
+/**
+ * A personal collection or saved view on the shared hero: "Collection · N items", Play and
+ * Shuffle over what's on screen, then the titles as cards in their own shapes.
+ */
+export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParams, 'SavedResource'>}) {
+  const {resourceId, title} = route.params;
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const {space, isTV, metrics, window} = useTheme();
+  const i18n = useI18n();
+  const artwork = useArtwork();
+  const open = useOpenEntry();
+  const {play, invoker} = usePlayList();
+  const {snapshot, refresh, next} = useSavedResource(resourceId);
+  const [width, setWidth] = useState(0);
+  const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width), []);
+  const gridWidth = (width || window.width - metrics.railWidth) - space.page * 2;
+  const resource = snapshot.resource;
+  const page = useMemo(() => snapshot.entries.map(e => e.media).filter((m): m is ContentEntry => !!m), [snapshot.entries]);
+  const media = useAppendedPages(resourceId, snapshot.cursor, page, mediaKey);
+  const pull = usePullToRefresh(refresh, {busy: snapshot.loading});
+  const onScroll = useEndReached(() => { if (!snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); });
+  const view = resource?.kind === 'view';
+  const cover = media.find(m => m.posterUrl);
+  // M26 item 5: collections have no custom art — the hero shows a 2×2 mosaic
+  // of the first 4 item posters or covers (nothing when no item has art).
+  const mosaic = mosaicPaths({}, media);
+  const claim = useEntryFocus(media.some(m => m.playback));
+  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(media, true, view ? undefined : {kind: 'collection', id: resourceId})}] : [];
+  return (
+    <View style={{flex: 1}} onLayout={onLayout}>
+      <Page contentStyle={{paddingTop: 0}} refreshControl={pull} onScroll={onScroll} scrollEventThrottle={100}>
+        <TitleHero
+          ref={invoker.ref}
+          loading={!resource && snapshot.loading}
+          art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'poster', icon: cover ? undefined : view ? 'filter' : 'collection', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
+          eyebrow={view ? i18n.t('title.savedView') : resource?.visibility === 'server' ? i18n.t('title.sharedCollection') : i18n.t('title.kind', {kind: 'collection'})}
+          title={resource?.name ?? title}
+          facts={[resource && resource.entryCount > 0 ? i18n.t('count.items', {count: resource.entryCount}) : undefined]}
+          synopsis={resource?.summary || undefined}
+          primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, view ? undefined : {kind: 'collection', id: resourceId})} : undefined}
+          secondary={secondary}
+        />
+        {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('title.retry')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+        {snapshot.loading && !media.length ? (
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>
+        ) : null}
+        {!snapshot.loading && !snapshot.error && !media.length ? <StateView icon={view ? 'filter' : 'collection'} title={view ? i18n.t('title.viewEmpty') : i18n.t('title.collectionEmpty')} /> : null}
+        {media.length ? (
+          <Grid
+            data={media}
+            width={gridWidth}
+            itemWidth={metrics.posterWidth}
+            scrollEnabled={false}
+            keyExtractor={m => m.id}
+            renderItem={(m, w) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />}
+          />
+        ) : null}
+        <MoreSpinner busy={snapshot.loading && media.length > 0} />
+      </Page>
+      <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
+    </View>
+  );
+}
+
+const occurrenceKey = (o: PlaylistOccurrence) => o.id;
+const mediaKey = (m: ContentEntry) => m.id;
+
+/** The next page on its way, under what is already listed. */
+function MoreSpinner({busy}: {busy: boolean}) {
+  const {space} = useTheme();
+  return busy ? <View style={{alignItems: 'center', paddingVertical: space.lg}}><Ring size={24} thickness={2} /></View> : null;
+}
+
+function RowsSkeleton() {
+  const {space} = useTheme();
+  return <View style={{gap: space.sm, paddingHorizontal: space.page}}>{[0, 1, 2, 3].map(i => <Skeleton key={i} height={56} />)}</View>;
+}
+
+function shuffled<T>(items: readonly T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+

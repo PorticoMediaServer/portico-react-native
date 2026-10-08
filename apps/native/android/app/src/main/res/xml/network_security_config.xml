@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A Portico server on the home network is reached over plain HTTP (its identity is verified by
+     its pinned key, not by a certificate); everything remote is TLS against the system's trust
+     store. The app pins no public certificate authority and trusts no user-installed one. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

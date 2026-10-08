@@ -1,0 +1,109 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+react {
+    // Debug variants load JavaScript from Metro; Release variants embed the bundle.
+    debuggableVariants = ["googleDebug", "firetvDebug"]
+    autolinkLibrariesWithApp()
+}
+
+def enableProguardInReleaseBuilds = false
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "tv.getportico.portico"
+    defaultConfig {
+        // One application for phones and televisions; `Platform.isTV` chooses the layout.
+        applicationId "tv.getportico.portico"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        manifestPlaceholders += [
+            porticoHostedUrl        : (project.findProperty("porticoHostedUrl") ?: ""),
+            porticoCastApplicationId: (project.findProperty("porticoCastApplicationId") ?: ""),
+        ]
+    }
+    buildFeatures { buildConfig true }
+
+    // `google` is Android and Android TV; `firetv` is Fire OS, which has no Google Play services.
+    flavorDimensions "store"
+    productFlavors {
+        google { dimension "store" }
+        firetv {
+            dimension "store"
+            minSdkVersion 25
+        }
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            // Not signed for a store: release builds use the debug keystore until distribution is decided.
+            signingConfig signingConfigs.debug
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+
+    sourceSets {
+        main.assets.srcDirs += layout.buildDirectory.dir("generated/portico/assets")
+    }
+}
+
+// The typefaces live once, in ../assets. React Native looks a `fontFamily` up as
+// assets/fonts/<name>.ttf, so they are copied under the names the theme uses.
+def porticoFonts = tasks.register("porticoFonts", Copy) {
+    def names = [
+        "manrope-400.ttf": "Manrope-Regular.ttf",
+        "manrope-500.ttf": "Manrope-Medium.ttf",
+        "manrope-600.ttf": "Manrope-SemiBold.ttf",
+        "manrope-700.ttf": "Manrope-Bold.ttf",
+    ]
+    from("../../assets") { include names.keySet() }
+    into(layout.buildDirectory.dir("generated/portico/assets/fonts"))
+    rename { names[it] }
+}
+preBuild.dependsOn(porticoFonts)
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+
+    // The bounded control transport (PorticoRuntime).
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // The player (PorticoPlaybackModule, PorticoPlayer) and the system media session.
+    def media3 = "1.10.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    implementation("androidx.media3:media3-session:$media3")
+    // Google Cast: only in the build for devices with Google Play services (never Fire OS).
+    googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
+    // The provider sign-in browser (PorticoAccountAuth).
+    implementation("androidx.browser:browser:1.8.0")
+    // Curve25519 and byte-oriented PBKDF2/HKDF, used through the lightweight API only (no JCA
+    // provider is registered): the platform has neither on the Android versions Portico supports.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+}

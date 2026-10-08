@@ -1,0 +1,102 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Music and audiobooks go on with the screen off: a media-playback foreground service, awake while it plays. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- A download goes on with the app out of sight (phones and tablets). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Television: this app's own rows on the home screen (Watch Next and one channel). -->
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+
+    <!-- One build for phones, tablets and televisions. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.faketouch" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:banner="@drawable/tv_banner"
+      android:allowBackup="false"
+      android:fullBackupContent="false"
+      android:dataExtractionRules="@xml/data_extraction_rules"
+      android:networkSecurityConfig="@xml/network_security_config"
+      android:theme="@style/AppTheme"
+      android:supportsRtl="true">
+
+      <!-- Portico Account origin; empty means production (the JavaScript default). -->
+      <meta-data android:name="PorticoHostedURL" android:value="${porticoHostedUrl}" />
+
+      <activity
+        android:name=".MainActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|fontScale"
+        android:launchMode="singleTask"
+        android:supportsPictureInPicture="true"
+        android:resizeableActivity="true"
+        android:windowSoftInputMode="adjustResize"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent-filter>
+        <!-- portico:// routes. MainActivity keeps only the ones PorticoUrlRoutes allows. -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="portico" />
+        </intent-filter>
+        <!-- App links: the same pages the Apple apps open as universal links. -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+            <data android:host="web.getportico.tv" />
+            <data android:host="getportico.tv" />
+            <data android:path="/account" />
+            <data android:path="/device" />
+            <data android:path="/join" />
+            <data android:path="/together/join" />
+            <data android:path="/app/account-return" />
+        </intent-filter>
+      </activity>
+        <!-- The media session for music and audiobooks: the lock screen, the notification, headsets, cars. -->
+        <service
+            android:name=".native.PorticoListeningService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+        <!-- Keeps the process alive while a download runs; the offline player for a downloaded file. -->
+        <service
+            android:name=".native.PorticoDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <activity
+            android:name=".native.PorticoOfflinePlayerActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+        <!-- Television home screen: the periodic refresh, and the posters the launcher reads (read-only). -->
+        <service
+            android:name=".native.PorticoShelfJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <provider
+            android:name=".native.PorticoShelfArtProvider"
+            android:authorities="tv.getportico.portico.shelf"
+            android:exported="true" />
+    </application>
+</manifest>

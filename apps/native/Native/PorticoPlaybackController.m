@@ -1,0 +1,443 @@
+#import "PorticoPlaybackController.h"
+#import "PorticoAudioSelection.h"
+#import "PorticoAudioRender.h"
+#import "PorticoSubtitleSelection.h"
+#import <UIKit/UIKit.h>
+#import <sys/utsname.h>
+/** Device-fit settings for every video item (weak devices; not quality: the viewer's quality
+ * choice stays with the server plan).
+ * - iPhone/iPad: never pick an adaptive variant larger than the screen (a 4K rung on a 1080p
+ *   phone costs bandwidth, decode power and battery for nothing).
+ * - Apple TV HD and other 2 GB devices: cap the forward buffer at 30 s so a high-bitrate stream
+ *   can't take memory the UI needs; newer devices keep AVPlayer's automatic buffering. */
+/** OS-07: a downloaded title plays in this controller like a streamed one. A file source is
+ * accepted only inside the app's own Downloads folder (PorticoDownloads' root), resolved and
+ * checked after symlinks, and never from anywhere else on the device. */
+static BOOL PorticoAllowedLocalSource(NSURL *url) {
+ if(!url.isFileURL||url.query.length||url.fragment.length)return NO;
+ NSURL *base=[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
+ if(!base)return NO;
+ NSString *root=[[[base URLByAppendingPathComponent:@"Downloads" isDirectory:YES] URLByResolvingSymlinksInPath].path stringByStandardizingPath];
+ NSString *path=[[url URLByResolvingSymlinksInPath].path stringByStandardizingPath];
+ BOOL directory=NO;
+ return root.length&&[path hasPrefix:[root stringByAppendingString:@"/"]]&&[NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory]&&!directory;
+}
+static void PorticoConfigureItem(AVPlayerItem *item) {
+ static double memoryGB; static CGSize screenPixels; static dispatch_once_t once;
+ dispatch_once(&once, ^{
+  memoryGB = NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+#if !TARGET_OS_TV
+  CGSize native = UIScreen.mainScreen.nativeBounds.size; screenPixels = CGSizeMake(MAX(native.width, native.height), MIN(native.width, native.height));
+#endif
+ });
+ if (memoryGB > 0 && memoryGB <= 2.5) item.preferredForwardBufferDuration = 30;
+#if !TARGET_OS_TV
+ if (screenPixels.width > 0) item.preferredMaximumResolution = screenPixels;
+#endif
+}
+@interface PorticoPlaybackController ()
+@property(nonatomic,copy) NSDictionary *command;
+@end
+@implementation PorticoPlaybackController {
+ NSString *_listeningOwner; NSDictionary *_listeningAttachment; NSDictionary *_listeningState;
+ NSInteger _listeningRouteRevision; BOOL _listeningRouteReady; NSDictionary *_listeningRender; NSString *_listeningOrigin; NSDictionary *_listeningSeek; BOOL _listeningAllowed; BOOL _applyingListening;
+ PorticoAudioRender *_audioRender;
+ AVPlayer *_player; id _timeObserver; id _subtitleTimeObserver; PorticoAudioSelection *_audioSelection; PorticoSubtitleSelection *_subtitleSelection; NSString *_subtitleText;NSDictionary *_subtitleCue;
+ NSDictionary *_binding; NSString *_lease; NSString *_owner; NSInteger _commandRevision; NSInteger _factSequence;
+ BOOL _routeSuspended; BOOL _routeResume; BOOL _routeSeeking; BOOL _routeFailed; NSInteger _routeEpoch; double _routePosition;
+ NSInteger _acceptedSeekRevision; double _acceptedSeekTarget; BOOL _seekRetired; BOOL _invalidated;
+ NSString *_itemInstanceId; NSString *_source; NSString *_instanceId; NSInteger _intentId; NSInteger _seekRevision; BOOL _paused; BOOL _observing; BOOL _seeking; NSNumber *_timelineOriginMS;
+#if DEBUG
+ BOOL _testSeekInjected; BOOL _testForceClamp;
+#endif
+}
+- (instancetype)init {
+ if((self=[super init])){_listeningRouteReady=YES;_paused=YES;_seekRevision=-1;_acceptedSeekRevision=-1;_instanceId=NSUUID.UUID.UUIDString;_player=[AVPlayer new];
+ __weak PorticoPlaybackController *weakSelf=self;
+ _audioRender=[PorticoAudioRender new];_audioRender.onFact=^(NSDictionary *renderFact){
+  PorticoPlaybackController *owner=weakSelf;if(!owner||!owner->_audioRender.active||!owner->_source.length)return;
+  NSMutableDictionary *fact=[renderFact mutableCopy];fact[@"intentId"]=@(owner->_intentId);fact[@"instanceId"]=owner->_instanceId;[owner publish:fact];
+ };
+ _audioSelection=[PorticoAudioSelection new];_audioSelection.onFact=^(NSDictionary *audioFact){
+  PorticoPlaybackController *view=weakSelf;if(!view||!view.onFact||!view->_source.length)return;
+  if([audioFact[@"audioBinding"][@"intentId"]integerValue]!=view->_intentId)return;
+  NSMutableDictionary *fact=[audioFact mutableCopy];fact[@"intentId"]=@(view->_intentId);fact[@"instanceId"]=view->_instanceId;
+  double position=[view sourcePosition];fact[@"position"]=@(isfinite(position)?position:0);fact[@"paused"]=@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume));[fact addEntriesFromDictionary:[view rateFacts]];[view publish:fact];
+ };
+ _subtitleSelection=[PorticoSubtitleSelection new];_subtitleText=@"";
+ _subtitleSelection.onText=^(NSDictionary *cue){PorticoPlaybackController *view=weakSelf;if(!view)return;view->_subtitleCue=[cue copy];view->_subtitleText=[cue[@"text"] copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:view];};
+ _subtitleSelection.onStatus=^(NSString *error){[weakSelf emit:@"subtitleStatus" error:error];};
+ _subtitleTimeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,20) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){PorticoPlaybackController *view=weakSelf;if(view)[view->_subtitleSelection tick:time];}];
+ _timeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,2) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){[weakSelf applyRouteResume];[weakSelf applyPendingSeek];[weakSelf emit:@"progress" error:nil];}];
+ [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(ended:) name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
+ // An item can stop without its status ever leaving ReadyToPlay: a stall when the buffer runs
+ // dry, and a failure part-way through. Neither was observed, so a mid-film failure showed
+ // nothing at all, not even a spinner.
+ [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(stalled:) name:AVPlayerItemPlaybackStalledNotification object:nil];
+ [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(failedToEnd:) name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
+ }return self;
+}
+- (void)displayReadyForLease:(NSString *)lease {if([_lease isEqual:lease])[self emit:@"firstFrame" error:nil];}
+- (NSDictionary *)testStaleCommands {
+#if DEBUG
+ if(![NSProcessInfo.processInfo.environment[@"PORTICO_TEST_PLAYER_OWNERSHIP"] isEqualToString:@"1"]||!_command||_acceptedSeekRevision<1)return @{@"available":@NO};
+ NSDictionary *before=_command;NSInteger revision=_commandRevision;NSString *item=_itemInstanceId;BOOL paused=_paused;double rate=[self desiredRate];
+ NSMutableDictionary *trial=[before mutableCopy];trial[@"commandRevision"]=@(revision-1);trial[@"pendingSeek"]=NSNull.null;
+ BOOL staleCommand=[self acceptCommand:trial]!=nil;
+ trial=[before mutableCopy];trial[@"commandRevision"]=@(revision+1);trial[@"pendingSeek"]=@{@"revision":@(_acceptedSeekRevision),@"positionSeconds":@(_acceptedSeekTarget+1)};
+ BOOL conflict=[self acceptCommand:trial]!=nil;
+ trial=[before mutableCopy];trial[@"commandRevision"]=@(revision+1);trial[@"pendingSeek"]=@{@"revision":@(_acceptedSeekRevision-1),@"positionSeconds":@(_acceptedSeekTarget)};
+ BOOL staleSeek=[self acceptCommand:trial]!=nil;
+ trial=[before mutableCopy];trial[@"commandRevision"]=@(revision+1);trial[@"paused"]=@1;
+ BOOL invalidPaused=[self acceptCommand:trial]!=nil;
+ BOOL duplicate=[self acceptCommand:before]==nil;
+ // DEBUG only: an empty controller proves permanent teardown without loading media.
+ PorticoPlaybackController *closed=[PorticoPlaybackController new];NSDictionary *emptyLease=[closed acquire:@"terminal-test"];[closed invalidate];
+ BOOL terminalAcquire=emptyLease&&[closed acquire:@"late-owner"]==nil;
+ BOOL terminalCommand=[closed acceptCommand:before]!=nil;
+ NSMutableDictionary *wrongAudioBinding=[_binding mutableCopy];wrongAudioBinding[@"sessionId"]=@"not-current-session";
+ BOOL audioMismatch=[self scopedAudio:@{@"binding":wrongAudioBinding} binding:_binding]==nil;
+
+ return @{@"available":@YES,@"terminalAcquireRejected":@(terminalAcquire),@"terminalCommandRejected":@(terminalCommand),@"audioMismatchDiscarded":@(audioMismatch),@"staleCommandRejected":@(staleCommand),@"conflictingSeekRejected":@(conflict),@"staleSeekRejected":@(staleSeek),@"invalidPausedRejected":@(invalidPaused),@"duplicateAccepted":@(duplicate),@"unchanged":@(_commandRevision==revision&&[_command isEqual:before]&&[_itemInstanceId isEqual:item]&&_paused==paused&&[self desiredRate]==rate),@"instanceId":_instanceId,@"itemInstanceId":item?:@"",@"commandRevision":@(revision),@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)};
+#else
+ return @{@"available":@NO};
+#endif
+}
+- (void)testClampNext {
+#if DEBUG
+ if([NSProcessInfo.processInfo.environment[@"PORTICO_TEST_PLAYER_OWNERSHIP"] isEqualToString:@"1"])_testForceClamp=YES;
+#endif
+}
+static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
++ (PorticoPlaybackController *)shared { return PorticoSharedPlaybackController; }
++ (void)setShared:(PorticoPlaybackController *)controller { PorticoSharedPlaybackController = controller; }
+- (BOOL)listeningActive { return _listeningOwner != nil; }
+- (double)currentSourcePosition { return [self sourcePosition]; }
+- (BOOL)subtitleOverlayActive { return _subtitleSelection.overlayActive; }
+- (AVPlayer *)player { return _player; }
+- (NSString *)lease { return _lease; }
+- (NSDictionary *)subtitleCue {return _subtitleCue?:@{};}
+- (NSString *)subtitleText { return _subtitleText?:@""; }
+- (void)invalidate {_invalidated=YES;self.onFact=nil;[self releaseLease:_lease];}
+- (NSDictionary *)acquire:(NSString *)owner {
+ if(_invalidated)return nil;
+ if(![owner isKindOfClass:NSString.class]||owner.length<1||owner.length>128)return nil;
+ if(_lease && ![_owner isEqual:owner]) return nil;
+ if(!_lease){_owner=[owner copy];_lease=NSUUID.UUID.UUIDString;_commandRevision=0;_factSequence=0;}
+ return @{ @"lease":_lease, @"instanceId":_instanceId };
+}
+- (void)releaseLease:(NSString *)lease {
+ if(![_lease isEqual:lease])return;
+ [_audioRender invalidate];
+ [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];
+ _source=nil;_binding=nil;_command=nil;_timelineOriginMS=nil;_lease=nil;_owner=nil;_seeking=NO;_routeSuspended=NO;_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;
+ [[NSNotificationCenter defaultCenter] postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
+}
+- (NSString *)acceptCommand:(NSDictionary *)command {
+ if(_invalidated)return @"Playback controller is closed.";
+ if(![command isKindOfClass:NSDictionary.class]||![command[@"binding"]isKindOfClass:NSDictionary.class])return @"Invalid playback binding.";
+ if(_listeningOwner && !_applyingListening) {
+  // Delayed JS commands may attach the current visual surface, but cannot undo
+  // native Pause, timers, an interruption or authority expiry.
+  if(![_listeningState[@"media"] isKindOfClass:NSDictionary.class])return nil;
+  if(![command[@"listeningOwner"] isEqual:_listeningOwner] || ![command[@"binding"][@"sessionId"] isEqual:_listeningState[@"playbackId"]] || ![command[@"binding"][@"generation"] isEqual:_listeningState[@"media"][@"generation"]])return nil;
+  if(![_lease isEqual:command[@"binding"][@"lease"]])return @"Playback lease is no longer active.";
+  [self applyListeningCommand:command];return nil;
+ }
+ NSDictionary *binding=command[@"binding"];
+ if(![binding isKindOfClass:NSDictionary.class]||![_lease isEqual:binding[@"lease"]])return @"Playback lease is no longer active.";
+ if(![command[@"paused"] isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)command[@"paused"])!=CFBooleanGetTypeID())return @"Invalid paused flag.";
+ if(![command[@"source"] isKindOfClass:NSString.class]||![command[@"rate"] isKindOfClass:NSNumber.class]||!isfinite([command[@"rate"] doubleValue]))return @"Invalid playback command.";
+ for(NSString *field in @[@"intentId",@"generation"]){id value=binding[field];double n=[value isKindOfClass:NSNumber.class]?[value doubleValue]:NAN;if(!isfinite(n)||n<1||n>9007199254740991.0||floor(n)!=n)return @"Invalid playback binding.";}
+ id value=command[@"commandRevision"];double n=[value isKindOfClass:NSNumber.class]?[value doubleValue]:NAN;if(!isfinite(n)||n<1||n>9007199254740991.0||floor(n)!=n)return @"Invalid playback revision.";
+ NSInteger revision=[command[@"commandRevision"] integerValue];
+ if(revision<_commandRevision)return @"Stale playback command.";
+ if(revision==_commandRevision)return [_command isEqual:command]?nil:@"Conflicting playback command.";
+ if(![binding[@"sessionId"] isKindOfClass:NSString.class]||![binding[@"itemId"] isKindOfClass:NSString.class])return @"Invalid playback binding.";
+ id clock=command[@"timelineOriginMs"];BOOL linear=clock&&clock!=NSNull.null;
+ if(linear&&(![clock isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)clock)==CFBooleanGetTypeID()||!isfinite([clock doubleValue])||[clock doubleValue]<=0||[clock doubleValue]>9007199254740991.0||floor([clock doubleValue])!=[clock doubleValue]))return @"Invalid channel clock.";
+ id connection=command[@"connectionState"],route=command[@"routeRevision"];
+ if(connection&&(![@[@"ready",@"verifying"] containsObject:connection]||![route isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)route)==CFBooleanGetTypeID()||[route doubleValue]<0||[route doubleValue]>9007199254740991.0||floor([route doubleValue])!=[route doubleValue]))return @"Invalid route transition.";
+ if(_command[@"routeRevision"]&&(!route||[route doubleValue]<[_command[@"routeRevision"] doubleValue]))return @"Stale route transition.";
+ if(_binding){
+  NSInteger intent=[binding[@"intentId"] integerValue],old=[_binding[@"intentId"] integerValue];
+  BOOL sameBinding=[_binding isEqual:binding],sameSource=[_source isEqual:command[@"source"]];
+  NSURL *oldURL=[NSURL URLWithString:_source?:@""],*nextURL=[NSURL URLWithString:command[@"source"]];
+  BOOL sameResource=oldURL&&nextURL&&[oldURL.path isEqual:nextURL.path]&&[(oldURL.query?:@"") isEqual:(nextURL.query?:@"")]&&!nextURL.user.length&&!nextURL.password.length&&!nextURL.fragment.length;
+  BOOL routeChange=sameBinding&&sameResource&&route&&[route doubleValue]>[_command[@"routeRevision"] doubleValue];
+  BOOL same=sameBinding&&(sameSource||routeChange);
+  BOOL newWindow=linear&&_timelineOriginMS&&[binding[@"sessionId"] isEqual:_binding[@"sessionId"]]&&[binding[@"itemId"] isEqual:_binding[@"itemId"]]&&[binding[@"generation"] longLongValue]>[_binding[@"generation"] longLongValue];
+  if(intent<old||(intent==old&&!same&&!newWindow))return @"Stale playback binding.";
+  if(same&&((_timelineOriginMS!=nil)!=linear||linear&&![_timelineOriginMS isEqual:clock]))return @"Channel clock changed within a binding.";
+ }
+
+
+ id pending=command[@"pendingSeek"];
+ if(pending && pending!=NSNull.null){if(![pending isKindOfClass:NSDictionary.class])return @"Invalid seek command.";for(NSString *field in @[@"revision",@"positionSeconds"]){id number=pending[field];double v=[number isKindOfClass:NSNumber.class]?[number doubleValue]:NAN;if(!isfinite(v)||fabs(v)>9007199254740991.0||v<0&&(!linear||[field isEqual:@"revision"]))return @"Invalid seek command.";}if([pending[@"revision"] doubleValue]<1||floor([pending[@"revision"]doubleValue])!=[pending[@"revision"]doubleValue])return @"Invalid seek revision.";}
+ BOOL sameBinding=[_binding isEqual:binding];
+ BOOL hasPending=[pending isKindOfClass:NSDictionary.class];
+ NSInteger incoming=hasPending?[pending[@"revision"] integerValue]:-1;
+ double target=hasPending?[pending[@"positionSeconds"] doubleValue]:0;
+ if(sameBinding&&hasPending){
+  if(incoming<_acceptedSeekRevision)return @"Stale seek command.";
+  if(incoming==_acceptedSeekRevision&&(_seekRetired||target!=_acceptedSeekTarget))return @"Conflicting or retired seek command.";
+ }
+ NSDictionary *render=[command[@"audioRender"]isKindOfClass:NSDictionary.class]?command[@"audioRender"]:nil;
+ if(command[@"audioRender"]&&command[@"audioRender"]!=NSNull.null&&!render)return @"Invalid audio render command.";
+ if(render){if(linear||[command[@"rate"]doubleValue]<.25||[command[@"rate"]doubleValue]>4)return @"Unsupported audio render context.";// A v1 plan names its own media (spec §18.1 amendment: opaque ids, not the session's); the
+  // listening owner has already bound it to the session it plays.
+  // Only the v1 owner's bindings say so; a /v2 plan keeps the plan-vs-binding check (INT T12).
+  NSDictionary *renderBinding=binding;if(_applyingListening&&[render[@"opaqueBinding"] isEqual:@YES]&&[render[@"plan"] isKindOfClass:NSDictionary.class])renderBinding=@{@"sessionId":render[@"plan"][@"sessionId"]?:@"",@"generation":render[@"plan"][@"generation"]?:@0};
+  NSString *error=[PorticoAudioRender validate:render source:command[@"source"] binding:renderBinding];if(error)return error;}
+ // All validation precedes mutation. Equal live seek permits newer pause/rate commands.
+ if(!sameBinding){_acceptedSeekRevision=-1;_seekRetired=NO;}
+ if(hasPending){_acceptedSeekRevision=incoming;_acceptedSeekTarget=target;_seekRetired=NO;}
+ else if(_acceptedSeekRevision>=0)_seekRetired=YES;
+ _timelineOriginMS=linear?[clock copy]:nil;
+ _commandRevision=revision;_binding=[binding copy];[self setCommand:command];
+ [[NSNotificationCenter defaultCenter] postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
+ return nil;
+}
+// Box logical expressions as BOOL: Objective-C &&/|| return int, which the
+// React bridge otherwise exposes as 0/1 instead of the required booleans.
+#if DEBUG
+- (void)debugAudioConfigurationChange {[_audioRender debugConfigurationChange];}
+#endif
+- (NSDictionary *)listeningSnapshot {
+ if(_audioRender.active){NSMutableDictionary *snapshot=[[_audioRender snapshot] mutableCopy];snapshot[@"binding"]=_binding?:NSNull.null;snapshot[@"commandRevision"]=@(_commandRevision);snapshot[@"seeking"]=@((BOOL)([snapshot[@"seeking"]boolValue]||[_command[@"pendingSeek"]isKindOfClass:NSDictionary.class]));return snapshot;}
+ double position=[self sourcePosition];return @{@"binding":_binding?:NSNull.null,@"commandRevision":@(_commandRevision),@"positionSeconds":@(isfinite(position)?MAX(0,position):0),@"observed":@((BOOL)(isfinite(position)&&_player.currentItem&&_player.currentItem.status==AVPlayerItemStatusReadyToPlay)),@"ready":@((BOOL)(_player.currentItem&&_player.currentItem.status==AVPlayerItemStatusReadyToPlay)),@"seeking":@((BOOL)(_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class])),@"effectiveRate":@(_player.rate),@"supportedRates":[self supportedRates],@"rateWaiting":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)),@"rateError":[self rateFacts][@"rateError"],@"rendering":@NO};
+}
+- (void)listeningOwner:(NSString *)owner state:(NSDictionary *)state origin:(NSString *)origin allowed:(BOOL)allowed seek:(NSDictionary *)seek render:(NSDictionary *)render {
+ BOOL changed=![_listeningOwner isEqual:owner];
+ if(changed){[_player pause];[_audioRender pauseOutput];}
+ _listeningOwner=[owner copy];_listeningState=[state copy];_listeningOrigin=[origin copy];_listeningAllowed=allowed;_listeningSeek=[seek copy];_listeningRender=[render copy];
+ if(!_listeningAllowed){[_player pause];[_audioRender pauseOutput];}
+ [self applyListeningCommand:nil];
+}
+- (void)clearListeningOwner:(NSString *)owner {
+ if(![_listeningOwner isEqual:owner])return;
+ [_player pause];_listeningAllowed=NO;_listeningOwner=nil;_listeningAttachment=nil;_listeningState=nil;_listeningOrigin=nil;_listeningSeek=nil;_listeningRender=nil;
+ // Retire transport too: a retained pre-pause command must not restart AVPlayer.
+ if(_lease)[self releaseLease:_lease];
+}
+- (void)resetListeningEngine:(NSString *)owner {
+ if(![_listeningOwner isEqual:owner])return;
+ _listeningAttachment=_binding?@{@"binding":_binding}:nil;
+ [_audioRender invalidate];
+ [_player pause];[_player.currentItem cancelPendingSeeks];[self removeObservation];[_audioSelection invalidate];[_subtitleSelection invalidate];
+ if(_timeObserver)[_player removeTimeObserver:_timeObserver];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];
+ _player=[AVPlayer new];_source=nil;_binding=nil;_command=nil;_seeking=NO;_seekRevision=-1;_acceptedSeekRevision=-1;_seekRetired=NO;
+ __weak PorticoPlaybackController *weakSelf=self;
+ _timeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,2) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){[weakSelf applyRouteResume];[weakSelf applyPendingSeek];[weakSelf emit:@"progress" error:nil];}];
+ _subtitleTimeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,20) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){PorticoPlaybackController *view=weakSelf;if(view)[view->_subtitleSelection tick:time];}];
+ [[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
+}
+- (void)listeningRoute:(NSString *)owner ready:(BOOL)ready revision:(NSInteger)revision {
+ if(_listeningOwner&&(![_listeningOwner isEqual:owner]||revision<_listeningRouteRevision))return;
+ _listeningRouteRevision=revision;_listeningRouteReady=ready;
+ if(!ready){[_player pause];[_audioRender pauseOutput];}
+}
+- (void)applyListeningCommand:(NSDictionary *)attachment {
+ if(attachment)_listeningAttachment=[attachment copy];
+ else attachment=_listeningAttachment;
+ if(!_lease||(!_binding&&!attachment[@"binding"])||![_listeningState[@"media"] isKindOfClass:NSDictionary.class])return;
+ NSDictionary *media=_listeningState[@"media"],*desired=_listeningState[@"desired"];
+ NSMutableDictionary *binding=[(_binding?:attachment[@"binding"]) mutableCopy];
+ BOOL changed=![binding[@"sessionId"] isEqual:media[@"id"]]||![binding[@"generation"] isEqual:media[@"generation"]];
+ if(changed){binding[@"intentId"]=@([binding[@"intentId"] integerValue]+1);binding[@"sessionId"]=media[@"id"];binding[@"generation"]=media[@"generation"];binding[@"itemId"]=desired[@"context"][@"itemId"];}
+ double denominator=[desired[@"rate"][@"denominator"] doubleValue];double rate=denominator>0?[desired[@"rate"][@"numerator"] doubleValue]/denominator:1;
+ NSDictionary *command=@{@"binding":binding,@"commandRevision":@(_commandRevision+1),@"source":[_listeningOrigin stringByAppendingString:media[@"streamUrl"]],@"connectionState":_listeningRouteReady?@"ready":@"verifying",@"routeRevision":@(_listeningRouteRevision),@"paused":@((BOOL)(!_listeningRouteReady||!_listeningAllowed||![desired[@"state"] isEqual:@"playing"])),@"rate":@(rate),@"timelineOriginMs":NSNull.null,@"pendingSeek":_listeningSeek?:NSNull.null,@"audioRender":_listeningRender?:NSNull.null,@"audio":attachment[@"audio"]?:_command[@"audio"]?:NSNull.null,@"subtitles":attachment[@"subtitles"]?:_command[@"subtitles"]?:NSNull.null};
+ // Skip no-op updates so native facts do not churn the JS command barrier.
+ NSMutableDictionary *before=[_command mutableCopy],*after=[command mutableCopy];[before removeObjectForKey:@"commandRevision"];[after removeObjectForKey:@"commandRevision"];
+ if([before isEqual:after])return;
+ _applyingListening=YES;NSString *error=[self acceptCommand:command];_applyingListening=NO;
+ if(error){[_player pause];[_audioRender pauseOutput];[self publish:[@{@"type":@"error",@"error":error,@"position":@([self sourcePosition])} mutableCopy]];}
+}
+- (void)publish:(NSMutableDictionary *)fact {
+ if(!self.onFact||!_binding||!_lease||_routeSuspended||((_routeResume||_routeSeeking||_routeFailed)&&![fact[@"type"] isEqual:@"error"]))return;
+ fact[@"itemInstanceId"]=_itemInstanceId?:@"";fact[@"binding"]=_binding;fact[@"factSequence"]=@(++_factSequence);fact[@"lastCommandRevision"]=@(_commandRevision);fact[@"seeking"]=@((BOOL)(_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]));
+ self.onFact(fact);
+}
+- (NSDictionary *)scopedAudio:(id)value binding:(NSDictionary *)binding {
+ NSDictionary *audio=[value isKindOfClass:NSDictionary.class]?value:nil;
+ NSDictionary *audioBinding=[audio[@"binding"] isKindOfClass:NSDictionary.class]?audio[@"binding"]:nil;
+ for(NSString *field in @[@"intentId",@"sessionId",@"generation"]){if(![audioBinding[field] isEqual:binding[field]])return nil;}
+ return audio;
+}
+- (void)setCommand:(NSDictionary *)command {
+ BOOL sameBinding=[_command[@"binding"] isEqual:command[@"binding"]];
+ BOOL verifying=[command[@"connectionState"] isEqual:@"verifying"];
+ NSInteger nextId=[command[@"binding"][@"intentId"] integerValue];NSString *source=command[@"source"];
+ if(!sameBinding){_routeResume=NO;_routeSeeking=NO;_routeSuspended=NO;_routeFailed=NO;_routeEpoch++;}
+ BOOL changed=![_source isEqualToString:source];
+ if(sameBinding&&(verifying||changed)&&!_routeResume&&!_routeSuspended){double position=_routeFailed?_routePosition:[self sourcePosition];if(isfinite(position)&&(_timelineOriginMS||position>=0)){_routePosition=position;_routeResume=YES;_routeFailed=NO;_routeEpoch++;}}
+ _command=[command copy];_paused=[command[@"paused"] boolValue];
+ if(verifying){
+  [_audioRender invalidate];
+  if(!_routeSuspended){[_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_routeSeeking=NO;_seeking=NO;}
+  _routeSuspended=YES;return;
+ }
+ if([command[@"audioRender"]isKindOfClass:NSDictionary.class]){
+  if(nextId!=_intentId||![_source isEqual:source])_itemInstanceId=NSUUID.UUID.UUIDString;
+  [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];
+  _intentId=nextId;_source=[source copy];_seeking=NO;NSMutableDictionary *routed=[command mutableCopy];
+  if(_routeResume){NSMutableDictionary *render=[command[@"audioRender"] mutableCopy];render[@"startSeconds"]=@(_routePosition);render[@"epoch"]=@([render[@"epoch"]longLongValue]+_routeEpoch);[render removeObjectForKey:@"prepared"];[render removeObjectForKey:@"committed"];routed[@"audioRender"]=render;}
+  _routeSuspended=NO;_routeResume=NO;_routeSeeking=NO;[_audioRender applyCommand:routed];return;
+ }
+ [_audioRender invalidate];
+ BOOL reload=_routeSuspended||nextId!=_intentId||changed||!_player.currentItem;_routeSuspended=NO;
+ if(reload){
+  _routeEpoch++;
+  [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
+  if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!([@[@"http",@"https"] containsObject:url.scheme]||PorticoAllowedLocalSource(url))){[self emit:@"error" error:@"Invalid media address."];return;}
+   [self configureVideoAudioSession];
+   AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;[_player replaceCurrentItemWithPlayerItem:item];
+   if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"Connection restored, but the retained position is not available. Your playback session was not replaced."];}});}
+  }
+ }
+ NSDictionary *pending=[command[@"pendingSeek"] isKindOfClass:NSDictionary.class]?command[@"pendingSeek"]:nil;
+ if(pending&&(_routeResume||_routeSeeking||_routeFailed)){_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;[_player.currentItem cancelPendingSeeks];}
+ if(!pending&&_seeking){_seeking=NO;[_player.currentItem cancelPendingSeeks];}
+ [_audioSelection apply:[self scopedAudio:command[@"audio"] binding:_binding] item:_player.currentItem];
+ [_subtitleSelection apply:[self scopedAudio:command[@"subtitles"] binding:_binding] item:_player.currentItem source:_source];
+ [self applyRouteResume];[self applyPendingSeek];[self applyIntent];
+}
+// A transport rebind is not a new playback intent or a user seek. Restore the
+// last observed position on this exact lease/session/presentation, then resume
+// the existing desired pause/rate/track state. Channel positions remain dates.
+- (void)applyRouteResume {
+ if(!_routeResume||_routeSuspended||_routeSeeking||_routeFailed||_player.currentItem.status!=AVPlayerItemStatusReadyToPlay)return;
+ if(_timelineOriginMS&&!_player.currentItem.currentDate)return;
+ _routeSeeking=YES;[_player pause];AVPlayerItem *item=_player.currentItem;NSDictionary *binding=_binding;NSInteger routeEpoch=_routeEpoch;double target=_routePosition;__weak PorticoPlaybackController *weakSelf=self;
+ void (^complete)(BOOL)=^(BOOL finished){dispatch_async(dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(!view||view->_invalidated||view->_routeEpoch!=routeEpoch||view->_player.currentItem!=item||![view->_binding isEqual:binding]||!view->_routeResume)return;view->_routeSeeking=NO;double actual=[view sourcePosition];
+  if(!finished||!isfinite(actual)||fabs(actual-target)>0.5){view->_routeResume=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player pause];[view emit:@"error" error:@"The previous playback position is unavailable on this connection. Your position has been retained."];return;}
+  view->_routeResume=NO;[view emit:@"ready" error:nil];[view applyIntent];
+ });};
+ if(_timelineOriginMS)[_player seekToDate:[NSDate dateWithTimeIntervalSince1970:[_timelineOriginMS doubleValue]/1000.0+target] completionHandler:complete];
+ else [_player seekToTime:CMTimeMakeWithSeconds(target,600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:complete];
+}
+
+- (void)applyPendingSeek {
+ if(_audioRender.active)return;
+ NSDictionary *pending=[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]?_command[@"pendingSeek"]:nil;
+ if(!pending||_routeSuspended||_routeResume||_routeSeeking||_player.currentItem.status!=AVPlayerItemStatusReadyToPlay)return;
+ NSInteger revision=[pending[@"revision"] integerValue];if(revision<=_seekRevision)return;
+ double target=[pending[@"positionSeconds"] doubleValue];if(!isfinite(target)||(!_timelineOriginMS&&target<0))return;
+ if(_timelineOriginMS&&!_player.currentItem.currentDate)return;
+ _seekRevision=revision;_seeking=YES;[_player pause];
+ NSDictionary *capturedBinding=_binding;NSInteger intent=_intentId;AVPlayerItem *item=_player.currentItem;__weak PorticoPlaybackController *weakSelf=self;
+ double seekTarget=target;
+#if DEBUG
+ if(_testForceClamp||(!_testSeekInjected && [NSProcessInfo.processInfo.environment[@"PORTICO_TEST_SEEK_CLAMP"] isEqualToString:@"1"])){seekTarget=target+12;_testSeekInjected=YES;_testForceClamp=NO;}
+#endif
+ void (^completion)(BOOL)=^(BOOL finished){
+  dispatch_async(dispatch_get_main_queue(), ^{
+   PorticoPlaybackController *view=weakSelf;if(!view)return;
+   NSDictionary *current=[view->_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]?view->_command[@"pendingSeek"]:nil;
+   if(![view->_binding isEqual:capturedBinding]||view->_intentId!=intent||view->_player.currentItem!=item||view->_seekRevision!=revision||!current||[current[@"revision"] integerValue]!=revision)return;
+   view->_seeking=NO;
+   double observed=[view sourcePosition];
+   BOOL applied=finished&&isfinite(observed)&&fabs(observed-target)<=0.5;
+   if(view.onFact){NSMutableDictionary *fact=[@{@"instanceId":view->_instanceId,@"type":applied?@"seekApplied":@"seekFailed",@"intentId":@(intent),@"seekRevision":@(revision),@"position":@(isfinite(observed)?observed:0),@"paused":@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume)),@"error":applied?@"":@"That position is not available yet. Try seeking again."} mutableCopy];
+#if DEBUG
+    fact[@"requestedTarget"]=@(target);fact[@"seekFinished"]=@(finished);NSMutableArray *ranges=[NSMutableArray new];for(NSValue *value in item.seekableTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end))[ranges addObject:@[@(start),@(end)]];}fact[@"seekableRanges"]=ranges;
+#endif
+    [fact addEntriesFromDictionary:[view rateFacts]];[view publish:fact];
+   }
+  });
+ };
+ if(_timelineOriginMS){
+  NSDate *date=[NSDate dateWithTimeIntervalSince1970:[_timelineOriginMS doubleValue]/1000.0+seekTarget];
+  [_player seekToDate:date completionHandler:^(BOOL finished){
+   dispatch_async(dispatch_get_main_queue(), ^{
+    PorticoPlaybackController *view=weakSelf;if(!view)return;
+    NSDictionary *current=[view->_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]?view->_command[@"pendingSeek"]:nil;
+    if(![view->_binding isEqual:capturedBinding]||view->_intentId!=intent||view->_player.currentItem!=item||view->_seekRevision!=revision||!current||[current[@"revision"] integerValue]!=revision)return;
+    // Date seeking can land on a nearby keyframe. Refine once using the actual
+    // post-seek date/time pair, never an assumed playlist start or duration.
+    double observed=[view sourcePosition],mediaTime=CMTimeGetSeconds(item.currentTime),delta=target-observed;
+    double refined=mediaTime+delta;BOOL retained=NO;
+    if(finished&&seekTarget==target&&isfinite(observed)&&isfinite(mediaTime)&&fabs(delta)>0.5&&fabs(delta)<=8&&isfinite(refined)){
+     CMTime exact=CMTimeMakeWithSeconds(refined,60000);
+     for(NSValue *value in item.seekableTimeRanges){if(CMTimeRangeContainsTime(value.CMTimeRangeValue,exact)){retained=YES;break;}}
+     if(retained){[view->_player seekToTime:exact toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:completion];return;}
+    }
+    completion(finished);
+   });
+  }];
+ }
+ else [_player seekToTime:CMTimeMakeWithSeconds(seekTarget,600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:completion];
+}
+- (double)sourcePosition {
+ if(_audioRender.active)return _audioRender.position;
+ if(_timelineOriginMS){NSDate *date=_player.currentItem.currentDate;return date?date.timeIntervalSince1970-[_timelineOriginMS doubleValue]/1000.0:NAN;}
+ return CMTimeGetSeconds(_player.currentTime);
+}
+- (NSArray<NSNumber *> *)supportedRates {
+ if(_player.currentItem.status!=AVPlayerItemStatusReadyToPlay)return @[];
+ if(_timelineOriginMS)return @[@1];
+ return _player.currentItem.canPlaySlowForward?@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]:@[@1,@1.25,@1.5,@1.75,@2];
+}
+- (double)desiredRate {return [_command[@"rate"] isKindOfClass:NSNumber.class]?[_command[@"rate"] doubleValue]:1;}
+- (NSDictionary *)rateFacts {
+ BOOL ready=_player.currentItem.status==AVPlayerItemStatusReadyToPlay;double desired=[self desiredRate];
+ BOOL valid=[[self supportedRates] containsObject:@(desired)];
+ return @{@"effectiveRate":@(_player.rate),@"supportedRates":[self supportedRates],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)),@"rateError":ready&&!valid?@"This speed is unavailable for this media. Choose a supported speed, then press Play.":@"",@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)};
+}
+- (void)applyIntent {
+ if(_audioRender.active)return;
+ BOOL pending=[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class];
+ if(_paused||_seeking||pending||_routeSuspended||_routeResume||_routeSeeking||_routeFailed||(_listeningOwner&&!_listeningAllowed))[_player pause];
+ else if(_player.currentItem.status==AVPlayerItemStatusReadyToPlay){
+  double rate=[self desiredRate];
+  if([[self supportedRates] containsObject:@(rate)]){if(_player.rate!=rate)_player.rate=rate;}
+  else [_player pause];
+ }
+ [self emit:@"rateStatus" error:nil];
+}
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+ if(object!=_player.currentItem)return;
+ // The seekable-range observation exists for the live window only. It used to fall through to
+ // the status handling, so every window update announced "ready" again and re-applied intent.
+ if(![keyPath isEqual:@"status"])return;
+ if(_player.currentItem.status==AVPlayerItemStatusReadyToPlay){[self applyRouteResume];if(!_routeResume&&!_routeFailed)[self emit:@"ready" error:nil];[self applyPendingSeek];[self applyIntent];}
+ else if(_player.currentItem.status==AVPlayerItemStatusFailed)[self publishFailure:_player.currentItem.error];
+}
+/** One failure, classified. A network failure is weather and is retried on the same route. An
+ * engine failure (the decoder or the parser refusing what it was given) carries its class and the
+ * underlying code, so the app can tell the server which route failed and ask for the next one
+ * instead of showing the viewer an error. */
+- (void)publishFailure:(NSError *)top {
+ BOOL network=NO;NSError *error=top;
+ for(int i=0;error&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){if([error.domain isEqual:NSURLErrorDomain]&&[@[@(NSURLErrorTimedOut),@(NSURLErrorCannotFindHost),@(NSURLErrorCannotConnectToHost),@(NSURLErrorNetworkConnectionLost),@(NSURLErrorDNSLookupFailed),@(NSURLErrorNotConnectedToInternet)] containsObject:@(error.code)])network=YES;}
+ NSString *engine=@"engine_error";
+ if([top.domain isEqual:AVFoundationErrorDomain]){
+  if(top.code==AVErrorDecodeFailed||top.code==AVErrorDecoderNotFound||top.code==AVErrorDecoderTemporarilyUnavailable)engine=@"decode_error";
+  else if(top.code==AVErrorFileFormatNotRecognized||top.code==AVErrorFailedToParse||top.code==AVErrorContentIsUnavailable||top.code==AVErrorFormatUnsupported)engine=@"source_not_supported";
+ }
+ NSError *under=top.userInfo[NSUnderlyingErrorKey];
+ NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
+ double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];
+ NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"engineCode":network?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
+ [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
+}
+- (void)stalled:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
+- (void)failedToEnd:(NSNotification *)note{if(note.object!=_player.currentItem)return;NSError *error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];[self publishFailure:error?:_player.currentItem.error];}
+/** Video never configured the audio session, so on iOS the default category applied: the silent
+ * switch muted a film, and nothing told the system this is long-form, multichannel content. */
+- (void)configureVideoAudioSession {
+ AVAudioSession *audio=[AVAudioSession sharedInstance];NSError *error=nil;
+#if TARGET_OS_TV
+ [audio setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeMoviePlayback options:0 error:&error];
+#else
+ if(@available(iOS 13.0, *))[audio setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeMoviePlayback routeSharingPolicy:AVAudioSessionRouteSharingPolicyLongFormVideo options:0 error:&error];
+#endif
+ if(error){error=nil;[audio setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeMoviePlayback options:0 error:&error];}
+ if(@available(iOS 15.0, tvOS 15.0, *))[audio setSupportsMultichannelContent:YES error:nil];
+ [audio setActive:YES error:nil];
+}
+- (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
+- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+- (void)removeObservation{if(_observing){[_player.currentItem removeObserver:self forKeyPath:@"status"];[_player.currentItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;}}
+- (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
+@end

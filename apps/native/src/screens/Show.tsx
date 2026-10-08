@@ -1,0 +1,469 @@
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {View} from 'react-native';
+import {useNavigation, type RouteProp} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
+import {SHOW_SETTING_ROWS, dedupeNames, networkName, nextUpPin, originalTitleLine, relatedRowsForPage, seasonProgress, showCreditLines, showPeople} from '../../../../packages/client-core/src/presentation/index';
+import {useContainerState} from '../app/container-state';
+import {saveShowSettings, type ShowSettings, type ShowWorkspaceRoute} from '../../../../packages/client-core/src/show-workspace';
+import {useArtwork} from '../app/content';
+import {useShowRecommendations, useShowWorkspace} from '../app/detail';
+import {homeRowHeading} from '../../../../packages/client-core/src/home';
+import {withoutNotInterested} from '../app/not-interested';
+import {useTurnedDown} from '../app/not-interested-hook';
+import {SectionView} from './Home';
+import {RowGuide} from './title/RowGuide';
+import {EPISODE_PAGE, useEpisodeWindow, type EpisodeSelection, type EpisodeSeed} from '../app/episodes';
+import {say} from '../app/errors';
+import {useI18n} from '../app/i18n';
+import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
+import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
+import {sequenceContainer} from '../app/container-play';
+import {usePlayerActions} from '../app/player-actions';
+import type {ContentStackParams} from '../app/routes';
+import {useSession} from '../app/session';
+import {Button, ListRow, Notice, Page, PersonCard, Sheet, Shelf, Skeleton, StateView, Switch, Text, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
+import {EpisodeBrowser, EpisodeList, EpisodeRowView, EpisodeTintContext, useEpisodeRowGeometry, type EpisodeListHandle} from './title/Episodes';
+import {TitleDetails} from './title/TitleDetails';
+import {EpisodePanel, type EpisodePlay} from './title/EpisodePanel';
+import {episodeCode, nextUpIn, orderSeasons, resumeFraction, seasonLabel} from './title/facts';
+import {SeasonSwitcher, type SeasonChoice} from './title/SeasonSwitcher';
+import {StatusBarScrim, TitleHero, type HeroAction} from './title/TitleHero';
+import {usePullToRefresh} from '../app/refresh';
+
+/** How many seasons the next-up rule may step forward before it settles (bounded work). */
+const NEXT_UP_HOPS = 4;
+const groupKey = (id: string) => `group:${id}`;
+
+/**
+ * The show page (Spec — Title Pages §2), identical for TV shows and anime: the shared hero with a
+ * movie's action row (Play/Resume · Watchlist · Favorite · Watched · ⋯), then Episodes — the
+ * season switcher with the season's progress beside it, Next up pinned above the list when it is
+ * not the first row, and the windowed episodes — with the episode view as a panel over the page.
+ * The season is state, not a page: switching it never reloads the hero. Below the episodes: cast
+ * and key crew, the show's recommendation rows (three titles or more each), and Details.
+ *
+ * Next up is the server's when it sends one, else found within the loaded episodes, stepping
+ * forward at most a few seasons.
+ */
+export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'>}) {
+  const {libraryId, showId, seasonId, episodeId, title} = route.params;
+  const target = useMemo<ShowWorkspaceRoute>(() => ({libraryId, ...(showId ? {showId} : {}), ...(seasonId ? {seasonId} : {}), ...(episodeId ? {episodeId} : {})}), [libraryId, showId, seasonId, episodeId]);
+  const {snapshot, selectSeason, selectGroup, retry} = useShowWorkspace(target);
+  // P4/P7: the show's own recommendation rows (More like the show, From its creator…), named by
+  // titleText; their cards offer Not interested.
+  const recommendations = useShowRecommendations(snapshot.data?.show.id ?? showId);
+  const turnedDown = useTurnedDown();
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const {space, isTV, window, metrics} = useTheme();
+  const i18n = useI18n();
+  const artwork = useArtwork();
+  const player = usePlayerActions();
+  const editor = useMetadataEditor();
+  const {api, session} = useSession();
+  const canEdit = !isTV && session?.viewer.role === 'owner' && session.viewer.authority === 'local';
+  const owner = session?.viewer.role === 'owner';
+  const invoker = useInvoker();
+  const listRef = useRef<EpisodeListHandle>(null);
+  const [railJump, setRailJump] = useState<{index: number}>();
+  const data = snapshot.data;
+  const show = data?.show;
+  // Roots stay mounted (shell/Roots.tsx), so several show pages can be alive at once: only the one
+  // whose loaded episodes include what was played re-reads.
+  const playedHere = useRef<(itemId?: string) => boolean>(() => true);
+  useRefreshOnPlayback(retry, change => change.reason !== 'progress' && playedHere.current(change.itemId));
+  const pull = usePullToRefresh(retry, {busy: snapshot.phase === 'loading'});
+
+  // ── Season selection (state, not a page) ────────────────────────────────
+  // A show whose owner hid its seasons (or asked for ranges) is one list, or the server's groups.
+  const flat = !!data && (data.settings.hideSeasons || data.settings.ranges);
+  const choices = useMemo<SeasonChoice[]>(() => {
+    if (!data) return [];
+    const ordered = orderSeasons(data.seasons);
+    const regular = ordered.filter(s => s.number !== 0).map(s => ({id: s.id, label: seasonLabel(i18n, s), number: s.number}));
+    const specials = ordered.filter(s => s.number === 0).map(s => ({id: s.id, label: seasonLabel(i18n, s), number: 0}));
+    const groups = data.groups.map(g => ({id: groupKey(g.id), label: g.title}));
+    if (flat) return groups;
+    return [...regular, ...groups, ...specials];
+  }, [data, flat, i18n]);
+  const settledId = data ? (data.selected.group ? groupKey(data.selected.group) : data.selected.seasonId ?? undefined) : undefined;
+  const [pending, setPending] = useState<string | null>(null);
+  // Next-up season: only when the viewer didn't arrive at a particular season or episode.
+  const [auto, setAuto] = useState(!seasonId && !episodeId);
+  const hops = useRef(0);
+  const reanchor = useRef<'waiting' | 'reading' | 'done'>(episodeId ? 'waiting' : 'done');
+  const choose = useCallback((id: string, byViewer = true) => {
+    if (byViewer) setAuto(false);
+    setPending(id);
+    Promise.resolve().then(() => (id.startsWith('group:') ? selectGroup(id.slice('group:'.length)) : selectSeason(id))).catch(() => {
+      reanchor.current = 'done';
+      setPending(null);
+    });
+  }, [selectGroup, selectSeason]);
+  // A deep link to an episode reads the page starting at that episode; re-read the season from its
+  // start so positions are stable, and open the episode's panel.
+  const [panel, setPanel] = useState<{entry: ContentEntry; index?: number} | null>(null);
+  const linkedPanel = useRef(false);
+  useEffect(() => {
+    if (!data || snapshot.phase !== 'ready') return;
+    if (reanchor.current === 'waiting' && data.selected.episodeId) {
+      const first = data.episodes.sections[0]?.entries[0];
+      if (first) { linkedPanel.current = true; setPanel({entry: first}); }
+      reanchor.current = 'reading';
+      const id = data.selected.group ? groupKey(data.selected.group) : data.selected.seasonId;
+      if (id) choose(id, false);
+      else reanchor.current = 'done';
+      return;
+    }
+    if (reanchor.current === 'reading' && !data.selected.episodeId) reanchor.current = 'done';
+    if (pending !== null && pending === settledId) setPending(null);
+  }, [data, snapshot.phase, pending, settledId, choose]);
+  useEffect(() => { if (snapshot.phase === 'error' || snapshot.phase === 'refresh-required') setPending(null); }, [snapshot.phase]);
+  const selected = pending ?? settledId;
+
+  // ── Episodes: the workspace's first page seeds a windowed collection ──────
+  const section = data?.episodes.sections[0];
+  const seed = useMemo<EpisodeSeed | undefined>(() => (data ? {entries: section?.entries ?? [], nextCursor: section?.nextCursor || null, total: section?.totalCount ?? section?.entries.length ?? 0} : undefined), [data, section]);
+  const stable = !!data && pending === null && reanchor.current === 'done' && !data.selected.episodeId;
+  const where = useMemo<EpisodeSelection | null>(() => (stable && data ? {libraryId, showId: data.show.id, seasonId: data.selected.seasonId, ...(data.selected.group ? {group: data.selected.group} : {})} : null), [stable, data, libraryId]);
+  const {list, snapshot: episodes} = useEpisodeWindow(where, stable ? seed : undefined);
+  const total = episodes.total ?? seed?.total ?? 0;
+  // The panel's index, once the season it belongs to is on screen.
+  useEffect(() => {
+    if (!list || !panel || panel.index !== undefined) return;
+    const at = seed?.entries.findIndex(e => e.id === panel.entry.id) ?? -1;
+    if (at >= 0) setPanel({entry: panel.entry, index: at});
+  }, [list, panel, seed]);
+
+  // ── Next up ─────────────────────────────────────────────────────────────
+  // M32: the server's nextUp is the primary action (Resume SxEy / Play next
+  // episode / Play S1E1). Until the contract carries it, the Continue
+  // Watching rule within what's loaded applies.
+  const loaded = useMemo<readonly ContentEntry[]>(() => (stable ? seed?.entries ?? [] : []), [stable, seed]);
+  const startedHere = useRef(new Set<string>());
+  playedHere.current = itemId => !itemId || startedHere.current.has(itemId) || loaded.some(e => e.id === itemId) || panel?.entry.id === itemId;
+  const serverNextUp = data?.nextUp?.playback ? data.nextUp : undefined;
+  const nextUp = serverNextUp ?? nextUpIn(loaded);
+  useEffect(() => {
+    if (!auto || !stable || !data || snapshot.phase !== 'ready') return;
+    if (nextUp || seed?.nextCursor) { setAuto(false); return; }
+    const order = choices.filter(c => c.number !== undefined && c.number > 0);
+    const at = order.findIndex(c => c.id === settledId);
+    const after = at >= 0 ? order[at + 1] : undefined;
+    if (after && hops.current < NEXT_UP_HOPS) { hops.current++; choose(after.id, false); }
+    else setAuto(false);
+  }, [auto, stable, data, snapshot.phase, nextUp, seed, choices, settledId, choose]);
+  const primaryEntry = nextUp ?? loaded.find(e => e.playback);
+  const primaryResumes = !!nextUp && (nextUp.progressSeconds ?? 0) > 0;
+
+  // ── Playback ──────────────────────────────────────────────────────────────
+  /** Plays from `index`, queueing the resident episodes after it. */
+  const playAt = useCallback((index: number, startSeconds: number) => {
+    if (!list) return;
+    const queue: ContentEntry[] = [];
+    for (let i = index; i < index + EPISODE_PAGE * 2 && i < total; i++) {
+      const e = list.itemAt(i);
+      if (!e) break;
+      if (e.playback) queue.push(e);
+    }
+    if (!queue.length) return;
+    startedHere.current = new Set(queue.map(e => e.id));
+    invoker.remember();
+    // On Playback v1 the season plays as one server request from this episode; an episode group
+    // that isn't a season keeps the loaded list (the v1 selector can't name a range).
+    player.playSequence(queue, 0, startSeconds, sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group}));
+  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group]);
+  const startOf = (e: ContentEntry) => (e.watched ? 0 : e.playback?.startSeconds ?? e.progressSeconds ?? 0);
+  const handlers = useMemo(() => ({
+    onPlay: (index: number) => {
+      const e = list?.itemAt(index);
+      if (!e) return;
+      if (e.playback) playAt(index, startOf(e));
+      else setPanel({entry: e, index});
+    },
+    onDetails: (index: number) => {
+      const e = list?.itemAt(index);
+      if (e) setPanel({entry: e, index});
+    },
+    onMore: (entry: ContentEntry) => player.more(entry),
+  }), [list, playAt, player]);
+  const playFromPanel = useCallback(({entry, index, startSeconds}: EpisodePlay) => {
+    if (index !== undefined && list?.itemAt(index)?.id === entry.id) playAt(index, startSeconds);
+    else if (entry.playback) player.play(entry.playback.itemId, startSeconds, entry);
+  }, [list, playAt, player]);
+
+  // ── Season actions ────────────────────────────────────────────────────────
+  const [marking, setMarking] = useState(false);
+  const seasonTitle = choices.find(c => c.id === selected)?.label ?? i18n.t('title.episodes');
+  // The show's and the season's own state go through the container personal-state route (O(1)):
+  // never one write per episode. The show carries Watchlist and Favorite like a movie.
+  const selectedSeasonId = data && !data.selected.group ? data.selected.seasonId ?? undefined : undefined;
+  const showState = useContainerState(api, show ? 'show' : undefined, show?.id);
+  const seasonState = useContainerState(api, stable && selectedSeasonId ? 'season' : undefined, stable ? selectedSeasonId : undefined);
+  const seasonWatched = seasonState.state?.watched ?? (loaded.length > 0 && !seed?.nextCursor ? loaded.every(e => e.watched) : false);
+  const [showSettings, setShowSettings] = useState(false);
+  const seasonActions = useMemo<MenuItem[]>(() => {
+    const items: MenuItem[] = [];
+    if (stable && loaded.length) {
+      if (loaded.some(e => e.playback)) items.push({id: 'play', label: i18n.t(flat ? 'entry.play' : 'title.playSeason'), icon: 'play'});
+      if (!marking && selectedSeasonId) items.push(seasonWatched ? {id: 'unwatched', label: i18n.t('title.markSeasonUnwatched'), icon: 'eyeOff'} : {id: 'watched', label: i18n.t('title.markSeasonWatched'), icon: 'check'});
+      if (canEdit && data?.selected.seasonId) items.push({id: 'edit', label: i18n.t('entry.editMetadata'), icon: 'edit', section: ''});
+    }
+    // How this show is listed (seasons, numbering, order) is the owner's, for everyone.
+    if (owner && data) items.push({id: 'settings', label: i18n.t('title.showSettings'), icon: 'sliders', section: ''});
+    return items;
+  }, [stable, loaded, seasonWatched, marking, canEdit, owner, data, selectedSeasonId, flat, i18n]);
+  const markSeason = useCallback(async (watched: boolean) => {
+    if (!selectedSeasonId) return;
+    setMarking(true);
+    try {
+      await seasonState.setWatched(watched);
+      showToast({message: i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: seasonTitle}), icon: 'check'});
+      seasonState.refresh();
+      showState.refresh();
+      retry();
+    } catch (e) {
+      showToast({message: say(e, 'show', 'save'), icon: 'warning'});
+    } finally {
+      setMarking(false);
+    }
+  }, [selectedSeasonId, seasonState, showState, i18n, seasonTitle, retry]);
+  const markShow = useCallback(async (watched: boolean) => {
+    if (!show) return;
+    setMarking(true);
+    try {
+      await showState.setWatched(watched);
+      seasonState.refresh();
+      retry();
+    } catch (e) {
+      showToast({message: say(e, 'show', 'save'), icon: 'warning'});
+    } finally {
+      setMarking(false);
+    }
+  }, [show, showState, seasonState, retry]);
+  const setShowFlag = (flag: 'watchlisted' | 'favorite') => { void showState.setFlag(flag, !showState.state?.[flag]).catch(e => showToast({message: say(e, 'show', 'save'), icon: 'warning'})); };
+  const onSeasonAction = (id: string) => {
+    if (id === 'play') playAt(0, 0);
+    else if (id === 'settings') setShowSettings(true);
+    else if (id === 'watched' || id === 'unwatched') void markSeason(id === 'watched');
+    else if (id === 'edit' && data?.selected.seasonId) {
+      const t = repairTargetFor({id: data.selected.seasonId, kind: 'season', libraryId});
+      if (t) editor?.open({targets: [t], titles: [`${show?.title ?? ''} · ${seasonTitle}`], onSaved: retry});
+    }
+  };
+  // ── Hero ──────────────────────────────────────────────────────────────────
+  const claim = useEntryFocus(!!primaryEntry);
+  // When the episodes arrive after the show, tvOS has already put focus on the
+  // hero's first focusable (the synopsis "More"); a late hasTVPreferredFocus
+  // doesn't move it, so the claim asks for focus directly.
+  const primaryPlayable = !!primaryEntry?.playback;
+  useEffect(() => {
+    if (isTV && claim && primaryPlayable) invoker.ref.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTV, claim, primaryPlayable]);
+  const code =primaryEntry ? episodeCode(i18n, primaryEntry) : '';
+  const primary = primaryEntry?.playback ? {
+    label: code ? i18n.t(primaryResumes ? 'title.resumeEpisode' : 'title.playEpisode', {code}) : i18n.t(primaryResumes ? 'entry.resume' : 'entry.play'),
+    progress: primaryResumes ? resumeFraction(primaryEntry) : undefined,
+    preferFocus: isTV && claim,
+    // A server nextUp from another season isn't in this list: the show plays
+    // from it (one v1 request anchored at the episode), so Up Next continues.
+    onPress: () => {
+      const at = loaded.findIndex(e => e.id === primaryEntry.id);
+      if (at >= 0) { playAt(at, primaryResumes ? startOf(primaryEntry) : 0); return; }
+      if (!primaryEntry.playback || !show) return;
+      invoker.remember();
+      player.playSequence([primaryEntry], 0, primaryResumes ? startOf(primaryEntry) : 0, sequenceContainer('show', show.id));
+    },
+  } : undefined;
+  const seasons = data?.seasonTotalCount ?? 0;
+  // The hero's ⋯ is the menu a card of this show opens (download all, edit metadata), minus what the row already has.
+  const showEntry = useMemo<ContentEntry | undefined>(() => (show ? {id: show.id, libraryId: show.libraryId, kind: 'show', title: show.title, posterUrl: show.posterUrl, backdropUrl: show.backdropUrl, navigation: {view: 'show', entityId: show.id}} : undefined), [show]);
+  const people = useMemo(() => showPeople(show?.credits), [show?.credits]);
+  const creditLines = useMemo(() => {
+    const lines = showCreditLines(people.crew, (role, names) => i18n.t(role === 'creator' ? 'title.createdBy' : role === 'director' ? 'title.directedBy' : 'title.writtenBy', {names}));
+    const starring = dedupeNames(people.cast.map(c => c.name), 4);
+    return starring.length ? [...lines, i18n.t('title.starring', {names: i18n.list(starring)})] : lines;
+  }, [people, i18n]);
+  const watchlisted = !!showState.state?.watchlisted, favorite = !!showState.state?.favorite, showWatched = !!showState.state?.watched;
+  // The same row as a movie (Justin, 2 Oct 2026): Watchlist · Favorite · Watched · ⋯.
+  const secondary: HeroAction[] = show && showState.state ? [
+    {icon: (watchlisted ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(watchlisted ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: watchlisted, onPress: () => setShowFlag('watchlisted')},
+    {icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => setShowFlag('favorite')},
+    {icon: (showWatched ? 'watched' : 'check') as IconName, label: i18n.t(showWatched ? 'entry.markShowUnwatched' : 'entry.markShowWatched'), iconOnly: true, selected: showWatched, onPress: () => { if (!marking) void markShow(!showWatched); }},
+  ] : [];
+  // Genres are links: each opens this show's library filtered to it.
+  const genreLinks = show?.genres?.length ? {names: dedupeNames(show.genres), onPress: (name: string) => navigation.push('Library', {libraryId: show.libraryId, tab: 'browse' as const, genre: name})} : undefined;
+  const hero = (
+    <TitleHero
+      ref={invoker.ref}
+      loading={!show}
+      backdrop={show?.backdropUrl ? artwork(show.backdropUrl) : undefined}
+      art={show ? {source: artwork(show.posterUrl), shape: 'poster', icon: 'tv'} : undefined}
+      logo={show?.logoUrl ? artwork(show.logoUrl) : undefined}
+      eyebrow={show ? i18n.t('title.kind', {kind: show.libraryKind === 'anime' ? 'anime' : 'show'}) : undefined}
+      title={show?.title ?? title}
+      originalTitle={originalTitleLine(show?.title, show?.originalTitle)}
+      facts={[show?.year, seasons > 0 && !flat ? i18n.t('title.seasonCount', {count: seasons}) : data && total ? i18n.t('count.episodes', {count: total}) : undefined, networkName(show?.network)]}
+      genres={genreLinks}
+      rating={show?.contentRating}
+      synopsis={show?.overview}
+      credits={creditLines}
+      primary={primary}
+      secondary={secondary}
+      onMore={showEntry ? () => player.more(showEntry, 'page') : undefined}
+    />
+  );
+  // "6 of 10 watched" beside the switcher, from the season's own counts (the viewer's visible episodes).
+  const progress = seasonProgress(seasonState.state?.watchedCount, seasonState.state?.unwatchedCount);
+  const rowGeometry = useEpisodeRowGeometry();
+  const notices = snapshot.phase === 'refresh-required' ? (
+    <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'show', 'load')} action={i18n.t('action.refresh')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
+  ) : null;
+  const switcher = data ? (
+    <SeasonSwitcher choices={choices} selected={selected} onSelect={id => { if (id !== selected) { setPanel(null); choose(id); } }} seasonActions={seasonActions} onSeasonAction={onSeasonAction} episodeTotal={stable ? total : undefined} onJumpToEpisode={index => (isTV ? setRailJump({index}) : listRef.current?.scrollToIndex(index))} progress={progress ? i18n.t('title.seasonProgress', progress) : undefined} />
+  ) : null;
+  // iPhone/iPad: Next up sits above the season's list unless it already is its first row (television
+  // opens the list on it instead).
+  const pinnedEntry = stable && !data?.selected.group ? nextUpPin(nextUp, loaded[0], choices.find(c => c.id === selected)?.number) : undefined;
+  const pinned = pinnedEntry && !isTV ? (
+    <View style={{marginBottom: space.sm}}>
+      <Text variant="label" tone="tertiary" style={{paddingHorizontal: space.page}}>{i18n.t(primaryResumes ? 'title.continueEpisode' : 'title.nextUp')}</Text>
+      <EpisodeRowView entry={pinnedEntry} position={0} geometry={rowGeometry} highlighted={panel?.entry.id === pinnedEntry.id} onPlay={() => primary?.onPress()} onDetails={() => { const at = loaded.findIndex(e => e.id === pinnedEntry.id); setPanel({entry: pinnedEntry, ...(at >= 0 ? {index: at} : {})}); }} onMore={handlers.onMore} />
+    </View>
+  ) : null;
+  const recommendationRows = relatedRowsForPage((recommendations.data?.rows ?? []).map(row => withoutNotInterested(row, turnedDown, true)));
+  const personWidth = isTV ? 150 : 84;
+  const detailRows: (readonly [string, string])[] = show ? ([
+    networkName(show.network) ? [i18n.t('title.network'), networkName(show.network)!] : null,
+    show.studio ? [i18n.t('title.studio'), show.studio] : null,
+    show.country ? [i18n.t('title.country'), show.country] : null,
+
+  ] as ((readonly [string, string]) | null)[]).filter((r): r is readonly [string, string] => !!r) : [];
+  const related = people.cast.length || people.crew.length || detailRows.length || recommendationRows.length || recommendations.phase === 'error' || recommendations.phase === 'loading' ? (
+    <View style={{marginTop: space.xl}}>
+      {people.cast.length ? <RowGuide><Shelf title={i18n.t('title.cast')} data={people.cast.slice(0, 12)} itemWidth={personWidth} keyExtractor={c => c.id ?? c.name} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.id ? () => navigation.push('Person', {personId: c.id!, name: c.name}) : undefined} />} /></RowGuide> : null}
+      {people.crew.length ? <RowGuide><Shelf title={i18n.t('title.crew')} data={people.crew} itemWidth={personWidth} keyExtractor={c => c.id ?? c.name} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role || c.department} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.id ? () => navigation.push('Person', {personId: c.id!, name: c.name}) : undefined} />} /></RowGuide> : null}
+      {recommendations.phase === 'loading' ? <View style={{paddingHorizontal: space.page, marginBottom: space.lg}}><Skeleton width={metrics.posterWidth} height={metrics.posterWidth * 1.5} /></View> : null}
+      {recommendations.phase === 'error' ? <Notice tone="error" message={say(recommendations.error, 'show', 'load')} action={i18n.t('action.tryAgain')} onAction={recommendations.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+      {recommendationRows.map((row, index) => <RowGuide key={row.id}><SectionView row={3 + index} origin="recommendation" libraryId={libraryId} section={{id: row.id, type: 'rail', heading: homeRowHeading(row), entries: row.entries, totalCount: row.entries.length, nextCursor: ''}} /></RowGuide>)}
+      <TitleDetails rows={detailRows} genres={genreLinks ? {...genreLinks, names: dedupeNames(show?.genres ?? [], 20)} : undefined} />
+    </View>
+  ) : null;
+  const emptyState = stable && seed && seed.total === 0 ? <StateView icon="tv" title={i18n.t('title.noEpisodes')} message={i18n.t('title.noEpisodesBody')} /> : null;
+
+  if (snapshot.phase === 'error' && !data) {
+    return (
+      <View style={{flex: 1}}>
+        <Page>
+          {!isTV ? <Button variant="ghost" size="sm" icon="back" label={i18n.t('action.back')} onPress={() => navigation.goBack()} style={{marginLeft: space.page - space.sm, marginTop: space.lg}} /> : null}
+          <StateView icon="warning" title={i18n.t('error.title.load', {subject: 'show'})} message={say(snapshot.error, 'show', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
+        </Page>
+      </View>
+    );
+  }
+  const panelView = (
+    <EpisodePanel
+      open={!!panel}
+      libraryId={libraryId}
+      entry={panel?.entry ?? null}
+      index={panel?.index}
+      total={stable ? total : undefined}
+      neighbour={index => list?.itemAt(index)}
+      showTitle={show?.title}
+      onClose={() => {
+        // A panel opened by a link (not from a card) has no control to return to: TV focus goes to the primary action.
+        if (isTV && linkedPanel.current) setTimeout(() => invoker.ref.current?.focus(), 350);
+        linkedPanel.current = false;
+        setPanel(null);
+      }}
+      onPlay={playFromPanel}
+      onNavigate={index => { const e = list?.itemAt(index); if (e) setPanel({entry: e, index}); }}
+      onChanged={retry}
+      onPerson={(personId, name) => navigation.push('Person', {personId, name})}
+    />
+  );
+  const settingsSheet = showSettings && data ? <ShowSettingsSheet libraryId={libraryId} showId={data.show.id} settings={data.settings} onClose={() => setShowSettings(false)} onSaved={() => { setShowSettings(false); retry(); }} /> : null;
+  if (isTV) {
+    return (
+      <EpisodeTintContext.Provider value={show?.id}>
+      <View style={{flex: 1}}>
+        <Page contentStyle={{paddingTop: 0}}>
+          {hero}
+          {notices}
+          {/* Focus in the episodes brings the switcher near the top, with the row below it. */}
+          <View {...({scrollSnapOffset: Math.round(window.height * 0.1)} as object)} style={{marginTop: space.md}}>
+            {switcher}
+            {list && total > 0 ? (
+              <EpisodeBrowser list={list} total={total} initialIndex={nextUp ? Math.max(0, loaded.findIndex(e => e.id === nextUp.id)) : 0} jump={railJump} highlightId={panel?.entry.id} handlers={handlers} />
+            ) : emptyState ?? <ListSkeleton />}
+          </View>
+          {related}
+        </Page>
+        {panelView}
+        {settingsSheet}
+      </View>
+      </EpisodeTintContext.Provider>
+    );
+  }
+  return (
+    <EpisodeTintContext.Provider value={show?.id}>
+    <View style={{flex: 1}}>
+      <EpisodeList
+        ref={listRef}
+        list={list}
+        total={total}
+        highlightId={panel?.entry.id ?? episodeId}
+        handlers={handlers}
+        refreshControl={pull}
+        header={<View>{hero}{notices}{switcher}{pinned}</View>}
+        footer={related}
+        empty={emptyState ?? (data || snapshot.phase === 'loading' ? <ListSkeleton /> : null)}
+      />
+      <StatusBarScrim onBack={() => navigation.goBack()} title={show?.title ?? title} />
+      {panelView}
+      {settingsSheet}
+    </View>
+    </EpisodeTintContext.Provider>
+  );
+}
+
+/** How the show is listed, for everyone: the owner's four switches, saved together. */
+function ShowSettingsSheet({libraryId, showId, settings, onClose, onSaved}: {libraryId: string; showId: string; settings: ShowSettings; onClose: () => void; onSaved: () => void}) {
+  const {api} = useSession();
+  const i18n = useI18n();
+  const [draft, setDraft] = useState(settings);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const dirty = SHOW_SETTING_ROWS.some(row => draft[row.key] !== settings[row.key]);
+  const save = () => {
+    setBusy(true); setError('');
+    saveShowSettings(api, libraryId, showId, draft).then(onSaved, e => setError(say(e, 'show', 'save'))).finally(() => setBusy(false));
+  };
+  return (
+    <Sheet open onClose={onClose} kind="form" title={i18n.t('title.showSettings')} subtitle={i18n.t('title.showSettings.lede')} primary={{label: i18n.t('action.save'), loading: busy, disabled: !dirty, onPress: save}}>
+      {error ? <Notice tone="error" message={error} /> : null}
+      {SHOW_SETTING_ROWS.map(row => (
+        <ListRow key={row.key} title={i18n.t(row.label)} description={i18n.t(row.help)} trailing={<Switch value={draft[row.key]} onValueChange={v => setDraft({...draft, [row.key]: v})} accessibilityLabel={i18n.t(row.label)} />} onPress={() => setDraft({...draft, [row.key]: !draft[row.key]})} />
+      ))}
+    </Sheet>
+  );
+}
+
+function ListSkeleton() {
+  const {space, metrics} = useTheme();
+  const g = useEpisodeRowGeometry();
+  return (
+    <View>
+      {[0, 1, 2, 3].map(i => (
+        <View key={i} style={{height: g.height, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.page}}>
+          <Skeleton width={g.still} height={g.stillHeight} radius={metrics.radius.card} />
+          <View style={{flex: 1, gap: space.xs}}>
+            <Skeleton height={16} width="70%" />
+            <Skeleton height={12} width="40%" />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}

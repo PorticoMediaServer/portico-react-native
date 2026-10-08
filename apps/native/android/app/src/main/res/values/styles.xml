@@ -1,0 +1,11 @@
+<resources>
+    <!-- Portico is always dark. The window shows the launch screen (ink with the wordmark) until
+         React draws its first frame, as LaunchScreen.storyboard does on Apple. -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

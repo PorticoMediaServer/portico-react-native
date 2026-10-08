@@ -1,0 +1,140 @@
+#import "PorticoSubtitleSelection.h"
+#import <Foundation/Foundation.h>
+
+static const NSUInteger SubtitleByteLimit=8*1024*1024;
+static BOOL DecimalUS(id value,int64_t maximum,BOOL signedValue,int64_t *out) {
+ if(![value isKindOfClass:NSString.class]||![value length]||[value length]>19)return NO;
+ NSString *s=value;BOOL negative=[s hasPrefix:@"-"];if(negative&&!signedValue)return NO;
+ NSUInteger start=negative?1:0;if(start==s.length||(s.length-start>1&&[s characterAtIndex:start]=='0'))return NO;
+ int64_t n=0;for(NSUInteger i=start;i<s.length;i++){unichar c=[s characterAtIndex:i];if(c<'0'||c>'9'||n>(maximum-(c-'0'))/10)return NO;n=n*10+c-'0';}
+ if(negative&&!n)return NO;if(out)*out=negative?-n:n;return YES;
+}
+static BOOL PositiveInteger(id value){if(![value isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID())return NO;double v=[value doubleValue];return isfinite(v)&&v>=1&&v<=9007199254740991.0&&floor(v)==v;}
+static BOOL PlainText(id value){
+ if(![value isKindOfClass:NSString.class]||![value length]||[value lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>8192||[value containsString:@"{\\"])return NO;
+ for(NSUInteger i=0;i<[value length];i++){unichar c=[value characterAtIndex:i];if((c<32&&c!=9&&c!=10)||c==127)return NO;}
+ return YES;
+}
+@interface PorticoSubtitleSelection ()<NSURLSessionDataDelegate>
+@end
+@implementation PorticoSubtitleSelection {
+ NSDictionary *_command;__weak AVPlayerItem *_item;NSArray<NSDictionary *> *_cues;NSArray<NSNumber *> *_prefixEnds;
+ NSURLSession *_session;NSURLSessionDataTask *_task;NSMutableData *_bytes;NSTimer *_timer;
+ NSDictionary *_displayCue;BOOL _italic,_top;NSString *_text;NSURL *_url;int64_t _offset;NSInteger _revision;BOOL _failed;BOOL _legibleRequested;BOOL _nativeSelected;NSString *_nativeName;NSString *_nativeLanguage;NSString *_nativeTitle;
+ NSTimeInterval _authorizedUntil,_lastRequest;CMTime _time;
+ // The validator of the document held in _cues. It is sent by hand on every reload, so the
+ // server can answer "still authorised, unchanged" with a header instead of the whole track.
+ NSString *_etag;BOOL _notModified;
+}
++ (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {
+ NSString *wanted=[[language lowercaseString] componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
+ NSMutableArray<AVMediaSelectionOption *> *matches=[NSMutableArray new];
+ for(AVMediaSelectionOption *option in options){
+  if([option hasMediaCharacteristic:AVMediaCharacteristicContainsOnlyForcedSubtitles])continue;
+  NSString *tag=[option.extendedLanguageTag?:option.locale.languageCode?:@"" lowercaseString];
+  NSString *base=[tag componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
+  if(wanted.length&&[base isEqual:wanted])[matches addObject:option];
+ }
+ if(matches.count>1&&title.length)for(AVMediaSelectionOption *option in matches)if([option.displayName localizedCaseInsensitiveContainsString:title]||[title localizedCaseInsensitiveContainsString:option.displayName])return option;
+ return matches.count==1?matches.firstObject:nil; // ambiguous: keep drawing it ourselves
+}
+- (BOOL)overlayActive {return _command!=nil&&!_nativeSelected;}
+- (void)setText:(NSString *)text{NSDictionary *cue=@{@"text":text,@"italic":@(_italic&&text.length>0),@"top":@(_top&&text.length>0)};if([_displayCue isEqual:cue])return;_displayCue=cue;_text=[text copy];if(self.onText)self.onText(cue);}
+- (void)status:(NSString *)error{if(self.onStatus)self.onStatus(error?:@"");}
+- (void)invalidate {
+ [_task cancel];_task=nil;[_session invalidateAndCancel];_session=nil;[_timer invalidate];_timer=nil;
+ _command=nil;_item=nil;_cues=nil;_prefixEnds=nil;_bytes=nil;_url=nil;_etag=nil;_notModified=NO;_revision=0;_offset=0;_authorizedUntil=0;_lastRequest=0;_legibleRequested=NO;_nativeSelected=NO;_nativeName=nil;_nativeLanguage=nil;_nativeTitle=nil;
+ [self setText:@""];
+}
+- (void)disableEmbedded:(AVPlayerItem *)item {
+ if(!item||_legibleRequested)return;_legibleRequested=YES;__weak PorticoSubtitleSelection *weakSelf=self;
+ [item.asset loadValuesAsynchronouslyForKeys:@[@"availableMediaCharacteristicsWithMediaSelectionOptions"] completionHandler:^{dispatch_async(dispatch_get_main_queue(),^{
+  PorticoSubtitleSelection *self=weakSelf;if(!self||self->_item!=item)return;
+  AVMediaSelectionGroup *group=[item.asset mediaSelectionGroupForMediaCharacteristic:AVMediaCharacteristicLegible];if(group){AVMediaSelectionOption *selected=nil;for(AVMediaSelectionOption *option in group.options){if(self->_nativeName.length&&[option.displayName isEqual:self->_nativeName]){selected=option;break;}}if(!selected&&self->_nativeLanguage.length)selected=[PorticoSubtitleSelection option:group.options language:self->_nativeLanguage title:self->_nativeTitle];[item selectMediaOption:selected inMediaSelectionGroup:group];self->_nativeSelected=selected!=nil;[self tick:self->_time];}
+ });}];
+}
+- (void)apply:(NSDictionary *)command item:(AVPlayerItem *)item source:(NSString *)source {
+ if(![command isKindOfClass:NSDictionary.class]||![command[@"mode"] isEqual:@"track"]){
+  if(_command||_cues||_item!=item){[self invalidate];_item=item;}
+  [self disableEmbedded:item];[self setText:@""];return;
+ }
+ int64_t offset=0;
+ if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"The subtitle command is invalid."];return;}
+ NSURL *url=[NSURL URLWithString:command[@"documentUrl"]],*media=[NSURL URLWithString:source];
+ NSArray *mediaParts=media.path.pathComponents;
+ NSString *grant=mediaParts.count>=4?mediaParts[3]:@"";
+ NSString *expected=[NSString stringWithFormat:@"/v1/media/%@/subtitles/%@/%@",grant,command[@"resourceId"],command[@"resourceRevision"]];
+ NSRegularExpression *route=[NSRegularExpression regularExpressionWithPattern:@"^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$" options:0 error:nil];
+ BOOL loopback=[@[@"localhost",@"127.0.0.1",@"::1",@"[::1]"] containsObject:url.host.lowercaseString];
+ if(!url||!media||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&loopback))||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
+  [self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;
+ }
+ if(_item==item&&[_command[@"binding"] isEqual:command[@"binding"]]&&[command[@"revision"] integerValue]<_revision)return;
+ BOOL refreshRequested=![_command[@"refreshRevision"] isEqual:command[@"refreshRevision"]];
+ BOOL sameResource=_item==item&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]];
+ if(!sameResource){[self invalidate];_item=item;_url=url;}
+ NSString *nativeName=[command[@"manifestName"] isKindOfClass:NSString.class]?command[@"manifestName"]:nil;
+ if(_nativeName!=nativeName&&![_nativeName isEqual:nativeName]){_nativeName=[nativeName copy];_legibleRequested=NO;_nativeSelected=NO;}
+ // OS-02: an embedded text track (MP4 tx3g, HLS WebVTT) chosen without a manifest name is
+ // matched by language (and title when several share it), so AVPlayer draws it itself and it
+ // survives Picture in Picture and AirPlay. Sidecar, uploaded and provider tracks stay drawn by
+ // the app: they are not part of the stream.
+ BOOL embedded=[command[@"origin"] isEqual:@"embedded"];
+ NSString *language=embedded&&[command[@"language"] isKindOfClass:NSString.class]&&[command[@"language"] length]<=35?command[@"language"]:nil;
+ NSString *title=embedded&&[command[@"title"] isKindOfClass:NSString.class]&&[command[@"title"] length]<=256?command[@"title"]:nil;
+ if(!(_nativeLanguage==language||[_nativeLanguage isEqual:language])||!(_nativeTitle==title||[_nativeTitle isEqual:title])){_nativeLanguage=[language copy];_nativeTitle=[title copy];_legibleRequested=NO;_nativeSelected=NO;}
+ _command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
+ [self disableEmbedded:item];
+ if(!_session){NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;configuration.URLCache=nil;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;configuration.HTTPMaximumConnectionsPerHost=1;_session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];}
+ if(!_timer){__weak PorticoSubtitleSelection *weakSelf=self;_timer=[NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer){PorticoSubtitleSelection *self=weakSelf;if(!self)return;NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;if(now>self->_authorizedUntil){[self setText:@""];}if(!self->_task&&now-self->_lastRequest>=25)[self fetch];}];}
+ if(!sameResource||refreshRequested)[self fetch];else [self tick:_time];
+}
+- (void)fetch {
+ if(!_url||!_session||_task)return;
+ _lastRequest=NSProcessInfo.processInfo.systemUptime;_bytes=[NSMutableData new];_failed=NO;
+ NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:_url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+ _notModified=NO;if(_etag.length&&_cues)[request setValue:_etag forHTTPHeaderField:@"If-None-Match"];
+ // A scoped media grant, not a bearer credential. Redirects are denied below.
+ _task=[_session dataTaskWithRequest:request];[_task resume];
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {completionHandler(nil);}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+ if(task!=_task){completionHandler(NSURLSessionResponseCancel);return;}
+ NSHTTPURLResponse *http=[response isKindOfClass:NSHTTPURLResponse.class]?(id)response:nil;
+ // 304 is the server saying: checked in full, still yours, unchanged. Only ever in answer to the
+ // validator sent above; the cache policy never lets the system answer on the server's behalf.
+ if(http.statusCode==304&&_etag.length&&_cues){_notModified=YES;completionHandler(NSURLSessionResponseCancel);return;}
+ id tag=[http valueForHTTPHeaderField:@"ETag"];_etag=([tag isKindOfClass:NSString.class]&&[tag length]<=256)?[tag copy]:nil;
+ if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitles are unavailable or access was revoked."];completionHandler(NSURLSessionResponseCancel);return;}
+ completionHandler(NSURLSessionResponseAllow);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
+ if(task!=_task||_failed)return;if(_bytes.length+data.length>SubtitleByteLimit){_failed=YES;[_task cancel];_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitle data exceeded the supported limit."];return;}[_bytes appendData:data];
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+ if(task!=_task)return;_task=nil;
+ if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];return;}
+ if(_failed||error){_bytes=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];if(!_failed)[self status:@"Subtitles could not be read. Check the server connection."];return;}
+ id document=[NSJSONSerialization JSONObjectWithData:_bytes options:0 error:nil];_bytes=nil;
+ BOOL valid=[document isKindOfClass:NSDictionary.class]&&PositiveInteger(document[@"version"])&&[document[@"version"] isEqual:@1]&&[document[@"timeDomain"] isEqual:@"source-relative"]&&[document[@"cues"] isKindOfClass:NSArray.class]&&[document[@"cues"] count]<=20000;
+ NSMutableArray *cues=[NSMutableArray new],*ends=[NSMutableArray new];int64_t previous=-1,maxEnd=0;NSUInteger textBytes=0;
+ if(valid)for(id cue in document[@"cues"]){int64_t start=0,end=0;
+  // Strict about the envelope, forgiving about cues: one bad cue costs only itself.
+  if(![cue isKindOfClass:NSDictionary.class]||!DecimalUS(cue[@"startUs"],86400000000,NO,&start)||!DecimalUS(cue[@"endUs"],86400000000,NO,&end)||end<=start||start<previous||!PlainText(cue[@"text"]))continue;
+  textBytes+=[cue[@"text"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding];if(textBytes>4194304){valid=NO;break;}
+  previous=start;maxEnd=MAX(maxEnd,end);[cues addObject:@{@"start":@(start),@"end":@(end),@"text":cue[@"text"],@"italic":@([cue[@"italic"]isEqual:@YES]),@"top":@([cue[@"top"]isEqual:@YES])}];[ends addObject:@(maxEnd)];
+ }
+ if(valid&&cues.count==0&&[document[@"cues"] count]>0)valid=NO;
+ if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"The server returned invalid subtitle timing or text."];return;}
+ _cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
+}
+- (void)tick:(CMTime)time {
+ _time=time;if(_nativeSelected){[self setText:@""];return;}if(!_command||!_cues||NSProcessInfo.processInfo.systemUptime>_authorizedUntil||!CMTIME_IS_NUMERIC(time)){[self setText:@""];return;}
+ CMTime converted=CMTimeConvertScale(time,1000000,kCMTimeRoundingMethod_RoundHalfAwayFromZero);int64_t now=converted.value-_offset;
+ NSUInteger low=0,high=_cues.count;while(low<high){NSUInteger mid=low+(high-low)/2;if([_cues[mid][@"start"] longLongValue]<=now)low=mid+1;else high=mid;}
+ _italic=NO;_top=NO;NSMutableArray<NSString *> *active=[NSMutableArray new];
+ for(NSInteger i=(NSInteger)low-1;i>=0;i--){if([_prefixEnds[(NSUInteger)i] longLongValue]<=now)break;NSDictionary *cue=_cues[(NSUInteger)i];if([cue[@"end"] longLongValue]>now){[active insertObject:cue[@"text"] atIndex:0];_italic|=[cue[@"italic"]boolValue];_top|=[cue[@"top"]boolValue];}}
+ [self setText:[active componentsJoinedByString:@"\n"]];
+}
+- (void)dealloc{[_task cancel];[_session invalidateAndCancel];[_timer invalidate];}
+@end

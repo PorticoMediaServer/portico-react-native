@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Published CocoaPods specification checksums"
+regexTarget = "match"
+regexes = [
+  '''a2c134ab796272c3d605e035ab727591000b30f3''',
+  '''ef4da5a3fc2e10b90c09a0a94a9baeaedc0341d5''',
+  '''217a876b249c3c585a54fd6f73e6b58c4f5c4238''',
+]
+
+[[allowlists]]
+description = "Shared client code that matches the generic key pattern (a cache key, not a secret)"
+paths = ['''packages/client-core/src/session-selection\.ts''']

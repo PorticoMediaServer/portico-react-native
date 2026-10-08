@@ -1,0 +1,26 @@
+# bridge/
+
+Local adaptation: `setup-codes.ts` lowercases native request identifiers (NSUUID emits uppercase; the core validates lowercase UUIDv4).
+
+JS bindings for the shared native modules in `../../Native` and the headless
+core in `packages/client-core`. These files were carried over unchanged (apart
+from import paths) from the original host; they contain no UI. Everything
+outside this folder is new.
+
+## Platforms
+
+This folder (with `src/ui/theme.ts` and `src/app/i18n.ts`) is the only place that may ask which
+operating system it is on. Screens know `isTV` and nothing else.
+
+- `device-platform.ts`: the platform name sent to the server (`ios`, `tvos`, `android`,
+  `androidtv`, `firetv`), the device noun, and what the platform has (`hasAirPlay`,
+  `playOnPlatform`).
+- `device-profile.ts` and `audio-decode.ts`: the capability profile, from the Apple table or from
+  what the Android device reports (`MediaCodecList`, the display, the audio output).
+- `random-id.ts`: installs `crypto.randomUUID` from the native UUID source (Hermes has no Web
+  Crypto, and shared services make request ids with it).
+
+The native modules have the same names, methods and events on Apple (`../../Native`) and Android
+(`../../android/app/src/main/java/tv/getportico/portico/native`). A module that is absent on a
+platform (`PorticoDownloads` on a television, `PorticoCast` on Fire TV) is `undefined` here, and
+each binding treats that as "this device does not have the feature".

@@ -1,0 +1,205 @@
+import TVServices
+import Security
+import ImageIO
+import UniformTypeIdentifiers
+import os
+
+/// The Portico shelf on the Apple TV home screen.
+///
+/// Two sections, posters only (the card-shape rule): **Continue Watching** (up to 10, with
+/// progress, Resume plays) and the viewer's next Home row under its own name ("Recently added",
+/// "Watchlist", whatever their Home puts next; up to 10, never repeating Continue Watching). A
+/// section with nothing in it is left out.
+///
+/// The system wakes this when nobody is using the app, so it holds no sign-in. The app leaves it
+/// the server's address (shared defaults) and a token that reads one small feed and its posters
+/// (the shared keychain, SEC-19). Posters are fetched here with that token in a header, shrunk to
+/// 400 px wide and kept in the shared cache, so the home screen loads small local files and no
+/// token ever appears in an image URL. If the server doesn't answer, the last good feed and
+/// posters are shown; with no cached feed the shelf is simply empty.
+final class ContentProvider: TVTopShelfContentProvider {
+  static let group = "group.tv.getportico.portico"
+  private static let log = Logger(subsystem: "tv.getportico.portico.topshelf", category: "feed")
+  private static let maxContinue = 10, maxNext = 10, posterWidth = 400
+
+  private struct Feed: Decodable {
+    struct Entry: Decodable { let id: String; let title: String; let imageUrl: String?; let displayUrl: String; let playUrl: String?; let progressPercent: Int? }
+    struct Section: Decodable { let id: String; let title: String; let shape: String?; let entries: [Entry] }
+    let sections: [Section]
+  }
+
+  /// Reads the feed token the app stored in the keychain access group it shares with this
+  /// extension (the app group identifier doubles as a keychain access group).
+  static func token() -> String? {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: "tv.getportico.topshelf",
+      kSecAttrAccount as String: "feed",
+      kSecAttrAccessGroup as String: group,
+      kSecReturnData as String: true,
+      kSecMatchLimit as String: kSecMatchLimitOne,
+    ]
+    var result: AnyObject?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecSuccess, let data = result as? Data, let value = String(data: data, encoding: .utf8), !value.isEmpty { return value }
+    log.error("keychain read status \(status, privacy: .public)")
+    // Builds before SEC-19 kept the token in shared defaults; the app moves it on next launch.
+    return UserDefaults(suiteName: group)?.string(forKey: "topshelf.token")
+  }
+
+  private static var cacheDirectory: URL? {
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
+      .appendingPathComponent("Library/Caches", isDirectory: true)
+  }
+  private static var feedURL: URL? { cacheDirectory?.appendingPathComponent("topshelf-feed.json") }
+  private static func posterURL(_ id: String) -> URL? {
+    guard id.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else { return nil }
+    return cacheDirectory?.appendingPathComponent("topshelf-art", isDirectory: true).appendingPathComponent(id + ".jpg")
+  }
+
+  override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
+    let log = Self.log
+    let defaults = UserDefaults(suiteName: Self.group)
+    guard let base = defaults?.string(forKey: "topshelf.baseUrl"), let origin = URL(string: base),
+          origin.scheme == "https" || origin.scheme == "http" else {
+      log.error("no server configured; shelf empty")
+      completionHandler(nil); return
+    }
+    guard let token = Self.token() else {
+      log.error("no feed token in the shared keychain or defaults; shelf empty")
+      completionHandler(nil); return
+    }
+    guard let url = URL(string: "/v1/topshelf", relativeTo: origin) else { completionHandler(nil); return }
+    var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    let session = URLSession(configuration: .ephemeral)
+    session.dataTask(with: request) { data, response, error in
+      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+      var body = data
+      if let error { log.error("feed request failed: \(error.localizedDescription, privacy: .public)") }
+      if status != 200 {
+        log.error("feed answered \(status, privacy: .public); using the last feed if there is one")
+        body = Self.feedURL.flatMap { try? Data(contentsOf: $0) }
+        // An expired or revoked token must not keep showing someone's history.
+        if status == 401 || status == 403 { Self.clearCache(); body = nil }
+      }
+      guard let body else { completionHandler(nil); return }
+      let feed: Feed
+      do { feed = try JSONDecoder().decode(Feed.self, from: body) } catch {
+        log.error("feed could not be read: \(String(describing: error), privacy: .public)")
+        completionHandler(nil); return
+      }
+      if status == 200, let file = Self.feedURL {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? body.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+      }
+      let (continuing, next) = Self.select(feed)
+      // Posters: whatever is cached is used now; missing ones are fetched for up to ~6 s, and any
+      // that arrive later refresh the shelf on its next load.
+      let missing = (continuing + (next?.entries ?? [])).filter { entry in
+        guard entry.imageUrl != nil, let file = Self.posterURL(entry.id) else { return false }
+        return !FileManager.default.fileExists(atPath: file.path)
+      }
+      Self.fetchPosters(missing, origin: origin, token: token, session: session, budget: 6) {
+        let content = Self.content(continuing: continuing, next: next)
+        log.notice("feed drawn: \(continuing.count, privacy: .public) continue, \(next?.entries.count ?? 0, privacy: .public) next")
+        completionHandler(content)
+      }
+    }.resume()
+  }
+
+  /// Continue Watching from the server's `continue` row, and the next row of the viewer's Home
+  /// that has something Continue Watching does not already show, under that row's own title.
+  private struct Next { let title: String; let entries: [Feed.Entry] }
+  private static func select(_ feed: Feed) -> ([Feed.Entry], Next?) {
+    let continuing = Array((feed.sections.first(where: { $0.id == "continue" })?.entries ?? []).prefix(maxContinue))
+    let seen = Set(continuing.map(\.id))
+    for section in feed.sections where section.id != "continue" {
+      let entries = Array(section.entries.filter { !seen.contains($0.id) }.prefix(maxNext))
+      if !entries.isEmpty { return (continuing, Next(title: section.title, entries: entries)) }
+    }
+    return (continuing, nil)
+  }
+
+  private static func fetchPosters(_ entries: [Feed.Entry], origin: URL, token: String, session: URLSession, budget: TimeInterval, done: @escaping () -> Void) {
+    guard !entries.isEmpty else { done(); return }
+    let group = DispatchGroup(), gate = DispatchSemaphore(value: 4)
+    let queue = DispatchQueue(label: "tv.getportico.topshelf.art", attributes: .concurrent)
+    var any = false; let lock = NSLock()
+    for entry in entries {
+      // The server's poster URL is used as given: its query carries the artwork grant the art
+      // route resolves (and the width), so nothing in it may be replaced.
+      guard let path = entry.imageUrl, let parts = URLComponents(string: path) else { continue }
+      guard let url = parts.url(relativeTo: origin)?.absoluteURL, url.host == origin.host, let file = posterURL(entry.id) else { continue }
+      group.enter()
+      queue.async {
+        gate.wait()
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        request.setValue("image/*", forHTTPHeaderField: "Accept")
+        session.dataTask(with: request) { data, response, error in
+          defer { gate.signal(); group.leave() }
+          guard (response as? HTTPURLResponse)?.statusCode == 200, let data, data.count < 8 << 20, let small = shrink(data) else {
+            log.error("poster \(entry.id, privacy: .public) answered \((response as? HTTPURLResponse)?.statusCode ?? 0, privacy: .public) \(error?.localizedDescription ?? "", privacy: .public)")
+            return
+          }
+          try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+          if (try? small.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil { lock.lock(); any = true; lock.unlock() }
+        }.resume()
+      }
+    }
+    // Draw with what's there after the budget; posters that land later refresh the shelf.
+    var finished = false
+    let finish = { lock.lock(); let first = !finished; finished = true; lock.unlock(); if first { done() } }
+    DispatchQueue.global().asyncAfter(deadline: .now() + budget, execute: finish)
+    group.notify(queue: .global()) {
+      lock.lock(); let late = finished && any; lock.unlock()
+      finish()
+      if late { TVTopShelfContentProvider.topShelfContentDidChange() }
+    }
+  }
+
+  /// A 400 px wide JPEG: small enough to load instantly, sharp enough for a poster tile.
+  private static func shrink(_ data: Data) -> Data? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+          let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: posterWidth * 3 / 2, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+    else { return nil }
+    let out = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+    return CGImageDestinationFinalize(destination) ? out as Data : nil
+  }
+
+  private static func clearCache() {
+    if let feed = feedURL { try? FileManager.default.removeItem(at: feed) }
+    if let art = cacheDirectory?.appendingPathComponent("topshelf-art", isDirectory: true) { try? FileManager.default.removeItem(at: art) }
+  }
+
+  private static func item(_ entry: Feed.Entry, section: String) -> TVTopShelfSectionedItem? {
+    guard let display = URL(string: entry.displayUrl), display.scheme == "portico" else { return nil }
+    let item = TVTopShelfSectionedItem(identifier: section + "/" + entry.id)
+    item.title = entry.title
+    item.imageShape = .poster
+    // A tile without a poster would show the system's loading dots; leave it out until its
+    // poster has arrived (the shelf refreshes when it does).
+    guard let file = posterURL(entry.id), FileManager.default.fileExists(atPath: file.path) else { return nil }
+    item.setImageURL(file, for: [.screenScale1x, .screenScale2x])
+    if let percent = entry.progressPercent, percent > 0 { item.playbackProgress = min(1, Double(percent) / 100) }
+    item.displayAction = TVTopShelfAction(url: display)
+    if let play = entry.playUrl.flatMap({ URL(string: $0) }), play.scheme == "portico" { item.playAction = TVTopShelfAction(url: play) }
+    return item
+  }
+
+  private static func content(continuing: [Feed.Entry], next: Next?) -> TVTopShelfContent? {
+    var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
+    for (id, title, entries) in [("continue", "Continue Watching", continuing), ("next", next?.title ?? "", next?.entries ?? [])] {
+      let items = entries.compactMap { item($0, section: id) }
+      guard !items.isEmpty else { continue }   // an empty section is left out, never shown as dots
+      let collection = TVTopShelfItemCollection(items: items)
+      collection.title = title
+      sections.append(collection)
+    }
+    return sections.isEmpty ? nil : TVTopShelfSectionedContent(sections: sections)
+  }
+}

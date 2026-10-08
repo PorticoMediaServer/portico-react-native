@@ -1,0 +1,16 @@
+#import <React/RCTBridgeModule.h>
+#import <React/RCTEventEmitter.h>
+@interface RCT_EXTERN_MODULE(PorticoNetwork, RCTEventEmitter)
+RCT_EXTERN_METHOD(sha256:(NSString *)payload resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(verify:(NSString *)publicKey signature:(NSString *)signature payload:(NSString *)payload resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(startMonitoring)
+RCT_EXTERN_METHOD(browse:(NSString *)identifier kind:(NSString *)kind resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(cancelBrowse:(NSString *)identifier)
+RCT_EXTERN_METHOD(tvPublicKey:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(openTVGrant:(NSString *)requestId envelope:(NSDictionary *)envelope resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(forgetTVKey:(NSString *)requestId)
+RCT_EXTERN_METHOD(advertiseTV:(NSDictionary *)value resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(stopTVAdvertisement)
+RCT_EXTERN_METHOD(advertisePlayer:(NSDictionary *)value resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(stopPlayerAdvertisement)
+@end

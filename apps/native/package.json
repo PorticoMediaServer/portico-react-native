@@ -1,0 +1,53 @@
+{
+  "name": "portico-apple",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "react-native start --port 19424",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/*.test.ts",
+    "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
+    "lint:strings": "node ../../packages/i18n/scripts/lint-strings.mjs src ../../packages/i18n/baselines/apple.json --all && node ../../packages/i18n/scripts/lint-raw-errors.mjs src && node ../../packages/i18n/scripts/lint-glossary.mjs"
+  },
+  "dependencies": {
+    "@bacons/text-decoder": "0.0.0",
+    "@react-navigation/native": "7.4.1",
+    "@react-navigation/native-stack": "7.19.1",
+    "react": "19.2.8",
+    "react-native": "npm:react-native-tvos@0.83.10-1",
+    "react-native-qrcode-svg": "6.3.22",
+    "react-native-reanimated": "4.6.0",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-screens": "4.23.0",
+    "react-native-svg": "15.15.5",
+    "react-native-url-polyfill": "^4.0.0",
+    "react-native-worklets": "0.12.2",
+    "semver": "^7.8.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native-community/cli-platform-android": "20.0.0",
+    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native/babel-preset": "0.83.10",
+    "@react-native/eslint-config": "0.83.10",
+    "@react-native/metro-config": "0.83.10",
+    "@react-native/typescript-config": "0.83.10",
+    "@types/react": "^19.2.0",
+    "eslint": "^8.19.0",
+    "prettier": "2.8.8",
+    "rolldown": "1.2.11",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "reanimated": {
+    "staticFeatureFlags": {
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  }
+}

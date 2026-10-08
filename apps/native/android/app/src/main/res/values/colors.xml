@@ -1,0 +1,7 @@
+<resources>
+    <!-- packages/design `ink`: the canvas, shown before the first frame. -->
+    <color name="portico_ink">#071018</color>
+    <!-- The brand's diagonal navy (scripts/make-icons.sh). -->
+    <color name="portico_navy_a">#15356A</color>
+    <color name="portico_navy_b">#0A1830</color>
+</resources>

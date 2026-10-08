@@ -1,0 +1,440 @@
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {Animated, Pressable, ScrollView, StyleSheet, TVFocusGuideView, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import type {MediaItem} from '../../../../packages/client-core/src/index';
+import {useSession} from '../app/session';
+import {say} from '../app/errors';
+import {useI18n} from '../app/i18n';
+import {defaultI18n} from '../../../../packages/i18n/src/index';
+import {Button, ListRow, Notice, Sheet, StateView, Text, alpha, showToast, useTheme, type IconName} from '../ui';
+import type {PlayerEngine} from './usePlayer';
+import {bitmapWarningNeeded, isBitmapResource, ownerPlaybackSwitches, textTrackForLanguage, trackName} from '../../../../packages/client-core/src/presentation/index';
+import {dedupQualityRungs, playbackInfoRows, qualityNetworkFooter, type PlaybackInfoFacts} from '../../../../packages/client-core/src/presentation/index';
+import {parseSession} from '../../../../packages/client-core/src/playback-v1/types';
+import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
+
+export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info';
+export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
+  {key: 'audio', label: defaultI18n.t('player.opt.audio'), icon: 'audio'},
+  {key: 'subtitles', label: defaultI18n.t('player.opt.subtitles'), icon: 'subtitles'},
+  {key: 'quality', label: defaultI18n.t('player.opt.quality'), icon: 'quality'},
+  {key: 'speed', label: defaultI18n.t('player.opt.speed'), icon: 'speed'},
+  {key: 'sleep', label: defaultI18n.t('player.opt.sleep'), icon: 'sleep'},
+];
+/** The boxes for what is playing: music has no Speed (an audiobook keeps it). */
+export const optionBoxesFor = (music: boolean) => (music ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
+const titleIds = {audio: 'player.opt.audio', subtitles: 'player.opt.subtitles', quality: 'player.opt.quality', speed: 'player.opt.speed', sleep: 'player.opt.sleepTimer', menu: 'player.opt.menu', queue: 'player.queue', info: 'player.opt.info'} as const;
+const titles = Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])) as Record<OptionKey, string>;
+
+/** A window rectangle an option panel hangs from (the box that opened it). */
+export type OptionAnchor = {x: number; y: number; width: number; height: number};
+
+type Props = {
+  option: OptionKey | null;
+  anchor?: OptionAnchor;
+  /** The option was reached from the Playback options list, so it shows a way back to it. */
+  fromMenu: boolean;
+  compact: boolean;
+  engine: PlayerEngine;
+  valueOf: (key: OptionKey) => string;
+  onClose: () => void;
+  onPick: (key: OptionKey) => void;
+  onReport?: () => void;
+  upcoming: number;
+  /** MU4 FEAT-07: on a channel, the menu also opens the mini guide and records. */
+  isChannel?: boolean;
+  onMiniGuide?: () => void;
+  canRecordLive?: boolean;
+  onRecordLive?: () => void;
+};
+
+/**
+ * APL-PLAYER-02: where an option opens depends on the device.
+ * - iPhone portrait: one bottom sheet, and choosing an option pushes within it ("‹ Playback
+ *   options" goes back), so the sheet never closes and reopens.
+ * - iPad and landscape phone: a popover anchored above the box that opened it (fade + 6 pt rise).
+ * - Television: a right-edge panel, full height. Focus goes to the selected choice, and Menu
+ *   returns focus to the box that opened it (the caller restores it).
+ */
+export function PlayerOptions(props: Props) {
+  const {option, anchor, compact, onClose} = props;
+  const {isTV} = useTheme();
+  const body = option ? <OptionBody {...props} /> : null;
+  if (isTV) return option ? <SidePanel title={titles[option]} onClose={onClose}>{body}</SidePanel> : null;
+  if (compact || !anchor || option === 'queue' || option === 'info') {
+    return (
+      <Sheet open={option !== null} onClose={onClose} title={option ? titles[option] : ''} kind="picker" placement={compact ? 'auto' : 'center'}>
+        {body}
+      </Sheet>
+    );
+  }
+  return option ? <Popover anchor={anchor} title={titles[option]} onClose={onClose}>{body}</Popover> : null;
+}
+
+function SidePanel({title, onClose, children}: {title: string; onClose: () => void; children: React.ReactNode}) {
+  const {colors, space} = useTheme();
+  const insets = useSafeAreaInsets();
+  const slide = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(slide, {toValue: 1, duration: 160, useNativeDriver: true}).start(); }, [slide]);
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Pressable style={[StyleSheet.absoluteFill, {backgroundColor: alpha(colors.black, 0.35)}]} onPress={onClose} focusable={false} accessibilityLabel={defaultI18n.t('action.dismiss')} />
+      <Animated.View style={{position: 'absolute', top: 0, bottom: 0, right: 0, width: 560, backgroundColor: colors.overlaySurface, borderLeftWidth: 1, borderLeftColor: colors.lineSoft, opacity: slide, transform: [{translateX: slide.interpolate({inputRange: [0, 1], outputRange: [40, 0]})}]}}>
+        <TVFocusGuideView autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={{flex: 1, paddingTop: Math.max(insets.top, 60), paddingBottom: 40}}>
+          <Text variant="heading" style={{paddingHorizontal: 28, marginBottom: space.sm}}>{title}</Text>
+          {/* The top padding keeps the first row's focus ring inside the scroll view's clip. */}
+          <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingTop: space.sm, paddingBottom: space.xl}}>{children}</ScrollView>
+        </TVFocusGuideView>
+      </Animated.View>
+    </View>
+  );
+}
+
+function Popover({anchor, title, onClose, children}: {anchor: OptionAnchor; title: string; onClose: () => void; children: React.ReactNode}) {
+  const {colors, space, metrics, window} = useTheme();
+  const insets = useSafeAreaInsets();
+  const rise = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(rise, {toValue: 1, duration: 140, useNativeDriver: true}).start(); }, [rise]);
+  const width = Math.min(380, window.width - space.md * 2);
+  const left = Math.max(space.md, Math.min(anchor.x + anchor.width / 2 - width / 2, window.width - width - space.md));
+  const bottom = window.height - anchor.y + space.sm;
+  const maxHeight = Math.max(200, anchor.y - Math.max(insets.top, space.md) - space.md);
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel={defaultI18n.t('action.dismiss')} />
+      <Animated.View accessibilityRole="menu" style={{position: 'absolute', left, bottom, width, maxHeight, backgroundColor: colors.overlaySurface, borderRadius: metrics.radius.panel, borderWidth: 1, borderColor: alpha(colors.lineStrong, 0.7), overflow: 'hidden', opacity: rise, transform: [{translateY: rise.interpolate({inputRange: [0, 1], outputRange: [6, 0]})}]}}>
+        <Text variant="label" tone="tertiary" style={{paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs}}>{title}</Text>
+        <ScrollView contentContainerStyle={{paddingHorizontal: space.sm, paddingBottom: space.sm}}>{children}</ScrollView>
+      </Animated.View>
+    </View>
+  );
+}
+
+function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact, onReport, upcoming, isChannel, onMiniGuide, canRecordLive, onRecordLive}: Props) {
+  const {state} = engine;
+  const {space, isTV} = useTheme();
+  const i18n = useI18n();
+  const back = fromMenu && option !== 'menu' ? <ListRow icon="back" title={i18n.t('player.opt.menu')} onPress={() => onPick('menu')} /> : null;
+  // TV: a panel whose content has nothing to choose (loading, one track, info) still needs a focus stop inside its trapped guide.
+  const closeRow = isTV ? <ListRow icon="close" title={i18n.t('player.opt.close')} hasTVPreferredFocus={!back} onPress={onClose} /> : null;
+  let body: React.ReactNode = null;
+  if (option === 'menu') {
+    body = (
+      <>
+        {compact ? optionBoxesFor(engine.identity.kind === 'song').map((o, i) => <ListRow key={o.key} icon={o.icon} title={o.label} meta={valueOf(o.key)} trailingIcon="forward" hasTVPreferredFocus={i === 0} onPress={() => onPick(o.key)} />) : null}
+        {/* MU4 FEAT-07: on a channel the menu opens the mini guide and records the programme. */}
+        {isChannel && onMiniGuide ? <ListRow icon="channels" title={i18n.t('player.live.guide')} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => { onClose(); onMiniGuide(); }} /> : null}
+        {isChannel && canRecordLive && onRecordLive ? <ListRow icon="dvr" title={i18n.t('guide.record')} onPress={() => { onClose(); onRecordLive(); }} /> : null}
+        {/* The first row takes focus when the panel opens (TV), whichever rows this playback has. */}
+        {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => onPick('queue')} /> : null}
+        {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={!compact && upcoming === 0} onPress={() => { onClose(); onReport(); }} /> : null}
+        {!compact && upcoming === 0 && !onReport ? closeRow : null}
+      </>
+    );
+  } else if (option === 'speed') {
+    body = engine.rates.map(rate => (
+      <ListRow key={rate} title={rate === 1 ? i18n.t('player.opt.normalSpeed') : `${rate}×`} selected={engine.speedState.desired === rate} hasTVPreferredFocus={engine.speedState.desired === rate} disabled={engine.speedState.ready && !engine.speedState.supported.includes(rate)} onPress={() => { engine.setRate(rate); onClose(); }} />
+    ));
+  } else if (option === 'audio') {
+    const audio = state.audio;
+    const tracks = engine.state.audioTracks;
+    body = (!audio.plan || audio.availability === 'unavailable') && tracks ? tracks.tracks.map(t => {
+      const selected = t.streamIndex === (tracks.pending ?? tracks.selected);
+      return <ListRow key={t.streamIndex} title={t.label} selected={selected} hasTVPreferredFocus={selected} onPress={() => { engine.service.selectAudioTrack(t.streamIndex).catch(() => showToast({message: i18n.t('player.opt.audioChangeFailed'), icon: 'warning'})); onClose(); }} />;
+    }) : audio.plan ? (
+      audio.plan.renditions.map(r => {
+        const current = (audio.pending?.renditionId ?? audio.observedRenditionId ?? audio.plan?.defaultRenditionId) === r.id;
+        const unavailable = r.unavailable || audio.unavailableRenditionIds?.includes(r.id);
+        return <ListRow key={r.id} title={r.label} subtitle={unavailable ? i18n.t('player.opt.unavailable') : r.language} disabled={unavailable} selected={current} hasTVPreferredFocus={current} onPress={() => { engine.service.selectAudio(r.id); onClose(); }} />;
+      })
+    ) : (
+      <>
+        <StateView icon="audio" title={audio.availability === 'loading' ? i18n.t('player.opt.checkingAudio') : i18n.t('player.opt.oneAudioTrack')} loading={audio.availability === 'loading'} action={engine.audioSelection.canRetry ? i18n.t('action.tryAgain') : undefined} onAction={engine.audioSelection.retry} />
+        {engine.audioSelection.canRetry ? null : closeRow}
+      </>
+    );
+  } else if (option === 'subtitles') {
+    body = <SubtitleChoices engine={engine} onClose={onClose} closeRow={closeRow} />;
+  } else if (option === 'quality') {
+    const {offers, selected, choose} = engine.quality;
+    const rungs = dedupQualityRungs(offers?.sources);
+    // ARCH-API-08: converted rungs are the owner's to turn off (transcoding switch, from the offers).
+    const owner = ownerPlaybackSwitches(offers);
+    /* MU4 CON-26: the footer from the same delivery policy as web
+     * ("Home network · up to 1080p" / "Away from home · up to 1080p"). */
+    const footer = qualityNetworkFooter(offers?.deliveryPolicy);
+    const footerLine = footer.network && footer.height ? i18n.t('quality.networkLimit', {network: i18n.t(footer.network === 'home' ? 'network.home' : footer.network === 'away' ? 'network.away' : footer.network === 'wifi' ? 'network.wifi' : 'network.cellular'), height: footer.height}) : '';
+    body = (
+      <>
+        <ListRow title={i18n.t('player.opt.automatic')} subtitle={offers?.current?.delivery === 'hls' ? i18n.t('player.opt.automaticConverted') : i18n.t('player.opt.automaticDirect')} selected={selected === 'auto'} hasTVPreferredFocus={selected === 'auto'} onPress={() => { if (selected !== 'auto') choose('auto'); onClose(); }} />
+        {rungs.filter(q => q.kind !== 'automatic').map(q => (
+          <ListRow key={q.id} title={q.label} subtitle={q.kind !== 'original' && !owner.transcoding ? i18n.t('player.ownerOff') : q.enabled ? (q.kind === 'original' ? i18n.t('player.opt.sourceFile') : q.targetDisplayHeight ? i18n.t('player.opt.convertedTo', {height: q.targetDisplayHeight}) : undefined) : i18n.t('player.opt.qualityReason', {reason: q.reason || 'other'})} selected={selected === q.id} hasTVPreferredFocus={selected === q.id} disabled={!q.enabled || (q.kind !== 'original' && !owner.transcoding)} onPress={() => { choose(q.id); onClose(); }} />
+        ))}
+        {!offers ? <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.qualityLater')}</Text> : null}
+        {footerLine || (offers && !offers.transcodingEnabled) ? <Text variant="caption" tone="tertiary" style={{paddingHorizontal: space.md, paddingTop: space.sm}}>{[footerLine, offers && !offers.transcodingEnabled ? i18n.t('player.opt.conversionOff') : ''].filter(Boolean).join(' · ')}</Text> : null}
+      </>
+    );
+  } else if (option === 'sleep') {
+    const off = !state.listeningDeadlines?.sleepAtMs;
+    const setSleep = (minutes: number | null) => { engine.service.setListeningDeadline('sleep', minutes).catch(() => showToast({message: i18n.t('player.opt.sleepFailed'), icon: 'warning'})); onClose(); };
+    body = (
+      <>
+        {/* With a timer running, Off still takes focus: it's the one choice that changes something. */}
+        <ListRow title={i18n.t('player.opt.off')} selected={off} hasTVPreferredFocus onPress={() => setSleep(null)} />
+        {[15, 30, 45, 60].map(minutes => (
+          <ListRow key={minutes} title={i18n.t('player.opt.minutes', {count: minutes})} onPress={() => setSleep(minutes)} />
+        ))}
+      </>
+    );
+  } else if (option === 'info') {
+    body = <><PlaybackInfo engine={engine} />{closeRow}</>;
+  } else if (option === 'queue') {
+    body = <UpNext engine={engine} onClose={onClose} closeRow={closeRow} />;
+  }
+  return <>{back}{body}</>;
+}
+
+/** Subtitles: every track labelled by language and kind, an honest empty state, and provider search when the server has one. */
+function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onClose: () => void; closeRow: React.ReactNode}) {
+  const {service, snapshot} = engine.subtitles;
+  const i18n = useI18n();
+  const {space} = useTheme();
+  const plan = snapshot.plan;
+  const [searching, setSearching] = useState(false);
+  if (!service || !plan) {
+    return (
+      <>
+        <StateView icon="subtitles" title={snapshot.loading ? i18n.t('player.opt.loadingSubtitles') : i18n.t('player.opt.subtitles')} loading={snapshot.loading} message={snapshot.loading ? undefined : snapshot.error ? say(snapshot.error, 'playback') : i18n.t('player.opt.subtitlesLater')} />
+        {closeRow}
+      </>
+    );
+  }
+  const off = plan.mode === 'off' || snapshot.suppressed;
+  const addable = plan.discovered.filter(d => !plan.resources.some(r => r.discoveryId === d.id && r.enabled));
+  const provider = snapshot.catalog?.provider;
+  const language = i18n.locale.split('-')[0] ?? 'en';
+  const origin = (o: string, provider?: string) => (o === 'provider' && provider ? provider : i18n.t('player.opt.origin', {origin: o}));
+  /* MU4 COMPAT-01: 4K/HDR facts from the pre-play read, falling back to the offers' height
+   * already on the session (never a new request). */
+  const cachedFacts = engine.sourceFacts(engine.identity.itemId);
+  const offersHeight = Math.max(0, ...(engine.quality.offers?.sources.map(s => s.height ?? 0) ?? []));
+  const sourceFacts = {is4k: !!cachedFacts?.is4k || offersHeight >= 2100, isHdr: !!cachedFacts?.isHdr};
+  const bitmapNote = i18n.t('player.subtitles.bitmapNote');
+  // ARCH-API-08: a burned-in (bitmap) track converts the video, so the owner's transcoding switch turns it off too.
+  const owner = ownerPlaybackSwitches(engine.quality.offers);
+  const ownerBlocks = (r: (typeof plan.resources)[number]) => !owner.subtitleBurnIn && isBitmapResource(r);
+  const chooseResource = (r: (typeof plan.resources)[number]) => {
+    if (!r.enabled || snapshot.busy || ownerBlocks(r)) return;
+    // A language with both a text and a bitmap track plays the text track.
+    if (isBitmapResource(r)) {
+      const text = textTrackForLanguage(plan.resources, r.language);
+      if (text && text.id !== r.id) {
+        void service.choose(text).catch(() => {});
+        showToast({message: i18n.t('player.subtitles.preferredText'), icon: 'subtitles'});
+        onClose();
+        return;
+      }
+      if (bitmapWarningNeeded(r, sourceFacts, engine.isBitmapAcked(r.id))) {
+        engine.requestBitmapConfirm({id: r.id, language: r.language, format: r.format, renderer: r.renderer}, () => { void service.choose(r).catch(() => {}); onClose(); });
+        return;
+      }
+    }
+    void service.choose(r).catch(() => {});
+    onClose();
+  };
+  return (
+    <>
+      <ListRow title={i18n.t('player.opt.off')} selected={off} hasTVPreferredFocus={off} onPress={() => { void service.choose(null).catch(() => {}); onClose(); }} />
+      {plan.resources.map(r => {
+        const selected = !snapshot.suppressed && plan.selected?.id === r.id;
+        return (
+          <ListRow key={r.id} title={trackName(r, i18n.locale) || r.title || r.language} subtitle={[r.forced ? i18n.t('player.opt.forced') : '', origin(r.origin, r.provider), r.enabled && isBitmapResource(r) && !ownerBlocks(r) ? bitmapNote : ''].filter(Boolean).join(' · ')}
+            selected={selected} hasTVPreferredFocus={selected} disabled={!r.enabled || ownerBlocks(r)} meta={!r.enabled ? i18n.t('player.opt.unavailable') : ownerBlocks(r) ? i18n.t('player.ownerOff') : undefined} onPress={() => chooseResource(r)} />
+        );
+      })}
+      {addable.map(d => (
+        <ListRow key={d.id} title={d.title || d.language} subtitle={`${d.language.toUpperCase()} · ${origin(d.origin)}`} meta={d.enabled ? i18n.t('player.opt.add') : i18n.t('player.opt.unavailable')} disabled={!d.enabled || snapshot.busy} onPress={() => { void service.import(d).catch(() => {}); onClose(); }} />
+      ))}
+      {!plan.resources.length && !addable.length ? <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text> : null}
+      {provider?.enabled ? (
+        searching ? (
+          snapshot.busy && !snapshot.candidates.length ? <StateView loading title={i18n.t('player.opt.lookingForSubtitles')} /> : snapshot.candidates.length ? snapshot.candidates.map(c => (
+            <ListRow key={c.id} icon="download" title={c.title} subtitle={`${c.language.toUpperCase()} · ${c.attribution}`} disabled={snapshot.busy} onPress={() => void service.apply(c, 'personal', 'Downloaded by the viewer for personal viewing').then(() => setSearching(false), () => {})} />
+          )) : <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitlesFound')}</Text>
+        ) :  <ListRow icon="search" title={i18n.t('player.opt.findSubtitles')} onPress={() => { setSearching(true); void service.search(language).catch(() => {}); }} />
+      ) : null}
+      {plan.selected ? (
+        <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
+      ) : null}
+      {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'playback')} /> : null}
+    </>
+  );
+}
+
+/** APL-PLAYER-03: how this title is reaching the screen. */
+/**
+ * Playback info: how the stream is delivered and why, its codecs and size, and its bitrate, by
+ * client-core's one model. The session's own account is read when the panel opens. (The native
+ * player does not report dropped frames or its buffer to the app, so those two rows are absent.)
+ */
+function PlaybackInfo({engine}: {engine: PlayerEngine}) {
+  const {space} = useTheme();
+  const i18n = useI18n();
+  const {api} = useSession();
+  const sessionId = engine.state.session?.id;
+  const v1 = engine.state.session?.protocol === 'v1';
+  const [session, setSession] = useState<Pick<PlaybackInfoFacts, 'decision' | 'bitrateKbps' | 'hdr'>>({});
+  useEffect(() => {
+    if (!sessionId || !v1) { setSession({}); return; }
+    let live = true;
+    api.request<unknown>(`/v1/playback/sessions/${encodeURIComponent(sessionId)}`, 'GET').then(raw => {
+      if (!live) return;
+      try {
+        const p = parseSession(raw).presentation;
+        setSession({decision: p.decision, bitrateKbps: p.bitrateKbps, hdr: p.hdr});
+      } catch { setSession({}); }
+    }, () => {});
+    return () => { live = false; };
+  }, [api, sessionId, v1]);
+  const offers = engine.quality.offers;
+  const source = offers?.sources.find(x => x.id === offers.current?.sourceId) ?? offers?.sources[0];
+  const chosen = engine.quality.selected !== 'auto' ? source?.qualities.find(q => q.id === engine.quality.selected)?.label : undefined;
+  const rows = playbackInfoRows({
+    ...session,
+    delivery: offers?.current ? (offers.current.delivery === 'hls' ? 'converted' : 'direct') : undefined,
+    chosenQuality: chosen,
+    source: source ? {container: source.container, videoCodec: source.videoCodec, audioCodec: source.audioCodec, width: source.width, height: source.height} : undefined,
+    audioOnly: engine.isAudio,
+  }, i18n.t);
+  if (!sessionId) return <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.detailsLater')}</Text>;
+  return (
+    <>
+      {rows.map(row => <ListRow key={row.id} title={row.label} subtitle={row.value} subtitleLines={3} />)}
+      {engine.state.audioEffects.rendering && engine.state.session?.audio?.downmixed ? <Text variant="caption" tone="secondary" style={{padding: space.md}}>{i18n.t('player.opt.downmixed')}</Text> : null}
+    </>
+  );
+}
+
+/** The queue controller's view, or null when this playback has no queue. */
+export function useQueueView(engine: PlayerEngine) {
+  const queue = engine.service.getQueueController();
+  const subscribe = useMemo(() => queue?.subscribe ?? (() => () => {}), [queue]);
+  const snapshot = useSyncExternalStore(subscribe, () => queue?.getSnapshot() ?? null);
+  return {queue, view: snapshot?.view ?? null};
+}
+
+/** Entries after the current one, in order (bounded: at most `limit`). */
+export function upcomingEntries(view: ReturnType<typeof useQueueView>['view'], limit = 50) {
+  const entries = view?.queue.entries ?? [];
+  const at = entries.findIndex(e => e.id === view?.queue.currentEntryId);
+  const out: {id: string; itemId: string; pending?: true}[] = [];
+  for (let i = at + 1; i < entries.length && out.length < limit; i++) {
+    const e = entries[i];
+    if (e.removed) continue;
+    if (!e.hidden) out.push({id: e.id, itemId: e.itemId});
+    // A v1 placeholder still being snapshotted (a large queue building): a quiet row, not an error.
+    else if (e.pending) out.push({id: e.id, itemId: '', pending: true});
+  }
+  return out;
+}
+
+/** APL-PLAYER-03 (PC-MEDIA §15.1.10): Up next, with Play now, Move earlier/later and Remove. */
+function UpNext({engine, onClose, closeRow}: {engine: PlayerEngine; onClose: () => void; closeRow: React.ReactNode}) {
+  const i18n = useI18n();
+  const {queue, view} = useQueueView(engine);
+  const {api} = useSession();
+  const {space} = useTheme();
+  const upcoming = upcomingEntries(view);
+  const [items, setItems] = useState<Record<string, MediaItem | null>>({});
+  const [chosen, setChosen] = useState<string>();
+  const [error, setError] = useState('');
+  const key = upcoming.filter(u => !u.pending).map(u => u.itemId).join(',');
+  useEffect(() => {
+    let live = true;
+    for (const id of new Set(key ? key.split(',') : [])) {
+      if (id in items) continue;
+      api.item(id).then(item => live && setItems(prev => ({...prev, [id]: item})), () => live && setItems(prev => ({...prev, [id]: null})));
+    }
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, key]);
+  if (!queue || !view) return <><Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.nothingQueued')}</Text>{closeRow}</>;
+  if (!upcoming.length) return <><Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.queueEmpty')}</Text>{closeRow}</>;
+  const workspace = queue.workspace.service;
+  const run = (work: Promise<unknown>) => { setError(''); work.catch(e => setError(say(e, 'playlist', 'action'))); };
+  const order = view.queue.entries.filter(e => !e.removed).map(e => e.id);
+  const move = (entryId: string, delta: number) => {
+    const i = order.indexOf(entryId);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    const next = [...order];
+    [next[i], next[j]] = [next[j], next[i]];
+    run(workspace.mutate({action: 'reorder', entryIds: next}));
+  };
+  return (
+    <>
+      {error ? <Notice tone="warning" message={error} style={{marginBottom: space.sm}} /> : null}
+      {upcoming.map((u, index) => {
+        if (u.pending) return <ListRow key={u.id} ordinal={index + 1} title={i18n.t("web.queue.pendingEntry")} disabled focusable={false} />;
+        const item = items[u.itemId];
+        return (
+          <View key={u.id}>
+            <ListRow ordinal={index + 1} title={item?.title ?? (item === null ? i18n.t('player.queueUnavailable') : '…')} subtitle={item?.year ? String(item.year) : undefined} trailingIcon={chosen === u.id ? 'chevronUp' : 'moreVertical'} hasTVPreferredFocus={index === 0} onPress={() => setChosen(chosen === u.id ? undefined : u.id)} />
+            {chosen === u.id ? (
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.sm, paddingBottom: space.sm}}>
+                <Button size="sm" variant="secondary" icon="play" label={i18n.t('player.opt.playNow')} onPress={() => { queue.playEntry(view.queue.id, u.id, view.queue.revision).catch(e => showToast({message: say(e, 'playlist', 'action'), icon: 'warning'})); onClose(); }} />
+                <Button size="sm" variant="secondary" icon="chevronUp" label={i18n.t('player.opt.earlier')} disabled={index === 0} onPress={() => move(u.id, -1)} />
+                <Button size="sm" variant="secondary" icon="chevronDown" label={i18n.t('player.opt.later')} disabled={index === upcoming.length - 1} onPress={() => move(u.id, 1)} />
+                <Button size="sm" variant="secondary" icon="trash" label={i18n.t('player.opt.remove')} onPress={() => { setChosen(undefined); run(workspace.mutate({action: 'remove', entryId: u.id})); }} />
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
+      {queue.saveAsPlaylist ? <SaveQueueRow engine={engine} queueId={view.queue.id} /> : null}
+    </>
+  );
+}
+
+/** NEW-37: Save as playlist, under the default name (rename it from the playlist). A long queue is
+ * copied in the background; progress shows until it's done. */
+function SaveQueueRow({engine, queueId}: {engine: PlayerEngine; queueId: string}) {
+  const i18n = useI18n();
+  const {space} = useTheme();
+  const [save, setSave] = useState<QueuePlaylistSave | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const queue = engine.service.getQueueController();
+  const start = () => {
+    if (!queue?.saveAsPlaylist || busy) return;
+    setBusy(true); setFailed(false); setSave(null);
+    queue.saveAsPlaylist(queueId, i18n.t('player.queueSaveDefaultName'), setSave).catch(() => setFailed(true)).finally(() => setBusy(false));
+  };
+  const m = save ? queueSaveMessage(save) : null;
+  const message = failed ? i18n.t('player.queueSaveFailed') : m ? (m.values ? i18n.t(m.id, {done: m.values.done.toLocaleString(), total: m.values.total.toLocaleString()}) : i18n.t(m.id)) : busy ? i18n.t('player.queueSaving') : '';
+  return (
+    <>
+      <ListRow icon="plus" title={i18n.t('player.queueSave')} disabled={busy} onPress={start} />
+      {message ? <Text variant="caption" tone={failed || save?.state === 'failed' ? 'danger' : 'tertiary'} style={{paddingHorizontal: space.md, paddingBottom: space.sm}}>{message}</Text> : null}
+    </>
+  );
+}
+
+/** APL-PLAYER-03: Shuffle and Repeat are durable queue settings the queue workspace owns. */
+export function QueueToggle({engine, kind, size}: {engine: PlayerEngine; kind: 'shuffle' | 'repeat'; size: 'md' | 'lg'}) {
+  const queue = engine.service.getQueueController();
+  const workspace = queue?.workspace.service;
+  const subscribe = useMemo(() => workspace?.subscribe ?? (() => () => {}), [workspace]);
+  const state = useSyncExternalStore(subscribe, () => workspace?.getSnapshot() ?? null);
+  const q = state?.queue;
+  if (!workspace || !q) return null;
+  const repeat = q.repeat;
+  const active = kind === 'shuffle' ? q.shuffled : repeat !== 'off';
+  const next = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off';
+  const label = defaultI18n.t(kind === 'shuffle' ? (q.shuffled ? 'player.opt.shuffleOn' : 'player.opt.shuffleOff') : repeat === 'off' ? 'player.opt.repeatOff' : repeat === 'one' ? 'player.opt.repeatOne' : 'player.opt.repeatAll');
+  return (
+    // TV-PLAYER-02: the transport size, like the other controls in the row (`size` is kept for callers).
+    <Button variant="ghost" transport="control" round icon={kind} iconNumber={kind === 'repeat' && repeat === 'one' ? 1 : undefined} size={size} selected={active} accessibilityLabel={label} disabled={state?.phase !== 'ready'}
+      onPress={() => void workspace.mutate(kind === 'shuffle' ? {action: 'shuffle', shuffled: !q.shuffled} : {action: 'repeat', repeat: next}).catch(() => {})} />
+  );
+}
