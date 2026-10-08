@@ -100,7 +100,7 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("androidx.media3:media3-session:$media3")
     // Google Cast: only in the build for devices with Google Play services (never Fire OS).
-    googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
+    googleImplementation "com.google.android.gms:play-services-cast-framework:22.3.1"
     // The provider sign-in browser (PorticoAccountAuth).
     implementation("androidx.browser:browser:1.8.0")
     // Curve25519 and byte-oriented PBKDF2/HKDF, used through the lightweight API only (no JCA
