@@ -1,5 +1,6 @@
-import {parseChannelGuide, type ChannelApi, type ChannelGuide, type GuideChannel, type GuideProgramme, type GuideRoute} from '../../../../packages/client-core/src/channel-guide';
-import {HOUR_MS, MINUTE_MS, floorTo, legacyChannelRow, legacyProgram, type ChannelSource, type GuideChannelRow, type GuideDataSource, type GuideProgram} from '../../../../packages/client-core/src/guide/index';
+import {type ChannelApi, type GuideChannel, type GuideProgramme} from '../../../../packages/client-core/src/channel-guide';
+import {MINUTE_MS, legacyGuideSource, legacyChannel, legacyProgramme, type ChannelSource, type GuideChannelRow, type GuideDataSource} from '../../../../packages/client-core/src/guide/index';
+import {dedupedGuideApi} from '../../../../packages/client-core/src/guide/reads';
 import {defaultI18n} from '../../../../packages/i18n/src/index';
 import type {IconName} from '../ui';
 
@@ -22,96 +23,32 @@ export function localTimezone(): string {
 export type RawIndex = {channels: Map<string, GuideChannel>; programmes: Map<string, GuideProgramme>};
 export const newRawIndex = (): RawIndex => ({channels: new Map(), programmes: new Map()});
 
-const iso = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
-function query(route: GuideRoute, cursor: string): string {
-  const q = new URLSearchParams({kind: route.kind, start: route.start, end: route.end, timezone: route.timezone, search: route.search, sourceId: route.sourceId, limit: '30', cursor});
-  if (route.favorites) q.set('favorites', 'true');
-  if (route.includeHidden) q.set('includeHidden', 'true');
-  if (route.group) q.set('group', route.group);
-  return '/v1/guide?' + q.toString();
-}
-async function walk(api: ChannelApi, serverId: string, route: GuideRoute, signal?: AbortSignal): Promise<ChannelGuide[]> {
-  const pages: ChannelGuide[] = [];
-  let cursor = '';
-  for (let i = 0; i < 200; i++) {
-    const page = parseChannelGuide(await api.request<unknown>(query(route, cursor), 'GET', undefined, signal), serverId, route);
-    pages.push(page);
-    if (!page.nextCursor) break;
-    cursor = page.nextCursor;
-  }
-  return pages;
-}
+export type GuideQuery = Readonly<{entry:string;timezone:string;group?:string;favorites?:boolean;includeHidden?:boolean;sort:ChannelSort}>;
 
-export type GuideQuery = Readonly<{entry: string; timezone: string; group?: string; favorites?: boolean; includeHidden?: boolean; sort: ChannelSort}>;
-
-/** The kinds and source filter behind a Channels entry. */
-function parts(entry: string): {kind: 'live-source' | 'library-channel'; sourceId: string}[] {
-  if (entry === ALL) return [{kind: 'live-source', sourceId: ''}, {kind: 'library-channel', sourceId: ''}];
-  if (entry === LIBRARY) return [{kind: 'library-channel', sourceId: ''}];
-  return [{kind: 'live-source', sourceId: entry}];
-}
-
-const byNumber = (a: GuideChannelRow, b: GuideChannelRow) => {
-  const na = parseFloat(a.number), nb = parseFloat(b.number);
-  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
-  if (Number.isFinite(na) !== Number.isFinite(nb)) return Number.isFinite(na) ? -1 : 1;
-  return a.name.localeCompare(b.name);
-};
-
-/** The §8.1 stopgap for one Channels entry: walks today's cursor pages per 3-hour block (≤ 100 channels). */
-export function channelGuideSource(api: ChannelApi, serverId: string, q: GuideQuery, raw: RawIndex, now: () => number = Date.now): GuideDataSource {
-  const kinds = parts(q.entry);
-  const route = (kind: 'live-source' | 'library-channel', sourceId: string, start: number, end: number): GuideRoute => ({
-    kind, start: iso(start), end: iso(end), timezone: q.timezone, search: '', sourceId,
-    ...(q.favorites ? {favorites: true} : {}), ...(q.includeHidden ? {includeHidden: true} : {}), ...(q.group ? {group: q.group} : {}),
-  });
-  const windows = new Map<string, Promise<ChannelGuide[]>>();
-  const window = (start: number, end: number) => {
-    const key = `${start}:${end}`;
-    let pages = windows.get(key);
-    if (!pages) {
-      // One walk per window for every channel page that asks; not tied to one caller's abort.
-      pages = Promise.all(kinds.map(k => walk(api, serverId, route(k.kind, k.sourceId, start, end)).catch(e => { if (kinds.length > 1) return [] as ChannelGuide[]; throw e; }))).then(all => all.flat());
-      windows.set(key, pages);
-      pages.catch(() => windows.delete(key));
-      while (windows.size > 8) windows.delete(windows.keys().next().value!);
-    }
-    return pages.then(list => {
-      for (const page of list) for (const c of page.channels) { raw.channels.set(c.id, c); for (const p of c.programmes) raw.programmes.set(p.id, p); }
-      return list;
-    });
-  };
-  let list: Promise<GuideChannelRow[]> | undefined;
-  return {
-    async channels(from, limit, signal) {
-      if (!list) {
-        const start = floorTo(now(), HOUR_MS);
-        list = window(start, start + 3 * HOUR_MS).then(pages => {
-          // Sources in the owner's order, each in its own sort; by name interleaves (§2.2).
-          const rows = pages.flatMap(p => p.channels.map(legacyChannelRow));
-          const seen = new Set<string>();
-          const unique = rows.filter(r => !seen.has(r.id) && seen.add(r.id));
-          if (q.sort === 'name') return unique.sort((a, b) => a.name.localeCompare(b.name) || byNumber(a, b));
-          const order = new Map<string, number>();
-          unique.forEach(r => { if (!order.has(r.sourceId ?? '')) order.set(r.sourceId ?? '', order.size); });
-          return unique.sort((a, b) => (order.get(a.sourceId ?? '')! - order.get(b.sourceId ?? '')!) || byNumber(a, b));
-        });
-        list.catch(() => { list = undefined; });
-      }
-      const all = await list;
-      if (signal.aborted) throw new Error('aborted');
-      return {items: all.slice(from, from + limit), total: all.length};
-    },
-    async programs(channelIds, start, end, signal) {
-      const pages = await window(start, end);
-      if (signal.aborted) throw new Error('aborted');
-      const wanted = new Set(channelIds);
-      const out: Record<string, GuideProgram[]> = {};
-      for (const id of channelIds) out[id] = [];
-      for (const page of pages) for (const c of page.channels) if (wanted.has(c.id)) out[c.id] = c.programmes.map(legacyProgram);
-      return out;
-    },
-  };
+/** Native screens use the same bounded directory/programme adapter as the web. */
+export function channelGuideSource(api:ChannelApi,serverId:string,q:GuideQuery,raw:RawIndex,now:()=>number=Date.now):GuideDataSource {
+ const source=legacyGuideSource(dedupedGuideApi(api),serverId,{kind:q.entry===ALL?'all':q.entry===LIBRARY?'library-channel':'live-source',sourceId:q.entry===ALL||q.entry===LIBRARY?'':q.entry,timezone:q.timezone,sort:q.sort,now,...(q.group?{group:q.group}:{}),...(q.favorites?{favorites:true}:{}),...(q.includeHidden?{includeHidden:true}:{})});
+ return {
+  reset(){raw.channels.clear();raw.programmes.clear();source.reset?.();},
+  async neighbor(channel,delta,signal){
+   const row=await source.neighbor?.(channel,delta,signal);
+   if(row){const native=legacyChannel(row);if(native){raw.channels.delete(row.id);raw.channels.set(row.id,native);}}
+   while(raw.channels.size>300)raw.channels.delete(raw.channels.keys().next().value!);
+   return row;
+  },
+  async channels(from,limit,signal){
+   const page=await source.channels(from,limit,signal);
+   for(const row of page.items){const native=legacyChannel(row);if(native){raw.channels.delete(row.id);raw.channels.set(row.id,native);}}
+   while(raw.channels.size>300)raw.channels.delete(raw.channels.keys().next().value!);
+   return page;
+  },
+  async programs(ids,start,end,signal){
+   const rows=await source.programs(ids,start,end,signal);
+   for(const programmes of Object.values(rows))for(const programme of programmes){const native=legacyProgramme(programme);if(native){raw.programmes.delete(programme.id);raw.programmes.set(programme.id,native);}}
+   while(raw.programmes.size>10000)raw.programmes.delete(raw.programmes.keys().next().value!);
+   return rows;
+  },
+ };
 }
 
 /** Rail and picker entries (§2.0): All channels with 2+ sources, each source, Recordings when a live source records. */
@@ -147,7 +84,7 @@ export function parseChannelMemory(raw: unknown): ChannelMemory {
 }
 /** The memory after choosing a view or sort for one entry; at most 50 entries of each are kept (newest last). */
 export function rememberChoice(m: ChannelMemory, entry: string, choice: {view?: ChannelView; sort?: ChannelSort}): ChannelMemory {
-  const put = <T,>(o: Record<string, T>, v: T | undefined) => { if (v === undefined) return o; const {[entry]: _old, ...rest} = o; return Object.fromEntries(Object.entries({...rest, [entry]: v}).slice(-50)) as Record<string, T>; };
+  const put = <T,>(o: Record<string, T>, v: T | undefined) => { if (v === undefined) return o; const rest = {...o}; delete rest[entry]; return Object.fromEntries(Object.entries({...rest, [entry]: v}).slice(-50)) as Record<string, T>; };
   return {views: put(m.views, choice.view), sorts: put(m.sorts, choice.sort)};
 }
 

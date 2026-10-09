@@ -3,10 +3,12 @@ import {RootHeaderActions} from '../Home';
 import {Linking, ScrollView, View, useWindowDimensions} from 'react-native';
 import {useRoute} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {channelOperationId, saveChannelPreference, topChannelGroups, type GuideChannel} from '../../../../../packages/client-core/src/channel-guide';
-import {DAY_MS, HOUR_MS, GuideWindowStore, type ChannelSource, type GuideChannelRow, type GuideDataSource} from '../../../../../packages/client-core/src/guide/index';
-import {ALL, RECORDINGS, serverWideUnavailable, channelEntries, channelGuideSource, defaultEntry, newRawIndex, newRequestId, useChannelMemory, useChannelSources, type ChannelEntry, type ChannelSort, type ChannelView, type GuideQuery, type RawIndex, type ServerWideReason} from '../../app/channels';
+import {channelOperationId, saveChannelPreference, type GuideChannel} from '../../../../../packages/client-core/src/channel-guide';
+import {dedupedGuideApi, forgetGuideReads} from '../../../../../packages/client-core/src/guide/reads';
+import {DAY_MS, HOUR_MS, GuideWindowStore, legacyGuideCatalog, legacyChannel, type ChannelSource, type GuideChannelRow, type GuideDataSource} from '../../../../../packages/client-core/src/guide/index';
+import {ALL, LIBRARY, RECORDINGS, serverWideReason, channelEntries, channelGuideSource, defaultEntry, newRawIndex, newRequestId, useChannelMemory, useChannelSources, type ChannelEntry, type ChannelSort, type ChannelView, type GuideQuery, type RawIndex, type ServerWideReason} from '../../app/channels';
 import {present, say} from '../../app/errors';
+import type {Lineup} from '../../player/channel-lineup';
 import {usePlayerActions} from '../../app/player-actions';
 import {useSession} from '../../app/session';
 import {Button, Chip, ChipBar, Menu, Sheet, afterOverlaysClose, Notice, PageHeader, Segmented, Skeleton, StateView, showToast, useSpecPlatform, useTheme, type FocusableHandle, type MenuItem} from '../../ui';
@@ -116,8 +118,10 @@ function GuideScreen({entry, name, library, sources, picker, manager, onRecordin
   const [catalog, setCatalog] = useState<{groups: string[]; favorites: boolean; serverWide: ServerWideReason | null}>({groups: [], favorites: false, serverWide: null});
   useEffect(() => {
     const controller = new AbortController();
-    channelGuideSource(api, serverId, {entry, timezone: format.zone, sort: 'number'}, newRawIndex()).channels(0, 1000, controller.signal).then(page => {
-      setCatalog({groups: topChannelGroups(page.items), favorites: page.items.some(c => c.favorite), serverWide: serverWideUnavailable(page.items)});
+    legacyGuideCatalog(dedupedGuideApi(api),serverId,{kind:entry===ALL?'all':entry===LIBRARY?'library-channel':'live-source',sourceId:entry===ALL||entry===LIBRARY?'':entry,timezone:format.zone,sort:'number'},controller.signal).then(summary => {
+      const reasons=new Set(summary.unavailableReasons.map(serverWideReason));
+      const serverWide:ServerWideReason|null=!reasons.size||reasons.has(null)?null:reasons.has('platform')?'platform':reasons.has('tools')?'tools':'delivery';
+      if(!controller.signal.aborted)setCatalog({groups:[...summary.groups],favorites:summary.favorites,serverWide});
     }, () => {});
     return () => controller.abort();
   }, [api, serverId, entry, format.zone, snapshot.total === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -131,7 +135,13 @@ function GuideScreen({entry, name, library, sources, picker, manager, onRecordin
     const rawChannel = raw.channels.get(channel.id);
     // FEAT-07: the player steps through this guide's channels, in its order and filters.
     const from = source.current;
-    const lineup = from ? async () => { const page = await from.channels(0, 2000, new AbortController().signal); return page.items.map(r => raw.channels.get(r.id)).filter((c): c is GuideChannel => !!c); } : undefined;
+    const lineup:Lineup|undefined = from ? Object.assign(async () => [] as readonly GuideChannel[], {
+      step: async (current:GuideChannel,delta:1|-1) => {
+        const row:GuideChannelRow={id:current.id,sourceId:current.provenance==='library-channel'?'library':current.sourceId,kind:current.provenance==='library-channel'?'library':'live',number:current.number,name:current.name,group:current.group,favorite:current.favorite,tuneAvailable:current.tuneAvailable,recordAvailable:current.recordAvailable,guide:'full',native:current};
+        const next=await from.neighbor?.(row,delta,new AbortController().signal);
+        return next?legacyChannel(next):undefined;
+      },
+    }) : undefined;
     if (rawChannel && channel.tuneAvailable) player.tune(rawChannel, lineup);
   }, [raw, player]);
   const setPreference = useCallback(async (channel: GuideChannelRow, values: {favorite: boolean; hidden: boolean}) => {
@@ -139,6 +149,7 @@ function GuideScreen({entry, name, library, sources, picker, manager, onRecordin
     if (!c) return;
     try {
       await saveChannelPreference(api, serverId, c, await channelOperationId(newRequestId), values);
+      forgetGuideReads();
       store.reset(makeSource());
     } catch (e) { showToast({message: say(e, 'live', 'save'), icon: 'warning'}); }
   }, [api, serverId, raw, store, makeSource]);
@@ -204,13 +215,13 @@ function GuideScreen({entry, name, library, sources, picker, manager, onRecordin
   else if (snapshot.total === 0) {
     body = filterName
       ? <StateView icon="filter" title={t('channels.filterEmptyTitle', {filter: filterName})} action={t('channels.showAll')} onAction={() => setFilter({})} />
-      : <StateView icon={library ? 'library' : 'channels'} title={t('channels.emptyTitle', {source: name})} message={manager ? t('channels.emptyOwner') : t('channels.emptyMember')} action={manager ? t('channels.refreshNow') : undefined} onAction={manager ? () => store.reset(makeSource()) : undefined} />;
+      : <StateView icon={library ? 'library' : 'channels'} title={t('channels.emptyTitle', {source: name})} message={manager ? t('channels.emptyOwner') : t('channels.emptyMember')} action={manager ? t('channels.refreshNow') : undefined} onAction={manager ? () => { forgetGuideReads(); store.reset(makeSource()); } : undefined} />;
   } else if (snapshot.total === undefined) body = <GuideSkeleton />;
   else if (view === 'guide') body = box.width > 0 ? <GuideGrid actions={actions} geometry={geometry} range={range} width={box.width} height={box.height} controlsTop={controlsTop} paused={!!selection || !!menuFor} /> : null;
 
   const overlays = (
     <>
-      {selection ? <ProgramSheet selection={selection} format={format} raw={raw} sources={sources} showSource={entry === ALL} quiet={quiet} onClose={() => setSelection(null)} onWatch={s => watch(s.channel)} onChanged={() => store.invalidate()} onFavorite={s => void setPreference(s.channel, {favorite: !s.channel.favorite, hidden: raw.channels.get(s.channel.id)?.hidden ?? false})} onRecordings={onRecordings} /> : null}
+      {selection ? <ProgramSheet selection={selection} format={format} raw={raw} sources={sources} showSource={entry === ALL} quiet={quiet} onClose={() => setSelection(null)} onWatch={s => watch(s.channel)} onChanged={() => { forgetGuideReads(); store.invalidate(); }} onFavorite={s => void setPreference(s.channel, {favorite: !s.channel.favorite, hidden: raw.channels.get(s.channel.id)?.hidden ?? false})} onRecordings={onRecordings} /> : null}
       <Menu open={!!menuFor} onClose={() => setMenuFor(null)} title={menuFor?.name} subtitle={menuFor?.number ? t('channels.channel', {number: menuFor.number}) : undefined} items={menuFor ? channelMenu(menuFor) : []} onSelect={id => { if (menuFor) onChannelMenu(menuFor, id); }} />
       <Menu
         open={sortMenu}

@@ -6,7 +6,11 @@ import type {GuideChannel} from '../../../../packages/client-core/src/channel-gu
  * player's Previous and Next then tune the neighbouring watchable channel, wrapping at the ends.
  * A plain module rather than hook state, so the player's hooks stay as they are.
  */
-export type Lineup = () => Promise<readonly GuideChannel[]>;
+export type Lineup = {
+  (): Promise<readonly GuideChannel[]>;
+  /** Bounded server-authored neighbour in this lineup's order and filters, when supported. */
+  step?: (channel: GuideChannel, delta: 1 | -1) => Promise<GuideChannel | undefined>;
+};
 
 let tuned: {channel: GuideChannel; lineup?: Lineup} | undefined;
 
@@ -28,6 +32,12 @@ export function canStepChannel(): boolean {
 export async function channelStep(delta: 1 | -1): Promise<{channel: GuideChannel; lineup: Lineup} | undefined> {
   const at = tuned;
   if (!at?.lineup) return undefined;
+  if (at.lineup.step) {
+    let next: GuideChannel | undefined;
+    try { next = await at.lineup.step(at.channel, delta); } catch { return undefined; }
+    if (tuned !== at || !next?.tuneAvailable || (next.id === at.channel.id && next.sourceId === at.channel.sourceId)) return undefined;
+    return {channel: next, lineup: at.lineup};
+  }
   const all = (await at.lineup().catch(() => [] as readonly GuideChannel[])).filter(c => c.tuneAvailable);
   if (tuned !== at || all.length < 2) return undefined;
   const index = all.findIndex(c => c.id === at.channel.id && c.sourceId === at.channel.sourceId);
