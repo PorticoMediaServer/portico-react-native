@@ -16,7 +16,7 @@
 //   and may stop, the other's devices), so the virtual device is started on ports of its own and
 //   spoken to through a device-tool server of its own.
 import {spawnSync} from 'node:child_process';
-import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +27,8 @@ const repository = path.resolve(app, '../..');
 const shared = path.resolve(app, '../native');
 const packages = path.resolve(repository, 'packages');
 const appId = JSON.parse(readFileSync(path.join(app, 'app.json'), 'utf8')).name;
+const packageId = /\[package\][\s\S]*?\nid\s*=\s*"([A-Za-z0-9_.-]+)"/.exec(readFileSync(path.join(app, 'manifest.toml'), 'utf8'))?.[1];
+if (!packageId) throw new Error('The Vega manifest has no package ID.');
 const packageName = JSON.parse(readFileSync(path.join(app, 'package.json'), 'utf8')).name;
 // The virtual device's port (its console is one below) and the device-tool server's port.
 const devicePort = Number(process.env.PORTICO_VEGA_DEVICE_PORT ?? 5701);
@@ -87,7 +89,16 @@ function build(type) {
   stage(work);
   copyFonts(work);
   if (work.staged) console.log(`Building in ${work.app} (this checkout's path contains a space).`);
-  run('npx', ['react-native', 'build-vega', '--build-type', type], {cwd: work.app});
+  // The SDK expands needs.module in the source manifest as well as the packaged
+  // manifest. Keep that generated dependency list out of the working tree.
+  const manifest = path.join(work.app, 'manifest.toml');
+  const originalManifest = readFileSync(manifest);
+  try {
+    const result = run('npx', ['react-native', 'build-vega', '--build-type', type], {cwd: work.app, allowFailure: true});
+    if (result.status !== 0) throw new Error(`Vega build exited with ${result.status}`);
+  } finally {
+    writeFileSync(manifest, originalManifest);
+  }
   if (work.staged) {
     // Bring back the packages (not the intermediate files).
     for (const entry of readdirSync(path.join(work.app, 'build'))) {
@@ -213,7 +224,8 @@ function startVirtualDevice() {
  * KeplerScript-JavaScript) and what the runtime said about it. `--all` prints every line.
  */
 function logs(lines, everything) {
-  const result = shell(`loggingctl log 2>&1 | tail -${Number(lines) || 4000}`);
+  const result = shell(`loggingctl log -v ${packageId} 2>&1 | tail -${Number(lines) || 4000}`);
+  if (result.status !== 0) fail(result.text.trim() || 'The device logs could not be read.');
   const mine = /portico\.vega\[\d+\]/;
   for (const line of result.text.split('\n')) {
     if (everything || (mine.test(line) && !/GWSI_LOG|Inputd-client|SurfaceTelemetryLogger/.test(line))) console.log(line);

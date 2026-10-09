@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Atmosphere, Button, Notice, Text, Wordmark, keyboardAvoidance, useTheme} from '../../ui';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
+import {useKeyboardAvoidanceEnabled} from '../../ui/keyboard-avoidance';
 
 /**
  * Shared frame for every pre-authentication screen: atmosphere, wordmark,
@@ -14,11 +15,12 @@ export function AuthFrame({title, lead, children, onBack, error, onDismissError,
   const {space, isTV, window} = useTheme();
   const note = useSession().signInNote;
   const insets = useSafeAreaInsets();
+  const keyboardAvoidanceEnabled = useKeyboardAvoidanceEnabled();
   const width = Math.min(wide ? 1240 : isTV ? 720 : 560, window.width - space.page * 2);
   return (
     <View style={{flex: 1}}>
       <Atmosphere />
-      <KeyboardAvoidingView style={{flex: 1}} behavior={keyboardAvoidance}>
+      <KeyboardAvoidingView style={{flex: 1}} behavior={keyboardAvoidance} enabled={keyboardAvoidanceEnabled}>
         <ScrollView contentContainerStyle={{flexGrow: 1, paddingHorizontal: space.page, paddingTop: Math.max(insets.top, isTV ? 60 : 0) + (compact ? space.md : space.xl), paddingBottom: insets.bottom + (compact ? space.md : space.xxl), // APL-AUTH-10: centred on television, iPad and landscape phones; left-aligned only on a narrow phone.
           alignItems: isTV || window.width >= 700 ? 'center' : 'flex-start', justifyContent: 'center'}} keyboardShouldPersistTaps="handled">
           <View style={{width, gap: compact ? space.md : space.lg}}>

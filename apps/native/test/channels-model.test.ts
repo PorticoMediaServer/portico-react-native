@@ -96,12 +96,14 @@ function legacyApi(opts: {failKind?: string} = {}) {
   const api = {
     async request<T>(path: string): Promise<T> {
       requests.push(path);
+      if (path.startsWith('/v1/guide/channels?')) throw Object.assign(new Error('unsupported'), {status: 404});
       const q = new URL(path, 'http://x').searchParams;
       const kind = q.get('kind')!, start = q.get('start')!, end = q.get('end')!;
       if (kind === opts.failKind) throw new Error('unavailable');
       const page = Number(q.get('cursor') || 0);
       let all: readonly {id: string; name: string; number: string; group: string}[] = kind === 'live-source' ? demoChannels : library;
       if (q.get('group')) all = all.filter(c => c.group === q.get('group'));
+      if (q.get('channels')) all = all.filter(c => q.get('channels')!.split(',').includes(c.id));
       const slice = all.slice(page * 30, page * 30 + 30);
       const channels = slice.map(c => ({
         id: c.id, sourceId: kind === 'live-source' ? 'antenna' : 'library-src', provenance: kind, name: c.name, number: c.number, group: c.group, generation: 'g1', logoPath: '',
@@ -128,6 +130,8 @@ test('All channels: live sources first in number order, then Library Channels; t
   const numbers = page.items.filter(c => c.kind === 'live').map(c => parseFloat(c.number)).filter(Number.isFinite);
   assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b));
   assert.ok(raw.channels.get(page.items[0]!.id));
+  assert.equal(raw.programmes.size, 0);
+  await src.programs(page.items.map(c => c.id), NOW, NOW + HOUR_MS, new AbortController().signal);
   assert.ok(raw.programmes.size > 0);
 });
 
@@ -145,7 +149,7 @@ test('one source asks only its own kind and passes the group filter', async () =
   const src = channelGuideSource(api, SERVER, {entry: 'antenna', timezone: 'UTC', sort: 'number', group}, newRawIndex(), () => NOW);
   const page = await src.channels(0, 50, new AbortController().signal);
   assert.ok(page.items.length > 0 && page.items.every(c => c.group === group));
-  assert.ok(requests.every(r => r.includes('kind=live-source') && r.includes('sourceId=antenna') && r.includes(`group=${encodeURIComponent(group).replace(/%20/g, '+')}`)));
+  assert.ok(requests.filter(r => !r.startsWith('/v1/guide/channels?')).every(r => r.includes('kind=live-source') && r.includes('sourceId=antenna') && r.includes(`group=${encodeURIComponent(group).replace(/%20/g, '+')}`)));
 });
 
 test('All channels still loads when one kind fails; a single source surfaces the failure', async () => {
@@ -163,8 +167,9 @@ test('through the windowed store: one walk per 3-hour block, shared by every cha
   await settle();
   assert.equal(store.getSnapshot().total, demoChannels.length + 2);
   assert.ok(store.programsFor(0, NOW, NOW + HOUR_MS).complete);
-  // Channel list: one window (2 kinds). Programs: at most 4 blocks × 2 kinds, whatever the page count.
-  assert.ok(requests.length <= 2 + 4 * 2, `${requests.length} requests`);
+  // Old-server negotiation and one directory walk; programme requests name only visible channels.
+  // At most four blocks with four visible channel pages plus one shared library request.
+  assert.ok(requests.length <= 1 + 2 + 4 * 5, `${requests.length} requests`);
   store.dispose();
 });
 

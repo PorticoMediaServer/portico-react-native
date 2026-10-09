@@ -1,7 +1,9 @@
 import {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {NativeModules} from 'react-native';
 import type {ChannelApi} from '../../../../packages/client-core/src/channel-guide';
-import {legacyChannelSources, type ChannelSource} from '../../../../packages/client-core/src/guide/index';
+import {legacyChannelSources} from '../../../../packages/client-core/src/guide/index';
+import {dedupedGuideApi} from '../../../../packages/client-core/src/guide/reads';
+import {ChannelSourcesStore, type ChannelSourcesSnapshot} from '../../../../packages/client-core/src/guide/source-reads';
 import {defaultI18n} from '../../../../packages/i18n/src/index';
 import {NativeQueueStore} from '../bridge/queue-storage';
 import {viewerScope} from './content';
@@ -22,45 +24,21 @@ export * from './channels-model';
 
 // ── Sources for the rail and the screens ─────────────────────────
 
-type SourcesSnapshot = Readonly<{sources: readonly ChannelSource[]; loading: boolean; failed: boolean}>;
+type SourcesSnapshot = ChannelSourcesSnapshot;
 const emptySources: SourcesSnapshot = Object.freeze({sources: [], loading: false, failed: false});
-
-/** One read per signed-in viewer, shared by the rail and the screens (no provider needed). */
-class SourcesStore {
-  private snapshot: SourcesSnapshot = {sources: [], loading: true, failed: false};
-  private listeners = new Set<() => void>();
-  private controller?: AbortController;
-  constructor(private api: ChannelApi, private serverId: string) {}
-  /** A new sign-in as the same viewer brings a new API: the store uses it from now on (the old
-   * one's credentials are gone), and a load that failed is tried again with it. */
-  bind(api: ChannelApi) {
-    if (api === this.api) return;
-    this.api = api;
-    if (this.snapshot.failed) { this.set({...this.snapshot, loading: true}); if (this.listeners.size) this.load(); }
-  }
-  get = () => this.snapshot;
-  subscribe = (fn: () => void) => { this.listeners.add(fn); if (this.listeners.size === 1 && !this.controller && this.snapshot.loading) this.load(); return () => { this.listeners.delete(fn); }; };
-  load = () => {
-    this.controller?.abort();
-    const controller = new AbortController();
-    this.controller = controller;
-    this.set({...this.snapshot, loading: true});
-    legacyChannelSources(this.api, this.serverId, localTimezone(), defaultI18n.t('channels.custom.name'), Date.now(), controller.signal).then(
-      sources => { if (!controller.signal.aborted) this.set({sources: [...sources].sort((a, b) => a.position - b.position), loading: false, failed: false}); },
-      () => { if (!controller.signal.aborted) this.set({...this.snapshot, loading: false, failed: true}); },
-    ).finally(() => { if (this.controller === controller) this.controller = undefined; });
-  };
-  private set(next: SourcesSnapshot) { this.snapshot = next; for (const l of [...this.listeners]) l(); }
-}
-const sourceStores = new Map<string, SourcesStore>();
-function sourcesStore(key: string, api: ChannelApi, serverId: string): SourcesStore {
-  let store = sourceStores.get(key);
+const sourceStores = new WeakMap<ChannelApi, Map<string, ChannelSourcesStore>>();
+function sourcesStore(key: string, api: ChannelApi, serverId: string): ChannelSourcesStore {
+  let stores = sourceStores.get(api);
+  if (!stores) sourceStores.set(api, (stores = new Map()));
+  let store = stores.get(key);
   if (!store) {
-    store = new SourcesStore(api, serverId);
-    sourceStores.set(key, store);
-    while (sourceStores.size > 4) sourceStores.delete(sourceStores.keys().next().value!);
+    store = new ChannelSourcesStore(api, (current, signal) => legacyChannelSources(dedupedGuideApi(current), serverId, localTimezone(), defaultI18n.t('channels.custom.name'), Date.now(), signal));
+    stores.set(key, store);
+    while (stores.size > 4) {
+      const oldest = stores.keys().next().value!;
+      stores.get(oldest)?.dispose(); stores.delete(oldest);
+    }
   }
-  store.bind(api);
   return store;
 }
 const noSubscribe = () => () => {};
