@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {NativeModules} from 'react-native';
 
 const calls: {name: string; args: unknown[]}[] = [];
-let held: {baseUrl: string; expiresAt: string} | null = null;
+let held: {baseUrl: string; expiresAt: string; owner: string} | null = null;
+const owner = 'server-1:profile-1';
 (NativeModules as Record<string, unknown>).PorticoTopShelf = {
   configure: async (...args: unknown[]) => {
     calls.push({name: 'configure', args});
@@ -27,14 +28,14 @@ const api = (token: unknown) => ({
 
 test('a fresh shelf costs no request', async () => {
   calls.length = 0;
-  held = {baseUrl: 'https://server.example', expiresAt: new Date(Date.now() + 30 * 86400000).toISOString()};
-  await refreshTopShelf(api({token: 'new', expiresAt: new Date().toISOString()}) as never, 'inst-1');
+  held = {baseUrl: 'https://server.example', expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(), owner};
+  await refreshTopShelf(api({token: 'new', expiresAt: new Date().toISOString()}) as never, 'inst-1', owner);
   assert.equal(calls.length, 0);
 });
 
 test('a stale shelf is renewed with the installation id', async () => {
   calls.length = 0;
-  held = {baseUrl: 'https://server.example', expiresAt: new Date(Date.now() + 1000).toISOString()};
+  held = {baseUrl: 'https://server.example', expiresAt: new Date(Date.now() + 1000).toISOString(), owner};
   let body: unknown;
   await refreshTopShelf(
     {
@@ -45,17 +46,19 @@ test('a stale shelf is renewed with the installation id', async () => {
       mediaUrl: (p: string) => 'https://server.example' + p,
     } as never,
     'inst-9',
+    owner,
   );
   assert.deepEqual(body, {installationId: 'inst-9'});
   assert.equal(calls[0].name, 'configure');
   assert.equal((calls[0].args as string[])[0], 'https://server.example');
   assert.equal((calls[0].args as string[])[1], 'tok');
+  assert.equal((calls[0].args as string[])[3], owner);
 });
 
 test('a token without both fields configures nothing; a failure keeps the old shelf', async () => {
   calls.length = 0;
   held = null;
-  await refreshTopShelf(api({token: 'only-token'}) as never, 'inst-1');
+  await refreshTopShelf(api({token: 'only-token'}) as never, 'inst-1', owner);
   assert.equal(calls.length, 0);
   await refreshTopShelf(
     {
@@ -65,6 +68,7 @@ test('a token without both fields configures nothing; a failure keeps the old sh
       mediaUrl: (p: string) => 'https://server.example' + p,
     } as never,
     'inst-1',
+    owner,
   );
   assert.equal(calls.length, 0);
   clearTopShelf();
