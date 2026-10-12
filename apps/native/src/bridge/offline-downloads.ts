@@ -21,6 +21,11 @@ const signedIdentity = (r: DownloadReceipt) => `${r.keyId}\u0000${r.payload}\u00
 
 /** The most receipts the server renews in one request. */
 const RECEIPT_BATCH = 100;
+/** The most pages of a container request's members (100 each) read in one pass. */
+const ENROLL_PAGES_PER_PASS = 50;
+/** The most members left waiting to be collected before more of a container request is read. They
+ * are kept in the bookkeeping document, which the device refuses to save past a megabyte. */
+const ENROLL_BACKLOG = 5000;
 
 export type OfflineEntry = Readonly<{
   id: string; itemId: string; title: string; subtitle: string; quality: string; artworkUrl: string;
@@ -128,8 +133,11 @@ export class OfflineDownloads {
   private receiving = new Set<string>();
   private unfollow?: () => void;
   private collecting = new Set<string>();
-  /** Per container request: the counts its members were last read at (pages past the first). */
-  private enrolled = new Map<string, string>();
+  /** Per container request, the reading of its members past the first page: the member the next
+   * page starts after, how many have been read, the counts the request had at the last look, and
+   * whether the last page was reached (it is read again, from the same place, when they change). */
+  private enrolled = new Map<string, {after: string; read: number; mark: string; tail: boolean; busy: boolean}>();
+  private enrollTimer?: ReturnType<typeof setTimeout>;
   /** Members already enrolled, once each: a download deleted later (by hand or after watching)
    * is not wanted again because its request is still followed. */
   private enrolledItems = new Set<string>();
@@ -309,6 +317,7 @@ export class OfflineDownloads {
     await this.enrollRequests(owner, service, generation).catch(() => {});
     if (generation !== this.generation) return;
     const mine = this.stored.wanted[owner]; if (!mine) return;
+    let collected = false;
     for (const p of service.getSnapshot().items) {
       if (this.generation !== generation) return;
       const display = mine[p.itemId];
@@ -319,15 +328,29 @@ export class OfflineDownloads {
         if (this.generation !== generation) return;
         delete this.stored.wanted[owner]?.[p.itemId];
         await this.persist();
+        collected = true;
       } catch { /* offered by hand on the Downloads page */ } finally { this.collecting.delete(p.id); }
     }
+    // Room on the list: a large request that was waiting for it reads on.
+    if (collected && [...this.enrolled.values()].some(reading => !reading.tail)) this.enrollSoon(generation);
+  }
+  /** One more pass, shortly: a fresh one, so no single pass does unbounded work. */
+  private enrollSoon(generation: number) {
+    if (generation !== this.generation || this.enrollTimer) return;
+    this.enrollTimer = setTimeout(() => { this.enrollTimer = undefined; void this.collect(generation); }, 0);
   }
   /** A whole season, show, album or book asked for from this device comes to this device like a
-   * single title does: each member is wanted as the request lists it. Members past the first page
-   * (100) are read once each time the request's counts change. */
+   * single title does: each member is wanted as the request lists it, however many there are.
+   * Members past the first page (100) are read a bounded batch of pages at a time. Each batch
+   * carries on after the last member read, and what it enrolled is saved before the next one
+   * starts, so a very large request is neither cut short nor read from the start again. Reading
+   * waits while the list of members still to be collected is full, and goes on as they arrive, so
+   * that list stays bounded however large the request is. Once the last page is reached it is
+   * looked at again only when the request's counts change, which is how members the server lists
+   * later are found. */
   private async enrollRequests(owner: string, service: DownloadsService, generation: number) {
-    const mine = bucket(this.stored.wanted, owner);
-    let added = false;
+    const mine = bucket(this.stored.wanted, owner), api = this.api;
+    let added = false, more = false;
     for (const tracked of service.getSnapshot().requests) {
       const r = tracked.request;
       const add = (items: readonly {itemId: string}[]) => {
@@ -339,18 +362,39 @@ export class OfflineDownloads {
         }
       };
       add(r.items);
+      if (!r.nextCursor || !api) continue;
       const mark = `${r.total}/${r.ready}/${r.preparing}/${r.queued}`;
-      if (!r.nextCursor || !this.api || this.enrolled.get(r.requestId) === mark) continue;
-      this.enrolled.set(r.requestId, mark);
-      let cursor = r.nextCursor;
-      for (let i = 0; cursor && i < 50; i++) {
-        const page = await getDownloadRequest(this.api, r.requestId, {cursor});
-        if (generation !== this.generation) return;
-        add(page.items);
-        cursor = page.nextCursor;
-      }
+      const reading = this.enrolled.get(r.requestId) ?? {after: r.nextCursor, read: 0, mark: '', tail: false, busy: false};
+      this.enrolled.set(r.requestId, reading);
+      // Another pass is reading this request, or it has been read to its end (or to a page that
+      // could not be read) and nothing about it has changed since.
+      if (reading.busy || (reading.tail && reading.mark === mark)) continue;
+      const restart = () => { reading.after = r.nextCursor; reading.read = 0; reading.tail = true; };
+      reading.mark = mark; reading.tail = false; reading.busy = true;
+      let held = false;
+      try {
+        for (let i = 0; i < ENROLL_PAGES_PER_PASS && !reading.tail; i++) {
+          if (Object.keys(mine).length >= ENROLL_BACKLOG) { held = true; break; }
+          const page = await getDownloadRequest(api, r.requestId, {cursor: reading.after});
+          if (generation !== this.generation) return;
+          add(page.items);
+          reading.read += page.items.length;
+          // More members than the request has: its list changed under the reading (or the server
+          // is repeating itself). Stop, and read from the first page when it next changes.
+          if (r.items.length + reading.read > page.total) restart();
+          else if (!page.nextCursor || page.nextCursor === reading.after || !page.items.length) { reading.read -= page.items.length; reading.tail = true; }
+          else reading.after = page.nextCursor;
+        }
+        if (!reading.tail && !held) more = true;
+      } catch (e) {
+        // A page that cannot be read waits for the request to change; the reading then carries on
+        // from the same place. A place the server no longer knows (400) starts from the first page.
+        if ((e as {status?: unknown} | null)?.status === 400) restart(); else reading.tail = true;
+      } finally { reading.busy = false; }
     }
     if (added) await this.persist();
+    // The rest of a large request is the next batch's.
+    if (more) this.enrollSoon(generation);
   }
   /** APP-09: finishing a title asks the server to prepare the next one, and the
    * accepted items become this viewer's local wants — the same two steps the
