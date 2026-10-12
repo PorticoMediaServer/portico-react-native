@@ -5,7 +5,7 @@ import type {ChannelSource} from '../../../../../packages/client-core/src/guide/
 import {sourceName, useReminders, type RawIndex, type Reminder} from '../../app/channels';
 import {useArtwork} from '../../app/content';
 import {useDVRClient} from '../../app/dvr';
-import {Artwork, Badge, Button, Menu, Notice, Segmented, Sheet, Text, showToast, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
+import {Artwork, Badge, Button, ConfirmSheet, Menu, Notice, Segmented, Sheet, Text, showToast, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
 import {ChannelLogo, ChannelName, channelReason} from './parts';
 import {episodeLine, type GuideFormat} from './format';
 import {dvrLimits, dvrPaddings} from './dvr-groups';
@@ -33,11 +33,12 @@ export function ProgramSheet({selection, format, raw, sources, showSource, quiet
   const airing = !!program && program.start <= now && program.end > now;
   const ended = !!program && program.end <= now;
   const future = !!program && program.start > now;
-  const [busy, setBusy] = useState<'one' | 'series' | 'cancel' | null>(null);
+  const [busy, setBusy] = useState<'one' | 'series' | null>(null);
   const [error, setError] = useState('');
   const [done, setDone] = useState<'one' | 'series' | 'canceled' | null>(null);
   const [recordAsk, setRecordAsk] = useState(false);
   const [seriesAsk, setSeriesAsk] = useState(false);
+  const [cancelAsk, setCancelAsk] = useState(false);
   const [episodes, setEpisodes] = useState<'new' | 'all'>('new');
   const [anyChannel, setAnyChannel] = useState(false);
   // FEAT-02: padding for a one-time record and keep + padding for a series rule, from the same
@@ -56,7 +57,7 @@ export function ProgramSheet({selection, format, raw, sources, showSource, quiet
   const canRecord = !!dvr && !!rawChannel && !!rawProgram && channel.kind === 'live' && channel.recordAvailable && !ended;
   const draft: RecordingDraft | undefined = rawChannel && rawProgram ? {channel: rawChannel, programme: rawProgram, series: false} : undefined;
   const scheduled = (!!program?.recording && done !== 'canceled') || done === 'one';
-  const record = async (kind: 'one' | 'series' | 'cancel') => {
+  const record = async (kind: 'one' | 'series') => {
     if (!dvr || !draft || busy) return;
     setBusy(kind); setError('');
     try {
@@ -66,11 +67,17 @@ export function ProgramSheet({selection, format, raw, sources, showSource, quiet
         const {config, anchor} = seriesRuleConfig({...draft, series: true}, {episodes, keep, beforeSeconds, afterSeconds, anyChannel});
         await dvr.saveRule(await dvr.newRuleID(), 0, config, anchor);
       }
-      else if (program?.recording?.id) await dvr.cancel((await dvr.detail(program.recording.id)).recording);
-      setDone(kind === 'cancel' ? 'canceled' : kind); setSeriesAsk(false); setRecordAsk(false);
-      if (kind !== 'cancel') showToast({message: kind === 'one' ? t('guide.scheduledBody') : t('guide.seriesSet'), icon: 'dvr', ...(onRecordings ? {action: {label: t('guide.viewRecordings'), onPress: onRecordings}} : {})});
+      setDone(kind); setSeriesAsk(false); setRecordAsk(false);
+      showToast({message: kind === 'one' ? t('guide.scheduledBody') : t('guide.seriesSet'), icon: 'dvr', ...(onRecordings ? {action: {label: t('guide.viewRecordings'), onPress: onRecordings}} : {})});
       onChanged();
     } catch (e) { setError(dvrMessage(e)); } finally { setBusy(null); }
+  };
+  // Cancelling asks first, as Recordings does; a failure stays in the confirmation.
+  const cancelRecording = async () => {
+    if (!dvr || !program?.recording?.id) return;
+    await dvr.cancel((await dvr.detail(program.recording.id)).recording);
+    setDone('canceled');
+    onChanged();
   };
   const pickItems = picking === 'keep'
     ? dvrLimits.map(n => ({id: String(n), label: n ? t('recordings.keepLatest', {count: n}) : t('recordings.keepAll'), selected: keep === n}))
@@ -98,6 +105,10 @@ export function ProgramSheet({selection, format, raw, sources, showSource, quiet
   const recordPrimary = !showWatch && canRecord && !scheduled;
   // TV opens on the first action that can be used: Watch, else Record, else Remind me, else Favorite.
   const focusFirst: 'watch' | 'record' | 'remind' | 'favorite' = showWatch && channel.tuneAvailable ? 'watch' : canRecord && !scheduled ? 'record' : future && reminder ? 'remind' : 'favorite';
+
+  if (cancelAsk) {
+    return <ConfirmSheet open onDismiss={() => setCancelAsk(false)} title={t('recordings.cancelTitle', {title: program?.title ?? ''})} consequence={t(program?.recording?.state === 'recording' ? 'recordings.cancelKeepsRecorded' : 'recordings.cancelNotRecorded')} confirmLabel={t('recordings.cancelAction')} describeError={dvrMessage} onConfirm={cancelRecording} />;
+  }
 
   if (seriesAsk) {
     return (
@@ -165,7 +176,7 @@ export function ProgramSheet({selection, format, raw, sources, showSource, quiet
         {error ? <Notice tone="error" message={error} /> : null}
         <View style={{flexDirection: isTV ? 'column' : 'row', flexWrap: 'wrap', alignItems: isTV ? 'stretch' : 'center', gap: space.sm}}>
           {showWatch ? <Button ref={focusFirst === 'watch' ? primaryRef : undefined} variant="primary" icon="play" label={watchLabel} disabled={!channel.tuneAvailable} onPress={() => { onClose(); onWatch(selection); }} /> : null}
-          {canRecord && scheduled && program?.recording ? <Button variant="secondary" icon="close" label={t('web.dvr.cancelRecording')} loading={busy === 'cancel'} disabled={!!busy} onPress={() => void record('cancel')} /> : null}
+          {canRecord && scheduled && program?.recording ? <Button variant="secondary" icon="close" label={t('web.dvr.cancelRecording')} disabled={!!busy} onPress={() => setCancelAsk(true)} /> : null}
           {canRecord && !scheduled ? <Button ref={focusFirst === 'record' ? primaryRef : undefined} variant={recordPrimary ? 'primary' : 'secondary'} icon="dvr" label={t('guide.record')} loading={busy === 'one'} disabled={!!busy} onPress={() => setRecordAsk(true)} /> : null}
           {canRecord && program?.seriesId && done !== 'series' ? <Button variant="secondary" icon="repeat" label={t('guide.recordSeries')} disabled={!!busy} onPress={() => setSeriesAsk(true)} /> : null}
           {future && reminder ? <Button ref={focusFirst === 'remind' ? primaryRef : undefined} variant="secondary" icon={reminded ? 'close' : 'bell'} label={reminded ? t('guide.stopRemind') : t('guide.remind')} onPress={() => reminders.toggle(reminder)} /> : null}
