@@ -153,6 +153,7 @@ internal class PorticoSubtitleSelection {
       override fun onResponse(call: Call, response: Response) {
         var body: ByteArray? = null
         var failure: String? = null
+        var transient = false
         val code = response.code
         val tag = response.header("ETag")?.takeIf { it.length <= 256 }
         response.use {
@@ -165,26 +166,29 @@ internal class PorticoSubtitleSelection {
               while (source.read(buffer, 16384) != -1L) if (buffer.size > BYTE_LIMIT) { failure = "Subtitle data exceeded the supported limit."; break }
               if (failure == null) body = buffer.readByteArray()
             } catch (_: IOException) {
+              transient = true
               failure = "Subtitles could not be read. Check the server connection."
             }
+          } else if (code in 500..599) {
+            transient = true
+            failure = "Subtitles could not be read. Check the server connection."
           } else if (code != 304) {
             failure = "Subtitles are unavailable or access was revoked."
           }
         }
-        main.post { finished(attempt, started, Answer(code, tag, body, failure)) }
+        main.post { finished(attempt, started, Answer(code, tag, body, failure, transient)) }
       }
     })
   }
 
-  private class Answer(val code: Int, val etag: String?, val body: ByteArray?, val failure: String?)
+  private class Answer(val code: Int, val etag: String?, val body: ByteArray?, val failure: String?, val transient: Boolean)
 
   private fun finished(attempt: Int, started: Call, answer: Answer?) {
     if (attempt != generation || call !== started) return
     call = null
-    if (answer == null) {
-      cues = null
-      authorizedUntil = 0
-      show("")
+    if (answer == null || answer.transient) {
+      // Keep the previous grant's deadline: a failed check cannot extend authorization.
+      tick(positionUs)
       status("Subtitles could not be read. Check the server connection.")
       return
     }
@@ -195,7 +199,6 @@ internal class PorticoSubtitleSelection {
       tick(positionUs)
       return
     }
-    etag = answer.etag
     if (answer.failure != null || answer.body == null) {
       cues = null
       authorizedUntil = 0
@@ -212,6 +215,7 @@ internal class PorticoSubtitleSelection {
       status("The server returned invalid subtitle timing or text.")
       return
     }
+    etag = answer.etag
     cues = parsed
     var maxEnd = 0L
     prefixEnds = LongArray(parsed.size) { index -> maxOf(maxEnd, parsed[index].end).also { maxEnd = it } }

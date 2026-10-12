@@ -24,7 +24,7 @@ static BOOL PlainText(id value){
  NSTimeInterval _authorizedUntil,_lastRequest;CMTime _time;
  // The validator of the document held in _cues. It is sent by hand on every reload, so the
  // server can answer "still authorised, unchanged" with a header instead of the whole track.
- NSString *_etag;BOOL _notModified;
+ NSString *_etag,*_responseEtag;BOOL _notModified;
 }
 + (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {
  NSString *wanted=[[language lowercaseString] componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
@@ -43,7 +43,7 @@ static BOOL PlainText(id value){
 - (void)status:(NSString *)error{if(self.onStatus)self.onStatus(error?:@"");}
 - (void)invalidate {
  [_task cancel];_task=nil;[_session invalidateAndCancel];_session=nil;[_timer invalidate];_timer=nil;
- _command=nil;_item=nil;_cues=nil;_prefixEnds=nil;_bytes=nil;_url=nil;_etag=nil;_notModified=NO;_revision=0;_offset=0;_authorizedUntil=0;_lastRequest=0;_legibleRequested=NO;_nativeSelected=NO;_nativeName=nil;_nativeLanguage=nil;_nativeTitle=nil;
+ _command=nil;_item=nil;_cues=nil;_prefixEnds=nil;_bytes=nil;_url=nil;_etag=nil;_responseEtag=nil;_notModified=NO;_revision=0;_offset=0;_authorizedUntil=0;_lastRequest=0;_legibleRequested=NO;_nativeSelected=NO;_nativeName=nil;_nativeLanguage=nil;_nativeTitle=nil;
  [self setText:@""];
 }
 - (void)disableEmbedded:(AVPlayerItem *)item {
@@ -91,7 +91,7 @@ static BOOL PlainText(id value){
 }
 - (void)fetch {
  if(!_url||!_session||_task)return;
- _lastRequest=NSProcessInfo.processInfo.systemUptime;_bytes=[NSMutableData new];_failed=NO;
+ _lastRequest=NSProcessInfo.processInfo.systemUptime;_bytes=[NSMutableData new];_failed=NO;_responseEtag=nil;
  NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:_url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
  _notModified=NO;if(_etag.length&&_cues)[request setValue:_etag forHTTPHeaderField:@"If-None-Match"];
  // A scoped media grant, not a bearer credential. Redirects are denied below.
@@ -104,7 +104,8 @@ static BOOL PlainText(id value){
  // 304 is the server saying: checked in full, still yours, unchanged. Only ever in answer to the
  // validator sent above; the cache policy never lets the system answer on the server's behalf.
  if(http.statusCode==304&&_etag.length&&_cues){_notModified=YES;completionHandler(NSURLSessionResponseCancel);return;}
- id tag=[http valueForHTTPHeaderField:@"ETag"];_etag=([tag isKindOfClass:NSString.class]&&[tag length]<=256)?[tag copy]:nil;
+ if(http.statusCode>=500&&http.statusCode<=599){_failed=YES;[self status:@"Subtitles could not be read. Check the server connection."];completionHandler(NSURLSessionResponseCancel);return;}
+ id tag=[http valueForHTTPHeaderField:@"ETag"];_responseEtag=([tag isKindOfClass:NSString.class]&&[tag length]<=256)?[tag copy]:nil;
  if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitles are unavailable or access was revoked."];completionHandler(NSURLSessionResponseCancel);return;}
  completionHandler(NSURLSessionResponseAllow);
 }
@@ -114,7 +115,7 @@ static BOOL PlainText(id value){
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  if(task!=_task)return;_task=nil;
  if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];return;}
- if(_failed||error){_bytes=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];if(!_failed)[self status:@"Subtitles could not be read. Check the server connection."];return;}
+ if(_failed||error){_bytes=nil;[self tick:_time];if(!_failed)[self status:@"Subtitles could not be read. Check the server connection."];return;}
  id document=[NSJSONSerialization JSONObjectWithData:_bytes options:0 error:nil];_bytes=nil;
  BOOL valid=[document isKindOfClass:NSDictionary.class]&&PositiveInteger(document[@"version"])&&[document[@"version"] isEqual:@1]&&[document[@"timeDomain"] isEqual:@"source-relative"]&&[document[@"cues"] isKindOfClass:NSArray.class]&&[document[@"cues"] count]<=20000;
  NSMutableArray *cues=[NSMutableArray new],*ends=[NSMutableArray new];int64_t previous=-1,maxEnd=0;NSUInteger textBytes=0;
@@ -126,7 +127,7 @@ static BOOL PlainText(id value){
  }
  if(valid&&cues.count==0&&[document[@"cues"] count]>0)valid=NO;
  if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"The server returned invalid subtitle timing or text."];return;}
- _cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
+ _etag=_responseEtag;_cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
 }
 - (void)tick:(CMTime)time {
  _time=time;if(_nativeSelected){[self setText:@""];return;}if(!_command||!_cues||NSProcessInfo.processInfo.systemUptime>_authorizedUntil||!CMTIME_IS_NUMERIC(time)){[self setText:@""];return;}
