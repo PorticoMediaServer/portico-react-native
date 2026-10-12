@@ -40,8 +40,10 @@ export const viewer = new ViewerService();
 /* Device-bound sessions: every credential request names this installation (the Keychain-held id
  * the native bridge keeps), so the server binds the sign-in to it and later accepts its refresh.
  * Resume waits for this before renewing a saved sign-in. */
+let secureRecordsRecovered = false;
 const installationReady: Promise<void> = (async () => {
   try {
+    secureRecordsRecovered = await NativeModules.PorticoRuntime.prepareSecureRecords();
     const [installationId, device] = await Promise.all([profileInstallation(), deviceIdentity()]);
     if (!validInstallationId(installationId)) return;
     setInstallationIdentity({installationId, name: device.deviceName, platform: installationPlatform, app: 'Portico', appVersion: device.appVersion});
@@ -259,6 +261,16 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const signInNeeded = useRef<(reason: 'ended' | 'noAccess' | 'reset', record?: SelectedViewerRecord) => void>(() => {});
   const [signInHint, setSignInHint] = useState<SessionValue['signInHint']>();
   const [signInNote, setSignInNote] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void installationReady.then(() => {
+      if (active && secureRecordsRecovered) {
+        secureRecordsRecovered = false;
+        setSignInNote(activeI18n().t('web.hostedAccount.ended') + ' ' + activeI18n().t('web.hostedAccount.signInAgain'));
+      }
+    });
+    return () => { active = false; };
+  }, []);
   const keepAlive = useCallback((local: HttpLocalApi, record: SelectedViewerRecord) => {
     refresher.current?.stop();
     refresher.current = new LocalSessionRefresher({
