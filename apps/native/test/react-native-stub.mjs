@@ -53,6 +53,8 @@ export const NativeModules = {
     cancelBrowse() {},
     async browse() { return []; },
   },
+  // Open-ended: a test installs (and removes) the runtime methods the bridge under test calls.
+  /** @type {Record<string, any>} */
   PorticoRuntime: {
     playbackRequestId: () => 'req',
     playbackRandomBytes: n => Array.from({length: n}, () => 0),
