@@ -60,14 +60,15 @@ function useSavedService(route: SavedRoute | null) {
     };
   }, [service]);
   const key = route ? JSON.stringify(route) : '';
-  const last = useRef('');
+  // A replaced service (a renewed sign-in) starts idle, so the same route is selected on it again.
+  const last = useRef<{key: string; service: unknown}>({key: '', service: null});
   useEffect(() => {
     if (!route) {
-      last.current = '';
+      last.current = {key: '', service: null};
       return;
     }
-    if (last.current === key) return;
-    last.current = key;
+    if (last.current.key === key && last.current.service === service) return;
+    last.current = {key, service};
     // select() validates the route synchronously; a refusal must not escape the effect.
     Promise.resolve().then(() => service.select(route)).catch(() => {});
   }, [service, key, route]);
