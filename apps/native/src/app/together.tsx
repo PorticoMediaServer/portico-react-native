@@ -31,8 +31,8 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
       state: () => {
         const s = live.current.state;
         // `seeking`: a seek the engine has not confirmed yet, so the follower waits for it to land
-        // instead of seeking again.
-        return {itemId: s.itemId ?? '', positionSeconds: s.pendingSeek?.positionSeconds ?? s.positionSeconds, playing: s.phase === 'ready' && s.intent === 'playing', buffering: !!s.recovering || s.phase === 'starting', ready: s.phase === 'ready', seeking: !!s.pendingSeek};
+        // instead of seeking again. `durationSeconds` keeps a compensated seek away from the end.
+        return {itemId: s.itemId ?? '', positionSeconds: s.pendingSeek?.positionSeconds ?? s.positionSeconds, playing: s.phase === 'ready' && s.intent === 'playing', buffering: !!s.recovering || s.phase === 'starting', ready: s.phase === 'ready', seeking: !!s.pendingSeek, durationSeconds: s.duration > 0 ? s.duration : undefined};
       },
       load: (itemId, positionSeconds) => {
         live.current.play(itemId, positionSeconds);
