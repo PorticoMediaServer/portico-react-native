@@ -66,6 +66,7 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
 
   override fun invalidate() {
     PorticoTransport.cancelOwnedBy(this)
+    PorticoEventStream.cancelOwnedBy(this)
     super.invalidate()
   }
 
@@ -104,6 +105,16 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   @ReactMethod
   fun networkRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, promise: Promise) =
       boundedRequest(identifier, url, method, headers, body, fullAPI = true, promise)
+
+  @ReactMethod
+  fun openNetworkStream(identifier: String?, url: String?, headers: ReadableMap?, promise: Promise) =
+      PorticoEventStream.open(this, identifier, url, headers, promise)
+
+  @ReactMethod
+  fun readNetworkStream(identifier: String?, promise: Promise) = PorticoEventStream.read(identifier, promise)
+
+  @ReactMethod
+  fun cancelNetworkStream(identifier: String?) = PorticoEventStream.cancel(identifier)
 
   private fun boundedRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, fullAPI: Boolean, promise: Promise) {
     val target = PorticoTransport.target(url)
