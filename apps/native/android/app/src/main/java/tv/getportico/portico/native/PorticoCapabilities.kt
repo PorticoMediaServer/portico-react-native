@@ -299,7 +299,8 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
   companion object {
     private val VIDEO = mapOf(
         "video/avc" to "h264", "video/hevc" to "hevc", "video/av01" to "av1", "video/x-vnd.on2.vp9" to "vp9",
-        "video/x-vnd.on2.vp8" to "vp8", "video/mp4v-es" to "mpeg4", "video/mpeg2" to "mpeg2")
+        "video/x-vnd.on2.vp8" to "vp8", "video/mp4v-es" to "mpeg4", "video/mpeg2" to "mpeg2video",
+        "video/wvc1" to "vc1")
     private val AUDIO = mapOf(
         "audio/mp4a-latm" to "aac", "audio/mpeg" to "mp3", "audio/opus" to "opus", "audio/vorbis" to "vorbis",
         "audio/flac" to "flac", "audio/raw" to "pcm", "audio/ac3" to "ac3", "audio/eac3" to "eac3",
