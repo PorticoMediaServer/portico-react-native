@@ -187,6 +187,8 @@ internal class PorticoSubtitleSelection {
     if (attempt != generation || call !== started) return
     call = null
     if (answer == null || answer.transient) {
+      // Retry in five seconds, while a previous grant may still authorize the held cues.
+      lastRequest = SystemClock.elapsedRealtime() - 20_000
       // Keep the previous grant's deadline: a failed check cannot extend authorization.
       tick(positionUs)
       status("Subtitles could not be read. Check the server connection.")
