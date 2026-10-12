@@ -2,6 +2,7 @@ import React, {createContext, useContext, useEffect, useMemo, useRef, useSyncExt
 import {GroupFollower, GroupSessionService, type GroupPlayer, type GroupSessionSnapshot} from '../../../../packages/client-core/src/index';
 import {openEventStream} from '../bridge/event-stream';
 import type {PlayerEngine} from '../player/usePlayer';
+import {groupStep} from '../player/queue-step';
 import {useSession} from './session';
 
 const Ctx = createContext<GroupSessionService | null>(null);
@@ -46,6 +47,7 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
     const follower = new GroupFollower(service, player);
     follower.start();
     const mine = () => { const group = service.getSnapshot().group; return group?.timeline.itemId && group.timeline.itemId === live.current.state.itemId ? group : undefined; };
+    const hostMoves = () => service.notice('Only the host can move the group to another moment.');
     live.current.setGroupControl({
       toggle: playing => {
         const group = mine(); if (!group) return false;
@@ -56,9 +58,11 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
       seek: seconds => {
         const group = mine(); if (!group) return false;
         if (group.permissions.canControl) void service.transport('seek', {positionUs: String(Math.round(seconds * 1e6))});
-        else service.notice('Only the host can move the group to another moment.');
+        else hostMoves();
         return true;
       },
+      // Next and Previous move the group's queue for everyone, never this device's own.
+      step: action => groupStep(mine(), action, {transport: command => void service.transport(command), refuse: hostMoves}),
     });
     return () => { follower.stop(); live.current.setGroupControl(null); };
   }, [service, inRoom, api]);

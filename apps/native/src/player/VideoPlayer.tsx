@@ -29,7 +29,6 @@ import {scrubTarget, useSiriRemoteTouch} from '../bridge/NativeSiriRemote';
 import {activeI18n} from '../app/errors';
 import {GroupPill} from './GroupPill';
 import {endedCopy} from './ended-copy';
-import {stepQueue} from './queue-step';
 import {canStepChannel, channelStep, tunedChannel} from './channel-lineup';
 import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
@@ -243,7 +242,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel));
   const systemItemId = state.itemId ?? identity.itemId;
   // Next and Previous move through the queue. Live TV has none: its own are the channel steps.
-  const stepInQueue = (action: 'next' | 'previous') => { if (!state.channel) void stepQueue(engine.service, action).catch(() => {}); };
+  const stepInQueue = (action: 'next' | 'previous') => { if (!state.channel) engine.step(action); };
   const resumeAfterInterruption = useRef(false);
   const route = useSystemMedia(
     isAudio || !engine.active || !systemItemId || !session
