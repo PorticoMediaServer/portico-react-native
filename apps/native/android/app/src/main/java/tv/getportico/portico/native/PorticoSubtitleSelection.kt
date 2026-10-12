@@ -101,8 +101,8 @@ internal class PorticoSubtitleSelection {
     val media = try { Uri.parse(source ?: "") } catch (_: Exception) { null }
     val grant = media?.pathSegments?.getOrNull(2) ?: ""
     val expected = "/v1/media/$grant/subtitles/$resourceId/${(value["resourceRevision"] as Number).toLong()}"
-    val loopback = target?.host?.lowercase() in LOOPBACK
-    if (target == null || media == null || !(target.scheme == "https" || (target.scheme == "http" && loopback)) || target.scheme != media.scheme ||
+    val homeNetwork = privateHost(target?.host)
+    if (target == null || media == null || !(target.scheme == "https" || (target.scheme == "http" && homeNetwork)) || target.scheme != media.scheme ||
         target.host?.lowercase() != media.host?.lowercase() || target.port != media.port || target.userInfo != null ||
         target.encodedQuery != null || target.encodedFragment != null || target.path != expected || !ROUTE.matches(expected)) {
       invalidate()
@@ -268,8 +268,36 @@ internal class PorticoSubtitleSelection {
   companion object {
     private const val BYTE_LIMIT = 8L * 1024 * 1024
     private const val DAY_US = 86_400_000_000L
-    private val LOOPBACK = setOf("localhost", "127.0.0.1", "::1", "[::1]")
     private val ROUTE = Regex("^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$")
+
+    /**
+     * Plain HTTP is for this device and the home network only, the rule every server address the
+     * app connects to already passes: localhost, a .local name, or a private or link-local
+     * address. Anything else needs HTTPS.
+     */
+    private fun privateHost(value: String?): Boolean {
+      if (value.isNullOrEmpty() || value.length > 255) return false
+      var h = value.lowercase()
+      if (h.length > 2 && h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length - 1)
+      if (h == "localhost" || h == "::1") return true
+      if (h.endsWith(".local")) return h.all { it in "abcdefghijklmnopqrstuvwxyz0123456789._-" }
+      if (h.contains(':')) {
+        // IPv6: unique local (fc00::/7) or link-local (fe80::/10), with no zone and no embedded IPv4.
+        if (h.length < 5 || !h.all { it in "0123456789abcdef:" } || h[2] == ':' || h[3] == ':' || h[4] != ':') return false
+        return h.startsWith("fc") || h.startsWith("fd") || (h.startsWith("fe") && h[2] in "89ab")
+      }
+      // IPv4 in plain dotted decimal: 10/8, 127/8, 172.16/12, 192.168/16 or 169.254/16.
+      val parts = h.split('.')
+      if (parts.size != 4) return false
+      val n = IntArray(4)
+      for (i in 0 until 4) {
+        val part = parts[i]
+        if (part.isEmpty() || part.length > 3 || (part.length > 1 && part[0] == '0') || !part.all { it in '0'..'9' }) return false
+        n[i] = part.toInt()
+        if (n[i] > 255) return false
+      }
+      return n[0] == 10 || n[0] == 127 || (n[0] == 192 && n[1] == 168) || (n[0] == 172 && n[1] in 16..31) || (n[0] == 169 && n[1] == 254)
+    }
 
     /** A scoped media grant, not a bearer credential; a redirect is never followed. */
     private val client: OkHttpClient by lazy {
