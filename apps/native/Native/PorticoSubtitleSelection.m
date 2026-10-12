@@ -15,6 +15,31 @@ static BOOL PlainText(id value){
  for(NSUInteger i=0;i<[value length];i++){unichar c=[value characterAtIndex:i];if((c<32&&c!=9&&c!=10)||c==127)return NO;}
  return YES;
 }
+// Plain HTTP is for this device and the home network only, the rule every server address the app
+// connects to already passes: localhost, a .local name, or a private or link-local address.
+// Anything else needs HTTPS.
+static BOOL PrivateHost(NSString *value){
+ if(![value isKindOfClass:NSString.class]||!value.length||value.length>255)return NO;
+ NSString *h=value.lowercaseString;
+ if(h.length>2&&[h hasPrefix:@"["]&&[h hasSuffix:@"]"])h=[h substringWithRange:NSMakeRange(1,h.length-2)];
+ if([h isEqualToString:@"localhost"]||[h isEqualToString:@"::1"])return YES;
+ if([h hasSuffix:@".local"])return [h rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789._-"].invertedSet].location==NSNotFound;
+ if([h containsString:@":"]){
+  // IPv6: unique local (fc00::/7) or link-local (fe80::/10), with no zone and no embedded IPv4.
+  if(h.length<5||[h rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef:"].invertedSet].location!=NSNotFound||[h characterAtIndex:2]==':'||[h characterAtIndex:3]==':'||[h characterAtIndex:4]!=':')return NO;
+  unichar third=[h characterAtIndex:2];
+  return [h hasPrefix:@"fc"]||[h hasPrefix:@"fd"]||([h hasPrefix:@"fe"]&&(third=='8'||third=='9'||third=='a'||third=='b'));
+ }
+ // IPv4 in plain dotted decimal: 10/8, 127/8, 172.16/12, 192.168/16 or 169.254/16.
+ NSArray<NSString *> *parts=[h componentsSeparatedByString:@"."];if(parts.count!=4)return NO;
+ NSInteger n[4]={0,0,0,0};
+ for(NSUInteger i=0;i<4;i++){
+  NSString *part=parts[i];if(!part.length||part.length>3||(part.length>1&&[part characterAtIndex:0]=='0'))return NO;
+  NSInteger v=0;for(NSUInteger j=0;j<part.length;j++){unichar c=[part characterAtIndex:j];if(c<'0'||c>'9')return NO;v=v*10+(c-'0');}
+  if(v>255)return NO;n[i]=v;
+ }
+ return n[0]==10||n[0]==127||(n[0]==192&&n[1]==168)||(n[0]==172&&n[1]>=16&&n[1]<=31)||(n[0]==169&&n[1]==254);
+}
 @interface PorticoSubtitleSelection ()<NSURLSessionDataDelegate>
 @end
 @implementation PorticoSubtitleSelection {
@@ -65,8 +90,8 @@ static BOOL PlainText(id value){
  NSString *grant=mediaParts.count>=4?mediaParts[3]:@"";
  NSString *expected=[NSString stringWithFormat:@"/v1/media/%@/subtitles/%@/%@",grant,command[@"resourceId"],command[@"resourceRevision"]];
  NSRegularExpression *route=[NSRegularExpression regularExpressionWithPattern:@"^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$" options:0 error:nil];
- BOOL loopback=[@[@"localhost",@"127.0.0.1",@"::1",@"[::1]"] containsObject:url.host.lowercaseString];
- if(!url||!media||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&loopback))||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
+ BOOL privateHost=PrivateHost(url.host);
+ if(!url||!media||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&privateHost))||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
   [self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;
  }
  if(_item==item&&[_command[@"binding"] isEqual:command[@"binding"]]&&[command[@"revision"] integerValue]<_revision)return;
