@@ -6,6 +6,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableMap
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import okhttp3.Call
@@ -27,8 +28,8 @@ internal object PorticoEventStream {
   private val client by lazy {
     OkHttpClient.Builder()
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
-        .cache(null).callTimeout(60, TimeUnit.SECONDS)
-        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
+        .cache(null).callTimeout(2100, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .build()
   }
 
@@ -38,21 +39,21 @@ internal object PorticoEventStream {
     val allowed = path == "/v1/notifications/events" || GROUP_EVENTS.matches(path)
     val request = if (target != null && allowed && id != null && id.isNotEmpty() && id.length <= 128)
       PorticoTransport.request(target, "GET", headers, null) else null
-    if (request == null || id == null) { promise.reject("event_transport", "Invalid event request."); return }
+    if (request == null || id == null) { promise.reject("event_local", "Invalid event request."); return }
     val entry = Entry(owner, client.newCall(request))
     synchronized(entries) {
-      if (entries.size >= 4 || entries.containsKey(id)) { promise.reject("event_transport", "Too many event streams."); return }
+      if (entries.size >= 4 || entries.containsKey(id)) { promise.reject("event_local", "Too many event streams."); return }
       entries[id] = entry
     }
     entry.call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) {
         cancel(id)
-        promise.reject("event_transport", "The event connection could not be opened.")
+        promise.reject(if (e is InterruptedIOException) "event_timeout" else "event_transport", "The event connection could not be opened.")
       }
       override fun onResponse(call: Call, response: Response) {
         if (response.code in 300..399) {
           response.close(); cancel(id)
-          promise.reject("event_transport", "Event redirects are not allowed.")
+          promise.reject("event_redirect", "Event redirects are not allowed.")
           return
         }
         val result = Arguments.createMap()
@@ -63,7 +64,7 @@ internal object PorticoEventStream {
         synchronized(entries) {
           if (entries[id] !== entry) {
             response.close()
-            promise.reject("event_transport", "The event stream was cancelled.")
+            promise.reject("event_cancelled", "The event stream was cancelled.")
             return
           }
           entry.response = response
@@ -78,7 +79,7 @@ internal object PorticoEventStream {
     synchronized(entries) {
       val found = entries[id]
       if (found == null || found.response == null || found.reading) {
-        promise.reject("event_transport", "The event stream is unavailable."); return
+        promise.reject("event_local", "The event stream is unavailable."); return
       }
       entry = found
       entry.reading = true
@@ -98,11 +99,20 @@ internal object PorticoEventStream {
         if (!ended && count > 0) result.putString("data", Base64.encodeToString(bytes.copyOf(count), Base64.NO_WRAP))
         if (ended) cancel(id)
         promise.resolve(result)
-      } catch (_: Exception) {
-        val expired = SystemClock.elapsedRealtime() - entry.startedAt >= 60_000
+      } catch (e: Exception) {
+        val expired = SystemClock.elapsedRealtime() - entry.startedAt >= 2_100_000
+        val cancelled = synchronized(entries) { entries[id] !== entry }
         cancel(id)
         if (expired) promise.resolve(Arguments.createMap().apply { putBoolean("done", true) })
-        else promise.reject("event_transport", "The event connection was interrupted.")
+        else {
+          val code = when {
+            cancelled -> "event_cancelled"
+            e is InterruptedIOException -> "event_timeout"
+            e is IOException -> "event_transport"
+            else -> "event_local"
+          }
+          promise.reject(code, "The event connection was interrupted.")
+        }
       }
     }
   }

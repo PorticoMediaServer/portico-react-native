@@ -26,8 +26,10 @@ export async function openEventStream(api: HttpLocalApi, path: string, headers: 
   unsubscribe = route.subscribe(() => {
     if (dispatched && route.getSnapshot().revision !== revision) close();
   });
-  const recover = () => {
-    if (!signal.aborted && route.getSnapshot().revision === revision) void route.recover().catch(() => {});
+  const recover = (error: unknown) => {
+    // An idle socket, local admission failure or redirect says nothing about the API route.
+    const code = error && typeof error === 'object' ? (error as {code?: unknown}).code : undefined;
+    if (code === 'event_transport' && !signal.aborted && route.getSnapshot().revision === revision) void route.recover().catch(() => {});
   };
   try {
     const origin = await route.resolve(signal);
@@ -49,7 +51,7 @@ export async function openEventStream(api: HttpLocalApi, path: string, headers: 
             if (next.done) { close(); return {done: true}; }
             return {done: false, value: routeBytes(next.data.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), undefined, 16384)};
           } catch (error) {
-            recover();
+            recover(error);
             close();
             throw error;
           } finally { reading = false; }
@@ -61,7 +63,7 @@ export async function openEventStream(api: HttpLocalApi, path: string, headers: 
     if (raw.status < 200 || raw.status >= 300) close();
     return {ok: raw.status >= 200 && raw.status < 300, status: raw.status, headers: new Headers(raw.headers), body} as unknown as Response;
   } catch (error) {
-    if (!closed) recover();
+    if (!closed) recover(error);
     close();
     throw error;
   }

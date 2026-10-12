@@ -7,11 +7,12 @@ import {readEventStream} from '../../../packages/client-core/src/sse.ts';
 function fixture() {
   let snapshot = {phase: 'ready', origin: 'https://selected.test', revision: 1};
   const listeners = new Set<() => void>();
+  let recoveryCount = 0;
   const route = {
     async resolve() { return snapshot.origin; },
     getSnapshot: () => snapshot,
     subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn); },
-    async recover() {},
+    async recover() { recoveryCount++; },
   };
   const api = {baseUrl: 'https://logical.test', getRouteConnection: () => route};
   const opened: any[] = [], cancelled: string[] = [];
@@ -20,7 +21,7 @@ function fixture() {
     async readNetworkStream() { return {done: true}; },
     cancelNetworkStream(id: string) { cancelled.push(id); },
   });
-  return {api: api as any, opened, cancelled, change() { snapshot = {...snapshot, phase: 'probing', revision: 2}; listeners.forEach(fn => fn()); }};
+  return {api: api as any, opened, cancelled, recoveries: () => recoveryCount, change() { snapshot = {...snapshot, phase: 'probing', revision: 2}; listeners.forEach(fn => fn()); }};
 }
 
 test('auxiliary streams send credentials only to the selected verified route', async () => {
@@ -85,11 +86,36 @@ test('native stream contracts refuse redirects and bound connections, chunks and
   }
   assert.match(apple.slice(apple.indexOf('@interface PorticoEventStream')), /completionHandler\(nil\)/);
   assert.match(apple, /PorticoEventStreams.count>=4/);
-  assert.match(apple, /timeoutIntervalForResource=60/);
+  assert.match(apple, /timeoutIntervalForResource=2100/);
   assert.match(apple, /1048576-self.received/);
   assert.match(android, /followRedirects\(false\).followSslRedirects\(false\)/);
   assert.match(android, /entries.size >= 4/);
-  assert.match(android, /callTimeout\(60,/);
+  assert.match(android, /callTimeout\(2100,/);
   assert.match(android, /entry.received > 1048576/);
   assert.match(android, /ByteArray\(16384\)/);
+  assert.match(android, /readTimeout\(60,/);
+  assert.match(apple, /timeoutIntervalForRequest=60/);
+});
+
+
+test('idle timeouts and local stream refusals never invalidate the verified API route', async () => {
+  for (const code of ['event_timeout', 'event_local', 'event_redirect', 'event_cancelled']) {
+    const f = fixture();
+    NativeModules.PorticoRuntime.openNetworkStream = async () => { throw Object.assign(new Error('Stream refused'), {code}); };
+    await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
+    assert.equal(f.recoveries(), 0, code + ' while opening');
+
+    const g = fixture();
+    const response = await openEventStream(g.api, '/v1/notifications/events', {}, new AbortController().signal);
+    NativeModules.PorticoRuntime.readNetworkStream = async () => { throw Object.assign(new Error('Stream interrupted'), {code}); };
+    await assert.rejects(response.body!.getReader().read());
+    assert.equal(g.recoveries(), 0, code + ' while reading');
+  }
+});
+
+test('a genuine stream connection failure still requests fenced route recovery', async () => {
+  const f = fixture();
+  NativeModules.PorticoRuntime.openNetworkStream = async () => { throw Object.assign(new Error('Connection refused'), {code: 'event_transport'}); };
+  await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
+  assert.equal(f.recoveries(), 1);
 });

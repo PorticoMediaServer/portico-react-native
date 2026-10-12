@@ -205,6 +205,7 @@ static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
 @property(nonatomic) BOOL ended;
 @property(nonatomic) BOOL closed;
 @property(nonatomic) BOOL failed;
+@property(nonatomic,copy) NSString *failureCode;
 - (void)cancel;
 - (void)deliver;
 @end
@@ -212,7 +213,7 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
 @implementation PorticoEventStream
 - (void)deliver {
  if(!self.reading)return;
- if(self.failed){self.readingReject(@"event_transport",@"The event connection was interrupted.",nil);}
+ if(self.failed){self.readingReject(self.failureCode?:@"event_transport",@"The event connection was interrupted.",nil);}
  else if(self.bytes.length){NSUInteger count=MIN((NSUInteger)16384,self.bytes.length);NSData *chunk=[self.bytes subdataWithRange:NSMakeRange(0,count)];[self.bytes replaceBytesInRange:NSMakeRange(0,count) withBytes:NULL length:0];self.reading(@{@"done":@NO,@"data":[chunk base64EncodedStringWithOptions:0]});}
  else if(self.ended||self.closed){self.reading(@{@"done":@YES});}
  else return;
@@ -222,18 +223,18 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
  @synchronized(self){
   if(self.closed)return;self.closed=YES;self.ended=YES;
   [self.task cancel];[self.session invalidateAndCancel];self.bytes=nil;
-  if(self.openingReject)self.openingReject(@"event_transport",@"The event stream was cancelled.",nil);
+  if(self.openingReject)self.openingReject(self.failureCode?:@"event_cancelled",@"The event stream was cancelled.",nil);
   self.opening=nil;self.openingReject=nil;[self deliver];
  }
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
- completionHandler(nil);@synchronized(self){self.failed=YES;[self cancel];}
+ completionHandler(nil);@synchronized(self){self.failed=YES;self.failureCode=@"event_redirect";[self cancel];}
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
  @synchronized(self){
   if(self.closed||![response isKindOfClass:NSHTTPURLResponse.class]){completionHandler(NSURLSessionResponseCancel);[self cancel];return;}
   NSHTTPURLResponse *http=(id)response;
-  if(http.statusCode>=300&&http.statusCode<400){completionHandler(NSURLSessionResponseCancel);self.failed=YES;[self cancel];return;}
+  if(http.statusCode>=300&&http.statusCode<400){completionHandler(NSURLSessionResponseCancel);self.failed=YES;self.failureCode=@"event_redirect";[self cancel];return;}
   NSMutableDictionary *headers=[NSMutableDictionary dictionary];for(id key in http.allHeaderFields)headers[[key description]]=[http.allHeaderFields[key] description];
   if(self.opening)self.opening(@{@"status":@(http.statusCode),@"headers":headers});
   self.opening=nil;self.openingReject=nil;completionHandler(NSURLSessionResponseAllow);
@@ -249,9 +250,10 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  @synchronized(self){
   if(self.closed)return;self.ended=YES;
-  BOOL expired=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut&&NSProcessInfo.processInfo.systemUptime-self.startedAt>=59;
+  BOOL expired=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut&&NSProcessInfo.processInfo.systemUptime-self.startedAt>=2099;
   self.failed=error!=nil&&!expired;
-  if(self.openingReject)self.openingReject(@"event_transport",@"The event connection could not be opened.",nil);
+  self.failureCode=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut?@"event_timeout":([error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorCancelled?@"event_cancelled":@"event_transport");
+  if(self.openingReject)self.openingReject(self.failureCode,@"The event connection could not be opened.",nil);
   self.opening=nil;self.openingReject=nil;[self deliver];[self.session finishTasksAndInvalidate];
  }
 }
@@ -305,15 +307,16 @@ RCT_REMAP_METHOD(queueRequest,queueRequest:(NSString *)identifier url:(NSString 
  [self boundedRequest:identifier url:url method:method headers:headers body:body fullAPI:NO resolver:resolve rejecter:reject];
 }
 RCT_REMAP_METHOD(openNetworkStream,openNetworkStream:(NSString *)identifier url:(NSString *)url headers:(NSDictionary *)headers resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ if(![url isKindOfClass:NSString.class]||!url.length||url.length>8192||![identifier isKindOfClass:NSString.class]||!identifier.length||identifier.length>128){reject(@"event_local",@"Invalid event request.",nil);return;}
  NSURL *target=[NSURL URLWithString:url];
  BOOL pathAllowed=[target.path isEqual:@"/v1/notifications/events"]||[target.path rangeOfString:@"^/v1/groups/[A-Za-z0-9_-]{1,128}/events$" options:NSRegularExpressionSearch].location!=NSNotFound;
- if(!target||![@[@"http",@"https"] containsObject:target.scheme]||!target.host.length||target.user||target.password||target.fragment||url.length>8192||!pathAllowed||!identifier.length||identifier.length>128){reject(@"event_transport",@"Invalid event request.",nil);return;}
+ if(!target||![@[@"http",@"https"] containsObject:target.scheme]||!target.host.length||target.user||target.password||target.fragment||url.length>8192||!pathAllowed||!identifier.length||identifier.length>128){reject(@"event_local",@"Invalid event request.",nil);return;}
  @synchronized(PorticoEventStream.class){
   if(!PorticoEventStreams)PorticoEventStreams=[NSMutableDictionary dictionary];
-  if(PorticoEventStreams.count>=4||PorticoEventStreams[identifier]){reject(@"event_transport",@"Too many event streams.",nil);return;}
+  if(PorticoEventStreams.count>=4||PorticoEventStreams[identifier]){reject(@"event_local",@"Too many event streams.",nil);return;}
   PorticoEventStream *stream=[PorticoEventStream new];stream.owner=self;stream.startedAt=NSProcessInfo.processInfo.systemUptime;stream.bytes=[NSMutableData data];stream.opening=resolve;stream.openingReject=reject;
   NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-  configuration.timeoutIntervalForRequest=20;configuration.timeoutIntervalForResource=60;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
+  configuration.timeoutIntervalForRequest=60;configuration.timeoutIntervalForResource=2100;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;
   stream.session=[NSURLSession sessionWithConfiguration:configuration delegate:stream delegateQueue:queue];
   NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:target];request.HTTPMethod=@"GET";
@@ -323,9 +326,9 @@ RCT_REMAP_METHOD(openNetworkStream,openNetworkStream:(NSString *)identifier url:
 }
 RCT_REMAP_METHOD(readNetworkStream,readNetworkStream:(NSString *)identifier resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  PorticoEventStream *stream;@synchronized(PorticoEventStream.class){stream=PorticoEventStreams[identifier];}
- if(!stream){reject(@"event_transport",@"The event stream is unavailable.",nil);return;}
+ if(!stream){reject(@"event_local",@"The event stream is unavailable.",nil);return;}
  @synchronized(stream){
-  if(stream.reading){reject(@"event_transport",@"An event read is already pending.",nil);return;}
+  if(stream.reading){reject(@"event_local",@"An event read is already pending.",nil);return;}
   stream.reading=resolve;stream.readingReject=reject;[stream deliver];
  }
 }
