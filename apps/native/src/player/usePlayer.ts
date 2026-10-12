@@ -23,6 +23,7 @@ import {useServerPreferences} from '../app/server-preferences';
 import {isLocalSession, isLocalSource, type LocalMedia} from '../bridge/local-playback';
 import type {OfflineDisplay} from '../bridge/offline-downloads';
 import {dolbyVisionWarningNeeded, mayCarryVideo} from './dolby-vision';
+import {stepQueue} from './queue-step';
 import {sourceFactsOf, type SourceFacts} from '../../../../packages/client-core/src/presentation/index';
 
 /**
@@ -531,6 +532,8 @@ export function usePlayerEngine() {
     playback.seek(target);
   }, [playback]);
   const seekTo = useCallback((seconds: number) => { if (!groupControl.current?.seek(Math.max(0, seconds))) playback.seek(Math.max(0, seconds)); }, [playback]);
+  // Next and Previous: the group's while watching its title together, otherwise the queue's.
+  const step = useCallback((action: 'next' | 'previous') => { void stepQueue(playback, action, groupControl.current).catch(() => {}); }, [playback]);
   // APL-HOME-03: a finished title, and a minute of playing, also count as a change of progress.
   useEffect(() => {
     if (playbackState.phase === 'ended') emitPlaybackChange({itemId: playbackState.itemId, positionSeconds: playbackState.positionSeconds, completed: true, reason: 'ended'});
@@ -581,6 +584,7 @@ export function usePlayerEngine() {
     retry,
     seekBy,
     seekTo,
+    step,
     leave,
     collapse,
     expand,
@@ -605,4 +609,4 @@ export function usePlayerEngine() {
 }
 
 export type PlayerEngine = ReturnType<typeof usePlayerEngine>;
-export type GroupControl = {toggle(playing: boolean): boolean; seek(seconds: number): boolean};
+export type GroupControl = {toggle(playing: boolean): boolean; seek(seconds: number): boolean; step(action: 'next' | 'previous'): boolean};
