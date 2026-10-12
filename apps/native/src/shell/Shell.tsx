@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {BackHandler, Linking, TVEventControl, TVFocusGuideView, View} from 'react-native';
+import {BackHandler, TVEventControl, TVFocusGuideView, View} from 'react-native';
 import {isTablet} from '../bridge/device-platform';
 import {CommonActions, DarkTheme, StackActions, TabActions, NavigationContainer, type NavigationContainerRef, type NavigationState} from '@react-navigation/native';
 import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
@@ -34,6 +34,8 @@ import {DownloadsProvider} from '../app/downloads';
 import {DeviceApprovalCover} from '../app/device';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {DownloadsGate} from './DownloadsGate';
+import {linkIntents} from './link-intents';
+import {linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
@@ -290,11 +292,16 @@ export function Shell() {
       nav?.dispatch(StackActions.push('Invitation'));
     }
   };
+  // Links arrive through their one owner (link-intents), which holds a link until this shell can
+  // open it: its server confirmed, for the viewer the link arrived under, once. Opening waits a
+  // tick so the navigator this shell has just mounted is ready for the route.
+  const linkViewer = hasRealOrigin(session.api) ? linkViewerKey(session.session?.viewer) : null;
   useEffect(() => {
-    void Linking.getInitialURL().then(url => linked.current(url), () => {});
-    const subscription = Linking.addEventListener('url', event => linked.current(event.url));
-    return () => subscription.remove();
-  }, []);
+    if (!linkViewer) return;
+    let live = true;
+    const detach = linkIntents.attach(linkViewer, url => { setTimeout(() => { if (live) linked.current(url); }, 0); });
+    return () => { live = false; detach(); };
+  }, [linkViewer]);
   const viewTogether = useCallback(() => navigator.current?.dispatch(StackActions.push('Together')), []);
   const viewDownloads = useCallback(() => navigator.current?.dispatch(StackActions.push('Downloads')), []);
   // What is on the device is read at launch, so it is there to offer if the server is not.
