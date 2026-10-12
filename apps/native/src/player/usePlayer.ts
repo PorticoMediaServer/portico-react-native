@@ -206,7 +206,7 @@ export function usePlayerEngine() {
     else if (f.type === 'error') {
       // The engine refusing what it was given is not yet the viewer's problem: the server is
       // told which route failed and the title comes back through the next one up.
-      const engine = typeof f.engineCode === 'string' && ['decode_error', 'source_not_supported', 'engine_error'].includes(f.engineCode) ? f.engineCode as 'decode_error' | 'source_not_supported' | 'engine_error' : null;
+      const engine = typeof f.engineCode === 'string' && ['decode_error', 'source_not_supported'].includes(f.engineCode) ? f.engineCode as 'decode_error' | 'source_not_supported' : null;
       if (engine && !f.networkError) playback.engineFailed(f.intentId, engine, typeof f.errorDetail === 'string' ? f.errorDetail.slice(0, 120) : '', f.error);
       else playback.fail(f.intentId, f.error);
     }

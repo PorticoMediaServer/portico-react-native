@@ -998,7 +998,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val engine = when (error.errorCode) {
       in DECODE_ERRORS -> "decode_error"
       in SOURCE_ERRORS -> "source_not_supported"
-      else -> "engine_error"
+      else -> ""
     }
     val position = if (routeResume || routeFailed) routePosition else sourcePosition()
     val fact = HashMap<String, Any?>()
@@ -1036,7 +1036,11 @@ internal class PorticoPlaybackController(private val context: Context) {
     private val RATES = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
     private val LINEAR_RATES = listOf(1.0)
     private val NETWORK_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+        PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_IO_NO_PERMISSION, PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
+        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
     private val DECODE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
