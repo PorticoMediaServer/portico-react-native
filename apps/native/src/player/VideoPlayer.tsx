@@ -29,6 +29,7 @@ import {scrubTarget, useSiriRemoteTouch} from '../bridge/NativeSiriRemote';
 import {activeI18n} from '../app/errors';
 import {GroupPill} from './GroupPill';
 import {endedCopy} from './ended-copy';
+import {stepQueue} from './queue-step';
 import {canStepChannel, channelStep, tunedChannel} from './channel-lineup';
 import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
@@ -241,6 +242,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   // iPad and TV: a sixth box for what doesn't fit the five (Up next, Playback info, Report).
   const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel));
   const systemItemId = state.itemId ?? identity.itemId;
+  // Next and Previous move through the queue. Live TV has none: its own are the channel steps.
+  const stepInQueue = (action: 'next' | 'previous') => { if (!state.channel) void stepQueue(engine.service, action).catch(() => {}); };
   const resumeAfterInterruption = useRef(false);
   const route = useSystemMedia(
     isAudio || !engine.active || !systemItemId || !session
@@ -271,8 +274,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         case 'toggle': engine.toggle(); break;
         case 'skip': engine.seekBy(c.deltaSeconds); break;
         case 'seek': engine.seekTo(c.positionSeconds); break;
-        case 'next': void engine.service.systemListeningAction('next').catch(() => {}); break;
-        case 'previous': void engine.service.systemListeningAction('previous').catch(() => {}); break;
+        case 'next': stepInQueue('next'); break;
+        case 'previous': stepInQueue('previous'); break;
       }
     },
   );
@@ -448,11 +451,11 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isTV ? space.lg : space.md}}>
             {queueModes ? <QueueToggle engine={engine} kind="shuffle" size={controlSize} /> : null}
             {/* FEAT-07: on a channel tuned from the guide, Previous and Next change channel. */}
-            <Button variant="ghost" transport="control" icon="previous" accessibilityLabel={i18n.t(channelSteps ? 'player.channelDown' : 'player.previous')} disabled={channelSteps ? false : !canPrevious} onPress={() => (channelSteps ? stepChannel(-1) : void engine.service.systemListeningAction('previous').catch(() => {}))} />
+            <Button variant="ghost" transport="control" icon="previous" accessibilityLabel={i18n.t(channelSteps ? 'player.channelDown' : 'player.previous')} disabled={channelSteps ? false : !canPrevious} onPress={() => (channelSteps ? stepChannel(-1) : stepInQueue('previous'))} />
             {isMusic ? null : <Button variant="ghost" transport="control" icon="back10" iconNumber={skipBack} accessibilityLabel={i18n.t('player.skipBackSeconds', {seconds: skipBack})} disabled={!!state.channel} onPress={() => engine.seekBy(-skipBack)} />}
             <Button ref={playButton} variant="primary" transport="primary" icon={playing ? 'pause' : 'play'} accessibilityLabel={playing ? i18n.t('action.pause') : i18n.t('action.play')} onPress={engine.toggle} />
             {isMusic ? null : <Button variant="ghost" transport="control" icon="forward10" iconNumber={skipForward} accessibilityLabel={i18n.t('player.skipForwardSeconds', {seconds: skipForward})} disabled={!!state.channel} onPress={() => engine.seekBy(skipForward)} />}
-            <Button variant="ghost" transport="control" icon="next" accessibilityLabel={i18n.t(channelSteps ? 'player.channelUp' : 'player.next')} disabled={channelSteps ? false : !canNext} onPress={() => (channelSteps ? stepChannel(1) : void engine.service.systemListeningAction('next').catch(() => {}))} />
+            <Button variant="ghost" transport="control" icon="next" accessibilityLabel={i18n.t(channelSteps ? 'player.channelUp' : 'player.next')} disabled={channelSteps ? false : !canNext} onPress={() => (channelSteps ? stepChannel(1) : stepInQueue('next'))} />
             {queueModes ? <QueueToggle engine={engine} kind="repeat" size={controlSize} /> : null}
           </View>
           {/* APL-PLAYER-03: the system volume slider, trailing, outside the centered transport. */}
