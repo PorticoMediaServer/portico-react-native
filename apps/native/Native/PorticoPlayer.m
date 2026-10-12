@@ -252,7 +252,9 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
   if(self.closed)return;self.ended=YES;
   BOOL expired=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut&&NSProcessInfo.processInfo.systemUptime-self.startedAt>=2099;
   self.failed=error!=nil&&!expired;
-  self.failureCode=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut?@"event_timeout":([error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorCancelled?@"event_cancelled":@"event_transport");
+  // A time-out before the response has begun is a route that does not answer: route evidence, as
+  // it is for an ordinary request. Only an open stream that goes quiet is an idle time-out.
+  self.failureCode=[error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorTimedOut?(self.openingReject?@"event_transport":@"event_timeout"):([error.domain isEqual:NSURLErrorDomain]&&error.code==NSURLErrorCancelled?@"event_cancelled":@"event_transport");
   if(self.openingReject)self.openingReject(self.failureCode,@"The event connection could not be opened.",nil);
   self.opening=nil;self.openingReject=nil;[self deliver];[self.session finishTasksAndInvalidate];
  }

@@ -48,7 +48,9 @@ internal object PorticoEventStream {
     entry.call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) {
         cancel(id)
-        promise.reject(if (e is InterruptedIOException) "event_timeout" else "event_transport", "The event connection could not be opened.")
+        // No response has begun, so a time-out here is a route that does not answer: route
+        // evidence, as it is for an ordinary request. Only an open stream that goes quiet is idle.
+        promise.reject("event_transport", "The event connection could not be opened.")
       }
       override fun onResponse(call: Call, response: Response) {
         if (response.code in 300..399) {

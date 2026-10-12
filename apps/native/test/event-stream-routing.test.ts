@@ -119,3 +119,14 @@ test('a genuine stream connection failure still requests fenced route recovery',
   await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
   assert.equal(f.recoveries(), 1);
 });
+
+test('a time-out before the stream opens is route evidence on both platforms; an idle open stream is not', async () => {
+  const {readFileSync} = await import('node:fs');
+  const android = readFileSync(new URL('../android/app/src/main/java/tv/getportico/portico/native/PorticoEventStream.kt', import.meta.url), 'utf8');
+  const opening = android.slice(android.indexOf('override fun onFailure'), android.indexOf('override fun onResponse'));
+  assert.match(opening, /promise\.reject\("event_transport"/);
+  assert.doesNotMatch(opening, /event_timeout/);
+  assert.match(android.slice(android.indexOf('override fun onResponse')), /e is InterruptedIOException -> "event_timeout"/);
+  const apple = readFileSync(new URL('../Native/PorticoPlayer.m', import.meta.url), 'utf8');
+  assert.match(apple, /error\.code==NSURLErrorTimedOut\?\(self\.openingReject\?@"event_transport":@"event_timeout"\)/);
+});
