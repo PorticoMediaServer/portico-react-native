@@ -409,11 +409,11 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  * instead of showing the viewer an error. */
 - (void)publishFailure:(NSError *)top {
  BOOL network=NO;NSError *error=top;
- for(int i=0;error&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){if([error.domain isEqual:NSURLErrorDomain]&&[@[@(NSURLErrorTimedOut),@(NSURLErrorCannotFindHost),@(NSURLErrorCannotConnectToHost),@(NSURLErrorNetworkConnectionLost),@(NSURLErrorDNSLookupFailed),@(NSURLErrorNotConnectedToInternet)] containsObject:@(error.code)])network=YES;}
- NSString *engine=@"engine_error";
+ for(int i=0;error&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){if([error.domain isEqual:NSURLErrorDomain])network=YES;}
+ NSString *engine=@"";
  if([top.domain isEqual:AVFoundationErrorDomain]){
   if(top.code==AVErrorDecodeFailed||top.code==AVErrorDecoderNotFound||top.code==AVErrorDecoderTemporarilyUnavailable)engine=@"decode_error";
-  else if(top.code==AVErrorFileFormatNotRecognized||top.code==AVErrorFailedToParse||top.code==AVErrorContentIsUnavailable||top.code==AVErrorFormatUnsupported)engine=@"source_not_supported";
+  else if(top.code==AVErrorFileFormatNotRecognized||top.code==AVErrorFailedToParse||top.code==AVErrorFormatUnsupported)engine=@"source_not_supported";
  }
  NSError *under=top.userInfo[NSUnderlyingErrorKey];
  NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
