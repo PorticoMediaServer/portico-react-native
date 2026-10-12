@@ -18,7 +18,7 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
   const viewerKey = session ? `${session.viewer.serverId}/${session.viewer.accountId}/${session.viewer.profileId}` : '';
   const service = useMemo(() => (viewerKey && api ? new GroupSessionService({
     api,
-    stream: (path, lastEventId, signal) => openEventStream(api.baseUrl + path, {Accept: 'text/event-stream', Authorization: 'Bearer ' + token.current, ...(lastEventId ? {'Last-Event-ID': lastEventId} : {})}, signal),
+    stream: (path, lastEventId, signal) => openEventStream(api, path, {Accept: 'text/event-stream', Authorization: 'Bearer ' + token.current, ...(lastEventId ? {'Last-Event-ID': lastEventId} : {})}, signal),
     key: () => 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2),
   }) : null), [api, viewerKey]);
   useEffect(() => () => service?.dispose(), [service]);

@@ -54,7 +54,7 @@ export function ReceiverMode({engine, enabled}: {engine: PlayerEngine; enabled: 
     // PERF-16: the idle inbox poll backs off while this stream is connected; a grant or handoff
     // arrives as an event instead of waiting for the next poll. No Last-Event-ID is sent: the
     // receiver hints carry no SSE id and must not move the notification resume cursor.
-    events: signal => openEventStream(api.baseUrl + '/v1/notifications/events', {Accept: 'text/event-stream', Authorization: 'Bearer ' + token.current}, signal),
+    events: signal => openEventStream(api, '/v1/notifications/events', {Accept: 'text/event-stream', Authorization: 'Bearer ' + token.current}, signal),
     // A new server (same viewer ids) registers a new receiver.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }) : null), [api, viewerKey, device, isTV, enabled, system?.id, deviceName]);

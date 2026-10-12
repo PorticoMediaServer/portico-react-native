@@ -1,42 +1,68 @@
-/** Server-sent events on React Native, whose `fetch` cannot stream a response body.
- *
- * XMLHttpRequest does deliver text as it arrives, so this adapts one into the small part of a
- * `Response` that the shared event reader uses. The text an XMLHttpRequest holds only ever
- * grows, so a long-lived stream is cut at a bound; the caller resumes from its last event id,
- * which is what it would do after any dropped connection. */
-const MAX_HELD = 1048576;
+import {NativeModules} from 'react-native';
+import type {HttpLocalApi} from '../../../../packages/client-core/src/index';
+import {routeBytes} from '../../../../packages/client-core/src/route-identity';
 
-export function openEventStream(url: string, headers: Record<string, string>, signal: AbortSignal): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const chunks: string[] = [];
-    let seen = 0, finished = false, settled = false, waiting: ((r: {value?: string; done: boolean}) => void) | undefined;
-    const deliver = () => {
-      if (!waiting) return;
-      if (chunks.length) { const w = waiting; waiting = undefined; w({value: chunks.shift()!, done: false}); }
-      else if (finished) { const w = waiting; waiting = undefined; w({done: true}); }
-    };
-    const finish = () => { finished = true; deliver(); };
-    const abort = () => { xhr.abort(); finish(); if (!settled) { settled = true; reject(new Error('The event stream was cancelled.')); } };
-    const take = () => {
-      const text = xhr.responseText ?? '';
-      if (text.length > seen) { chunks.push(text.slice(seen)); seen = text.length; deliver(); }
-      if (seen > MAX_HELD) { xhr.abort(); finish(); }
-    };
-    xhr.open('GET', url);
-    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
-    xhr.responseType = 'text';
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState >= 2 && !settled) {
-        settled = true;
-        const body = {getReader: () => ({read: () => new Promise<{value?: string; done: boolean}>(r => { waiting = r; deliver(); }), cancel: async () => { xhr.abort(); finish(); }, releaseLock: () => {}})};
-        resolve({ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body} as unknown as Response);
-      }
-      if (xhr.readyState === 4) { take(); finish(); }
-    };
-    xhr.onprogress = take;
-    xhr.onerror = () => { finish(); if (!settled) { settled = true; reject(new TypeError('Network request failed')); } };
-    signal.addEventListener('abort', abort, {once: true});
-    if (signal.aborted) abort(); else xhr.send();
+/** A bounded native SSE reader on the same verified connection as ordinary API traffic.
+ * Native transports refuse redirects before credentials follow; route changes close the reader
+ * so its owner reconnects with its existing cursor and retry policy. */
+export async function openEventStream(api: HttpLocalApi, path: string, headers: Record<string, string>, signal: AbortSignal): Promise<Response> {
+  const route = api.getRouteConnection();
+  if (!route || !path.startsWith('/v1/') || path.startsWith('//') || signal.aborted) throw new Error('A verified event connection is required.');
+  const requested = new URL(path, api.baseUrl);
+  if (requested.origin !== new URL(api.baseUrl).origin || requested.username || requested.password || requested.hash) throw new Error('Cross-server event request rejected.');
+  const runtime = NativeModules.PorticoRuntime;
+  const id = runtime.playbackRequestId();
+  let closed = false, dispatched = false, reading = false;
+  let revision: number | undefined;
+  let unsubscribe = () => {};
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    signal.removeEventListener('abort', close);
+    runtime.cancelNetworkStream(id);
+  };
+  signal.addEventListener('abort', close, {once: true});
+  unsubscribe = route.subscribe(() => {
+    if (dispatched && route.getSnapshot().revision !== revision) close();
   });
+  const recover = () => {
+    if (!signal.aborted && route.getSnapshot().revision === revision) void route.recover().catch(() => {});
+  };
+  try {
+    const origin = await route.resolve(signal);
+    const selected = route.getSnapshot();
+    if (closed || signal.aborted || selected.phase !== 'ready' || selected.origin !== origin) throw new Error('Event connection superseded.');
+    revision = selected.revision;
+    dispatched = true;
+    const raw = await runtime.openNetworkStream(id, origin + requested.pathname + requested.search, headers);
+    if (closed || signal.aborted) throw new Error('Event connection superseded.');
+    const body = {
+      getReader: () => ({
+        read: async () => {
+          if (closed) throw new Error('The event stream is closed.');
+          if (reading) throw new Error('An event read is already pending.');
+          reading = true;
+          try {
+            const next = await runtime.readNetworkStream(id);
+            if (closed) throw new Error('The event stream is closed.');
+            if (next.done) { close(); return {done: true}; }
+            return {done: false, value: routeBytes(next.data.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), undefined, 16384)};
+          } catch (error) {
+            recover();
+            close();
+            throw error;
+          } finally { reading = false; }
+        },
+        cancel: async () => { close(); },
+        releaseLock: close,
+      }),
+    };
+    if (raw.status < 200 || raw.status >= 300) close();
+    return {ok: raw.status >= 200 && raw.status < 300, status: raw.status, headers: new Headers(raw.headers), body} as unknown as Response;
+  } catch (error) {
+    if (!closed) recover();
+    close();
+    throw error;
+  }
 }
