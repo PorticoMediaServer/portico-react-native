@@ -6,3 +6,9 @@ export const nativeViewerStorage:SelectedViewerStorage={
  async write(record){await runtime.saveSelectedViewer(JSON.stringify(record));const raw=await runtime.loadSelectedViewer();if((record===null?raw!==null:raw!==JSON.stringify(record)))throw new Error('The selected server credential could not be read back from secure storage.');},
 };
 export async function profileInstallation(required=false):Promise<string|undefined>{try{const id=await runtime.profileInstallation();if(typeof id!=='string'||!id||id.length>128)throw new Error('Invalid installation metadata.');return id;}catch(e){if(required)throw e;return undefined;}}
+
+/** Older native development clients have no preparation method; keep installation setup working. */
+export async function prepareSecureRecords(): Promise<boolean> {
+ const prepare = runtime?.prepareSecureRecords;
+ return typeof prepare === 'function' ? !!(await prepare.call(runtime)) : false;
+}

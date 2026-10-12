@@ -1,6 +1,9 @@
 package tv.getportico.portico.native
 
 import android.content.Context
+import android.os.Build
+import android.system.Os
+import android.system.OsConstants
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyPermanentlyInvalidatedException
@@ -36,12 +39,13 @@ internal sealed interface RecordRead {
 internal class PorticoRecordStore private constructor(private val root: File) {
 
   private val resetPending = File(root.parentFile, root.name + ".key-loss-pending")
+  private var keyChecked = false
   private val resetNotice = File(root.parentFile, root.name + ".key-loss-notice")
 
   /** Launch preparation also consumes the one-time signed-out notice after a verified reset. */
   fun prepareSecureRecords(): Boolean = synchronized(this) {
     recoverLostKey()
-    check(key(create = true) != null)
+    verifyKey(checkNotNull(key(create = true)))
     if (!resetNotice.exists()) return false
     check(resetNotice.delete())
     true
@@ -111,34 +115,61 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   private fun binding(service: String, account: String): ByteArray =
       (service + "\u0000" + account).toByteArray(Charsets.UTF_8)
 
-  /** Only definitive key loss qualifies. I/O, lock state and damaged ciphertext do not. */
+  /** Keystore1 hides service errors as absence. Never erase records on that ambiguous answer. */
   private fun recoverLostKey() {
-    if (resetPending.exists()) { resetLostRecords(); return }
+    if (resetPending.exists()) { resetLostRecords(); keyChecked = true; return }
+    if (keyChecked) return
     try {
       val existing = key(create = false)
-      if (existing == null) {
-        if (root.exists() && root.walkTopDown().any { it.isFile }) resetLostRecords()
-      } else {
-        // Decrypt initialization checks permanent invalidation without reading or changing a record.
-        Cipher.getInstance(TRANSFORMATION).init(Cipher.DECRYPT_MODE, existing, GCMParameterSpec(TAG_BYTES * 8, ByteArray(IV_BYTES)))
-      }
+      if (existing == null && hasRecords()) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) throw IllegalStateException("The record key cannot be verified.")
+        resetLostRecords()
+      } else if (existing != null) verifyKey(existing)
+      keyChecked = true
     } catch (e: KeyPermanentlyInvalidatedException) {
       resetLostRecords()
+      keyChecked = true
     }
   }
 
-  /** A pending marker fences every operation until the whole lost store is removed. */
+  /** Complete both operations so the launch check cannot retain a Keymaster operation slot. */
+  private fun verifyKey(key: SecretKey) {
+    val plain = byteArrayOf(1)
+    val encrypt = Cipher.getInstance(TRANSFORMATION)
+    encrypt.init(Cipher.ENCRYPT_MODE, key)
+    val sealed = encrypt.doFinal(plain)
+    val decrypt = Cipher.getInstance(TRANSFORMATION)
+    decrypt.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BYTES * 8, encrypt.iv))
+    check(decrypt.doFinal(sealed).contentEquals(plain))
+  }
+
+  private fun hasRecords(): Boolean = root.exists() && root.walkTopDown().any { it.isFile }
+
+  /** A durable, versioned marker authorizes only completion of an already-proven reset. */
   private fun resetLostRecords() {
-    mark(resetPending)
+    if (resetPending.exists()) check(resetPending.readText() == RESET_PROOF)
+    else mark(resetPending)
+    syncDirectory()
     check(!root.exists() || root.deleteRecursively())
+    syncDirectory()
     val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
     keystore.deleteEntry(KEY_ALIAS)
+    verifyKey(checkNotNull(key(create = true)))
     mark(resetNotice)
     check(resetPending.delete())
+    syncDirectory()
   }
 
   private fun mark(file: File) {
-    FileOutputStream(file).use { out -> out.write(1); out.flush(); out.fd.sync() }
+    val pending = File(file.parentFile, file.name + ".new")
+    FileOutputStream(pending).use { out -> out.write(RESET_PROOF.toByteArray(Charsets.UTF_8)); out.flush(); out.fd.sync() }
+    check(pending.renameTo(file))
+    syncDirectory()
+  }
+
+  private fun syncDirectory() {
+    val descriptor = Os.open(checkNotNull(root.parentFile).path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+    try { Os.fsync(descriptor) } finally { Os.close(descriptor) }
   }
 
   private fun key(create: Boolean): SecretKey? {
@@ -146,6 +177,8 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     (keystore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
     if (keystore.containsAlias(KEY_ALIAS)) throw IllegalStateException("The record key is unavailable.")
     if (!create) return null
+    // A key disappearing after launch must not be replaced behind retained ciphertext.
+    check(!hasRecords())
     val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
     generator.init(
         KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -157,6 +190,7 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   }
 
   companion object {
+    private const val RESET_PROOF = "confirmed-key-loss-v2"
     private const val KEYSTORE = "AndroidKeyStore"
     private const val KEY_ALIAS = "tv.getportico.portico.records.v1"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"

@@ -18,7 +18,7 @@ import {deviceIdentity} from '../bridge/setup-codes';
 import {installationPlatform} from '../bridge/device-platform';
 import {forgetNativeConnection, nativeConnectionEnvironment, nativeHostedSource, nativeNetworkFetch, onNetworkChange, restoreNativeConnection, trackNativeConnection} from '../bridge/server-connections';
 import {profileAPI} from '../bridge/profile-transport';
-import {nativeViewerStorage, profileInstallation} from '../bridge/profile-trust';
+import {nativeViewerStorage, prepareSecureRecords, profileInstallation} from '../bridge/profile-trust';
 import {useHostedAccount} from '../bridge/useHostedAccount';
 import {useCredentialVerification} from '../bridge/useCredentialVerification';
 import {closeAttachedAccount, observeAttachedAccount} from '../bridge/attached-account-boundary';
@@ -43,7 +43,7 @@ export const viewer = new ViewerService();
 let secureRecordsRecovered = false;
 const installationReady: Promise<void> = (async () => {
   try {
-    secureRecordsRecovered = await NativeModules.PorticoRuntime.prepareSecureRecords();
+    secureRecordsRecovered = await prepareSecureRecords();
     const [installationId, device] = await Promise.all([profileInstallation(), deviceIdentity()]);
     if (!validInstallationId(installationId)) return;
     setInstallationIdentity({installationId, name: device.deviceName, platform: installationPlatform, app: 'Portico', appVersion: device.appVersion});
