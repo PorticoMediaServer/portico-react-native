@@ -5,6 +5,7 @@ import {useArtwork} from '../app/content';
 import {Artwork, Button, Focusable, ProgressLine, Text, alpha, useTheme} from '../ui';
 import type {PlayerEngine} from './usePlayer';
 import {upcomingEntries, useQueueView} from './PlayerOptions';
+import {stepQueue} from './queue-step';
 import {useI18n} from '../app/i18n';
 import {activeI18n} from '../app/errors';
 
@@ -31,9 +32,9 @@ export function MiniBar({engine}: {engine: PlayerEngine}) {
             <Text variant="captionStrong" lines={1}>{engine.identity.title}</Text>
             <Text variant="micro" tone="tertiary" lines={1}>{engine.state.ended ? endedCopy(engine.state.ended, i18n.t).short : [engine.identity.artist, engine.identity.album].filter(Boolean).join(' · ') || engine.identity.subtitle || (engine.state.phase === 'starting' ? i18n.t('player.miniStarting') : i18n.t('player.miniPlaying'))}</Text>
           </View>
-          <Button variant="ghost" round icon="previous" accessibilityLabel={i18n.t('player.previous')} disabled={!canPrevious || !!engine.state.ended} onPress={() => void engine.service.systemListeningAction('previous').catch(() => {})} />
+          <Button variant="ghost" round icon="previous" accessibilityLabel={i18n.t('player.previous')} disabled={!canPrevious || !!engine.state.ended} onPress={() => void stepQueue(engine.service, 'previous').catch(() => {})} />
           <Button variant="ghost" round icon={playing ? 'pause' : 'play'} accessibilityLabel={playing ? i18n.t('action.pause') : i18n.t('action.play')} disabled={!!engine.state.ended} onPress={engine.toggle} />
-          <Button variant="ghost" round icon="next" accessibilityLabel={i18n.t('player.next')} disabled={!canNext || !!engine.state.ended} onPress={() => void engine.service.systemListeningAction('next').catch(() => {})} />
+          <Button variant="ghost" round icon="next" accessibilityLabel={i18n.t('player.next')} disabled={!canNext || !!engine.state.ended} onPress={() => void stepQueue(engine.service, 'next').catch(() => {})} />
           <Button variant="ghost" round icon="close" accessibilityLabel={i18n.t('action.stop')} onPress={engine.leave} />
           {/* How far in, along the bar's lower edge; the scrubber itself is one tap away in Now Playing. */}
           <ProgressLine value={played} style={{height: 2, left: space.sm, right: space.sm}} />
