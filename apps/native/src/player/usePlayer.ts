@@ -1,3 +1,4 @@
+import {classifyPlaybackFailure} from './playback-failure';
 import {PlayerOffersService, type PlayerOffersSnapshot} from '../../../../packages/client-core/src/player-offers';
 import {activeI18n} from '../app/errors';
 import {topShelfChanged} from '../app/top-shelf';
@@ -179,7 +180,8 @@ export function usePlayerEngine() {
     // Subtitle renderer status is not a playback observation; it used to fall through and be
     // recorded as one.
     if (f.type === 'subtitleStatus') return;
-    if (f.type === 'error' && f.networkError && api.getRouteConnection()) {
+    const failure = classifyPlaybackFailure(f);
+    if (f.type === 'error' && failure.network && api.getRouteConnection()) {
       const recovery = routeRecovery.current;
       if (!recovery.since) armGiveUp(recovery, before.intentId);
       recovery.since ||= Date.now();
@@ -206,8 +208,8 @@ export function usePlayerEngine() {
     else if (f.type === 'error') {
       // The engine refusing what it was given is not yet the viewer's problem: the server is
       // told which route failed and the title comes back through the next one up.
-      const engine = typeof f.engineCode === 'string' && ['decode_error', 'source_not_supported'].includes(f.engineCode) ? f.engineCode as 'decode_error' | 'source_not_supported' : null;
-      if (engine && !f.networkError) playback.engineFailed(f.intentId, engine, typeof f.errorDetail === 'string' ? f.errorDetail.slice(0, 120) : '', f.error);
+      const engine = failure.engine;
+      if (engine) playback.engineFailed(f.intentId, engine, typeof f.errorDetail === 'string' ? f.errorDetail.slice(0, 120) : '', f.error);
       else playback.fail(f.intentId, f.error);
     }
     else playback.fact(f.intentId, f.position, f.type === 'ended' ? 'ended' : f.paused ? 'paused' : 'playing');

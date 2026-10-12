@@ -19,6 +19,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -104,6 +105,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var routeEpoch = 0
   private var routePosition = 0.0
 
+  private var hasPlayed = false
+  private var previousProgress = Double.NaN
   private var readyAnnounced = false
   private var lastProgress = ""
   private var ticking = false
@@ -401,6 +404,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun load(url: Uri, startSeconds: Double? = null) {
     val engine = engine()
     itemInstanceId = UUID.randomUUID().toString()
+    hasPlayed = false
+    previousProgress = Double.NaN
     readyAnnounced = false
     val start = if (routeResume && timelineOriginMs == null) (routePosition * 1000).toLong()
         else if (startSeconds != null && startSeconds > 0 && timelineOriginMs == null) (startSeconds * 1000).toLong() else C.TIME_UNSET
@@ -410,6 +415,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   }
 
   private fun unload() {
+    hasPlayed = false
+    previousProgress = Double.NaN
     closeIncoming()
     enginePlan = null
     nextToken = null
@@ -474,7 +481,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
     override fun onPlayerError(error: PlaybackException) = publishFailure(error)
 
-    override fun onRenderedFirstFrame() { if (lease != null) emit("firstFrame", null) }
+    override fun onRenderedFirstFrame() { hasPlayed = true; if (lease != null) emit("firstFrame", null) }
 
     override fun onTracksChanged(tracks: Tracks) = audioSelection.tracksChanged(tracks)
 
@@ -940,6 +947,8 @@ internal class PorticoPlaybackController(private val context: Context) {
       watchEdge()
       // While nothing moves there is nothing new to say.
       val position = sourcePosition()
+      if (player?.isPlaying == true && !seeking && !routeResume && position.isFinite() && previousProgress.isFinite() && position > previousProgress + 0.05) hasPlayed = true
+      previousProgress = position
       val signature = "${if (position.isFinite()) (position * 2).toLong() else -1}/${isPaused()}/${player?.playbackState}"
       if (player?.isPlaying == true || signature != lastProgress) { lastProgress = signature; emit("progress", null) }
       main.postDelayed(this, 500)
@@ -994,7 +1003,11 @@ internal class PorticoPlaybackController(private val context: Context) {
    * the underlying code, so the app can tell the server which route failed and ask for the next.
    */
   private fun publishFailure(error: PlaybackException) {
-    val network = error.errorCode in NETWORK_ERRORS
+    val httpStatus = generateSequence<Throwable>(error) { it.cause }.take(4)
+        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode ?: 0
+    val delivery = httpStatus >= 400 || error.errorCode in DELIVERY_ERRORS
+    val network = if (httpStatus >= 400) httpStatus in 500..599 || httpStatus == 408 || httpStatus == 429
+        else error.errorCode in NETWORK_ERRORS
     val engine = when (error.errorCode) {
       in DECODE_ERRORS -> "decode_error"
       in SOURCE_ERRORS -> "source_not_supported"
@@ -1008,7 +1021,10 @@ internal class PorticoPlaybackController(private val context: Context) {
     fact["position"] = if (position.isFinite()) position else 0.0
     fact["paused"] = true
     fact["networkError"] = network
-    fact["engineCode"] = if (network) "" else engine
+    fact["deliveryError"] = delivery
+    fact["httpStatus"] = httpStatus
+    fact["hasPlayed"] = hasPlayed
+    fact["engineCode"] = if (network || delivery) "" else engine
     fact["errorDetail"] = "media3 ${error.errorCode} ${error.errorCodeName}" + (error.cause?.let { " / ${it.javaClass.simpleName}" } ?: "")
     fact["error"] = if (network) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
     fact.putAll(rateFacts())
@@ -1037,7 +1053,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     private val LINEAR_RATES = listOf(1.0)
     private val NETWORK_ERRORS = setOf(
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-        PlaybackException.ERROR_CODE_IO_UNSPECIFIED, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+    private val DELIVERY_ERRORS = setOf(
+        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
         PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
         PlaybackException.ERROR_CODE_IO_NO_PERMISSION, PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
         PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
