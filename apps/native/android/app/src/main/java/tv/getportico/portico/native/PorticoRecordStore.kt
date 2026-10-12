@@ -3,6 +3,7 @@ package tv.getportico.portico.native
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import java.io.File
 import java.io.FileOutputStream
 import java.security.KeyStore
@@ -26,19 +27,33 @@ internal sealed interface RecordRead {
  * One file per record under the app's no-backup directory, sealed with AES-256-GCM by a key that
  * never leaves the Android Keystore. The record's service and account are bound into the seal, so
  * a file moved to another name does not open. A write lands by atomic rename and is read back
- * before it is reported as saved; a read never repairs or overwrites what it could not open.
+ * before it is reported as saved. Ambiguous read failures never repair a record; a confirmed
+ * missing or permanently invalidated store key resets all records together.
  *
  * Every operation holds the store's lock, and [transaction] holds it across a read-modify-write,
  * the guarantee the Apple runtime gives by serialising on its class.
  */
 internal class PorticoRecordStore private constructor(private val root: File) {
 
+  private val resetPending = File(root.parentFile, root.name + ".key-loss-pending")
+  private val resetNotice = File(root.parentFile, root.name + ".key-loss-notice")
+
+  /** Launch preparation also consumes the one-time signed-out notice after a verified reset. */
+  fun prepareSecureRecords(): Boolean = synchronized(this) {
+    recoverLostKey()
+    check(key(create = true) != null)
+    if (!resetNotice.exists()) return false
+    check(resetNotice.delete())
+    true
+  }
+
   fun <T> transaction(block: () -> T): T = synchronized(this) { block() }
 
   fun read(service: String, account: String): RecordRead = synchronized(this) {
     val file = file(service, account)
-    if (!file.exists()) return RecordRead.Missing
     try {
+      recoverLostKey()
+      if (!file.exists()) return RecordRead.Missing
       if (file.length() > MAX_FILE_BYTES) return RecordRead.Unreadable
       val sealed = file.readBytes()
       if (sealed.size < 1 + IV_BYTES + TAG_BYTES || sealed[0] != FORMAT) return RecordRead.Unreadable
@@ -56,6 +71,7 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   fun write(service: String, account: String, bytes: ByteArray?): Boolean = synchronized(this) {
     val file = file(service, account)
     try {
+      recoverLostKey()
       if (bytes == null) {
         if (file.exists() && !file.delete()) return false
         return read(service, account) is RecordRead.Missing
@@ -95,9 +111,40 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   private fun binding(service: String, account: String): ByteArray =
       (service + "\u0000" + account).toByteArray(Charsets.UTF_8)
 
+  /** Only definitive key loss qualifies. I/O, lock state and damaged ciphertext do not. */
+  private fun recoverLostKey() {
+    if (resetPending.exists()) { resetLostRecords(); return }
+    try {
+      val existing = key(create = false)
+      if (existing == null) {
+        if (root.exists() && root.walkTopDown().any { it.isFile }) resetLostRecords()
+      } else {
+        // Decrypt initialization checks permanent invalidation without reading or changing a record.
+        Cipher.getInstance(TRANSFORMATION).init(Cipher.DECRYPT_MODE, existing, GCMParameterSpec(TAG_BYTES * 8, ByteArray(IV_BYTES)))
+      }
+    } catch (e: KeyPermanentlyInvalidatedException) {
+      resetLostRecords()
+    }
+  }
+
+  /** A pending marker fences every operation until the whole lost store is removed. */
+  private fun resetLostRecords() {
+    mark(resetPending)
+    check(!root.exists() || root.deleteRecursively())
+    val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+    keystore.deleteEntry(KEY_ALIAS)
+    mark(resetNotice)
+    check(resetPending.delete())
+  }
+
+  private fun mark(file: File) {
+    FileOutputStream(file).use { out -> out.write(1); out.flush(); out.fd.sync() }
+  }
+
   private fun key(create: Boolean): SecretKey? {
     val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
     (keystore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+    if (keystore.containsAlias(KEY_ALIAS)) throw IllegalStateException("The record key is unavailable.")
     if (!create) return null
     val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
     generator.init(

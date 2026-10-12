@@ -144,6 +144,12 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     if (identifier != null) PorticoTransport.cancel(identifier)
   }
 
+  @ReactMethod
+  fun prepareSecureRecords(promise: Promise) = storage.execute {
+    try { promise.resolve(store.prepareSecureRecords()) }
+    catch (_: Exception) { promise.reject("secure_storage", "Secure records could not be prepared.") }
+  }
+
   // --- records ---------------------------------------------------------------------------
 
   /** Missing resolves [missing]; unreadable (or not text) rejects, and nothing is repaired. */

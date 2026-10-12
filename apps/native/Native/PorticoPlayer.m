@@ -197,6 +197,10 @@ RCT_EXPORT_MODULE()
  * leaving them to time out while the new JavaScript's first requests wait behind them. */
 - (void)invalidate {[PorticoQueueTransport cancelOwnedBy:self];}
 + (BOOL)requiresMainQueueSetup{return NO;}
+RCT_REMAP_METHOD(prepareSecureRecords,prepareSecureRecordsWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ // Keychain records do not depend on a separate app-held sealing key.
+ resolve(@NO);
+}
 - (NSDictionary *)constantsToExport{
  NSMutableDictionary *values=[@{@"launchId":NSUUID.UUID.UUIDString} mutableCopy];
 #if !TARGET_OS_TV
