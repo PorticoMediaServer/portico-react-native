@@ -1,5 +1,5 @@
 type StepQueue = Readonly<{
-  getSnapshot(): {view: {queue: {id: string; revision: string}; next: {available: boolean}} | null};
+  getSnapshot(): {view: {queue: {id: string; revision: string}; next: {reason: 'ready' | 'end' | 'unavailable'}} | null};
   next(queueId: string, expectedRevision: string): Promise<void>;
   previous(): Promise<void>;
 }>;
@@ -37,6 +37,8 @@ export function stepQueue(service: StepService, action: 'next' | 'previous', gro
   const queue = service.getQueueController();
   if (!queue) return Promise.resolve();
   if (action === 'previous') return queue.previous();
+  // Next is the server's to resolve: it steps past entries this viewer can't play, so an
+  // unavailable entry right after the current one doesn't stop it. Only the end of the queue does.
   const view = queue.getSnapshot().view;
-  return view?.next.available ? queue.next(view.queue.id, view.queue.revision) : Promise.resolve();
+  return view && view.next.reason !== 'end' ? queue.next(view.queue.id, view.queue.revision) : Promise.resolve();
 }
