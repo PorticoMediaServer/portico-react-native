@@ -5,7 +5,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PENDING_LINK_LIFETIME_MS, PendingLinkOwner, linkViewerKey, routedLink} from '../src/shell/pending-link.ts';
+import {LinkFence, PENDING_LINK_LIFETIME_MS, PendingLinkOwner, linkViewerKey, routedLink} from '../src/shell/pending-link.ts';
+import {Linking} from './react-native-stub.mjs';
+import {act, createHookHost} from './hook-driver.ts';
+import type * as IntakeModule from '../src/shell/link-intents.ts';
 
 const alice = linkViewerKey({authority: 'local', accountId: 'a1', profileId: 'p1', serverId: 's1'})!;
 const kid = linkViewerKey({authority: 'local', accountId: 'a1', profileId: 'p2', serverId: 's1'})!;
@@ -176,4 +179,149 @@ test('the viewer key names authority, account, profile and server, and nothing w
   const keys = new Set([alice, kid, elsewhere, linkViewerKey({authority: 'hosted', accountId: 'a1', profileId: 'p1', serverId: 's1'}), linkViewerKey({authority: 'local', accountId: 'a2', profileId: 'p1', serverId: 's1'})]);
   assert.equal(keys.size, 5);
   assert.equal(linkViewerKey({authority: 'local', accountId: 'a1', profileId: 'p1', serverId: 's1'}), alice);
+});
+
+// The launch link is read from the system, which answers when it answers. The link is the launch's:
+// it keeps the time and the viewer of the moment the reading began, not of the moment it ended.
+
+test('a launch link that is read late never opens for a viewer chosen in the meantime', () => {
+  const {owner, opened, open} = harness();
+  assert.equal(owner.claimInitial(), true);
+  owner.setViewer(alice);
+  owner.setViewer(null);
+  owner.setViewer(kid);
+  owner.attach(kid, open);
+  owner.offerInitial(MOVIE);
+  assert.deepEqual(opened, []);
+  // Nor when the other viewer's shell is ready before the change of viewer is announced.
+  const early = harness();
+  early.owner.setViewer(alice);
+  early.owner.claimInitial();
+  early.owner.attach(kid, early.open);
+  early.owner.offerInitial(MOVIE);
+  assert.deepEqual(early.opened, []);
+});
+
+test('a launch link that is read late opens for the viewer it launched for', () => {
+  const remembered = harness();
+  remembered.owner.setViewer(alice);
+  remembered.owner.claimInitial();
+  remembered.owner.setViewer(null);
+  remembered.owner.setViewer(alice);
+  remembered.owner.attach(alice, remembered.open);
+  remembered.owner.offerInitial(MOVIE);
+  assert.deepEqual(remembered.opened, [MOVIE]);
+  // Launched with nobody signed in: it is the first viewer's.
+  const signedOut = harness();
+  signedOut.owner.claimInitial();
+  signedOut.owner.setViewer(alice);
+  signedOut.owner.attach(alice, signedOut.open);
+  signedOut.owner.offerInitial(MOVIE);
+  assert.deepEqual(signedOut.opened, [MOVIE]);
+});
+
+test('a newer link is not replaced by the launch link when that is read late', () => {
+  const {owner, opened, open} = harness();
+  owner.setViewer(alice);
+  owner.claimInitial();
+  owner.offer(SHOW);
+  owner.offerInitial(MOVIE);
+  owner.attach(alice, open);
+  assert.deepEqual(opened, [SHOW]);
+});
+
+test('a launch link\'s ten minutes run from the launch, not from when it was read', () => {
+  const stale = harness();
+  stale.owner.setViewer(alice);
+  stale.owner.claimInitial();
+  stale.pass(PENDING_LINK_LIFETIME_MS + 1);
+  stale.owner.offerInitial(MOVIE);
+  stale.owner.attach(alice, stale.open);
+  assert.deepEqual(stale.opened, []);
+});
+
+test('a launch with no link, or one that cannot be read, holds nothing and later links still open', () => {
+  const {owner, opened, open} = harness();
+  owner.setViewer(alice);
+  owner.claimInitial();
+  owner.offerInitial(null);
+  owner.attach(alice, open);
+  assert.deepEqual(opened, []);
+  owner.offer(SHOW);
+  assert.deepEqual(opened, [SHOW]);
+});
+
+// What a link's own lookups (the title, its route) do when they finally answer.
+
+test('a link\'s late result is used only for the same viewer\'s shell and only while it is the latest link', () => {
+  const fence = new LinkFence();
+  assert.equal(fence.begin()(), false, 'no shell that can open links');
+  fence.setViewer(alice);
+  const first = fence.begin();
+  assert.equal(first(), true);
+  const second = fence.begin();
+  assert.equal(first(), false, 'a newer link was opened');
+  assert.equal(second(), true);
+  fence.setViewer(alice);
+  assert.equal(second(), true, 'the same viewer again changes nothing');
+  fence.setViewer(kid);
+  assert.equal(second(), false, 'the viewer changed');
+  const third = fence.begin();
+  fence.setViewer(null);
+  assert.equal(third(), false, 'the shell has gone');
+  fence.setViewer(kid);
+  assert.equal(third(), false, 'and a new one for the same viewer does not revive it');
+});
+
+// The intake as the app mounts it, with the system slow to answer for the launch link.
+
+async function intake() {
+  let answer!: (url: string | null) => void;
+  let reads = 0;
+  Linking.getInitialURL = () => { reads++; return new Promise<string | null>(resolve => { answer = resolve; }); };
+  const {linkIntents, useLinkIntake} = (await import('../src/shell/link-intents.ts?v=' + Math.random())) as typeof IntakeModule;
+  let viewer: Parameters<typeof useLinkIntake>[0];
+  const host = createHookHost(() => useLinkIntake(viewer));
+  host.mount();
+  const select = async (next: typeof viewer) => { await act(() => { viewer = next; host.rerender(); }); };
+  const opened: string[] = [];
+  return {linkIntents, select, opened, answer: async (url: string | null) => { answer(url); await act(() => {}); }, reads: () => reads, close: () => host.unmount()};
+}
+const ALICE = {authority: 'local', accountId: 'a1', profileId: 'p1', serverId: 's1'};
+const KID = {...ALICE, profileId: 'p2'};
+
+test('the app\'s intake: a launch link read after the viewer changed opens for nobody', async () => {
+  const app = await intake();
+  try {
+    await app.select(ALICE);
+    await app.select(undefined);
+    await app.select(KID);
+    app.linkIntents.attach(kid, url => { app.opened.push(url); });
+    await app.answer(MOVIE);
+    assert.deepEqual(app.opened, []);
+    assert.equal(app.reads(), 1);
+  } finally { app.close(); }
+});
+
+test('the app\'s intake: a link that arrives while the launch link is still being read is the one that opens', async () => {
+  const app = await intake();
+  try {
+    await app.select(ALICE);
+    Linking.deliver(SHOW);
+    await app.answer(MOVIE);
+    app.linkIntents.attach(alice, url => { app.opened.push(url); });
+    assert.deepEqual(app.opened, [SHOW]);
+  } finally { app.close(); }
+});
+
+test('the app\'s intake: a launch link read late still opens for the viewer the app launched with', async () => {
+  const app = await intake();
+  try {
+    await app.select(ALICE);
+    await app.select(undefined);
+    await app.select(ALICE);
+    app.linkIntents.attach(alice, url => { app.opened.push(url); });
+    await app.answer(MOVIE);
+    assert.deepEqual(app.opened, [MOVIE]);
+  } finally { app.close(); }
 });

@@ -102,6 +102,15 @@ export function emit(name, payload) {
 
 export const Platform = {OS: 'ios', isTV: false};
 
+const linkHandlers = new Set();
+/** Links from outside the app. A test replaces `getInitialURL` and calls `deliver` for a `url` event. */
+export const Linking = {
+  /** @type {() => Promise<string | null>} */
+  getInitialURL: async () => null,
+  addEventListener: (_type, handler) => { linkHandlers.add(handler); return {remove: () => linkHandlers.delete(handler)}; },
+  deliver(url) { for (const handler of [...linkHandlers]) handler({url}); },
+};
+
 export const AppState = {
   currentState: 'active',
   addEventListener: () => ({remove: () => {}}),

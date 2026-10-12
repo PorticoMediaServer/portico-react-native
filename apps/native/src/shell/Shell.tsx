@@ -35,7 +35,7 @@ import {DeviceApprovalCover} from '../app/device';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {DownloadsGate} from './DownloadsGate';
 import {linkIntents} from './link-intents';
-import {linkViewerKey} from './pending-link';
+import {LinkFence, linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
@@ -257,17 +257,22 @@ export function Shell() {
   // Secrets ride in the fragment and are never logged.
   const playerIntents = useRef<PlayerActions | null>(null);
   const linked = useRef<(url: string | null) => void>(() => {});
+  // A link's lookups answer later. What they do then is fenced: only for the viewer the link was
+  // opened for, in this shell, and only while no newer link has been opened.
+  const linkFence = useRef<LinkFence | null>(null);
+  linkFence.current ??= new LinkFence();
   linked.current = url => {
     if (!url || !hasRealOrigin(session.api)) return;
     const nav = navigator.current;
+    const current = linkFence.current!.begin();
     const title = /^portico:\/\/(item|play)\/([A-Za-z0-9_-]{1,128})$/.exec(url);
     if (title) {
       const [, action, itemId] = title;
       // APL-SHELL-03: say why nothing opened, and let the Top Shelf catch up.
-      const refused = () => { showToast({message: activeI18n().t('shell.titleNotOnProfile'), icon: 'warning'}); topShelfChanged(); };
-      if (action === 'play') void session.api.item(itemId).then(item => playerIntents.current?.play(itemId, item.progressSeconds ?? 0), refused);
+      const refused = () => { if (!current()) return; showToast({message: activeI18n().t('shell.titleNotOnProfile'), icon: 'warning'}); topShelfChanged(); };
+      if (action === 'play') void session.api.item(itemId).then(item => { if (current()) playerIntents.current?.play(itemId, item.progressSeconds ?? 0); }, refused);
       // B16: a link may name a show, album, book or artist as well as a playable title.
-      else void routeForLinkedTitle(session.api, itemId).then(route => { if (route) nav?.dispatch(StackActions.push(route.name, route.params)); else refused(); }, refused);
+      else void routeForLinkedTitle(session.api, itemId).then(route => { if (!current()) return; if (route) nav?.dispatch(StackActions.push(route.name, route.params)); else refused(); }, refused);
       return;
     }
     if (/^portico:\/\/device\/?(?:[?#].*)?$/.test(url)) {
@@ -297,10 +302,12 @@ export function Shell() {
   // tick so the navigator this shell has just mounted is ready for the route.
   const linkViewer = hasRealOrigin(session.api) ? linkViewerKey(session.session?.viewer) : null;
   useEffect(() => {
+    const fence = linkFence.current!;
+    fence.setViewer(linkViewer);
     if (!linkViewer) return;
     let live = true;
     const detach = linkIntents.attach(linkViewer, url => { setTimeout(() => { if (live) linked.current(url); }, 0); });
-    return () => { live = false; detach(); };
+    return () => { live = false; detach(); fence.setViewer(null); };
   }, [linkViewer]);
   const viewTogether = useCallback(() => navigator.current?.dispatch(StackActions.push('Together')), []);
   const viewDownloads = useCallback(() => navigator.current?.dispatch(StackActions.push('Downloads')), []);

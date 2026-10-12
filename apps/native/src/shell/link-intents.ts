@@ -15,7 +15,8 @@ export function useLinkIntake(viewer: Parameters<typeof linkViewerKey>[0]): void
   const key = linkViewerKey(viewer);
   useEffect(() => { linkIntents.setViewer(key); }, [key]);
   useEffect(() => {
-    if (linkIntents.claimInitial()) void Linking.getInitialURL().then(url => linkIntents.offer(url), () => {});
+    // The answer can be slow; the owner keeps the link's place (its time and viewer) from now.
+    if (linkIntents.claimInitial()) void Linking.getInitialURL().then(url => linkIntents.offerInitial(url), () => linkIntents.offerInitial(null));
     const subscription = Linking.addEventListener('url', event => linkIntents.offer(event.url));
     return () => subscription.remove();
   }, []);
