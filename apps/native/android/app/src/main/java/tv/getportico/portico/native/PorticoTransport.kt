@@ -14,11 +14,13 @@ import okhttp3.Callback
 import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import okhttp3.Response
 import okio.Buffer
+import okio.BufferedSink
 
 /**
  * The bounded JSON control transport behind `PorticoRuntime`'s `queueRequest`, `networkRequest`
@@ -56,6 +58,9 @@ internal object PorticoTransport {
         .build()
   }
 
+  // Reads retain safe connection alternatives. Writes may only be retried by their app owner.
+  private val writeClient: OkHttpClient by lazy { client.newBuilder().retryOnConnectionFailure(false).build() }
+
   /** A request URL the transport will carry: http or https, no credentials in it, no fragment. */
   fun target(url: String?): HttpUrl? {
     if (url == null || url.length > 8192) return null
@@ -75,10 +80,18 @@ internal object PorticoTransport {
       }
     }
     // The caller's own Content-Type header describes the body; none is invented here.
-    val payload = when (method) {
+    val bytes = when (method) {
       "GET", "HEAD" -> null
-      "DELETE" -> body?.toRequestBody(null)
-      else -> (body ?: ByteArray(0)).toRequestBody(null)
+      else -> body ?: ByteArray(0)
+    }
+    // One-shot also prevents HTTP follow-ups (such as a retryable 503) from replaying a body.
+    val payload = bytes?.let { data ->
+      object : RequestBody() {
+        override fun contentType(): MediaType? = null
+        override fun contentLength(): Long = data.size.toLong()
+        override fun isOneShot(): Boolean = true
+        override fun writeTo(sink: BufferedSink) { sink.write(data) }
+      }
     }
     builder.method(method, payload).build()
   } catch (_: IllegalArgumentException) {
@@ -95,7 +108,8 @@ internal object PorticoTransport {
         return
       }
       entries[identifier] = entry
-      call = client.newCall(request)
+      val transport = if (request.method in setOf("GET", "HEAD") && request.body == null) client else writeClient
+      call = transport.newCall(request)
       entry.call = call
     }
     call.enqueue(object : Callback {
