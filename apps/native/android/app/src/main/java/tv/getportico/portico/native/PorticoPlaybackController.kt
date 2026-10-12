@@ -1024,6 +1024,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     fact["deliveryError"] = delivery
     fact["httpStatus"] = httpStatus
     fact["hasPlayed"] = hasPlayed
+    // A time-out, or a failure in another process, says nothing about the media: at start-up it
+    // must not be taken for an incompatibility (the Apple runtime marks its interruptions too).
+    fact["uncertain"] = !network && !delivery && engine.isEmpty() && error.errorCode in UNCERTAIN_ERRORS
     fact["engineCode"] = if (network || delivery) "" else engine
     fact["errorDetail"] = "media3 ${error.errorCode} ${error.errorCodeName}" + (error.cause?.let { " / ${it.javaClass.simpleName}" } ?: "")
     fact["error"] = if (network) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
@@ -1067,6 +1070,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     private val SOURCE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED)
+    private val UNCERTAIN_ERRORS = setOf(PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR)
 
     /** The app's one playback controller, for the player view and the system media surfaces. */
     @Volatile var shared: PorticoPlaybackController? = null

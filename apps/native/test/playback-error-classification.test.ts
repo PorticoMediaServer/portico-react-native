@@ -25,3 +25,15 @@ test('startup engine failures retain fallback while healthy and delivery failure
   }
   assert.equal(classifyPlaybackFailure({engineCode: 'engine_error'}).engine, null);
 });
+
+test('a start-up failure whose cause is uncertain teaches nothing; a named decoder or parser fault still does', async () => {
+  const {classifyPlaybackFailure} = await import('../src/player/playback-failure.ts');
+  // An interruption, a time-out, or a transport that was reporting trouble: not the media's fault.
+  assert.deepEqual(classifyPlaybackFailure({hasPlayed: false, uncertain: true}), {network: false, engine: null});
+  assert.deepEqual(classifyPlaybackFailure({hasPlayed: true, uncertain: true}), {network: false, engine: null});
+  assert.equal(classifyPlaybackFailure({hasPlayed: false, uncertain: false}).engine, 'source_not_supported');
+  assert.equal(classifyPlaybackFailure({hasPlayed: false}).engine, 'source_not_supported', 'a runtime that does not say is as before');
+  for (const engineCode of ['decode_error', 'source_not_supported'] as const)
+    assert.equal(classifyPlaybackFailure({hasPlayed: false, uncertain: true, engineCode}).engine, engineCode);
+  assert.deepEqual(classifyPlaybackFailure({hasPlayed: false, uncertain: true, networkError: true}), {network: true, engine: null});
+});

@@ -30,6 +30,11 @@ static NSInteger PorticoHTTPStatusInComment(NSString *comment) {
  NSTextCheckingResult *match=[pattern firstMatchInString:comment options:0 range:NSMakeRange(0,comment.length)];
  return match?[comment substringWithRange:[match rangeAtIndex:1]].integerValue:0;
 }
+/** URL failures that waiting will not change. A bad server response is not one of them: with no
+ * status to go by it is most often a server that is failing for now. */
+static BOOL PorticoURLErrorIsPermanent(NSInteger code) {
+ return [@[@(NSURLErrorCancelled),@(NSURLErrorFileDoesNotExist),@(NSURLErrorFileIsDirectory),@(NSURLErrorNoPermissionsToReadFile),@(NSURLErrorDataNotAllowed),@(NSURLErrorAppTransportSecurityRequiresSecureConnection),@(NSURLErrorUserAuthenticationRequired),@(NSURLErrorUserCancelledAuthentication),@(NSURLErrorCannotDecodeRawData),@(NSURLErrorCannotDecodeContentData)] containsObject:@(code)];
+}
 static NSInteger PorticoErrorHTTPStatus(NSError *top) {
  NSError *error=top;
  for(int i=0;[error isKindOfClass:NSError.class]&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){
@@ -432,33 +437,48 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  * underlying code, so the app can tell the server which route failed and ask for the next one
  * instead of showing the viewer an error. */
 - (void)publishFailure:(NSError *)top {
- NSInteger httpStatus=PorticoErrorHTTPStatus(top);
- AVPlayerItemErrorLogEvent *log=_player.currentItem.errorLog.events.lastObject;
- if(!httpStatus)httpStatus=PorticoHTTPStatusInComment(log.errorComment);
- if(!httpStatus&&log.errorStatusCode>=400&&log.errorStatusCode<=599)httpStatus=log.errorStatusCode;
- BOOL network=NO,delivery=NO;NSError *error=top;
- for(int i=0;[error isKindOfClass:NSError.class]&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){
-  if([error.domain isEqual:NSURLErrorDomain]){
-   BOOL permanent=[@[@(NSURLErrorCancelled),@(NSURLErrorFileDoesNotExist),@(NSURLErrorFileIsDirectory),@(NSURLErrorNoPermissionsToReadFile),@(NSURLErrorDataNotAllowed),@(NSURLErrorAppTransportSecurityRequiresSecureConnection),@(NSURLErrorUserAuthenticationRequired),@(NSURLErrorUserCancelledAuthentication),@(NSURLErrorBadServerResponse),@(NSURLErrorCannotDecodeRawData),@(NSURLErrorCannotDecodeContentData)] containsObject:@(error.code)];
-   if(permanent)delivery=YES;else network=YES;
-  }
-  if([error.domain isEqual:NSPOSIXErrorDomain]){
-   if([@[@(ETIMEDOUT),@(ECONNREFUSED),@(ECONNRESET),@(ENETDOWN),@(ENETUNREACH),@(EHOSTUNREACH),@(EPIPE)] containsObject:@(error.code)])network=YES;else delivery=YES;
-  }
-  if([error.domain isEqual:NSCocoaErrorDomain]&&(error.code==NSFileReadNoPermissionError||error.code==NSFileReadNoSuchFileError))delivery=YES;
-  if([error.domain isEqual:AVFoundationErrorDomain]&&error.code==AVErrorContentIsUnavailable)delivery=YES;
- }
- if(httpStatus){delivery=YES;network=httpStatus>=500||httpStatus==408||httpStatus==429;}
- else if(delivery)network=NO;
  NSString *engine=@"";
  if([top.domain isEqual:AVFoundationErrorDomain]){
   if(top.code==AVErrorDecodeFailed||top.code==AVErrorDecoderNotFound||top.code==AVErrorDecoderTemporarilyUnavailable)engine=@"decode_error";
   else if(top.code==AVErrorFileFormatNotRecognized||top.code==AVErrorFailedToParse||top.code==AVErrorFormatUnsupported)engine=@"source_not_supported";
  }
+ NSInteger httpStatus=PorticoErrorHTTPStatus(top);
+ // The item's error log gathers every transport event of its life, most of them survived. Only a
+ // fresh entry can be about this failure, and never when the engine has named a decoder or parser
+ // fault itself: an old 404 or 503 must not hide that, or send playback looking for another route.
+ AVPlayerItemErrorLogEvent *log=_player.currentItem.errorLog.events.lastObject;
+ BOOL fresh=log!=nil&&!engine.length&&log.date!=nil&&fabs(log.date.timeIntervalSinceNow)<=15;
+ if(!httpStatus&&fresh)httpStatus=PorticoHTTPStatusInComment(log.errorComment);
+ if(!httpStatus&&fresh&&log.errorStatusCode>=400&&log.errorStatusCode<=599)httpStatus=log.errorStatusCode;
+ // The outermost error that says anything decides. A deeper code never turns a lost connection
+ // into a media failure, and a socket error is the connection unless it is a missing or forbidden
+ // file: a connection dropped while the app was in the background is weather, not the media.
+ BOOL network=NO,delivery=NO;NSError *error=top;
+ for(int i=0;[error isKindOfClass:NSError.class]&&i<4&&!network&&!delivery;i++,error=error.userInfo[NSUnderlyingErrorKey]){
+  if([error.domain isEqual:NSURLErrorDomain]){
+   if(PorticoURLErrorIsPermanent(error.code))delivery=YES;else network=YES;
+  }
+  if([error.domain isEqual:NSPOSIXErrorDomain]){
+   if(error.code==ENOENT||error.code==EACCES||error.code==EPERM||error.code==EISDIR)delivery=YES;else network=YES;
+  }
+  if([error.domain isEqual:NSCocoaErrorDomain]&&(error.code==NSFileReadNoPermissionError||error.code==NSFileReadNoSuchFileError))delivery=YES;
+  if([error.domain isEqual:AVFoundationErrorDomain]&&error.code==AVErrorContentIsUnavailable)delivery=YES;
+ }
+ // A stream's transport failure can arrive as a media error whose cause is only in the log.
+ if(!network&&!delivery&&!httpStatus&&fresh&&[log.errorDomain isEqual:NSURLErrorDomain]){
+  if(PorticoURLErrorIsPermanent(log.errorStatusCode))delivery=YES;else network=YES;
+ }
+ if(httpStatus){delivery=YES;network=httpStatus>=500||httpStatus==408||httpStatus==429;}
+ // Nothing says why it failed, but something says it was not the media: the system interrupted
+ // playback (session interrupted -11818, media services reset -11819, operation interrupted
+ // -11847, out of memory -11801), or the transport was reporting trouble moments ago. The app
+ // must not take that for an incompatibility and tell the server so.
+ BOOL interrupted=[top.domain isEqual:AVFoundationErrorDomain]&&(top.code==-11818||top.code==-11819||top.code==-11847||top.code==-11801);
+ BOOL uncertain=!network&&!delivery&&!httpStatus&&!engine.length&&(interrupted||fresh);
  NSError *under=top.userInfo[NSUnderlyingErrorKey];
  NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
  double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];
- NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
+ NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
 - (void)stalled:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
