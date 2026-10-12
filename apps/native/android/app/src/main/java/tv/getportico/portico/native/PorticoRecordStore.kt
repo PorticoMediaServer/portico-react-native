@@ -187,7 +187,7 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   }
 
   private fun syncDirectory() {
-    val descriptor = Os.open(checkNotNull(root.parentFile).path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+    val descriptor = Os.open(checkNotNull(root.parentFile).path, OsConstants.O_RDONLY, 0)
     try { Os.fsync(descriptor) } finally { Os.close(descriptor) }
   }
 
