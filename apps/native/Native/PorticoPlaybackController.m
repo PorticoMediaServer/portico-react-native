@@ -4,6 +4,7 @@
 #import "PorticoSubtitleSelection.h"
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
+#import <errno.h>
 /** Device-fit settings for every video item (weak devices; not quality: the viewer's quality
  * choice stays with the server plan).
  * - iPhone/iPad: never pick an adaptive variant larger than the screen (a 4K rung on a 1080p
@@ -22,6 +23,27 @@ static BOOL PorticoAllowedLocalSource(NSURL *url) {
  BOOL directory=NO;
  return root.length&&[path hasPrefix:[root stringByAppendingString:@"/"]]&&[NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory]&&!directory;
 }
+static NSInteger PorticoHTTPStatusInComment(NSString *comment) {
+ if(![comment isKindOfClass:NSString.class]||comment.length>4096)return 0;
+ static NSRegularExpression *pattern;static dispatch_once_t once;
+ dispatch_once(&once,^{pattern=[NSRegularExpression regularExpressionWithPattern:@"\\bHTTP\\s+(?:error\\s+|status(?:\\s+code)?\\s*[:=]?\\s*)?([45][0-9]{2})\\b" options:NSRegularExpressionCaseInsensitive error:nil];});
+ NSTextCheckingResult *match=[pattern firstMatchInString:comment options:0 range:NSMakeRange(0,comment.length)];
+ return match?[comment substringWithRange:[match rangeAtIndex:1]].integerValue:0;
+}
+static NSInteger PorticoErrorHTTPStatus(NSError *top) {
+ NSError *error=top;
+ for(int i=0;[error isKindOfClass:NSError.class]&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){
+  id response=error.userInfo[@"NSHTTPURLResponse"];
+  if([response isKindOfClass:NSHTTPURLResponse.class]){NSInteger status=[response statusCode];if(status>=400&&status<=599)return status;}
+  NSInteger status=PorticoHTTPStatusInComment(error.userInfo[NSLocalizedDescriptionKey]);
+  if(!status)status=PorticoHTTPStatusInComment(error.userInfo[NSLocalizedFailureReasonErrorKey]);
+  if(status)return status;
+  // HLS can wrap these HTTP failures as CoreMedia errors rather than URL errors.
+  if([error.domain isEqual:@"CoreMediaErrorDomain"]){if(error.code==-12938)return 404;if(error.code==-12660)return 403;}
+ }
+ return 0;
+}
+
 static void PorticoConfigureItem(AVPlayerItem *item) {
  static double memoryGB; static CGSize screenPixels; static dispatch_once_t once;
  dispatch_once(&once, ^{
@@ -44,6 +66,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  PorticoAudioRender *_audioRender;
  AVPlayer *_player; id _timeObserver; id _subtitleTimeObserver; PorticoAudioSelection *_audioSelection; PorticoSubtitleSelection *_subtitleSelection; NSString *_subtitleText;NSDictionary *_subtitleCue;
  NSDictionary *_binding; NSString *_lease; NSString *_owner; NSInteger _commandRevision; NSInteger _factSequence;
+ BOOL _hasPlayed;double _previousProgress;
  BOOL _routeSuspended; BOOL _routeResume; BOOL _routeSeeking; BOOL _routeFailed; NSInteger _routeEpoch; double _routePosition;
  NSInteger _acceptedSeekRevision; double _acceptedSeekTarget; BOOL _seekRetired; BOOL _invalidated;
  NSString *_itemInstanceId; NSString *_source; NSString *_instanceId; NSInteger _intentId; NSInteger _seekRevision; BOOL _paused; BOOL _observing; BOOL _seeking; NSNumber *_timelineOriginMS;
@@ -52,7 +75,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
 #endif
 }
 - (instancetype)init {
- if((self=[super init])){_listeningRouteReady=YES;_paused=YES;_seekRevision=-1;_acceptedSeekRevision=-1;_instanceId=NSUUID.UUID.UUIDString;_player=[AVPlayer new];
+ if((self=[super init])){_listeningRouteReady=YES;_previousProgress=NAN;_paused=YES;_seekRevision=-1;_acceptedSeekRevision=-1;_instanceId=NSUUID.UUID.UUIDString;_player=[AVPlayer new];
  __weak PorticoPlaybackController *weakSelf=self;
  _audioRender=[PorticoAudioRender new];_audioRender.onFact=^(NSDictionary *renderFact){
   PorticoPlaybackController *owner=weakSelf;if(!owner||!owner->_audioRender.active||!owner->_source.length)return;
@@ -77,7 +100,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(failedToEnd:) name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
  }return self;
 }
-- (void)displayReadyForLease:(NSString *)lease {if([_lease isEqual:lease])[self emit:@"firstFrame" error:nil];}
+- (void)displayReadyForLease:(NSString *)lease {if([_lease isEqual:lease]){_hasPlayed=YES;[self emit:@"firstFrame" error:nil];}}
 - (NSDictionary *)testStaleCommands {
 #if DEBUG
  if(![NSProcessInfo.processInfo.environment[@"PORTICO_TEST_PLAYER_OWNERSHIP"] isEqualToString:@"1"]||!_command||_acceptedSeekRevision<1)return @{@"available":@NO};
@@ -287,6 +310,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [_audioRender invalidate];
  BOOL reload=_routeSuspended||nextId!=_intentId||changed||!_player.currentItem;_routeSuspended=NO;
  if(reload){
+  _hasPlayed=NO;_previousProgress=NAN;
   _routeEpoch++;
   [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
   if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!([@[@"http",@"https"] containsObject:url.scheme]||PorticoAllowedLocalSource(url))){[self emit:@"error" error:@"Invalid media address."];return;}
@@ -408,8 +432,24 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  * underlying code, so the app can tell the server which route failed and ask for the next one
  * instead of showing the viewer an error. */
 - (void)publishFailure:(NSError *)top {
- BOOL network=NO;NSError *error=top;
- for(int i=0;error&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){if([error.domain isEqual:NSURLErrorDomain])network=YES;}
+ NSInteger httpStatus=PorticoErrorHTTPStatus(top);
+ AVPlayerItemErrorLogEvent *log=_player.currentItem.errorLog.events.lastObject;
+ if(!httpStatus)httpStatus=PorticoHTTPStatusInComment(log.errorComment);
+ if(!httpStatus&&log.errorStatusCode>=400&&log.errorStatusCode<=599)httpStatus=log.errorStatusCode;
+ BOOL network=NO,delivery=NO;NSError *error=top;
+ for(int i=0;[error isKindOfClass:NSError.class]&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){
+  if([error.domain isEqual:NSURLErrorDomain]){
+   BOOL permanent=[@[@(NSURLErrorCancelled),@(NSURLErrorFileDoesNotExist),@(NSURLErrorFileIsDirectory),@(NSURLErrorNoPermissionsToReadFile),@(NSURLErrorDataNotAllowed),@(NSURLErrorAppTransportSecurityRequiresSecureConnection),@(NSURLErrorUserAuthenticationRequired),@(NSURLErrorUserCancelledAuthentication),@(NSURLErrorBadServerResponse),@(NSURLErrorCannotDecodeRawData),@(NSURLErrorCannotDecodeContentData)] containsObject:@(error.code)];
+   if(permanent)delivery=YES;else network=YES;
+  }
+  if([error.domain isEqual:NSPOSIXErrorDomain]){
+   if([@[@(ETIMEDOUT),@(ECONNREFUSED),@(ECONNRESET),@(ENETDOWN),@(ENETUNREACH),@(EHOSTUNREACH),@(EPIPE)] containsObject:@(error.code)])network=YES;else delivery=YES;
+  }
+  if([error.domain isEqual:NSCocoaErrorDomain]&&(error.code==NSFileReadNoPermissionError||error.code==NSFileReadNoSuchFileError))delivery=YES;
+  if([error.domain isEqual:AVFoundationErrorDomain]&&error.code==AVErrorContentIsUnavailable)delivery=YES;
+ }
+ if(httpStatus){delivery=YES;network=httpStatus>=500||httpStatus==408||httpStatus==429;}
+ else if(delivery)network=NO;
  NSString *engine=@"";
  if([top.domain isEqual:AVFoundationErrorDomain]){
   if(top.code==AVErrorDecodeFailed||top.code==AVErrorDecoderNotFound||top.code==AVErrorDecoderTemporarilyUnavailable)engine=@"decode_error";
@@ -418,7 +458,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSError *under=top.userInfo[NSUnderlyingErrorKey];
  NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
  double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];
- NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"engineCode":network?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
+ NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
 - (void)stalled:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
@@ -437,7 +477,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [audio setActive:YES error:nil];
 }
 - (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
-- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
 - (void)removeObservation{if(_observing){[_player.currentItem removeObserver:self forKeyPath:@"status"];[_player.currentItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;}}
 - (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end
