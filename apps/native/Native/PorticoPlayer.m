@@ -296,7 +296,12 @@ RCT_REMAP_METHOD(recordTestEvent,recordTestEvent:(NSString *)json){
 #endif
 RCT_REMAP_METHOD(loadQueueRecord,loadQueueRecord:(NSString *)key resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.queues",(__bridge id)kSecAttrAccount:key,(__bridge id)kSecReturnData:@YES};CFTypeRef result=NULL;OSStatus status=SecItemCopyMatching((__bridge CFDictionaryRef)query,&result);
- PorticoResolveSecureStorageRead(status,CFBridgingRelease(result),NSNull.null,@"Queue recovery could not be read.",resolve,reject);
+ id stored=CFBridgingRelease(result);
+ // The Keychain returned the item, but its bytes are not text: not a record this app wrote, and
+ // waiting will not mend it. That is `secure_record_damaged` (the Android runtime's code too).
+ // Every Keychain failure, a locked device before first unlock included, stays `secure_storage`.
+ if(status==errSecSuccess&&[stored isKindOfClass:NSData.class]&&![[NSString alloc] initWithData:stored encoding:NSUTF8StringEncoding]){reject(@"secure_record_damaged",@"Queue recovery could not be read.",nil);return;}
+ PorticoResolveSecureStorageRead(status,stored,NSNull.null,@"Queue recovery could not be read.",resolve,reject);
 }
 RCT_REMAP_METHOD(saveQueueRecord,saveQueueRecord:(NSString *)key json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(!data||data.length>262144){reject(@"queue_journal_size",@"Queue recovery is full.",nil);return;}

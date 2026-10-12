@@ -71,6 +71,25 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     }
   }
 
+  /**
+   * Whether an unreadable record is damaged for good: its file is there and was read in full, but
+   * is not a sealed record at all (too large, too short, or not this format). That is decided
+   * from the file alone, so it is the same answer every time and waiting cannot change it. A key
+   * that is missing, or that will not open the record, is not decided here: the Keystore can fail
+   * for a while, so that stays "cannot be read now". Nothing is repaired or removed.
+   */
+  fun damaged(service: String, account: String): Boolean = synchronized(this) {
+    try {
+      val file = file(service, account)
+      if (!file.isFile) return false
+      if (file.length() > MAX_FILE_BYTES) return true
+      val sealed = file.readBytes()
+      sealed.size < 1 + IV_BYTES + TAG_BYTES || sealed[0] != FORMAT
+    } catch (_: Exception) {
+      false
+    }
+  }
+
   /** Saves [bytes], or removes the record when [bytes] is null. True only when a read confirms it. */
   fun write(service: String, account: String, bytes: ByteArray?): Boolean = synchronized(this) {
     val file = file(service, account)

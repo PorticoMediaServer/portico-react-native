@@ -26,18 +26,34 @@ import {
 import { NativeQueueStore } from './queue-storage';
 const storageKey = 'network.selected.v1';
 const store = new NativeQueueStore();
+// A saved connection that is there but can never be read ends the sign-in (the shared code tells
+// it by this code); a store that cannot be read right now keeps it. A change treats the damaged
+// record as absent, so the next sign-in saves over it and anything else leaves it untouched.
+const damaged = () =>
+  new RouteError(
+    'invalid_saved_connection',
+    'Saved server credentials are incomplete.',
+  );
 const storage: ServerConnectionStorage = {
   read: () =>
-    store.change(storageKey, raw => ({
-      record: raw,
-      value: raw === null ? undefined : (raw as RememberedServer),
-    })),
+    store.change(
+      storageKey,
+      raw => ({
+        record: raw,
+        value: raw === null ? undefined : (raw as RememberedServer),
+      }),
+      { error: damaged },
+    ),
   change: async update => {
-    await store.change(storageKey, raw => ({
-      record:
-        update(raw === null ? undefined : (raw as RememberedServer)) ?? null,
-      value: undefined,
-    }));
+    await store.change(
+      storageKey,
+      raw => ({
+        record:
+          update(raw === null ? undefined : (raw as RememberedServer)) ?? null,
+        value: undefined,
+      }),
+      { error: damaged, replace: true },
+    );
   },
 };
 export const nativeNetworkFetch: typeof fetch = async (input, options = {}) => {

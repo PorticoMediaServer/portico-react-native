@@ -183,9 +183,21 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     else promise.reject("secure_storage", failure)
   }
 
+  /**
+   * A record that is there but is not one this app could have written rejects as
+   * `secure_record_damaged` (the Apple runtime's code too): waiting will not mend it. Every other
+   * failure, a Keystore that will not answer included, stays `secure_storage`: not readable now.
+   */
   @ReactMethod
-  fun loadQueueRecord(key: String?, promise: Promise) =
-      load(PorticoRecordStore.QUEUES, key, null, "Queue recovery could not be read.", promise)
+  fun loadQueueRecord(key: String?, promise: Promise) = storage.execute {
+    val failure = "Queue recovery could not be read."
+    if (key == null) promise.reject("secure_storage", failure)
+    else store.transaction {
+      val read = store.read(PorticoRecordStore.QUEUES, key)
+      if (read is RecordRead.Unreadable && store.damaged(PorticoRecordStore.QUEUES, key)) promise.reject("secure_record_damaged", failure)
+      else resolveRead(read, null, failure, promise)
+    }
+  }
 
   @ReactMethod
   fun saveQueueRecord(key: String?, json: String?, promise: Promise) =
