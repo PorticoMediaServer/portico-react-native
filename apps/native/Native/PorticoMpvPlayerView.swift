@@ -124,9 +124,18 @@ final class PorticoMpvPlayerView: UIView {
         }
         let cue = controller.overlayCue
         let width = video.width * 0.9
-        let fontSize = max(12, min(40, video.width * 0.035)) * CGFloat(PorticoMpvSupport.captionScale())
+        // Portico's caption style (size and background) on top of the system's caption size.
+        let style = controller.captionStyle
+        let fontSize = max(12, min(40, video.width * 0.035)) * CGFloat(PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(style))
         let italic = (cue["italic"] as? Bool) ?? false
         subtitle.font = italic ? UIFont.italicSystemFont(ofSize: fontSize) : UIFont.systemFont(ofSize: fontSize, weight: .medium)
+        let background = PorticoMpvSupport.styleBackground(style)
+        subtitle.backgroundColor = background == "none" ? .clear : UIColor(white: 0, alpha: background == "opaque" ? 1 : 0.7)
+        // Without a box behind it the line needs an edge of its own.
+        subtitle.layer.shadowColor = UIColor.black.cgColor
+        subtitle.layer.shadowOffset = .zero
+        subtitle.layer.shadowRadius = background == "none" ? max(2, fontSize * 0.08) : 0
+        subtitle.layer.shadowOpacity = background == "none" ? 1 : 0
         let size = subtitle.sizeThatFits(CGSize(width: width, height: video.height * 0.6))
         let height = min(size.height + 8, video.height * 0.6)
         let top = (cue["top"] as? Bool) ?? false

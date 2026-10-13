@@ -287,6 +287,42 @@ internal object PorticoMpvSupport {
     return if (scale.isFinite() && scale > 0) scale.coerceIn(0.5, 3.0) else 1.0
   }
 
+  /** The size of Portico's own caption style (the subtitle command's `style.scale`), 1 when absent. */
+  fun styleScale(style: Map<*, *>?): Double {
+    val scale = (style?.get("scale") as? Number)?.toDouble() ?: return 1.0
+    return if (scale.isFinite() && scale in 0.5..3.0) scale else 1.0
+  }
+
+  /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
+  fun styleBackground(style: Map<*, *>?): String {
+    val value = style?.get("background") as? String
+    return if (value == "none" || value == "opaque") value else "translucent"
+  }
+
+  /**
+   * The look of the line the app draws: Portico's caption style (the profile's size and
+   * background, sent with the subtitle command) on top of the system's. The size the viewer set
+   * for captions in Accessibility always multiplies. The system's colours are used only while the
+   * viewer has captions switched on there and that style names a colour; otherwise Portico's.
+   * `base` is the size in pixels before either scale.
+   */
+  fun styleCaptionLine(line: android.widget.TextView, context: Context, style: Map<*, *>?, base: Float, italic: Boolean) {
+    val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
+    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
+    val size = base * captionScale(context).toFloat() * styleScale(style).toFloat()
+    line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size)
+    val face = try { system?.typeface } catch (_: Exception) { null } ?: android.graphics.Typeface.DEFAULT
+    line.setTypeface(face, if (italic) android.graphics.Typeface.ITALIC else android.graphics.Typeface.NORMAL)
+    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else android.graphics.Color.WHITE
+    line.setTextColor(text)
+    val background = styleBackground(style)
+    val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
+      else when (background) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
+    line.setBackgroundColor(box)
+    // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
+    if (android.graphics.Color.alpha(box) < 77) line.setShadowLayer(Math.max(2f, size * 0.08f), 0f, 0f, android.graphics.Color.BLACK) else line.setShadowLayer(0f, 0f, 0f, 0)
+  }
+
   /** Text for mpv, which takes numbers in the C locale whatever the device's language. */
   fun decimal(value: Double, digits: Int = 3): String = String.format(java.util.Locale.ROOT, "%.${digits}f", value)
 }

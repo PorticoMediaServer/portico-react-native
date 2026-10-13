@@ -98,7 +98,6 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     val text = cue?.text ?: ""
     subtitle.text = text
     subtitle.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
-    subtitle.setTypeface(Typeface.DEFAULT, if (cue?.italic == true) Typeface.ITALIC else Typeface.NORMAL)
     place()
   }
 
@@ -136,8 +135,8 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     if (subtitle.visibility != View.VISIBLE) return
     val density = resources.displayMetrics.density
     val line = (w * 0.9f).toInt()
-    val size = Math.max(12 * density, Math.min(40 * density, w * 0.035f)) * PorticoMpvSupport.captionScale(context).toFloat()
-    subtitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, size)
+    // Portico's caption style (size and background) on top of the system's own caption settings.
+    PorticoMpvSupport.styleCaptionLine(subtitle, context, controller?.captionStyle, Math.max(12 * density, Math.min(40 * density, w * 0.035f)), controller?.overlayCue?.italic == true)
     subtitle.measure(MeasureSpec.makeMeasureSpec(line, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec((h * 0.6f).toInt(), MeasureSpec.AT_MOST))
     val textHeight = subtitle.measuredHeight
     val x = left + (w - line) / 2

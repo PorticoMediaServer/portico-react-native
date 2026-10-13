@@ -48,6 +48,9 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     attached?.clearVideoSurfaceView(surface)
     attached = player
     player?.setVideoSurfaceView(surface)
+    // The controller asks the display to match the title through the surface the picture is on.
+    val controller = PorticoPlaybackController.shared
+    if (player != null) controller?.displaySurface = { surface.holder.surface }
   }
 
   fun update(controller: PorticoPlaybackController?, active: Boolean) {
@@ -55,7 +58,6 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     val text = if (active) cue?.text ?: "" else ""
     subtitle.text = text
     subtitle.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
-    subtitle.setTypeface(Typeface.DEFAULT, if (cue?.italic == true) Typeface.ITALIC else Typeface.NORMAL)
     place(controller)
   }
 
@@ -80,7 +82,8 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     if (subtitle.visibility != View.VISIBLE) return
     val density = resources.displayMetrics.density
     val line = (w * 0.9f).toInt()
-    subtitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(12 * density, Math.min(40 * density, w * 0.035f)) * PorticoMpvSupport.captionScale(context).toFloat())
+    // Portico's caption style (size and background) on top of the system's own caption settings.
+    PorticoMpvSupport.styleCaptionLine(subtitle, context, controller?.subtitleStyle, Math.max(12 * density, Math.min(40 * density, w * 0.035f)), controller?.subtitleCue?.italic == true)
     subtitle.measure(MeasureSpec.makeMeasureSpec(line, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec((h * 0.6f).toInt(), MeasureSpec.AT_MOST))
     val textHeight = subtitle.measuredHeight
     val x = left + (w - line) / 2

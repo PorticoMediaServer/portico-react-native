@@ -4,6 +4,7 @@
 #import "PorticoSubtitleSelection.h"
 #import "PorticoEngineClock.h"
 #import <UIKit/UIKit.h>
+#import <AVKit/AVKit.h>
 #import <sys/utsname.h>
 #import <errno.h>
 /** Device-fit settings for every video item (weak devices; not quality: the viewer's quality
@@ -78,6 +79,11 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  NSString *_itemInstanceId; NSString *_source; NSString *_instanceId; NSInteger _intentId; NSInteger _seekRevision; BOOL _paused; BOOL _observing; BOOL _seeking; NSNumber *_timelineOriginMS;
  // The item whose status is observed, held so the observer always comes off the item it went on.
  AVPlayerItem *_observedItem;
+ // Portico's caption style from the subtitle command in force.
+ NSDictionary *_subtitleStyle;
+ // Television: the display is being asked to match the title before it is announced ready, so
+ // the opening seconds are not played into a screen that is still changing mode.
+ BOOL _displayWaiting; NSInteger _displayEpoch; __weak AVPlayerItem *_displayMatchedItem; id _displayStartObserver; id _displayEndObserver;
  // This controller activated the audio session for a video and has not yet given it back.
  BOOL _videoSessionActive;
 #if DEBUG
@@ -98,6 +104,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
   double position=[view sourcePosition];fact[@"position"]=@(isfinite(position)?position:0);fact[@"paused"]=@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume));[fact addEntriesFromDictionary:[view rateFacts]];[view publish:fact];
  };
  _subtitleSelection=[PorticoSubtitleSelection new];_subtitleText=@"";
+ _subtitleSelection.allowsLocalFile=^BOOL(NSURL *url){return PorticoAllowedLocalSource(url);};
  _subtitleSelection.onText=^(NSDictionary *cue){PorticoPlaybackController *view=weakSelf;if(!view)return;view->_subtitleCue=[cue copy];view->_subtitleText=[cue[@"text"] copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:view];};
  _subtitleSelection.onStatus=^(NSString *error){[weakSelf emit:@"subtitleStatus" error:error];};
  _subtitleTimeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,20) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){PorticoPlaybackController *view=weakSelf;if(view)[view->_subtitleSelection tick:time];}];
@@ -151,6 +158,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (AVPlayer *)player { return _player; }
 - (NSString *)lease { return _lease; }
 - (NSDictionary *)subtitleCue {return _subtitleCue?:@{};}
+- (NSDictionary *)subtitleStyle {return _subtitleStyle?:@{};}
 - (NSString *)subtitleText { return _subtitleText?:@""; }
 - (void)invalidate {_invalidated=YES;self.onFact=nil;[self releaseLease:_lease];}
 - (NSDictionary *)acquire:(NSString *)owner {
@@ -165,6 +173,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [_audioRender invalidate];
  [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];
  _source=nil;_binding=nil;_command=nil;_timelineOriginMS=nil;_lease=nil;_owner=nil;_seeking=NO;_routeSuspended=NO;_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;
+ _subtitleStyle=nil;_displayWaiting=NO;_displayEpoch++;
+#if TARGET_OS_TV
+ [self endDisplayObservation];
+#endif
  [[NSNotificationCenter defaultCenter] postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
  // The audio session a video activated is given back, so music another app was playing may
  // resume. Not while this app plays on: its own music, the next title, or the other engine.
@@ -347,6 +359,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(reload){
   _hasPlayed=NO;_previousProgress=NAN;
   _routeEpoch++;
+  _displayWaiting=NO;_displayEpoch++;
+#if TARGET_OS_TV
+  [self endDisplayObservation];
+#endif
   [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
   if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!([@[@"http",@"https"] containsObject:url.scheme]||PorticoAllowedLocalSource(url))){[self emit:@"error" error:@"Invalid media address."];return;}
    [self configureVideoAudioSession];
@@ -358,7 +374,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(pending&&(_routeResume||_routeSeeking||_routeFailed)){_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;[_player.currentItem cancelPendingSeeks];}
  if(!pending&&_seeking){_seeking=NO;[_player.currentItem cancelPendingSeeks];}
  [_audioSelection apply:[self scopedAudio:command[@"audio"] binding:_binding] item:_player.currentItem];
- [_subtitleSelection apply:[self scopedAudio:command[@"subtitles"] binding:_binding] item:_player.currentItem source:_source];
+ NSDictionary *subtitles=[self scopedAudio:command[@"subtitles"] binding:_binding];
+ NSDictionary *style=[subtitles[@"style"] isKindOfClass:NSDictionary.class]?subtitles[@"style"]:nil;
+ if(!(style==_subtitleStyle||[style isEqual:_subtitleStyle])){_subtitleStyle=[style copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:self];}
+ [_subtitleSelection apply:subtitles item:_player.currentItem source:_source];
  [self applyRouteResume];[self applyPendingSeek];[self applyIntent];
 }
 // A transport rebind is not a new playback intent or a user seek. Restore the
@@ -446,7 +465,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (void)applyIntent {
  if(_audioRender.active)return;
  BOOL pending=[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class];
- if(_paused||_seeking||pending||_routeSuspended||_routeResume||_routeSeeking||_routeFailed||(_listeningOwner&&!_listeningAllowed))[_player pause];
+ if(_paused||_seeking||pending||_displayWaiting||_routeSuspended||_routeResume||_routeSeeking||_routeFailed||(_listeningOwner&&!_listeningAllowed))[_player pause];
  else if(_player.currentItem.status==AVPlayerItemStatusReadyToPlay){
   double rate=[self desiredRate];
   if([[self supportedRates] containsObject:@(rate)]){if(_player.rate!=rate)_player.rate=rate;}
@@ -459,9 +478,70 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  // The seekable-range observation exists for the live window only. It used to fall through to
  // the status handling, so every window update announced "ready" again and re-applied intent.
  if(![keyPath isEqual:@"status"])return;
- if(_player.currentItem.status==AVPlayerItemStatusReadyToPlay){[self applyRouteResume];if(!_routeResume&&!_routeFailed)[self emit:@"ready" error:nil];[self applyPendingSeek];[self applyIntent];}
+ if(_player.currentItem.status==AVPlayerItemStatusReadyToPlay){
+#if TARGET_OS_TV
+  // The display is matched to the title first; `itemReady` runs when the switch has ended.
+  if([self matchDisplayForItem:_player.currentItem])return;
+#endif
+  [self itemReady];
+ }
  else if(_player.currentItem.status==AVPlayerItemStatusFailed)[self publishFailure:_player.currentItem.error];
 }
+- (void)itemReady {[self applyRouteResume];if(!_routeResume&&!_routeFailed)[self emit:@"ready" error:nil];[self applyPendingSeek];[self applyIntent];}
+#if TARGET_OS_TV
+- (AVDisplayManager *)displayManager {
+ UIWindow *window=self.displayWindow;
+ if(!window){for(UIScene *scene in UIApplication.sharedApplication.connectedScenes){if(![scene isKindOfClass:UIWindowScene.class])continue;for(UIWindow *candidate in ((UIWindowScene *)scene).windows){if(candidate.isKeyWindow){window=candidate;break;}}if(window)break;}}
+ return window.avDisplayManager;
+}
+- (void)endDisplayObservation {
+ if(_displayStartObserver)[[NSNotificationCenter defaultCenter]removeObserver:_displayStartObserver];
+ if(_displayEndObserver)[[NSNotificationCenter defaultCenter]removeObserver:_displayEndObserver];
+ _displayStartObserver=nil;_displayEndObserver=nil;
+}
+/**
+ * Asks the television to match the title's frame rate and dynamic range before the title is
+ * announced ready, and holds playback until the mode switch has ended. With the system's
+ * "Match Content" settings off there is nothing to wait for. A television renegotiates HDMI for
+ * one to several seconds; the wait is bounded (10 s), and a title that needs no switch is held
+ * for less than half a second. Music does not ask. Once per item. Returns NO when nothing is
+ * waited for.
+ */
+- (BOOL)matchDisplayForItem:(AVPlayerItem *)item {
+ if(_displayWaiting&&_displayMatchedItem==item)return YES;
+ if(!item||_displayMatchedItem==item||_listeningOwner||_audioRender.active)return NO;
+ AVDisplayManager *manager=[self displayManager];
+ if(!manager||!manager.isDisplayCriteriaMatchingEnabled){_displayMatchedItem=item;return NO;}
+ _displayMatchedItem=item;_displayWaiting=YES;NSInteger epoch=++_displayEpoch;[_player pause];
+ __weak PorticoPlaybackController *weakSelf=self;
+ void (^finish)(void)=^{
+  PorticoPlaybackController *view=weakSelf;if(!view||view->_displayEpoch!=epoch||!view->_displayWaiting)return;
+  view->_displayWaiting=NO;view->_displayEpoch++;[view endDisplayObservation];
+  if(view->_invalidated||view->_player.currentItem!=item||item.status!=AVPlayerItemStatusReadyToPlay)return;
+  [view itemReady];
+ };
+ // The longest the title is held, whatever the television does.
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),finish);
+ [item.asset loadValuesAsynchronouslyForKeys:@[@"preferredDisplayCriteria"] completionHandler:^{dispatch_async(dispatch_get_main_queue(),^{
+  PorticoPlaybackController *view=weakSelf;if(!view||view->_displayEpoch!=epoch||!view->_displayWaiting)return;
+  if(view->_player.currentItem!=item){finish();return;}
+  AVDisplayManager *display=[view displayManager];
+  if(!display){finish();return;}
+  __block BOOL started=display.isDisplayModeSwitchInProgress;
+  view->_displayStartObserver=[[NSNotificationCenter defaultCenter]addObserverForName:AVDisplayManagerModeSwitchStartNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){started=YES;}];
+  // The picture is steady a moment after the switch is reported over.
+  view->_displayEndObserver=[[NSNotificationCenter defaultCenter]addObserverForName:AVDisplayManagerModeSwitchEndNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.3*NSEC_PER_SEC)),dispatch_get_main_queue(),finish);}];
+  display.preferredDisplayCriteria=item.asset.preferredDisplayCriteria;
+  // A switch, when one is needed, begins at once. None begun shortly after asking: none is coming.
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.4*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+   PorticoPlaybackController *owner=weakSelf;if(!owner||owner->_displayEpoch!=epoch)return;
+   AVDisplayManager *now=[owner displayManager];
+   if(!started&&!now.isDisplayModeSwitchInProgress)finish();
+  });
+ });}];
+ return YES;
+}
+#endif
 /** One failure, classified. A network failure is weather and is retried on the same route. An
  * engine failure (the decoder or the parser refusing what it was given) carries its class and the
  * underlying code, so the app can tell the server which route failed and ask for the next one
@@ -528,7 +608,18 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  _videoSessionActive=YES;
 }
 - (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
-- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"])[self addConnectionFacts:fact position:position];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+/** What the player measured of the connection and how much it holds ahead of the picture, for
+ * Automatic quality: the transfer rate of the stream's own downloads (a stream only; a file read
+ * in place reports none), and the buffered media after the position. */
+- (void)addConnectionFacts:(NSMutableDictionary *)fact position:(double)position {
+ AVPlayerItem *item=_player.currentItem;if(!item||_timelineOriginMS)return;
+ AVPlayerItemAccessLogEvent *event=item.accessLog.events.lastObject;
+ double observed=event?event.observedBitrate:0;
+ if(isfinite(observed)&&observed>0)fact[@"throughputKbps"]=@(round(observed/1000.0));
+ double now=CMTimeGetSeconds(item.currentTime);
+ if(isfinite(now)){for(NSValue *value in item.loadedTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end)&&start<=now+0.5&&end>now){fact[@"bufferedSeconds"]=@(end-now);break;}}}
+}
 - (void)removeObservation{if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
 - (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end

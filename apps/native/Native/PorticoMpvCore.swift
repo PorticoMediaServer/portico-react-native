@@ -20,6 +20,12 @@ struct PorticoMpvSnapshot {
     var vid = "no"
     /// The hardware decoder in use ("videotoolbox"), or "no" when frames are decoded in software.
     var hwdec = "no"
+    /// How fast the cache is being filled, in bytes a second, and whether the reader is resting
+    /// because the cache is full (the speed then says nothing about the connection).
+    var cacheSpeed = 0.0
+    var cacheIdle = true
+    /// Seconds of media held ahead of the position; NaN when unknown.
+    var cacheDuration = Double.nan
 }
 
 enum PorticoMpvEndReason {
@@ -301,6 +307,9 @@ final class PorticoMpvCore {
         snapshot.sid = string("sid") ?? "no"
         snapshot.vid = string("vid") ?? "no"
         snapshot.hwdec = string("hwdec-current") ?? "no"
+        snapshot.cacheSpeed = double("cache-speed") ?? 0
+        snapshot.cacheIdle = flag("demuxer-cache-idle") ?? true
+        snapshot.cacheDuration = double("demuxer-cache-duration") ?? .nan
         return snapshot
     }
 
