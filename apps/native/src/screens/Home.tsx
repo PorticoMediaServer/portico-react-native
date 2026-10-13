@@ -95,7 +95,7 @@ export function HomeScreen() {
   const topInset = useSafeAreaInsets().top;
   // Home refreshes whenever the app or this screen comes back (not only after five minutes): it is
   // where Continue Watching and what was just added are expected to be current.
-  const pull = usePullToRefresh(refresh, {staleMs: 10_000});
+  const pull = usePullToRefresh(refresh);
   return (
     <View style={{flex: 1}}>
       {!isTV ? <HeaderUtilities backed={scrolled} /> : null}

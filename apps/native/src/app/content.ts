@@ -6,6 +6,8 @@ import {compatContentApi} from '../../../../packages/client-core/src/presentatio
 import {viewerScope} from './viewer-scope';
 import {hasRealOrigin, useSession} from './session';
 import {activeI18n} from './errors';
+import {usePooledService} from './freshness';
+import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 
 /**
  * One server-authored content projection (Home, a library tab, an entity
@@ -15,22 +17,22 @@ import {activeI18n} from './errors';
 export function useContent(route: ContentRoute | null) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  const service = useMemo(() => new LibraryContentService({api: compatContentApi(api), scope}), [api, scope]);
-  const [snapshot, setSnapshot] = useState<LibraryContentSnapshot>(service.getSnapshot());
-  useEffect(() => {
-    setSnapshot(service.getSnapshot());
-    const unsubscribe = service.subscribe(() => setSnapshot(service.getSnapshot()));
-    return () => {
-      unsubscribe();
-      service.dispose();
-    };
-  }, [service]);
   const key = route ? JSON.stringify(route) : '';
-  const last = useRef<{key: string; service: unknown}>({key: '', service: null});
+  // One kept document per destination (library, view, entity): opening it again shows what was
+  // last known at once, and it is read again in the background only when its library or this
+  // profile's state moved, while its screen is in front. A new sort or filter of the same
+  // destination is the same document reading another route, so the list stays until the new
+  // order arrives.
+  const {service, snapshot, document, memo} = usePooledService<LibraryContentService, LibraryContentSnapshot>(
+    route ? `content:${route.libraryId}:${route.view}:${route.entityId ?? ''}` : 'content:',
+    () => new LibraryContentService({api: compatContentApi(api), scope}),
+    route ? titlesWithPersonalState(route.libraryId) : [],
+  );
+  const [refused, setRefused] = useState<{key: string; message: string} | undefined>(undefined);
   useEffect(() => {
-    if (!route) return;
-    if (last.current.key === key && last.current.service === service) return;
-    last.current = {key, service};
+    if (!route || memo.selected === key) return;
+    memo.selected = key;
+    document.markCurrent();
     // select validates synchronously; a route the server authored but the
     // core refuses must become an error state, never a render crash.
     try {
@@ -38,14 +40,16 @@ export function useContent(route: ContentRoute | null) {
     } catch (e) {
       const message = e instanceof Error ? e.message : activeI18n().t('content.openFailed');
       if (__DEV__) console.warn('[content] refused route', JSON.stringify(route), message);
-      setSnapshot(prev => ({...prev, phase: 'error', error: {code: 'invalid_route', message, retryable: false}}));
+      memo.selected = undefined;
+      setRefused({key, message});
     }
-  }, [service, key, route]);
-  const refresh = useCallback(() => service.refresh().catch(() => {}), [service]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, key]);
+  const shown = useMemo<LibraryContentSnapshot>(() => (refused && refused.key === key ? {...snapshot, phase: 'error', error: {code: 'invalid_route', message: refused.message, retryable: false}} : snapshot), [snapshot, refused, key]);
+  const refresh = useCallback(() => { document.markCurrent(); return service.refresh().catch(() => {}); }, [service, document]);
   const retry = useCallback(() => void service.retry().catch(() => {}), [service]);
   const next = useCallback((sectionId: string) => void service.next(sectionId).catch(() => {}), [service]);
-  const select = useCallback((next: ContentRoute) => void service.select(next).catch(() => {}), [service]);
-  return {snapshot, refresh, retry, next, select};
+  return {snapshot: shown, refresh, retry, next};
 }
 
 const noRoute = () => () => {};

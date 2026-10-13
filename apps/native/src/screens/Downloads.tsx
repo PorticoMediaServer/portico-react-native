@@ -108,7 +108,7 @@ export function DownloadsScreen() {
   const i18n = useI18n();
   useEffect(() => { void service?.refresh(); }, [service]);
   // APL-SYS-07: pull to refresh what the server is preparing (the device's own files need none).
-  const pull = usePullToRefresh(() => service?.refresh());
+  const pull = usePullToRefresh(() => service?.refresh(), {auto: true});
   // Anything already on (or coming to) the device is shown there, not twice.
   const pending = state.items.filter(p => !offline.entries.some(e => e.id === p.id));
   const saveSetting = (change: Parameters<typeof offlineDownloads.setSettings>[0]) => { offlineDownloads.setSettings(change).catch(() => showToast({message: i18n.t('downloads.settingFailed'), icon: 'warning'})); };

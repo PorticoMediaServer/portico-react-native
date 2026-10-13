@@ -22,7 +22,7 @@ export type TranscodingSettings={
  throttleBufferSeconds:number;playedRetentionSeconds:number;temporaryDirectory:string;ffmpegPath:string;sessionStorageMiB:number;
  maxConcurrentSessions:number;maxHardwareSessions:number;maxSoftwareSessions:number;maxBackgroundSessions:number};
 export type RuntimeSettings=TranscodingSettings&{
- name:string;transcodingEnabled:boolean;perAccountCap:number|null;serverCap:number|null;
+ analysisStorageGiB:number;analysisStageStorageMiB:number;subtitleTrackLimit:number;subtitleFileLimitMiB:number;name:string;transcodingEnabled:boolean;perAccountCap:number|null;serverCap:number|null;
  diagnosticDays:number;notificationDays:number;jobDays:number;playHistoryDays:number;'home.communityActivityEnabled':boolean;
  'updates.releaseChannel':string;'updates.feedUrl':string;'library.missingTitles':MissingTitlesRule;'library.missingTitlesDays':number;
  remoteSignInPolicy:string;remoteBitrateLimitKbps:number;lanNetworks:string[];accessUrls:string[];lanDiscoveryEnabled:boolean;
@@ -61,6 +61,8 @@ export function parseSettings(v:unknown):SettingsDocument{
  return d as SettingsDocument;
 }
 function checkOwnerDocument(s:Record<string,any>){
+ if(!integer(s.analysisStorageGiB)||s.analysisStorageGiB<1||s.analysisStorageGiB>16384||!integer(s.analysisStageStorageMiB)||s.analysisStageStorageMiB<1||s.analysisStageStorageMiB>4096||s.analysisStageStorageMiB>s.analysisStorageGiB*1024)invalid();
+ if(!integer(s.subtitleTrackLimit)||s.subtitleTrackLimit<32||s.subtitleTrackLimit>4096||!integer(s.subtitleFileLimitMiB)||s.subtitleFileLimitMiB<32||s.subtitleFileLimitMiB>512)invalid();
  for(const key of ['updates.releaseChannel','updates.feedUrl','remoteSignInPolicy','advertiseUrl','advertisedInterface','customCertificatePath','customCertificateKeyPath','customCertificateDomain','logLevel'])if(!text(s[key],4096))invalid();
  for(const key of ['remoteBitrateLimitKbps','uploadCapacityKbps','pausedSessionTimeoutMinutes','connectionLimit','apiRequestsPerMinute'])if(!integer(s[key]))invalid();
  for(const key of ['lanDiscoveryEnabled','deviceApprovalRequired','blockMemberAccessTokens'])if(typeof s[key]!=='boolean')invalid();
@@ -135,7 +137,24 @@ export class ConsoleClient {
    const out=parse(raw.data);this.fence=raw.scope.viewerFence;return out;
   }catch(e){if(obj(e)&&(e.status===401||e.status===403))this.revoke();throw e;}finally{clearTimeout(timer);this.requests.delete(c);}
  }
+ /**
+  * A change guarded by the revision that was read. When the document moved in between (another
+  * device, a job's own progress), the server says so and names its current revision. A change
+  * that only names what to alter (a PATCH of the changed values, a command on a row) still means
+  * the same thing against the newer document, so it is sent again with that revision, quietly.
+  * A PUT replaces the whole value and is never re-sent: that conflict is the person's to see.
+  */
  private async mutate<T>(path:string,method:string,body:Record<string,unknown>,parse:(v:unknown)=>T):Promise<T>{
+  for(let retries=0;;retries++){
+   try{return await this.mutateOnce(path,method,body,parse);}
+   catch(e){
+    const current=obj(e)?e.currentRevision:undefined;
+    if(retries>=2||method==='PUT'||!obj(e)||!['console_conflict','revision_mismatch'].includes(String(e.code))||typeof current!=='number'||!('expectedRevision' in body)||current===body.expectedRevision)throw e;
+    body={...body,expectedRevision:current};
+   }
+  }
+ }
+ private async mutateOnce<T>(path:string,method:string,body:Record<string,unknown>,parse:(v:unknown)=>T):Promise<T>{
   const serialized=JSON.stringify(body);let intent=this.intents.get(path);
   if(intent&&intent.body!==serialized)throw new Error('A previous action has an unconfirmed result. Confirm the pending action before submitting different values.');
   if(!intent){intent={body:serialized,key:consoleOperationId(),method,parse};this.intents.set(path,intent);}

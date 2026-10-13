@@ -1,3 +1,5 @@
+import {useFreshness} from './freshness';
+import {dependsOn, type FreshnessDependency} from '../../../../packages/client-core/src/freshness-hub';
 import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import {AppState} from 'react-native';
 import {ConsoleClient} from '../../../../packages/client-core/src/console';
@@ -48,8 +50,11 @@ export const appEnvironment = {
 
 export type Read<T> = {data?: T; error?: string; loading: boolean; at?: number; reload: () => void};
 
+/** The server's work as it happens: a scan's progress and a task's change of state arrive on the event feed. */
+export const TASK_EVENTS: readonly FreshnessDependency[] = Object.freeze([dependsOn.event('operation.updated'), dependsOn.event('library.scan.updated'), dependsOn.event('job.updated')]);
+
 /** A read with retry and stale-result fencing; `every` re-reads while the app is in front. */
-export function useRead<T>(fn: () => Promise<T>, deps: readonly unknown[], options: {auto?: boolean; every?: number} = {}): Read<T> {
+export function useRead<T>(fn: () => Promise<T>, deps: readonly unknown[], options: {auto?: boolean; every?: number; /** Read again, quietly, when any of these moves on the event feed (a scan's progress, a task's state). */ on?: readonly FreshnessDependency[]} = {}): Read<T> {
   const [state, setState] = useState<{data?: T; error?: string; loading: boolean; at?: number}>({loading: options.auto !== false});
   const seq = useRef(0);
   const live = useRef(true);
@@ -72,6 +77,18 @@ export function useRead<T>(fn: () => Promise<T>, deps: readonly unknown[], optio
     const timer = setInterval(() => { if (AppState.currentState === 'active') reload(); }, options.every);
     return () => clearInterval(timer);
   }, [reload, options.auto, options.every]);
+  // The feed says when something this read shows has moved; hints that arrive together are answered by one read.
+  const {hub} = useFreshness();
+  const on = options.on?.join('\n') ?? '';
+  useEffect(() => {
+    if (!on || options.auto === false) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = hub.watch(on.split('\n'), () => {
+      if (timer !== undefined || AppState.currentState !== 'active') return;
+      timer = setTimeout(() => { timer = undefined; reload(); }, 600);
+    });
+    return () => { off(); if (timer !== undefined) clearTimeout(timer); };
+  }, [hub, on, reload, options.auto]);
   return {...state, reload};
 }
 

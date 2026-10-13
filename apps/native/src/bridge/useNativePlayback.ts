@@ -10,6 +10,8 @@ import {localV1Http} from '../../../../packages/client-core/src/playback-v1/loca
 import {NativePlayback} from '../player/native-playback';
 import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {EventsClient} from '../../../../packages/client-core/src/playback-v1/events';
+import {eventStreamOpener,runEventFeed} from '../../../../packages/client-core/src/event-feed';
+import {openEventStream} from './event-stream';
 import {useServerPreferences} from '../app/server-preferences';
 import {musicQueueDefaults} from '../../../../packages/client-core/src/music-preferences';
 import {V1ChannelControl} from '../../../../packages/client-core/src/playback-v1/channel-control';
@@ -104,7 +106,17 @@ export function useNativePlayback(
     const capabilities=keepCapabilitiesPublished(localV1Http(api),api.getRouteConnection());
     // The native transport ends every request at 15 seconds, and a failed request makes the route
     // re-verify (which reloads a playing stream): a quiet long-poll has to return before that.
-    const events=new EventsClient({http:localV1Http(api),waitSeconds:10});events.start();setDeviceEvents(events);
+    // The device's one feed: the native stream reader where it can be opened, the long poll otherwise.
+    // It runs while the app is in front or something is playing, is stopped a little after neither
+    // is true, and resumes from the last event it saw.
+    const events=new EventsClient({http:localV1Http(api),waitSeconds:10,openStream:eventStreamOpener((headers,signal)=>openEventStream(api,'/v1/events',{...headers,Authorization:'Bearer '+(sessionRef.current?.accessToken??'')},signal))});
+    const stopFeed=runEventFeed(events,undefined,{
+      visible:()=>AppState.currentState==='active',
+      onVisibility:listener=>{const subscription=AppState.addEventListener('change',listener);return()=>subscription.remove();},
+      busy:()=>!!playback.getSnapshot().itemId,
+      onBusy:listener=>playback.subscribe(listener),
+    });
+    setDeviceEvents(events);
     // A session the server ended (the owner stopped it from Now Playing) stops at once, with its reason.
     const stopForwarding=forwardSessionEnds(events,v1Api);
     const queueMemory=new V1QueueMemory(new NativeQueueStore(),viewer);
@@ -145,7 +157,7 @@ export function useNativePlayback(
     return()=>{capabilities.stop();
       // Signing out, or another profile or server: this viewer's cached audio goes (INT T9).
       void NativeModules.PorticoPlaybackModule?.purgeAudioCache?.().catch(()=>{});
-      holder.dispose();if(queue.current===holder)queue.current=undefined;stopForwarding();events.stop();if(getDeviceEvents()===events)setDeviceEvents(null);playback.leave(false);live=false;};
+      holder.dispose();if(queue.current===holder)queue.current=undefined;stopForwarding();stopFeed();if(getDeviceEvents()===events)setDeviceEvents(null);playback.leave(false);live=false;};
   // The queue follows the viewer, not each renewal of `session` (its token is read through sessionRef).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[api,v1Api,playback,session?.viewer.serverId,session?.viewer.authority,session?.viewer.accountId,session?.viewer.profileId]);

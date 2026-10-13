@@ -1,4 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useFreshDocument} from '../app/freshness';
+import {dependsOn, titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 import {ScrollView, TVFocusGuideView, View, type LayoutChangeEvent} from 'react-native';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {SearchService, type SearchEntry, type SearchGroup, type SearchGroupResult, type SearchSnapshot} from '../../../../packages/client-core/src/search';
@@ -15,6 +17,8 @@ import {useI18n} from '../app/i18n';
 import {SEARCH_CHIPS, orderedSearchGroups, searchGroupLabel, topResultKindLabel, topSearchResult, type TopSearchResult} from '../../../../packages/client-core/src/presentation/index';
 import {usePullToRefresh} from '../app/refresh';
 import {useAppendedPages, useEndReached} from '../app/paging';
+
+const searchDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
 
 type Chip = SearchGroup | 'all';
 
@@ -38,6 +42,8 @@ function useSearchService() {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
   const service = useMemo(() => new SearchService({api, scope}), [api, scope]);
+  // Results on screen follow the libraries: a title that arrives, changes or goes updates its card in place.
+  useFreshDocument(searchDependencies, context => service.revalidate(context), () => service.getSnapshot().phase === 'ready');
   const [snapshot, setSnapshot] = useState<SearchSnapshot>(service.getSnapshot());
   useEffect(() => {
     setSnapshot(service.getSnapshot());

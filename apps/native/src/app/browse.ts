@@ -6,6 +6,8 @@ import {parseBrowseCapabilities, parseBrowseFacets, type BrowseCapabilities, typ
 import {browsePageSource} from './browse-page-source.ts';
 import type {Predicate as PagePredicate} from './browse-page-source.ts';
 import {useSession} from './session';
+import {useFreshDocument} from './freshness';
+import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 import {say} from './errors';
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 import {appliedFilterLabel} from '../../../../packages/client-core/src/presentation/index';
@@ -87,6 +89,18 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
     list.invalidate(fetchFor());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list, queryKey]);
+  // The list follows its library and this profile's marks while its screen is in front: the same
+  // list is read again behind the one on screen (a new reading has a new revision) and swapped in
+  // whole, at the same place, once the remote or the finger has been still for a moment. Cells
+  // keep their keys, so focus stays on the cell it was on.
+  const latestFetch = useRef(fetchFor);
+  latestFetch.current = fetchFor;
+  const markCurrent = useFreshDocument(
+    useMemo(() => (list && libraryId ? titlesWithPersonalState(libraryId) : []), [list, libraryId]),
+    context => (list ? list.revalidate({fetchPage: latestFetch.current(), hold: context.settle}) : Promise.resolve()),
+    () => list?.getSnapshot().total !== undefined,
+  );
+  useEffect(() => { markCurrent(); }, [list, queryKey, markCurrent]);
   const subscribe = useCallback((listener: () => void) => list?.subscribe(listener) ?? (() => {}), [list]);
   const snapshot = useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idleSnapshot);
   return {list, snapshot};

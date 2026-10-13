@@ -1,7 +1,7 @@
 /** MU1: the connection-status store fails the page once, after a settle delay (web parity). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ConnectionStatusStore, SETTLE_MS, type ConnectionStatus} from '../src/app/connection-status.ts';
+import {ConnectionStatusStore, SETTLE_MS, connectionView, type ConnectionStatus} from '../src/app/connection-status.ts';
 
 function fakeTimer() {
   let nextId = 0;
@@ -38,7 +38,7 @@ function mounted() {
 test('the default settle delay matches the web page-fails-once delay', () => {
   assert.equal(SETTLE_MS, 2500);
   const {timer, store, unsubscribe} = mounted();
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   assert.deepEqual(timer.delays, [2500]);
   unsubscribe();
   store.dispose();
@@ -46,7 +46,7 @@ test('the default settle delay matches the web page-fails-once delay', () => {
 
 test('a blip shorter than the settle delay never shows', () => {
   const {timer, store, seen, unsubscribe} = mounted();
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 0});
   store.update({routePhase: 'ready'});
   assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 0});
@@ -58,14 +58,14 @@ test('a blip shorter than the settle delay never shows', () => {
   store.dispose();
 });
 
-test('a lost route shows once after the delay and bumps the generation', () => {
+test('an address that answers as someone else shows once after the delay and bumps the generation', () => {
   const {timer, store, seen, unsubscribe} = mounted();
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   timer.fire();
   assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'lost', generation: 1});
   assert.equal(seen.length, 1);
-  // Still down under another phase: still shown, the generation doesn't bump again.
-  store.update({routePhase: 'probing'});
+  // Still the wrong identity on a later check: still shown, the generation doesn't bump again.
+  store.update({routePhase: 'identity_mismatch'});
   assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'lost', generation: 1});
   assert.equal(seen.length, 1);
   timer.fire();
@@ -77,12 +77,12 @@ test('a lost route shows once after the delay and bumps the generation', () => {
 
 test('recovery clears the status and keeps the generation; a second loss bumps it again', () => {
   const {timer, store, seen, unsubscribe} = mounted();
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   timer.fire();
   store.update({routePhase: 'ready'});
   assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 1});
   assert.equal(seen.length, 2);
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   timer.fire();
   assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'lost', generation: 2});
   unsubscribe();
@@ -135,11 +135,11 @@ test('a reason change before the timer fires does not re-arm it and shows the la
 
 test('saved wins over the route', () => {
   const {timer, store, unsubscribe} = mounted();
-  store.update({saved: 'offline', routePhase: 'offline'});
+  store.update({saved: 'offline', routePhase: 'identity_mismatch'});
   timer.fire();
   assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'unreachable', generation: 1});
   // The saved state clears while the route is still down: the route reads as lost, same showing.
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'lost', generation: 1});
   unsubscribe();
   store.dispose();
@@ -167,10 +167,25 @@ test('snapshot identity is stable between changes', () => {
 
 test('dispose clears a pending timer so a late fire never shows', () => {
   const {timer, store, seen, unsubscribe} = mounted();
-  store.update({routePhase: 'offline'});
+  store.update({routePhase: 'identity_mismatch'});
   store.dispose();
   timer.fire();
   assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 0});
   assert.equal(seen.length, 0);
   unsubscribe();
+});
+
+test('a server that merely stops answering never takes the page away', () => {
+  const {timer, store, seen, unsubscribe} = mounted();
+  for (const routePhase of ['offline', 'probing', 'offline']) {
+    store.update({routePhase});
+    timer.fire();
+    assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 0}, routePhase);
+  }
+  assert.deepEqual(timer.delays, [], 'no status is even armed');
+  assert.equal(seen.length, 0);
+  // So no screen is ever swapped for the status or remounted because of it.
+  assert.equal(connectionView({name: 'Home', status: store.getSnapshot(), mountedGeneration: 0, focused: true}), 'screen');
+  unsubscribe();
+  store.dispose();
 });

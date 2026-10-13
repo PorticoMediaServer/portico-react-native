@@ -114,7 +114,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
       e => setFirst(prev => ({...prev, phase: 'error', error: say(e, 'person', 'load')})),
     );
   }, [api, scope, personId, role, list]);
-  const pull = usePullToRefresh(reload, {busy: first.phase === 'loading' && !first.page});
+  const pull = usePullToRefresh(reload, {busy: first.phase === 'loading' && !first.page, auto: true});
   // APL-PERSON-01: "Known for" only when it adds something the credits below don't already show.
   const person = first.page?.person;
   const born = person?.birthDate ? i18n.date(person.birthDate, 'long') : undefined;

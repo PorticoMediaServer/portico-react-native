@@ -155,7 +155,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const tabs = useMemo(() => libraryTabs(kind, tabOptions).map(item => ({id: item.id, label: i18n.t(item.label)})), [kind, tabOptions, i18n]);
   const sorts = projection?.sorts ?? [];
   // APL-SYS-07: pull to refresh on touch; on TV it refreshes itself when it has gone stale.
-  const pull = usePullToRefresh(engine ? () => browse.list?.invalidate() : refresh, {auto: !engine});
+  const pull = usePullToRefresh(engine ? () => browse.list?.invalidate() : refresh);
   // ONB-04: the header and empty state reflect the running scan, if any.
   const scope = useMemo(() => viewerScope(session.session, session.api), [session.session, session.api]);
   const scan = useLibraryScan(session.api, scope.serverId, libraryId);

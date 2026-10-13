@@ -4,10 +4,10 @@ import {parseHeaders, redirected} from './transport';
 
 /**
  * `PorticoRuntime.openNetworkStream`, `readNetworkStream` and `cancelNetworkStream`: the server's
- * event streams (Watch Together, and what a phone sends this television to play), read a piece at
+ * event streams (the device's one feed of changes, and a Watch Together room's), read a piece at
  * a time by the shared `bridge/event-stream.ts`. The rules are the Apple and Android modules':
  *
- * - Only `GET /v1/notifications/events` and `GET /v1/groups/<id>/events`, on `http` or `https`,
+ * - Only `GET /v1/events` (the device's one event feed) and `GET /v1/groups/<id>/events`, on `http` or `https`,
  *   with no credentials in the address. At most four streams at once.
  * - `open` answers `{status, headers}` once the response has begun. A redirect is refused.
  * - `read` answers `{done: false, data}` (base64, at most 16 KiB) or `{done: true}`. One read at
@@ -51,7 +51,7 @@ function allowed(url: unknown): URL | null {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return null; }
   if (parsed.username || parsed.password || !['http:', 'https:'].includes(parsed.protocol)) return null;
-  return parsed.pathname === '/v1/notifications/events' || groupEvents.test(parsed.pathname) ? parsed : null;
+  return parsed.pathname === '/v1/events' || groupEvents.test(parsed.pathname) ? parsed : null;
 }
 
 function release(identifier: string, stream: Stream): void {

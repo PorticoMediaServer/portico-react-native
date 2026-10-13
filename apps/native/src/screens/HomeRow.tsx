@@ -1,4 +1,6 @@
 import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
+import {useFreshDocument} from '../app/freshness';
+import {dependsOn, titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 import {View} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -15,6 +17,8 @@ import {useTurnedDown} from '../app/not-interested-hook';
 import {Notice, Page, PageHeader, Skeleton, StateView, WindowedGrid, useTheme} from '../ui';
 import {useSectionCards} from './Home';
 
+const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
+
 /**
  * A Home row's See all (Recommendations P7): Recommended, Trending now or one of the Picks for
  * you rows as a paged grid from the row's own endpoint (`HomeRowPager`: the whole row; a stale
@@ -29,6 +33,8 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
   const {space, metrics} = useTheme();
   const pager = useMemo(() => new HomeRowPager(api, rowId), [api, rowId]);
   useEffect(() => { void pager.load(); return () => pager.dispose(); }, [pager]);
+  // The row's full list follows the libraries and this profile's state while it is in front; pages already scrolled into stay.
+  useFreshDocument(rowDependencies, context => pager.revalidate(context), () => pager.getSnapshot().phase === 'ready');
   const state = useSyncExternalStore(pager.subscribe, pager.getSnapshot);
   const turnedDown = useTurnedDown();
   const row = state.row;

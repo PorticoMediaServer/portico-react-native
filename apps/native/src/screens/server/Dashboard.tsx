@@ -20,7 +20,7 @@ import {useSession} from '../../app/session';
 import {routeForLinkedTitle} from '../../app/open';
 import {useI18n} from '../../app/i18n';
 import {useDeviceEvents} from '../../app/device-events';
-import {appEnvironment, operationId, problem, useAction, useConsole, useRead, useServerId} from '../../app/server-console';
+import {appEnvironment, operationId, problem, TASK_EVENTS, useAction, useConsole, useRead, useServerId} from '../../app/server-console';
 import {Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, Text, isTV, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 
 /** Dashboard › Watching now: who is playing what, with Stop playback and an optional message. */
@@ -144,7 +144,7 @@ export function HealthPanel() {
 export function JobsPanel() {
   const client = useConsole();
   const t = useI18n().t;
-  const read = useRead(() => client.jobs(''), [client], {every: 20000});
+  const read = useRead(() => client.jobs(''), [client], {every: 20000, on: TASK_EVENTS});
   const action = useAction();
   const [menu, setMenu] = useState<Job>();
   const items = read.data?.items ?? [];

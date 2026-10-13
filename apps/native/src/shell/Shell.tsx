@@ -52,6 +52,9 @@ import {ConnectionStatusStore} from '../app/connection-status';
 import {ConnectionStatusProvider} from '../app/connection-context';
 import {CustodyPrompt} from './CustodyPrompt';
 import {guarded} from './ScreenBoundary';
+import {AwayNotice} from './AwayNotice';
+import {FreshnessRuntime, useFreshness, useInputPulse} from '../app/freshness';
+import {dependsOn} from '../../../../packages/client-core/src/freshness-hub';
 import {MetadataEditorProvider} from '../app/metadata-editor';
 import {MetadataEditorSheet} from '../screens/MetadataEditor';
 import {beginArtworkScreen} from '../ui/ArtworkPipeline';
@@ -322,6 +325,12 @@ export function Shell() {
   }, [linkViewer]);
   const viewTogether = useCallback(() => navigator.current?.dispatch(StackActions.push('Together')), []);
   const viewDownloads = useCallback(() => navigator.current?.dispatch(StackActions.push('Downloads')), []);
+  const pulse = useInputPulse();
+  // A library added, removed or renamed anywhere reaches the rail and the tab bar by itself: the
+  // list is read again behind the one on screen.
+  const {hub: freshnessHub} = useFreshness();
+  const reloadLibraries = libraries.reload;
+  useEffect(() => freshnessHub.watch([dependsOn.libraries], reloadLibraries), [freshnessHub, reloadLibraries]);
   // What is on the device is read at launch, so it is there to offer if the server is not.
   useEffect(() => { void offlineDownloads.open(); announceFinishedDownloads(); }, []);
   useEffect(() => beginArtworkScreen('Home'), []);
@@ -334,9 +343,12 @@ export function Shell() {
     <DownloadsProvider onViewDownloads={viewDownloads}>
     <CastProvider>
     <PlayOnProvider>
-      <View style={{flex: 1, backgroundColor: colors.ink}}>
+      {/* A touch anywhere tells the freshness hub the person is busy: lists are not rearranged under a finger. */}
+      <View style={{flex: 1, backgroundColor: colors.ink}} onTouchStart={pulse} onTouchMove={pulse}>
         <Atmosphere />
         <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state} />
+        <FreshnessRuntime />
+        <AwayNotice />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>
         <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}</>}>
           <TVMenuGate gate={gate} />

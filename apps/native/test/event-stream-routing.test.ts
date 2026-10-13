@@ -26,8 +26,8 @@ function fixture() {
 
 test('auxiliary streams send credentials only to the selected verified route', async () => {
   const f = fixture();
-  const response = await openEventStream(f.api, '/v1/notifications/events', {Authorization: 'Bearer private'}, new AbortController().signal);
-  assert.equal(f.opened[0][1], 'https://selected.test/v1/notifications/events');
+  const response = await openEventStream(f.api, '/v1/events', {Authorization: 'Bearer private'}, new AbortController().signal);
+  assert.equal(f.opened[0][1], 'https://selected.test/v1/events');
   assert.equal(f.opened[0][2].Authorization, 'Bearer private');
   f.change();
   assert.ok(f.cancelled.includes(f.opened[0][0]));
@@ -36,10 +36,10 @@ test('auxiliary streams send credentials only to the selected verified route', a
 
 test('a missing verified connection, cross-origin path, or cancellation sends no bearer', async () => {
   const f = fixture();
-  await assert.rejects(openEventStream({...f.api, getRouteConnection: () => undefined} as any, '/v1/notifications/events', {}, new AbortController().signal));
-  await assert.rejects(openEventStream(f.api, 'https://other.test/v1/notifications/events', {Authorization: 'secret'}, new AbortController().signal));
+  await assert.rejects(openEventStream({...f.api, getRouteConnection: () => undefined} as any, '/v1/events', {}, new AbortController().signal));
+  await assert.rejects(openEventStream(f.api, 'https://other.test/v1/events', {Authorization: 'secret'}, new AbortController().signal));
   const abort = new AbortController(); abort.abort();
-  await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, abort.signal));
+  await assert.rejects(openEventStream(f.api, '/v1/events', {}, abort.signal));
   assert.equal(f.opened.length, 0);
 });
 
@@ -48,7 +48,7 @@ test('the native stream reader preserves split UTF-8 and cleans up at EOF', asyn
   const bytes = Buffer.from('id: 7\ndata: café 😀\n\n');
   const parts = [bytes.subarray(0, 17), bytes.subarray(17, 20), bytes.subarray(20)];
   NativeModules.PorticoRuntime.readNetworkStream = async () => parts.length ? {done: false, data: parts.shift()!.toString('base64')} : {done: true};
-  const response = await openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal);
+  const response = await openEventStream(f.api, '/v1/events', {}, new AbortController().signal);
   const events: any[] = [];
   await readEventStream(response, event => events.push(event));
   assert.equal(events[0].data, 'café 😀');
@@ -60,7 +60,7 @@ test('a route change queued after resolution fences dispatch and late open compl
   const f = fixture();
   const route = f.api.getRouteConnection();
   route.resolve = async () => { f.change(); return 'https://selected.test'; };
-  await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
+  await assert.rejects(openEventStream(f.api, '/v1/events', {}, new AbortController().signal));
   assert.equal(f.opened.length, 0);
 
   const g = fixture();
@@ -69,7 +69,7 @@ test('a route change queued after resolution fences dispatch and late open compl
     g.opened.push(args);
     return new Promise(resolve => { complete = resolve; });
   };
-  const opening = openEventStream(g.api, '/v1/notifications/events', {}, new AbortController().signal);
+  const opening = openEventStream(g.api, '/v1/events', {}, new AbortController().signal);
   await new Promise(resolve => setImmediate(resolve));
   g.change();
   complete({status: 200, headers: {}});
@@ -102,11 +102,11 @@ test('idle timeouts and local stream refusals never invalidate the verified API 
   for (const code of ['event_timeout', 'event_local', 'event_redirect', 'event_cancelled']) {
     const f = fixture();
     NativeModules.PorticoRuntime.openNetworkStream = async () => { throw Object.assign(new Error('Stream refused'), {code}); };
-    await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
+    await assert.rejects(openEventStream(f.api, '/v1/events', {}, new AbortController().signal));
     assert.equal(f.recoveries(), 0, code + ' while opening');
 
     const g = fixture();
-    const response = await openEventStream(g.api, '/v1/notifications/events', {}, new AbortController().signal);
+    const response = await openEventStream(g.api, '/v1/events', {}, new AbortController().signal);
     NativeModules.PorticoRuntime.readNetworkStream = async () => { throw Object.assign(new Error('Stream interrupted'), {code}); };
     await assert.rejects(response.body!.getReader().read());
     assert.equal(g.recoveries(), 0, code + ' while reading');
@@ -116,7 +116,7 @@ test('idle timeouts and local stream refusals never invalidate the verified API 
 test('a genuine stream connection failure still requests fenced route recovery', async () => {
   const f = fixture();
   NativeModules.PorticoRuntime.openNetworkStream = async () => { throw Object.assign(new Error('Connection refused'), {code: 'event_transport'}); };
-  await assert.rejects(openEventStream(f.api, '/v1/notifications/events', {}, new AbortController().signal));
+  await assert.rejects(openEventStream(f.api, '/v1/events', {}, new AbortController().signal));
   assert.equal(f.recoveries(), 1);
 });
 

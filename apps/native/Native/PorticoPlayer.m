@@ -377,7 +377,7 @@ RCT_REMAP_METHOD(queueRequest,queueRequest:(NSString *)identifier url:(NSString 
 RCT_REMAP_METHOD(openNetworkStream,openNetworkStream:(NSString *)identifier url:(NSString *)url headers:(NSDictionary *)headers resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  if(![url isKindOfClass:NSString.class]||!url.length||url.length>8192||![identifier isKindOfClass:NSString.class]||!identifier.length||identifier.length>128){reject(@"event_local",@"Invalid event request.",nil);return;}
  NSURL *target=[NSURL URLWithString:url];
- BOOL pathAllowed=[target.path isEqual:@"/v1/notifications/events"]||[target.path rangeOfString:@"^/v1/groups/[A-Za-z0-9_-]{1,128}/events$" options:NSRegularExpressionSearch].location!=NSNotFound;
+ BOOL pathAllowed=[target.path isEqual:@"/v1/events"]||[target.path rangeOfString:@"^/v1/groups/[A-Za-z0-9_-]{1,128}/events$" options:NSRegularExpressionSearch].location!=NSNotFound;
  if(!target||![@[@"http",@"https"] containsObject:target.scheme]||!target.host.length||target.user||target.password||target.fragment||url.length>8192||!pathAllowed||!identifier.length||identifier.length>128){reject(@"event_local",@"Invalid event request.",nil);return;}
  @synchronized(PorticoEventStream.class){
   if(!PorticoEventStreams)PorticoEventStreams=[NSMutableDictionary dictionary];

@@ -6,6 +6,8 @@ import {ShowWorkspaceService, type ShowWorkspaceRoute, type ShowWorkspaceSnapsho
 import {viewerScope} from './content';
 import {compatContentApi} from '../../../../packages/client-core/src/presentation/index';
 import {useSession} from './session';
+import {usePooledService} from './freshness';
+import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 
 export const requestId = () => Promise.resolve(NativeModules.PorticoRuntime.newRequestId() as Promise<string> | string).then(v => String(v).toLowerCase());
 
@@ -13,26 +15,24 @@ export const requestId = () => Promise.resolve(NativeModules.PorticoRuntime.newR
 export function useDetail(target: DetailTarget | null) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  const service = useMemo(() => new DetailService({api, scope, requestId}), [api, scope]);
-  const [snapshot, setSnapshot] = useState<DetailSnapshot>(service.getSnapshot());
-  useEffect(() => {
-    setSnapshot(service.getSnapshot());
-    const unsubscribe = service.subscribe(() => setSnapshot(service.getSnapshot()));
-    return () => {
-      unsubscribe();
-      service.dispose();
-    };
-  }, [service]);
   const key = target ? target.libraryId + '/' + target.itemId : '';
-  const last = useRef<{key: string; service: unknown}>({key: '', service: null});
+  // The title's page is kept for the signed-in viewer: opened again it shows at once, and it is
+  // read again in place only when its library or this profile's state moved.
+  const {service, snapshot, document, memo} = usePooledService<DetailService, DetailSnapshot>(
+    'detail:' + key,
+    () => new DetailService({api, scope, requestId}),
+    target ? titlesWithPersonalState(target.libraryId) : [],
+  );
   useEffect(() => {
-    if (!target || (last.current.key === key && last.current.service === service)) return;
-    last.current = {key, service};
+    if (!target || memo.selected) return;
+    memo.selected = true;
+    document.markCurrent();
     void service.select(target).catch(() => {});
-  }, [service, key, target]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, key]);
   const mutate = useCallback((intent: PersonalIntent) => void service.mutate(intent).catch(() => {}), [service]);
   const retry = useCallback(() => void service.retryRead().catch(() => {}), [service]);
-  const refresh = useCallback(() => void service.refresh().catch(() => {}), [service]);
+  const refresh = useCallback(() => { document.markCurrent(); void service.refresh().catch(() => {}); }, [service, document]);
   const retryMutation = useCallback(() => void service.retryMutation().catch(() => {}), [service]);
   const dismissMutation = useCallback(() => service.dismissMutation(), [service]);
   return {snapshot, mutate, retry, refresh, retryMutation, dismissMutation};
@@ -42,25 +42,22 @@ export function useDetail(target: DetailTarget | null) {
 export function useShowWorkspace(route: ShowWorkspaceRoute | null) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  const service = useMemo(() => new ShowWorkspaceService({api: compatContentApi(api), scope}), [api, scope]);
-  const [snapshot, setSnapshot] = useState<ShowWorkspaceSnapshot>(service.getSnapshot());
-  useEffect(() => {
-    setSnapshot(service.getSnapshot());
-    const unsubscribe = service.subscribe(() => setSnapshot(service.getSnapshot()));
-    return () => {
-      unsubscribe();
-      service.dispose();
-    };
-  }, [service]);
   const key = route ? JSON.stringify(route) : '';
-  const last = useRef<{key: string; service: unknown}>({key: '', service: null});
+  // Kept per address (show, season, episode): opened again it returns to the season the person left.
+  const {service, snapshot, document, memo} = usePooledService<ShowWorkspaceService, ShowWorkspaceSnapshot>(
+    'show:' + key,
+    () => new ShowWorkspaceService({api: compatContentApi(api), scope}),
+    route ? titlesWithPersonalState(route.libraryId) : [],
+  );
   useEffect(() => {
-    if (!route || (last.current.key === key && last.current.service === service)) return;
-    last.current = {key, service};
+    if (!route || memo.selected) return;
+    memo.selected = true;
+    document.markCurrent();
     void service.select(route).catch(() => {});
-  }, [service, key, route]);
-  const selectSeason = useCallback((id: string) => void service.selectSeason(id).catch(() => {}), [service]);
-  const selectGroup = useCallback((group: string) => void service.selectGroup(group).catch(() => {}), [service]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, key]);
+  const selectSeason = useCallback((id: string) => { document.markCurrent(); void service.selectSeason(id).catch(() => {}); }, [service, document]);
+  const selectGroup = useCallback((group: string) => { document.markCurrent(); void service.selectGroup(group).catch(() => {}); }, [service, document]);
   const next = useCallback(() => void service.nextEpisodes().catch(() => {}), [service]);
   const retry = useCallback(() => void service.retry().catch(() => {}), [service]);
   return {snapshot, selectSeason, selectGroup, next, retry};

@@ -5,7 +5,7 @@ import {nativeRouteCrypto} from '../bridge/server-connections';
 import {profileInstallation} from '../bridge/profile-trust';
 import type {PlayerEngine} from '../player/usePlayer';
 import {Button, Sheet, Text, useTheme} from '../ui';
-import {openEventStream} from '../bridge/event-stream';
+import {useDeviceEvents} from './device-events';
 import {useSession} from './session';
 import {useI18n} from './i18n';
 import {advertisePlayer, stopPlayerAdvertisement} from '../bridge/server-connections';
@@ -25,8 +25,6 @@ export function ReceiverMode({engine, enabled}: {engine: PlayerEngine; enabled: 
   const {space, isTV} = useTheme();
   const live = useRef(engine);
   live.current = engine;
-  const token = useRef('');
-  token.current = session?.accessToken ?? '';
   const [device, setDevice] = React.useState<{deviceId: string; keyFingerprint: string}>();
   // APL-AUTH-06: the TV introduces itself by its own name ("Living Room").
   const [deviceName, setDeviceName] = React.useState(deviceModelName);
@@ -43,6 +41,7 @@ export function ReceiverMode({engine, enabled}: {engine: PlayerEngine; enabled: 
     return () => { mounted = false; };
   }, []);
   const viewerKey = session ? `${session.viewer.serverId}/${session.viewer.accountId}/${session.viewer.profileId}` : '';
+  const events = useDeviceEvents();
   const host = useMemo(() => (isTV && enabled && api && viewerKey && device ? new ReceiverHost({
     api,
     device: {...device, displayName: deviceName, platform: devicePlatform},
@@ -51,13 +50,13 @@ export function ReceiverMode({engine, enabled}: {engine: PlayerEngine; enabled: 
       load: (itemId, positionSeconds) => live.current.play(itemId, positionSeconds),
       state: () => { const s = live.current.state; return {itemId: s.itemId ?? '', playbackId: s.session?.id ?? '', playing: s.phase === 'ready' && s.intent === 'playing' && !s.recovering && s.positionSeconds > 0, positionSeconds: s.positionSeconds}; },
     },
-    // PERF-16: the idle inbox poll backs off while this stream is connected; a grant or handoff
-    // arrives as an event instead of waiting for the next poll. No Last-Event-ID is sent: the
-    // receiver hints carry no SSE id and must not move the notification resume cursor.
-    events: signal => openEventStream(api, '/v1/notifications/events', {Accept: 'text/event-stream', Authorization: 'Bearer ' + token.current}, signal),
+    // The idle inbox poll backs off while the device's event feed is connected: a grant or a
+    // handoff arrives on it as a hint instead of waiting for the next poll. The receiver opens
+    // no stream of its own.
+    ...(events ? {events} : {}),
     // A new server (same viewer ids) registers a new receiver.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }) : null), [api, viewerKey, device, isTV, enabled, system?.id, deviceName]);
+  }) : null), [api, viewerKey, device, isTV, enabled, system?.id, deviceName, events]);
   useEffect(() => {
     if (!host) return;
     // Only while the app is in front: a television that is not showing Portico cannot play anything.
