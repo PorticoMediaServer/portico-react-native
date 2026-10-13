@@ -1,5 +1,5 @@
-import React, {forwardRef, useCallback, useImperativeHandle, useRef, useState} from 'react';
-import {Pressable, TVFocusGuideView, View, type AccessibilityActionEvent, type GestureResponderEvent, type PressableProps, type StyleProp, type ViewStyle} from 'react-native';
+import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState} from 'react';
+import {Platform, Pressable, TVFocusGuideView, View, useTVEventHandler, type AccessibilityActionEvent, type GestureResponderEvent, type PressableProps, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming, Easing, type SharedValue} from 'react-native-reanimated';
 import {uiI18n} from './i18n';
 import {useTheme} from './theme';
@@ -32,6 +32,20 @@ export type FocusableProps = Omit<PressableProps, 'children' | 'style'> & {
 export type FocusableHandle = {focus(): void; node?: () => View | null};
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * Android TV and Fire TV: the remote's Menu key opens what a long press of Select opens on the
+ * focused control, and does nothing on a control with no such action. The focused control leaves
+ * its long-press action here; `useMenuKey` (mounted once, at the app's root) runs it.
+ */
+let focusedMenu: {owner: object; run: () => void} | undefined;
+export function useMenuKey(): void {
+  useTVEventHandler(event => {
+    if (Platform.OS !== 'android' || !Platform.isTV) return;
+    // Once per press, on release (a held key repeats its "down").
+    if (event?.eventType === 'menu' && event.eventKeyAction === 1) focusedMenu?.run();
+  });
+}
 
 /**
  * TV: a container (a Shelf with `preferFocus`) can ask the control rendered inside it to claim
@@ -76,6 +90,10 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
     return {transform: [{scale: lift * pressed}]};
   });
   const showRing = ring ?? isTV;
+  const menuOwner = useRef({}).current;
+  const heldNow = useRef<FocusableProps['onLongPress']>(undefined);
+  heldNow.current = onLongPress && !busy && !disabled ? onLongPress : undefined;
+  useEffect(() => () => { if (focusedMenu?.owner === menuOwner) focusedMenu = undefined; }, [menuOwner]);
   // A long-press action is also a named accessibility action (VoiceOver's Actions rotor,
   // TalkBack's actions menu, Switch Control), beside the ordinary activation.
   const held = onLongPress && !busy && !disabled ? onLongPress : undefined;
@@ -96,11 +114,14 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
       onFocus={e => {
         progress.value = withTiming(1, timing);
         update({focused: true});
+        // The Menu key acts on whatever has focus (see `useMenuKey`).
+        focusedMenu = {owner: menuOwner, run: () => heldNow.current?.({nativeEvent: {}} as GestureResponderEvent)};
         onFocus?.(e);
       }}
       onBlur={e => {
         progress.value = withTiming(0, timing);
         update({focused: false});
+        if (focusedMenu?.owner === menuOwner) focusedMenu = undefined;
         onBlur?.(e);
       }}
       onHoverIn={e => {

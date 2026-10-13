@@ -5,9 +5,6 @@ import android.content.Intent
 import android.content.res.Configuration
 import androidx.lifecycle.Lifecycle
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import android.view.KeyEvent
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -50,25 +47,16 @@ class MainActivity : ReactActivity() {
     PorticoPictureInPicture.userLeaving(this)
   }
 
-  private val keys = Handler(Looper.getMainLooper())
-  private var menuHeld = false
-
   /**
-   * A television remote's Menu key (the Fire TV remote has one) opens what a long press of
-   * Select opens: it is delivered as Select held past the long-press delay, so every control's
-   * own long-press action answers it and no screen has to know the key exists.
+   * A television remote's Menu key (the Fire TV remote has one) is its own key: JavaScript hears
+   * it as the remote's `menu` event and opens the focused control's own menu, if it has one. It
+   * is never turned into a press of Select, which would activate a control that has no menu.
+   * The views are given the key and nothing else is: the activity's own handling of Menu (the
+   * developer menu in a debug build) does not run on a television.
    */
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     if (event.keyCode != KeyEvent.KEYCODE_MENU || !TelevisionDisplay.isTelevision) return super.dispatchKeyEvent(event)
-    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !menuHeld) {
-      menuHeld = true
-      val down = SystemClock.uptimeMillis()
-      super.dispatchKeyEvent(KeyEvent(down, down, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0))
-      keys.postDelayed({
-        menuHeld = false
-        super.dispatchKeyEvent(KeyEvent(down, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0))
-      }, MENU_HOLD_MS)
-    }
+    window.superDispatchKeyEvent(event)
     return true
   }
 
@@ -82,10 +70,5 @@ class MainActivity : ReactActivity() {
     if (PorticoAccountAuth.takeReturn(allowed)) allowed.data = null
     setIntent(allowed)
     super.onNewIntent(allowed)
-  }
-
-  companion object {
-    /** Longer than React Native's long-press delay (500 ms), with room for a slow device. */
-    private const val MENU_HOLD_MS = 800L
   }
 }

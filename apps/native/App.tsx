@@ -9,12 +9,14 @@ import {Shell} from './src/shell/Shell';
 import {useLinkIntake} from './src/shell/link-intents';
 import {clearTopShelf} from './src/app/top-shelf';
 import {ErrorBoundary} from './src/shell/ErrorBoundary';
-import {Atmosphere, Ring, ThemeProvider, Wordmark, useTheme} from './src/ui';
+import {Atmosphere, Ring, ThemeProvider, Wordmark, useMenuKey, useTheme} from './src/ui';
 
 function Root() {
   const session = useSession();
   // Links from outside the app are taken here, whatever is on screen, and held for the shell.
   useLinkIntake(session.session?.viewer);
+  // Android TV and Fire TV: the remote's Menu key, wherever focus is.
+  useMenuKey();
   // Signed out (the shell and everything in it are gone): the Apple TV home screen must not go on
   // showing the last profile's titles.
   const signedOut = session.phase === 'signedOut';
