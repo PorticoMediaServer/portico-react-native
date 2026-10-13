@@ -15,6 +15,7 @@ import {qualityOptionSelected, type QualityInForce, type QualityOption} from '..
 import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
 import {formatClock} from '../app/content';
 import {usePreferences} from '../app/preferences';
+import {useServerPreferences} from '../app/server-preferences';
 import {engineSettings} from './engine-choice';
 import {chapterAt} from './engine-media';
 import {playerWord} from './player-words';
@@ -264,6 +265,31 @@ function chapterTitle(chapter: PlayerEngine['chapters'][number] | undefined, cha
   return chapter.title || playerWord('player.chapter.numbered', {number: chapters.indexOf(chapter) + 1}, i18n);
 }
 
+const captionSizes = ['small', 'medium', 'large', 'extra-large'] as const;
+const captionBackgrounds = ['translucent', 'opaque', 'none'] as const;
+
+/**
+ * How the subtitles this device draws look: the profile's size and background, the same two
+ * settings the web's Settings page has. Each press moves to the next choice, and the line on
+ * screen follows at once. They are kept with the profile, so every device draws alike. Absent
+ * when the server cannot be asked (a download played with no connection keeps the last look).
+ */
+function CaptionStyleRows() {
+  const i18n = useI18n();
+  const prefs = useServerPreferences();
+  const has = (key: string) => !!prefs.snapshot?.registry.fields.some(f => f.key === key);
+  const size = prefs.value<string>('playback.subtitleSize', 'medium');
+  const background = prefs.value<string>('playback.subtitleBackground', 'translucent');
+  const next = <T extends string>(all: readonly T[], current: string): T => all[(Math.max(0, all.indexOf(current as T)) + 1) % all.length]!;
+  const save = (key: string, value: string) => { prefs.set({[key]: value}).catch(() => showToast({message: playerWord('player.subtitles.changeFailed', undefined, i18n), icon: 'warning'})); };
+  return (
+    <>
+      {has('playback.subtitleSize') ? <ListRow title={i18n.t('settings.row.subtitleSize')} meta={i18n.t(`settings.subtitleSize.${captionSizes.find(v => v === size) ?? 'medium'}`)} accessory="value" disabled={prefs.saving} onPress={() => save('playback.subtitleSize', next(captionSizes, size))} /> : null}
+      {has('playback.subtitleBackground') ? <ListRow title={i18n.t('settings.row.subtitleBackground')} meta={i18n.t(`settings.subtitleBackground.${captionBackgrounds.find(v => v === background) ?? 'translucent'}`)} accessory="value" disabled={prefs.saving} onPress={() => save('playback.subtitleBackground', next(captionBackgrounds, background))} /> : null}
+    </>
+  );
+}
+
 /** A download's own subtitle tracks: files on this device, chosen with no server. */
 function OfflineSubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onClose: () => void; closeRow: React.ReactNode}) {
   const i18n = useI18n();
@@ -279,6 +305,7 @@ function OfflineSubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngi
         return <ListRow key={track.id} title={trackName({language: track.language, title: track.title}, i18n.locale) || track.title || track.language} subtitle={track.forced ? i18n.t('player.opt.forced') : undefined} selected={selected} hasTVPreferredFocus={selected} onPress={() => { offline.choose(track.id); onClose(); }} />;
       })}
       {!offline.tracks.length ? <><Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text>{closeRow}</> : null}
+      {offline.selectedId !== null ? <CaptionStyleRows /> : null}
     </>
   );
 }
@@ -370,6 +397,8 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
       {plan.selected ? (
         <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
       ) : null}
+      {/* The look of the line this device draws (a burned-in track is part of the picture). */}
+      {!off && plan.renderer !== 'burn_in' ? <CaptionStyleRows /> : null}
       {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'playback')} /> : null}
     </>
   );
