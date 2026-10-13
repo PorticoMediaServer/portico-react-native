@@ -1,5 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import {AppState} from 'react-native';
+import {useFreshness} from './freshness';
+import {dependsOn} from '../../../../packages/client-core/src/freshness-hub';
 import {PreferencesReader} from '../../../../packages/client-core/src/preferences-reader';
 import {preferenceValue, type PreferencePatch, type PreferenceScope, type PreferenceSnapshot, type PreferenceValue} from '../../../../packages/client-core/src/preferences';
 import {viewerScope} from './content';
@@ -56,6 +58,9 @@ export function ServerPreferencesProvider({deviceClass, children}: {deviceClass:
     });
   }, [client, deviceClass]);
   useEffect(load, [load]);
+  // Preferences changed on another device, or the server's own settings, arrive on the event feed: read them again in place.
+  const {hub} = useFreshness();
+  useEffect(() => hub.watch([dependsOn.settings('preferences'), dependsOn.settings('server')], load), [hub, load]);
   // APL-SET-03: a transient failure no longer leaves Preferences empty until relaunch. Retry with
   // backoff while nothing has loaded, and refresh whenever the app comes back to the foreground.
   const failures = useRef(0);
