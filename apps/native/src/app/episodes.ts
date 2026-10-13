@@ -1,8 +1,9 @@
-import {useEffect, useMemo, useSyncExternalStore} from 'react';
+import {useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
 import {createWindowedCollection, type PageResult, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import {validateContentProjection, type ContentEntry, type ContentScope, type LibraryContentApi} from '../../../../packages/client-core/src/library-content';
 import {viewerScope} from './viewer-scope';
 import {useSession} from './session';
+import {useFreshness} from './freshness';
 
 /** The show workspace's episode page size; the workspace's own first page seeds page 0. */
 export const EPISODE_PAGE = 40;
@@ -62,17 +63,38 @@ export function episodeSource(api: LibraryContentApi, scope: ContentScope, where
   };
 }
 
-/** One collection per show + season (+ seed); disposed when any of them changes. */
+/**
+ * One collection per show and season, for as long as that season is on screen. When the show is
+ * read again (a quiet read after an episode was watched or added, or a refresh) the same
+ * collection takes the new first page behind what is shown and swaps to it whole, at the same
+ * place, once every episode in view has arrived and the remote has been still for a moment.
+ * Episodes keep their keys, so the focused episode stays focused.
+ */
 export function useEpisodeWindow(where: EpisodeSelection | null, seed: EpisodeSeed | undefined) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
+  const {hub} = useFreshness();
   const key = where ? JSON.stringify(where) : '';
+  const seeded = useRef<EpisodeSeed | undefined>(undefined);
+  const has = !!seed;
   const list = useMemo<WindowedCollection<ContentEntry> | null>(
-    () => (where && seed ? createWindowedCollection<ContentEntry>({fetchPage: episodeSource(api, scope, where, seed), pageSize: EPISODE_PAGE, maxResidentPages: 5, keyOf: e => e.id}) : null),
-    // The seed belongs to the selection it came with; a new workspace read brings a new seed.
+    () => {
+      seeded.current = seed;
+      return where && seed ? createWindowedCollection<ContentEntry>({fetchPage: episodeSource(api, scope, where, seed), pageSize: EPISODE_PAGE, maxResidentPages: 5, keyOf: e => e.id}) : null;
+    },
+    // The selection is its identity; a new seed for the same selection is taken quietly below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, scope, key, seed],
+    [api, scope, key, has],
   );
+  useEffect(() => {
+    if (!list || !where || !seed || seeded.current === seed) return;
+    seeded.current = seed;
+    const fetchPage = episodeSource(api, scope, where, seed);
+    // A list that has shown nothing yet has nothing to keep: it simply starts from the new seed.
+    if (list.getSnapshot().total === undefined) { list.invalidate(fetchPage); return; }
+    void list.revalidate({fetchPage, hold: () => hub.settled()}).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, seed]);
   useEffect(() => () => list?.dispose(), [list]);
   const subscribe = useMemo(() => (listener: () => void) => list?.subscribe(listener) ?? (() => {}), [list]);
   const snapshot = useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idle);
