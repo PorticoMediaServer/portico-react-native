@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, type ImageSourcePropType, type StyleProp, type ViewStyle} from 'react-native';
+import {View, useWindowDimensions, type ImageSourcePropType, type StyleProp, type ViewStyle} from 'react-native';
 import {Artwork, ProgressLine, artworkRatio, type ArtworkShape} from './Artwork';
 import {FocusHalo} from './FocusHalo';
 import {Focusable, type FocusableProps} from './Focusable';
@@ -37,8 +37,14 @@ export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & 
  */
 /** Memoised; pays off once the list passes stable handlers. */
 export const Card = React.memo(function Card({title, subtitle, source, shape = 'poster', width, progress = 0, badge, watched, titleLines = 1, icon, captionless, style, ...rest}: CardProps) {
-  const {metrics, space, colors, isTV} = useTheme();
+  const {metrics, space, colors, isTV, type} = useTheme();
   const w = width ?? (shape === 'landscape' ? metrics.landscapeWidth : shape === 'poster' ? metrics.posterWidth : metrics.squareWidth);
+  // The caption keeps one height whatever the card says: room for the title's lines and one
+  // caption line, at the size the system draws text. A grid lays its rows out by one measured
+  // row, so a card with a short title, a wrapped title or no caption must all stand equally tall.
+  const {fontScale} = useWindowDimensions();
+  const scale = isTV ? 1 : fontScale || 1;
+  const captionHeight = Math.ceil(space.sm + titleLines * (type.captionStrong.lineHeight ?? 18) * scale + 1 + (type.micro.lineHeight ?? 14) * Math.min(scale, 2));
   return (
     <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, watched, progress, badge})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
       {({focused, hovered}) => (
@@ -60,7 +66,7 @@ export const Card = React.memo(function Card({title, subtitle, source, shape = '
             {(focused || hovered) && !isTV ? <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: alpha(colors.white, 0.06)}} /> : null}
           </View>
           {!captionless ? (
-            <View style={{paddingTop: space.sm, paddingHorizontal: 2, minHeight: isTV ? 60 : 38}}>
+            <View style={{paddingTop: space.sm, paddingHorizontal: 2, height: Math.max(captionHeight, isTV ? 60 : 38), overflow: 'hidden'}}>
               <Text variant="captionStrong" lines={titleLines} style={focused ? {color: colors.white} : undefined}>
                 {title}
               </Text>
