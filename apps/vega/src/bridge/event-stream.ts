@@ -1,6 +1,7 @@
 import {base64, utf8} from './encoding';
 import {failure} from './events';
-import {parseHeaders, redirected, sdkRequestAllowed} from './transport';
+import {parseHeaders} from './transport';
+import {checkResponse, onCredentialExposure, requestCredentials} from './credential-boundary';
 
 /**
  * `PorticoRuntime.openNetworkStream`, `readNetworkStream` and `cancelNetworkStream`: the server's
@@ -19,7 +20,7 @@ import {parseHeaders, redirected, sdkRequestAllowed} from './transport';
  *
  * There is no streaming socket in the SDK's JavaScript. An `XMLHttpRequest` does deliver text as
  * it arrives, and the text it holds only ever grows, which is what the 1 MiB bound is for here.
- * Credential-bearing streams are refused before dispatch because the SDK follows redirects.
+ * The SDK follows redirects; credential exposure is contained after its final address arrives.
  */
 const MAX_STREAMS = 4, PIECE_BYTES = 16384, MAX_BYTES = 1048576;
 const OPEN_MS = 15000, QUIET_MS = 60000, LIFETIME_MS = 2100000;
@@ -29,6 +30,7 @@ type Piece = {done: boolean; data?: string};
 type Waiting = {resolve(piece: Piece): void; reject(error: Error): void};
 type Stream = {
   xhr: XMLHttpRequest;
+  url: string;
   /** The response has begun and `open` has answered. */
   begun: boolean;
   opening?: {reject(error: Error): void};
@@ -106,17 +108,21 @@ function take(identifier: string, stream: Stream): void {
 
 export function openNetworkStream(identifier: string, url: string, headers: unknown): Promise<{status: number; headers: Record<string, string>}> {
   const target = allowed(url);
-  if (target && !sdkRequestAllowed(url, 'GET', headers, null)) return Promise.reject(failure('transport_unavailable', 'The installed transport cannot refuse redirects before sending credentials.'));
   if (!target || typeof identifier !== 'string' || !identifier || identifier.length > 128) return Promise.reject(failure('event_local', 'Invalid event request.'));
+  let sensitive: boolean;
+  try { sensitive = requestCredentials(url, headers, null); } catch (error) { return Promise.reject(error); }
   if (streams.size >= MAX_STREAMS || streams.has(identifier)) return Promise.reject(failure('event_local', 'Too many event streams.'));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const stream: Stream = {xhr, begun: false, opening: {reject}, seen: 0, received: 0, pieces: [], ended: false, timers: []};
+    const stream: Stream = {xhr, url, begun: false, opening: {reject}, seen: 0, received: 0, pieces: [], ended: false, timers: []};
     streams.set(identifier, stream);
     const refuse = (code: string, message: string) => end(identifier, stream, failure(code, message));
     const begin = () => {
+      if (xhr.status === 0 && !xhr.responseURL) return;
       if (stream.begun || stream.ended || streams.get(identifier) !== stream) return;
-      if (redirected(url, xhr.responseURL) || (xhr.status >= 300 && xhr.status <= 399)) { refuse('event_redirect', 'Event redirects are not allowed.'); return; }
+      try { checkResponse(url, xhr.responseURL, xhr.status, sensitive); } catch (error) {
+        end(identifier, stream, (error as {code?: string}).code === 'credential_exposed' ? error as Error : failure('event_redirect', 'Event redirects are not allowed.')); return;
+      }
       stream.begun = true;
       stream.opening = undefined;
       stream.quiet = setTimeout(() => end(identifier, stream, failure('event_timeout', 'The event connection was interrupted.')), QUIET_MS);
@@ -125,24 +131,27 @@ export function openNetworkStream(identifier: string, url: string, headers: unkn
     // No response has begun, so a silence here is a route that does not answer.
     stream.timers.push(setTimeout(() => { if (!stream.begun) refuse('event_transport', 'The event connection could not be opened.'); }, OPEN_MS));
     stream.timers.push(setTimeout(() => end(identifier, stream), LIFETIME_MS));
-    xhr.open('GET', url);
-    xhr.withCredentials = false;
-    xhr.responseType = 'text';
-    if (headers && typeof headers === 'object') {
-      for (const [key, value] of Object.entries(headers as Record<string, unknown>)) if (typeof value === 'string') xhr.setRequestHeader(key, value);
-    }
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState >= 2) begin();
-      if (stream.begun && xhr.readyState >= 3) take(identifier, stream);
-      if (stream.begun && xhr.readyState === 4) end(identifier, stream);
-    };
-    xhr.onprogress = () => { if (stream.begun) take(identifier, stream); };
-    xhr.onerror = () => {
-      if (!stream.begun) { if (!stream.ended) refuse('event_transport', 'The event connection could not be opened.'); return; }
-      end(identifier, stream, failure('event_transport', 'The event connection was interrupted.'));
-    };
-    xhr.ontimeout = xhr.onerror;
-    try { xhr.send(); } catch { refuse('event_transport', 'The event connection could not be opened.'); }
+    try {
+      xhr.open('GET', url);
+      xhr.withCredentials = false;
+      xhr.responseType = 'text';
+      xhr.setRequestHeader('Cache-Control', 'no-store');
+      if (headers && typeof headers === 'object') {
+        for (const [key, value] of Object.entries(headers as Record<string, unknown>)) if (typeof value === 'string') xhr.setRequestHeader(key, value);
+      }
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState >= 2) begin();
+        if (stream.begun && xhr.readyState >= 3) take(identifier, stream);
+        if (stream.begun && xhr.readyState === 4) end(identifier, stream);
+      };
+      xhr.onprogress = () => { if (stream.begun) take(identifier, stream); };
+      xhr.onerror = () => {
+        if (!stream.begun) { if (!stream.ended) refuse('event_transport', 'The event connection could not be opened.'); return; }
+        end(identifier, stream, failure('event_transport', 'The event connection was interrupted.'));
+      };
+      xhr.ontimeout = xhr.onerror;
+      xhr.send();
+    } catch { refuse('event_transport', 'The event connection could not be opened.'); }
   });
 }
 
@@ -169,3 +178,7 @@ export function cancelNetworkStream(identifier: string): void {
 
 /** How many streams are open (for tests). */
 export const openStreamCount = (): number => streams.size;
+
+onCredentialExposure(({origin, origins = [origin]}) => {
+  for (const [identifier, stream] of [...streams]) if (origins.includes(new URL(stream.url).origin)) end(identifier, stream, failure('credential_exposed', 'The connection disclosed a credential.'));
+});

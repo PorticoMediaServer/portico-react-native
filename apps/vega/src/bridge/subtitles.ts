@@ -8,7 +8,7 @@
  * whatever is playing.
  */
 import {trace} from '../debug';
-import {redirected} from './transport';
+import {checkResponse, onCredentialExposure, originOf, requestCredentials} from './credential-boundary';
 import {BYTE_LIMIT, NOTHING, defaultCaptionStyle, displayAt, parseCueDocument, selectionOf, type CaptionStyle, type CueList, type Selection, type SubtitleCommand, type SubtitleDisplay} from './subtitle-cues';
 
 export type {CaptionStyle, SubtitleCommand, SubtitleDisplay};
@@ -102,16 +102,25 @@ function fetchDocument(): void {
     show(NOTHING);
     report(message);
   };
+  try { requestCredentials(wanted.url, {}, null); } catch { failed(UNAVAILABLE, false); return; }
   fetching.open('GET', wanted.url);
   fetching.withCredentials = false;
   fetching.setRequestHeader('Accept', 'application/json');
+  fetching.setRequestHeader('Cache-Control', 'no-store');
   // The validator of the document already held, so "still authorised, unchanged" is one header.
   if (etag && cues) fetching.setRequestHeader('If-None-Match', etag);
   fetching.timeout = 20000;
+  fetching.onreadystatechange = () => {
+    if (!mine() || fetching.readyState < 2 || fetching.status === 0) return;
+    try { checkResponse(wanted.url, fetching.responseURL, fetching.status, true); } catch { failed(UNAVAILABLE, false); fetching.abort(); return; }
+    if (Number(fetching.getResponseHeader('Content-Length')) > BYTE_LIMIT || (fetching.responseText?.length ?? 0) > BYTE_LIMIT) { failed(TOO_LARGE, false); fetching.abort(); }
+  };
+  fetching.onprogress = fetching.onreadystatechange;
   fetching.onload = () => {
     if (!mine()) return;
-    // A redirect is never followed to its end: the answer must come from the address asked.
-    if (redirected(wanted.url, fetching.responseURL)) { failed(UNAVAILABLE, false); return; }
+    if (fetching.status === 0 && !fetching.responseURL) { failed(UNREADABLE, true); return; }
+    // The SDK has already followed; discard its answer and contain any grant exposure.
+    try { checkResponse(wanted.url, fetching.responseURL, fetching.status, true); } catch { failed(UNAVAILABLE, false); return; }
     const status = fetching.status;
     if (status === 304 && etag && cues) { request = undefined; authorizedUntil = Date.now() + AUTHORIZED_MS; report(''); tickSubtitles(positionUs / 1e6); return; }
     if (status >= 500 && status <= 599) { failed(UNREADABLE, true); return; }
@@ -139,3 +148,7 @@ export function tickSubtitles(seconds: number): void {
   if (!selection || !cues || Date.now() > authorizedUntil) { show(NOTHING, selection?.style ?? shown.style); return; }
   show(displayAt(cues, positionUs, selection.offsetUs), selection.style);
 }
+
+onCredentialExposure(({origin, origins = [origin]}) => {
+  if (selection && origins.includes(originOf(selection.url))) clearSubtitles();
+});

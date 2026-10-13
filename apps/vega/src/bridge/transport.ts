@@ -1,60 +1,31 @@
 import {failure} from './events';
+import {checkResponse, forgetSession, jsonValue, onCredentialExposure, rememberCredentials, requestCredentials} from './credential-boundary';
 
-/**
- * The bounded control transport behind `PorticoRuntime.networkRequest`, `queueRequest` and
- * `profileRequest`, with the Apple module's rules: no cookies, no cache, 15 s, a bounded body
- * each way, and at most 12 requests in flight and 64 waiting. Redirected public responses
- * are discarded; sensitive exchanges are refused before the SDK can dispatch them.
- *
- * The installed SDK follows redirects and provides no pre-follow control. Credential-bearing
- * requests are refused before dispatch. Public identity probes remain available.
- */
+/** Bounded SDK control transport. Redirects are detected after following, not prevented. */
 export type WireResponse = {status: number; headers: Record<string, string>; body: string};
 type Settle = {resolve(value: WireResponse): void; reject(error: Error): void};
-type Pending = Settle & {identifier: string; domain: string; url: string; method: string; headers: Record<string, string>; body: string | null; limit: number; xhr?: XMLHttpRequest; started: boolean; done: boolean};
+type Pending = Settle & {identifier: string; domain: string; url: string; method: string; headers: Record<string, string>; body: string | null; limit: number; sensitive: boolean; xhr?: XMLHttpRequest; started: boolean; done: boolean; timer?: ReturnType<typeof setTimeout>};
 
 const MAX_ACTIVE = 12, MAX_WAITING = 64, TIMEOUT_MS = 15000;
 const requests = new Map<string, Pending>();
 const waiting: Pending[] = [];
 let active = 0;
+let retiring = false;
 
 export type Admission = {identifier: string; url: string; method: string; headers: unknown; body: string | null; limit: number; domain: string; busy: string};
-
-/** Fail before SDK networking can disclose a body or a credential to a redirect. */
-export function sdkRequestAllowed(url: string, method: string, headers: unknown, body: string | null): boolean {
-  let target: URL;
-  try { target = new URL(url); } catch { return false; }
-  if (target.username || target.password || target.search || target.hash) return false;
-  const allowed = new Set(['accept', 'content-type', 'cache-control', 'last-event-id']);
-  if (headers && typeof headers === 'object') {
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === 'string' && !allowed.has(name.toLowerCase())) return false;
-    }
-  }
-  if (['GET', 'HEAD'].includes(method)) return body === null &&
-    (/^\/v1\/(system|direct|events)$/.test(target.pathname) || /^\/v1\/groups\/[A-Za-z0-9_-]{1,128}\/events$/.test(target.pathname));
-  if (method !== 'POST' || target.pathname !== '/v1/networking/identity-proof' || !body || utf8Length(body) > 16384) return false;
-  try {
-    const proof = JSON.parse(body);
-    return !!proof && typeof proof === 'object' && !Array.isArray(proof) &&
-      Object.keys(proof).length === 2 && proof.baseUrl === target.origin &&
-      typeof proof.nonce === 'string' && /^[A-Za-z0-9_-]{43}$/.test(proof.nonce);
-  } catch { return false; }
-}
 
 export function submit(admission: Admission): Promise<WireResponse> {
   return new Promise((resolve, reject) => {
     const {identifier, domain} = admission;
-    if (!sdkRequestAllowed(admission.url, admission.method, admission.headers, admission.body)) {
-      reject(failure('transport_unavailable', 'The installed transport cannot refuse redirects before sending credentials.'));
-      return;
-    }
+    let sensitive: boolean;
+    try { sensitive = requestCredentials(admission.url, admission.headers, admission.body); } catch (error) { reject(error as Error); return; }
     if (requests.has(identifier) || (active >= MAX_ACTIVE && waiting.length >= MAX_WAITING)) { reject(failure(domain, admission.busy)); return; }
     const headers: Record<string, string> = {};
     if (admission.headers && typeof admission.headers === 'object') {
       for (const [key, value] of Object.entries(admission.headers as Record<string, unknown>)) if (typeof value === 'string') headers[key] = value;
     }
-    const pending: Pending = {identifier, domain, url: admission.url, method: admission.method, headers, body: admission.body, limit: admission.limit, resolve, reject, started: false, done: false};
+    const pending: Pending = {identifier, domain, url: admission.url, method: admission.method, headers, body: admission.body, limit: admission.limit, sensitive, resolve, reject, started: false, done: false};
+    pending.timer = setTimeout(() => finish(pending, 'The queue request could not be confirmed.'), limitFor(pending.url));
     requests.set(identifier, pending);
     if (active < MAX_ACTIVE) start(pending); else waiting.push(pending);
   });
@@ -90,60 +61,63 @@ export function utf8Length(text: string): number {
 }
 
 function start(pending: Pending): void {
+  try { requestCredentials(pending.url, pending.headers, pending.body); } catch (error) { finish(pending, undefined, undefined, error as Error); return; }
   pending.started = true;
   active++;
-  const xhr = new XMLHttpRequest();
-  pending.xhr = xhr;
-  xhr.open(pending.method, pending.url);
-  xhr.timeout = limitFor(pending.url);
-  xhr.withCredentials = false;
-  xhr.responseType = 'text';
-  for (const [key, value] of Object.entries(pending.headers)) xhr.setRequestHeader(key, value);
-  const over = () => {
-    const declared = Number(xhr.getResponseHeader('Content-Length'));
-    return (Number.isFinite(declared) && declared > pending.limit) || (xhr.responseText?.length ?? 0) > pending.limit;
-  };
-  xhr.onreadystatechange = () => {
-    if (xhr.readyState >= 2 && !pending.done && over()) finish(pending, 'Queue response exceeded its limit.');
-  };
-  xhr.onprogress = () => { if (over()) finish(pending, 'Queue response exceeded its limit.'); };
-  xhr.onerror = () => finish(pending, 'The queue request could not be confirmed.');
-  xhr.ontimeout = () => finish(pending, 'The queue request could not be confirmed.');
-  xhr.onabort = () => finish(pending, 'Queue request cancelled.');
-  xhr.onload = () => {
-    if (redirected(pending.url, xhr.responseURL)) { finish(pending, 'Queue control redirects are not allowed.'); return; }
-    const body = xhr.responseText ?? '';
-    if (utf8Length(body) > pending.limit) { finish(pending, 'Queue response exceeded its limit.'); return; }
-    finish(pending, undefined, {status: xhr.status, headers: parseHeaders(xhr.getAllResponseHeaders()), body});
-  };
-  try { xhr.send(pending.body ?? undefined); } catch { finish(pending, 'The queue request could not be confirmed.'); }
+  try {
+    const xhr = new XMLHttpRequest();
+    pending.xhr = xhr;
+    xhr.open(pending.method, pending.url);
+    xhr.timeout = limitFor(pending.url);
+    xhr.withCredentials = false;
+    xhr.responseType = 'text';
+    for (const [key, value] of Object.entries(pending.headers)) xhr.setRequestHeader(key, value);
+    xhr.setRequestHeader('Cache-Control', 'no-store');
+    const over = () => {
+      const declared = Number(xhr.getResponseHeader('Content-Length'));
+      return (Number.isFinite(declared) && declared > pending.limit) || (xhr.responseText?.length ?? 0) > pending.limit;
+    };
+    xhr.onreadystatechange = () => {
+      if (xhr.readyState >= 2 && xhr.status !== 0 && !pending.done) {
+        try { checkResponse(pending.url, xhr.responseURL, xhr.status, pending.sensitive); } catch (error) { finish(pending, undefined, undefined, error as Error); return; }
+        if (over()) finish(pending, 'Queue response exceeded its limit.');
+      }
+    };
+    xhr.onprogress = () => { if (over()) finish(pending, 'Queue response exceeded its limit.'); };
+    xhr.onerror = () => finish(pending, 'The queue request could not be confirmed.');
+    xhr.ontimeout = () => finish(pending, 'The queue request could not be confirmed.');
+    xhr.onabort = () => finish(pending, 'Queue request cancelled.');
+    xhr.onload = () => {
+      if (pending.done) return;
+      try { checkResponse(pending.url, xhr.responseURL, xhr.status, pending.sensitive); } catch (error) { finish(pending, undefined, undefined, error as Error); return; }
+      const body = xhr.responseText ?? '';
+      if (utf8Length(body) > pending.limit) { finish(pending, 'Queue response exceeded its limit.'); return; }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (pending.method === 'DELETE' && new URL(pending.url).pathname === '/v1/sessions/current') forgetSession(pending.url, pending.headers);
+        try { rememberCredentials(pending.url, jsonValue(body)); } catch (error) { finish(pending, undefined, undefined, error as Error); return; }
+      }
+      finish(pending, undefined, {status: xhr.status, headers: parseHeaders(xhr.getAllResponseHeaders()), body});
+    };
+    xhr.send(pending.body ?? undefined);
+  } catch { finish(pending, 'The queue request could not be confirmed.'); }
 }
 
-function finish(pending: Pending, problem?: string, response?: WireResponse): void {
+function finish(pending: Pending, problem?: string, response?: WireResponse, error?: Error): void {
   if (pending.done) return;
   pending.done = true;
+  clearTimeout(pending.timer);
   if (requests.get(pending.identifier) === pending) requests.delete(pending.identifier);
   if (!pending.started) {
     const at = waiting.indexOf(pending);
     if (at >= 0) waiting.splice(at, 1);
   } else {
     active = Math.max(0, active - 1);
-    if (problem) { try { pending.xhr?.abort(); } catch { /* already finished */ } }
-    while (active < MAX_ACTIVE && waiting.length) start(waiting.shift()!);
+    if (problem || error) { try { pending.xhr?.abort(); } catch { /* already finished */ } }
+    while (!retiring && active < MAX_ACTIVE && waiting.length) start(waiting.shift()!);
   }
-  if (problem || !response) pending.reject(failure(pending.domain, problem ?? 'Invalid queue response.'));
+  if (error) pending.reject(error);
+  else if (problem || !response) pending.reject(failure(pending.domain, problem ?? 'Invalid queue response.'));
   else pending.resolve(response);
-}
-
-/** True when the response came from somewhere other than the address that was asked for. */
-export function redirected(asked: string, answered: string | undefined | null): boolean {
-  if (!answered) return false;
-  try {
-    const a = new URL(asked), b = new URL(answered);
-    return a.protocol !== b.protocol || a.host !== b.host || a.pathname !== b.pathname || a.search !== b.search;
-  } catch {
-    return true;
-  }
 }
 
 export function parseHeaders(raw: string | null): Record<string, string> {
@@ -156,3 +130,11 @@ export function parseHeaders(raw: string | null): Record<string, string> {
   }
   return headers;
 }
+
+// Retire queued and in-flight work before another credentialed request can be dispatched.
+onCredentialExposure(({origin, origins = [origin]}) => {
+  retiring = true;
+  for (const pending of [...requests.values()]) if (origins.includes(new URL(pending.url).origin)) finish(pending, undefined, undefined, failure('credential_exposed', 'The connection disclosed a credential.'));
+  retiring = false;
+  while (active < MAX_ACTIVE && waiting.length) start(waiting.shift()!);
+});

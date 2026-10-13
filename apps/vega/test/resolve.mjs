@@ -8,6 +8,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stub = name => pathToFileURL(path.join(here, 'stubs', name)).href;
 const stubs = {
+  '@amazon-devices/kepler-file-system': stub('files.mjs'),
   '@amazon-devices/react-native-w3cmedia': stub('w3cmedia.mjs'),
   '@amazon-devices/react-native-kepler': stub('kepler.mjs'),
   '@amazon-devices/keplercrypto': stub('keplercrypto.mjs'),

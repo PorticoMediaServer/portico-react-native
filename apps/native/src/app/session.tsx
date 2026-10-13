@@ -334,6 +334,23 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // The account's server list is kept on the device and version-checked (Spec — Hosted at Scale), so
   // it stays available while signed in to a server: re-admission and Switch server use it.
   const {credentials, hosted, setHosted, servers, directoryStatus, directoryError, refreshServers, dropServer, checkServersNow, serversCheckedAt, attachedServer, setAttachedServer} = useHostedAccount(hostedUrl, 'hosted', !restoring);
+  useEffect(() => {
+    const runtime = NativeModules.PorticoRuntime;
+    if (typeof runtime?.onCredentialExposure !== 'function') return;
+    return runtime.onCredentialExposure((event: {origin: string; origins?: readonly string[]}) => {
+      const current = viewer.getSnapshot();
+      const account = event.origin === hostedUrl;
+      const selected = current.serverUrl && (event.origins ?? [event.origin]).includes(new URL(current.serverUrl).origin);
+      // An unrelated retired server must not clear a newer viewer.
+      if (!account && current.session && !selected && api.baseUrl !== event.origin) return;
+      if (account) void credentials?.logout().catch(() => {});
+      signInNeeded.current('ended');
+      setBusy(false);
+      setError('');
+      setSignInNote(runtime.credentialExposureMessage(activeI18n().locale));
+    });
+  }, [api, credentials]);
+
   const serversRef = useRef(servers);
   serversRef.current = servers;
   useCredentialVerification(credentials, hostedUrl);

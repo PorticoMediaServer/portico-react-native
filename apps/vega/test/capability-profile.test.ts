@@ -36,9 +36,9 @@ test('one engine, text subtitles only, no track switching inside a file, no HDR'
   assert.equal(document.audioOutput?.maxChannels, 2);
 });
 
-test('files are played from their address only when the server is reached over HTTPS', () => {
+test('all server media uses the reader that can inspect final response addresses', () => {
   const kinds = (origin: string | null) => vegaCapabilityDocument(facts, origin).engines.native.transports?.map(t => t.transport);
-  assert.ok(kinds('https://media.example.test')?.includes('direct'));
+  assert.ok(!kinds('https://media.example.test')?.includes('direct'));
   assert.deepEqual(kinds('http://192.168.1.20:32500'), ['hls_ts', 'hls_fmp4']);
   assert.deepEqual(kinds(null), ['hls_ts', 'hls_fmp4']);
 });
@@ -90,7 +90,7 @@ test('what the device answers replaces the table: fewer where it has less', asyn
   const native = vegaCapabilityDocument(facts, 'https://media.example.test', {}, probed).engines.native;
   assert.deepEqual(native.video?.map(v => v.codec), ['h264']);
   assert.deepEqual(native.transports?.find(t => t.transport === 'hls_fmp4')?.video, ['h264']);
-  assert.ok(native.transports?.some(t => t.transport === 'direct'));
+  assert.ok(!native.transports?.some(t => t.transport === 'direct'));
 });
 
 test('an answer the server would refuse is left out, and the table stands', () => {

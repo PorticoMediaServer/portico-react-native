@@ -70,3 +70,32 @@ for (const exit of ['signOut', 'useAnother'] as const) {
     } finally {auth.me = undefined; await act(() => {current.signOut(); host.unmount();}); viewer.clear();}
   });
 }
+
+for (const late of [false, true]) {
+  test(`Vega exposure ends the live sign-in and fences ${late ? 'a delayed restore' : 'the selected viewer'}`, async () => {
+    const {NativeModules} = await import('./react-native-stub.mjs');
+    const runtime = NativeModules.PorticoRuntime as any;
+    let exposed: ((event: {origin: string}) => void) | undefined;
+    runtime.onCredentialExposure = (listener: typeof exposed) => {exposed = listener; return () => {exposed = undefined;};};
+    runtime.credentialExposureMessage = () => 'The connection disclosed sign-in details.';
+    viewer.clear();
+    auth.saved = selectedViewerRecord('http://server.test', session) as any;
+    auth.chosen = session as any; auth.me = undefined;
+    let resolve!: (value: any) => void;
+    auth.restore = late ? () => new Promise(done => {resolve = done;}) : async () => ({api: profileAPI('http://server.test', session.accessToken), session});
+    let current: any;
+    const host = createHookHost(() => {current = (SessionProvider({children: null}) as any).props.value;});
+    try {
+      await act(() => host.mount());
+      assert.ok(exposed, 'the provider subscribes to platform exposure containment');
+      await act(() => exposed!({origin: 'http://server.test'}));
+      if (late) await act(() => resolve({api: profileAPI('http://server.test', 'late-exposed'), session: {...session, accessToken: 'late-exposed'}}));
+      assert.equal(viewer.getSnapshot().session, undefined);
+      assert.equal(auth.saved, null);
+      assert.equal(current.signInNote, 'The connection disclosed sign-in details.');
+    } finally {
+      await act(() => host.unmount()); viewer.clear();
+      delete runtime.onCredentialExposure; delete runtime.credentialExposureMessage;
+    }
+  });
+}

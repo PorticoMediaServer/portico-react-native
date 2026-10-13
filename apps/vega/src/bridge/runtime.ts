@@ -1,5 +1,8 @@
 import {cancelNetworkStream, openNetworkStream, readNetworkStream} from './event-stream';
 import {failure} from './events';
+import {onCredentialExposure, originOf, rememberCredentials, jsonValue} from './credential-boundary';
+import {revokeExposedSessions} from './exposure-revocation';
+import {transportMessage} from '../i18n/transport';
 import {profileTrust} from './profile-trust';
 import {randomBytes, uuid} from './random';
 import {readRecord, serialized, writeRecord, type Service} from './storage';
@@ -14,7 +17,6 @@ const settings = require('../../app.json') as {portico?: {hostedUrl?: string}};
  */
 const MEGABYTE = 1048576, RECORD_LIMIT = 262144;
 const subtitlesPath = /^\/v1\/items\/[A-Za-z0-9_-]+\/playback\/[A-Za-z0-9_-]+\/subtitles$/;
-const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'];
 const VIEWER = 'portico:selected-viewer:v1', QUARANTINE = 'portico:selected-viewer:quarantined';
 
 function target(url: unknown): URL | null {
@@ -54,6 +56,9 @@ async function save(service: Service, account: string, json: string, full: [stri
 
 export const PorticoRuntime = {
   launchId: uuid(),
+  onCredentialExposure: (listener: (event: {origin: string; origins?: readonly string[]}) => void) => onCredentialExposure(({origin, origins}) => listener({origin, origins})),
+  transportNotice: (locale: string) => transportMessage('vega.connection.redirectLimit', locale),
+  credentialExposureMessage: (locale: string) => transportMessage('vega.connection.credentialExposed', locale),
   hostedUrl: settings.portico?.hostedUrl || undefined,
 
   /** A development aid on Apple (a journey log for automated runs); nothing records it here. */
@@ -65,11 +70,11 @@ export const PorticoRuntime = {
   queueRequest: (identifier: string, url: string, method: string, headers: unknown, body: string | null) => bounded(identifier, url, method, headers, body, false),
   networkRequest: (identifier: string, url: string, method: string, headers: unknown, body: string | null) => bounded(identifier, url, method, headers, body, true),
 
-  /** Passwords, PINs and profile proofs: TLS only (plain HTTP to this device alone), 64 KB. */
+  /** Passwords, PINs and profile proofs: HTTP or HTTPS, 64 KB. */
   profileRequest(identifier: string, url: string, method: string, headers: unknown, body: string | null): Promise<WireResponse> {
     const parsed = target(url);
     const text = typeof body === 'string' ? body : null;
-    const secure = parsed?.protocol === 'https:' || (parsed?.protocol === 'http:' && loopback.includes(parsed.hostname));
+    const secure = parsed && ['http:', 'https:'].includes(parsed.protocol);
     if (!parsed || !secure || !parsed.pathname.startsWith('/v1/') || !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method) || (text !== null && utf8Length(text) > 65536) || typeof identifier !== 'string' || identifier.length > 128) {
       return Promise.reject(failure('profile_transport', 'A secure, bounded profile request is required.'));
     }
@@ -96,7 +101,9 @@ export const PorticoRuntime = {
     return serialized(VIEWER, async () => {
       try {
         if ((await readRecord('credentials', QUARANTINE)) !== null) return null;
-        return await readRecord('credentials', VIEWER);
+        const json = await readRecord('credentials', VIEWER);
+        rememberSelection(json);
+        return json;
       } catch {
         throw failure('secure_storage', 'The saved server selection could not be read.');
       }
@@ -114,6 +121,7 @@ export const PorticoRuntime = {
       if (removing) await quarantine();
       if (typeof json !== 'string' || utf8Length(json) > 65536) throw failure('secure_storage', 'The server credential record is invalid.');
       try {
+        if (!removing) rememberSelection(json);
         await writeRecord('credentials', VIEWER, removing ? null : json);
       } catch {
         await quarantine();
@@ -126,8 +134,15 @@ export const PorticoRuntime = {
     });
   },
 
-  loadCredentials: (origin: string) => load('credentials', origin, null, 'Account credentials could not be read.'),
-  saveCredentials: (origin: string, json: string) => save('credentials', origin, json, ['credential_size', 'Account credential storage is full.'], 'Account credentials could not be saved.'),
+  loadCredentials: async (origin: string) => {
+    const json = await load('credentials', origin, null, 'Account credentials could not be read.');
+    rememberCredentials(origin, jsonValue(json));
+    return json;
+  },
+  saveCredentials: (origin: string, json: string) => {
+    rememberCredentials(origin, jsonValue(json));
+    return save('credentials', origin, json, ['credential_size', 'Account credential storage is full.'], 'Account credentials could not be saved.');
+  },
   loadJournal: (scope: string) => load('playback', scope, '[]', 'Playback recovery could not be read.'),
   saveJournal: (scope: string, json: string) => save('playback', scope, json, ['journal_size', 'Playback recovery is full.'], 'Playback recovery could not be saved.'),
 
@@ -138,3 +153,21 @@ export const PorticoRuntime = {
     try { return Array.from(randomBytes(n)); } catch { return null; }
   },
 };
+
+function rememberSelection(json: string | null): void {
+  const record = jsonValue(json) as {serverUrl?: string; session?: unknown} | undefined;
+  if (record?.serverUrl && record.session) rememberCredentials(record.serverUrl, record.session);
+}
+
+onCredentialExposure(exposure => {
+  // Start revocation immediately, independently of the ordinary request queue and UI cleanup.
+  void revokeExposedSessions(exposure);
+  void serialized(VIEWER, async () => {
+    const record = jsonValue(await readRecord('credentials', VIEWER)) as {serverUrl?: string} | undefined;
+    if (record?.serverUrl && (exposure.origins ?? [exposure.origin]).includes(originOf(record.serverUrl))) {
+      await writeRecord('credentials', QUARANTINE, '1');
+      await writeRecord('credentials', VIEWER, null);
+    }
+  }).catch(() => {});
+  for (const origin of exposure.origins ?? [exposure.origin]) void writeRecord('credentials', origin, null).catch(() => {});
+});

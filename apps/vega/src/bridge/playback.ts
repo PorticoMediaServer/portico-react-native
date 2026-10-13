@@ -172,13 +172,10 @@ class Engine {
       // Filled from where playback will start, not from the beginning.
       const first = accepted && engine === this ? accepted.pendingSeek?.positionSeconds : undefined;
       void this.hls.open(first ?? (this.originMs === undefined && !Number.isFinite(this.start) ? 0 : this.start)).then(() => { this.filled = true; this.loaded(); });
-    } else if (/^https:/i.test(this.source) && this.originMs === undefined) {
-      this.filled = true;
-      this.player.src = this.source;
     } else {
-      // The element opens an address itself only over HTTPS (see `capability-profile.ts`), and a
-      // channel is always a stream: the server is told, and delivers the title another way.
-      this.fail({engineCode: 'source_not_supported'}, this.originMs === undefined ? 'insecure address' : 'channel is not a stream');
+      // The element cannot report a direct file's final address. The capability document asks
+      // for HLS, including a plain remux, so all authenticated responses stay observable.
+      this.fail({engineCode: 'source_not_supported'}, 'media requires an observable stream');
       return;
     }
     this.ticker = setInterval(() => this.tick(), PROGRESS_MS);

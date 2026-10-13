@@ -6,6 +6,7 @@ import {sha256} from '@noble/hashes/sha2';
 import {addEventListener as watchNetwork, type NetInfoState} from '@amazon-devices/keplerscript-netmgr-lib';
 import {base64, base64Url, fromBase64, fromBase64Url, fromUtf8, isUuid, utf8} from './encoding';
 import {ModuleEvents, failure, withEvents} from './events';
+import {verifiedCredentialOrigin} from './credential-boundary';
 import {randomBytes, uuid} from './random';
 import {readRecord, serialized, writeRecord} from './storage';
 
@@ -78,6 +79,7 @@ export const PorticoNetwork = withEvents({
       const key = fromBase64Url(publicKey, 32), tag = fromBase64Url(signature, 64), message = fromBase64Url(payload);
       let valid = false;
       try { valid = ed25519.verify(tag, message, key); } catch { valid = false; }
+      if (valid) { try { verifiedCredentialOrigin(JSON.parse(fromUtf8(message) ?? 'null')); } catch { /* other signed documents */ } }
       return Promise.resolve(valid);
     } catch {
       return Promise.reject(failure('crypto_input', 'Invalid signed identity.'));
