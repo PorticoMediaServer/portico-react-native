@@ -41,6 +41,15 @@
 		B8AACB7F36B82E664C5584C6 /* PorticoSystemMedia.m in Sources */ = {isa = PBXBuildFile; fileRef = B79DAACB7F36B82E664C5584 /* PorticoSystemMedia.m */; };
 		B8F1EABF1034F46ACE6A5CFC /* PorticoSiriRemote.m in Sources */ = {isa = PBXBuildFile; fileRef = B7A8F1EABF1034F46ACE6A5C /* PorticoSiriRemote.m */; };
 		FCB05E72CC68EBCA2E16F82E /* PorticoCapabilities.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE18170C34C1F171310B1E7 /* PorticoCapabilities.m */; };
+		A6B000000000000000000101 /* PorticoEngineClock.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000201 /* PorticoEngineClock.m */; };
+		A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000202 /* PorticoMpvBridge.m */; };
+		A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000203 /* PorticoMpvCore.swift */; };
+		A6B000000000000000000104 /* PorticoMpvController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000204 /* PorticoMpvController.swift */; };
+		A6B000000000000000000105 /* PorticoMpvPlaybackModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */; };
+		A6B000000000000000000106 /* PorticoMpvPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000206 /* PorticoMpvPlayerView.swift */; };
+		A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000207 /* PorticoMpvRelay.swift */; };
+		A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000208 /* PorticoMpvSupport.swift */; };
+		A6B0000000000000000003A2 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* MPVKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -110,6 +119,16 @@
 		B79DAACB7F36B82E664C5584 /* PorticoSystemMedia.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PorticoSystemMedia.m; path = ../Native/PorticoSystemMedia.m; sourceTree = "<group>"; };
 		B7A8F1EABF1034F46ACE6A5C /* PorticoSiriRemote.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PorticoSiriRemote.m; path = ../Native/PorticoSiriRemote.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		A6B000000000000000000201 /* PorticoEngineClock.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoEngineClock.m; sourceTree = "<group>"; };
+		A6B000000000000000000202 /* PorticoMpvBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoMpvBridge.m; sourceTree = "<group>"; };
+		A6B000000000000000000203 /* PorticoMpvCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvCore.swift; sourceTree = "<group>"; };
+		A6B000000000000000000204 /* PorticoMpvController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvController.swift; sourceTree = "<group>"; };
+		A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvPlaybackModule.swift; sourceTree = "<group>"; };
+		A6B000000000000000000206 /* PorticoMpvPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvPlayerView.swift; sourceTree = "<group>"; };
+		A6B000000000000000000207 /* PorticoMpvRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvRelay.swift; sourceTree = "<group>"; };
+		A6B000000000000000000208 /* PorticoMpvSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvSupport.swift; sourceTree = "<group>"; };
+		A6B000000000000000000209 /* PorticoEngineClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoEngineClock.h"; sourceTree = "<group>"; };
+		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +141,7 @@
 				A59F00000000000000000001 /* AVKit.framework in Frameworks */,
 				A5A000000000000000000001 /* ImageIO.framework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */,
+				A6B0000000000000000003A2 /* MPVKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -200,6 +220,16 @@
 				A12C00000000000000000002 /* PorticoAudioRender.m */,
 				A12C00000000000000000003 /* PorticoAudioRender.h */,
 				A57D00000000000000000002 /* PorticoPlaybackModule.m */,
+				A6B000000000000000000201 /* PorticoEngineClock.m */,
+				A6B000000000000000000202 /* PorticoMpvBridge.m */,
+				A6B000000000000000000203 /* PorticoMpvCore.swift */,
+				A6B000000000000000000204 /* PorticoMpvController.swift */,
+				A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */,
+				A6B000000000000000000206 /* PorticoMpvPlayerView.swift */,
+				A6B000000000000000000207 /* PorticoMpvRelay.swift */,
+				A6B000000000000000000208 /* PorticoMpvSupport.swift */,
+				A6B000000000000000000209 /* PorticoEngineClock.h */,
+				A6B00000000000000000020A /* Portico-Bridging-Header.h */,
 				A59100000000000000000002 /* PorticoAccountAuth.m */,
 				A60900000000000000000002 /* PorticoNetwork.swift */,
 				B7A8F1EABF1034F46ACE6A5C /* PorticoSiriRemote.m */,
@@ -260,6 +290,9 @@
 				52C22FF7306753E14ABF010D /* PBXTargetDependency */,
 			);
 			name = Portico;
+			packageProductDependencies = (
+				A6B0000000000000000003A1 /* MPVKit */,
+			);
 			productName = Portico;
 			productReference = 13B07F961A680F5B00A75B9A /* Portico.app */;
 			productType = "com.apple.product-type.application";
@@ -303,6 +336,9 @@
 				Base,
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
+			packageReferences = (
+				A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */,
+			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -424,6 +460,14 @@
 				B8AACB7F36B82E664C5584C6 /* PorticoSystemMedia.m in Sources */,
 				A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */,
 				A57D00000000000000000001 /* PorticoPlaybackModule.m in Sources */,
+				A6B000000000000000000101 /* PorticoEngineClock.m in Sources */,
+				A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */,
+				A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */,
+				A6B000000000000000000104 /* PorticoMpvController.swift in Sources */,
+				A6B000000000000000000105 /* PorticoMpvPlaybackModule.swift in Sources */,
+				A6B000000000000000000106 /* PorticoMpvPlayerView.swift in Sources */,
+				A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */,
+				A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */,
 				A59100000000000000000001 /* PorticoAccountAuth.m in Sources */,
 				A57C00000000000000000001 /* PorticoPlaybackController.m in Sources */,
 				A59B00000000000000000001 /* PorticoListeningOwner.m in Sources */,
@@ -482,6 +526,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
 				PRODUCT_NAME = Portico;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TVOS_DEPLOYMENT_TARGET = 15.1;
@@ -511,6 +556,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
 				PRODUCT_NAME = Portico;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TVOS_DEPLOYMENT_TARGET = 15.1;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -745,6 +791,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
+			requirement = {
+				kind = exactVersion;
+				version = "1.1.0-n9.0.2";
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A6B0000000000000000003A1 /* MPVKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */;
+			productName = MPVKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }
