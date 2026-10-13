@@ -35,7 +35,7 @@ import {DeviceApprovalCover} from '../app/device';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {DownloadsGate} from './DownloadsGate';
 import {linkIntents} from './link-intents';
-import {LinkFence, linkViewerKey} from './pending-link';
+import {LinkFence, alreadyShowing, linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
@@ -265,6 +265,8 @@ export function Shell() {
     if (!url || !hasRealOrigin(session.api)) return;
     const nav = navigator.current;
     const current = linkFence.current!.begin();
+    // A link to the page already on top changes nothing: the same link twice is one request.
+    const push = (name: string, params?: object) => { if (nav && !alreadyShowing(nav.getCurrentRoute(), name, params)) nav.dispatch(StackActions.push(name, params)); };
     const title = /^portico:\/\/(item|play)\/([A-Za-z0-9_-]{1,128})$/.exec(url);
     if (title) {
       const [, action, itemId] = title;
@@ -272,29 +274,29 @@ export function Shell() {
       const refused = () => { if (!current()) return; showToast({message: activeI18n().t('shell.titleNotOnProfile'), icon: 'warning'}); topShelfChanged(); };
       if (action === 'play') void session.api.item(itemId).then(item => { if (current()) playerIntents.current?.play(itemId, item.progressSeconds ?? 0); }, refused);
       // B16: a link may name a show, album, book or artist as well as a playable title.
-      else void routeForLinkedTitle(session.api, itemId).then(route => { if (!current()) return; if (route) nav?.dispatch(StackActions.push(route.name, route.params)); else refused(); }, refused);
+      else void routeForLinkedTitle(session.api, itemId).then(route => { if (!current()) return; if (route) push(route.name, route.params); else refused(); }, refused);
       return;
     }
     if (/^portico:\/\/device\/?(?:[?#].*)?$/.test(url)) {
-      if (!isTV) nav?.dispatch(StackActions.push('Settings', {linkTV: true}));
+      if (!isTV) push('Settings', {linkTV: true});
       return;
     }
     // The Account page has no tabs (Hosted profiles and invitations are gone), so any old
     // `?tab=` is ignored.
     if (/^portico:\/\/account\/?(?:[?#].*)?$/.test(url)) {
-      nav?.dispatch(StackActions.push('Account'));
+      push('Account');
       return;
     }
     const together = /^portico:\/\/together\/join\/([A-Za-z0-9-]{4,16})\/?$/.exec(url);
     if (together) {
-      nav?.dispatch(StackActions.push('Together', {code: together[1].replace(/-/g, '')}));
+      push('Together', {code: together[1].replace(/-/g, '')});
       return;
     }
     // A server's invitation (Spec — Hosted at Scale); an old account invitation opens the same
     // screen, which says to ask for a new one.
     if (holdJoinLink(url) || isLegacyInvite(url)) {
       if (isLegacyInvite(url)) releaseJoinLink();
-      nav?.dispatch(StackActions.push('Invitation'));
+      push('Invitation');
     }
   };
   // Links arrive through their one owner (link-intents), which holds a link until this shell can
@@ -306,7 +308,9 @@ export function Shell() {
     fence.setViewer(linkViewer);
     if (!linkViewer) return;
     let live = true;
-    const detach = linkIntents.attach(linkViewer, url => { setTimeout(() => { if (live) linked.current(url); }, 0); });
+    // The link stays the owner's until this shell acts on it: a shell replaced within that tick
+    // leaves it for the next one instead of losing it.
+    const detach = linkIntents.attach(linkViewer, (url, taken) => { setTimeout(() => { if (live && taken()) linked.current(url); }, 0); });
     return () => { live = false; detach(); fence.setViewer(null); };
   }, [linkViewer]);
   const viewTogether = useCallback(() => navigator.current?.dispatch(StackActions.push('Together')), []);

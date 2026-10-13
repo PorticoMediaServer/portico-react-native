@@ -12,6 +12,7 @@ import {AccountHelp} from './AccountHelp';
 import {OfflineDownloadsScreen} from './OfflineDownloads';
 import {JoinServer} from '../Invitation';
 import {heldJoinLink, holdJoinLink, releaseJoinLink} from '../../app/join-link';
+import {signedOutInvitations} from '../../shell/link-intents';
 import {stepAfterEnding, type AuthStep} from '../../app/sign-in-ended';
 
 let remembered: Step = 'welcome';
@@ -56,12 +57,9 @@ export function AuthFlow({onSavedServer}: {/** APL-AUTH-01: return to the saved 
   }, []);
   // A server's invitation link while signed out: the join screen, after a Portico Account sign-in.
   const [joining, setJoining] = useState(() => !!heldJoinLink());
-  useEffect(() => {
-    const take = (url: string | null) => { if (url && holdJoinLink(url)) setJoining(true); };
-    void Linking.getInitialURL().then(take, () => {});
-    const sub = Linking.addEventListener('url', ({url}) => take(url));
-    return () => sub.remove();
-  }, []);
+  // The app's one link reader hands it over, including the link the app was launched with.
+  useEffect(() => signedOutInvitations.subscribe(url => { if (holdJoinLink(url)) setJoining(true); }), []);
+  const invitation = joining ? heldJoinLink() : undefined;
   const directBack = useRef<(() => void) | null>(null);
   const leaveDirect = useCallback(() => { session.direct.resetPin(); session.clearError(); setStep('welcome'); }, [session]);
   // Television Menu walks back one step instead of leaving the app.
@@ -91,7 +89,7 @@ export function AuthFlow({onSavedServer}: {/** APL-AUTH-01: return to the saved 
   // person back to sign-in while they are watching.
   if (step === 'offline') return <OfflineDownloadsScreen onBack={() => setStep('welcome')} />;
   if (session.direct.pending) return <DirectProfiles onCancel={session.direct.cancelPending} />;
-  if (joining && session.hosted) return <JoinServer link={heldJoinLink()} onDone={() => { releaseJoinLink(); setJoining(false); }} />;
+  if (invitation && session.hosted) return <JoinServer link={invitation} onDone={() => { releaseJoinLink(); setJoining(false); }} />;
   // Justin: a Portico Account lands in the shell at once; its server opens there (or is chosen
   // there, or says what failed there), never on a separate "Choose a server" screen.
   if (step === 'landing' && session.hosted) return <PorticoLanding onSignOut={() => { session.signOut(); setStep('welcome'); }} onDirect={() => { session.clearError(); setStep('direct'); }} />;

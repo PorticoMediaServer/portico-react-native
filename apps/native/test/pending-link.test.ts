@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LinkFence, PENDING_LINK_LIFETIME_MS, PendingLinkOwner, linkViewerKey, routedLink} from '../src/shell/pending-link.ts';
+import {DUPLICATE_LAUNCH_WINDOW_MS, DUPLICATE_LINK_WINDOW_MS, LinkFence, LinkInbox, PENDING_LINK_LIFETIME_MS, PendingLinkOwner, alreadyShowing, linkViewerKey, routedLink} from '../src/shell/pending-link.ts';
 import {Linking} from './react-native-stub.mjs';
 import {act, createHookHost} from './hook-driver.ts';
 import type * as IntakeModule from '../src/shell/link-intents.ts';
@@ -279,13 +279,14 @@ async function intake() {
   let answer!: (url: string | null) => void;
   let reads = 0;
   Linking.getInitialURL = () => { reads++; return new Promise<string | null>(resolve => { answer = resolve; }); };
-  const {linkIntents, useLinkIntake} = (await import('../src/shell/link-intents.ts?v=' + Math.random())) as typeof IntakeModule;
+  const module = (await import('../src/shell/link-intents.ts?v=' + Math.random())) as typeof IntakeModule;
+  const {linkIntents, useLinkIntake} = module;
   let viewer: Parameters<typeof useLinkIntake>[0];
   const host = createHookHost(() => useLinkIntake(viewer));
   host.mount();
   const select = async (next: typeof viewer) => { await act(() => { viewer = next; host.rerender(); }); };
   const opened: string[] = [];
-  return {linkIntents, select, opened, answer: async (url: string | null) => { answer(url); await act(() => {}); }, reads: () => reads, close: () => host.unmount()};
+  return {module, linkIntents, select, opened, answer: async (url: string | null) => { answer(url); await act(() => {}); }, reads: () => reads, close: () => host.unmount()};
 }
 const ALICE = {authority: 'local', accountId: 'a1', profileId: 'p1', serverId: 's1'};
 const KID = {...ALICE, profileId: 'p2'};
@@ -323,5 +324,196 @@ test('the app\'s intake: a launch link read late still opens for the viewer the 
     app.linkIntents.attach(alice, url => { app.opened.push(url); });
     await app.answer(MOVIE);
     assert.deepEqual(app.opened, [MOVIE]);
+  } finally { app.close(); }
+});
+
+// A link stays the owner's until the shell takes it, and the same link handed over twice is one link.
+
+test('a link handed to a shell that goes away before taking it is opened by the next shell', () => {
+  const {owner, opened} = harness();
+  owner.setViewer(alice);
+  owner.offer(MOVIE);
+  // The first shell is handed the link and is replaced before it acts on it.
+  const first = owner.attach(alice, () => {});
+  first();
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  assert.deepEqual(opened, [MOVIE]);
+});
+
+test('a link a shell took is not handed out again when that shell goes away', () => {
+  const {owner, opened} = harness();
+  owner.setViewer(alice);
+  owner.offer(MOVIE);
+  const detach = owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  detach();
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  assert.deepEqual(opened, [MOVIE]);
+});
+
+test('a link left by a shell that went away is still only for that viewer, and still expires', () => {
+  const a = harness();
+  a.owner.setViewer(alice);
+  a.owner.offer(MOVIE);
+  a.owner.attach(alice, () => {})();
+  a.owner.setViewer(null);
+  a.owner.setViewer(kid);
+  a.owner.attach(kid, (url, taken) => { if (taken()) a.opened.push(url); })();
+  a.owner.setViewer(alice);
+  a.owner.attach(alice, (url, taken) => { if (taken()) a.opened.push(url); });
+  assert.deepEqual(a.opened, [], 'another viewer was chosen in between');
+
+  const b = harness();
+  b.owner.setViewer(alice);
+  b.owner.offer(MOVIE);
+  b.owner.attach(alice, () => {})();
+  b.pass(PENDING_LINK_LIFETIME_MS + 1);
+  b.owner.attach(alice, (url, taken) => { if (taken()) b.opened.push(url); });
+  assert.deepEqual(b.opened, [], 'ten minutes from when it arrived, not from when it was handed back');
+});
+
+test('a link that arrived with nobody signed in and was left by a shell belongs to that shell\'s viewer', () => {
+  const {owner, opened} = harness();
+  owner.offer(MOVIE);
+  owner.attach(alice, () => {})();
+  owner.attach(kid, (url, taken) => { if (taken()) opened.push(url); })();
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  assert.deepEqual(opened, []);
+});
+
+test('a newer link replaces one that is on its way to the shell', () => {
+  const {owner, opened} = harness();
+  owner.setViewer(alice);
+  const pending: (() => void)[] = [];
+  owner.attach(alice, (url, taken) => { pending.push(() => { if (taken()) opened.push(url); }); });
+  owner.offer(MOVIE);
+  owner.offer(SHOW);
+  for (const run of pending) run();
+  assert.deepEqual(opened, [SHOW]);
+});
+
+test('a link on its way to a shell is dropped when another viewer is chosen first', () => {
+  const {owner, opened} = harness();
+  owner.setViewer(alice);
+  let act: (() => void) | undefined;
+  const detach = owner.attach(alice, (url, taken) => { act = () => { if (taken()) opened.push(url); }; });
+  owner.offer(MOVIE);
+  owner.setViewer(kid);
+  act?.();
+  detach();
+  owner.setViewer(alice);
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  assert.deepEqual(opened, []);
+});
+
+test('the launch link sent again as an event opens once', () => {
+  const {owner, opened, pass} = harness();
+  const open = (url: string, taken: () => boolean) => { if (taken()) opened.push(url); };
+  owner.setViewer(alice);
+  owner.attach(alice, open);
+  owner.claimInitial();
+  owner.offerInitial(MOVIE);
+  pass(2000);
+  owner.offer(MOVIE);
+  assert.deepEqual(opened, [MOVIE]);
+  // The same link much later is a new request.
+  pass(DUPLICATE_LAUNCH_WINDOW_MS);
+  owner.offer(MOVIE);
+  assert.deepEqual(opened, [MOVIE, MOVIE]);
+});
+
+test('the event copy arriving before the launch link is read still opens once', () => {
+  const {owner, opened} = harness();
+  owner.setViewer(alice);
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  owner.claimInitial();
+  owner.offer(MOVIE);
+  owner.offerInitial(MOVIE);
+  assert.deepEqual(opened, [MOVIE]);
+});
+
+test('the same link twice in quick succession is one request; a different link is not', () => {
+  const {owner, opened, pass} = harness();
+  owner.setViewer(alice);
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  owner.offer(MOVIE);
+  pass(DUPLICATE_LINK_WINDOW_MS - 1);
+  owner.offer(MOVIE);
+  owner.offer(SHOW);
+  pass(DUPLICATE_LINK_WINDOW_MS + 1);
+  owner.offer(MOVIE);
+  assert.deepEqual(opened, [MOVIE, SHOW, MOVIE]);
+});
+
+test('a repeated link does not bring back a link that was discarded', () => {
+  const {owner, opened, pass} = harness();
+  owner.setViewer(alice);
+  owner.offer(MOVIE);
+  owner.setViewer(kid);
+  pass(1000);
+  owner.offer(MOVIE);
+  owner.setViewer(alice);
+  owner.attach(alice, (url, taken) => { if (taken()) opened.push(url); });
+  assert.deepEqual(opened, []);
+});
+
+test('a link to the page already showing is not stacked again', () => {
+  assert.equal(alreadyShowing({name: 'Detail', params: {itemId: 'm1', libraryId: 'l1'}}, 'Detail', {libraryId: 'l1', itemId: 'm1'}), true);
+  assert.equal(alreadyShowing({name: 'Detail', params: {itemId: 'm1', libraryId: 'l1'}}, 'Detail', {libraryId: 'l1', itemId: 'm2'}), false);
+  assert.equal(alreadyShowing({name: 'Account'}, 'Account'), true);
+  assert.equal(alreadyShowing({name: 'Home'}, 'Account'), false);
+  assert.equal(alreadyShowing(undefined, 'Account'), false);
+});
+
+// Links for the sign-in screens come from the same reader.
+
+test('a sign-in screen is handed a link that arrived before it was showing, once', () => {
+  let now = 0;
+  const inbox = new LinkInbox(1000, () => now);
+  const got: string[] = [];
+  inbox.offer('portico://account-return#a');
+  const stop = inbox.subscribe(url => got.push(url));
+  assert.deepEqual(got, ['portico://account-return#a']);
+  stop();
+  inbox.subscribe(url => got.push(url))();
+  assert.deepEqual(got, ['portico://account-return#a'], 'not handed out twice');
+  inbox.offer('portico://account-return#b');
+  now = 2000;
+  inbox.subscribe(url => got.push(url));
+  assert.deepEqual(got, ['portico://account-return#a'], 'a link nobody took in time is forgotten');
+  inbox.offer('portico://account-return#c');
+  assert.deepEqual(got, ['portico://account-return#a', 'portico://account-return#c'], 'a listener gets a link as it arrives');
+});
+
+test('the app\'s intake: the launch link is read once, and a sign-in return or an invitation reaches the sign-in screens', async () => {
+  const app = await intake();
+  const {accountReturns, signedOutInvitations} = app.module;
+  try {
+    const invitation = `portico://join#code=${'I'.repeat(43)}&server=https%3A%2F%2Fdemo.getportico.tv`;
+    const returns: string[] = [], invitations: string[] = [];
+    // Nobody is signed in: the launch link is an invitation.
+    await app.answer(invitation);
+    signedOutInvitations.subscribe(url => invitations.push(url));
+    assert.deepEqual(invitations, [invitation]);
+    Linking.deliver('portico://account-return#transaction=t1');
+    accountReturns.subscribe(url => returns.push(url));
+    assert.deepEqual(returns, ['portico://account-return#transaction=t1']);
+    assert.equal(app.reads(), 1);
+    // The shell is handed the invitation too, once someone is signed in; a return never is.
+    await app.select(ALICE);
+    app.linkIntents.attach(alice, (url, taken) => { if (taken()) app.opened.push(url); });
+    assert.deepEqual(app.opened, [invitation]);
+  } finally { app.close(); }
+});
+
+test('the app\'s intake: an invitation that arrives while someone is signed in is the shell\'s alone', async () => {
+  const app = await intake();
+  try {
+    const invitation = `portico://join#code=${'J'.repeat(43)}&server=https%3A%2F%2Fdemo.getportico.tv`;
+    await app.answer(null);
+    await app.select(ALICE);
+    Linking.deliver(invitation);
+    const invitations: string[] = [];
+    app.module.signedOutInvitations.subscribe(url => invitations.push(url));
+    assert.deepEqual(invitations, []);
   } finally { app.close(); }
 });

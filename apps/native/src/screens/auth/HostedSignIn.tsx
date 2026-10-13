@@ -6,6 +6,7 @@ import {accountBridge, accountReturnOf, nativeAccount, type NativeAccountOwner} 
 import {useSession} from '../../app/session';
 import {useOffline} from '../../app/downloads';
 import {Linking} from 'react-native';
+import {accountReturns} from '../../shell/link-intents';
 import {Button, Divider, Field, ProviderButton, Surface, Text, useTheme, type FieldHandle} from '../../ui';
 import {AuthFrame} from './AuthFrame';
 import {signInMessage} from '../../app/errors';
@@ -81,9 +82,9 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
         await settle(current, await current.api.transaction(back.transactionId, undefined, back.completionCode));
       });
     };
-    void Linking.getInitialURL().then(received, () => {});
-    const subscription = Linking.addEventListener('url', event => received(event.url));
-    return () => subscription.remove();
+    // Handed over by the app's one link reader, which also holds a return that arrived before
+    // this screen was showing (the launch link among them).
+    return accountReturns.subscribe(received);
   }, [session.hostedUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** A provider sign-in's transaction: finished at once for an existing account, else onboarding. */

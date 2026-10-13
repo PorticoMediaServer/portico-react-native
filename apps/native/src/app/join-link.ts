@@ -28,18 +28,25 @@ export function parseJoinLink(url: string): JoinLink | undefined {
   return pairs.size === 2 && validCode(code) && validServer(server) ? {code, server} : undefined;
 }
 
-let held: JoinLink | undefined;
-// A link handled once is not offered again (a launch URL is read by the sign-in flow and again by the shell).
+/** How long a held invitation waits for its screen: long enough to create an account first. */
+export const JOIN_LINK_LIFETIME_MS = 30 * 60 * 1000;
+
+let held: {link: JoinLink; at: number} | undefined;
+// A link handled once is not offered again (the sign-in flow and the shell are both told of it).
 const handled = new Set<string>();
 /** Holds a join link for the join screen; returns whether it was one (and not already handled). */
-export function holdJoinLink(url: string): boolean {
+export function holdJoinLink(url: string, now: number = Date.now()): boolean {
   const link = parseJoinLink(url);
   if (!link || handled.has(link.code)) return false;
-  held = link;
+  held = {link, at: now};
   return true;
 }
-export const heldJoinLink = (): JoinLink | undefined => held;
-export function releaseJoinLink(): void { if (held) handled.add(held.code); held = undefined; }
+/** The invitation waiting for its screen, or undefined: none, or it waited too long and is forgotten. */
+export function heldJoinLink(now: number = Date.now()): JoinLink | undefined {
+  if (held && now - held.at > JOIN_LINK_LIFETIME_MS) held = undefined;
+  return held?.link;
+}
+export function releaseJoinLink(): void { if (held) handled.add(held.link.code); held = undefined; }
 
 /** An old Portico Account invitation (`portico://invite#invite=…`): those belonged to account
  * memberships, which servers now own; the person asks for a new invitation. */
