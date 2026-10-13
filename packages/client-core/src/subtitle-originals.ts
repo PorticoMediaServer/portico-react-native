@@ -1,4 +1,4 @@
-import {encodedRoutePath} from "../../contracts/src/routes.ts";
+import {routePattern} from "../../contracts/src/routes.ts";
 /**
  * Subtitles a device draws itself: reading what the server offers and fetching it.
  *
@@ -22,7 +22,10 @@ export const drawnSubtitleFormats: readonly DrawnSubtitleFormat[] = Object.freez
 export type SubtitleOriginal = Readonly<{format: DrawnSubtitleFormat; url: string; companionUrl?: string; fontsUrl?: string}>;
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const base = encodedRoutePath("get_v1_media_subtitles_grant_resource_revision", {"grant": "[A-Za-z0-9_-]{1,256}", "resource": "[A-Za-z0-9_-]{1,128}", "revision": "[1-9]\\d{0,17}"});
+const base = routePattern("get_v1_media_subtitles_grant_resource_revision")
+  .replace("{grant}", "[A-Za-z0-9_-]{1,256}")
+  .replace("{resource}", "[A-Za-z0-9_-]{1,128}")
+  .replace("{revision}", "[1-9]\\d{0,17}");
 const originalPath = new RegExp('^' + base + '/original\\.(?:ass|ssa|sup|idx|sub|mks)$');
 const fontListPath = new RegExp('^' + base + '/fonts$');
 const suffixes: Record<DrawnSubtitleFormat, readonly string[]> = {ass: ['ass', 'ssa'], pgs: ['sup'], vobsub: ['idx'], dvb: ['mks']};
@@ -50,7 +53,17 @@ export function subtitleOriginals(resource: unknown): readonly SubtitleOriginal[
 
 /** The original to ask for when selecting this track on a device that draws `draws`; undefined means text (or burn-in). */
 export function drawnRenderingFor(resource: unknown, draws: readonly string[]): DrawnSubtitleFormat | undefined {
-  return subtitleOriginals(resource).find(original => draws.includes(original.format))?.format;
+  const original = subtitleOriginals(resource).find(original => draws.includes(original.format));
+  if (original) return original.format;
+  // Unselected tracks publish delivery kinds without media-grant addresses. Selection
+  // pins the track and supplies its confined URLs; capability does not need a URL yet.
+  if (!record(resource) || !Array.isArray(resource.deliveries)) return undefined;
+  for (const delivery of resource.deliveries.slice(0, 16)) {
+    if (!record(delivery) || delivery.url !== undefined || delivery.companionUrl !== undefined || delivery.fontsUrl !== undefined) continue;
+    const format = delivery.format as DrawnSubtitleFormat;
+    if (drawnSubtitleFormats.includes(format) && draws.includes(format)) return format;
+  }
+  return undefined;
 }
 
 /** The original the device is to draw now: set when the plan says the device renders the selected track. */

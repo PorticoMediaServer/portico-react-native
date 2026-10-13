@@ -34,6 +34,7 @@
  * Not here yet: live channels (phase 6).
  */
 import type {PlaybackService, PlaybackSession} from '../index.ts';
+import {playbackUserMessage} from '../playback-messages.ts';
 import {ListeningService, loadListeningSelection, type ListeningTarget} from '../listening.ts';
 import type {QueueAdvanceMode, QueuePostPlay} from '../post-play.ts';
 import type {PreparedChoice} from '../prepared-media.ts';
@@ -117,6 +118,7 @@ const segments = (ids: readonly string[], shuffle: boolean): SegmentInput[] => {
 const message = (e: unknown, fallback: string): string => {
   if (e instanceof PlaybackApiError) {
     switch (e.code) {
+      case 'conversion_capacity': return playbackUserMessage(e);
       case 'queue_too_large': return 'This queue is too long. Remove some of it or start a new one.';
       case 'queue_building': return 'This part of the queue is still loading. Try again in a moment.';
       case 'queue_ended': return 'The queue has ended.';
@@ -400,7 +402,7 @@ export class V1QueuePlayer implements QueueController {
     const session = this.session;
     if (this.disposed || !session || this.nativeOwns()) return;
     if (choices.quality && !('step' in choices.quality && choices.quality.step)) this.qualityOverride = choices.quality;
-    const change: SessionChange = {...(choices.quality ? {quality: choices.quality} : {}), ...(choices.versionId ? {versionId: choices.versionId} : {}), ...(choices.audioTrackId ? {audio: {trackId: choices.audioTrackId}} : {}),
+    const change: SessionChange = {...(choices.replan ? {replan: true} : {}), ...(choices.quality ? {quality: choices.quality} : {}), ...(choices.versionId ? {versionId: choices.versionId} : {}), ...(choices.audioTrackId ? {audio: {trackId: choices.audioTrackId}} : {}),
       ...(choices.subtitleTrackId !== undefined ? {subtitles: {trackId: choices.subtitleTrackId, ...(choices.subtitleTrackId !== null && choices.subtitleDelivery ? {delivery: choices.subtitleDelivery} : {})}} : {}),
       ...(choices.subtitleTrackId && choices.subtitleOffsetMs !== undefined && Number.isFinite(choices.subtitleOffsetMs) ? {subtitleOffsetMs: Math.round(choices.subtitleOffsetMs)} : {}), ...(choices.throughputKbps !== undefined ? {throughputKbps: choices.throughputKbps} : {})};
     if (!Object.keys(change).length) return;

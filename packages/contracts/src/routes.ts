@@ -72,6 +72,7 @@ export const routes = [
       "queue_building",
       "queue_ended",
       "stream_limit_reached",
+      "conversion_capacity",
       "transcode_not_allowed",
       "unsupported_media"
     ],
@@ -161,6 +162,7 @@ export const routes = [
       "revision_required",
       "revision_mismatch",
       "stream_limit_reached",
+      "conversion_capacity",
       "transcode_not_allowed",
       "unsupported_media",
       "connection_too_slow"
@@ -220,7 +222,7 @@ export const routes = [
     "summary": "Pause, resume or seek any administrable session using its current revision",
     "access": "admin_scope",
     "adminScope": "playback",
-    "requires": "playback",
+    "requires": "admin",
     "lane": "media",
     "cost": "constant",
     "bodyLimit": 4096,
@@ -409,6 +411,7 @@ export const routes = [
       "idempotency_key_required",
       "idempotency_key_reused",
       "stream_limit_reached",
+      "conversion_capacity",
       "transcode_not_allowed",
       "unsupported_media",
       "source_unavailable"
@@ -841,11 +844,6 @@ export const routes = [
     "lane": "browsing",
     "cost": "constant",
     "bodyLimit": 2097152,
-    "query": [
-      "sessionId",
-      "sourceId",
-      "sourceVersion"
-    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -2432,7 +2430,7 @@ export const routes = [
     "summary": "Read the transport controls and current revision of any administrable session",
     "access": "admin_scope",
     "adminScope": "playback",
-    "requires": "playback",
+    "requires": "admin",
     "lane": "media",
     "cost": "constant",
     "bodyLimit": 0,
@@ -3855,9 +3853,9 @@ export const routes = [
     "admission": "browsing"
   },
   {
-    "id": "get_guide_images_digest",
+    "id": "get_guide_programme_image",
     "method": "GET",
-    "path": "/v1/guide/images/{digest}",
+    "path": "/v1/guide/programme-images/{generation}/{programme}",
     "summary": "Read guide images",
     "access": "device",
     "requires": "read",
@@ -4103,6 +4101,14 @@ export const routes = [
     "lane": "browsing",
     "cost": "page_sized",
     "bodyLimit": 0,
+    "query": [
+      "sourceId",
+      "sourceRevision",
+      "mappingRevision",
+      "sessionId",
+      "generation",
+      "positionUS"
+    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -4124,6 +4130,14 @@ export const routes = [
     "lane": "browsing",
     "cost": "page_sized",
     "bodyLimit": 0,
+    "query": [
+      "sourceId",
+      "sourceRevision",
+      "mappingRevision",
+      "sessionId",
+      "generation",
+      "positionUS"
+    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -6053,6 +6067,9 @@ export const routes = [
       "internal"
     ],
     "status": 200,
+    "responseStatuses": [
+      503
+    ],
     "http": true,
     "admission": "default"
   },
@@ -7461,7 +7478,7 @@ export const routes = [
     "summary": "Active playback sessions: who, what, how it's delivered and from where",
     "access": "admin_scope",
     "adminScope": "playback",
-    "requires": "playback",
+    "requires": "admin",
     "lane": "default",
     "cost": "page_sized",
     "bodyLimit": 0,
@@ -8128,11 +8145,6 @@ export const routes = [
     "lane": "browsing",
     "cost": "constant",
     "bodyLimit": 2097152,
-    "query": [
-      "sessionId",
-      "sourceId",
-      "sourceVersion"
-    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -9876,7 +9888,7 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/analysis/jobs",
     "summary": "Run title analysis jobs",
-    "access": "device",
+    "access": "owner",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -9888,7 +9900,7 @@ export const routes = [
       "not_found",
       "internal"
     ],
-    "status": 200,
+    "status": 202,
     "http": true,
     "admission": "browsing"
   },
@@ -9897,7 +9909,7 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/analysis/jobs/{job}/control",
     "summary": "Run title analysis jobs control",
-    "access": "device",
+    "access": "owner",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -9910,6 +9922,9 @@ export const routes = [
       "internal"
     ],
     "status": 200,
+    "successStatuses": [
+      202
+    ],
     "http": true,
     "admission": "browsing"
   },
@@ -9918,7 +9933,7 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/analysis/markers",
     "summary": "Run title analysis markers",
-    "access": "device",
+    "access": "owner",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -9986,11 +10001,6 @@ export const routes = [
     "lane": "browsing",
     "cost": "constant",
     "bodyLimit": 2097152,
-    "query": [
-      "sessionId",
-      "sourceId",
-      "sourceVersion"
-    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -10012,11 +10022,6 @@ export const routes = [
     "lane": "browsing",
     "cost": "constant",
     "bodyLimit": 2097152,
-    "query": [
-      "sessionId",
-      "sourceId",
-      "sourceVersion"
-    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -10247,7 +10252,7 @@ export const routes = [
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
-    "bodyLimit": 65536,
+    "bodyLimit": 2097152,
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -10255,7 +10260,7 @@ export const routes = [
       "not_found",
       "internal"
     ],
-    "status": 200,
+    "status": 202,
     "http": true,
     "admission": "browsing"
   },
@@ -11405,6 +11410,7 @@ export const routes = [
       "idempotency_key_reused",
       "queue_ended",
       "prepare_not_allowed",
+      "conversion_capacity",
       "not_implemented"
     ],
     "status": 200,
@@ -12077,7 +12083,7 @@ export const routes = [
     "method": "PUT",
     "path": "/v1/items/{id}/analysis/policy",
     "summary": "Save title analysis policy",
-    "access": "device",
+    "access": "owner",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -12103,11 +12109,6 @@ export const routes = [
     "lane": "browsing",
     "cost": "constant",
     "bodyLimit": 2097152,
-    "query": [
-      "sessionId",
-      "sourceId",
-      "sourceVersion"
-    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -12317,7 +12318,7 @@ export const routes = [
     "requires": "admin",
     "lane": "browsing",
     "cost": "constant",
-    "bodyLimit": 65536,
+    "bodyLimit": 2097152,
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -15404,6 +15405,7 @@ export const routes = [
       "idempotency_key_required",
       "idempotency_key_reused",
       "stream_limit_reached",
+      "conversion_capacity",
       "transcode_not_allowed",
       "source_unavailable",
       "unsupported_media",
@@ -15469,7 +15471,7 @@ export const routes = [
     "summary": "End a viewer's playback, showing them an optional message; idempotent",
     "access": "admin_scope",
     "adminScope": "playback",
-    "requires": "playback",
+    "requires": "admin",
     "lane": "default",
     "cost": "constant",
     "bodyLimit": 4096,
@@ -15751,7 +15753,7 @@ export const routePaths = {
   "get_feedback_reports_id": "/v1/feedback/reports/{id}",
   "get_guide": "/v1/guide",
   "get_guide_channels": "/v1/guide/channels",
-  "get_guide_images_digest": "/v1/guide/images/{digest}",
+  "get_guide_programme_image": "/v1/guide/programme-images/{generation}/{programme}",
   "get_guide_sources": "/v1/guide/sources",
   "get_health_live": "/health/live",
   "get_health_ready": "/health/ready",
@@ -16215,13 +16217,13 @@ export type RoutePath<I extends RouteId = RouteId> = string & {readonly [routeCo
 const byId: ReadonlyMap<string, string> = new Map(Object.entries(routePaths));
 /** Parameters are supplied unescaped. Query strings stay with the caller. */
 export function routePath<I extends RouteId>(id: I, ...args: keyof RouteParameters<I> extends never ? [parameters?: RouteParameters<I>] : [parameters: RouteParameters<I>]): RoutePath<I> {
-  return buildPath(id, args[0], encodeURIComponent);
+  return buildPath(id, args[0], false);
 }
 /** Retains an existing caller's parameter encoding during a migration. */
 export function encodedRoutePath<I extends RouteId>(id: I, ...args: keyof RouteParameters<I> extends never ? [parameters?: RouteParameters<I>] : [parameters: RouteParameters<I>]): RoutePath<I> {
-  return buildPath(id, args[0], value => value);
+  return buildPath(id, args[0], true);
 }
-function buildPath<I extends RouteId>(id: I, supplied: RouteParameters<I> | undefined, encode: (value: string) => string): RoutePath<I> {
+function buildPath<I extends RouteId>(id: I, supplied: RouteParameters<I> | undefined, encoded: boolean): RoutePath<I> {
   const route = byId.get(id);
   if (!route) throw new Error('Unknown API operation');
   const parameters = supplied as Record<string, string | number> | undefined;
@@ -16230,7 +16232,11 @@ function buildPath<I extends RouteId>(id: I, supplied: RouteParameters<I> | unde
   return route.replace(/\{([^}]+)\}/g, (_, key: string) => {
     const value = parameters?.[key];
     if (value === undefined || value === null || String(value).length === 0) throw new Error('Missing route parameter');
-    return encode(String(value));
+    const supplied = String(value);
+    if (encoded && /[/?#\\\x00-\x20\x7f]/.test(supplied)) throw new Error('Invalid encoded route parameter');
+    const segment = encoded ? decodeURIComponent(supplied) : supplied;
+    if (segment === '.' || segment === '..') throw new Error('Invalid route parameter');
+    return encoded ? supplied : encodeURIComponent(supplied);
   }) as RoutePath<I>;
 }
 /** Typed payloads are still parsed by the service's existing tolerant boundary. */
