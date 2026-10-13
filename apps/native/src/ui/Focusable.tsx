@@ -95,13 +95,12 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
   heldNow.current = onLongPress && !busy && !disabled ? onLongPress : undefined;
   useEffect(() => () => { if (focusedMenu?.owner === menuOwner) focusedMenu = undefined; }, [menuOwner]);
   // A long-press action is also a named accessibility action (VoiceOver's Actions rotor,
-  // TalkBack's actions menu, Switch Control), beside the ordinary activation.
+  // TalkBack's actions menu, Switch Control). Ordinary activation is left exactly as it is.
   const held = onLongPress && !busy && !disabled ? onLongPress : undefined;
   const actions = held && !rest.accessibilityActions ? {
-    accessibilityActions: [{name: 'activate'}, {name: 'longpress', label: longPressLabel ?? uiI18n().t('title.more')}],
+    accessibilityActions: [{name: 'longpress', label: longPressLabel ?? uiI18n().t('title.more')}],
     onAccessibilityAction: (event: AccessibilityActionEvent) => {
       if (event.nativeEvent.actionName === 'longpress') held(event as unknown as GestureResponderEvent);
-      else if (event.nativeEvent.actionName === 'activate') onPress?.(event as unknown as GestureResponderEvent);
     },
   } : null;
   return (
