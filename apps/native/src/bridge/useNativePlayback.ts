@@ -16,7 +16,7 @@ import {useServerPreferences} from '../app/server-preferences';
 import {musicQueueDefaults} from '../../../../packages/client-core/src/music-preferences';
 import {V1ChannelControl} from '../../../../packages/client-core/src/playback-v1/channel-control';
 import {getDeviceEvents, setDeviceEvents} from '../app/device-events';
-import {PlaybackQueue, forwardSessionEnds} from './playback-paths';
+import {PlaybackQueue, forwardSessionEnds, playbackFeedBusy} from './playback-paths';
 import {NativeQueueStore} from './queue-storage';
 import {V1QueueMemory, restoreV1Queue} from './v1-queue-memory';
 import {LocalPlayback, type LocalMedia} from './local-playback';
@@ -113,7 +113,7 @@ export function useNativePlayback(
     const stopFeed=runEventFeed(events,undefined,{
       visible:()=>AppState.currentState==='active',
       onVisibility:listener=>{const subscription=AppState.addEventListener('change',listener);return()=>subscription.remove();},
-      busy:()=>!!playback.getSnapshot().itemId,
+      busy:()=>playbackFeedBusy(playback.getSnapshot()),
       onBusy:listener=>playback.subscribe(listener),
     });
     setDeviceEvents(events);

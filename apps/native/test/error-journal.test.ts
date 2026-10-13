@@ -59,3 +59,13 @@ test('the report says what it is, includes the last crash, and keeps the newest 
   assert.ok(!cut.includes('line-0000 '), 'the oldest lines are the ones let go');
   assert.match(reportBody({appVersion: '1', platform: 'ios', deviceClass: 'mobile', now: 0, entries: []}), /No warnings or errors were logged in this run\.$/);
 });
+
+test('named short credentials and media capabilities are removed before storage or reporting', () => {
+  const journal = new ErrorJournal(() => 1);
+  journal.note('error', {accessToken: 'short-access', refreshToken: 'short-refresh', password: 'space secret', proof: 'short-proof'},
+    'fetch https://media.test/v1/media/short-grant/file https://media.test/v1/downloads/artifacts/short-download/sub.vtt',
+    'https://media.test/v1/media/subtitles/short-caption/res/1');
+  for (const secret of ['short-access', 'short-refresh', 'space secret', 'short-proof', 'short-grant', 'short-download', 'short-caption']) {
+    assert.equal(journal.list()[0]!.text.includes(secret), false, secret);
+  }
+});

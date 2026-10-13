@@ -1,6 +1,6 @@
 import {NativeModules} from 'react-native';
 import {NativeQueueStore} from '../bridge/queue-storage';
-import {ErrorJournal, fatalRecord, readFatalRecord, type FatalRecord} from './error-journal';
+import {diagnosticText, ErrorJournal, fatalRecord, readFatalRecord, type FatalRecord} from './error-journal';
 
 /**
  * What this app keeps of its own trouble (`error-journal`), wired to the runtime: warnings and
@@ -30,7 +30,7 @@ export function installErrorCapture(): void {
     const original = console[level];
     console[level] = (...args: unknown[]) => {
       try { journal.note(level, ...args); } catch { /* remembering never breaks logging */ }
-      original.apply(console, args);
+      original.apply(console, args.map(diagnosticText));
     };
   }
   const errors = (globalThis as {ErrorUtils?: {getGlobalHandler?: () => Handler | undefined; setGlobalHandler: (handler: Handler) => void}}).ErrorUtils;

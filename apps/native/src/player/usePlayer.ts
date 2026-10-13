@@ -83,7 +83,7 @@ export type NowPlaying = {
 export type BitmapConfirm = {resource: {id: string; language: string; format?: string; renderer?: string}; onConfirm: () => void};
 
 /** Show titles for episodes and artist/album for songs, looked up once per item. */
-const extraTitles = new Map<string, Partial<NowPlaying>>();
+const titleCaches = new WeakMap<object, Map<string, Partial<NowPlaying>>>();
 
 /** A song on a handheld starts in the mini player (the list it came from stays in view); the
  * television has no mini player, and everything else opens full. */
@@ -103,6 +103,11 @@ const noOffers = (): PlayerOffersSnapshot | null => null;
 
 export function usePlayerEngine() {
   const {api, session} = useSession();
+  const extraTitles = useMemo(() => {
+    let cache = titleCaches.get(api);
+    if (!cache) { cache = new Map(); titleCaches.set(api, cache); }
+    return cache;
+  }, [api]);
   const {playback, playbackState, ensureQueue, v1Queue, playLocal, path} = useNativePlayback(api, session);
   // The server's own account of the session being played: the engine it named, the quality in
   // force, the tracks it chose. Read through the session path, which hears of every re-plan.
@@ -127,8 +132,8 @@ export function usePlayerEngine() {
   const [pipActive, setPipActive] = useState(false);
   /* M27 Dolby Vision warning: pending play intent awaiting confirmation, and item ids already
    * acknowledged for this session (so it isn't asked twice per item). */
-  type DolbyPendingSingle = {kind: 'single'; itemId: string; startSeconds: number; entry?: ContentEntry};
-  type DolbyPendingSequence = {kind: 'sequence'; entries: readonly ContentEntry[]; index: number; startSeconds: number; container?: SequenceContainer};
+  type DolbyPendingSingle = {intent: number; kind: 'single'; itemId: string; startSeconds: number; entry?: ContentEntry};
+  type DolbyPendingSequence = {intent: number; kind: 'sequence'; entries: readonly ContentEntry[]; index: number; startSeconds: number; container?: SequenceContainer};
   const [dolbyPending, setDolbyPending] = useState<DolbyPendingSingle | DolbyPendingSequence | null>(null);
   const dolbyAcknowledged = useRef<Set<string>>(new Set());
   /* MU4 COMPAT-01: 4K/HDR facts per item from the same pre-play read (never a new request),
@@ -630,7 +635,7 @@ export function usePlayerEngine() {
       if (live) setIdentity(prev => (prev.itemId === itemId ? {...prev, ...extra} : prev));
     }, () => {});
     return () => { live = false; };
-  }, [api, identity.itemId, identity.kind, identity.seriesTitle, identity.artist, identity.offline]);
+  }, [api, extraTitles, identity.itemId, identity.kind, identity.seriesTitle, identity.artist, identity.offline]);
 
   const startSingle = useCallback(
     (itemId: string, startSeconds: number, entry?: ContentEntry) => {
@@ -657,6 +662,7 @@ export function usePlayerEngine() {
   /** The newest play intent: a preflight that answers after a newer play, or after the player
    * was closed, must not start its title. */
   const intent = useRef(0);
+  useEffect(() => () => { intent.current++; describeGeneration.current++; }, [playback]);
   /** Behind presence: older servers have no Dolby reason and read as no warning (fail open). */
   const checkDolbyFor = useCallback(async (itemId: string): Promise<boolean> => {
     const read = api.request<unknown>(`/v1/items/${encodeURIComponent(itemId)}/playback-options`, 'GET').then(raw => {
@@ -678,11 +684,12 @@ export function usePlayerEngine() {
   const play = useCallback(
     (itemId: string, startSeconds: number, entry?: ContentEntry) => {
       const mine = ++intent.current;
+      setDolbyPending(null);
       if (!mayCarryVideo(entry?.kind) || dolbyAcknowledged.current.has(itemId)) { startSingle(itemId, startSeconds, entry); return; }
       void checkDolbyFor(itemId).then(needs => {
         if (mine !== intent.current) return;
         if (!needs) startSingle(itemId, startSeconds, entry);
-        else setDolbyPending({kind: 'single', itemId, startSeconds, entry});
+        else setDolbyPending({intent: mine, kind: 'single', itemId, startSeconds, entry});
       });
     },
     [startSingle, checkDolbyFor],
@@ -690,7 +697,11 @@ export function usePlayerEngine() {
   /** OS-07: play a download in this player. What it shows comes from the download itself (no
    * library, so no quality ladder or audio choices), and its progress stays on the device. */
   const playOffline = useCallback(
-    (media: LocalMedia, display: OfflineDisplay) => {
+    async (pendingMedia: LocalMedia | Promise<LocalMedia>, display: OfflineDisplay) => {
+      const mine = ++intent.current;
+      setDolbyPending(null);
+      const media = await pendingMedia;
+      if (mine !== intent.current) return;
       declared.current = media.itemId;
       describeGeneration.current++;
       setIdentity({itemId: media.itemId, title: display.title, subtitle: display.subtitle, posterUrl: display.artworkUrl, kind: display.kind, offline: true});
@@ -704,6 +715,8 @@ export function usePlayerEngine() {
   );
   const tune = useCallback(
     (channel: GuideChannel, lineup?: Lineup) => {
+      intent.current++;
+      setDolbyPending(null);
       channelTuned(channel, lineup);
       declared.current = undefined;
       describeGeneration.current++;
@@ -730,7 +743,7 @@ export function usePlayerEngine() {
         setIdentity({itemId: first.playback.itemId, title: first.title, subtitle: first.subtitle, posterUrl: first.posterUrl, backdropUrl: first.backdropUrl, kind: first.kind, libraryId: first.libraryId});
         setPipActive(false);
         setExpanded(opensFull(first.kind));
-        void v1.playSelector(plan.selector, plan.options).catch(() => startSingle(first.playback!.itemId, startSeconds, first));
+        void v1.playSelector(plan.selector, plan.options).catch(() => {});
         return;
       }
       const queue = playback.getQueueController();
@@ -743,13 +756,14 @@ export function usePlayerEngine() {
       setIdentity({itemId: first.playback.itemId, title: first.title, subtitle: first.subtitle, posterUrl: first.posterUrl, backdropUrl: first.backdropUrl, kind: first.kind, libraryId: first.libraryId});
       setPipActive(false);
       setExpanded(opensFull(first.kind));
-      void queue.playEntries(playable.map(e => queueItemInput(e.playback!.itemId)), {startSeconds}).catch(() => startSingle(first.playback!.itemId, startSeconds, first));
+      void queue.playEntries(playable.map(e => queueItemInput(e.playback!.itemId)), {startSeconds}).catch(() => {});
     },
     [playback, startSingle, ensureQueue, v1Queue],
   );
   const playSequence = useCallback(
     (entries: readonly ContentEntry[], index: number, startSeconds: number, container?: SequenceContainer) => {
       const mine = ++intent.current;
+      setDolbyPending(null);
       const first = entries.slice(index).filter(e => e.playback)[0];
       const firstId = first?.playback?.itemId;
       if (!firstId) { startSequenceInner(entries, index, startSeconds, container); return; }
@@ -757,14 +771,14 @@ export function usePlayerEngine() {
       void checkDolbyFor(firstId).then(needs => {
         if (mine !== intent.current) return;
         if (!needs) startSequenceInner(entries, index, startSeconds, container);
-        else setDolbyPending({kind: 'sequence', entries, index, startSeconds, container});
+        else setDolbyPending({intent: mine, kind: 'sequence', entries, index, startSeconds, container});
       });
     },
     [startSequenceInner, checkDolbyFor],
   );
   const confirmDolby = useCallback(() => {
     const pending = dolbyPending;
-    if (!pending) return;
+    if (!pending || pending.intent !== intent.current) return;
     if (pending.kind === 'single') {
       dolbyAcknowledged.current.add(pending.itemId);
       setDolbyPending(null);
@@ -789,6 +803,8 @@ export function usePlayerEngine() {
     const itemId = state.itemId ?? identityRef.current.itemId;
     // The server ended it (the owner stopped it): no retry from here; the person plays again deliberately.
     if (!itemId || state.ended) return;
+    intent.current++;
+    setDolbyPending(null);
     // A download retries from its own file, where it stopped (the service kept how to make it).
     if (identityRef.current.offline) {
       void playback.retry().catch(() => {});

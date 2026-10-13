@@ -800,3 +800,140 @@ test('APP-02: a completed request from an old download sheet cannot enqueue for 
   assert.deepEqual(device.started, []);
   assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['item-held'], undefined);
 });
+
+test('an acknowledgement cannot erase a newer observation made in the same millisecond', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), observedAt = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), plays: {[owner]: {'play-one': {playId: 'play-one', itemId: 'item-1', positionSeconds: 10, observedAt}}}});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, bundle: 2}});
+  let answer!: (value: unknown) => void;
+  const held = new Promise(resolve => { answer = resolve; });
+  let posts = 0;
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', () => {
+    if (++posts === 1) return held;
+    throw new Error('offline again');
+  });
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  emit('PorticoDownloadPlayback', {id: 'prep-a', playId: 'play-one', positionSeconds: 20, durationSeconds: 100, ended: false});
+  await settle();
+  answer(APPLIED(s.sent('/v1/downloads/progress')[0]!.body));
+  await offlineDownloads.syncProgress();
+  assert.equal(s.sent('/v1/downloads/progress')[1]?.body.entries[0].positionMs, 20000);
+  assert.equal(JSON.parse(device.state).plays[owner]['play-one'].positionSeconds, 20);
+});
+
+test('a partial progress receipt settles only the observations it actually acknowledges', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), observedAt = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), plays: {[owner]: {
+    first: {playId: 'first', itemId: 'item-1', positionSeconds: 10, observedAt},
+    second: {playId: 'second', itemId: 'item-2', positionSeconds: 20, observedAt},
+  }}});
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', body => {
+    const result = APPLIED(body);
+    return {...result, entries: [result.entries[0], {playId: 'second', itemId: 'item-2', outcome: 'unknown'}]};
+  });
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  assert.deepEqual(Object.keys(JSON.parse(device.state).plays[owner]), ['second']);
+  assert.equal(s.sent('/v1/downloads/progress').length, 1, 'an incomplete answer does not loop');
+});
+
+test('a replacement transfer grant is handed to the native downloader', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  device.seed({id: 'prep-a', itemId: 'item-1', quality: 'original', state: 'downloading', meta: {owner, token: 'old-token', bundle: 2,
+    receipt: receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'})}});
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), renewed: {[owner]: Date.now()}});
+  const s = server().route('/v1/downloads/receipt-keys', KEYS);
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  assert.equal(device.started.length, 1);
+  assert.equal(device.started[0].url, 'http://server.test/v1/downloads/artifacts/tok_prep-a');
+  assert.equal(JSON.parse(device.started[0].meta).token, 'tok_prep-a');
+});
+
+test('a transfer grant renewal cannot patch an entry after its viewer changes', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  device.seed({id: 'prep-a', itemId: 'item-1', state: 'downloading', meta: {owner, token: 'old-token', bundle: 2}});
+  const service = downloadsService(), grant = service.grant;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  service.grant = async (p, renew) => { await held; return grant(p, renew); };
+  const s = server().route('/v1/downloads/receipt-keys', KEYS);
+  offlineDownloads.connect(s.api, service as unknown as DownloadsService, A);
+  await settle();
+  offlineDownloads.adopt(B);
+  release();
+  await settle();
+  assert.equal(device.metaOf('prep-a').token, 'old-token');
+  assert.deepEqual(device.started, []);
+});
+
+test('network wake retries deferred progress and next-episode work without reconnecting', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), observedAt = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), settings: {autoNext: true},
+    plays: {[owner]: {pending: {playId: 'pending', itemId: 'episode-1', positionSeconds: 10, observedAt}}},
+    nextAfter: {[owner]: {'episode-1': {quality: 'original'}}}});
+  let offline = true, requested = 0;
+  const service = downloadsService();
+  service.request = async () => {requested++; if (offline) throw new Error('offline'); return service.nextBatch;};
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', body => {if (offline) throw new Error('offline'); return APPLIED(body);});
+  offlineDownloads.connect(s.api, service as unknown as DownloadsService, A);
+  await settle();
+  offline = false;
+  offlineDownloads.wake();
+  await settle();
+  assert.deepEqual(JSON.parse(device.state).plays[owner], {});
+  assert.deepEqual(JSON.parse(device.state).nextAfter[owner], {});
+  assert.equal(requested, 2);
+});
+
+test('a continuously connected viewer renews receipts on the next day, once per overlapping wake', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), r = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, receipt: r, bundle: 2}});
+  let resolve!: (value: unknown) => void, delayed = false;
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', () => delayed ? new Promise(done => {resolve = done;}) : ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: r, code: ''}]}));
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  assert.equal(s.sent('/v1/downloads/receipts/revalidate').length, 1);
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  delayed = true;
+  offlineDownloads.wake(); offlineDownloads.wake();
+  await settle();
+  const count = s.sent('/v1/downloads/receipts/revalidate').length;
+  if (resolve) {resolve({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: r, code: ''}]}); await settle();}
+  assert.equal(count, 2);
+});
+
+test('successive observations of one title have an order the server can distinguish', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), at = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), plays: {[owner]: {play: {playId: 'play', itemId: 'item-1', positionSeconds: 10, observedAt: at}}}});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, bundle: 2}});
+  let resolve!: (value: unknown) => void;
+  let previous = 0, serverPosition = 0;
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', body => {
+    const e = body.entries[0], stamp = Date.parse(e.observedAt);
+    const stale = stamp <= previous;
+    if (!stale) {previous = stamp; serverPosition = e.positionMs;}
+    const answer = {applied: stale ? 0 : 1, conflicts: stale ? 1 : 0, entries: [{...e, outcome: stale ? 'stale_observation' : 'applied', watched: false, positionMs: serverPosition}]};
+    if (s.sent('/v1/downloads/progress').length === 1) return new Promise(done => {resolve = done;});
+    return answer;
+  });
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  emit('PorticoDownloadPlayback', {id: 'prep-a', playId: 'play', positionSeconds: 20, durationSeconds: 100, ended: false});
+  await settle();
+  resolve(APPLIED(s.sent('/v1/downloads/progress')[0]!.body));
+  await offlineDownloads.syncProgress();
+  assert.equal(serverPosition, 20000);
+  assert.equal(JSON.parse(device.state).resume[owner]['item-1'], 20);
+});

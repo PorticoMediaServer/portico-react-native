@@ -1,5 +1,6 @@
 import * as Vega from '@amazon-devices/react-native-kepler';
 import React, {useEffect, useState} from 'react';
+import {diagnosticText, redact} from '../../native/src/app/error-journal';
 
 /**
  * A development aid, off unless `portico.debugConsole` is set in `app.json`, drawn over the
@@ -37,6 +38,7 @@ function send(): void {
 
 export function trace(text: string, problem = false): void {
   if (!debugConsole) return;
+  text = redact(text);
   // The sink gets every line; the overlay, in "errors" mode, only what went wrong.
   if (sink) { outbox.push(`${((Date.now() - started) / 1000).toFixed(2)} ${text}`.slice(0, 1200)); send(); }
   if (!(everything || problem)) return;
@@ -47,13 +49,10 @@ export function trace(text: string, problem = false): void {
 
 /** A value in a few characters, never its contents when those could be a credential: a record or
  * a body or a long opaque string is shown by its size, an object by its keys, a response by its status. */
-/** A long unbroken run of key-like characters that is not an identifier in the usual 8-4-4-4-12 form. */
-const opaque = (value: string): boolean => /^[A-Za-z0-9_+/=.-]{24,}$/.test(value) && !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
-
-const brief = (value: unknown, limit = 90): string => {
-  if (value instanceof Error) return `${(value as {code?: string}).code ?? ''} ${value.message}`.trim();
+const brief = (value: unknown): string => {
+  if (value instanceof Error) return redact(`${(value as {code?: string}).code ?? ''} ${value.message}`).trim();
   if (value === null || value === undefined || typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (typeof value === 'string') return /^[\[{]|bearer|eyJ/i.test(value) || value.length > limit || opaque(value) ? `<text ${value.length}>` : value;
+  if (typeof value === 'string') return `<text ${value.length}>`;
   if (Array.isArray(value)) return `[${value.length}]`;
   if (typeof value === 'object') {
     const status = (value as {status?: unknown}).status;
@@ -76,11 +75,11 @@ if (debugConsole) {
     const original = console[level].bind(console);
     // What went wrong is worth reading in full; a message is not a credential.
     console[level] = (...args: unknown[]) => {
-      original(...args);
+      original(...args.map(diagnosticText));
       // The SDK says this of every `TextInput.focus()`, which is the only way to raise the keyboard.
       if (level === 'warn' && typeof args[0] === 'string' && args[0].includes('focus() is currently deprecated')) return;
       // What went wrong is worth reading in full; a message is not a credential.
-      const shown = args.map(arg => (level !== 'log' && typeof arg === 'string' && !/bearer|eyJ/i.test(arg) ? arg.slice(0, 260) : brief(arg)));
+      const shown = args.map(arg => (level !== 'log' && typeof arg === 'string' && !/bearer|eyJ/i.test(arg) ? redact(arg).slice(0, 260) : brief(arg)));
       trace(`${level}: ${shown.join(' ')}`.replace(/\s+/g, ' '), level !== 'log');
     };
   }

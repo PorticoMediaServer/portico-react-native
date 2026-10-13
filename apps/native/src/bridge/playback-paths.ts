@@ -1,3 +1,4 @@
+import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import type {QueueController} from '../../../../packages/client-core/src/queue-controller';
 
 /**
@@ -54,4 +55,9 @@ export function forwardSessionEnds(events: Readonly<{on(type: string, listener: 
   return events.on('session.updated', event => {
     if (event.resource?.kind === 'session' && event.resource.id) path.sessionUpdated(event.resource.id, event.revision, event.data);
   });
+}
+
+/** Whether playback needs the device event feed while the app is away. */
+export function playbackFeedBusy(snapshot: Pick<PlaybackSnapshot, 'itemId' | 'intent' | 'phase'>): boolean {
+  return !!snapshot.itemId && snapshot.intent === 'playing' && (snapshot.phase === 'starting' || snapshot.phase === 'ready');
 }

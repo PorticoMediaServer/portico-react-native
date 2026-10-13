@@ -77,6 +77,7 @@ const instanceId = uuid();
 let lease: string | undefined, owner: string | undefined;
 let commandRevision = 0, factSequence = 0;
 let accepted: Command | undefined;
+let lastSeek: PendingSeek | undefined;
 let engine: Engine | undefined;
 /** The place reached when the route to the server was put in doubt: the media is closed until the
  * route is ready again, and opens there. */
@@ -102,7 +103,8 @@ class Engine {
   private wantPaused = true;
   private attached: string | null = null;
   private seekRevision = -1;
-  private seek?: {revision: number; timer: ReturnType<typeof setTimeout>};
+  private seek?: {revision: number; target: number; timer: ReturnType<typeof setTimeout>};
+  private restoring?: {target: number; started: boolean; timer: ReturnType<typeof setTimeout>};
   private ticker?: ReturnType<typeof setInterval>;
   private captions?: ReturnType<typeof setInterval>;
   private audioKey = '';
@@ -151,7 +153,7 @@ class Engine {
     this.on('pause', () => this.publish('rateStatus'));
     // Running dry while playing is a stall; waiting for a seek or for the first picture is not.
     this.on('waiting', () => { this.waiting = true; if (this.shown && !this.seek) this.publish('stalled'); });
-    this.on('seeked', () => this.sought(true));
+    this.on('seeked', () => { if (this.restoring) { if (this.restoring.started) this.restored(true); } else this.sought(true); });
     this.on('ended', () => { this.over = true; this.publish('ended'); });
     this.on('error', () => {
       const code = Number((this.player.error as {code?: number} | null)?.code);
@@ -239,31 +241,60 @@ class Engine {
   /** Ready once the element knows what it is playing and the stream has its first data. */
   private loaded(): void {
     if (this.closed || this.ready || this.failed || !this.described || !this.filled) return;
-    this.ready = true;
+    if (Number.isFinite(this.start) && !accepted?.pendingSeek) { this.restorePosition(this.start); return; }
     if (this.originMs !== undefined) {
       // A channel was filled from where it is to begin (the place kept, the place asked for, or
       // where live viewing begins): the element is sent to that segment.
       const begin = this.hls?.beginning() ?? NaN;
       if (Number.isFinite(begin) && Math.abs(Number(this.player.currentTime) - begin) > 0.25) { try { this.player.currentTime = begin; } catch { /* plays from where the buffer starts */ } }
-    } else if (this.start > 0) {
-      // A source reopened under the same binding (another route to the same item) resumes where it was.
-      this.hls?.seek(this.start);
-      try { this.player.currentTime = this.elementTime(this.start); } catch { /* starts from the beginning */ }
     }
+    this.completeReady();
+  }
+
+  private completeReady(): void {
+    if (this.closed || this.failed || this.ready) return;
+    this.ready = true;
     this.publish('ready');
     if (accepted && engine === this) this.apply(accepted);
     // Nothing sent the element anywhere: it plays from where the stream was filled.
     if (!this.seek) this.hls?.settled();
   }
 
+  private restorePosition(target: number): void {
+    this.restoring = {target, started: false, timer: setTimeout(() => this.restored(false, true), SEEK_LIMIT_MS)};
+    const go = (elementTime: number) => {
+      if (!this.restoring || this.closed || this.failed) return;
+      if (!Number.isFinite(elementTime)) { this.restored(false); return; }
+      this.restoring.started = true;
+      if (Math.abs(Number(this.player.currentTime) - elementTime) < 0.25) { this.restored(true); return; }
+      try { this.player.currentTime = elementTime; } catch { this.restored(false); }
+    };
+    const destination = this.hls ? this.hls.seek(target) : target;
+    if (typeof destination === 'number') go(destination); else destination.then(go, () => this.restored(false));
+  }
+
+  private restored(applied: boolean, timedOut = false): void {
+    const held = this.restoring;
+    if (!held || this.closed) return;
+    clearTimeout(held.timer); this.restoring = undefined;
+    if (!applied || !Number.isFinite(this.position()) || Math.abs(this.position() - held.target) > 0.5) {
+      this.fail({uncertain: true, message: timedOut ? 'Connection restored, but the retained position is not available. Your playback session was not replaced.' : 'The previous playback position is unavailable on this connection. Your position has been retained.'}, 'position restoration');
+      return;
+    }
+    this.completeReady();
+  }
+
   apply(command: Command): void {
     this.wantPaused = command.paused;
+    if (this.restoring && command.pendingSeek) {
+      clearTimeout(this.restoring.timer); this.restoring = undefined; this.completeReady();
+    }
     if (!this.ready || this.closed || this.failed) return;
     const pending = command.pendingSeek;
     if (pending && pending.revision > this.seekRevision) {
       this.seekRevision = pending.revision;
       if (this.seek) clearTimeout(this.seek.timer);
-      this.seek = {revision: pending.revision, timer: setTimeout(() => this.sought(false), SEEK_LIMIT_MS)};
+      this.seek = {revision: pending.revision, target: pending.positionSeconds, timer: setTimeout(() => this.sought(false), SEEK_LIMIT_MS)};
       this.over = false;
       // A channel's timeline has no beginning at zero; a title's does.
       const position = this.originMs === undefined ? Math.max(0, pending.positionSeconds) : pending.positionSeconds;
@@ -282,7 +313,7 @@ class Engine {
     applySubtitles(command.subtitles, this.source, error => this.publish('subtitleStatus', {error}));
     this.applyAudio(command.audio);
     const held = this.heldAway();
-    if (this.wantPaused || held) { if (!this.player.paused) this.player.pause(); }
+    if (this.wantPaused || held || command.rate !== 1 || !!pending || !!this.seek) { if (!this.player.paused) this.player.pause(); }
     else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail({uncertain: true}, 'play'));
   }
 
@@ -349,6 +380,7 @@ class Engine {
     clearTimeout(seek.timer);
     this.seek = undefined;
     this.hls?.settled();
+    applied = applied && Number.isFinite(this.position()) && Math.abs(this.position() - seek.target) <= 0.5;
     this.publish(applied ? 'seekApplied' : 'seekFailed', {seekRevision: seek.revision, error: applied ? '' : SEEK_UNAVAILABLE});
   }
 
@@ -393,7 +425,7 @@ class Engine {
   }
 
   private publish(type: string, extra: Readonly<Record<string, unknown>> = {}): void {
-    if (this.closed || engine !== this || !lease || !accepted) return;
+    if (this.closed || engine !== this || !lease || !accepted || (this.restoring && type !== 'error')) return;
     const paused = this.opened ? this.player.paused : true;
     const moving = this.ready && !paused && !this.waiting && !this.over && !this.failed;
     const place = this.position();
@@ -418,6 +450,8 @@ class Engine {
     if (this.captions) clearInterval(this.captions);
     clearSubtitles();
     if (this.seek) clearTimeout(this.seek.timer);
+    if (this.restoring) clearTimeout(this.restoring.timer);
+    this.restoring = undefined;
     this.hls?.close();
     if (!this.opened) return;
     for (const [type, listener] of this.listeners) this.player.removeEventListener(type, listener);
@@ -429,14 +463,15 @@ class Engine {
 
 function acquire(name: string): Promise<{lease: string; instanceId: string; engine: 'native'}> {
   if (typeof name !== 'string' || name.length < 1 || name.length > 128 || (lease && owner !== name)) return Promise.reject(failure('owner_busy', 'Another player owns playback.'));
-  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; kept = undefined; }
+  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; lastSeek = undefined; kept = undefined; }
   return Promise.resolve({lease, instanceId, engine: 'native'});
 }
 
 /** The Apple controller's checks, in its order and with its words. */
 function refusal(command: Command): string | null {
   const binding = command?.binding;
-  if (!binding || typeof binding !== 'object' || binding.lease !== lease || !lease) return 'Playback lease is no longer active.';
+  if (!binding || typeof binding !== 'object') return 'Invalid playback binding.';
+  if (binding.lease !== lease || !lease) return 'Playback lease is no longer active.';
   if (typeof command.paused !== 'boolean') return 'Invalid paused flag.';
   if (typeof command.source !== 'string' || typeof command.rate !== 'number' || !Number.isFinite(command.rate)) return 'Invalid playback command.';
   if (!whole(binding.intentId, 1) || !whole(binding.generation, 1)) return 'Invalid playback binding.';
@@ -447,7 +482,30 @@ function refusal(command: Command): string | null {
   if (command.timelineOriginMs !== undefined && command.timelineOriginMs !== null && !whole(command.timelineOriginMs, 1)) return 'Invalid channel clock.';
   if (command.connectionState !== undefined && (!['ready', 'verifying'].includes(command.connectionState) || !whole(command.routeRevision, 0))) return 'Invalid route transition.';
   if (accepted?.routeRevision !== undefined && (command.routeRevision === undefined || command.routeRevision < accepted.routeRevision)) return 'Stale route transition.';
+  if (accepted) {
+    const prior = accepted.binding;
+    if (binding.intentId < prior.intentId || (binding.intentId === prior.intentId && (!same(binding, prior) || !sameSource(command, accepted)))) return 'Stale playback binding.';
+  }
+  const pending = command.pendingSeek;
+  if (pending !== undefined && pending !== null) {
+    if (typeof pending !== 'object' || typeof pending.revision !== 'number' || !Number.isFinite(pending.revision) || pending.revision < 0 || typeof pending.positionSeconds !== 'number' || !Number.isFinite(pending.positionSeconds) || (command.timelineOriginMs == null && pending.positionSeconds < 0)) return 'Invalid seek command.';
+    if (!whole(pending.revision, 1)) return 'Invalid seek revision.';
+    if (accepted && same(binding, accepted.binding) && lastSeek) {
+      if (pending.revision < lastSeek.revision) return 'Stale seek command.';
+      if (pending.revision === lastSeek.revision && (!accepted.pendingSeek || pending.positionSeconds !== lastSeek.positionSeconds)) return 'Conflicting or retired seek command.';
+    }
+  }
   return null;
+}
+
+/** Only a newer verified route may move an unchanged binding to the same media path/query. */
+function sameSource(next: Command, previous: Command): boolean {
+  if (next.source === previous.source) return true;
+  if ((next.routeRevision ?? 0) <= (previous.routeRevision ?? 0)) return false;
+  try {
+    const a = new URL(next.source), b = new URL(previous.source);
+    return ['http:', 'https:'].includes(a.protocol) && ['http:', 'https:'].includes(b.protocol) && a.pathname === b.pathname && a.search === b.search;
+  } catch { return false; }
 }
 
 function command(value: Command): Promise<boolean> {
@@ -455,6 +513,8 @@ function command(value: Command): Promise<boolean> {
   trace(`command r${value?.commandRevision} paused=${value?.paused} seek=${JSON.stringify(value?.pendingSeek ?? null)} subtitles=${value?.subtitles?.mode ?? 'none'} audio=${value?.audio ? `${value.audio.renditions?.length} renditions, pending ${JSON.stringify(value.audio.pending)}` : 'none'}${problem ? ' refused: ' + problem : ''}`, !!problem);
   if (problem) return Promise.reject(failure('command_rejected', problem));
   if (value.commandRevision === commandRevision) return Promise.resolve(true);
+  if (!accepted || !same(accepted.binding, value.binding)) lastSeek = undefined;
+  if (value.pendingSeek) lastSeek = {...value.pendingSeek};
   commandRevision = value.commandRevision;
   accepted = value;
   if (kept && !same(kept.binding, value.binding)) kept = undefined;
@@ -471,7 +531,7 @@ function command(value: Command): Promise<boolean> {
   }
   if (!engine || !same(engine.binding, value.binding) || engine.source !== value.source) {
     // The same binding with another address is another route to the same item: it carries on.
-    const carried = engine && same(engine.binding, value.binding) ? engine.position() : kept ? kept.position : NaN;
+    const carried = value.pendingSeek ? NaN : engine && same(engine.binding, value.binding) ? engine.position() : kept ? kept.position : NaN;
     kept = undefined;
     engine?.close();
     const origin = whole(value.timelineOriginMs, 1) ? value.timelineOriginMs : undefined;
@@ -487,6 +547,7 @@ function release(held: string): Promise<boolean> {
     lease = undefined;
     owner = undefined;
     accepted = undefined;
+    lastSeek = undefined;
     kept = undefined;
   }
   return Promise.resolve(true);

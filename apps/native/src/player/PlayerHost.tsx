@@ -45,8 +45,7 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents}: {chi
       tune: engine.tune,
       more: (entry, origin) => setMore({entry, origin}),
       playLocal: async entry => {
-        const media = await offlineDownloads.localMedia(entry);
-        await playOffline(media, {title: entry.title, subtitle: entry.subtitle || undefined, artworkUrl: entry.artworkUrl || undefined, kind: entry.kind});
+        await playOffline(offlineDownloads.localMedia(entry), {title: entry.title, subtitle: entry.subtitle || undefined, artworkUrl: entry.artworkUrl || undefined, kind: entry.kind});
       },
     }),
     [engine.play, engine.playSequence, engine.tune, playOffline],

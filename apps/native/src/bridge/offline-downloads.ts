@@ -189,7 +189,7 @@ export class OfflineDownloads {
   /** Per container request, the reading of its members past the first page: the member the next
    * page starts after, how many have been read, the counts the request had at the last look, and
    * whether the last page was reached (it is read again, from the same place, when they change). */
-  private enrolled = new Map<string, {after: string; read: number; mark: string; tail: boolean; busy: boolean}>();
+  private enrolled = new Map<string, {after: string; read: number; mark: string; tail: boolean; busy: boolean; retryAt: number}>();
   private enrollTimer?: ReturnType<typeof setTimeout>;
   /** Members already enrolled, once each: a download deleted later (by hand or after watching)
    * is not wanted again because its request is still followed. */
@@ -199,6 +199,7 @@ export class OfflineDownloads {
    * generation may finish, but may not write anything back. */
   private generation = 0;
   private opening?: Promise<void>;
+  private receiptSync?: {generation: number; owner: string; forced: boolean; task: Promise<void>};
   private progressSync?: {generation: number; task: Promise<void>};
   /** When each stopped download was last tried again by itself. */
   private retried = new Map<string, number>();
@@ -206,6 +207,7 @@ export class OfflineDownloads {
   private bundling = new Set<string>();
   /** The play under way for each entry (one id for as long as the file stays open). */
   private playing = new Map<string, string>();
+  private observationTimes = new Map<string, number>();
 
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -308,7 +310,7 @@ export class OfflineDownloads {
   /** Drops the server binding while preserving the saved viewer for authorized
    * offline access. Sign-out clears it explicitly through `adopt(undefined)`. */
   disconnect() { this.generation++; this.unfollow?.(); this.unfollow = undefined; this.api = undefined; this.service = undefined; clearInterval(this.tending); this.tending = undefined; }
-  dispose() { this.subscriptions.forEach(s => s.remove()); this.subscriptions = []; this.listeners.clear(); clearInterval(this.tending); }
+  dispose() { this.disconnect(); clearTimeout(this.enrollTimer); this.enrollTimer = undefined; this.subscriptions.forEach(s => s.remove()); this.subscriptions = []; this.listeners.clear(); clearInterval(this.tending); }
 
   private read(raw: any): OfflineEntry | undefined {
     if (!raw || typeof raw.id !== 'string' || !['downloading', 'paused', 'failed', 'ready'].includes(raw.state)) return undefined;
@@ -431,6 +433,7 @@ export class OfflineDownloads {
    * looked at again only when the request's counts change, which is how members the server lists
    * later are found. */
   private async enrollRequests(owner: string, service: DownloadsService, generation: number) {
+    if (generation !== this.generation) return;
     const mine = bucket(this.stored.wanted, owner), api = this.api;
     let added = false, more = false;
     for (const tracked of service.getSnapshot().requests) {
@@ -439,27 +442,32 @@ export class OfflineDownloads {
         for (const it of items) {
           const key = `${owner}|${r.requestId}|${it.itemId}`;
           if (this.enrolledItems.has(key)) continue;
+          if (!mine[it.itemId] && !this.all.some(e => e.itemId === it.itemId && this.entryOwner(e) === owner)) {
+            if (Object.keys(mine).length >= ENROLL_BACKLOG) return false;
+            mine[it.itemId] = {title: ''}; added = true;
+          }
           this.enrolledItems.add(key);
-          if (!mine[it.itemId] && !this.all.some(e => e.itemId === it.itemId)) { mine[it.itemId] = {title: ''}; added = true; }
         }
+        return true;
       };
-      add(r.items);
+      if (!add(r.items)) break;
       if (!r.nextCursor || !api) continue;
       const mark = `${r.total}/${r.ready}/${r.preparing}/${r.queued}`;
-      const reading = this.enrolled.get(r.requestId) ?? {after: r.nextCursor, read: 0, mark: '', tail: false, busy: false};
-      this.enrolled.set(r.requestId, reading);
+      const requestKey = JSON.stringify([owner, r.requestId]);
+      const reading = this.enrolled.get(requestKey) ?? {after: r.nextCursor, read: 0, mark: '', tail: false, busy: false, retryAt: 0};
+      this.enrolled.set(requestKey, reading);
       // Another pass is reading this request, or it has been read to its end (or to a page that
       // could not be read) and nothing about it has changed since.
-      if (reading.busy || (reading.tail && reading.mark === mark)) continue;
+      if (reading.busy || (reading.tail && reading.mark === mark) || (reading.mark === mark && Date.now() < reading.retryAt)) continue;
       const restart = () => { reading.after = r.nextCursor; reading.read = 0; reading.tail = true; };
-      reading.mark = mark; reading.tail = false; reading.busy = true;
+      reading.mark = mark; reading.tail = false; reading.busy = true; reading.retryAt = 0;
       let held = false;
       try {
         for (let i = 0; i < ENROLL_PAGES_PER_PASS && !reading.tail; i++) {
           if (Object.keys(mine).length >= ENROLL_BACKLOG) { held = true; break; }
           const page = await getDownloadRequest(api, r.requestId, {cursor: reading.after});
           if (generation !== this.generation) return;
-          add(page.items);
+          if (!add(page.items)) { held = true; break; }
           reading.read += page.items.length;
           // More members than the request has: its list changed under the reading (or the server
           // is repeating itself). Stop, and read from the first page when it next changes.
@@ -469,9 +477,10 @@ export class OfflineDownloads {
         }
         if (!reading.tail && !held) more = true;
       } catch (e) {
-        // A page that cannot be read waits for the request to change; the reading then carries on
-        // from the same place. A place the server no longer knows (400) starts from the first page.
-        if ((e as {status?: unknown} | null)?.status === 400) restart(); else reading.tail = true;
+        // A transient refusal is not the end of the list. Retry from here after a short floor,
+        // even when counts are unchanged; an expired cursor starts from the first page.
+        if ((e as {status?: unknown} | null)?.status === 400) { reading.after = r.nextCursor; reading.read = 0; }
+        reading.retryAt = Date.now() + RETRY_EVERY_MS;
       } finally { reading.busy = false; }
     }
     if (added) await this.persist();
@@ -553,16 +562,20 @@ export class OfflineDownloads {
     const grant = await service.grant({id: claim}, held.token);
     if (this.generation !== generation) throw new Error(serviceText('downloads.connectToStart'));
     const title = target.title ?? held.title;
-    const lines = title ? downloadTitleLines(title) : {title: '', subtitle: ''};
     // The owner is recorded before the first byte arrives, so a transfer that is still running
     // when the viewer changes is not left unattributed.
     const meta: Meta = {...held, libraryId: target.libraryId ?? held.libraryId, kind: title?.kind ?? held.kind, owner, receipt, title, token: grant.token, onServer: true, ...(claim !== target.id ? {claim} : {})};
+    await this.startTransfer(target, meta, grant, api);
+    void this.bundle(target.id, api, service, generation, grant.url);
+  }
+  private async startTransfer(target: {id: string; itemId: string; quality: string}, meta: Meta, grant: Awaited<ReturnType<DownloadsService['grant']>>, api: Api) {
+    if (!native) return;
+    const lines = meta.title ? downloadTitleLines(meta.title) : {title: '', subtitle: ''};
     this.metas.set(target.id, meta);
     await native.start({
       id: target.id, url: api.mediaUrl(grant.url), fileName: grant.artifact.fileName, bytes: grant.artifact.bytes, sha256: grant.artifact.sha256,
       contentType: grant.artifact.contentType, itemId: target.itemId, title: lines.title, subtitle: lines.subtitle, quality: target.quality, meta: JSON.stringify(meta),
     });
-    void this.bundle(target.id, api, service, generation, grant.url);
   }
   /** Fetches what travels with a download — its description, artwork, chapters, markers and
    * subtitles — and keeps it beside the file. What the server has none of is simply absent;
@@ -597,6 +610,10 @@ export class OfflineDownloads {
   private async tend(generation: number) {
     const owner = this.ownerKey(), api = this.api, service = this.service;
     if (generation !== this.generation || !owner || !api || !service || !this.state.ready) return;
+    void this.collect(generation);
+    void this.syncProgress(generation);
+    void this.continueNext(generation);
+    void this.renewReceipts(generation, api, owner, false);
     const now = Date.now();
     for (const entry of this.ownedEntries(owner)) {
       if (this.generation !== generation) return;
@@ -617,7 +634,15 @@ export class OfflineDownloads {
         // again, hours from now, with the app closed.
         if (now - (this.retried.get('renew:' + entry.id) ?? 0) < 60 * 60 * 1000) continue;
         this.retried.set('renew:' + entry.id, now);
-        await service.grant({id: meta.claim ?? entry.id}, meta.token).then(grant => (grant.token === meta.token ? undefined : this.patch(entry.id, {token: grant.token})), () => {});
+        await service.grant({id: meta.claim ?? entry.id}, meta.token).then(async grant => {
+          if (generation !== this.generation || owner !== this.ownerKey() || grant.token === meta.token) return;
+          const current = this.all.find(e => e.id === entry.id);
+          const latest = this.metas.get(entry.id);
+          if (!current || current.held || current.state !== 'downloading' || this.entryOwner(current) !== owner || latest?.token !== meta.token) return;
+          const artifact = current.receipt?.claims.artifact;
+          if (artifact && (artifact.sha256 !== grant.artifact.sha256 || artifact.bytes !== grant.artifact.bytes)) return;
+          await this.startTransfer(current, {...latest, token: grant.token}, grant, api);
+        }).catch(() => {});
       } else if (entry.state === 'ready' && (meta.bundle ?? 0) < 2 && entry.onServer) {
         if (now - (this.retried.get('bundle:' + entry.id) ?? 0) < 10 * 60 * 1000) continue;
         this.retried.set('bundle:' + entry.id, now);
@@ -677,7 +702,19 @@ export class OfflineDownloads {
    * It runs once a day, not on every connection: a renewal rewrites each receipt on the
    * server and on this device. `force` is for the moment the server says downloads are off
    * for this profile, which is exactly when each copy must be asked about. */
-  private async renewReceipts(generation = this.generation, apiArg = this.api, ownerArg = this.ownerKey(), force = false) {
+  private renewReceipts(generation = this.generation, apiArg = this.api, ownerArg = this.ownerKey(), force = false): Promise<void> {
+    if (!apiArg || !ownerArg || generation !== this.generation) return Promise.resolve();
+    const flight = this.receiptSync;
+    if (flight?.generation === generation && flight.owner === ownerArg) {
+      if (force && !flight.forced) return flight.task.then(() => this.renewReceipts(generation, apiArg, ownerArg, true));
+      return flight.task;
+    }
+    const task = this.revalidateReceipts(generation, apiArg, ownerArg, force).catch(() => {});
+    this.receiptSync = {generation, owner: ownerArg, forced: force, task};
+    void task.finally(() => { if (this.receiptSync?.task === task) this.receiptSync = undefined; }).catch(() => {});
+    return task;
+  }
+  private async revalidateReceipts(generation: number, apiArg: Api, ownerArg: string, force: boolean) {
     const api = apiArg, owner = ownerArg;
     if (generation !== this.generation || !api || !owner) return;
     const mine = this.ownedEntries(owner);
@@ -852,7 +889,12 @@ export class OfflineDownloads {
     const finished = event.ended || (event.durationSeconds > 0 && position / event.durationSeconds >= FINISHED_AT);
     bucket(this.stored.resume, owner)[entry.itemId] = finished ? 0 : position;
     const plays = bucket(this.stored.plays, owner);
-    plays[playId] = {playId, itemId: entry.itemId, positionSeconds: position, ...(event.ended ? {ended: true} : {}), observedAt: new Date().toISOString()};
+    const clockKey = JSON.stringify([owner, entry.itemId]);
+    const pendingTimes = Object.values(plays).filter(p => p.itemId === entry.itemId).map(p => Date.parse(p.observedAt)).filter(Number.isFinite);
+    const observedAt = Math.max(Date.now(), Math.max(this.observationTimes.get(clockKey) ?? 0, ...pendingTimes) + 1);
+    this.observationTimes.set(clockKey, observedAt);
+    if (this.observationTimes.size > MAX_PLAYS) this.observationTimes.delete(this.observationTimes.keys().next().value!);
+    plays[playId] = {playId, itemId: entry.itemId, positionSeconds: position, ...(event.ended ? {ended: true} : {}), observedAt: new Date(observedAt).toISOString()};
     const ids = Object.keys(plays);
     // The journal is bounded. Past the bound the oldest plays are let go: their titles' resume
     // points are already kept above, and what is lost is only their place in the history.
@@ -872,7 +914,7 @@ export class OfflineDownloads {
     if (this.progressSync?.generation === generation) return this.progressSync.task;
     const task = this.drainProgress(generation);
     this.progressSync = {generation, task};
-    void task.finally(() => { if (this.progressSync?.task === task) this.progressSync = undefined; });
+    void task.finally(() => { if (this.progressSync?.task === task) this.progressSync = undefined; }).catch(() => {});
     return task;
   }
   private async drainProgress(generation: number) {
@@ -887,16 +929,19 @@ export class OfflineDownloads {
         // Anything the server answered about, accepted or not, is settled and must not be resent
         // (a play that has moved on since it was sent stays, to be sent again as it is now).
         const mine = this.stored.plays[owner];
-        if (mine) for (const e of entries) if (mine[e.playId]?.observedAt === e.observedAt) delete mine[e.playId];
+        const acknowledged = entries.filter(e => receipt.entries.some(r => r.playId === e.playId && r.itemId === e.itemId));
+        if (mine) for (const e of acknowledged) if (mine[e.playId] === e) delete mine[e.playId];
         // The server's answer is where each title now stands, whatever became of the entry: an
         // older play that lost to another device's leaves this copy resuming where that one is.
         const resume = bucket(this.stored.resume, owner);
         for (const result of receipt.entries) {
+          if (!acknowledged.some(e => e.playId === result.playId && e.itemId === result.itemId)) continue;
           if (!result.itemId || result.outcome === 'item_deleted' || result.outcome === 'invalid_entry' || result.outcome === 'observation_in_future' || result.outcome === 'history_paused') continue;
           if (Object.values(mine ?? {}).some(p => p.itemId === result.itemId)) continue;
           resume[result.itemId] = result.watched ? 0 : result.positionSeconds;
         }
         await this.persist();
+        if (acknowledged.length !== entries.length) return;
       } catch { return; /* Keep this and later batches for the next trigger. */ }
     }
   }

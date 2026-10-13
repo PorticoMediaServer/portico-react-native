@@ -171,7 +171,7 @@ test('a change in the request\'s counts reads on from where the reading stopped,
   assert.deepEqual(s.cursors.slice(before + 1), [member(1_199), member(1_299), member(1_399)]);
 });
 
-test('a page that cannot be read stops the reading until the request changes, then it carries on', async () => {
+test('a failed page waits for its retry floor unless request counts change sooner', async () => {
   const {offlineDownloads} = await bridge();
   const s = containerServer(900);
   s.state.fail = cursor => cursor === member(499);
@@ -197,4 +197,58 @@ test('a server whose cursor never advances does not keep the device reading for 
   offlineDownloads.connect(s.api as any, s.service as unknown as DownloadsService, VIEWER);
   await quiet(s.cursors);
   assert.ok(s.cursors.length <= 2, `${s.cursors.length} pages read`);
+});
+
+test('a transient continuation failure is retried after its floor even with unchanged counts', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const s = containerServer(900);
+  s.state.fail = cursor => cursor === member(499);
+  offlineDownloads.connect(s.api, s.service as unknown as DownloadsService, VIEWER);
+  await quiet(s.cursors);
+  assert.equal(wanted().length, 500);
+  const before = s.cursors.length;
+  s.state.fail = undefined;
+  s.service.publish();
+  await quiet(s.cursors);
+  assert.equal(s.cursors.length, before, 'the retry floor avoids a tight loop');
+  t.mock.timers.tick(60000);
+  offlineDownloads.wake();
+  await quiet(s.cursors);
+  assert.equal(wanted().length, 900);
+});
+
+test('the backlog limit applies to first pages across many requests', async () => {
+  const {offlineDownloads} = await bridge();
+  const s = containerServer(100);
+  const snapshot = s.service.getSnapshot;
+  s.service.getSnapshot = () => ({...snapshot(), requests: Array.from({length: 70}, (_, r) => ({request: {
+    ...snapshot().requests[0]!.request, requestId: 'request-' + r,
+    items: Array.from({length: 100}, (_, i) => ({itemId: `item-${r}-${i}`})),
+  }}))});
+  offlineDownloads.connect(s.api, s.service as unknown as DownloadsService, VIEWER);
+  await quiet(s.cursors);
+  assert.equal(wanted().length, 5000);
+});
+
+test('another profile holding the same title does not suppress enrollment', async () => {
+  const {offlineDownloads} = await bridge();
+  device.seed({id: 'other-copy', itemId: member(0), meta: {owner: 'another-profile'}});
+  const s = containerServer(1);
+  offlineDownloads.connect(s.api, s.service as unknown as DownloadsService, VIEWER);
+  await quiet(s.cursors);
+  assert.deepEqual(wanted(), [member(0)]);
+});
+
+test('continuation state is scoped to the viewer even when request IDs repeat', async () => {
+  const {offlineDownloads} = await bridge();
+  const first = containerServer(250);
+  offlineDownloads.connect(first.api, first.service as unknown as DownloadsService, VIEWER);
+  await quiet(first.cursors);
+  const next = containerServer(250), other = {...VIEWER, serverId: 'other-server'};
+  offlineDownloads.connect(next.api, next.service as unknown as DownloadsService, other);
+  await quiet(next.cursors);
+  const owner = JSON.stringify([other.authority, other.accountId, other.profileId, other.serverId]);
+  assert.equal(Object.keys(JSON.parse(device.state).wanted[owner]).length, 250);
+  assert.deepEqual(next.cursors, [member(99), member(199)]);
 });

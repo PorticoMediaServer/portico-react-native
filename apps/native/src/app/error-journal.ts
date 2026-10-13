@@ -24,12 +24,16 @@ const MAX_STACK = 8000;
  */
 export function redact(text: string): string {
   return text
+    .replace(/(["']?(?:access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key|proof|authorization)["']?\s*[:=]\s*)(?!Bearer\b|Basic\b)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, '$1[removed]')
+    .replace(/(\/v1\/(?:media\/subtitles|media|downloads\/artifacts)\/)[^/\s?#"']+/gi, '$1[removed]')
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [removed]')
     .replace(/(https?:\/\/)[^/\s:@]+:[^/\s@]*@/gi, '$1')
     .replace(/(https?:\/\/[^\s?#"']+)\?[^\s"']*/gi, '$1?[removed]')
     .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[removed]')
     .replace(/\beyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+){1,2}/g, '[removed]');
 }
+
+export const diagnosticText = (value: unknown): string => redact(oneLine(value));
 
 const oneLine = (value: unknown): string => {
   if (typeof value === 'string') return value;
@@ -71,7 +75,7 @@ export function readFatalRecord(raw: unknown): FatalRecord | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const v = raw as Record<string, unknown>;
   if (typeof v.at !== 'number' || !Number.isFinite(v.at) || typeof v.appVersion !== 'string' || v.appVersion.length > 60 || typeof v.message !== 'string' || v.message.length > MAX_ENTRY_TEXT || typeof v.stack !== 'string' || v.stack.length > MAX_STACK) return undefined;
-  return {at: v.at, appVersion: v.appVersion, message: v.message, stack: v.stack};
+  return {at: v.at, appVersion: v.appVersion, message: redact(v.message), stack: redact(v.stack)};
 }
 
 const stamp = (ms: number) => { const d = new Date(ms); return Number.isNaN(d.getTime()) ? '' : d.toISOString(); };
