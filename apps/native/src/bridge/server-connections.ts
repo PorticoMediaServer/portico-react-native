@@ -1,3 +1,4 @@
+import {revisionRequiredFetch} from './revision-required-fetch';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import {
   HttpLocalApi,
@@ -56,7 +57,7 @@ const storage: ServerConnectionStorage = {
     );
   },
 };
-export const nativeNetworkFetch: typeof fetch = async (input, options = {}) => {
+export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (input, options = {}) => {
   if (
     typeof input !== 'string' ||
     options.signal?.aborted ||
@@ -85,7 +86,7 @@ export const nativeNetworkFetch: typeof fetch = async (input, options = {}) => {
   } finally {
     options.signal?.removeEventListener('abort', cancel);
   }
-};
+});
 export const nativeRouteCrypto: RouteCrypto = {
   random: n => {
     const values = NativeModules.PorticoRuntime.playbackRandomBytes(n);

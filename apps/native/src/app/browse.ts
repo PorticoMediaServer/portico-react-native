@@ -1,3 +1,5 @@
+import {routePath} from '../../../../packages/contracts/src/routes';
+import {scopeBrowseCapabilities} from './browse-options';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Platform} from 'react-native';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
@@ -31,7 +33,7 @@ const capabilityReads = new Map<string, Promise<BrowseCapabilities>>();
  * time the library is opened, so a change on the server (a new field, a sort that has gone)
  * arrives without restarting the app. `attempt`: bump it to read again after a failure.
  */
-export function useBrowseCapabilities(libraryId: string | undefined, pivot: string | undefined, attempt = 0) {
+export function useBrowseCapabilities(libraryId: string | undefined, pivot: string | undefined, attempt = 0, surfaceId = 'library') {
   const {api, session} = useSession();
   const [state, setState] = useState<{capabilities?: BrowseCapabilities; error?: string}>({});
   useEffect(() => {
@@ -41,7 +43,7 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
     if (held) setState({capabilities: held});
     let read = capabilityReads.get(key);
     if (!read) {
-      const started = api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/browse-capabilities?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
+      const started = api.request<unknown>(routePath('get_libraries_id_browse_capabilities', {id: libraryId}) + `?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
       read = started;
       capabilityReads.set(key, started);
       started.then(c => { if (!sameVocabulary(capabilityCache.get(key), c)) capabilityCache.set(key, c); }, () => {}).finally(() => { if (capabilityReads.get(key) === started) capabilityReads.delete(key); });
@@ -55,7 +57,8 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
     );
     return () => { cancelled = true; };
   }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
-  return state;
+  const capabilities = useMemo(() => state.capabilities && pivot ? scopeBrowseCapabilities(state.capabilities, pivot, surfaceId) : undefined, [state.capabilities, pivot, surfaceId]);
+  return {...state, capabilities};
 }
 
 /**
@@ -116,7 +119,7 @@ export function useFacets(libraryId: string | undefined) {
     if (!libraryId) return [];
     const params = new URLSearchParams({field, limit: '100'});
     if (q) params.set('q', q);
-    const raw = await api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/facets?${params}`, 'GET');
+    const raw = await api.request<unknown>(routePath('get_library_facets', {id: libraryId}) + `?${params}`, 'GET');
     return parseBrowseFacets(raw, field).values;
   }, [api, libraryId]);
 }

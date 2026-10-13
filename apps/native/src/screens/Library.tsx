@@ -1,3 +1,4 @@
+import {offeredBrowseSort} from '../app/browse-options';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {View, type RefreshControlProps} from 'react-native';
 import type {RouteProp} from '@react-navigation/native';
@@ -34,7 +35,6 @@ import {useTurnedDown} from '../app/not-interested-hook';
 import {isRecommendationRow} from '../../../../packages/client-core/src/recommendation-feedback';
 
 type Tab = LibraryTabId;
-const fallbackSort: BrowseSortSelection = {field: 'title', direction: 'asc'};
 
 const knownSorts = ['title', 'added', 'year', 'duration', 'last_played', 'rating', 'episode', 'track', 'artist', 'album', 'author', 'release', 'random'];
 const sortLabel = (i18n: I18n, key: string): string => {
@@ -89,7 +89,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const engine = !!pivot && !category;
   const content: ContentRoute = useMemo(() => (playlists ? {libraryId, view: 'discover'} : {libraryId, view: tab as ContentView, ...(category ? {category} : {}), ...sort}), [libraryId, tab, playlists, category, sort]);
   const {snapshot, retry, refresh, next} = useContent(engine ? {libraryId, view: 'discover'} : content);
-  const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt);
+  const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field)) ? 'group-titles' : 'library');
   // The viewer's own filters. A remembered one this library no longer offers is left out, not sent.
   const chosen = useMemo(() => offeredFilters(view, capabilities?.fields) as readonly Predicate[], [view, capabilities]);
   // A tab's own conditions (Unmatched) come before the viewer's and are not shown as chips.
@@ -128,10 +128,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     setView(current => ({...current, sort: next}));
   };
   const engineSort = useMemo<BrowseSortSelection>(() => {
-    if (active.fixedSort) return active.fixedSort;
     const picked = sort.sort ? capabilities?.sorts.find(x => x.id === sort.sort) : undefined;
-    if (sort.sort && picked) return {field: sort.sort, direction: sort.direction ?? picked.defaultDirection};
-    return capabilities?.resolvedPivot?.defaultSort[0] ?? fallbackSort;
+    return offeredBrowseSort(capabilities, active.fixedSort ?? (sort.sort && picked ? {field: sort.sort, direction: sort.direction ?? picked.defaultDirection} : undefined));
   }, [sort.sort, sort.direction, capabilities, active.fixedSort]);
   // A genre opens the tab it groups (Albums), filtered to it.
   const openGroup = useCallback((entry: ContentEntry) => {
