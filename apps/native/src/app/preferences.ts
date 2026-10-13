@@ -25,9 +25,13 @@ export type Preferences = {
   forceStereo: boolean;
   disablePassthrough: boolean;
   disableHdr: boolean;
+  /** The profile's card size and backdrop setting as the server last gave them, so the app opens
+   * at the size it will have, before the server has answered. The server's values are the setting. */
+  cardScale: number;
+  showBackdrops: boolean;
 };
 
-const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false};
+const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false, cardScale: 1, showBackdrops: true};
 const key = 'preferences:v1';
 const store = new NativeQueueStore();
 
@@ -46,6 +50,8 @@ function parse(raw: unknown): Preferences {
     forceStereo: r.forceStereo === true,
     disablePassthrough: r.disablePassthrough === true,
     disableHdr: r.disableHdr === true,
+    cardScale: r.cardScale === 0.82 || r.cardScale === 1.25 ? r.cardScale : 1,
+    showBackdrops: r.showBackdrops !== false,
   };
 }
 

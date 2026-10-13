@@ -41,13 +41,14 @@ import {LinkFence, alreadyShowing, linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Atmosphere, showToast, useTheme, type IconName} from '../ui';
+import {AppearanceProvider, Atmosphere, cardScaleFor, showToast, useTheme, type IconName} from '../ui';
 import {BottomBar, type TabKey} from './BottomBar';
 import {Rail, type RailKey} from './Rail';
 import {PlayerHost} from '../player/PlayerHost';
 import type {PlayerActions} from '../app/player-actions';
 import {usePlayerVisible} from '../app/player-actions';
-import {ServerPreferencesProvider} from '../app/server-preferences';
+import {ServerPreferencesProvider, useServerPreferences} from '../app/server-preferences';
+import {usePreferences} from '../app/preferences';
 import {ConnectionStatusStore} from '../app/connection-status';
 import {ConnectionStatusProvider} from '../app/connection-context';
 import {CustodyPrompt} from './CustodyPrompt';
@@ -338,6 +339,7 @@ export function Shell() {
   return (
     <LibrariesContext.Provider value={libraries}>
     <ServerPreferencesProvider deviceClass={isTV ? 'television' : 'mobile'}>
+    <Appearance>
     <InboxProvider>
     <MetadataEditorProvider>
     <DownloadsProvider onViewDownloads={viewDownloads}>
@@ -387,6 +389,7 @@ export function Shell() {
     </DownloadsProvider>
     </MetadataEditorProvider>
     </InboxProvider>
+    </Appearance>
     </ServerPreferencesProvider>
     </LibrariesContext.Provider>
   );
@@ -426,6 +429,23 @@ function TVMenuKey({allowExit}: {allowExit: boolean}) {
  * holding a stale destination: it then took focus itself and led nowhere. A fresh rail each time
  * the player closes keeps its guide current.
  */
+/**
+ * The profile's Appearance settings for this kind of device (Settings › Appearance): the card
+ * size and whether backdrops are shown. The server keeps them; until it has answered, the values
+ * it gave last time on this device are used, so the app opens at the size it will have.
+ */
+function Appearance({children}: {children: React.ReactNode}) {
+  const server = useServerPreferences();
+  const {preferences, update, loaded} = usePreferences();
+  const known = !!server.snapshot;
+  const cardScale = known ? cardScaleFor(server.value<number>('appearance.cardSizePercent', 100)) : preferences.cardScale;
+  const backdrops = known ? server.value<boolean>('appearance.showBackdrops', true) !== false : preferences.showBackdrops;
+  useEffect(() => {
+    if (known && loaded && (preferences.cardScale !== cardScale || preferences.showBackdrops !== backdrops)) update({cardScale, showBackdrops: backdrops});
+  }, [known, loaded, cardScale, backdrops, preferences.cardScale, preferences.showBackdrops, update]);
+  return <AppearanceProvider cardScale={cardScale} backdrops={backdrops}>{children}</AppearanceProvider>;
+}
+
 function RailAfterPlayer({children}: {children: (generation: number) => React.ReactNode}) {
   const playerVisible = usePlayerVisible();
   const [generation, setGeneration] = useState(0);

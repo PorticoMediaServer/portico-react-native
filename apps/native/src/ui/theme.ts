@@ -1,5 +1,7 @@
 import React, {createContext, useContext, useMemo} from 'react';
 import {AccessibilityInfo, Platform, useWindowDimensions, type TextStyle} from 'react-native';
+import {cardScaleFor} from './card-scale';
+export {cardScaleFor};
 import {colors as designColors, radii as designRadii, motion as designMotion, layers as designLayers, typeScale, tvRadiusMultiplier, targets, componentSpec} from '../../../../packages/design/src/index';
 
 /**
@@ -148,6 +150,8 @@ export type Theme = {
   motion: {quick: number; standard: number; slow: number; reduce: boolean};
   layers: typeof designLayers;
   window: {width: number; height: number; compact: boolean; wide: boolean};
+  /** The viewer's "Show backdrops" setting: off means no artwork behind title pages and Home. */
+  backdrops: boolean;
 };
 
 const ThemeContext = createContext<Theme | null>(null);
@@ -167,9 +171,26 @@ export function ThemeProvider({children, reduceMotion = false, textScale = 1}: {
       motion: {quick: designMotion.quick, standard: designMotion.standard, slow: 320, reduce},
       layers: designLayers,
       window: {width, height, compact: !isTV && width < 500, wide: isTV || width >= 900},
+      backdrops: true,
     }),
     [width, height, reduce, textScale],
   );
+  return React.createElement(ThemeContext.Provider, {value}, children);
+}
+
+/**
+ * The viewer's appearance settings, applied to everything inside: the card size (posters,
+ * landscape tiles and square covers, on shelves and in grids alike) and whether artwork is drawn
+ * behind title pages and Home. Mounted by the shell, inside the theme, once the profile's
+ * settings are known; a card's caption, its focus ring and the text around it keep their size.
+ */
+export function AppearanceProvider({cardScale = 1, backdrops = true, children}: {cardScale?: number; backdrops?: boolean; children: React.ReactNode}) {
+  const base = useTheme();
+  const value = useMemo<Theme>(() => {
+    if (cardScale === 1 && backdrops === base.backdrops) return base;
+    const scaled = (width: number) => Math.round(width * cardScale);
+    return {...base, backdrops, metrics: cardScale === 1 ? base.metrics : {...base.metrics, posterWidth: scaled(base.metrics.posterWidth), landscapeWidth: scaled(base.metrics.landscapeWidth), squareWidth: scaled(base.metrics.squareWidth)}};
+  }, [base, cardScale, backdrops]);
   return React.createElement(ThemeContext.Provider, {value}, children);
 }
 
@@ -210,7 +231,7 @@ export function useTheme(): Theme {
 }
 
 /** Static access for style sheets that cannot use hooks. Prefer useTheme(). */
-export const theme: Omit<Theme, 'window'> = {
+export const theme: Omit<Theme, 'window' | 'backdrops'> = {
   isTV,
   colors: palette,
   type: isTV ? televisionType : handheldType,
