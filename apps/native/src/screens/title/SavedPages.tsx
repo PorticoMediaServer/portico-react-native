@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import {View, type LayoutChangeEvent} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -12,8 +12,11 @@ import {useInvoker} from '../../app/playback-events';
 import {sequenceContainer} from '../../app/container-play';
 import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
-import {Card, Divider, Grid, ListRow, Menu, Notice, Page, Ring, Skeleton, StateView, useEntryFocus, useTheme, type MenuItem} from '../../ui';
-import {usePlaylist, useSavedResource} from './saved-hooks';
+import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, dismissToast, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
+import {cardRows, type CardRowModel} from '../../app/list-rows';
+import {word} from '../../app/new-words';
+import {VIEW_PLAY_LIMIT} from '../../app/view-play';
+import {useGatherView, usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
 import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
 import {useAppendedPages, useEndReached} from '../../app/paging';
@@ -112,67 +115,84 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   };
   const menuEntry = rowMenu ? occurrences.find(o => o.id === rowMenu) : undefined;
   const menuTitle = menuEntry && !menuEntry.hidden ? menuEntry.media.title : undefined;
+  const managed = can('reorder') || can('remove');
+  // Where each visible title sits among the playable ones, so a press plays the playlist from there.
+  const from = useMemo(() => new Map(media.map((m, i) => [m, i])), [media]);
+  const loadMore = () => { if (pageable && snapshot.phase === 'ready') next(pageable.id); };
+  // The entries are the cells of the page's own list: only the rows near the viewport are
+  // mounted, however long the playlist is and however much of it has been read.
+  const renderOccurrence = ({item: occurrence, index}: {item: PlaylistOccurrence; index: number}) => {
+    const ordinal = index + 1;
+    if (occurrence.hidden) {
+      return (
+        <View style={{paddingHorizontal: space.page - space.sm}}>
+          {index > 0 ? <Divider inset={space.sm} /> : null}
+          <ListRow ordinal={ordinal} title={i18n.t('title.unavailableItem')} subtitle={i18n.t('title.notVisible')} icon="eyeOff" disabled />
+        </View>
+      );
+    }
+    const m = occurrence.media;
+    const shape = shapeFor(m.kind);
+    return (
+      <View style={{paddingHorizontal: space.page - space.sm}}>
+        {index > 0 ? <Divider inset={space.sm} /> : null}
+        <ListRow
+          ordinal={ordinal}
+          title={m.title}
+          subtitle={captionFor(m)}
+          meta={formatDuration(m.duration) || undefined}
+          source={artwork(m.posterUrl ?? m.backdropUrl)}
+          shape={shape === 'square' ? 'square' : 'poster'}
+          icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)}
+          progress={progressFor(m)}
+          watched={m.watched === true && m.kind !== 'song'}
+          onPress={() => (m.playback ? play(media.slice(from.get(m) ?? 0), false, {kind: 'playlist', id: playlistId}) : open(m))}
+          onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
+        />
+      </View>
+    );
+  };
   return (
     <View style={{flex: 1}}>
-      <Page contentStyle={{paddingTop: 0}} refreshControl={pull} onScroll={onScroll} scrollEventThrottle={100}>
-        <TitleHero
-          ref={invoker.ref}
-          loading={!playlist && snapshot.phase === 'loading'}
-          art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'square', icon: cover ? undefined : 'queue', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
-          eyebrow={i18n.t('title.kind', {kind: 'playlist'})}
-          title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback}
-          facts={[count !== undefined && count > 0 ? i18n.t('count.items', {count}) : undefined, length ? formatDuration(length) : undefined]}
-          synopsis={playlist?.summary || undefined}
-          primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, {kind: 'playlist', id: playlistId})} : undefined}
-          secondary={secondary}
-        />
-        {snapshot.phase === 'error' && !sections.length ? (
-          <StateView icon="error" title={i18n.t('error.title.load', {subject: 'playlist'})} message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
-        ) : snapshot.phase === 'error' ? (
-          <Notice tone="error" message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('title.retry')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-        ) : snapshot.phase === 'refresh-required' ? (
-          <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'playlist', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-        ) : null}
-        {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
-        {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
-        {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
-        <View style={{paddingHorizontal: space.page - space.sm}}>
-          {occurrences.map((occurrence, index) => {
-            const ordinal = index + 1;
-            if (occurrence.hidden) {
-              return (
-                <View key={occurrence.id}>
-                  {index > 0 ? <Divider inset={space.sm} /> : null}
-                  <ListRow ordinal={ordinal} title={i18n.t('title.unavailableItem')} subtitle={i18n.t('title.notVisible')} icon="eyeOff" disabled />
-                </View>
-              );
-            }
-            const m = occurrence.media;
-            const shape = shapeFor(m.kind);
-            const from = media.indexOf(m);
-            const managed = can('reorder') || can('remove');
-            return (
-              <View key={occurrence.id}>
-                {index > 0 ? <Divider inset={space.sm} /> : null}
-                <ListRow
-                  ordinal={ordinal}
-                  title={m.title}
-                  subtitle={captionFor(m)}
-                  meta={formatDuration(m.duration) || undefined}
-                  source={artwork(m.posterUrl ?? m.backdropUrl)}
-                  shape={shape === 'square' ? 'square' : 'poster'}
-                  icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)}
-                  progress={progressFor(m)}
-                  watched={m.watched === true && m.kind !== 'song'}
-                  onPress={() => (m.playback ? play(media.slice(from), false, {kind: 'playlist', id: playlistId}) : open(m))}
-                  onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
-                />
-              </View>
-            );
-          })}
-        </View>
-        <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />
-      </Page>
+      <PageList
+        data={occurrences}
+        keyExtractor={occurrenceKey}
+        renderItem={renderOccurrence}
+        // Rows read the playlist's permissions and the playable order.
+        extraData={`${managed}:${media.length}`}
+        contentStyle={{paddingTop: 0}}
+        refreshControl={pull}
+        onScroll={onScroll}
+        scrollEventThrottle={100}
+        onEndReached={loadMore}
+        onEndReachedThreshold={1.5}
+        ListHeaderComponent={
+          <>
+            <TitleHero
+              ref={invoker.ref}
+              loading={!playlist && snapshot.phase === 'loading'}
+              art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'square', icon: cover ? undefined : 'queue', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
+              eyebrow={i18n.t('title.kind', {kind: 'playlist'})}
+              title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback}
+              facts={[count !== undefined && count > 0 ? i18n.t('count.items', {count}) : undefined, length ? formatDuration(length) : undefined]}
+              synopsis={playlist?.summary || undefined}
+              primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, {kind: 'playlist', id: playlistId})} : undefined}
+              secondary={secondary}
+            />
+            {snapshot.phase === 'error' && !sections.length ? (
+              <StateView icon="error" title={i18n.t('error.title.load', {subject: 'playlist'})} message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
+            ) : snapshot.phase === 'error' ? (
+              <Notice tone="error" message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('title.retry')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
+            ) : snapshot.phase === 'refresh-required' ? (
+              <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'playlist', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
+            ) : null}
+            {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
+            {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
+            {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+          </>
+        }
+        ListFooterComponent={<MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
+      />
       <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
       {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
     </View>
@@ -181,7 +201,9 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
 
 /**
  * A personal collection or saved view on the shared hero: "Collection · N items", Play and
- * Shuffle over what's on screen, then the titles as cards in their own shapes.
+ * Shuffle, then the titles as cards in their own shapes. A collection plays as one server
+ * request. A saved view is a stored query the server cannot yet play by name, so Play and
+ * Shuffle first read the rest of the view (`gatherView`) and then play all of it.
  */
 export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParams, 'SavedResource'>}) {
   const {resourceId, title} = route.params;
@@ -199,50 +221,81 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const page = useMemo(() => snapshot.entries.map(e => e.media).filter((m): m is ContentEntry => !!m), [snapshot.entries]);
   const media = useAppendedPages(resourceId, snapshot.cursor, page, mediaKey);
   const pull = usePullToRefresh(refresh, {busy: snapshot.loading});
-  const onScroll = useEndReached(() => { if (!snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); });
+  const loadMore = () => { if (!snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); };
+  const onScroll = useEndReached(loadMore);
   const view = resource?.kind === 'view';
   const cover = media.find(m => m.posterUrl);
   // M26 item 5: collections have no custom art — the hero shows a 2×2 mosaic
   // of the first 4 item posters or covers (nothing when no item has art).
   const mosaic = mosaicPaths({}, media);
   const claim = useEntryFocus(media.some(m => m.playback));
-  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(media, true, view ? undefined : {kind: 'collection', id: resourceId})}] : [];
+  const gather = useGatherView(resourceId);
+  const gathering = useRef(false);
+  const start = async (shuffle: boolean) => {
+    if (!view) { play(media, shuffle, {kind: 'collection', id: resourceId}); return; }
+    // Everything is on screen already: nothing more to read.
+    if (!snapshot.nextCursor) { play(media, shuffle); return; }
+    if (gathering.current) return;
+    gathering.current = true;
+    showToast({message: word('saved.view.gathering', undefined, i18n)});
+    try {
+      const whole = await gather(media, snapshot.nextCursor);
+      play(whole.entries, shuffle);
+      if (whole.complete) dismissToast();
+      else showToast({message: word('saved.view.partial', {count: VIEW_PLAY_LIMIT}, i18n)});
+    } catch (e) {
+      // Leaving the page cancels the read; anything else is said, and nothing half-known plays.
+      if ((e as {name?: string} | null)?.name !== 'AbortError') showToast({message: say(e, 'saved', 'load'), icon: 'warning'});
+    } finally {
+      gathering.current = false;
+    }
+  };
+  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => void start(true)}] : [];
+  const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
+  // The cards are rows of the page's own list: only the rows near the viewport are mounted.
+  const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
+  const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
-      <Page contentStyle={{paddingTop: 0}} refreshControl={pull} onScroll={onScroll} scrollEventThrottle={100}>
-        <TitleHero
-          ref={invoker.ref}
-          loading={!resource && snapshot.loading}
-          art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'poster', icon: cover ? undefined : view ? 'filter' : 'collection', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
-          eyebrow={view ? i18n.t('title.savedView') : resource?.visibility === 'server' ? i18n.t('title.sharedCollection') : i18n.t('title.kind', {kind: 'collection'})}
-          title={resource?.name ?? title}
-          facts={[resource && resource.entryCount > 0 ? i18n.t('count.items', {count: resource.entryCount}) : undefined]}
-          synopsis={resource?.summary || undefined}
-          primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, view ? undefined : {kind: 'collection', id: resourceId})} : undefined}
-          secondary={secondary}
-        />
-        {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('title.retry')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
-        {snapshot.loading && !media.length ? (
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>
-        ) : null}
-        {!snapshot.loading && !snapshot.error && !media.length ? <StateView icon={view ? 'filter' : 'collection'} title={view ? i18n.t('title.viewEmpty') : i18n.t('title.collectionEmpty')} /> : null}
-        {media.length ? (
-          <Grid
-            data={media}
-            width={gridWidth}
-            itemWidth={metrics.posterWidth}
-            scrollEnabled={false}
-            keyExtractor={m => m.id}
-            renderItem={(m, w) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />}
-          />
-        ) : null}
-        <MoreSpinner busy={snapshot.loading && media.length > 0} />
-      </Page>
+      <PageList
+        data={rows}
+        keyExtractor={rowKey}
+        renderItem={renderRow}
+        contentStyle={{paddingTop: 0}}
+        refreshControl={pull}
+        onScroll={onScroll}
+        scrollEventThrottle={100}
+        onEndReached={loadMore}
+        onEndReachedThreshold={1.5}
+        ListHeaderComponent={
+          <>
+            <TitleHero
+              ref={invoker.ref}
+              loading={!resource && snapshot.loading}
+              art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'poster', icon: cover ? undefined : view ? 'filter' : 'collection', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
+              eyebrow={view ? i18n.t('title.savedView') : resource?.visibility === 'server' ? i18n.t('title.sharedCollection') : i18n.t('title.kind', {kind: 'collection'})}
+              title={resource?.name ?? title}
+              facts={[resource && resource.entryCount > 0 ? i18n.t('count.items', {count: resource.entryCount}) : undefined]}
+              synopsis={resource?.summary || undefined}
+              primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => void start(false)} : undefined}
+              secondary={secondary}
+            />
+            {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('title.retry')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+            {snapshot.loading && !media.length ? (
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>
+            ) : null}
+            {!snapshot.loading && !snapshot.error && !media.length ? <StateView icon={view ? 'filter' : 'collection'} title={view ? i18n.t('title.viewEmpty') : i18n.t('title.collectionEmpty')} /> : null}
+          </>
+        }
+        ListFooterComponent={<MoreSpinner busy={snapshot.loading && media.length > 0} />}
+      />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
     </View>
   );
 }
 
+const rowKey = (row: CardRowModel<ContentEntry>) => row.key;
 const occurrenceKey = (o: PlaylistOccurrence) => o.id;
 const mediaKey = (m: ContentEntry) => m.id;
 

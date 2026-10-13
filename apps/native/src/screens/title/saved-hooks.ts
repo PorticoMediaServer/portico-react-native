@@ -4,6 +4,8 @@ import {SavedService, type SavedIntent, type SavedRoute, type SavedSnapshot} fro
 import {viewerScope} from '../../app/content';
 import {requestId} from '../../app/detail';
 import {useSession} from '../../app/session';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {gatherView, type GatheredView} from '../../app/view-play';
 
 /** One playlist (SavedService `{view: 'playlist'}`) bound to React. */
 export function usePlaylist(playlistId: string) {
@@ -62,4 +64,33 @@ export function useSavedResource(resourceId: string) {
   const next = useCallback(() => void service.next().catch(() => {}), [service]);
   const previous = useCallback(() => void service.previous().catch(() => {}), [service]);
   return {snapshot, refresh, next, previous};
+}
+
+/**
+ * Reads the rest of a saved view so Play and Shuffle cover the view rather than the pages on
+ * screen (`gatherView`). The pages are read by a service of their own, so the screen's list is
+ * not disturbed; leaving the screen, or asking again, cancels a read in flight.
+ */
+export function useGatherView(resourceId: string) {
+  const {api, session} = useSession();
+  const scope = useMemo(() => viewerScope(session, api), [session, api]);
+  const active = useRef<AbortController | null>(null);
+  useEffect(() => () => active.current?.abort(), []);
+  return useCallback(async (loaded: readonly ContentEntry[], nextCursor: string): Promise<GatheredView<ContentEntry>> => {
+    active.current?.abort();
+    const controller = new AbortController();
+    active.current = controller;
+    const reader = new PersonalSavedService(api, scope, requestId);
+    try {
+      return await gatherView(loaded, nextCursor, async cursor => {
+        await reader.select({view: 'resource', resourceId}, {cursor});
+        const page = reader.getSnapshot();
+        if (page.error) throw page.error;
+        return {entries: page.entries.flatMap(e => (e.media ? [e.media] : [])), nextCursor: page.nextCursor};
+      }, {keyOf: e => e.id, playable: e => !!e.playback, signal: controller.signal});
+    } finally {
+      reader.dispose();
+      if (active.current === controller) active.current = null;
+    }
+  }, [api, scope, resourceId]);
 }
