@@ -2,7 +2,7 @@ import {androidProfile, appleProfile, type AndroidNativeFacts, type AppleNativeF
 import type {AudioDecodeCapability} from '../../../../packages/client-core/src/playback-v1/audio-render';
 import {androidAudioDecodeFor, appleAudioDecode} from './audio-decode';
 import type {NativeFacts} from './device-profile';
-import {mpvDisplayRanges, mpvEngineCapabilities, type EngineCapabilities, type MpvDeviceFacts} from './mpv-profile';
+import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, softwareLimit, type EngineCapabilities, type MpvDeviceClass, type MpvDeviceFacts} from './mpv-profile';
 import type {EngineSetting} from '../player/engine-choice';
 
 /**
@@ -40,16 +40,45 @@ export type CapabilityDocument = Readonly<{
  *   entry; a file tagged `hev1` plays sound over a black picture, so the tags are stated.
  * - AVPlayer with a hardware HEVC decoder tone-maps HDR for a standard-range screen by itself.
  */
-export function nativeEngineCapabilities(client: ClientProfile, apple: boolean, facts: AppleNativeFacts | null): EngineCapabilities {
-  const decoded = (client.audio ?? []).filter(a => a.passthrough !== true);
+export function nativeEngineCapabilities(client: ClientProfile, apple: boolean, facts: AppleNativeFacts | null, android?: Readonly<{facts: AndroidNativeFacts | null; deviceClass: MpvDeviceClass}>): EngineCapabilities {
   const passed = (client.audio ?? []).filter(a => a.passthrough === true);
+  let decoded = (client.audio ?? []).filter(a => a.passthrough !== true);
+  let video = client.video ?? [];
+  let transports = client.transports ?? [];
+  if (android?.facts) {
+    // A codec the receiver takes as a bitstream may also be one the device decodes itself. The
+    // shared profile keeps one entry per codec and the bitstream replaces the decoder there, so
+    // the decoder is put back: with headphones on, or a receiver that refuses, it still plays.
+    const known = new Set(decoded.map(a => a.codec));
+    for (const d of android.facts.audioDecoders ?? []) {
+      if (!known.has(d.codec) && passed.some(p => p.codec === d.codec)) decoded = [...decoded, {codec: d.codec, maxChannels: d.maxChannels ?? 2, evidence: 'probed'}];
+    }
+    // A codec the system has only a software decoder for is declared at what software keeps up
+    // with on this class of device (an estimate), not at the decoder's own advertised limits,
+    // which no phone or stick reaches in time. Where software does not keep up, it is left out.
+    const software = new Set((android.facts.decoders ?? []).filter(d => d.hardware === false).map(d => d.codec));
+    if (software.size) {
+      video = video.flatMap(v => {
+        if (!software.has(v.codec)) return [v];
+        const limit = softwareLimit(v.codec, android.deviceClass);
+        if (!limit) return [];
+        const width = Math.min(v.maxWidth ?? limit.maxWidth, limit.maxWidth), height = Math.min(v.maxHeight ?? limit.maxHeight, limit.maxHeight);
+        return [{...v, maxWidth: width, maxHeight: height, maxFrameRate: Math.min(v.maxFrameRate ?? limit.maxFrameRate, limit.maxFrameRate), evidence: 'declared' as const}];
+      });
+      const names = new Set(video.map(v => v.codec));
+      transports = transports.map(t => (t.video ? {...t, video: t.video.filter(name => names.has(name))} : t));
+    }
+  }
   return Object.freeze({
     name: client.client.engine ?? (apple ? 'avplayer' : 'exoplayer'),
     evidence: client.evidence,
-    video: Object.freeze((client.video ?? []).map(v => Object.freeze(apple && v.codec === 'hevc' ? {...v, codecTags: ['hvc1', 'dvh1']} : {...v}))),
+    video: Object.freeze(video.map(v => Object.freeze(apple && v.codec === 'hevc' ? {...v, codecTags: ['hvc1', 'dvh1']} : {...v}))),
     audio: Object.freeze(decoded.map(({passthrough: _passthrough, ...a}) => Object.freeze(a))),
     audioPassthrough: Object.freeze(passed.map(a => Object.freeze({codec: a.codec, ...(a.maxChannels ? {maxChannels: a.maxChannels} : {}), ...(a.objectAudio ? {objectAudio: a.objectAudio} : {}), ...(a.evidence ? {evidence: a.evidence} : {})}))),
-    transports: Object.freeze((client.transports ?? []).map(t => Object.freeze({...t}))),
+    transports: Object.freeze(transports.map(t => Object.freeze({...t}))),
+    // On every platform the app draws the server's plain cue document and nothing else. Media3's
+    // own text and image subtitle drawing is switched off in the Android engine, so it draws no
+    // styled (ASS) or image (PGS) subtitles, whatever the shared profile's table says.
     subtitleRendering: Object.freeze(['text'] as const),
     toneMapsHdr: apple && facts?.hardwareDecode?.hevc === true,
     embeddedAudioSwitching: false,
@@ -77,7 +106,8 @@ export function deviceCapabilityDocument(input: CapabilityDocumentInput): Capabi
   const client = apple
     ? appleProfile({television: device.television, osVersion, model: input.native?.model, appVersion: input.appVersion}, input.native as AppleNativeFacts | null)
     : androidProfile({family: device.family, television: device.television, osVersion, model: input.native?.model}, input.native as AndroidNativeFacts | null);
-  const native = nativeEngineCapabilities(client, apple, apple ? (input.native as AppleNativeFacts | null) : null);
+  const native = nativeEngineCapabilities(client, apple, apple ? (input.native as AppleNativeFacts | null) : null,
+    apple ? undefined : {facts: input.native as AndroidNativeFacts | null, deviceClass: mpvDeviceClass(input.mpv)});
   const mpv = input.mpvAvailable ? mpvEngineCapabilities(input.mpv) : undefined;
   // The screen is one screen: what it shows is said once, for the platform player. Where mpv
   // shows less (an Apple TV shows mpv's picture in standard range) its own tone mapping covers
