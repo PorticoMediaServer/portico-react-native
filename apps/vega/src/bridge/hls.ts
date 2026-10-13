@@ -381,8 +381,10 @@ export class HlsSource {
           if (generation !== this.generation || this.closed) return;
           this.placed = [];
           const list = this.tracks[0].playlist;
-          const first = segmentAtDate(list, dateMs) ?? liveStart(list);
+          const on = segmentAtDate(list, dateMs), first = on ?? liveStart(list);
           if (!first) throw new SourceError(true, 'the channel has no segments');
+          // A moment not broadcast yet is where live viewing begins: that is what is arrived at.
+          if (!on && this.arrival) this.arrival = {...this.arrival, dateMs: first.dateMs ?? dateMs};
           for (const track of this.tracks) track.next = first.number;
           await this.pump(generation);
         } catch (error) {
