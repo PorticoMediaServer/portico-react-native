@@ -20,6 +20,11 @@ RCT_EXPORT_MODULE()
  _controller=[PorticoPlaybackController new];PorticoPlaybackController.shared=_controller;_session=[[PorticoListeningSessionOwner alloc]initWithController:_controller render:[PorticoListeningDecodeRender new]];
  __weak PorticoPlaybackModule *weakSelf=self;_session.onSnapshot=^(NSDictionary *snapshot){if(!weakSelf.invalidated)[weakSelf sendEventWithName:@"PorticoListeningSnapshot" body:snapshot];};_controller.onFact=^(NSDictionary *fact){if(!weakSelf.invalidated){[weakSelf.session fact:fact];[weakSelf sendEventWithName:@"PorticoPlaybackFact" body:fact];}};_controller.onPictureInPicture=^(NSDictionary *change){if(!weakSelf.invalidated)[weakSelf sendEventWithName:@"PorticoPictureInPicture" body:change];};}return self;}
 - (NSArray<NSString *> *)supportedEvents{return @[@"PorticoPlaybackFact",@"PorticoListeningSnapshot",@"PorticoPictureInPicture"];}
+/** What this engine is and does, in the terms both player engines use (ENGINE-CONTRACT.md), so
+ * the player screen can hide what does not apply to the engine in use. */
+- (NSDictionary *)constantsToExport{
+ return @{@"engine":@"native",@"available":@YES,@"features":@{@"pictureInPicture":@YES,@"airPlayVideo":@((BOOL)!TARGET_OS_TV),@"liveChannels":@YES,@"musicSessions":@YES,@"audioTrackSwitching":@NO,@"subtitleRendering":@[@"text"],@"chapters":@NO}};
+}
 RCT_REMAP_METHOD(acquire,acquire:(NSString *)owner resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"Playback bridge is closed.",nil);return;}NSDictionary *lease=[_controller acquire:owner];if(lease)resolve(lease);else reject(@"owner_busy",@"Another playback owner is still active.",nil);}
 RCT_REMAP_METHOD(command,command:(NSDictionary *)command resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"Playback bridge is closed.",nil);return;}NSString *error=[_controller acceptCommand:command];if(error)reject(@"command_rejected",error,nil);else resolve(@YES);}
 RCT_REMAP_METHOD(release,release:(NSString *)lease resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){[_controller releaseLease:lease];resolve(@YES);}

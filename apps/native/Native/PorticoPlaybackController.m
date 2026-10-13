@@ -2,6 +2,7 @@
 #import "PorticoAudioSelection.h"
 #import "PorticoAudioRender.h"
 #import "PorticoSubtitleSelection.h"
+#import "PorticoEngineClock.h"
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
 #import <errno.h>
@@ -75,6 +76,10 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  BOOL _routeSuspended; BOOL _routeResume; BOOL _routeSeeking; BOOL _routeFailed; NSInteger _routeEpoch; double _routePosition;
  NSInteger _acceptedSeekRevision; double _acceptedSeekTarget; BOOL _seekRetired; BOOL _invalidated;
  NSString *_itemInstanceId; NSString *_source; NSString *_instanceId; NSInteger _intentId; NSInteger _seekRevision; BOOL _paused; BOOL _observing; BOOL _seeking; NSNumber *_timelineOriginMS;
+ // The item whose status is observed, held so the observer always comes off the item it went on.
+ AVPlayerItem *_observedItem;
+ // This controller activated the audio session for a video and has not yet given it back.
+ BOOL _videoSessionActive;
 #if DEBUG
  BOOL _testSeekInjected; BOOL _testForceClamp;
 #endif
@@ -103,6 +108,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  // nothing at all, not even a spinner.
  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(stalled:) name:AVPlayerItemPlaybackStalledNotification object:nil];
  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(failedToEnd:) name:AVPlayerItemFailedToPlayToEndTimeNotification object:nil];
+ [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(becameActive) name:UIApplicationDidBecomeActiveNotification object:nil];
  }return self;
 }
 - (void)displayReadyForLease:(NSString *)lease {if([_lease isEqual:lease]){_hasPlayed=YES;[self emit:@"firstFrame" error:nil];}}
@@ -152,7 +158,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(![owner isKindOfClass:NSString.class]||owner.length<1||owner.length>128)return nil;
  if(_lease && ![_owner isEqual:owner]) return nil;
  if(!_lease){_owner=[owner copy];_lease=NSUUID.UUID.UUIDString;_commandRevision=0;_factSequence=0;}
- return @{ @"lease":_lease, @"instanceId":_instanceId };
+ return @{ @"lease":_lease, @"instanceId":_instanceId, @"engine":@"native" };
 }
 - (void)releaseLease:(NSString *)lease {
  if(![_lease isEqual:lease])return;
@@ -160,6 +166,30 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];
  _source=nil;_binding=nil;_command=nil;_timelineOriginMS=nil;_lease=nil;_owner=nil;_seeking=NO;_routeSuspended=NO;_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;
  [[NSNotificationCenter defaultCenter] postNotificationName:@"PorticoPlaybackAttachmentChanged" object:self];
+ // The audio session a video activated is given back, so music another app was playing may
+ // resume. Not while this app plays on: its own music, the next title, or the other engine.
+ if(_videoSessionActive){
+  _videoSessionActive=NO;__weak PorticoPlaybackController *weakSelf=self;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+   PorticoPlaybackController *view=weakSelf;
+   if(!view||view->_lease||view->_listeningOwner||view->_audioRender.active||PorticoEngineClock.active)return;
+   [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+  });
+ }
+}
+/** The system pauses a video when the app leaves the screen without Picture in Picture or AirPlay,
+ * and tells nobody. Back in front, the app still believed it was playing: the button said Pause
+ * over a frozen picture and it took two presses to continue. JavaScript is told, so its intent
+ * agrees with what the viewer sees. */
+- (void)becameActive {
+ if(_invalidated||_listeningOwner||_audioRender.active||!_lease||!_source.length||_paused||_seeking||_routeSuspended||_routeResume||_routeSeeking||_routeFailed)return;
+ if([_command[@"pendingSeek"] isKindOfClass:NSDictionary.class])return;
+ AVPlayerItem *item=_player.currentItem;
+ if(!item||item.status!=AVPlayerItemStatusReadyToPlay||_player.timeControlStatus!=AVPlayerTimeControlStatusPaused)return;
+ // A title that has reached its end is paused too, and says so with its own fact.
+ double duration=CMTimeGetSeconds(item.duration),position=CMTimeGetSeconds(_player.currentTime);
+ if(isfinite(duration)&&duration>0&&isfinite(position)&&position>=duration-1)return;
+ [self emit:@"systemPaused" error:nil];
 }
 - (NSString *)acceptCommand:(NSDictionary *)command {
  if(_invalidated)return @"Playback controller is closed.";
@@ -320,7 +350,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
   if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!([@[@"http",@"https"] containsObject:url.scheme]||PorticoAllowedLocalSource(url))){[self emit:@"error" error:@"Invalid media address."];return;}
    [self configureVideoAudioSession];
-   AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;[_player replaceCurrentItemWithPlayerItem:item];
+   AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
    if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"Connection restored, but the retained position is not available. Your playback session was not replaced."];}});}
   }
  }
@@ -495,9 +525,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(error){error=nil;[audio setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeMoviePlayback options:0 error:&error];}
  if(@available(iOS 15.0, tvOS 15.0, *))[audio setSupportsMultichannelContent:YES error:nil];
  [audio setActive:YES error:nil];
+ _videoSessionActive=YES;
 }
 - (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
 - (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
-- (void)removeObservation{if(_observing){[_player.currentItem removeObserver:self forKeyPath:@"status"];[_player.currentItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;}}
+- (void)removeObservation{if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
 - (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end
