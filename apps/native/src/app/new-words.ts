@@ -38,10 +38,6 @@ const awaiting = {
   // Settings that apply to a kind of device, not one device.
   'settings.scope.handhelds': 'All your phones and tablets',
   'settings.scope.televisions': 'All your TVs',
-  // A subtitle track with no language.
-  'tracks.unknownLanguage': 'Unknown language',
-  'tracks.forced': 'Forced',
-  'tracks.sdh': 'SDH',
 } as const;
 
 export type NewWordId = keyof typeof awaiting;
