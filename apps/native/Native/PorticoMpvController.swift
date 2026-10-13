@@ -109,6 +109,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     #if os(tvOS)
     private var displayCriteriaSet = false
+    private var pendingDisplayReady: (() -> Void)?
     private var criteriaClear: DispatchWorkItem?
     #endif
 
@@ -454,6 +455,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         loaded = false
         restarted = false
         displayHold = false
+        #if os(tvOS)
+        pendingDisplayReady = nil
+        #endif
         startSeek = nil
         seekInFlight = nil
         audioTrackPending = nil
@@ -1184,8 +1188,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         attachedView = view
         updateOutputRange()
         #if os(tvOS)
-        // A view that arrives after the first frame still gets the television matched.
-        if restarted, !displayCriteriaSet { matchDisplay { [weak self] in self?.applyIntent() } }
+        // Even a very fast load waits for the view before asking the television to switch.
+        if let done = pendingDisplayReady {
+            pendingDisplayReady = nil
+            matchDisplay(done)
+        } else if restarted, !displayCriteriaSet {
+            matchDisplay { [weak self] in self?.applyIntent() }
+        }
         #endif
     }
 
@@ -1202,14 +1211,30 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     /// the switch to finish, so the first seconds are not lost to a blank screen. The picture is
     /// standard range (see `hdrOutputAvailable`), so only the rate is asked for.
     private func matchDisplay(_ done: @escaping () -> Void) {
-        guard #available(tvOS 17.0, *), let manager = attachedView?.window?.avDisplayManager, manager.isDisplayCriteriaMatchingEnabled, let criteria = displayCriteria() else {
+        guard let window = attachedView?.window else {
+            displayHold = true
+            core?.set("pause", "yes")
+            pendingDisplayReady = done
+            let epoch = loadEpoch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard let self = self, self.loadEpoch == epoch, let waiting = self.pendingDisplayReady else { return }
+                self.pendingDisplayReady = nil
+                self.displayHold = false
+                waiting()
+            }
+            return
+        }
+        guard #available(tvOS 17.0, *), window.avDisplayManager.isDisplayCriteriaMatchingEnabled, let criteria = displayCriteria() else {
+            displayHold = false
             done()
             return
         }
+        let manager = window.avDisplayManager
         criteriaClear?.cancel()
         criteriaClear = nil
         let epoch = loadEpoch
         displayHold = true
+        core?.set("pause", "yes")
         displayCriteriaSet = true
         manager.preferredDisplayCriteria = criteria
         var settled = false

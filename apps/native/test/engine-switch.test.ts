@@ -14,7 +14,7 @@ class FakeEngine implements NativePlaybackTransport {
   constructor(name: string) { this.name = name; }
   async acquire() { this.acquired++; return {lease: `${this.name}-lease-${this.acquired}`, instanceId: `${this.name}-instance`}; }
   async command(value: Record<string, unknown>) { this.commands.push(value); return true; }
-  async release(lease: string) { this.released.push(lease); return true; }
+  async release(lease: string): Promise<unknown> { this.released.push(lease); return true; }
   subscribe(listener: (fact: any) => void) { this.listener = listener; return () => { if (this.listener === listener) this.listener = undefined; }; }
   emit(fact: Fact) { this.listener?.(fact); }
 }
