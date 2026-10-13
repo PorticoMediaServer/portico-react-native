@@ -172,11 +172,6 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     }
   }
 
-  /** Runs [done] on the main thread once every command asked for so far has been carried out. */
-  fun flush(done: () -> Unit) {
-    if (!queue.post { main.post(done) }) main.post(done)
-  }
-
   /** Whether the app wants [PorticoMpvEvent.FastTick] (it is drawing subtitles itself). */
   fun setFastTicks(wanted: Boolean) {
     queue.post {
