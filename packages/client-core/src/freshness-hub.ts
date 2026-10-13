@@ -43,6 +43,12 @@ export const dependsOn = Object.freeze({
   progress: (libraryId: string = ALL): FreshnessDependency => `progress:${libraryId}`,
   /** A settings document: the server's, or this profile's preferences. */
   settings: (document: 'server' | 'preferences'): FreshnessDependency => `settings:${document}`,
+  /**
+   * Something the server sends no hint for (the guide, recordings, downloads being prepared on
+   * another device): the device's own clock stands in, and moves this when it is time to look again.
+   * A stand-in only. Where the feed has a hint, depend on the hint.
+   */
+  clock: (name: string): FreshnessDependency => `clock:${name}`,
   /** Any other event type on the feed (`notification.changed`, `library.scan.updated`), optionally for one resource. */
   event: (type: string, resourceId?: string): FreshnessDependency => (resourceId ? `event:${type}:${resourceId}` : `event:${type}`),
 });
@@ -123,7 +129,8 @@ export interface FreshDocument {
 
 type Urgency = 0 | 1 | 2; // current, progress moved, content moved
 
-function finalAnswer(error: unknown): boolean {
+/** The server answered, and asking again will not change the answer (not allowed, gone, refused): not a failure to try again. */
+export function finalAnswer(error: unknown): boolean {
   const e = error as {status?: unknown; retryable?: unknown; code?: unknown} | null;
   if (e?.retryable === true) return false;
   if (e?.retryable === false) return true;
@@ -423,6 +430,15 @@ export class FreshnessHub {
       if (any) document.moved(progressOnly);
     }
     for (const watcher of [...this.watchers]) for (const dependency of set) if (watcher.dependencies.has(dependency)) { watcher.listener(); break; }
+  }
+
+  /**
+   * This device has reason to think a dependency moved without the feed saying so (a `clock`
+   * coming round). Documents built from it are read again on the usual terms: only while open and
+   * in front, gathered, after a pause in input, quietly retried.
+   */
+  note(dependency: FreshnessDependency): void {
+    if (!this.disposed) this.bump([dependency]);
   }
 
   /** How many times a dependency has moved while this hub has been listening. */
