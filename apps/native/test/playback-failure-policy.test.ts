@@ -67,7 +67,11 @@ test('the Apple error log is evidence only when fresh and when the engine named 
 test('both runtimes mark a failure that is not about the media, so start-up does not report it', () => {
   const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt');
   assert.match(android, /fact\["uncertain"\] = !network && !delivery && engine\.isEmpty\(\) && error\.errorCode in UNCERTAIN_ERRORS/);
-  assert.match(android, /UNCERTAIN_ERRORS = setOf\(PlaybackException\.ERROR_CODE_TIMEOUT, PlaybackException\.ERROR_CODE_REMOTE_ERROR\)/);
+  const uncertain = android.match(/UNCERTAIN_ERRORS = setOf\(([\s\S]*?)\)/)?.[1];
+  assert.ok(uncertain);
+  assert.deepEqual([...uncertain.matchAll(/PlaybackException\.ERROR_CODE_([A-Z_]+)/g)].map(m => m[1]), [
+    'TIMEOUT', 'REMOTE_ERROR', 'DECODING_RESOURCES_RECLAIMED', 'AUDIO_TRACK_INIT_FAILED', 'AUDIO_TRACK_WRITE_FAILED',
+  ]);
   const apple = source('Native/PorticoPlaybackController.m');
   const classification = apple.slice(apple.indexOf('- (void)publishFailure:'), apple.indexOf('- (void)stalled:'));
   assert.match(classification, /BOOL uncertain=!network&&!delivery&&!httpStatus&&!engine\.length&&\(interrupted\|\|fresh\);/);

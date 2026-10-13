@@ -24,6 +24,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   const {space, isTV} = useTheme();
   const i18n = useI18n();
   const model = useMemo(() => toolbarModel(capabilities, capabilities.library.kind, predicates, sort, {owner, textEntry: !isTV}), [capabilities, predicates, sort, owner, isTV]);
+  const hasSort = !fixedSort && model.sorts.length > 0;
   /** The filter sheet: closed, the grouped list, or one field's values (opened from the list or straight from a promoted button). */
   const [filters, setFilters] = useState<{field?: BrowseFieldCapability; direct?: boolean} | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
@@ -93,7 +94,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   if (inline) {
     return (
       <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
-        {fixedSort ? null : <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} />}
+        {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
         <Button size="sm" variant="secondary" icon="filter" selected={predicates.length > 0} label={predicates.length ? i18n.t('lib.activeFilters', {count: predicates.length}) : i18n.t('filter.title')} onPress={() => setFilters({})} />
         {trailing}
         {overlays}
@@ -106,7 +107,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
           arriving from the grid or the tabs never lands on the empty guide itself. */}
       <RowGuide>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: space.xs, paddingHorizontal: space.page, paddingVertical: isTV ? space.xs : 0}} style={isTV ? {overflow: 'visible'} : undefined}>
-        {fixedSort ? null : <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} />}
+        {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
         {model.quick.map(f => <Button key={f.id} size="sm" variant="secondary" selected={isQuickOn(f.id)} label={quickFilterLabel(f.labelKey)} onPress={() => toggleQuick(f.id)} />)}
         {model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
         <Button size="sm" variant="secondary" icon="filter" label={i18n.t('filter.add')} onPress={() => setFilters({})} />
