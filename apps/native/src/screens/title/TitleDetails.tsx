@@ -15,11 +15,11 @@ import {useLanguageName} from './language';
  * across files, and its edition where it has one. The lines come from the shared model. Rows are readable stops on television, so the remote can
  * reach the bottom of the page.
  */
-export function TitleDetails({rows, files, genres}: {rows: readonly (readonly [string, string])[]; files?: readonly TitleFile[]; /** Genres as buttons: each opens the library filtered to it. */ genres?: Readonly<{names: readonly string[]; onPress: (name: string) => void}>}) {
+export function TitleDetails({rows, files, genres, fileAction, tools}: {rows: readonly (readonly [string, string])[]; files?: readonly TitleFile[]; /** Genres as buttons: each opens the library filtered to it. */ genres?: Readonly<{names: readonly string[]; onPress: (name: string) => void}>; /** Owners, on phones and tablets: a file opens what can be done with it (`screens/server/TitleTools`). */ fileAction?: (file: TitleFile, summary: string) => void; /** Owners: what closes the section (the row that merges this title with another). */ tools?: React.ReactNode}) {
   const {space, isTV} = useTheme();
   const i18n = useI18n();
   const name = useLanguageName();
-  if (!rows.length && !files?.length && !genres?.names.length) return null;
+  if (!rows.length && !files?.length && !genres?.names.length && !tools) return null;
   const headings = fileHeadings(files ?? []);
   return (
     <View style={{paddingHorizontal: space.page, marginBottom: space.xl, gap: space.md}}>
@@ -51,12 +51,13 @@ export function TitleDetails({rows, files, genres}: {rows: readonly (readonly [s
             ].filter(Boolean).join('\n');
             return (
               <Surface key={file.id} padded={false}>
-                <ListRow icon="film" title={[headings[index]?.part ? i18n.t('mediaInfo.part', {number: headings[index]!.part!}) : '', headings[index]?.version ? i18n.t('mediaInfo.version', {number: headings[index]!.version!}) : '', lines.summary, headings[index]?.edition ?? ''].filter(Boolean).join(' · ')} subtitle={body} subtitleLines={12} readable={isTV} />
+                <ListRow icon="film" title={[headings[index]?.part ? i18n.t('mediaInfo.part', {number: headings[index]!.part!}) : '', headings[index]?.version ? i18n.t('mediaInfo.version', {number: headings[index]!.version!}) : '', lines.summary, headings[index]?.edition ?? ''].filter(Boolean).join(' · ')} subtitle={body} subtitleLines={12} {...(fileAction ? {accessory: 'menu' as const, onPress: () => fileAction(file, lines.summary)} : {readable: isTV})} />
               </Surface>
             );
           })}
         </View>
       ) : null}
+      {tools}
     </View>
   );
 }

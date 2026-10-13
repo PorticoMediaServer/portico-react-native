@@ -9,6 +9,7 @@ import {useSession} from '../../app/session';
 import {Artwork, Button, Notice, PersonCard, ProgressBar, Sheet, Skeleton, Text, useTheme} from '../../ui';
 import {episodeMeta, episodeTitle} from './Episodes';
 import {TitleDetails} from './TitleDetails';
+import {useTitleTools} from '../server/TitleTools';
 import {PlaybackChoices} from './PlaybackChoices';
 import {usePlayerActions} from '../../app/player-actions';
 import {episodeCode, isActing, namesIn, resumeFraction} from './facts';
@@ -55,7 +56,7 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
   const [castError, setCastError] = useState<unknown>();
   const castRequest = useRef<AbortController | null>(null);
   const target = useMemo(() => (open && entry ? {libraryId, itemId: entry.id} : null), [open, libraryId, entry]);
-  const {snapshot, mutate, retryMutation} = useDetail(target);
+  const {snapshot, mutate, retry, retryMutation} = useDetail(target);
   const data = snapshot.data && snapshot.data.item.id === entry?.id ? snapshot.data : null;
   const castKey = data ? JSON.stringify([data.scope.serverId, data.scope.viewerFence, data.item.id]) : '';
   useEffect(() => {
@@ -67,6 +68,8 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
     return () => { castRequest.current?.abort(); };
   }, [castKey, open, api]);
   const item = data?.item;
+  // The owner's tools for this episode's files (delete one version, merge with another episode); nothing for a member or on television.
+  const tools = useTitleTools(item ? {id: item.id, title: item.title, kind: item.kind, libraryId} : undefined, data?.files, () => void retry(), {inPlace: true});
   const personal = data?.personal;
   const actions = data?.actions.filter(a => a.enabled) ?? [];
   const play = actions.find(a => a.playback && a.id !== 'start_over');
@@ -184,7 +187,8 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
             </ScrollView>
           </View>
         ) : null}
-        {data?.files?.length ? <View style={{marginHorizontal: -space.page + space.md}}><TitleDetails rows={[]} files={data.files} /></View> : null}
+        {data?.files?.length ? <View style={{marginHorizontal: -space.page + space.md}}><TitleDetails rows={[]} files={data.files} fileAction={tools.fileAction} tools={tools.mergeRow} /></View> : null}
+        {tools.sheets}
         {previous || next ? (
           <View style={[pad, {flexDirection: 'row', gap: space.sm, justifyContent: 'space-between'}]}>
             {previous ? <Button variant="ghost" icon="previous" label={i18n.t('title.previousEpisode')} accessibilityHint={episodeTitle(i18n, previous)} onPress={() => onNavigate(index! - 1)} /> : <View />}

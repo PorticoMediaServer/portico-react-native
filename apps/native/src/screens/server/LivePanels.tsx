@@ -2,20 +2,22 @@ import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
 import {lanConfirmationRoots, linearError, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RefreshStatus, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
 import type {RecordingStorage} from '../../../../../packages/client-core/src/dvr';
-import {parseTunerView} from '../../../../../packages/client-core/src/administration';
+import {liveSourceChoicesService, parseTunerView, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
 import {readLibraryChannels, readLibraryTemplates, saveLibraryChannel, type LibraryChannel, type LibraryChannelTemplate} from '../../../../../packages/client-core/src/library-channels';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {importSkipped, liveSourceState} from '../../../../../packages/client-core/src/server-admin/live-words';
 import {canRefreshSource, guideOnlyPatch, normalizeHdHomerunLocator, regenerationBody} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {parseRecordingGrants, parseRecordingOwners, recordingAllowed, recordingOwnerKey, recordingOwnerLabel, recordingRulePayload, type RecordingAnchor, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
-import {operationId, problem, useAction, useRead, useServerId} from '../../app/server-console';
+import {operationId, problem, saveRebased, sendFresh, useAction, useRead, useServerId} from '../../app/server-console';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, ToggleRow, useTheme, type MenuItem} from '../../ui';
 import {PickRow, TypedRow, useInlineForm} from '../settings/ServerForms';
+import {channelOverride, parseChannelMapPage, saveChannelMap, unsavedChannelEdits, withChoice, type ChannelMapEntry, type ChannelOverride} from './owner-rules';
 
-type LiveSource = {id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string; publishedAt: string; channels: number; programmes: number};
+type LiveSource = {id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string; publishedAt: string; channels: number; programmes: number; /** What its last import left out, when anything was. */ diagnostics?: unknown};
 type SourceList = {sources: LiveSource[]; refresh: RefreshStatus[]};
 const sourcePath = (id: string, rest: string) => `/v1/admin/live-sources/${encodeURIComponent(id)}${rest}`;
 
@@ -36,6 +38,13 @@ function useEnvelope() {
   }, [api, serverId]);
 }
 
+/** What a guide or playlist import left out and why; nothing when it left nothing out. The rest of the import is in use either way. */
+function ImportSkippedNotice({name, diagnostics}: {name?: string; diagnostics: unknown}) {
+  const i18n = useI18n();
+  const skipped = importSkipped(i18n.t, id => i18n.has(id), diagnostics);
+  return skipped ? <Notice tone="warning" title={name} message={[skipped.summary, ...skipped.reasons].join(' ')} /> : null;
+}
+
 /** Live TV & Channels › Sources: the tuners and playlists that feed the guide. */
 export function LiveSourcesPanel() {
   const {api} = useSession();
@@ -48,32 +57,44 @@ export function LiveSourcesPanel() {
   const [discover, setDiscover] = useState(false);
   const [menu, setMenu] = useState<LiveSource>();
   const [configure, setConfigure] = useState<LiveSource>();
+  const [mapping, setMapping] = useState<LiveSource>();
   const [remove, setRemove] = useState<LiveSource>();
-  const sources = read.data?.sources ?? [];
+  // A list with a source this app cannot read keeps the rest: one bad row is left out alone.
+  const sources = (read.data?.sources ?? []).filter(src => !!src && typeof src.id === 'string' && !!src.id && typeof src.name === 'string');
   const status = (id: string) => read.data?.refresh.find(r => r.sourceId === id);
   // While a source refreshes, look again every few seconds until it settles.
   const refreshing = !!read.data?.refresh.some(r => r.state === 'refreshing');
   useEffect(() => { if (!refreshing) return; const timer = setInterval(read.reload, 5000); return () => clearInterval(timer); }, [refreshing, read.reload]);
+  // The source as the server has it now: read before a switch, a refresh or a removal is sent again.
+  const again = (id: string) => async () => (await api.request<SourceList>('/v1/admin/live-sources')).sources.find(x => x.id === id);
   const facts = (src: LiveSource) => [t('server.live.channelCount', {count: src.channels}), t('server.live.programCount', {count: src.programmes}), src.tunerCount ? t('server.live.tunerCount', {count: src.tunerCount}) : '', src.publishedAt ? t('server.live.guideUpdated', {when: new Date(src.publishedAt).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})}) : '', status(src.id)?.errorCode ? t('web.console.refreshFailed') : ''].filter(Boolean).join(' · ');
   const items = (src: LiveSource): MenuItem[] => [
     {id: 'settings', label: t('web.liveTv.sourceSettings'), icon: 'settings'},
+    {id: 'map', label: t('web.liveTv.channelsAndNumbers'), icon: 'list'},
     ...(canRefreshSource(src, read.data?.refresh) ? [{id: 'refresh', label: t('web.liveTv.refreshGuideNow'), icon: 'refresh'} as MenuItem] : []),
     {id: 'toggle', label: src.state === 'disabled' ? t('web.liveTv.enableSource') : t('web.liveTv.pauseSource'), icon: src.state === 'disabled' ? 'play' : 'pause'},
     {id: 'remove', label: t('web.liveTv.removeSource'), icon: 'trash', destructive: true},
   ];
   const select = (src: LiveSource, id: string) => {
     if (id === 'settings') setConfigure(src);
-    else if (id === 'refresh') void action.run(() => api.request(sourcePath(src.id, '/refresh'), 'POST', {expectedRevision: src.revision})).then(ok => { if (ok) read.reload(); });
-    else if (id === 'toggle') void action.run(async () => { const payload = {expectedRevision: src.revision, enabled: src.state === 'disabled'}; await api.request(sourcePath(src.id, '/enabled'), 'POST', {...payload, requestId: opIds.forPayload(JSON.stringify({id: src.id, ...payload}))}); opIds.release(); }).then(ok => { if (ok) read.reload(); });
-    else setRemove(src);
+    else if (id === 'map') setMapping(src);
+    else if (id === 'refresh') void action.run(() => sendFresh(src, x => api.request(sourcePath(x.id, '/refresh'), 'POST', {expectedRevision: x.revision}), again(src.id), now => now.state !== 'disabled')).then(ok => { if (ok) read.reload(); });
+    else if (id === 'toggle') {
+      const enabled = src.state === 'disabled';
+      void action.run(async () => {
+        await sendFresh(src, x => api.request(sourcePath(x.id, '/enabled'), 'POST', {expectedRevision: x.revision, enabled, requestId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, enabled}))}), again(src.id), now => ((now.state !== 'disabled') === enabled ? 'done' : true));
+        opIds.release();
+      }).then(ok => { if (ok) read.reload(); });
+    } else setRemove(src);
   };
   return (
     <>
       {read.error && !read.data ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       {action.error ? <Notice tone="error" message={action.error} /> : null}
+      {sources.map(src => <ImportSkippedNotice key={'skipped:' + src.id} name={src.name} diagnostics={src.diagnostics} />)}
       <RowGroup title={t('web.liveTv.sources')}>
         {read.data && !sources.length ? <ListRow title={t('live.noSources')} subtitle={t('web.liveTv.noSourcesHelp')} /> : null}
-        {sources.map(src => <ListRow key={src.id} icon="live" title={src.name} meta={src.state === 'disabled' ? t('web.liveTv.pausedBadge') : sentence(status(src.id)?.state ?? src.state)} subtitle={facts(src)} accessory="menu" onPress={() => setMenu(src)} />)}
+        {sources.map(src => <ListRow key={src.id} icon="live" title={src.name} meta={t(liveSourceState(src, status(src.id)).id)} subtitle={facts(src)} accessory="menu" onPress={() => setMenu(src)} />)}
         <ListRow tone="action" icon="plus" title={t('web.liveTv.addSource')} onPress={() => setAdding(true)} />
       </RowGroup>
       <Menu open={adding} onClose={() => setAdding(false)} title={t('web.liveTv.addSource')} items={[{id: 'remote', label: t('web.liveTv.remoteSource'), detail: t('web.liveTv.remoteSourceMeta'), icon: 'live'}, {id: 'discover', label: t('web.liveTv.discover'), detail: t('web.liveTv.discoverMeta'), icon: 'search'}]} onSelect={id => (id === 'discover' ? setDiscover(true) : setAdd({}))} />
@@ -81,8 +102,9 @@ export function LiveSourcesPanel() {
       <RemoteSourceSheet open={!!add} tuner={add?.tuner} onClose={() => setAdd(undefined)} onSaved={() => { setAdd(undefined); read.reload(); }} />
       <DiscoverSheet open={discover} onClose={() => setDiscover(false)} onUse={address => { setDiscover(false); setAdd({tuner: address}); }} />
       <SourceSettingsSheet src={configure} guides={sources} onClose={() => setConfigure(undefined)} onChanged={read.reload} />
+      <ChannelMapSheet src={mapping} onClose={() => { setMapping(undefined); read.reload(); }} />
       <ConfirmSheet open={!!remove} onDismiss={() => setRemove(undefined)} title={t('web.liveTv.removeTitle', {name: remove?.name ?? ''})} consequence={t('web.liveTv.removeBody')} confirmLabel={t('web.liveTv.removeSource')} describeError={e => problem(e, 'action')}
-        onConfirm={async () => { const src = remove; if (!src) return; const payload = {expectedRevision: src.revision}; await api.request(sourcePath(src.id, '/remove'), 'POST', {...payload, requestId: opIds.forPayload(JSON.stringify({id: src.id, ...payload}))}); opIds.release(); setRemove(undefined); read.reload(); }} />
+        onConfirm={async () => { const src = remove; if (!src) return; await sendFresh(src, x => api.request(sourcePath(x.id, '/remove'), 'POST', {expectedRevision: x.revision, requestId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision}))}), again(src.id)); opIds.release(); setRemove(undefined); read.reload(); }} />
     </>
   );
 }
@@ -125,7 +147,8 @@ function RemoteSourceSheet({open, tuner, onClose, onSaved}: {open: boolean; tune
         <Segmented accessibilityLabel={t('web.libraries.kind')} items={KINDS.map(k => ({id: k.id, label: k.label}))} selected={draft.kind} onSelect={kind => edit({kind: kind as SourceKind})} />
         <Field label={t('profile.name')} value={draft.name} onChangeText={name => edit({name}, true)} maxLength={100} />
         <Field label={draft.kind === 'hdhomerun' ? t('web.liveTv.tunerAddress') : draft.kind === 'xtream' ? t('web.liveTv.serverAddress') : t('web.liveTv.playlistUrl')} value={draft.locator} onChangeText={locator => edit({locator})} placeholder={draft.kind === 'hdhomerun' ? '192.168.1.50' : 'https://'} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-        {draft.kind !== 'hdhomerun' ? <Field label={t('web.liveTv.guideUrl')} value={draft.guideUrl} onChangeText={guideUrl => edit({guideUrl}, true)} autoCapitalize="none" autoCorrect={false} keyboardType="url" /> : null}
+        {/* A tuner sends channels and little or no guide: its listings come from an XMLTV address, matched under Channels and numbers. */}
+        <Field label={t('web.liveTv.guideUrl')} hint={t(draft.kind === 'hdhomerun' ? 'server.live.guideUrlTunerHelp' : 'server.live.guideUrlHelp')} value={draft.guideUrl} onChangeText={guideUrl => edit({guideUrl})} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
         {draft.kind === 'xtream' ? <Field label={t('web.direct.username')} value={draft.username} onChangeText={username => edit({username})} autoCapitalize="none" autoCorrect={false} /> : null}
         {draft.kind === 'xtream' ? <Field label={t('web.account.password')} secure value={draft.password} onChangeText={password => edit({password})} /> : null}
         <RowGroup>
@@ -133,6 +156,7 @@ function RemoteSourceSheet({open, tuner, onClose, onSaved}: {open: boolean; tune
           <PickRow title={t('web.liveTv.refreshGuide')} value={String(draft.refreshSeconds)} options={[{id: '3600', label: t('web.libraries.everyHour')}, {id: '21600', label: t('web.libraries.every6h')}, {id: '43200', label: t('web.liveTv.every12h')}, {id: '86400', label: t('web.libraries.daily')}]} onChange={id => edit({refreshSeconds: Number(id)}, true)} />
         </RowGroup>
         {preview ? <Notice tone="success" title={t('web.liveTv.previewMeta', {channels: preview.preview.channels, programs: preview.preview.programmes.toLocaleString()})} message={[preview.preview.names.slice(0, 6).join(', '), preview.discoveredCapacity ? t('web.liveTv.capacityTuners', {count: preview.discoveredCapacity}) : ''].filter(Boolean).join(' · ')} /> : null}
+        {preview ? <ImportSkippedNotice diagnostics={preview.preview.diagnostics} /> : null}
         {confirm ? <Notice tone="warning" title={t('web.liveTv.lanTitle')} message={[t('web.liveTv.lanBody'), ...confirm].join('\n')} /> : null}
         {action.error ? <Notice tone="error" message={linearError(action.error)} /> : null}
       </View>
@@ -167,7 +191,7 @@ function DiscoverSheet({open, onClose, onUse}: {open: boolean; onClose: () => vo
 }
 
 type FilterRule = {mode: 'include' | 'exclude'; values: string[]};
-type SourceSettings = {kind: string; streamBufferSeconds: number | null; retryWindowSeconds: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string};
+type SourceSettings = {/** Empty: every group, and every channel, comes in. What is kept is the source's own key for each, never a viewer's channel id. */ enabledGroups?: readonly string[]; enabledChannels?: readonly string[]; kind: string; streamBufferSeconds: number | null; retryWindowSeconds: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string};
 type SourceDocument = {sourceId: string; sourceName: string; revision: number; settings: SourceSettings; effective: {streamBufferSeconds: number; retryWindowSeconds: number}; availableKinds: string[]};
 const FILTERS = [{key: 'categories', label: 'server.live.filter.categories'}, {key: 'countries', label: 'server.live.filter.countries'}, {key: 'keywords', label: 'server.live.filter.keywords'}] as const;
 const KIND_LABEL: Record<string, 'server.live.kind.playlist' | 'server.live.kind.guide' | 'server.live.kind.tuner'> = {playlist: 'server.live.kind.playlist', 'xmltv-guide': 'server.live.kind.guide', hdhomerun: 'server.live.kind.tuner'};
@@ -181,12 +205,24 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [draft, setDraft] = useState<SourceSettings>();
-  useEffect(() => { setDraft(read.data?.settings); }, [read.data]);
+  // What the draft is compared with, and the revision it is saved against.
+  const [base, setBase] = useState<{settings: SourceSettings; revision: number}>();
+  useEffect(() => { setDraft(read.data?.settings); setBase(read.data ? {settings: read.data.settings, revision: read.data.revision} : undefined); }, [read.data]);
   const doc = read.data;
-  const dirty = !!draft && !!doc && JSON.stringify(draft) !== JSON.stringify(doc.settings);
+  const dirty = !!draft && !!base && JSON.stringify(draft) !== JSON.stringify(base.settings);
   const guideOnly = draft?.kind === 'xmltv-guide';
   const patch = (p: Partial<SourceSettings>) => setDraft(d => (d ? {...d, ...p} : d));
-  const save = () => void action.run(async () => { if (!src || !draft || !doc) return; await admin.send(sourcePath(src.id, '/configuration'), 'PUT', {expectedRevision: doc.revision, operationId: opIds.forPayload(JSON.stringify({revision: doc.revision, settings: draft})), settings: draft}); opIds.release(); onChanged(); }).then(ok => { if (ok) onClose(); });
+  // The source's settings may have moved (a channel was renumbered, or they were saved elsewhere): these edits are carried onto them and saved again.
+  const save = () => void action.run(async () => {
+    if (!src || !draft || !base) return;
+    await saveRebased({
+      base: base.settings, revision: base.revision, draft,
+      put: (revision, settings) => admin.send(sourcePath(src.id, '/configuration'), 'PUT', {expectedRevision: revision, operationId: opIds.forPayload(JSON.stringify({revision, settings})), settings}),
+      reread: async () => { const fresh = await admin.get<SourceDocument>(sourcePath(src.id, '/configuration')); return {revision: fresh.revision, value: fresh.settings}; },
+      onRebased: (fresh, merged, revision) => { setBase({settings: fresh, revision}); setDraft(merged); },
+    });
+    opIds.release(); onChanged();
+  }).then(ok => { if (ok) onClose(); });
   const seconds = (value: number | null, fallback: number) => (value === null ? t('web.liveSource.serverDefault', {value: fallback}) : `${value} ${t('settings.unit.seconds')}`);
   return (
     <Sheet open={!!src} onClose={onClose} kind="form" title={src?.name} subtitle={t('web.liveSource.settingsLede')} primary={{label: t('action.save'), loading: action.busy, disabled: !dirty, onPress: save}}>
@@ -199,6 +235,9 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
               <PickRow title={t('web.liveSource.provides')} value={draft.kind} options={doc.availableKinds.map(k => ({id: k, label: KIND_LABEL[k] ? t(KIND_LABEL[k]!) : k}))} onChange={kind => patch(guideOnlyPatch(kind) as Partial<SourceSettings>)} />
               {!guideOnly ? <PickRow title={t('web.liveSource.guideFrom')} help={t('web.liveSource.guideFromHelp')} value={draft.guideSourceId || 'own'} options={[{id: 'own', label: t('web.liveSource.ownGuide')}, ...guides.filter(g => g.id !== src?.id).map(g => ({id: g.id, label: g.name}))]} onChange={id => patch({guideSourceId: id === 'own' ? '' : id})} /> : null}
             </RowGroup>
+            {/* Bringing in only part of a large line-up: chosen from what the source really has. Nothing chosen means all of it. */}
+            {!guideOnly && src ? <SourceChoiceRows sourceId={src.id} kind="groups" title={t('server.live.onlyGroups')} help={t('server.live.pickGroupsHelp')} value={draft.enabledGroups ?? []} onChange={enabledGroups => patch({enabledGroups})} /> : null}
+            {!guideOnly && src ? <SourceChoiceRows sourceId={src.id} kind="channels" title={t('server.live.onlyChannels')} help={t('server.live.pickChannelsHelp')} value={draft.enabledChannels ?? []} onChange={enabledChannels => patch({enabledChannels})} /> : null}
             {!guideOnly ? (
               <RowGroup title={t('web.liveSource.keepChannels')}>
                 {FILTERS.map(f => (
@@ -232,6 +271,153 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
         ) : null}
       </View>
     </Sheet>
+  );
+}
+
+type SourceChoice = LiveSourceChoicePage['items'][number];
+
+/**
+ * Choose some of a source's groups or channels from what it really has: a row that says how
+ * many are chosen and opens a searchable list, a page at a time. Something chosen earlier that
+ * the source no longer lists stays chosen until it is turned off. Saved with the source's settings.
+ */
+function SourceChoiceRows({sourceId, kind, title, help, value, onChange}: {sourceId: string; kind: 'groups' | 'channels'; title: string; help: string; value: readonly string[]; onChange: (next: readonly string[]) => void}) {
+  const t = useI18n().t;
+  const {api} = useSession();
+  const {space} = useTheme();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [items, setItems] = useState<readonly SourceChoice[]>([]);
+  const [total, setTotal] = useState(0);
+  const [cursor, setCursor] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState('');
+  const service = React.useMemo(() => liveSourceChoicesService(<T,>(path: string, method?: string, body?: unknown) => api.request<T>(path, method, body), sourceId), [api, sourceId]);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    // What is typed is searched once typing pauses; a new search starts the list again.
+    const timer = setTimeout(() => {
+      setLoading(true); setFailed('');
+      service.list(kind, '', 50, query.trim()).then(page => { if (live) { setItems(page.items); setTotal(page.total); setCursor(page.nextCursor); } }, e => { if (live) setFailed(problem(e)); }).finally(() => { if (live) setLoading(false); });
+    }, query ? 300 : 0);
+    return () => { live = false; clearTimeout(timer); };
+  }, [open, service, kind, query]);
+  const more = () => {
+    setLoading(true);
+    service.list(kind, cursor, 50, query.trim()).then(page => { setItems(prev => [...prev, ...page.items.filter(x => !prev.some(p => p.id === x.id))]); setCursor(page.nextCursor); }, e => setFailed(problem(e))).finally(() => setLoading(false));
+  };
+  // Chosen before and not in this list (another search, or no longer in the source): still shown, so it can be turned off.
+  const gone = value.filter(id => !items.some(x => x.id === id));
+  return (
+    <>
+      <RowGroup title={title} footer={help}>
+        <ListRow title={value.length ? t('server.live.chosenCount', {count: value.length}) : t('server.live.chosenAll')} meta={t('server.live.choose')} accessory="navigation" onPress={() => { setQuery(''); setOpen(true); }} />
+        {value.length ? <ListRow tone="action" title={t('server.live.chooseAll')} onPress={() => onChange([])} /> : null}
+      </RowGroup>
+      <Sheet open={open} onClose={() => setOpen(false)} kind="form" cancelLabel={t('action.done')} title={title} subtitle={total ? `${t('server.live.choiceTotal', {count: total})} ${help}` : help}>
+        <View style={{gap: space.md}}>
+          <Field accessibilityLabel={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} placeholder={t(kind === 'groups' ? 'server.live.searchGroups' : 'server.live.searchChannels')} value={query} onChangeText={setQuery} autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
+          {failed ? <Notice tone="error" message={failed} /> : null}
+          <RowGroup>
+            {items.map(x => <ToggleRow key={x.id} title={x.name || x.id} subtitle={kind === 'groups' ? t('server.live.channelCount', {count: x.channels}) : x.group || undefined} value={value.includes(x.id)} onChange={on => onChange(withChoice(value, x.id, on))} />)}
+            {gone.map(id => <ToggleRow key={'chosen:' + id} title={id} value onChange={() => onChange(withChoice(value, id, false))} />)}
+            {!items.length && !gone.length && !loading && !failed ? <ListRow title={t('server.live.noMatches')} /> : null}
+            {cursor ? <ListRow tone="action" title={t('server.showMore')} disabled={loading} onPress={more} /> : null}
+          </RowGroup>
+        </View>
+      </Sheet>
+    </>
+  );
+}
+
+/**
+ * Channels and numbers: give a channel its own number, hide it, or match it to a guide listing
+ * (how a tuner's channels get their program listings). Each row says what the source sent and
+ * what is in force. Only the channels that were touched are sent, in batches the server accepts.
+ */
+function ChannelMapSheet({src, onClose}: {src?: {id: string; name: string}; onClose: () => void}) {
+  const admin = useEnvelope();
+  const t = useI18n().t;
+  const {space} = useTheme();
+  const action = useAction();
+  const [opIds] = useState(() => createOperationIds(operationId));
+  const [channels, setChannels] = useState<readonly ChannelMapEntry[]>([]);
+  const [cursor, setCursor] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [edits, setEdits] = useState<Readonly<Record<string, ChannelOverride>>>({});
+  const [filter, setFilter] = useState('');
+  const [partial, setPartial] = useState<{saved: number; total: number}>();
+  const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState<ChannelMapEntry>();
+  const [form, setForm] = useState<ChannelOverride>({number: '', guideChannelId: '', hidden: false});
+  const id = src?.id;
+  const more = async (from: string) => {
+    if (!id) return;
+    setLoading(true); setError('');
+    try {
+      const page = parseChannelMapPage(await admin.get<unknown>(sourcePath(id, `/channel-map?limit=100${from ? '&cursor=' + encodeURIComponent(from) : ''}`)));
+      setChannels(prev => (from ? [...prev, ...page.items.filter(c => !prev.some(p => p.channelId === c.channelId))] : page.items));
+      setCursor(page.nextCursor);
+    } catch (e) { setError(problem(e)); } finally { setLoading(false); }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setChannels([]); setCursor(''); setEdits({}); setFilter(''); setPartial(undefined); setSaved(false); action.clear(); if (id) void more(''); }, [id]);
+  const changed = Object.keys(edits).length;
+  const needle = filter.trim().toLowerCase();
+  const shown = needle ? channels.filter(c => `${c.name} ${c.number} ${c.group}`.toLowerCase().includes(needle)) : channels;
+  const save = () => void action.run(async () => {
+    if (!id) return;
+    setPartial(undefined); setSaved(false);
+    const result = await saveChannelMap(edits, {
+      revision: async () => (await admin.get<{revision: number}>(sourcePath(id, '/configuration'))).revision,
+      put: (revision, batch) => admin.send(sourcePath(id, '/channel-map'), 'PUT', {expectedRevision: revision, operationId: opIds.forPayload(JSON.stringify({revision, batch})), overrides: batch}),
+    });
+    await more('');
+    if (result.error !== undefined) {
+      // What went through is saved; the rest stays on screen to be saved again.
+      setEdits(unsavedChannelEdits(edits, result.saved));
+      if (result.saved) setPartial({saved: result.saved, total: result.total});
+      throw result.error;
+    }
+    setEdits({}); opIds.release(); setSaved(true);
+  });
+  const line = (c: ChannelMapEntry) => {
+    const v = channelOverride(c, edits);
+    return [c.group, `${t('server.live.map.fromSource')}: ${c.sourceNumber || '—'}`, v.guideChannelId ? `${t('server.live.map.guideId')}: ${v.guideChannelId}` : ''].filter(Boolean).join(' · ');
+  };
+  return (
+    <>
+      <Sheet open={!!src && !editing} onClose={onClose} kind="form" cancelLabel={t('action.close')} title={t('web.liveSource.channelMapTitle', {name: src?.name ?? ''})} subtitle={t('web.liveSource.channelMapLede')}
+        primary={{label: changed ? t('web.liveSource.saveMapChanges', {changed}) : t('action.save'), loading: action.busy, disabled: !changed, onPress: save}}>
+        <View style={{gap: space.md}}>
+          {error ? <Notice tone="error" message={error} action={t('action.tryAgain')} onAction={() => void more('')} /> : null}
+          {action.error ? <Notice tone="error" message={action.error} /> : null}
+          {partial ? <Notice tone="warning" message={t('web.liveSource.channelMapPartial', {saved: partial.saved, total: partial.total})} /> : null}
+          {saved ? <Notice tone="success" message={t('server.live.saved')} /> : null}
+          <Field accessibilityLabel={t('web.live.findChannel')} placeholder={t('web.live.findChannel')} value={filter} onChangeText={setFilter} autoCapitalize="none" autoCorrect={false} />
+          <RowGroup>
+            {shown.map(c => {
+              const v = channelOverride(c, edits);
+              return <ListRow key={c.channelId} title={c.name} subtitle={line(c)} subtitleLines={3} meta={v.hidden ? t('server.live.map.hidden') : v.number || c.number || undefined} selected={!!edits[c.channelId]} accessory="navigation" onPress={() => { setForm(v); setEditing(c); }} />;
+            })}
+            {!loading && !channels.length && !error ? <ListRow title={t('web.liveSource.noChannels')} /> : null}
+            {loading && !channels.length ? <ListRow title={t('web.liveSource.loadingChannels')} /> : null}
+            {cursor ? <ListRow tone="action" title={t('action.showMoreChannels')} disabled={loading} onPress={() => void more(cursor)} /> : null}
+          </RowGroup>
+        </View>
+      </Sheet>
+      {/* One channel: its number here, the guide listing it takes its programs from, and whether it is shown. Kept until the list's Save. */}
+      <Sheet open={!!editing} onClose={() => setEditing(undefined)} kind="form" title={editing?.name} subtitle={editing ? `${t('server.live.map.fromSource')}: ${editing.sourceNumber || '—'}` : undefined}
+        primary={{label: t('action.done'), onPress: () => { const c = editing; if (c) { setSaved(false); setEdits(prev => ({...prev, [c.channelId]: form})); } setEditing(undefined); }}}>
+        <View style={{gap: space.md}}>
+          <Field label={t('server.live.map.number')} placeholder={editing?.number || undefined} value={form.number} onChangeText={number => setForm(f => ({...f, number}))} maxLength={12} autoCapitalize="none" autoCorrect={false} />
+          <Field label={t('server.live.map.guideId')} placeholder={t('player.quality.automatic')} value={form.guideChannelId} onChangeText={guideChannelId => setForm(f => ({...f, guideChannelId}))} maxLength={200} autoCapitalize="none" autoCorrect={false} />
+          <RowGroup><ToggleRow title={t('server.live.map.hidden')} value={form.hidden} onChange={hidden => setForm(f => ({...f, hidden}))} /></RowGroup>
+        </View>
+      </Sheet>
+    </>
   );
 }
 

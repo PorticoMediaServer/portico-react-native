@@ -3,11 +3,15 @@ import {View} from 'react-native';
 import {settingsRowId, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection} from '../../../../../packages/client-core/src/presentation/index';
 import {useI18n} from '../../app/i18n';
 import {RefreshScope, RefreshScopeContext} from '../../app/server-console';
-import {ListRow, RowGroup, Segmented, useTheme} from '../../ui';
+import {ListRow, RowGroup, Segmented, isTV, useTheme} from '../../ui';
 import {AlertsPanel, HealthPanel, JobsPanel, NowPlayingPanel, StatisticsPanel} from '../server/Dashboard';
+import {TelevisionDashboard} from '../server/TelevisionDashboard';
 import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
-import {APIKeysPanel, AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
+import {APIKeysPanel, AssistantsPanel, MemberTokensPanel, WebhooksPanel} from '../server/Integrations';
+import {MetadataSettingsPanel} from '../server/MetadataPanels';
+import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
+import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
@@ -16,12 +20,12 @@ import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, Reco
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
-const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity']);
+const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity', 'server.backgroundPause', 'server.ffmpegStatus']);
 
-/** The Server pages' `custom` rows (settings-structure.ts), drawn natively. The state-folder warning is part of the alerts. */
-function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
+/** The Server pages' `custom` rows (settings-structure.ts), drawn natively on phones and tablets. The state-folder warning is part of the alerts. */
+function ServerPanel({id}: {id: SettingsCustomId}) {
   switch (id) {
-    case 'server.nowPlaying': return <NowPlayingPanel entry={entry} />;
+    case 'server.nowPlaying': return <NowPlayingPanel />;
     case 'server.alerts': return <AlertsPanel />;
     case 'server.health': return <HealthPanel />;
     case 'server.activity': return <JobsPanel />;
@@ -35,6 +39,9 @@ function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'server.accounts': return <AccountsPanel />;
     case 'server.invitations': return <InvitationsPanel />;
     case 'server.apiKeys': return <APIKeysPanel />;
+    case 'server.memberTokens': return <MemberTokensPanel />;
+    case 'server.webhooks': return <WebhooksPanel />;
+    case 'server.assistants': return <AssistantsPanel />;
     case 'server.transcodeStatus': return <TranscodeStatusPanel />;
     case 'server.remoteStatus': return <RemoteStatusPanel />;
     case 'server.accountConnection': return <AccountConnectionPanel />;
@@ -58,6 +65,15 @@ function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'server.feedback': return <FeedbackPanel />;
     case 'server.identity': return <IdentityRows />;
     case 'server.updates': return <UpdatesPanel />;
+    case 'server.metadataSettings': return <MetadataSettingsPanel />;
+    case 'server.resourceUsage': return <ResourceUsagePanel />;
+    case 'server.storageStatus': return <StorageStatusPanel />;
+    case 'server.downloadUsage': return <DownloadUsagePanel />;
+    case 'server.backgroundPause': return <BackgroundPauseRow />;
+    case 'server.ffmpegStatus': return <FFmpegStatusRow />;
+    case 'server.restart': return <RestartPanel />;
+    case 'server.setAsideTitles': return <SetAsideTitlesPanel />;
+    case 'server.clientReports': return <ClientReportsPanel />;
     default: return null;
   }
 }
@@ -83,8 +99,18 @@ function Framed({scope, children}: {scope: RefreshScope; children: (frame: {refr
   return <>{children({refresh: () => { scope.refresh(); reloadForms(); }, bar: <SaveBar />})}</>;
 }
 
-/** One page of the Server heading: status and lists are panels, plain settings are rows bound to the page's forms. */
-export function ServerPageBody({page, entry}: {page: StructurePage; /** TV: the first panel takes focus when the page opens. */ entry?: boolean}) {
+/**
+ * One page of the Server heading: status and lists are panels, plain settings are rows bound to
+ * the page's forms. Television draws none of that: its one Server page is the read-only
+ * Dashboard, and no owner panel or setting is drawn there whatever the structure lists.
+ */
+export function ServerPageBody({page, entry}: {page: StructurePage; /** TV: the first row takes focus when the page opens. */ entry?: boolean}) {
+  const {space} = useTheme();
+  if (isTV) return page.id === 'dashboard' ? <View style={{gap: space.xl}}><TelevisionDashboard entry={entry} /></View> : null;
+  return <ServerPagePanels page={page} />;
+}
+
+function ServerPagePanels({page}: {page: StructurePage}) {
   const t = useI18n().t;
   const {space} = useTheme();
   const [tab, setTab] = useState(page.tabs?.[0]?.id);
@@ -92,12 +118,12 @@ export function ServerPageBody({page, entry}: {page: StructurePage; /** TV: the 
   return (
     <View style={{gap: space.xl}}>
       {page.tabs ? <Segmented accessibilityLabel={t(page.title)} items={page.tabs.map(x => ({id: x.id, label: t(x.title)}))} selected={tab!} onSelect={setTab} /> : null}
-      {sections.map((section, index) => <ServerSection key={section.id} section={section} entry={entry && index === 0} />)}
+      {sections.map(section => <ServerSection key={section.id} section={section} />)}
     </View>
   );
 }
 
-function ServerSection({section, entry}: {section: SettingsSection; entry?: boolean}) {
+function ServerSection({section}: {section: SettingsSection}) {
   const t = useI18n().t;
   const [open, setOpen] = useState(!section.advanced);
   const groups = section.rows.filter(row => row.kind === 'custom' && !ROW_PANELS.has(row.id));
@@ -105,7 +131,7 @@ function ServerSection({section, entry}: {section: SettingsSection; entry?: bool
   const forms = [...new Set(rows.flatMap(row => (row.kind === 'server-setting' ? [row.form] : [])))];
   // A group of settings whose documents this server does not have is left out, heading and all.
   const absent = useFormsAbsent(forms) && rows.every(row => row.kind === 'server-setting');
-  const draw = (row: StructureRow, index: number) => row.kind === 'custom' ? <ServerPanel key={row.id} id={row.id} entry={entry && index === 0} /> : row.kind === 'server-setting' ? <ServerSettingRowView key={settingsRowId(row)} row={row} /> : null;
+  const draw = (row: StructureRow) => row.kind === 'custom' ? <ServerPanel key={row.id} id={row.id} /> : row.kind === 'server-setting' ? <ServerSettingRowView key={settingsRowId(row)} row={row} /> : null;
   // A panel keeps its authored place: one written after the section's rows (the list under a rule) is drawn below them.
   const firstRow = section.rows.findIndex(row => rows.includes(row));
   const after = firstRow < 0 ? [] : groups.filter(row => section.rows.indexOf(row) > firstRow);

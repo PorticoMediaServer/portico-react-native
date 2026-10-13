@@ -25,6 +25,7 @@ import {useSession} from '../app/session';
 import {Button, ListRow, Notice, Page, PersonCard, Sheet, Shelf, Skeleton, StateView, Switch, Text, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
 import {EpisodeBrowser, EpisodeList, EpisodeRowView, EpisodeTintContext, useEpisodeRowGeometry, type EpisodeListHandle} from './title/Episodes';
 import {TitleDetails} from './title/TitleDetails';
+import {useTitleTools} from './server/TitleTools';
 import {EpisodePanel, type EpisodePlay} from './title/EpisodePanel';
 import {episodeCode, nextUpIn, orderSeasons, resumeFraction, seasonLabel} from './title/facts';
 import {SeasonSwitcher, type SeasonChoice} from './title/SeasonSwitcher';
@@ -72,6 +73,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const [railJump, setRailJump] = useState<{index: number}>();
   const data = snapshot.data;
   const show = data?.show;
+  // The owner's tool for a show: say that this show and another are one. Nothing for a member or on television.
+  const tools = useTitleTools(show ? {id: show.id, title: show.title, kind: 'show', libraryId} : undefined, undefined, () => retry());
   // Roots stay mounted (shell/Roots.tsx), so several show pages can be alive at once: only the one
   // whose loaded episodes include what was played re-reads.
   const playedHere = useRef<(itemId?: string) => boolean>(() => true);
@@ -366,14 +369,15 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     show.country ? [i18n.t('title.country'), show.country] : null,
 
   ] as ((readonly [string, string]) | null)[]).filter((r): r is readonly [string, string] => !!r) : [];
-  const related = people.cast.length || people.crew.length || detailRows.length || recommendationRows.length || recommendations.phase === 'error' || recommendations.phase === 'loading' ? (
+  const related = people.cast.length || people.crew.length || detailRows.length || recommendationRows.length || recommendations.phase === 'error' || recommendations.phase === 'loading' || tools.mergeRow ? (
     <View style={{marginTop: space.xl}}>
       {people.cast.length ? <RowGuide><Shelf title={i18n.t('title.cast')} data={people.cast.slice(0, 12)} itemWidth={personWidth} keyExtractor={c => c.id ?? c.name} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.id ? () => navigation.push('Person', {personId: c.id!, name: c.name}) : undefined} />} /></RowGuide> : null}
       {people.crew.length ? <RowGuide><Shelf title={i18n.t('title.crew')} data={people.crew} itemWidth={personWidth} keyExtractor={c => c.id ?? c.name} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role || c.department} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.id ? () => navigation.push('Person', {personId: c.id!, name: c.name}) : undefined} />} /></RowGuide> : null}
       {recommendations.phase === 'loading' ? <View style={{paddingHorizontal: space.page, marginBottom: space.lg}}><Skeleton width={metrics.posterWidth} height={metrics.posterWidth * 1.5} /></View> : null}
       {recommendations.phase === 'error' ? <Notice tone="error" message={say(recommendations.error, 'show', 'load')} action={i18n.t('action.tryAgain')} onAction={recommendations.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
       {recommendationRows.map((row, index) => <RowGuide key={row.id}><SectionView row={3 + index} origin="recommendation" libraryId={libraryId} section={{id: row.id, type: 'rail', heading: homeRowHeading(row), entries: row.entries, totalCount: row.entries.length, nextCursor: ''}} /></RowGuide>)}
-      <TitleDetails rows={detailRows} genres={genreLinks ? {...genreLinks, names: dedupeNames(show?.genres ?? [], 20)} : undefined} />
+      <TitleDetails rows={detailRows} genres={genreLinks ? {...genreLinks, names: dedupeNames(show?.genres ?? [], 20)} : undefined} tools={tools.mergeRow} />
+      {tools.sheets}
     </View>
   ) : null;
   const bar = <GroupBar group={group} />;

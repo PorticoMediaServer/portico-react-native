@@ -23,8 +23,8 @@ import {useDeviceEvents} from '../../app/device-events';
 import {appEnvironment, operationId, problem, TASK_EVENTS, useAction, useConsole, useRead, useServerId} from '../../app/server-console';
 import {Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, Text, isTV, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 
-/** Dashboard › Watching now: who is playing what, with Stop playback and an optional message. */
-export function NowPlayingPanel({entry}: {entry?: boolean}) {
+/** Dashboard › Watching now, on phones and tablets: who is playing what, with Stop playback and an optional message. Television shows the same list without the actions (`TelevisionDashboard`). */
+export function NowPlayingPanel() {
   const {api} = useSession();
   const i18n = useI18n();
   const t = i18n.t;
@@ -43,8 +43,8 @@ export function NowPlayingPanel({entry}: {entry?: boolean}) {
     <>
       {snap.error && !loaded ? <Notice tone="error" message={problem(snap.error)} action={t('action.tryAgain')} onAction={() => void store.refresh()} /> : null}
       <RowGroup title={items.length ? `${t('web.nowPlaying.title')} · ${items.length}` : t('web.nowPlaying.title')}>
-        {loaded && !items.length ? <ListRow readable hasTVPreferredFocus={isTV && entry} icon="play" title={t('web.nowPlaying.empty')} /> : null}
-        {items.map((x, i) => <ListRow key={x.id} hasTVPreferredFocus={isTV && entry && i === 0} title={x.title || t('web.nowPlaying.untitled')} subtitle={sessionFacts(x, t)} accessory="menu" onPress={() => setMenu(x)} />)}
+        {loaded && !items.length ? <ListRow readable icon="play" title={t('web.nowPlaying.empty')} /> : null}
+        {items.map(x => <ListRow key={x.id} title={x.title || t('web.nowPlaying.untitled')} subtitle={sessionFacts(x, t)} accessory="menu" onPress={() => setMenu(x)} />)}
       </RowGroup>
       <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.title || t('web.nowPlaying.untitled')}
         items={[...(menu?.itemId ? [{id: 'open', label: t('web.nowPlaying.open'), icon: 'info'} as MenuItem] : []), {id: 'stop', label: t('web.nowPlaying.stop'), icon: 'stop', destructive: true} as MenuItem]}

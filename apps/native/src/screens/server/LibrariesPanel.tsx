@@ -1,5 +1,10 @@
 import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
+import {useNavigation} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {retryWhenStale} from '../../../../../packages/client-core/src/freshness-actions';
+import {removeLibrary} from '../../../../../packages/client-core/src/title-identity';
+import {hasAttentionList} from '../../../../../packages/client-core/src/server-admin/attention-words';
 import {LibraryManagementService, fetchEpisodeIssues, type EpisodeIssue, type LibraryManagementSnapshot, type ManagedLibrary} from '../../../../../packages/client-core/src/library-management';
 import {LibraryInventoryService, type LibraryInventorySnapshot, type ScanTier, type SourceSettings} from '../../../../../packages/client-core/src/library-inventory';
 import {parseFilesystemPage, parseLibraryDocument, providerChoices, type FilesystemPage, type LibrarySettings} from '../../../../../packages/client-core/src/administration';
@@ -9,19 +14,24 @@ import {isMetadataConflict, metadataAgentPath, parseMetadataAgent, saveMetadataA
 import {addSourceSettings, canAddSource, createLibraryAndScan, filesystemPath, mergeFilesystemPages, scanJobLabels, scanTierHelp, scanTierLabels} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
+import type {ContentStackParams} from '../../app/routes';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {libraryKindLabel} from '../../app/libraries';
 import {useLibrariesContext} from '../../app/libraries-context';
 import {operationId, problem, unconfigured, useAction, useAdmin, useRead, useService} from '../../app/server-console';
-import {Button, ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, ToggleRow, useTheme} from '../../ui';
+import {Button, ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, ToggleRow, afterOverlaysClose, useTheme} from '../../ui';
 import {PickRow, TypedRow} from '../settings/ServerForms';
+import {NeedsAttentionSheet, useAttentionCounts} from './MetadataPanels';
 
 const KINDS: readonly {id: ManagedLibrary['kind']; description: MessageId}[] = [{id: 'movie', description: 'web.libraries.typeMovies'}, {id: 'tv', description: 'web.libraries.typeTv'}, {id: 'anime', description: 'web.libraries.typeAnime'}, {id: 'music', description: 'web.libraries.typeMusic'}, {id: 'audiobook', description: 'web.libraries.typeAudiobooks'}];
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
 const dateTime = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'});
 
-/** Libraries: the list in the owner's order, and one library's folders, scans, metadata source and deletion rule. */
+/** A title to open from a list inside a sheet: its own page, once the sheets have closed. */
+type TitleTarget = {kind: 'show' | 'item'; id: string; libraryId: string};
+
+/** Libraries: the list in the owner's order, and one library's folders, scans, metadata source, titles that need a match, and removal. */
 export function LibrariesPanel() {
   const {api, session} = useSession();
   const t = useI18n().t;
@@ -36,14 +46,22 @@ export function LibrariesPanel() {
   const [adding, setAdding] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [open, setOpen] = useState<string>();
-  const reload = () => { order.reload(); void service.loadLibraries().catch(() => {}); };
+  // How many titles wait for a match in each library: the server's exact count, on the library's row.
+  const attention = useAttentionCounts(libraries);
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const reload = () => { order.reload(); attention.reload(); void service.loadLibraries().catch(() => {}); };
+  const openTitle = (target: TitleTarget) => {
+    setOpen(undefined);
+    // The sheets close from the inside out, and the title's page is pushed once they are gone: a page under a closing sheet is not shown.
+    requestAnimationFrame(() => afterOverlaysClose(() => (target.kind === 'show' ? navigation.push('Show', {libraryId: target.libraryId, showId: target.id}) : navigation.push('Detail', {libraryId: target.libraryId, itemId: target.id}))));
+  };
   const move = (index: number, by: -1 | 1) => {
     const ids = libraries.map(l => l.id);
     const [id] = ids.splice(index, 1);
     ids.splice(index + by, 0, id!);
     void action.run(() => api.request('/v1/admin/libraries/order', 'PUT', {libraryIds: ids})).then(ok => { if (ok) reload(); });
   };
-  const status = (l: ManagedLibrary) => (l.source.availability === 'unavailable' ? t('web.libraries.sourceUnavailable') : l.attention ? t('server.libraries.needAttention', {count: l.attention.files}) : l.lastScan?.warnings ? t('server.libraries.warnings', {count: l.lastScan.warnings}) : l.lastScan ? scanJobLabels[l.lastScan.status] : undefined);
+  const status = (l: ManagedLibrary) => (l.source.availability === 'unavailable' ? t('web.libraries.sourceUnavailable') : attention.counts[l.id] ? t('server.attention.badge', {count: attention.counts[l.id]!}) : l.attention ? t('server.libraries.needAttention', {count: l.attention.files}) : l.lastScan?.warnings ? t('server.libraries.warnings', {count: l.lastScan.warnings}) : l.lastScan ? scanJobLabels[l.lastScan.status] : undefined);
   return (
     <>
       {snapshot.directory.phase === 'error' ? <Notice tone="error" message={snapshot.directory.error ? problem(snapshot.directory.error) : t('web.libraries.loadFailed')} action={t('action.tryAgain')} onAction={() => void service.loadLibraries().catch(() => {})} /> : null}
@@ -60,7 +78,7 @@ export function LibrariesPanel() {
         </RowGroup>
       </Sheet>
       <AddLibrarySheet open={adding} service={service} onClose={() => setAdding(false)} onCreated={id => { setAdding(false); reload(); if (id) setOpen(id); }} />
-      <LibrarySheet libraryId={open} service={service} snapshot={snapshot} onClose={() => { setOpen(undefined); reload(); }} />
+      <LibrarySheet libraryId={open} service={service} snapshot={snapshot} waiting={open ? attention.counts[open] ?? 0 : 0} onClose={() => { setOpen(undefined); reload(); }} onOpenTitle={openTitle} onAttentionChanged={attention.reload} />
     </>
   );
 }
@@ -144,7 +162,7 @@ type Section = 'general' | 'metadata' | 'scanning' | 'advanced';
 const RESCAN: readonly {id: string; label: MessageId}[] = [{id: '900', label: 'web.libraries.every15m'}, {id: '3600', label: 'web.libraries.everyHour'}, {id: '21600', label: 'web.libraries.every6h'}, {id: '86400', label: 'web.libraries.daily'}, {id: '0', label: 'web.libraries.onlyWhenAsked'}];
 
 /** One library: General · Metadata · Scanning · Advanced, as on the web. What is typed here is saved with the sheet's Save. */
-function LibrarySheet({libraryId, service, snapshot, onClose}: {libraryId?: string; service: LibraryManagementService; snapshot: LibraryManagementSnapshot; onClose: () => void}) {
+function LibrarySheet({libraryId, service, snapshot, waiting, onClose, onOpenTitle, onAttentionChanged}: {libraryId?: string; service: LibraryManagementService; snapshot: LibraryManagementSnapshot; /** Titles waiting for a match in this library. */ waiting: number; onClose: () => void; onOpenTitle: (target: TitleTarget) => void; onAttentionChanged: () => void}) {
   const {api} = useSession();
   const t = useI18n().t;
   const {space} = useTheme();
@@ -158,7 +176,7 @@ function LibrarySheet({libraryId, service, snapshot, onClose}: {libraryId?: stri
         {library ? (
           <>
             <Segmented accessibilityLabel={library.name} selected={section} onSelect={id => setSection(id as Section)} items={[{id: 'general', label: t('server.library.tab.general')}, {id: 'metadata', label: t('server.library.tab.metadata')}, {id: 'scanning', label: t('server.library.tab.scanning')}, {id: 'advanced', label: t('settings.section.advanced')}]} />
-            <LibraryBody key={library.id} api={api} library={library} section={section} service={service} />
+            <LibraryBody key={library.id} api={api} library={library} section={section} service={service} waiting={waiting} onOpenTitle={onOpenTitle} onAttentionChanged={onAttentionChanged} onRemoved={onClose} />
           </>
         ) : null}
       </View>
@@ -166,7 +184,7 @@ function LibrarySheet({libraryId, service, snapshot, onClose}: {libraryId?: stri
   );
 }
 
-function LibraryBody({api, library, section, service}: {api: ReturnType<typeof useSession>['api']; library: ManagedLibrary; section: Section; service: LibraryManagementService}) {
+function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAttentionChanged, onRemoved}: {api: ReturnType<typeof useSession>['api']; library: ManagedLibrary; section: Section; service: LibraryManagementService; waiting: number; onOpenTitle: (target: TitleTarget) => void; onAttentionChanged: () => void; onRemoved: () => void}) {
   const {session} = useSession();
   const t = useI18n().t;
   const admin = useAdmin();
@@ -181,6 +199,20 @@ function LibraryBody({api, library, section, service}: {api: ReturnType<typeof u
   const [removing, setRemoving] = useState<{id: string; name: string; revision: number}>();
   const [adding, setAdding] = useState(false);
   const [issues, setIssues] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  // Removing the whole library, against its configuration as the server has it. A scan or a setting that
+  // moved it while its name was being typed changes nothing about which library was named: it is read
+  // again and removed as asked.
+  const removeWhole = async () => {
+    let revision = config?.revision;
+    if (revision === undefined) return;
+    await retryWhenStale(() => removeLibrary(api, library.id, library.name, revision!), {
+      attempts: 1,
+      reread: async () => { await inventory.service.refresh(); const now = inventory.service.getSnapshot().config; if (!now) throw new Error('library_configuration_unavailable'); revision = now.revision; },
+    });
+    setLeaving(false); onRemoved();
+  };
   // Metadata source: online or local only, its own resource with its own revision.
   const agent = useRead(async () => { const raw = await unconfigured(api.request<unknown>(metadataAgentPath(library.id))); return raw === null ? null : parseMetadataAgent(raw); }, [api, library.id]);
   const [pending, setPending] = useState<MetadataAgentId>();
@@ -222,10 +254,18 @@ function LibraryBody({api, library, section, service}: {api: ReturnType<typeof u
             {config?.sources.map(src => <ListRow key={src.id} icon="folder" title={src.name || src.path} meta={sentence(src.health || 'unknown')} subtitle={[src.path, src.lastCompleteAt ? t('server.libraries.scanned', {when: day(src.lastCompleteAt)}) : ''].filter(Boolean).join(' · ')} accessory="menu" onPress={() => setFolder({id: src.id, name: src.name || src.path})} />)}
             {canAddSource(config?.revision) ? <ListRow tone="action" icon="plus" title={t('web.libraries.addFolder')} onPress={() => setAdding(true)} /> : null}
           </RowGroup>
+          <RowGroup title={t('server.library.remove')} footer={t('server.library.removeHelp')}>
+            <ListRow tone="destructive" icon="trash" title={t('server.library.removeRow')} disabled={!config} onPress={() => setLeaving(true)} />
+          </RowGroup>
         </>
       ) : null}
       {section === 'metadata' ? (
         <>
+          {hasAttentionList(library.kind) ? (
+            <RowGroup footer={t('server.attention.lede')}>
+              <ListRow icon={waiting ? 'warning' : 'check'} title={t('metadata.attention.title')} meta={waiting ? t('server.attention.badge', {count: waiting}) : t('server.attention.none')} accessory="navigation" onPress={() => setMatching(true)} />
+            </RowGroup>
+          ) : null}
           {agent.error ? <Notice tone="error" message={agent.error} action={t('action.tryAgain')} onAction={agent.reload} /> : null}
           {agent.data ? (
             <RowGroup title={t('web.metadataSource.title')} footer={agent.data.agents.find(a => a.id === agent.data!.agent)?.description}>
@@ -271,6 +311,8 @@ function LibraryBody({api, library, section, service}: {api: ReturnType<typeof u
         onConfirm={async () => { const f = removing; if (!f) return; await inventory.service.removeSource(f.id, f.revision); setRemoving(undefined); refresh(); }} />
       <FolderSheet open={adding} start="" onClose={() => setAdding(false)} onPick={path => { if (config) void action.run(() => inventory.service.saveSource(undefined, {...addSourceSettings(config.revision), name: path, path})).then(refresh); }} />
       <IssuesSheet open={issues} libraryId={library.id} onClose={() => setIssues(false)} />
+      <NeedsAttentionSheet libraryId={matching ? library.id : undefined} onClose={() => setMatching(false)} onChanged={onAttentionChanged} onOpenTitle={target => { setMatching(false); requestAnimationFrame(() => afterOverlaysClose(() => onOpenTitle(target))); }} />
+      <ConfirmSheet open={leaving} onDismiss={() => setLeaving(false)} title={t('server.library.removeTitle', {name: library.name})} consequence={`${t('server.library.removeGoes')}\n\n${t('server.library.removeKept')}`} confirmLabel={t('server.library.remove')} confirmToken={library.name} describeError={e => problem(e, 'action')} onConfirm={removeWhole} />
     </>
   );
 }

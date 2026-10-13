@@ -115,6 +115,8 @@ export function useAction() {
   return {busy, error, run, clear: () => setError('')};
 }
 
+export {findInPages, saveRebased, sendFresh, untilDone} from './fresh-send';
+
 /** Console failures in plain words (X-04), from the shared presenter. */
 export function problem(e: unknown, operation: 'load' | 'action' = 'load'): string {
   return say(e, 'server-console', operation);
@@ -165,10 +167,10 @@ export const withCursor = (path: string, cursor: string) => (cursor ? `${path}${
  * A list read one server page at a time, growing as "Show more" is pressed: every row stays
  * reachable and nothing asks for the whole list at once.
  */
-export function usePagedList<T>(fetch: (cursor: string) => Promise<{items: T[]; nextCursor: string}>, deps: readonly unknown[]): {items?: T[]; error?: string; loading: boolean; more: boolean; loadMore: () => void; reload: () => void} {
+export function usePagedList<T>(fetch: (cursor: string) => Promise<{items: T[]; nextCursor: string}>, deps: readonly unknown[], options: {/** False: nothing is read until it turns true (a list behind a row that opens it). */ auto?: boolean} = {}): {items?: T[]; error?: string; loading: boolean; more: boolean; loadMore: () => void; reload: () => void} {
   const [extra, setExtra] = useState<{items: T[]; nextCursor: string}>();
   const [loadingMore, setLoadingMore] = useState(false);
-  const first = useRead(() => fetch(''), deps);
+  const first = useRead(() => fetch(''), deps, options);
   useEffect(() => { setExtra(undefined); }, [first.data]);
   const next = extra ? extra.nextCursor : first.data?.nextCursor ?? '';
   const loadMore = useCallback(() => {
