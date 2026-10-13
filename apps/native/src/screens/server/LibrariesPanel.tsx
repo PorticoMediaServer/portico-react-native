@@ -204,7 +204,7 @@ function LibraryBody({api, library, section, service}: {api: ReturnType<typeof u
     await api.request(`/v1/admin/libraries/${encodeURIComponent(library.id)}/settings`, 'PUT', {expectedRevision: doc.revision, operationId: opIds.forPayload(JSON.stringify({revision: doc.revision, settings: body})), settings: body});
     opIds.release(); settings.reload(); agent.reload();
   });
-  const sourceOf = (src: NonNullable<typeof config>['sources'][number], patch: Partial<SourceSettings> = {}): SourceSettings => ({name: src.name, path: src.path, classification: src.classification, followSymlinks: src.followSymlinks, missingGraceSeconds: src.missingGraceSeconds, intervalSeconds: src.intervalSeconds, expectedRevision: config!.revision, acceptReplacement: false, ...patch});
+  const sourceOf = (src: NonNullable<typeof config>['sources'][number], patch: Partial<SourceSettings> = {}): SourceSettings => ({name: src.name, path: src.path, classification: src.classification, followSymlinks: src.followSymlinks, intervalSeconds: src.intervalSeconds, expectedRevision: config!.revision, acceptReplacement: false, ...patch});
   const refresh = () => void inventory.service.refresh();
   const running = scan?.status === 'running';
   return (
@@ -259,7 +259,6 @@ function LibraryBody({api, library, section, service}: {api: ReturnType<typeof u
           {draft ? (
             <RowGroup title={t('web.librarySettings.deleting')} footer={t('web.librarySettings.deletingLede')}>
               <ToggleRow title={t('web.librarySettings.allowDelete')} value={draft.allowMediaDeletion} onChange={allowMediaDeletion => setDraft({...draft, allowMediaDeletion})} />
-              {draft.allowMediaDeletion ? <TypedRow numeric title={t('web.librarySettings.keepDeleted')} help={t('web.librarySettings.keepDeletedHelp')} value={String(draft.trashRetentionDays)} shown={`${draft.trashRetentionDays} ${t('settings.unit.days')}`} onDone={text => setDraft({...draft, trashRetentionDays: Math.min(3650, Math.max(0, Number(text) || 0))})} /> : null}
               {dirty ? <ListRow tone="action" title={t('action.save')} disabled={action.busy} onPress={saveSettings} /> : null}
               {dirty ? <ListRow title={t('action.discard')} onPress={() => setDraft(settings.data?.settings)} /> : null}
             </RowGroup>

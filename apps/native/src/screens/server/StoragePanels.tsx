@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {View} from 'react-native';
-import {backupProgressFraction, isRestoreRefusalCode, parseStorageReport, parseTrashPage, type BackupKind, type BackupSummary, type RestoreRefusalCode, type StorageUsage, type TrashEntry} from '../../../../../packages/client-core/src/administration';
+import {backupProgressFraction, isRestoreRefusalCode, parseStorageReport, type BackupKind, type BackupSummary, type RestoreRefusalCode, type StorageUsage} from '../../../../../packages/client-core/src/administration';
+import {emptyMissingTitles, listMissingTitles} from '../../../../../packages/client-core/src/title-identity';
 import {deleteBackup, getBackups, isAuthenticationFailure, restoreBackup, startBackup, waitForBackupCompletion, waitForServerAnswer} from '../../../../../packages/client-core/src/backups';
 import {StorageManagementService, type StorageManagementSnapshot, type StorageMount} from '../../../../../packages/client-core/src/storage-management';
 import {RemoteSourceService, type RemoteSource} from '../../../../../packages/client-core/src/remote-sources';
@@ -8,12 +9,12 @@ import type {LogSettings} from '../../../../../packages/client-core/src/server-a
 import {viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {davCommandSucceeded, davConfiguration, isFullTrashList, mountCommandSucceeded, retentionRows, stableStorageOperationId, type WebDavDraft} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {davCommandSucceeded, davConfiguration, mountCommandSucceeded, retentionRows, stableStorageOperationId, type WebDavDraft} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {createOperationIds, type LogsDraft, type MaintenanceDocument, type MaintenanceSettings} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
-import {operationId, problem, useAction, useAdmin, useRead, useServerId, useService} from '../../app/server-console';
+import {operationId, problem, useAction, useAdmin, usePagedList, useRead, useServerId, useService} from '../../app/server-console';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, ProgressBar, RowGroup, Sheet, ToggleRow, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 import {TypedRow, useServerForm} from '../settings/ServerForms';
 
@@ -77,7 +78,7 @@ export function RetentionRows() {
 
 const RESTORE_REFUSALS: Record<RestoreRefusalCode, MessageId> = {
   restore_source_invalid: 'web.maintenance.restoreSourceInvalid', restore_schema_newer: 'web.maintenance.restoreSchemaNewer', restore_pre_release: 'web.maintenance.restorePreRelease',
-  restore_integrity_failed: 'web.maintenance.restoreIntegrityFailed', restore_not_portico: 'web.maintenance.restoreNotPortico', insufficient_disk: 'web.maintenance.restoreNoSpace',
+  restore_integrity_failed: 'web.maintenance.restoreIntegrityFailed', restore_not_portico: 'web.maintenance.restoreNotPortico', insufficient_disk: 'web.maintenance.restoreNoSpace', restore_lock_unavailable: 'web.maintenance.restoreLockUnavailable',
 };
 const backupKind = (kind: BackupKind): MessageId => (kind === 'scheduled' ? 'web.maintenance.backupKindScheduled' : kind === 'manual' ? 'web.maintenance.backupKindManual' : 'web.maintenance.backupKindPreRestore');
 
@@ -164,43 +165,42 @@ export function BackupsPanel() {
   );
 }
 
-/** Storage & backups › Deleted titles: what is held before it is removed for good. */
-export function DeletedTitlesPanel() {
-  const admin = useAdmin();
-  const t = useI18n().t;
-  const read = useRead(() => admin.get('/v1/admin/trash?state=held&limit=100', parseTrashPage), [admin]);
-  const action = useAction();
-  const [opIds] = useState(() => createOperationIds(operationId));
-  const [emptying, setEmptying] = useState<'all' | 'expired'>();
-  const [menu, setMenu] = useState<TrashEntry>();
-  const page = read.data;
-  // "Due" is safe only when this page is the whole held listing (CD-42).
-  const full = isFullTrashList(page, false, !!page?.nextCursor);
-  const due = (page?.items ?? []).filter(item => item.expired);
-  const count = emptying === 'expired' ? due.length : page?.heldCount ?? 0;
-  const restore = (entry: TrashEntry) => void action.run(async () => {
-    const out = await admin.send<{conflicts: string[]}>(`/v1/admin/trash/${encodeURIComponent(entry.id)}/restore`, {operationId: opIds.forPayload(JSON.stringify({id: entry.id}))});
-    opIds.release(); read.reload();
-    if (out.conflicts?.length) throw Object.assign(new Error('conflict'), {code: 'restore_conflict'});
-  });
+/**
+ * Storage & backups › Missing titles: titles whose files are no longer on disk. They stay in the
+ * library until the owner's rule (the rows above this list) removes them; "Remove them now" does
+ * it at once. Nothing on disk is touched and watch history is kept.
+ */
+export function MissingTitlesPanel() {
+  const {api} = useSession();
+  const i18n = useI18n();
+  const t = i18n.t;
+  // Every page says how many titles are missing in all; that number is what the owner types to remove them.
+  const [total, setTotal] = useState(0);
+  const read = usePagedList(async cursor => { const page = await listMissingTitles(api, {cursor: cursor || undefined, limit: 100}); setTotal(page.total); return {items: [...page.items], nextCursor: page.nextCursor ?? ''}; }, [api]);
+  const [asking, setAsking] = useState(false);
+  const [removed, setRemoved] = useState<number>();
+  const when = (iso: string) => (iso ? i18n.dateTime(iso) : '—');
   const empty = async () => {
-    const payload = {expiredOnly: emptying === 'expired', confirmation: String(count)};
-    try { await admin.send('/v1/admin/trash/empty', {...payload, operationId: opIds.forPayload(JSON.stringify(payload))}); }
-    catch (e) { if ((e as {code?: string})?.code === 'confirmation_mismatch' || (e as {status?: number})?.status === 409) { opIds.release(); read.reload(); } throw e; }
-    opIds.release(); setEmptying(undefined); read.reload();
+    const out = await emptyMissingTitles(api);
+    setRemoved(out.titles); setAsking(false);
+    read.reload();
   };
   return (
     <>
-      {read.error ? <Notice tone={page ? 'warning' : 'error'} message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
-      {action.error ? <Notice tone="error" message={action.error} /> : null}
-      <RowGroup title={t('web.maintenance.trash')} footer={page?.items.length && !full ? t('web.trash.dueNeedsFullList') : t('web.maintenance.trashLede')}>
-        {page?.items.map(entry => <ListRow key={entry.id} icon="trash" title={entry.title} meta={entry.expired ? t('web.maintenance.dueForRemoval') : undefined} subtitle={t('web.maintenance.trashMeta', {count: entry.fileCount, bytes: formatBytes(entry.bytes), when: dateTime(entry.trashedAt), expires: entry.expiresAt ? dateTime(entry.expiresAt) : 'none'})} accessory="menu" onPress={() => setMenu(entry)} />)}
-        {page && !page.items.length ? <ListRow title={t('web.maintenance.nothingWaiting')} /> : null}
-        {page?.items.length && full && due.length ? <ListRow tone="action" title={t('web.maintenance.removeDue')} onPress={() => { action.clear(); setEmptying('expired'); }} /> : null}
-        {page?.items.length ? <ListRow tone="destructive" title={t('web.maintenance.removeAll')} meta={String(page.heldCount)} onPress={() => { action.clear(); setEmptying('all'); }} /> : null}
-      </RowGroup>
-      <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.title} items={[{id: 'restore', label: t('web.maintenance.putBack'), icon: 'refresh'}]} onSelect={() => { if (menu) restore(menu); }} />
-      <ConfirmSheet open={!!emptying} onDismiss={() => setEmptying(undefined)} title={t('web.maintenance.removeTitle')} consequence={t('web.maintenance.removeBody', {count})} confirmLabel={t('web.maintenance.removeConfirm')} confirmToken={String(count)} onConfirm={empty} describeError={e => problem(e, 'action')} />
+      {read.error ? <Notice tone={read.items ? 'warning' : 'error'} message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
+      {removed !== undefined ? <Notice tone="success" message={t('web.missingTitles.removed', {count: removed})} /> : null}
+      {read.items ? (
+        <RowGroup title={total ? t('web.missingTitles.count', {count: total}) : undefined}>
+          {read.items.map(entry => (
+            <ListRow key={entry.id} readable icon="film" title={entry.parentTitle ? `${entry.parentTitle} · ${entry.title}` : entry.title} subtitleLines={2}
+              subtitle={entry.removedAt ? t('web.missingTitles.sinceRemoved', {when: when(entry.missingSince), removes: when(entry.removedAt)}) : t('web.missingTitles.since', {when: when(entry.missingSince)})} />
+          ))}
+          {!read.items.length ? <ListRow readable title={t('web.missingTitles.none')} /> : null}
+          {read.more ? <ListRow tone="action" title={t('server.showMore')} disabled={read.loading} onPress={read.loadMore} /> : null}
+          {total ? <ListRow tone="destructive" title={t('web.missingTitles.removeNow')} onPress={() => { setRemoved(undefined); setAsking(true); }} /> : null}
+        </RowGroup>
+      ) : null}
+      <ConfirmSheet open={asking} onDismiss={() => setAsking(false)} title={t('web.missingTitles.removeTitle')} consequence={t('web.missingTitles.removeBody', {count: total})} confirmLabel={t('web.missingTitles.removeConfirm')} confirmToken={String(total)} onConfirm={empty} describeError={e => problem(e, 'action')} />
     </>
   );
 }
