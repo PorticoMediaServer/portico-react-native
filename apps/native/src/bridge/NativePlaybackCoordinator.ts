@@ -317,7 +317,7 @@ export class NativePlaybackCoordinator {
       ) {
         // The lease belongs to the engine it was asked of, which may no longer be the current one.
         try { await transport.release(lease.lease); }
-        catch { staleReleaseFailed = true; throw new Error('The previous player could not release its lease.'); }
+        catch (error) { staleReleaseFailed = true; throw error; }
         return;
       }
       this.lease = lease;

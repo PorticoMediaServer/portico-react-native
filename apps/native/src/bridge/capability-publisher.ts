@@ -27,20 +27,31 @@ async function facts(): Promise<NativeFacts | null> {
 export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSnapshot(): RouteSnapshot; subscribe(listener: () => void): () => void}>): Readonly<{ready: Promise<void>; stop: () => void}> {
   const publisher = new CapabilityPublisher(http);
   let stopped = false, settle: ReturnType<typeof setTimeout> | undefined, origin = route?.getSnapshot().origin ?? null;
-  const publish = async () => {
-    const [native, mpv] = await Promise.all([facts(), mpvDeviceFacts()]);
-    if (stopped) return;
-    const document = deviceCapabilityDocument({setting: engineSettingStore.get(), native, mpv: mpv as MpvDeviceFacts | null, mpvAvailable, appVersion: version, device: {television: Platform.isTV, pad: isTablet, family: androidFamily, osVersion: String(Platform.Version)}});
-    // The publisher only compares and sends; its parameter type is the shared package's older
-    // name for this document.
-    await publisher.publish(document as unknown as CapabilityProfile).catch(() => {});
+  let sending: Promise<void> = Promise.resolve();
+  const publish = (): Promise<void> => {
+    // Serialize writes: a slow earlier PUT must not overwrite a newer engine preference.
+    sending = sending.then(async () => {
+      const setting = engineSettingStore.get(), revision = engineSettingStore.version();
+      const [native, mpv] = await Promise.all([facts(), mpvDeviceFacts()]);
+      if (stopped || engineSettingStore.version() !== revision) return;
+      const document = deviceCapabilityDocument({setting, native, mpv: mpv as MpvDeviceFacts | null, mpvAvailable, appVersion: version, device: {television: Platform.isTV, pad: isTablet, family: androidFamily, osVersion: String(Platform.Version)}});
+      // This repository's shared-package copy still names the older capability shape.
+      await publisher.publish(document as unknown as CapabilityProfile).catch(() => {});
+      engineSettingStore.settled(revision);
+    }).catch(() => {});
+    return sending;
   };
-  const ready = publish();
+  const initial = publish();
+  const ready = initial.then(async () => {
+    // A preference change during the first probe is queued behind it; include that write in
+    // startup readiness as well, so the first session uses the viewer's saved player.
+    for (;;) { const pending = sending; await pending; if (pending === sending) return; }
+  });
   const changed = () => { if (settle) clearTimeout(settle); settle = setTimeout(() => void publish(), 1500); };
   const module = NativeModules.PorticoCapabilities;
   const subscription = module ? new NativeEventEmitter(module).addListener('portico.capabilities', changed) : undefined;
   const offRoute = route?.subscribe(() => { const next = route.getSnapshot().origin; if (next && next !== origin) { origin = next; changed(); } });
   // The server plans for the player the viewer chose, so a change of the setting is sent at once.
-  const offSetting = engineSettingStore.subscribe(() => void publish().finally(() => engineSettingStore.settled()));
+  const offSetting = engineSettingStore.subscribe(() => void publish());
   return Object.freeze({ready, stop: () => { stopped = true; if (settle) clearTimeout(settle); subscription?.remove(); offRoute?.(); offSetting(); }});
 }
