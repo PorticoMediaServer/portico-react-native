@@ -173,6 +173,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
         NSDictionary *entry = self->_entries[task.taskDescription ?: @""];
         // A task the session still lists, in any state, will report for itself.
         if (PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) [live addObject:task.taskDescription];
+        else [task cancel];
       }
       BOOL changed = NO;
       for (NSString *identifier in self->_entries.allKeys) {
@@ -450,7 +451,7 @@ RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)
     NSString *address = url.absoluteString;
     // Resume data contains its original request's cellular policy too. It cannot be tightened
     // by requestFor:, so only reuse data created under the current preference.
-    BOOL samePolicy = [entry[@"cellularAllowed"] isKindOfClass:NSNumber.class] && [entry[@"cellularAllowed"] boolValue] == self->_cellular;
+    BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
     BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
     if (resume.length > 0 && !sameGrant) {
       [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
