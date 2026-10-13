@@ -560,8 +560,14 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  return _primary?_heard:0;
 }
 - (void)startPrimary {
- if(!_primary||_paused||!_primary.node||_primary.scheduled<=0)return;
+ if(!_primary||!_primary.node||_primary.scheduled<=0)return;
  if(!_primary.started&&_primary.scheduled<ARStartSeconds*_primary.sampleRate&&!_primary.eof)return;
+ // A paused seek is complete when its decoded head is scheduled at the requested frame.
+ // Waiting for the node to play leaves the listening owner's seek pending until Resume.
+ if(_paused){
+  if(_primary.seek>=0){NSInteger seek=_primary.seek;_primary.seek=-1;[self emit:@"seekApplied" extra:@{@"seekRevision":@(seek),@"position":@(_primary.origin/_primary.sampleRate)}];}
+  return;
+ }
  NSError *error=nil;
  if(!_engine.running&&![_engine startAndReturnError:&error]){[self emit:@"audioRenderFailed" extra:@{@"error":@"The audio output couldn’t start. Retry playback."}];return;}
  if(!_primary.node.playing)[_primary.node play];
