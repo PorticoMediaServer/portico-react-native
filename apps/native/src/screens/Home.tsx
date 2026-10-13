@@ -6,6 +6,7 @@ import {captionFor, continueCaptionFor, formatDuration, iconFor, lengthFor, prog
 import {continueTitle, homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
 import {useHome} from '../app/home';
 import {present} from '../app/errors';
+import {useSavedTitles} from '../app/saved-index';
 import {useI18n} from '../app/i18n';
 import {HomeCustomise} from './HomeCustomise';
 import {HomeEmpty} from './HomeEmpty';
@@ -42,13 +43,16 @@ export function HomeScreen() {
   // Home has no page header of its own to name it for a screen reader.
   useScreenTitle(i18n.t('web.shell.home'));
   const failure = present(state.error, 'home', {retrying: state.retrying, i18n});
-  // OS-02: Continue Watching and the watchlist become Spotlight results and titles Siri can play.
+  // OS-02: Continue Watching and My List become Spotlight results and titles Siri can play.
+  // Continue Watching is a Home row. My List is not on Home, so it is read for this on its own;
+  // the index is written once both are known, and each write replaces both.
+  const savedTitles = useSavedTitles(state.document);
   useEffect(() => {
     const rows = state.document?.rows;
-    if (!rows) return;
+    if (!rows || !savedTitles) return;
     const titles = (ids: readonly string[]) => rows.filter(r => ids.includes(r.id) || ids.includes(r.kind)).flatMap(r => r.entries).filter(e => e.playback || e.kind === 'movie' || e.kind === 'episode').map(e => ({itemId: e.playback?.itemId ?? e.id, title: e.title, subtitle: captionFor(e)}));
-    indexTitles({continueWatching: titles(['continue_watching', 'continue']), saved: titles(['watchlist', 'watchlisted'])});
-  }, [state.document]);
+    indexTitles({continueWatching: titles(['continue_watching', 'continue']), saved: savedTitles});
+  }, [state.document, savedTitles]);
   const {system, api, session} = useSession();
   const loadingFirst = state.phase === 'loading' && !state.document;
   const {space, isTV, metrics} = useTheme();

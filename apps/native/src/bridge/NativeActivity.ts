@@ -27,6 +27,9 @@ export type IndexedTitles = {continueWatching: readonly ActivityTitle[]; saved: 
 type Native = {setCurrent(title: ActivityTitle | null): void; indexTitles(titles: IndexedTitles): void; clear(): void};
 const native = Platform.OS === 'ios' && !Platform.isTV ? (NativeModules.PorticoActivity as Native | undefined) : undefined;
 
+/** Whether this device keeps such an index at all (iPhone and iPad). */
+export const indexesTitles: boolean = !!native;
+
 export function useCurrentActivity(title: ActivityTitle | null): void {
   const key = title ? JSON.stringify(title) : '';
   useEffect(() => {
