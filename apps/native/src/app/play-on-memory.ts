@@ -17,7 +17,8 @@ const text = (v: unknown, max: number): v is string => typeof v === 'string' && 
 export function readSentPlayback(raw: unknown, viewer: string, now: number): SentPlayback | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const v = raw as Record<string, unknown>;
-  if (!text(v.viewer, 512) || v.viewer !== viewer || !text(v.handoffId, 128) || !/^[A-Za-z0-9_.:-]+$/.test(v.handoffId) || !text(v.device, 128)) return undefined;
+  // The viewer is compared whole with the signed-in one, so it needs no shape of its own.
+  if (typeof v.viewer !== 'string' || !viewer || v.viewer !== viewer || !text(v.handoffId, 128) || !/^[A-Za-z0-9_.:-]+$/.test(v.handoffId) || !text(v.device, 128)) return undefined;
   if (typeof v.at !== 'number' || !Number.isFinite(v.at) || v.at > now + 60_000 || now - v.at > SENT_PLAYBACK_MAX_AGE_MS) return undefined;
   return Object.freeze({viewer: v.viewer, handoffId: v.handoffId, device: v.device, ...(text(v.title, 300) ? {title: v.title} : {}), at: v.at});
 }

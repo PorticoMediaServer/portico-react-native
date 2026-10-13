@@ -67,7 +67,8 @@ export function ReceiverMode({engine, enabled}: {engine: PlayerEngine; enabled: 
     const listener = AppState.addEventListener('change', follow);
     return () => { listener.remove(); host.dispose(); };
   }, [host]);
-  // PERF-16: pause the receiver inbox poll while the player is in the foreground.
+  // The host is told when the player is in front: it slows its heartbeat then, and keeps its inbox
+  // live, so something new can still be sent here while a title plays.
   const playerActive = engine.active;
   useEffect(() => {
     host?.setPlayerActive(playerActive);
