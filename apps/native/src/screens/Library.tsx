@@ -77,7 +77,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     const place = `${libraryId}\n${initialTab ?? ''}`;
     if (arrived.current !== place) { arrived.current = place; touched.current = false; setPublished(null); }
     // The saved choices and the library's kind can arrive a moment after the screen: they still decide how it opens.
-    if (!touched.current && !genre) setView(opening());
+    // An opening that says what is already on screen changes nothing (no redraw, nothing asked again).
+    if (!touched.current && !genre) { const next = opening(); setView(current => (JSON.stringify(current) === JSON.stringify(next) ? current : next)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab, libraryId, kind, memoryReady, memory]);
   const {tab, sort} = view;

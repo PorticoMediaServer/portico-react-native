@@ -17,6 +17,7 @@ import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
+import {useGroupActions} from '../app/together';
 import {useCurrentActivity} from '../bridge/NativeActivity';
 import {Button, Card, Menu, Notice, Page, PersonCard, Shelf, Skeleton, StateView, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
 import {SectionView} from './Home';
@@ -53,6 +54,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const artwork = useArtwork();
   const player = usePlayerActions();
   const downloads = useDownloads();
+  // A Watch Together room this viewer may add to: the page offers it, as the title's card does.
+  const together = useGroupActions();
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<'rate' | 'playlist' | 'collection' | null>(null);
   const data = snapshot.data;
@@ -97,7 +100,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
     // owner edit however they signed in, so an owner is always answered yes here.
     local: viewerSession?.viewer.role === 'owner',
     platform: isTV ? 'tv' : 'phone',
-  }) : undefined), [data, viewerSession, isTV]);
+    group: together.inRoom && together.canQueue,
+  }) : undefined), [data, viewerSession, isTV, together.inRoom, together.canQueue]);
   const menuItems: MenuItem[] = [];
   if (item && detail) {
     for (const group of detail.more) {
@@ -126,6 +130,12 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         break;
       case 'refreshMetadata':
         void api.request('/v1/items/' + encodeURIComponent(item.id) + '/metadata/refresh', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
+        break;
+      case 'watchWithGroup':
+        void together.service?.watch(item.id).then(ok => { if (ok) navigation.push('Together', {}); });
+        break;
+      case 'addToGroupQueue':
+        if (item) void together.service?.queueAdd([item.id]).then(ok => showToast(ok ? {message: i18n.t('entry.addedToGroupQueue'), icon: 'check'} : {message: i18n.t('entry.groupQueueFailed'), icon: 'warning'}));
         break;
       case 'rate':
         setSheet('rate');
