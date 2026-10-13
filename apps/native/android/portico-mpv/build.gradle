@@ -23,7 +23,10 @@ def mpvArchives = [
 
 // The same list the app is built for (gradle.properties, or -PreactNativeArchitectures=...).
 def mpvAbis = (project.findProperty("reactNativeArchitectures") ?: "armeabi-v7a,arm64-v8a,x86,x86_64")
-    .toString().split(",").collect { it.trim() }.findAll { mpvArchives.containsKey(it) }
+    .toString().split(",").collect { it.trim() }.unique()
+if (mpvAbis.isEmpty() || mpvAbis.any { !mpvArchives.containsKey(it) }) {
+    throw new GradleException("reactNativeArchitectures must name only supported libmpv architectures: ${mpvArchives.keySet().join(', ')}")
+}
 def mpvLocalDir = project.findProperty("porticoLibmpvDir")?.toString()
 def mpvRoot = layout.buildDirectory.dir("libmpv").get().asFile
 def mpvArchiveDir = new File(mpvRoot, "archives")
@@ -47,6 +50,8 @@ def fetchLibmpv = tasks.register("fetchLibmpv") {
     inputs.property("checksums", mpvAbis.collect { mpvArchives[it].sha256 }.join(","))
     inputs.property("local", mpvLocalDir ?: "")
     outputs.dir(mpvFetchedDir)
+    // A local override is validated every time, including when a previously checked file was removed.
+    outputs.upToDateWhen { !mpvLocalDir }
     doLast {
         if (mpvLocalDir) {
             mpvAbis.each { abi ->

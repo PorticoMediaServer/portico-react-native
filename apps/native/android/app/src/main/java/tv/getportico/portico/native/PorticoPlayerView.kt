@@ -30,6 +30,13 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
   val surface = SurfaceView(context)
   private val subtitle = TextView(context)
   private var attached: ExoPlayer? = null
+  private val suppliedSurface: () -> android.view.Surface? = { surface.holder.surface }
+  private val captioning = context.getSystemService(Context.CAPTIONING_SERVICE) as? android.view.accessibility.CaptioningManager
+  private val captionsChanged = object : android.view.accessibility.CaptioningManager.CaptioningChangeListener() {
+    override fun onFontScaleChanged(fontScale: Float) = place(PorticoPlaybackController.shared)
+    override fun onUserStyleChanged(userStyle: android.view.accessibility.CaptioningManager.CaptionStyle) = place(PorticoPlaybackController.shared)
+    override fun onEnabledChanged(enabled: Boolean) = place(PorticoPlaybackController.shared)
+  }
 
   init {
     setBackgroundColor(Color.BLACK)
@@ -45,12 +52,13 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
   /** Shows [player]'s picture here (or nothing). A surface belongs to one player at a time. */
   fun show(player: ExoPlayer?) {
     if (player === attached) return
+    val controller = PorticoPlaybackController.shared
+    if (controller?.displaySurface === suppliedSurface) controller.displaySurface = null
     attached?.clearVideoSurfaceView(surface)
     attached = player
     player?.setVideoSurfaceView(surface)
     // The controller asks the display to match the title through the surface the picture is on.
-    val controller = PorticoPlaybackController.shared
-    if (player != null) controller?.displaySurface = { surface.holder.surface }
+    if (player != null) controller?.displaySurface = suppliedSurface
   }
 
   fun update(controller: PorticoPlaybackController?, active: Boolean) {
@@ -92,6 +100,16 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
   }
 
   override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) = place(PorticoPlaybackController.shared)
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    captioning?.addCaptioningChangeListener(captionsChanged)
+  }
+
+  override fun onDetachedFromWindow() {
+    captioning?.removeCaptioningChangeListener(captionsChanged)
+    super.onDetachedFromWindow()
+  }
 
   override fun requestLayout() {
     super.requestLayout()

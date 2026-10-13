@@ -80,8 +80,12 @@ internal class PorticoMpvRelay {
 
   fun clearFailure() { lastFailure = null }
 
-  private fun record(status: Int, permanent: Boolean) {
-    lastFailure = Failure(status, permanent, SystemClock.elapsedRealtime())
+  private fun record(exchange: Exchange, status: Int, permanent: Boolean) {
+    synchronized(lock) {
+      if (exchange in exchanges && exchange.call?.isCanceled() != true) {
+        lastFailure = Failure(status, permanent, SystemClock.elapsedRealtime())
+      }
+    }
   }
 
   /**
@@ -105,6 +109,7 @@ internal class PorticoMpvRelay {
         origin = "$scheme://$name" + (if (source.port >= 0) ":${source.port}" else "")
         prefixes = prefixesFor(source.path ?: "/")
         cancelAllLocked()
+        lastFailure = null
         ensureListeningLocked()
       }
       val local = if (listening == 0) null else local(source, listening)
@@ -146,6 +151,13 @@ internal class PorticoMpvRelay {
         port = 0
       }
     }
+  }
+
+  /** A retired bridge has no next playback: release its executors as well as its sockets. */
+  fun destroy() {
+    stop()
+    control.shutdown()
+    workers.shutdownNow()
   }
 
   // --- scope ------------------------------------------------------------------------------
@@ -295,12 +307,15 @@ internal class PorticoMpvRelay {
       return
     }
     val call = client.newCall(wire)
-    exchange.call = call
+    synchronized(lock) {
+      if (exchange !in exchanges || socket.isClosed) return
+      exchange.call = call
+    }
     val response = try {
       call.execute()
     } catch (error: IOException) {
       if (!call.isCanceled()) {
-        record(0, permanent(error))
+        record(exchange, 0, permanent(error))
         try { reply(out, 502) } catch (_: IOException) {}
       }
       return
@@ -309,14 +324,14 @@ internal class PorticoMpvRelay {
       val status = answer.code
       if (status in 300..399) {
         // A redirect is never followed, and mpv must not follow it on its own either.
-        record(502, false)
+        record(exchange, 502, false)
         reply(out, 502)
         return
       }
-      if (status >= 400) record(status, false)
+      if (status >= 400) record(exchange, status, false)
       val type = (answer.header("Content-Type") ?: "").lowercase()
       if ((status == 200 || status == 206) && request[0] != "HEAD" && (playlistPath || type.contains("mpegurl"))) {
-        servePlaylist(answer, upstream, out)
+        servePlaylist(exchange, answer, upstream, out)
         return
       }
       val text = StringBuilder("HTTP/1.1 $status Relay\r\n")
@@ -338,7 +353,7 @@ internal class PorticoMpvRelay {
           source.read(buffer)
         } catch (error: IOException) {
           // The body was cut short: closing here lets mpv ask again from where it stopped.
-          if (!call.isCanceled()) record(0, permanent(error))
+          if (!call.isCanceled()) record(exchange, 0, permanent(error))
           return
         }
         if (count < 0) break
@@ -352,9 +367,9 @@ internal class PorticoMpvRelay {
    * An HLS playlist: read whole (bounded), every address in it rewritten to this relay, and
    * answered as a complete document. Anything that cannot be rewritten refuses the playlist.
    */
-  private fun servePlaylist(answer: okhttp3.Response, upstream: Uri, out: OutputStream) {
+  private fun servePlaylist(exchange: Exchange, answer: okhttp3.Response, upstream: Uri, out: OutputStream) {
     val refuse = {
-      record(502, false)
+      record(exchange, 502, false)
       reply(out, 502)
     }
     val body = answer.body
@@ -372,7 +387,7 @@ internal class PorticoMpvRelay {
       }
       if (over) null else buffer.toByteArray()
     } catch (error: IOException) {
-      record(0, permanent(error))
+      record(exchange, 0, permanent(error))
       try { reply(out, 502) } catch (_: IOException) {}
       return
     }

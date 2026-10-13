@@ -300,6 +300,21 @@ internal object PorticoMpvSupport {
     return if (value == "none" || value == "opaque") value else "translucent"
   }
 
+  fun captionColors(context: Context, style: Map<*, *>?): Pair<Int, Int> {
+    val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
+    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
+    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else android.graphics.Color.WHITE
+    val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
+      else when (styleBackground(style)) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
+    return text to box
+  }
+
+  /** mpv's floating point red/green/blue/alpha syntax. */
+  fun captionColor(color: Int): String = listOf(
+      android.graphics.Color.red(color), android.graphics.Color.green(color),
+      android.graphics.Color.blue(color), android.graphics.Color.alpha(color))
+      .joinToString("/") { decimal(it / 255.0, 3) }
+
   /**
    * The look of the line the app draws: Portico's caption style (the profile's size and
    * background, sent with the subtitle command) on top of the system's. The size the viewer set
@@ -314,11 +329,8 @@ internal object PorticoMpvSupport {
     line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size)
     val face = try { system?.typeface } catch (_: Exception) { null } ?: android.graphics.Typeface.DEFAULT
     line.setTypeface(face, if (italic) android.graphics.Typeface.ITALIC else android.graphics.Typeface.NORMAL)
-    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else android.graphics.Color.WHITE
+    val (text, box) = captionColors(context, style)
     line.setTextColor(text)
-    val background = styleBackground(style)
-    val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
-      else when (background) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
     line.setBackgroundColor(box)
     // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
     if (android.graphics.Color.alpha(box) < 77) line.setShadowLayer(Math.max(2f, size * 0.08f), 0f, 0f, android.graphics.Color.BLACK) else line.setShadowLayer(0f, 0f, 0f, 0)
