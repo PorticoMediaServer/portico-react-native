@@ -17,7 +17,7 @@ import {friendlyHost} from '../../app/content';
 import {say} from '../../app/errors';
 import {reportProblem, sendReport, useLastCrash} from '../../app/client-report';
 import {deviceIdentity} from '../../bridge/setup-codes';
-import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, ToggleRow, isTV, showToast, useTheme, type MenuItem} from '../../ui';
+import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, Text, ToggleRow, isTV, rowPaddingX, showToast, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 import {ChangePasswordSheet, DevicesSection, ProfileLimitsSheet, SignOutEverywhereSheet, TwoFactorSection} from '../Security';
 import {LocalProfilesSection, useDirectAccount} from '../Profiles';
 import {DeleteAccountSheet} from '../DeleteAccount';
@@ -66,7 +66,7 @@ export function useSettingsStructure(): SettingsStructure {
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
-const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about']);
+const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote']);
 
 /** One page of Settings: its sections as row groups. Personal rows save on change. */
 export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: the first row takes focus when the page opens. */ entry?: boolean}) {
@@ -206,8 +206,16 @@ function Panel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'deviceName': return <DeviceName entry={entry} />;
     case 'downloadsStorage': return <DownloadsStorage />;
     case 'about': return <About entry={entry} />;
+    case 'privacyNote': return <PrivacyNote />;
     default: return null;
   }
+}
+
+/** The one thing the privacy switches do not change: the owner's own record of what is played. Said before the switches that might suggest otherwise. */
+function PrivacyNote() {
+  const i18n = useI18n();
+  const x = rowPaddingX(useSpecPlatform());
+  return <Text variant="caption" tone="tertiary" style={{paddingHorizontal: x}}>{i18n.t('pref.note.privacy.ownerSeesPlays')}</Text>;
 }
 
 function Identity({entry}: {entry?: boolean}) {

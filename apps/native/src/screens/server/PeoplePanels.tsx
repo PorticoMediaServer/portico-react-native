@@ -4,7 +4,7 @@ import {contentRatings, parseAccessDevicePage, parseAccessMember, parseInvitatio
 import {apiScopePresetIds, apiScopePresets, createApiKey, listApiKeys, revokeApiKey, type ApiCredential, type ApiScope, type ApiScopePreset, type IssuedApiCredential} from '../../../../../packages/client-core/src/api-access';
 import {credentialFacts, credentialState, credentialWorks, scopesText} from '../../../../../packages/client-core/src/server-admin/api-words';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
-import {accessListPath, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {accessListPath, memberOffLine, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
@@ -30,7 +30,8 @@ const rows = <T,>(raw: unknown, each: (x: unknown) => T): T[] => {
 /** People › Accounts: everyone who can use this server. An account opens to its role, libraries, sign-in, limits and devices. */
 export function AccountsPanel() {
   const {api} = useSession();
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const libraries = useLibrariesContext();
   const read = useRead<{items: DirectMember[]}>(() => api.request('/v1/direct/members'), [api]);
   // Roles and limits come from the access list, joined by account.
@@ -48,7 +49,9 @@ export function AccountsPanel() {
         {members.map(m => {
           const limits = access.items?.find(a => a.accountId === m.id)?.limits;
           const facts = [m.hostedAccountId ? t('server.people.porticoAccount') : '', m.role === 'owner' || !m.allowedLibraries.length ? t('server.people.allLibraries') : m.allowedLibraries.map(libName).join(', '), limits?.maxStreams ? t('server.people.streams', {count: limits.maxStreams}) : '', limits?.maxContentRating ? t('server.people.upTo', {rating: limits.maxContentRating}) : ''];
-          return <ListRow key={m.id} icon="account" title={m.username} subtitle={facts.filter(Boolean).join(' · ')} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.id)} />;
+          // An account that is off says since when, and whether the owner turned it off or the person left.
+          const off = memberOffLine(m, t, iso => i18n.date(iso));
+          return <ListRow key={m.id} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.id)} />;
         })}
         {access.more ? <ListRow tone="action" title={t('server.showMore')} onPress={access.loadMore} /> : null}
         <ListRow tone="action" icon="plus" title={t('web.people.addAccount')} onPress={() => setAdding(true)} />

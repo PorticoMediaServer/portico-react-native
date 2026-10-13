@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resumeEnding, savedStateAfter, stepAfterEnding} from '../src/app/sign-in-ended.ts';
-import {SessionRefreshError, ACCESS_REFUSED} from '../../../packages/client-core/src/server-connections.ts';
+import {SessionRefreshError, ACCESS_REFUSED, REFRESH_OUTSIDE_HOURS} from '../../../packages/client-core/src/server-connections.ts';
 import {RouteError} from '../../../packages/client-core/src/route-identity.ts';
 import {ApiError} from '../../../packages/client-core/src/index.ts';
 
@@ -14,8 +14,15 @@ test('the same endings as web: a refused renewal, or access refused', () => {
 test('another server answering at the address ends nothing: the sign-in is kept and the shell says so', () => {
   assert.equal(resumeEnding(new Error('offline'), ACCESS_REFUSED), undefined);
   assert.equal(resumeEnding(new RouteError('identity_mismatch', 'another server'), ACCESS_REFUSED), undefined);
-  assert.equal(savedStateAfter(true), 'replaced');
-  assert.equal(savedStateAfter(false), 'offline');
+  assert.equal(savedStateAfter(new Error('offline'), true, REFRESH_OUTSIDE_HOURS), 'replaced');
+  assert.equal(savedStateAfter(new Error('offline'), false, REFRESH_OUTSIDE_HOURS), 'offline');
+});
+
+test('an account outside its allowed hours stays signed in, and the shell says why', () => {
+  const error = new SessionRefreshError(REFRESH_OUTSIDE_HOURS, 'not now', false, 403);
+  assert.equal(resumeEnding(error, ACCESS_REFUSED), undefined, 'nothing is ended');
+  assert.equal(savedStateAfter(error, false, REFRESH_OUTSIDE_HOURS), 'outsideHours');
+  assert.equal(savedStateAfter(error, true, REFRESH_OUTSIDE_HOURS), 'outsideHours');
 });
 
 test('everything else keeps the saved sign-in and the shell', () => {

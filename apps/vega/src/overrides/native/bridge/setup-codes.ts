@@ -6,6 +6,7 @@ import {HttpLocalApi, type DeviceAuthorization, type HostedSession, type LocalSe
 import {parseLocalSession} from '../../../../../../packages/client-core/src/local-session';
 import {hostedGate} from '../../../../../../packages/client-core/src/hosted-gate';
 import {activationGate} from '../../../../../native/src/bridge/hosted-activation-gate';
+import {deviceApprovalWatch} from '../../../../../native/src/bridge/device-approval';
 import {SetupCodeService, type SetupCodeEntry, type SetupCodeJournal, type SetupCodeStorage} from '../../../../../../packages/client-core/src/setup-code';
 import type {SetupDraft, SetupDraftStore} from '../../../../../../packages/client-core/src/setup-onboarding';
 import {NativeQueueStore} from '../../../../../native/src/bridge/queue-storage';
@@ -86,11 +87,14 @@ export function deviceIdentity() {
 export function nativeQuickConnect(api: HttpLocalApi) {
   const serverId = api.getRouteConnection()?.pin.serverId;
   if (!serverId) throw new Error('Verify the server identity before using Quick Connect.');
-  return new SetupCodeService<LocalSession>('local:' + serverId, {
+  // Says when the code was approved and the server's owner still has to approve this device.
+  const approval = deviceApprovalWatch();
+  const service = new SetupCodeService<LocalSession>('local:' + serverId, {
     create: async (id, signal) => api.request<DeviceAuthorization>('/v1/quick-connect', 'POST', {requestId: id, ...(await deviceIdentity()), platform: platformId}, signal),
-    poll: async (entry, signal) => parseLocalSession(await api.request('/v1/quick-connect/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal), {authority: 'local', serverId}),
+    poll: async (entry, signal) => parseLocalSession(await approval.watch(() => api.request('/v1/quick-connect/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal)), {authority: 'local', serverId}),
     cancel: (entry, signal) => api.request<void>('/v1/quick-connect/cancel', 'POST', {deviceCode: entry.authorization.deviceCode}, signal),
   }, nativeSetupStorage('local:' + serverId), requestId);
+  return Object.assign(service, {approval});
 }
 
 export function nativeSetupDraft(serverId: string): SetupDraftStore {

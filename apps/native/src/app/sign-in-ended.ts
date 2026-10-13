@@ -23,8 +23,14 @@ export function resumeEnding(error: unknown, accessRefusedCode: string): SignInE
   return undefined;
 }
 
-/** What the shell says while a saved sign-in that has not ended cannot be used: its server is not answering, or something else answers at its address. */
-export function savedStateAfter(replaced: boolean): 'offline' | 'replaced' {
+/**
+ * What the shell says while a saved sign-in that has not ended cannot be used: its server is not
+ * answering, something else answers at its address, or the server says this account is not let
+ * in at this time of day (the owner's limit; the sign-in is kept and works again when the hours
+ * come round).
+ */
+export function savedStateAfter(error: unknown, replaced: boolean, outsideHoursCode: string): 'offline' | 'replaced' | 'outsideHours' {
+  if ((error as {code?: unknown} | null)?.code === outsideHoursCode) return 'outsideHours';
   return replaced ? 'replaced' : 'offline';
 }
 

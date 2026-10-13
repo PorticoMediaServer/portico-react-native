@@ -1,7 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, NativeModules, Platform} from 'react-native';
 import {HttpLocalApi, ViewerService, type CredentialSessionService, type HostedServer, type HostedSession, type LocalSession, type SystemInfo} from '../../../../packages/client-core/src/index';
-import {ACCESS_REFUSED, connectHostedServer, connectPairedServer, inspectDirectServer, rememberNativeSession, type RememberedServer} from '../../../../packages/client-core/src/server-connections';
+import {ACCESS_REFUSED, REFRESH_OUTSIDE_HOURS, connectHostedServer, connectPairedServer, rememberNativeSession, type RememberedServer} from '../../../../packages/client-core/src/server-connections';
 import {acceptPorticoCustody, acceptPorticoInvitation, isAccessRefused, isClockSkew, isSessionMigrated, leavePorticoServer, porticoSignIn, transferPorticoOwnership, type HostedRequestApi} from '../../../../packages/client-core/src/portico-servers';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
 import {ViewerSelectionCommit, selectedViewerRecord, type SelectedViewerRecord} from '../../../../packages/client-core/src/viewer-selection';
@@ -106,7 +106,7 @@ export type SessionValue = {
    * answers at the server's address: the sign-in is kept and retried, and only the person decides
    * to sign in again). Undefined once confirmed, or with no saved sign-in.
    */
-  saved?: {state: 'checking' | 'offline' | 'replaced'; host?: string; retry: () => void; signInAgain: () => void; useAnother: () => void};
+  saved?: {state: 'checking' | 'offline' | 'replaced' | 'outsideHours'; host?: string; retry: () => void; signInAgain: () => void; useAnother: () => void};
   /**
    * Justin (23 Sep): a sign-in that has ended (the server refused to renew it, or refused this
    * profile access) goes straight back to sign-in, never a banner in the shell. 'ended': the
@@ -262,7 +262,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const [busy, setBusy] = useState(false);
   const [recovery, setRecovery] = useState<SelectedViewerRecord>();
   const [resumeFailure, setResumeFailure] = useState<'offline' | 'auth'>();
-  const [savedState, setSavedState] = useState<'checking' | 'offline' | 'replaced'>();
+  const [savedState, setSavedState] = useState<'checking' | 'offline' | 'replaced' | 'outsideHours'>();
   const resumeAttempts = useRef(0);
   const resumeRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [restoring, setRestoring] = useState(true);
@@ -542,7 +542,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         return;
       }
       const ending = resumeEnding(e, ACCESS_REFUSED);
-      const replaced = ending ? false : await serverReplaced(record).catch(() => false);
+      const replaced = ending || (e as {code?: unknown} | null)?.code === REFRESH_OUTSIDE_HOURS ? false : await serverReplaced(record).catch(() => false);
       clearTimeout(resumeRetry.current);
       if (ending) {
         // Must sign in again: straight to the sign-in screen (Justin, 23 Sep), never a banner.
@@ -551,7 +551,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         signInNeeded.current(ending, record);
       } else {
         setResumeFailure('offline');
-        setSavedState(savedStateAfter(replaced));
+        setSavedState(savedStateAfter(e, replaced, REFRESH_OUTSIDE_HOURS));
         // Offline: quick retries, then every 2 minutes while in the foreground, and at once on
         // returning to the foreground or a network change (so Home's "It will keep trying" holds).
         const wait = resumeAttempts.current < RESUME_RETRY_MS.length ? RESUME_RETRY_MS[resumeAttempts.current++]! : RESUME_SLOW_RETRY_MS;

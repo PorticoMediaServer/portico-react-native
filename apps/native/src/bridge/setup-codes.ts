@@ -5,6 +5,7 @@ import {SetupCodeService,type SetupCodeStorage,type SetupCodeJournal,type SetupC
 import {parseLocalSession} from '../../../../packages/client-core/src/local-session';
 import {hostedGate} from '../../../../packages/client-core/src/hosted-gate';
 import {activationGate} from './hosted-activation-gate';
+import {deviceApprovalWatch} from './device-approval';
 import {NativeQueueStore} from './queue-storage';
 import {nativeNetworkFetch} from './server-connections';
 const store=new NativeQueueStore();
@@ -54,14 +55,17 @@ export function deviceIdentity(){
  return identity;
 }
 
-/** Server Quick Connect is the TV's: it shows the code, and a phone or computer signed in to the server approves it. */
+/** Server Quick Connect is the TV's: it shows the code, and a phone or computer signed in to the server approves it.
+ * `approval` says when the code was approved and the server's owner still has to approve this device. */
 export function nativeQuickConnect(api:HttpLocalApi){
  const serverId=api.getRouteConnection()?.pin.serverId;if(!serverId)throw new Error('Verify the server identity before using Quick Connect.');
- return new SetupCodeService<LocalSession>('local:'+serverId,{
+ const approval=deviceApprovalWatch();
+ const service=new SetupCodeService<LocalSession>('local:'+serverId,{
   create:async(requestId,signal)=>api.request<DeviceAuthorization>('/v1/quick-connect','POST',{requestId,...(await deviceIdentity()),platform:devicePlatform},signal),
-  poll:async(entry,signal)=>parseLocalSession(await api.request('/v1/quick-connect/token','POST',{deviceCode:entry.authorization.deviceCode},signal),{authority:'local',serverId}),
+  poll:async(entry,signal)=>parseLocalSession(await approval.watch(()=>api.request('/v1/quick-connect/token','POST',{deviceCode:entry.authorization.deviceCode},signal)),{authority:'local',serverId}),
   cancel:(entry,signal)=>api.request<void>('/v1/quick-connect/cancel','POST',{deviceCode:entry.authorization.deviceCode},signal),
  },nativeSetupStorage('local:'+serverId),()=>NativeModules.PorticoRuntime.newRequestId().then((v:string)=>v.toLowerCase()));
+ return Object.assign(service,{approval});
 }
 
 export function nativeSetupDraft(serverId:string):import('../../../../packages/client-core/src/setup-onboarding').SetupDraftStore{const key='initialize:'+serverId;return {read:()=>store.change(key,raw=>({record:raw,value:raw===null?undefined:raw as import('../../../../packages/client-core/src/setup-onboarding').SetupDraft})),change:async update=>{await store.change(key,raw=>({record:update(raw===null?undefined:raw as import('../../../../packages/client-core/src/setup-onboarding').SetupDraft)??null,value:undefined}));}};}
