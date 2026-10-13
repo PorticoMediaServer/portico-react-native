@@ -446,7 +446,11 @@ export class NativePlayback {
       // Progress is the controller's timeline, fed by the engine's own readings. Only the end is
       // waited for here: the queue moves on once the server has it.
       async progressPlayback(id: string, payload: {generation: number; sequence: number; positionSeconds: number; state: 'playing' | 'paused' | 'ended'}) {
-        if (payload.state !== 'ended' || self.retired.has(id) || self.controller.getSnapshot().session?.id !== id) return;
+        if (self.retired.has(id)) return;
+        // A session this path no longer holds (one left over from before the app was closed, kept
+        // in the service's journal): its last known place travels with the stop that follows.
+        if (self.controller.getSnapshot().session?.id !== id) { if (Number.isFinite(payload.positionSeconds) && payload.positionSeconds >= 0) self.remember(id, payload.positionSeconds * 1000); return; }
+        if (payload.state !== 'ended') return;
         // The service knows the title ended; the engine's own report of it may have been fenced
         // off on its way here (a seek settling at the very end), so the end is said again.
         if (self.engine.state !== 'ended' && self.engine.loaded === payload.generation) { self.lastState = 'ended'; self.engine.report(payload.generation, 'ended', payload.positionSeconds * 1000, 'state'); }

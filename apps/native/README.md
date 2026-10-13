@@ -186,8 +186,6 @@ adb reverse tcp:19424 tcp:19424                       # Metro, for a debug build
 
 ## Known gaps
 
-- Subtitle selection in the player is a placeholder (the native subtitle
-  bridge exists in `src/bridge` but is not wired).
 - Poster-size preference is stored but not yet applied to card metrics.
 - `src/app/compat.ts` folds newer server fields (`artwork` objects, extra
   navigation views) into the shape the checked-in core validates; remove once
