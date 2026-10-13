@@ -339,7 +339,10 @@ export function Shell() {
               // The rail is its own focus guide: entry from the content lands on the current destination.
               <View style={{alignSelf: 'stretch', zIndex: 20}}>
                 <RailAfterPlayer>
-                  {generation => <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} libraries={libraries.items} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />}
+                  {generation => isTV
+                    ? <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} libraries={libraries.items} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />
+                    // A wide tablet: Downloads keeps its place among the destinations, by the tab bar's rule.
+                    : <DownloadsGate showing={selected === 'Downloads'} onHidden={select}>{offered => <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} showDownloads={offered} libraries={libraries.items} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />}</DownloadsGate>}
                 </RailAfterPlayer>
               </View>
             )}
