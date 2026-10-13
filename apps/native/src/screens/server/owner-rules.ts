@@ -7,6 +7,7 @@ import type {MetadataSettings, MetadataSettingsChange} from '../../../../../pack
 import type {Alert, Job} from '../../../../../packages/client-core/src/console';
 import {contentRatings, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
 import {keepReadable} from '../../../../../packages/client-core/src/tolerant';
+import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
 
 /**
  * The rules behind the owner's pages on phones and tablets and the television Dashboard: what a
@@ -165,8 +166,9 @@ export function channelMapBatches(edits: Readonly<Record<string, ChannelOverride
 
 /**
  * Saves channel changes one batch after another, each against the revision the batch before it
- * left, starting from a freshly read one. It stops at the first batch the server refuses and
- * says how many changes were saved, so the rest stay on screen to be saved again.
+ * left, starting from a freshly read one. A batch the server calls out of date is sent again
+ * against the source as it is now. It stops at the first batch the server refuses for any other
+ * reason and says how many changes were saved, so the rest stay on screen to be saved again.
  */
 export async function saveChannelMap(edits: Readonly<Record<string, ChannelOverride>>, io: Readonly<{revision(): Promise<number>; put(revision: number, batch: readonly Readonly<{channelId: string} & ChannelOverride>[]): Promise<unknown>}>): Promise<Readonly<{saved: number; total: number; error?: unknown}>> {
   const batches = channelMapBatches(edits);
@@ -174,7 +176,15 @@ export async function saveChannelMap(edits: Readonly<Record<string, ChannelOverr
   let saved = 0;
   try {
     let revision = await io.revision();
-    for (const batch of batches) { await io.put(revision, batch); saved += batch.length; revision += 1; }
+    for (const batch of batches) {
+      try { await io.put(revision, batch); } catch (error) {
+        if (!isStaleAnswer(error)) throw error;
+        // The source moved between two batches (a guide refresh, a setting saved elsewhere). What a channel is set to does not depend on that: the batch is sent once more against the source as it is now.
+        revision = await io.revision().catch(() => { throw error; });
+        await io.put(revision, batch);
+      }
+      saved += batch.length; revision += 1;
+    }
   } catch (error) { return {saved, total, error}; }
   return {saved, total};
 }
