@@ -56,6 +56,9 @@ final class PorticoMpvCore {
 
     private let queue = DispatchQueue(label: "tv.getportico.mpv.core", qos: .userInitiated)
     private var handle: OpaquePointer?
+    // The C window pointer is unretained; keep its layer until asynchronous destruction ends.
+    private let layer: CAMetalLayer
+    private var initializationError: Int32 = -15
     private var epoch = 0
     /// mpv has announced the start of the file loaded for `epoch`.
     private var started = false
@@ -68,19 +71,31 @@ final class PorticoMpvCore {
 
     private static let observed = ["pause", "paused-for-cache", "core-idle", "eof-reached", "seeking", "speed", "duration", "aid", "sid", "vid", "track-list", "video-params"]
 
-    /// Creates and initialises mpv, drawing into `layer`. Returns nil when mpv cannot start.
+    /// Creates and initialises mpv, drawing into `layer`. Startup failures arrive through the first load event.
     /// `options` are set before initialisation, in order.
-    init?(layer: CAMetalLayer, options: [(String, String)]) {
-        guard let created = mpv_create() else { return nil }
-        // mpv keeps this pointer as its window for as long as the handle lives; the caller keeps
-        // the layer alive at least that long.
-        var window = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
-        mpv_set_option(created, "wid", MPV_FORMAT_INT64, &window)
-        for (name, value) in options { mpv_set_option_string(created, name, value) }
-        mpv_request_log_messages(created, "warn")
-        guard mpv_initialize(created) >= 0 else {
+    init(layer: CAMetalLayer, options: [(String, String)]) {
+        self.layer = layer
+        queue.async { self.initialize(options: options) }
+    }
+
+    private func initialize(options: [(String, String)]) {
+        guard let created = mpv_create() else { return }
+        var window = Int64(bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(layer).toOpaque())))
+        var code = mpv_set_option(created, "wid", MPV_FORMAT_INT64, &window)
+        for (name, value) in options where code >= 0 {
+            code = mpv_set_option_string(created, name, value)
+        }
+        guard code >= 0 else {
+            initializationError = code
             mpv_terminate_destroy(created)
-            return nil
+            return
+        }
+        mpv_request_log_messages(created, "warn")
+        code = mpv_initialize(created)
+        guard code >= 0 else {
+            initializationError = code
+            mpv_terminate_destroy(created)
+            return
         }
         handle = created
         if let text = mpv_get_property_string(created, "mpv-version") {
@@ -144,9 +159,9 @@ final class PorticoMpvCore {
     func command(_ arguments: [String], token: UInt64 = 0) {
         queue.async {
             guard let handle = self.handle else { return }
-            var pointers = PorticoMpvCore.pointers(arguments)
+            let pointers = PorticoMpvCore.pointers(arguments)
             defer { PorticoMpvCore.release(pointers) }
-            let code = mpv_command_async(handle, token, &pointers)
+            let code = pointers.withUnsafeBufferPointer { mpv_command_async(handle, token, $0.baseAddress) }
             if code < 0, token != 0 { self.deliver(.reply(token: token, code: code)) }
         }
     }
@@ -206,10 +221,10 @@ final class PorticoMpvCore {
     }
 
     private func run(_ arguments: [String]) -> Int32 {
-        guard let handle = handle else { return -1 }
-        var pointers = PorticoMpvCore.pointers(arguments)
+        guard let handle = handle else { return initializationError }
+        let pointers = PorticoMpvCore.pointers(arguments)
         defer { PorticoMpvCore.release(pointers) }
-        return mpv_command(handle, &pointers)
+        return pointers.withUnsafeBufferPointer { mpv_command(handle, $0.baseAddress) }
     }
 
     private func startTicker() {

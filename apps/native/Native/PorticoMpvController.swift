@@ -61,7 +61,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private var seekRevision = -1
     private var seeking = false
     private var seekToken: UInt64 = 1000
-    private var seekInFlight: (token: UInt64, revision: Int, target: Double, awaitingRestart: Bool)?
+    private var seekInFlight: (token: UInt64, revision: Int, target: Double, commandAccepted: Bool, restartSeen: Bool)?
     private var startSeek: (revision: Int, target: Double)?
 
     private var routeSuspended = false
@@ -388,7 +388,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             ("deinterlace", "auto"),
             // Sound: decoded on the device and handed to the system as PCM, in as many channels
             // as the output takes. Nothing is passed through as a bitstream.
-            ("ao", "audiounit"),
+            ("ao", "audiounit"), ("audio-channels", "auto"), ("audio-exclusive", "yes"),
             ("hr-seek", "yes"),
             ("cache", "yes"), ("demuxer-max-bytes", small ? "48MiB" : "150MiB"), ("demuxer-max-back-bytes", small ? "8MiB" : "48MiB"),
             ("network-timeout", "30"),
@@ -409,7 +409,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         teardown?.cancel()
         teardown = nil
         if let core = core { return core }
-        guard let made = PorticoMpvCore(layer: metalLayer, options: mpvOptions()) else { return nil }
+        let made = PorticoMpvCore(layer: metalLayer, options: mpvOptions())
         made.onEvent = { [weak self] epoch, event, snapshot in self?.handle(epoch: epoch, event: event, snapshot: snapshot) }
         core = made
         return made
@@ -532,9 +532,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             if !restarted {
                 restarted = true
                 firstFrame()
-            } else if let flight = seekInFlight, flight.awaitingRestart {
-                seekInFlight = nil
-                completeSeek(revision: flight.revision, target: flight.target, finished: true)
+            } else if var flight = seekInFlight {
+                flight.restartSeen = true
+                seekInFlight = flight
+                finishRestartedSeek()
             }
         case .endFile(let reason, let code, let message, let log):
             if reason == .error { publishFailure(code: code, message: message, log: log) } else if reason == .eof { reachedEnd() }
@@ -575,8 +576,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                     seekInFlight = nil
                     completeSeek(revision: flight.revision, target: flight.target, finished: false)
                 } else {
-                    flight.awaitingRestart = true
+                    flight.commandAccepted = true
                     seekInFlight = flight
+                    finishRestartedSeek()
                 }
             } else if token == subtitleToken, token != 0, code < 0 {
                 // The subtitle file could not be opened: fall back to the plain cue document.
@@ -587,6 +589,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                 applySubtitles()
             }
         case .tick:
+            finishRestartedSeek()
             applyPendingSeek()
             let position = currentPosition()
             // A paused picture reports once, not twice a second for as long as it stays paused.
@@ -707,9 +710,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         seeking = true
         startSeek = nil
         seekToken += 1
-        seekInFlight = (seekToken, revision, target, false)
+        seekInFlight = (seekToken, revision, target, false, false)
         core.set("pause", "yes")
         core.command(["seek", String(format: "%.3f", target), "absolute+exact"], token: seekToken)
+    }
+
+    // Command replies and playback-restart events can arrive in either order.
+    private func finishRestartedSeek() {
+        guard let flight = seekInFlight, flight.commandAccepted, flight.restartSeen, !snapshot.seeking else { return }
+        seekInFlight = nil
+        completeSeek(revision: flight.revision, target: flight.target, finished: true)
     }
 
     private func completeSeek(revision: Int, target: Double, finished: Bool) {
@@ -985,6 +995,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         externalSubtitleAddress = nil
         subtitleToken = 0
         fontFetcher.cancel()
+        core?.set("sub-fonts-dir", "")
         for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external-filename"] as? String) == address {
             if let id = PorticoMpvSupport.trackId(track) { core?.command(["sub-remove", String(id)]) }
         }
@@ -1005,7 +1016,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             // Which mpv track that is can only be said once the file is open.
             guard loaded else { return }
             let embedded = render["embedded"] as? NSDictionary
-            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")"
+            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")|\(embedded?["title"] ?? "")|\(render["fonts"] ?? "")"
             if !refusedSubtitleKeys.contains(key) {
                 if key == engineSubtitleKey {
                     core?.set("sub-delay", String(format: "%.3f", offset))
@@ -1064,7 +1075,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         // first line is already drawn in the right face.
         if kind == "ass", !url.isFileURL, let fonts = render["fonts"] as? [NSDictionary], !fonts.isEmpty {
             fontFetcher.fetch(fonts, media: media) { [weak self] folder in
-                if let folder = folder { self?.core?.set("sub-fonts-dir", folder.path) }
+                guard let self = self, self.subtitleToken == token, self.externalSubtitleAddress == target else { return }
+                if let folder = folder { self.core?.set("sub-fonts-dir", folder.path) }
                 add()
             }
         } else {
@@ -1184,10 +1196,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let fps = (video?["demux-fps"] as? NSNumber)?.doubleValue, fps.isFinite, fps >= 1, fps <= 240,
               let width = (videoParams["w"] as? NSNumber)?.int32Value ?? (video?["demux-w"] as? NSNumber)?.int32Value, width > 0,
               let height = (videoParams["h"] as? NSNumber)?.int32Value ?? (video?["demux-h"] as? NSNumber)?.int32Value, height > 0 else { return nil }
-        let extensions: [CFString: Any] = [
-            kCMFormatDescriptionExtension_ColorPrimaries: kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
-            kCMFormatDescriptionExtension_TransferFunction: kCMFormatDescriptionTransferFunction_ITU_R_709_2,
-            kCMFormatDescriptionExtension_YCbCrMatrix: kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
+        let extensions: [String: Any] = [
+            kCMFormatDescriptionExtension_ColorPrimaries as String: kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
+            kCMFormatDescriptionExtension_TransferFunction as String: kCMFormatDescriptionTransferFunction_ITU_R_709_2,
+            kCMFormatDescriptionExtension_YCbCrMatrix as String: kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
         ]
         var description: CMVideoFormatDescription?
         let status = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: kCMVideoCodecType_H264, width: width, height: height, extensions: extensions as CFDictionary, formatDescriptionOut: &description)
