@@ -192,16 +192,50 @@ internal object PorticoAppVisibility {
  *
  * mpv's subtitle renderer (libass) has no way to ask Android for fonts in this build, so it is
  * given one font file as its default, in its own configuration folder (`subfont.ttf`), as mpv
- * expects. That file is a link to a font the system already has: the system's ordinary text face,
- * or its Chinese, Japanese and Korean face when the chosen subtitles are in one of those
- * languages (it also covers Latin, Greek and Cyrillic). A styled subtitle file's own attached
- * fonts are used as usual and are not affected.
+ * expects. That file is a link to a font the system already has, chosen by the language of the
+ * subtitles about to be drawn: the system's ordinary text face (Latin, Greek, Cyrillic); its
+ * Chinese, Japanese and Korean face; or its face for Arabic, Hebrew, Thai, the Indic scripts and
+ * the other scripts Android carries a face for. Without this a line in one of those scripts is
+ * drawn as empty boxes. A styled subtitle file's own attached fonts are used as usual and are not
+ * affected.
+ *
+ * It is one face at a time. A line that mixes two scripts neither of which is in the chosen face,
+ * and a track whose language is not said, are the cases it does not cover: those need a renderer
+ * that can ask the system for a fallback face letter by letter (a newer libass has one for
+ * Android), which this build of mpv does not carry.
  */
 internal object PorticoMpvFonts {
   private val ORDINARY = listOf("Roboto-Regular.ttf", "RobotoStatic-Regular.ttf", "NotoSans-Regular.ttf", "DroidSans.ttf")
   private val EAST_ASIAN = listOf("NotoSansCJK-Regular.ttc", "NotoSansCJKjp-Regular.otf", "NotoSansSC-Regular.otf", "DroidSansFallback.ttf")
   private val EAST_ASIAN_LANGUAGES = setOf("ja", "zh", "ko", "yue", "cmn")
+
+  /** A script, the word its system font files carry in their names, and older names tried first. */
+  private class Script(val word: String, val known: List<String> = emptyList())
+  private val ARABIC = Script("Arabic", listOf("NotoNaskhArabic-Regular.ttf", "NotoNaskhArabicUI-Regular.ttf", "NotoSansArabic-Regular.ttf", "DroidNaskh-Regular.ttf", "DroidKufi-Regular.ttf"))
+  private val HEBREW = Script("Hebrew", listOf("NotoSansHebrew-Regular.ttf", "DroidSansHebrew-Regular.ttf"))
+  private val THAI = Script("Thai", listOf("NotoSansThai-Regular.ttf", "NotoSansThaiUI-Regular.ttf", "DroidSansThai.ttf"))
+  private val DEVANAGARI = Script("Devanagari", listOf("NotoSansDevanagari-VF.ttf", "NotoSansDevanagari-Regular.otf", "NotoSansDevanagari-Regular.ttf", "DroidSansDevanagari-Regular.ttf"))
+  private val BENGALI = Script("Bengali")
+  private val TAMIL = Script("Tamil")
+  private val TELUGU = Script("Telugu")
+  private val KANNADA = Script("Kannada")
+  private val MALAYALAM = Script("Malayalam")
+  private val GUJARATI = Script("Gujarati")
+  private val GURMUKHI = Script("Gurmukhi")
+  /** By language, in two-letter codes where the language has one (`PorticoMpvSupport.baseLanguage`). */
+  private val SCRIPTS: Map<String, Script> = mapOf(
+      "ar" to ARABIC, "ara" to ARABIC, "fa" to ARABIC, "fas" to ARABIC, "per" to ARABIC, "ur" to ARABIC, "urd" to ARABIC, "ps" to ARABIC, "pus" to ARABIC, "sd" to ARABIC, "ug" to ARABIC, "ckb" to ARABIC,
+      "he" to HEBREW, "heb" to HEBREW, "iw" to HEBREW, "yi" to HEBREW, "yid" to HEBREW,
+      "th" to THAI, "tha" to THAI,
+      "hi" to DEVANAGARI, "hin" to DEVANAGARI, "mr" to DEVANAGARI, "mar" to DEVANAGARI, "ne" to DEVANAGARI, "nep" to DEVANAGARI, "sa" to DEVANAGARI, "san" to DEVANAGARI,
+      "bn" to BENGALI, "ben" to BENGALI, "as" to BENGALI, "asm" to BENGALI,
+      "ta" to TAMIL, "tam" to TAMIL, "te" to TELUGU, "tel" to TELUGU, "kn" to KANNADA, "kan" to KANNADA, "ml" to MALAYALAM, "mal" to MALAYALAM,
+      "gu" to GUJARATI, "guj" to GUJARATI, "pa" to GURMUKHI, "pan" to GURMUKHI,
+      "si" to Script("Sinhala"), "sin" to Script("Sinhala"), "km" to Script("Khmer"), "khm" to Script("Khmer"), "lo" to Script("Lao"), "lao" to Script("Lao"),
+      "my" to Script("Myanmar"), "mya" to Script("Myanmar"), "bur" to Script("Myanmar"), "hy" to Script("Armenian"), "hye" to Script("Armenian"), "arm" to Script("Armenian"),
+      "ka" to Script("Georgian"), "kat" to Script("Georgian"), "geo" to Script("Georgian"), "am" to Script("Ethiopic"), "amh" to Script("Ethiopic"), "ti" to Script("Ethiopic"))
   private var linked: String? = null
+  private var listing: List<File>? = null
 
   /** mpv's configuration folder. It holds nothing but the font link; mpv reads no settings from it. */
   fun configDirectory(context: Context): File = File(context.noBackupFilesDir, "mpv")
@@ -211,8 +245,21 @@ internal object PorticoMpvFonts {
     return null
   }
 
+  private fun systemFonts(): List<File> = listing ?: (try {
+    File("/system/fonts").listFiles()?.filter { it.isFile && it.canRead() && (it.name.endsWith(".ttf") || it.name.endsWith(".otf") || it.name.endsWith(".ttc")) }?.sortedBy { it.name }
+  } catch (_: Exception) { null } ?: emptyList()).also { listing = it }
+
   private fun ordinary(): File? = systemFont(ORDINARY)
-      ?: try { File("/system/fonts").listFiles()?.filter { it.isFile && it.name.endsWith(".ttf") && it.length() in 1..8_000_000 }?.minByOrNull { it.name } } catch (_: Exception) { null }
+      ?: systemFonts().filter { it.name.endsWith(".ttf") && it.length() in 1..8_000_000 }.minByOrNull { it.name }
+
+  /**
+   * The system's face for a script: a name known from Android's releases, else the plainest file
+   * whose name carries the script's word (a regular or variable weight; a sans face before a
+   * serif one; the reading face before the one drawn for interface labels).
+   */
+  private fun scriptFont(script: Script): File? = systemFont(script.known) ?: systemFonts()
+      .filter { it.name.contains(script.word) && (it.name.contains("Regular") || it.name.contains("-VF")) }
+      .minByOrNull { (if (it.name.contains("Serif")) 4 else 0) + (if (it.name.contains("UI")) 2 else 0) + (if (it.name.contains("-VF")) 1 else 0) }
 
   /**
    * Points the default font at the face for [language] (a subtitle track's language tag, or
@@ -220,7 +267,7 @@ internal object PorticoMpvFonts {
    */
   fun select(context: Context, language: String?) {
     val base = PorticoMpvSupport.baseLanguage((language ?: "").lowercase())
-    val wanted = (if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else null) ?: ordinary() ?: return
+    val wanted = (if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else SCRIPTS[base]?.let { scriptFont(it) }) ?: ordinary() ?: return
     if (linked == wanted.path) return
     val directory = configDirectory(context)
     val link = File(directory, "subfont.ttf")
@@ -230,7 +277,7 @@ internal object PorticoMpvFonts {
       Os.symlink(wanted.path, link.path)
       linked = wanted.path
     } catch (_: Exception) {
-      // No link could be made: a copy of the ordinary face does (a large font is not copied).
+      // No link could be made: a copy of the face does (a large font is not copied).
       try {
         val source = if (wanted.length() <= 8_000_000) wanted else ordinary()
         if (source != null) {
