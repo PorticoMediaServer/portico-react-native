@@ -11,7 +11,6 @@ import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -38,12 +37,13 @@ import okhttp3.Response
 class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val main = Handler(Looper.getMainLooper())
   private var session: MediaSession? = null
-  private var wrapped: ExoPlayer? = null
+  private var wrapped: Player? = null
   private var info: Map<String, Any?>? = null
   private var artwork: ByteArray? = null
   private var artworkCall: Call? = null
   private var noisy: BroadcastReceiver? = null
-  private val reattach: () -> Unit = { main.post { publish() } }
+  /** The engine that has the video changed (a lease taken or given up, a title moved to the other engine). */
+  private val reattach: () -> Unit = { main.post { if (info != null && activePlayer() !== wrapped) publish() } }
 
   init { current = this }
 
@@ -92,20 +92,43 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
   /** The Picture in Picture window was closed: the film stops with it. */
   internal fun dismissed() = command("pause", "route")
 
+  /**
+   * From a player engine that manages its own sound (mpv): another app took the audio, or gave
+   * it back. Media3 says the same through its player listener below.
+   */
+  internal fun engineCommand(name: String, reason: String) = command(name, reason)
+
+  /**
+   * The engine that has the video: mpv while it holds a lease with media open, otherwise the
+   * Media3 player. The system sees one video session whichever engine plays.
+   */
+  private fun activePlayer(): Player? {
+    val mpv = PorticoMpvController.shared
+    if (mpv != null && mpv.mediaOpen) return mpv.sessionPlayer
+    return PorticoPlaybackController.shared?.player
+  }
+
+  private fun watch(on: Boolean) {
+    val native = PorticoPlaybackController.shared?.attachmentListeners
+    val mpv = PorticoMpvController.shared?.attachmentListeners
+    if (on) { native?.add(reattach); mpv?.add(reattach) } else { native?.remove(reattach); mpv?.remove(reattach) }
+  }
+
   private fun publish() {
     val video = info
     val controller = PorticoPlaybackController.shared
-    val player = controller?.player
+    val player = activePlayer()
     // Music and audiobooks have their own session (the listening owner's). While that owner holds
     // the player there is no video session: a second one, even for a moment, takes the headset
     // and lock-screen keys with it when it goes.
-    if (video == null || player == null || controller.listeningActive) {
-      if (video == null) close() else { val waiting = controller; close(); waiting?.attachmentListeners?.add(reattach) }
+    if (video == null || player == null || controller?.listeningActive == true) {
+      close()
+      if (video != null) watch(true)
       return
     }
-    controller.attachmentListeners.remove(reattach)
     if (wrapped !== player) {
       close()
+      watch(true)
       wrapped = player
       player.addListener(interruptions)
       session = MediaSession.Builder(reactApplicationContext, Proxy(player)).setId("portico.video").build()
@@ -129,7 +152,7 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
     session = null
     noisy?.let { try { reactApplicationContext.unregisterReceiver(it) } catch (_: Exception) {} }
     noisy = null
-    PorticoPlaybackController.shared?.attachmentListeners?.remove(reattach)
+    watch(false)
   }
 
   private val interruptions = object : Player.Listener {

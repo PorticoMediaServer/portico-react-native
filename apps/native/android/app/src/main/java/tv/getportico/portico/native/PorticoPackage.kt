@@ -21,6 +21,7 @@ class PorticoPackage : ReactPackage {
       PorticoAccountAuth(reactContext),
       PorticoCapabilities(reactContext),
       PorticoPlaybackModule(reactContext),
+      PorticoMpvPlaybackModule(reactContext),
       PorticoSystemMedia(reactContext),
       PorticoImagePicker(reactContext),
       PorticoSubtitleFiles(reactContext),
@@ -32,6 +33,7 @@ class PorticoPackage : ReactPackage {
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = listOf(
       PorticoSearchKeyboardManager(),
       PorticoPlayerManager(),
+      PorticoMpvPlayerManager(),
       PorticoAudioRoutePickerManager(),
   )
 }
