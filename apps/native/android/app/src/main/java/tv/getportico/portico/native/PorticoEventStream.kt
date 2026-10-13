@@ -36,7 +36,8 @@ internal object PorticoEventStream {
   fun open(owner: Any, id: String?, url: String?, headers: ReadableMap?, promise: Promise) {
     val target = PorticoTransport.target(url)
     val path = target?.encodedPath ?: ""
-    val allowed = path == "/v1/notifications/events" || GROUP_EVENTS.matches(path)
+    // The device's one event feed, and a Watch Together room's own stream.
+    val allowed = path == "/v1/events" || GROUP_EVENTS.matches(path)
     val request = if (target != null && allowed && id != null && id.isNotEmpty() && id.length <= 128)
       PorticoTransport.request(target, "GET", headers, null) else null
     if (request == null || id == null) { promise.reject("event_local", "Invalid event request."); return }

@@ -1,10 +1,11 @@
 /**
  * The shell's failure mode for a server it can't use (MU1, web parity).
  *
- * When the server can't be reached for more than a moment, the page fails once: one centered
- * "Reconnecting" status replaces the page's content while the shell stays usable, and the page
- * comes back by itself, reloading its data, when the route is ready again. Never a card-by-card
- * wall of errors, and never a banner.
+ * The centered status replaces the page's content only when there is no page worth keeping or
+ * nothing on it should be acted on: the remembered server is still being confirmed or could not
+ * be reached at launch, something else answers at its address, the account is outside its
+ * hours, or the address now proves another identity. A server that was working and merely
+ * stops answering never takes the page away (see `reasonFor`).
  *
  * Pure TypeScript: no React Native imports, so Node tests can exercise it directly. The shell
  * feeds the store from `session.saved` and the route's own subscription (`api.subscribeRoute`);
@@ -40,7 +41,10 @@ function reasonFor(input: ConnectionStatusInput): Reason | null {
   // A live route that proves a different identity reads as can't reach (as on web): it may be a
   // network pointing somewhere else for a while. A sign-in that has really ended goes back to
   // sign-in instead (`app/session.tsx`, untouched here).
-  if (input.routePhase === 'offline' || input.routePhase === 'identity_mismatch' || input.routePhase === 'probing') return 'lost';
+  if (input.routePhase === 'identity_mismatch') return 'lost';
+  // A server that was working and has stopped answering (the route is offline, or being found
+  // again) is not a reason to take the page away: what is on screen stays, reads are tried again
+  // behind it, and after a sustained failure one small line says so (`shell/AwayNotice`).
   return null;
 }
 

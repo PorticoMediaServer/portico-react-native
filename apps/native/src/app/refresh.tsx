@@ -12,12 +12,14 @@ const STALE_MS = 5 * 60 * 1000;
  * - iPhone and iPad: the system pull-to-refresh (pass the result as the scroller's
  *   `refreshControl`). The spinner stays until `refresh`'s promise settles, or, for a refresh
  *   that returns nothing, until `busy` has come and gone.
- * - Everywhere (and the only way on television): a screen that comes back into focus, or an app
- *   that returns to the foreground, after more than five minutes refreshes in the background.
- *   What was on screen stays there while it does. `auto: false` turns this off for a screen whose
- *   refresh would lose the viewer's place (a windowed grid starts a new generation at the top).
+ * - A screen is not refreshed because time has passed. Screens that show the server's library and
+ *   the profile's state are kept current by the event feed (`app/freshness`): they are read again
+ *   in place when something they show has moved, on a phone and on a television alike.
+ * - `auto: true` is for the few screens the feed says nothing about (what is on this device, a
+ *   person's credits): coming back to one after more than five minutes, or returning to the app
+ *   with one in front, refreshes it in the background. What was on screen stays while it does.
  */
-export function usePullToRefresh(refresh: () => unknown, {busy, auto = true, staleMs = STALE_MS}: {busy?: boolean; auto?: boolean; /** How old the screen may be before coming back to it refreshes it. Home passes a short time: it is where what you just watched shows up. */ staleMs?: number} = {}): React.ReactElement<RefreshControlProps> | undefined {
+export function usePullToRefresh(refresh: () => unknown, {busy, auto = false, staleMs = STALE_MS}: {busy?: boolean; auto?: boolean; /** How old the screen may be before coming back to it refreshes it. Home passes a short time: it is where what you just watched shows up. */ staleMs?: number} = {}): React.ReactElement<RefreshControlProps> | undefined {
   const {isTV, colors} = useTheme();
   const [pulling, setPulling] = useState(false);
   const last = useRef(Date.now());

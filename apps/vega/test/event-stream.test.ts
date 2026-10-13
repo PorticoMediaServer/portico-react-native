@@ -32,13 +32,14 @@ class FakeRequest {
 
 const {cancelNetworkStream, openNetworkStream, openStreamCount, readNetworkStream} = await import('../src/bridge/event-stream.ts');
 
-const events = 'http://192.168.1.20:32500/v1/notifications/events';
+const events = 'http://192.168.1.20:32500/v1/events';
 const last = () => FakeRequest.made[FakeRequest.made.length - 1];
 const text = (data: string | undefined) => Buffer.from(data ?? '', 'base64').toString('utf8');
 const code = (error: unknown) => (error as {code?: string}).code;
 
 test('only the two event routes may be opened, with a short identifier and no credentials', async () => {
-  for (const url of ['http://192.168.1.20:32500/v1/items', 'ftp://192.168.1.20/v1/notifications/events', 'http://u:p@192.168.1.20/v1/notifications/events', 'http://192.168.1.20/v1/groups/a b/events', 'http://192.168.1.20/v1/notifications/events#x']) {
+  // The listener the server retired is refused like any other address.
+  for (const url of ['http://192.168.1.20:32500/v1/notifications/events', 'http://192.168.1.20:32500/v1/items', 'ftp://192.168.1.20/v1/events', 'http://u:p@192.168.1.20/v1/events', 'http://192.168.1.20/v1/groups/a b/events', 'http://192.168.1.20/v1/events#x']) {
     await assert.rejects(openNetworkStream('a', url, {}), error => code(error) === 'event_local');
   }
   await assert.rejects(openNetworkStream('', events, {}), error => code(error) === 'event_local');
@@ -102,7 +103,7 @@ test('a stream is ended as done after a megabyte, so its owner opens the next fr
 
 test('a redirect is refused before anything is handed on', async () => {
   const opening = openNetworkStream('moved', events, {});
-  last().begin(200, 'http://elsewhere.test/v1/notifications/events');
+  last().begin(200, 'http://elsewhere.test/v1/events');
   await assert.rejects(opening, error => code(error) === 'event_redirect');
   assert.equal(last().aborted, true);
   assert.equal(openStreamCount(), 0);

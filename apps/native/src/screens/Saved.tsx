@@ -1,4 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useFreshDocument} from '../app/freshness';
+import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 import {NativeModules, View, type LayoutChangeEvent} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
@@ -19,6 +21,8 @@ import {usePullToRefresh} from '../app/refresh';
 import {useAppendedPages, useEndReached} from '../app/paging';
 import type {I18n, MessageId} from '../app/i18n';
 import {RowGuide} from './title/RowGuide';
+
+const listDependencies = Object.freeze([...titlesWithPersonalState()]);
 
 type SavedTab = 'watchlist' | 'favorites' | 'playlists' | 'collections' | 'views' | 'history';
 type PersonalTab = 'collections' | 'views' | 'history';
@@ -51,6 +55,8 @@ function useSavedService(route: SavedRoute | null) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
   const service = useMemo(() => new SavedService({api, scope, requestId}), [api, scope]);
+  // The list on screen follows this profile's saved titles and watched state, and the libraries behind them, in place.
+  useFreshDocument(listDependencies, context => service.revalidate(context), () => service.getSnapshot().phase === 'ready');
   const [snapshot, setSnapshot] = useState<SavedSnapshot>(service.getSnapshot());
   useEffect(() => {
     setSnapshot(service.getSnapshot());
@@ -84,6 +90,7 @@ function usePersonalService(route: SavedRoute | null) {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
   const service = useMemo(() => new PersonalSavedService(api, scope, requestId), [api, scope]);
+  useFreshDocument(listDependencies, context => service.revalidate(context), () => !!service.getSnapshot().viewerFence);
   const [snapshot, setSnapshot] = useState<PersonalSavedSnapshot>(service.getSnapshot());
   useEffect(() => {
     setSnapshot(service.getSnapshot());

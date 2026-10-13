@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {HttpLocalApi, Library} from '../../../../packages/client-core/src/index';
 import {say} from './errors';
 
@@ -10,21 +10,25 @@ export function useLibraries(api: HttpLocalApi, sessionKey: string | undefined):
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [tick, setTick] = useState(0);
+  const readFor = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!sessionKey) {
+      readFor.current = undefined;
       setItems([]);
       return;
     }
     let active = true;
-    setLoading(true);
+    // Only the first read for this viewer shows as loading; a later one keeps the list on screen.
+    if (readFor.current !== sessionKey) setLoading(true);
     setError(undefined);
     api
       .libraries()
       .then(result => {
-        if (active) setItems(result.items);
+        if (active) { readFor.current = sessionKey; setItems(result.items); }
       })
       .catch(e => {
-        if (active) setError(say(e, 'library', 'load'));
+        // Once the list has been read, a later read that fails leaves it as it is and says nothing.
+        if (active && readFor.current !== sessionKey) setError(say(e, 'library', 'load'));
       })
       .finally(() => {
         if (active) setLoading(false);
