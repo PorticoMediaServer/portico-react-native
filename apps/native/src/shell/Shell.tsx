@@ -157,8 +157,10 @@ export function Shell() {
   useEffect(() => () => connectionStore.dispose(), [connectionStore]);
   const retryConnection = useCallback(() => {
     if (session.saved) session.saved.retry();
+    // Outside the account's hours the server is reachable; it is the renewal that is asked for again.
+    else if (session.outsideHours) session.outsideHours.retry();
     else void session.api.recoverRoute().catch(() => {});
-  }, [session.saved, session.api]);
+  }, [session.saved, session.outsideHours, session.api]);
   const useAnotherServer = useCallback(() => {
     if (session.saved) session.saved.useAnother();
     else navigator.current?.dispatch(StackActions.push('Servers'));
@@ -348,7 +350,8 @@ export function Shell() {
       {/* A touch anywhere tells the freshness hub the person is busy: lists are not rearranged under a finger. */}
       <View style={{flex: 1, backgroundColor: colors.ink}} onTouchStart={pulse} onTouchMove={pulse}>
         <Atmosphere />
-        <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state} />
+        {/* A sign-in the server stops renewing for the time of day, while the app is open, shows as it does at launch, and clears by itself when the hours return. */}
+        <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state ?? (session.outsideHours ? 'outsideHours' : undefined)} />
         <FreshnessRuntime />
         <AwayNotice />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>

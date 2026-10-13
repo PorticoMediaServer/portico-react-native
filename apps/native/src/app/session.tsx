@@ -108,6 +108,14 @@ export type SessionValue = {
    */
   saved?: {state: 'checking' | 'offline' | 'replaced' | 'outsideHours'; host?: string; retry: () => void; signInAgain: () => void; useAnother: () => void};
   /**
+   * The server has stopped renewing this sign-in because the account is now outside the hours its
+   * owner allows. It was signed in and working until then, and nothing has ended: the sign-in is
+   * kept, the renewal is tried again by itself (and at once on `retry`), and when the hours come
+   * round the shell carries on where it was. The shell shows the same centered status it shows for
+   * a sign-in refused for hours at launch.
+   */
+  outsideHours?: {host?: string; retry: () => void};
+  /**
    * Justin (23 Sep): a sign-in that has ended (the server refused to renew it, or refused this
    * profile access) goes straight back to sign-in, never a banner in the shell. 'ended': the
    * server refused to renew this sign-in, or it is no longer on this device. 'noAccess': the server
@@ -303,9 +311,13 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, []);
   const recheckDevice = useCallback(async (): Promise<'restarting' | 'reopen'> => ((await restartApp()) ? 'restarting' : 'reopen'), []);
   const deviceReset = useMemo(() => (deviceUnreadable ? {reset: resetDevice, tryAgain: recheckDevice} : undefined), [deviceUnreadable, resetDevice, recheckDevice]);
+  const [hoursRefused, setHoursRefused] = useState(false);
+  const refresherWatch = useRef<() => void>(() => {});
   const keepAlive = useCallback((local: HttpLocalApi, record: SelectedViewerRecord) => {
     refresher.current?.stop();
-    refresher.current = new LocalSessionRefresher({
+    refresherWatch.current();
+    setHoursRefused(false);
+    const made = refresher.current = new LocalSessionRefresher({
       env: nativeConnectionEnvironment,
       api: local,
       session: record.session,
@@ -315,8 +327,17 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       },
       onSignedOut: e => refreshEnded.current(e),
     });
+    // A renewal the server refuses for the time of day keeps the sign-in and is tried again; the
+    // shell says so for as long as that is the answer, and stops saying it with the first renewal
+    // that succeeds.
+    refresherWatch.current = made.subscribe(() => {
+      if (refresher.current !== made) return;
+      const state = made.getSnapshot();
+      setHoursRefused(state.phase === 'retrying' && state.error?.code === REFRESH_OUTSIDE_HOURS);
+    });
   }, []);
-  const stopRefresh = useCallback(() => { refresher.current?.stop(); refresher.current = undefined; }, []);
+  const stopRefresh = useCallback(() => { refresher.current?.stop(); refresher.current = undefined; refresherWatch.current(); refresherWatch.current = () => {}; setHoursRefused(false); }, []);
+  const retryRenewal = useCallback(() => refresher.current?.wake(), []);
   useEffect(() => {
     // Timers sleep with the app: renew on return to the foreground if the token is close to expiry.
     const sub = AppState.addEventListener('change', state => { if (state === 'active') refresher.current?.wake(); });
@@ -1222,6 +1243,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       recovery,
       resumeFailure,
       saved: savedState && recovery ? {state: savedState, host: friendlyHostOf(recovery.serverUrl), retry: retrySaved, signInAgain, useAnother} : undefined,
+      outsideHours: hoursRefused && scope.phase === 'ready' && !savedState ? {host: scope.serverUrl ? friendlyHostOf(scope.serverUrl) : undefined, retry: retryRenewal} : undefined,
       signInHint,
       clearSignInHint,
       signInNote: scope.phase === 'ready' ? undefined : signInNote,
@@ -1259,7 +1281,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       activationApproved,
       signOut,
     }),
-    [deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
+    [hoursRefused, retryRenewal, deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
