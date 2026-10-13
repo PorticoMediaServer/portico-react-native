@@ -38,7 +38,8 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
   const [state, setState] = useState<{capabilities?: BrowseCapabilities; error?: string}>({});
   useEffect(() => {
     if (!libraryId || !pivot) { setState({}); return; }
-    const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}:${libraryId}:${pivot}`;
+    // The vocabulary is this viewer's under this role (an owner is offered filters a member is not).
+    const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}/${session?.viewer.role ?? ''}:${libraryId}:${pivot}`;
     const held = capabilityCache.get(key);
     if (held) setState({capabilities: held});
     let read = capabilityReads.get(key);
@@ -56,7 +57,7 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
       e => { if (!cancelled && !held) setState({error: say(e, 'library', 'load')}); },
     );
     return () => { cancelled = true; };
-  }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
+  }, [api, session?.sessionFamilyId, session?.viewer.profileId, session?.viewer.role, libraryId, pivot, attempt]);
   const capabilities = useMemo(() => state.capabilities && state.capabilities.library.id === libraryId && pivot ? scopeBrowseCapabilities(state.capabilities, pivot, surfaceId) : undefined, [state.capabilities, libraryId, pivot, surfaceId]);
   return {...state, capabilities};
 }
