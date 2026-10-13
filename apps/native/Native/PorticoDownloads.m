@@ -156,13 +156,22 @@ static NSString *PorticoSafeFileName(NSString *value) {
 // again. An entry that says it is downloading and has no task behind it (the task was lost with
 // the app) becomes paused, still meant to run, so the app starts it again; left as it was it
 // would show a progress bar that never moves and offer only Pause.
+//
+// It waits a few seconds first. When the system relaunches the app because a transfer finished
+// while it was away, that transfer's completion is delivered just after the session is created;
+// looking sooner would find an entry with no running task and call it paused a moment before its
+// finished file arrives.
 - (void)reconcile {
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), _queue, ^{ [self reconcileNow]; });
+}
+- (void)reconcileNow {
   [[self session] getTasksWithCompletionHandler:^(NSArray *data, NSArray *uploads, NSArray<NSURLSessionDownloadTask *> *downloads) {
     dispatch_async(self->_queue, ^{
       NSMutableSet<NSString *> *live = [NSMutableSet new];
       for (NSURLSessionDownloadTask *task in downloads) {
         NSDictionary *entry = self->_entries[task.taskDescription ?: @""];
-        if (task.state != NSURLSessionTaskStateCompleted && PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) [live addObject:task.taskDescription];
+        // A task the session still lists, in any state, will report for itself.
+        if (PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) [live addObject:task.taskDescription];
       }
       BOOL changed = NO;
       for (NSString *identifier in self->_entries.allKeys) {
@@ -284,7 +293,11 @@ static NSString *PorticoSafeFileName(NSString *value) {
   dispatch_async(_queue, ^{
     NSMutableDictionary *entry = self->_entries[identifier];
     // An attempt that was replaced, or a download that was removed, has nothing to file.
-    if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) { if (moved) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; return; }
+    if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) {
+      if (moved) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil];
+      if (moved && !entry) [[NSFileManager defaultManager] removeItemAtURL:[self directoryFor:identifier] error:nil];
+      return;
+    }
     [self->_activeTasks removeObjectForKey:identifier];
     if (status < 200 || status > 299) {
       // The address has run out, or the server will not hand this over just now. The app renews
