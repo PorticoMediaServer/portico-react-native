@@ -1,16 +1,15 @@
-import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {View} from 'react-native';
-import {HandoffController, type Receiver} from '../../../../packages/client-core/src/index';
+import type {Receiver} from '../../../../packages/client-core/src/index';
 import {playOnDestinations, type NearbyPlayer} from '../../../../packages/client-core/src/presentation/index';
 import {noteCastMeta} from '../../../../packages/client-core/src/presentation/index';
 import {useCastController} from '../app/cast';
 import {useI18n} from '../app/i18n';
+import {usePlayOnController} from '../app/play-on';
 import {useSession} from '../app/session';
 import {AudioRoutePicker} from '../bridge/NativeViews';
-import {profileInstallation} from '../bridge/profile-trust';
 import {browseNearby, type NearbyAdvert} from '../bridge/server-connections';
-import {deviceIdentity} from '../bridge/setup-codes';
-import {deviceModelName, hasAirPlay, playOnPlatform} from '../bridge/device-platform';
+import {hasAirPlay, playOnPlatform} from '../bridge/device-platform';
 import {Button, Divider, Icon, ListRow, Notice, Sheet, StateView, Text, rowPaddingX, showToast, useSpecPlatform, useTheme} from '../ui';
 import {LinkTVSheet} from '../screens/LinkTV';
 import type {PlayerEngine} from './usePlayer';
@@ -30,22 +29,15 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
   // QA: rows and the heading line up with the sheet title (rows carry their own inset).
   const rowX = rowPaddingX(useSpecPlatform());
   const cast = useCastController();
-  const controller = useMemo(() => {
-    let id = 'apple-controller';
-    let name = deviceModelName;
-    const c = new HandoffController({api: api!, device: {get deviceId() { return id; }, get displayName() { return name; }}, requestId: () => 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2)});
-    void profileInstallation().then(v => { if (v) id = v; });
-    void deviceIdentity().then(d => { name = d.deviceName; });
-    return c;
-  }, [api]);
-  useEffect(() => () => controller.dispose(), [controller]);
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  // The controller outlives this sheet and the player (`app/play-on`): once the other device has
+  // taken over, the title is still paused, resumed, started over and stopped from this one.
+  const {controller, state, describe} = usePlayOnController();
   // Local discovery, about 3.5 s each time the sheet opens, intersected with this profile's
   // receiver directory (which the handoff needs anyway).
   const [adverts, setAdverts] = useState<readonly NearbyAdvert[]>([]);
   const [looking, setLooking] = useState(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !controller) return;
     void controller.refresh();
     const abort = new AbortController();
     setLooking(true);
@@ -60,7 +52,8 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
   const destinations = playOnDestinations(playOnPlatform, {airplay: hasAirPlay && engine.engineFeatures.airPlayVideo, googleCast: cast.snapshot.available && sendable, nearby: sendable ? nearby : []});
   const send = async (target: Receiver) => {
     const s = engine.service.getSnapshot();
-    if (!s.session?.id) return;
+    if (!s.session?.id || !controller) return;
+    describe(engine.identity.title || undefined);
     if (await controller.send(target, {playbackId: s.session.id, positionSeconds: s.pendingSeek?.positionSeconds ?? s.positionSeconds})) {
       engine.leave();
       // QA: leaving the player says where playback went.
@@ -77,12 +70,14 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
     noteCastMeta(itemId, {...meta, ...(engine.identity.posterUrl ? {artworkPath: engine.identity.posterUrl} : {})});
     cast.cast(itemId, meta, s.pendingSeek?.positionSeconds ?? s.positionSeconds, () => engine.leave());
   };
-  const close = () => { if (state.phase !== 'done') controller.cancel(); onClose(); };
+  // A title already playing on another device (`done`) is controlled from the bar above the tab
+  // bar and is not this sheet's business: closing never cancels it, and the sheet shows the list.
+  const close = () => { if (state.phase !== 'done') controller?.cancel(); onClose(); };
   const busy = state.phase === 'asking' || state.phase === 'preparing' || state.phase === 'starting';
-  if (busy || state.phase === 'done') {
+  if (busy) {
     return (
-      <Sheet open={open} onClose={close} title={state.phase === 'done' ? state.message : i18n.t('playOn.sendingTo', {device: state.target?.displayName ?? ''})} footer={<Button variant={state.phase === 'done' ? 'primary' : 'ghost'} label={state.phase === 'done' ? i18n.t('action.done') : i18n.t('action.cancel')} onPress={close} />}>
-        {state.phase === 'done' ? <Text variant="body" tone="secondary">{i18n.t('playOn.useOtherRemote')}</Text> : <StateView loading title={state.message ?? i18n.t(state.phase === 'starting' ? 'playOn.waitingToStart' : 'playOn.gettingReady')} message={i18n.t('playOn.stillHereUntilTakeover')} />}
+      <Sheet open={open} onClose={close} title={i18n.t('playOn.sendingTo', {device: state.target?.displayName ?? ''})} footer={<Button variant="ghost" label={i18n.t('action.cancel')} onPress={close} />}>
+        <StateView loading title={state.message ?? i18n.t(state.phase === 'starting' ? 'playOn.waitingToStart' : 'playOn.gettingReady')} message={i18n.t('playOn.stillHereUntilTakeover')} />
       </Sheet>
     );
   }

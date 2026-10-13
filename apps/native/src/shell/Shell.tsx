@@ -61,6 +61,8 @@ import {InvitationScreen} from '../screens/Invitation';
 import {holdJoinLink, isLegacyInvite, releaseJoinLink} from '../app/join-link';
 import {RecordingsScreen} from '../screens/Recordings';
 import {CastProvider} from '../app/cast';
+import {PlayOnProvider} from '../app/play-on';
+import {PlayOnBar} from './PlayOnBar';
 import {createRootsNavigator} from './Roots';
 import {activeI18n} from '../app/errors';
 import {announceFinishedDownloads} from '../app/download-toasts';
@@ -331,11 +333,12 @@ export function Shell() {
     <MetadataEditorProvider>
     <DownloadsProvider onViewDownloads={viewDownloads}>
     <CastProvider>
+    <PlayOnProvider>
       <View style={{flex: 1, backgroundColor: colors.ink}}>
         <Atmosphere />
         <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state} />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>
-        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}>
+        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}</>}>
           <TVMenuGate gate={gate} />
           <View style={{flex: 1, flexDirection: handheld ? 'column' : 'row'}}>
             {handheld ? null : (
@@ -367,6 +370,7 @@ export function Shell() {
         <ChannelReminderHost onOpenChannels={() => select('Channels')} />
         <DeviceApprovalCover />
       </View>
+    </PlayOnProvider>
     </CastProvider>
     </DownloadsProvider>
     </MetadataEditorProvider>
