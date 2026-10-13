@@ -1189,7 +1189,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     @objc private func captionStyleChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.captionStyleChanged() }; return }
-        core?.set("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(captionStyle)))
+        applyCaptionStyle(NSDictionary(dictionary: captionStyle))
         NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self)
     }
 

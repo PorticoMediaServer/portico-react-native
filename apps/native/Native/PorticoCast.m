@@ -19,6 +19,7 @@ static NSString *const PorticoCastNamespace = @"urn:x-cast:tv.getportico.cast";
 
 @implementation PorticoCast {
   GCKGenericChannel *_channel;
+  __weak GCKCastSession *_channelSession;
   BOOL _listening;
 }
 RCT_EXPORT_MODULE()
@@ -42,8 +43,8 @@ RCT_EXPORT_MODULE()
   if (GCKCastContext.isSharedInstanceInitialized) [GCKCastContext.sharedInstance.sessionManager removeListener:self];
 }
 - (void)invalidate {
-  [self stopObserving];
-  _channel = nil;
+  void (^cleanup)(void) = ^{ [self stopObserving]; [self detachChannel]; };
+  if (NSThread.isMainThread) cleanup(); else dispatch_async(dispatch_get_main_queue(), cleanup);
   [super invalidate];
 }
 
@@ -56,10 +57,18 @@ RCT_EXPORT_MODULE()
   }];
 }
 
+- (void)detachChannel {
+  _channel.delegate = nil;
+  if (_channel) [_channelSession removeChannel:_channel];
+  _channel = nil; _channelSession = nil;
+}
 - (void)attach:(GCKCastSession *)session {
-  _channel = [[GCKGenericChannel alloc] initWithNamespace:PorticoCastNamespace];
-  _channel.delegate = self;
-  [session addChannel:_channel];
+  if (_channel && _channelSession == session) return;
+  [self detachChannel];
+  GCKGenericChannel *channel = [[GCKGenericChannel alloc] initWithNamespace:PorticoCastNamespace];
+  channel.delegate = self;
+  if ([session addChannel:channel]) { _channel = channel; _channelSession = session; }
+  else channel.delegate = nil;
 }
 
 #pragma mark Session listener
@@ -73,11 +82,13 @@ RCT_EXPORT_MODULE()
   [self emitSession:@"started" session:session error:nil];
 }
 - (void)sessionManager:(GCKSessionManager *)manager didEndCastSession:(GCKCastSession *)session withError:(NSError *)error {
-  _channel = nil;
+  if (_channelSession && _channelSession != session) return;
+  [self detachChannel];
   [self emitSession:@"ended" session:session error:error];
 }
 - (void)sessionManager:(GCKSessionManager *)manager didFailToStartCastSession:(GCKCastSession *)session withError:(NSError *)error {
-  _channel = nil;
+  if (_channelSession && _channelSession != session) return;
+  [self detachChannel];
   [self emitSession:@"failed" session:session error:error];
 }
 
