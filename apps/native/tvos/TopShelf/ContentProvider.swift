@@ -1,4 +1,5 @@
 import TVServices
+import Foundation
 import CryptoKit
 import Security
 import ImageIO
