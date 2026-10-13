@@ -1,0 +1,314 @@
+# The player engine contract
+
+Every video engine in the app implements this one contract between JavaScript and native code.
+There are two engines: **native** (the platform's own player: AVPlayer here, Media3 on Android)
+and **mpv**. The player screen drives either through `src/bridge/NativePlaybackCoordinator.ts`
+and holds a lease on one engine at a time.
+
+JavaScript owns the playback session. The engine owns the player. JavaScript sends **commands**,
+each of which is the whole desired state. The engine answers with **facts**. The engine never
+changes what is wanted (it never starts, pauses or seeks of its own accord); where the system
+forces its hand it says so with a fact and JavaScript changes the intent.
+
+An engine written against this file must reproduce every rule in it, including the error texts:
+JavaScript and the tests match on them.
+
+## 1. Names
+
+| | native | mpv |
+| --- | --- | --- |
+| Module | `PorticoPlaybackModule` | `PorticoMpvPlaybackModule` |
+| Fact event | `PorticoPlaybackFact` | `PorticoMpvPlaybackFact` |
+| Picture in Picture event | `PorticoPictureInPicture` | `PorticoMpvPictureInPicture` |
+| View | `PorticoPlayer` | `PorticoMpvPlayer` |
+
+The names are the same on every platform. A build without an engine has no module for it (or a
+module whose `available` constant is false), and JavaScript then never selects it.
+
+## 2. Module
+
+All methods run on the main thread. Promises reject with the code shown.
+
+| Method | Resolves | Rejects |
+| --- | --- | --- |
+| `acquire(owner: string)` | `{lease: string, instanceId: string, engine: 'native' \| 'mpv'}` | `bridge_closed` (module invalidated), `owner_busy` (another owner holds the lease), `engine_unavailable` (mpv not in this build) |
+| `command(value: object)` | `true` | `bridge_closed`; `command_rejected` with one of the messages in section 4 |
+| `release(lease: string)` | `true` (always; a lease that is not current is ignored) | never |
+| `facts()` (mpv only) | the device facts in section 8 | never |
+
+Constants (never change while the app runs):
+
+| Constant | Type | Meaning |
+| --- | --- | --- |
+| `engine` | `'native' \| 'mpv'` | Which engine this module is. |
+| `available` | boolean | The engine is built in and can start. |
+| `features.pictureInPicture` | boolean | It can float its picture. mpv: false. |
+| `features.airPlayVideo` | boolean | It can send video to an AirPlay receiver. mpv: false; native: true on iPhone and iPad. |
+| `features.liveChannels` | boolean | It plays channels (`timelineOriginMs`). mpv: false. |
+| `features.musicSessions` | boolean | It plays the listening owner's music and audiobooks. mpv: false. |
+| `features.audioTrackSwitching` | boolean | It switches a file's audio track itself (`audioTrack`). native: false; mpv: true. |
+| `features.subtitleRendering` | string[] | Subtitle kinds it draws itself: `text`, `ass`, `pgs`, `vobsub`, `dvb`. native: `['text']`. |
+| `features.chapters` | boolean | Its `mediaInfo` fact carries the file's chapters. native: false; mpv: true. |
+
+The player hides Picture in Picture and AirPlay while an engine without them is active, and
+never gives a channel or a music session to an engine that does not play them.
+
+The native module has further methods for the listening owner (`adoptListeningSession`,
+`listeningAction`, and so on). They are not part of this contract; mpv has none of them.
+
+## 3. Lease
+
+- `acquire(owner)` gives the one lease of this engine. `owner` is 1 to 128 characters. While a
+  lease is held, the same owner gets the same lease again and any other owner is refused.
+- `instanceId` names this engine instance for as long as the module lives. Every fact carries it.
+- A new lease starts `commandRevision` and `factSequence` at 0.
+- `release(lease)` stops playback, closes the media, forgets the binding and the command, and
+  ends the lease. Facts stop at once. The audio session a video activated is given back half a
+  second later unless this app is still playing something.
+- JavaScript holds a lease on one engine at a time. To move a title to the other engine it
+  releases the lease, which makes the playback service ask for the position already reached as a
+  seek; it then acquires the other engine's lease and sends the same session with that
+  `pendingSeek`. The session, and so the queue, do not change.
+
+## 4. Commands
+
+A command is one object. Unless it is accepted in full nothing changes. Checks run in this order
+and the first failure is the rejection message.
+
+| Field | Type | Rule | Message when broken |
+| --- | --- | --- | --- |
+| (module) | | Not invalidated. | `Playback controller is closed.` |
+| `binding` | object | Present. | `Invalid playback binding.` |
+| `binding.lease` | string | Equals the current lease. | `Playback lease is no longer active.` |
+| `paused` | boolean | A real boolean, not 0 or 1. | `Invalid paused flag.` |
+| `source`, `rate` | string, number | `rate` finite. | `Invalid playback command.` |
+| `binding.intentId`, `binding.generation` | integer | 1 to 2^53-1. | `Invalid playback binding.` |
+| `commandRevision` | integer | 1 to 2^53-1. | `Invalid playback revision.` |
+| | | Lower than the last accepted. | `Stale playback command.` |
+| | | Equal to the last accepted: accepted without effect if the whole command is identical, otherwise refused. | `Conflicting playback command.` |
+| `binding.sessionId`, `binding.itemId` | string | Present. | `Invalid playback binding.` |
+| `timelineOriginMs` | integer or null | Positive integer when present. | `Invalid channel clock.` |
+| | | mpv: any non-null value. | `This player does not play live channels.` |
+| `connectionState`, `routeRevision` | `'ready' \| 'verifying'`, integer >= 0 | When `connectionState` is present both must be valid. | `Invalid route transition.` |
+| | | `routeRevision` absent or lower than the last accepted command's. | `Stale route transition.` |
+| `listeningOwner` | string or null | mpv: must be null or absent. | `This player does not play music sessions.` |
+| `audioRender` | object or null | mpv: must be null or absent. (native validates the render plan.) | `Unsupported audio render context.` |
+| `binding` against the previous one | | `intentId` lower than before; or equal with a different binding or a different source (a new `routeRevision` with the same path and query is the same source). | `Stale playback binding.` |
+| `pendingSeek` | `{revision, positionSeconds}` or null | Both finite numbers, not negative (native allows a negative position for a channel). | `Invalid seek command.` |
+| | | `revision` a whole number >= 1. | `Invalid seek revision.` |
+| | | Same binding and a `revision` lower than the last accepted seek. | `Stale seek command.` |
+| | | Same binding, the same `revision`, and either a different position or a seek already retired (a later command carried none). | `Conflicting or retired seek command.` |
+| `audioTrack` (mpv) | `{revision, streamIndex}` or null | `revision` >= 1, `streamIndex` 0 to 65535. | `Invalid audio track command.` |
+
+Fields with no rejection of their own:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `source` | string | The media address: `http`/`https` with a host and no credentials, or a `file:` address inside the app's Downloads folder (checked after symbolic links are resolved). Anything else is answered with an `error` fact, `Invalid media address.` |
+| `rate` | number | The wanted speed. Supported: 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2 (native leaves out the two below 1 when the media cannot play slower; a channel is 1 only). An unsupported rate keeps the player paused and is reported in `rateError`. |
+| `audio` | object or null | Section 6. |
+| `subtitles` | object or null | Section 7. |
+
+What an accepted command does:
+
+1. **Different binding**: route state is cleared.
+2. **`connectionState: 'verifying'`** (same binding): the position reached is kept, the media is
+   closed, and the engine waits. No facts are sent until a `ready` command arrives. The same
+   happens to the kept position when the source changes within a binding.
+3. **Load.** The media is (re)opened when the engine was waiting, the `intentId` changed, the
+   source changed, or nothing is open. A new `itemInstanceId` is made. With a kept position the
+   engine returns to it before saying `ready`; if it cannot get within half a second it sends
+   `error`: `The previous playback position is unavailable on this connection. Your position has
+   been retained.` and, if ten seconds pass first, `error`: `Connection restored, but the
+   retained position is not available. Your playback session was not replaced.`
+4. **`pendingSeek`** with a `revision` higher than the last one performed is performed once the
+   media is ready: an exact seek, then `seekApplied` if the engine landed within 0.5 s of the
+   target, otherwise `seekFailed` (`That position is not available yet. Try seeking again.`). A
+   seek present in the command that opens the media is where the media opens. A seek replaces a
+   kept route position.
+5. **Intent.** The player plays at `rate` only when `paused` is false, no seek is pending in the
+   command or in flight, the route is ready and the kept position (if any) is restored. While a
+   `pendingSeek` is still in the command the player stays paused: JavaScript removes it after
+   `seekApplied`. Then a `rateStatus` fact is sent.
+
+## 5. Facts
+
+Every fact is one object on the engine's fact event. Fields on every fact:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `type` | string | One of the types below. |
+| `instanceId` | string | The engine instance. |
+| `intentId` | integer | The `intentId` of the media the fact is about. |
+| `binding` | object | The binding of the last accepted command, unchanged. |
+| `itemInstanceId` | string | Changes with every load. |
+| `factSequence` | integer | Rises by 1 with every fact of a lease. |
+| `lastCommandRevision` | integer | The last accepted `commandRevision`. |
+| `seeking` | boolean | A seek is in flight or still in the command. |
+| `position` | number | Seconds in the media's own timeline (0 when unknown). |
+| `paused` | boolean | The player is paused and not seeking. |
+| `error` | string | Empty unless the type is an error. |
+| `effectiveRate` | number | The speed the picture is moving at now; 0 when paused or waiting. |
+| `supportedRates` | number[] | Empty until the media is ready. |
+| `rateReady` | boolean | The media is ready. |
+| `rateWaiting` | boolean | Wanted to play but waiting for data. |
+| `rateError` | string | Set when the wanted rate is not supported. |
+| `monotonicSeconds` | number | The device's uptime clock. |
+| `engine` | string | mpv sends `'mpv'`. Optional. |
+
+No fact is sent while the engine waits on `verifying`. While a kept position is being restored
+only `error` facts are sent. JavaScript drops any fact whose `instanceId`, binding, sequence or
+`lastCommandRevision` shows it belongs to a superseded lease, item, route or seek.
+
+| Type | When | Extra fields |
+| --- | --- | --- |
+| `ready` | The media is open and can play (after a kept position is restored). | |
+| `firstFrame` | The first picture is on screen. | |
+| `progress` | Twice a second while the position moves, and once when it stops. Never repeated for a paused picture. | |
+| `stalled` | The buffer ran dry after playback had begun. Not an error. | |
+| `ended` | The media played to its end. Once per load (again after a seek back). | |
+| `rateStatus` | The intent was applied, or the pause, speed or waiting state changed. | |
+| `seekApplied`, `seekFailed` | A `pendingSeek` finished. | `seekRevision` |
+| `error` | The media cannot continue. `paused` is true. | `networkError`, `deliveryError` (booleans), `httpStatus` (0 or 400-599), `hasPlayed` (a frame was shown or time advanced), `uncertain` (the cause is not the media: an interruption, an output that would not start), `engineCode` (`''`, `decode_error` or `source_not_supported`; empty when it is a network or delivery error), `errorDetail` (a short technical string) |
+| `subtitleStatus` | The subtitle command was taken up or could not be. `error` is empty on success. | |
+| `systemPaused` | The system paused a video the app wanted playing (the app left the screen). JavaScript sets its intent to paused. | `reason` (mpv: `'background'`) |
+| `audioMapped`, `audioObserved`, `audioApplied`, `audioFailed`, `audioUnavailable` | Section 6. | |
+| `audioTrackApplied`, `audioTrackFailed` (mpv) | An `audioTrack` choice finished. | `audioTrackRevision`, `streamIndex` |
+| `mediaInfo` (mpv) | After `ready`, and when the tracks, the picture or the length change. | `durationSeconds`; `chapters`: `{startSeconds, title}[]`; `video`: `{width, height, framesPerSecond, codec, dynamicRange (sdr, hdr10, hlg, dolby_vision), outputDynamicRange (sdr, hdr), hardwareDecoding}`; `audioTracks`, `subtitleTracks`: `{streamIndex, language, title, codec, channels, selected, external, default, forced}[]` |
+
+Error classification, in order:
+
+1. An HTTP status of 400-599 from the media's server: `httpStatus` is set, `deliveryError` is
+   true, and `networkError` is true for 408, 429 and 500-599.
+2. A connection failure with no answer: `networkError`, unless the failure is one waiting will
+   not change (file missing, no permission, transport security, cancelled), which is
+   `deliveryError`.
+3. The engine refusing the media: `engineCode` `source_not_supported` (not a format it reads) or
+   `decode_error` (a track it cannot decode; mpv reports this when a file's picture track will
+   not decode, rather than playing sound over black).
+4. Anything else: `uncertain` is true and nothing is blamed.
+
+The native engine also sends `audioPrepared`, `audioCommit`, `audioBoundary`,
+`audioPreparationFailed` and `audioRenderFailed` for the listening owner's music. They are not
+part of this contract.
+
+## 6. Audio
+
+`audio` chooses between the audio renditions the server named for a stream:
+
+```
+{binding: {intentId, sessionId, generation, sourceId, planRevision}, epoch: number,
+ renditions: [{id: string, name: string, streamIndex?: number}], defaultRenditionId: string,
+ pending: {revision: number, renditionId: string} | null}
+```
+
+It applies only when `binding.intentId`, `sessionId` and `generation` equal the command's
+binding. Every audio fact carries `audioBinding` (the command's audio binding) and `audioEpoch`.
+
+- Once per load the engine maps every rendition to exactly one of its audio tracks and sends
+  `audioMapped {renditionIds: string[]}`. If any rendition cannot be mapped, none is:
+  `audioMapped {renditionIds: [], audioMappingFailure}` (`timeout`, `load_failed`,
+  `unsupported_metadata`). Native maps by the HLS rendition name. mpv maps by `streamIndex` when
+  given, else by the name (the track title, or the HLS name), else by order when the counts agree.
+- `audioObserved {audioSequence, renditionId | null}` whenever the track in use changes, and after
+  mapping.
+- A `pending` with a new `revision` is selected, then `audioApplied {audioRevision, renditionId}`
+  once the track in use is that rendition, or `audioFailed {audioRevision, error}` if it is not in
+  the map.
+- `audioUnavailable {renditionId}` (native) when the server refuses a rendition's playlist; the
+  engine returns to `defaultRenditionId`.
+
+`audioTrack` (mpv; engines with `features.audioTrackSwitching`) chooses a track inside a file that
+is played as it is, without a new session: `{revision, streamIndex}`, where `streamIndex` is the
+stream's index in the file. The engine answers `audioTrackApplied` or `audioTrackFailed` with the
+same `audioTrackRevision`. JavaScript sends the field only to an engine that has the feature, and
+only for the playback it was chosen in.
+
+## 7. Subtitles
+
+```
+{binding: {intentId, sessionId, generation}, mode: 'off' | 'track', revision: number,
+ resourceId: string, resourceRevision: number, offsetUs: string, refreshRevision: number,
+ documentUrl?: string, manifestName?: string, origin?: string, language?: string, title?: string,
+ render?: {kind: 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb',
+           embedded?: {streamIndex?: number, ordinal?: number, language?: string, title?: string},
+           url?: string, fonts?: [{name: string, url: string}]}}
+```
+
+It applies only when its binding matches the command's. `mode: 'off'`, or no `subtitles`, shows
+nothing. `offsetUs` is a decimal string of microseconds, -600 s to +600 s; a positive value shows
+every line later.
+
+Two ways to draw a track:
+
+1. **The cue document** (`documentUrl`): the server's plain-text cues as JSON. The engine fetches
+   it and the app draws the line over the picture, inside the picture area: white on a 70 % black
+   box, 3.5 % of the picture's width (12 to 40 points, times the viewer's system caption size),
+   bottom centred, or at the top for a cue marked `top`, italic for a cue marked `italic`. The
+   address must be on the media's own origin, under the media's grant
+   (`/v1/media/<grant>/subtitles/<resourceId>/<resourceRevision>`), `https` or `http` to a private
+   address, with no credentials, query or fragment; otherwise `subtitleStatus`: `The subtitle
+   address does not belong to this playback session.` The document is re-checked every 25 seconds
+   with its ETag and blanked after 40 seconds without a good answer. Native also lets the system
+   draw an embedded text track when it can match one by `manifestName` or by language and title.
+   Both engines implement this. It is the only way the native engine draws subtitles.
+2. **The engine draws the track itself** (`render`; engines whose `features.subtitleRendering`
+   lists the `kind`). The engine first looks for the track inside the media (`embedded`: by
+   stream index, else by position among the file's own subtitle tracks, else by language and
+   title, and only among tracks of that kind), then for the original subtitle file at `url`
+   (same origin and grant rule as above; for VobSub the `.idx` address, the `.sub` beside it).
+   `fonts` are the fonts attached to a styled file: at most 16, fetched before the file is added.
+   On success `subtitleStatus` with an empty `error`. If neither can be done the engine falls back
+   to the cue document when the command has one, and otherwise sends `subtitleStatus`: `This
+   subtitle track is unavailable in the current player.`
+
+JavaScript sends `render` only to an engine that draws that kind. Plain text drawn by mpv itself
+(`kind: 'text'`) uses the same look as the cue line.
+
+## 8. View
+
+The view shows the engine's picture for the lease it is given, and nothing for any other lease.
+The engine outlives its views.
+
+| Prop | Type | Meaning |
+| --- | --- | --- |
+| `lease` | string | The lease whose picture to show. |
+| `pictureInPictureRequest` | integer | Each change asks for Picture in Picture to start, or to stop if it is running. |
+
+The Picture in Picture event carries `{lease, state, subtitlesCarried?}`. `state` is `started`,
+`stopped`, `restore` (the viewer came back to the app), or `unavailable`. mpv always answers
+`unavailable`. `subtitlesCarried` is false when the chosen subtitles are drawn by the app and so
+do not appear in the floating picture.
+
+`facts()` (mpv) answers what the capability profile is built from:
+
+```
+{engine: 'mpv', available: boolean, memoryBytes: number, processorCount: number,
+ hardwareDecode: {h264, hevc, vp9, av1: boolean}, hdrOutput: boolean,
+ screen: {width, height, maxFrameRate}, audio: {maxOutputChannels}}
+```
+
+## 9. System behaviour every engine keeps
+
+- **Audio session.** Opening a video sets the session to playback, movie mode, multichannel
+  allowed, and activates it. `release` gives it back (section 3).
+- **Now Playing and remote commands** belong to `PorticoSystemMedia`, not to the engine. It reads
+  the playing video's position, rate and length from the engine through `PorticoEngineClock`
+  (the engine registers itself while it has media open and announces jumps), and turns every
+  lock-screen or remote press into an event for JavaScript.
+- **Interruptions and route changes** reach JavaScript through `PorticoSystemMedia` as pause and
+  play commands. The engine only makes sure its output works again afterwards.
+- **Leaving the app.** An engine that cannot keep drawing (mpv; AVPlayer without Picture in
+  Picture or AirPlay) ends up paused. It sends `systemPaused` when the app wanted it playing.
+- **Display matching (television).** Before the first `ready`, the engine asks the display to
+  match the title's frame rate and waits for the switch to end (10 s at most). mpv does this;
+  the native engine still applies its criteria at the first frame.
+- **Network.** The engine reads only the command's `source` and addresses under the same media
+  grant. TLS is validated by the system. Redirects of subtitle and font fetches are refused.
+
+## 10. What mpv does not do
+
+No Picture in Picture, no AirPlay video, no live channels, no music sessions, no bitstream
+passthrough (sound is decoded to PCM), no HDR output on a television (HDR is tone-mapped on the
+device there; an iPhone or iPad with an HDR screen shows HDR). Each is declared in `features` or
+in the capability profile, and the player hides what does not apply.

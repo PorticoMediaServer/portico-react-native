@@ -116,6 +116,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.isOpaque = true
         metalLayer.framebufferOnly = true
+        // A size to start with, so the renderer never opens on an empty surface; the view that
+        // shows the picture sets the real one.
+        metalLayer.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        metalLayer.drawableSize = CGSize(width: 1920, height: 1080)
         subtitleOverlay.onText = { [weak self] cue in
             guard let self = self else { return }
             self.overlayCue = cue ?? [:]
@@ -603,7 +607,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             return
         }
         if !PorticoMpvSupport.tracks(tracks, type: "audio").isEmpty, snapshot.aid == "no" {
-            publishFailure(code: -18, message: "audio track could not be decoded", log: [], engine: "decode_error")
+            // No sound is as often the output refusing to open (a call in progress) as a track
+            // mpv cannot decode, so the media is not blamed for it.
+            publishFailure(code: -14, message: "audio could not start", log: [])
             return
         }
         hasPlayed = true
@@ -1120,7 +1126,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         updateOutputRange()
         #if os(tvOS)
         // A view that arrives after the first frame still gets the television matched.
-        if restarted, !displayCriteriaSet { matchDisplay {} }
+        if restarted, !displayCriteriaSet { matchDisplay { [weak self] in self?.applyIntent() } }
         #endif
     }
 
