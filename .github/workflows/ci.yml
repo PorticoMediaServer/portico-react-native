@@ -30,6 +30,8 @@ jobs:
         working-directory: portico-react-native/apps/native
       - run: npm run typecheck
         working-directory: portico-react-native/apps/native
+      - run: npm run typecheck:test
+        working-directory: portico-react-native/apps/native
       - run: npm run lint:strings
         working-directory: portico-react-native/apps/native
       - run: npm test
@@ -49,3 +51,15 @@ jobs:
       - name: Assemble the debug builds (phones and televisions, Fire OS)
         run: ./gradlew --no-daemon assembleDebug
         working-directory: apps/native/android
+
+  apple-contracts:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the URL allowlist and download callback ownership
+        run: |
+          swiftc -O -o "$RUNNER_TEMP/portico-url-routes" apps/native/tvos/Portico/PorticoURLRoutes.swift apps/native/test/porticourlroutes-tests.swift
+          "$RUNNER_TEMP/portico-url-routes"
+          clang -fobjc-arc -framework Foundation -o "$RUNNER_TEMP/portico-download-attempts" apps/native/test/native-download-attempt-tests.m
+          "$RUNNER_TEMP/portico-download-attempts"

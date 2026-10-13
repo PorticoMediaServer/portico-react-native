@@ -165,13 +165,14 @@ RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
 @property(nonatomic,weak) id owner;
 @property(nonatomic) BOOL completed;
 @property(nonatomic) BOOL started;
+@property(nonatomic) BOOL critical;
 @property(nonatomic) NSUInteger responseLimit;
 - (void)finish:(NSString *)failure;
 @end
 static NSMutableDictionary<NSString *,PorticoQueueRequest *> *PorticoQueueRequests;
 static NSMutableArray<PorticoQueueRequest *> *PorticoQueueWaiting;
 static NSMutableDictionary<NSNumber *,PorticoQueueRequest *> *PorticoQueueTasks;
-static NSInteger PorticoQueueActive;
+static NSInteger PorticoQueueActive, PorticoQueueReads;
 static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
 
 @interface PorticoQueueTransport : NSObject<NSURLSessionDataDelegate,NSURLSessionTaskDelegate> @end
@@ -188,27 +189,38 @@ static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
 }
 /** Caller holds the class lock. */
 + (void)start:(PorticoQueueRequest *)request {
- request.started=YES;PorticoQueueActive++;
+ request.started=YES;PorticoQueueActive++;if(!request.critical)PorticoQueueReads++;
  NSURLSessionDataTask *task=[[self session] dataTaskWithRequest:request.wire];request.task=task;
  if(!PorticoQueueTasks)PorticoQueueTasks=[NSMutableDictionary dictionary];PorticoQueueTasks[@(task.taskIdentifier)]=request;
  [task resume];
 }
-/** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
+/** Caller holds the class lock. Two slots and eight waiting places are reserved for writes. */
++ (void)pump {
+ while(PorticoQueueActive<PorticoQueueMaxActive&&PorticoQueueWaiting.count){
+  NSUInteger index=[PorticoQueueWaiting indexOfObjectPassingTest:^BOOL(PorticoQueueRequest *r,NSUInteger i,BOOL *stop){return r.critical;}];
+  if(index==NSNotFound){if(PorticoQueueReads>=10)break;index=0;}
+  PorticoQueueRequest *next=PorticoQueueWaiting[index];[PorticoQueueWaiting removeObjectAtIndex:index];[self start:next];
+ }
+}
 + (void)submit:(PorticoQueueRequest *)request domain:(NSString *)domain busy:(NSString *)busy {
  @synchronized(PorticoQueueRequest.class){
   if(!PorticoQueueRequests)PorticoQueueRequests=[NSMutableDictionary dictionary];if(!PorticoQueueWaiting)PorticoQueueWaiting=[NSMutableArray array];
-  if(PorticoQueueRequests[request.identifier]||(PorticoQueueActive>=PorticoQueueMaxActive&&(NSInteger)PorticoQueueWaiting.count>=PorticoQueueMaxWaiting)){request.reject(domain,busy,nil);return;}
-  PorticoQueueRequests[request.identifier]=request;
-  if(PorticoQueueActive<PorticoQueueMaxActive)[self start:request];else [PorticoQueueWaiting addObject:request];
+  request.critical=![@[@"GET",@"HEAD"] containsObject:request.wire.HTTPMethod];
+  NSUInteger reads=0;for(PorticoQueueRequest *r in PorticoQueueRequests.allValues)if(!r.critical)reads++;
+  if(PorticoQueueRequests[request.identifier]||PorticoQueueRequests.count>=76||(!request.critical&&reads>=66)){request.reject(domain,busy,nil);return;}
+  PorticoQueueRequests[request.identifier]=request;[PorticoQueueWaiting addObject:request];[self pump];
+  // Include queue residence in the operation's deadline. Cancellation releases admission once.
+  NSTimeInterval timeout=request.wire.timeoutInterval;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{[request finish:@"The queue request could not be confirmed."];});
  }
 }
-/** Caller holds the class lock. Frees the request's slot and starts the next waiting one. */
+/** Caller holds the class lock. */
 + (void)release:(PorticoQueueRequest *)request {
  if(PorticoQueueRequests[request.identifier]==request)[PorticoQueueRequests removeObjectForKey:request.identifier];
  if(!request.started){[PorticoQueueWaiting removeObjectIdenticalTo:request];return;}
  if(request.task)[PorticoQueueTasks removeObjectForKey:@(request.task.taskIdentifier)];
- PorticoQueueActive=MAX(0,PorticoQueueActive-1);
- while(PorticoQueueActive<PorticoQueueMaxActive&&PorticoQueueWaiting.count){PorticoQueueRequest *next=PorticoQueueWaiting.firstObject;[PorticoQueueWaiting removeObjectAtIndex:0];[self start:next];}
+ PorticoQueueActive=MAX(0,PorticoQueueActive-1);if(!request.critical)PorticoQueueReads=MAX(0,PorticoQueueReads-1);
+ [self pump];
 }
 + (void)cancelOwnedBy:(id)owner {
  NSArray<PorticoQueueRequest *> *owned;
@@ -322,6 +334,27 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
 }
 @end
 
+static dispatch_queue_t PorticoRecordQueue(void) {
+ static dispatch_queue_t queue;static dispatch_once_t once;
+ dispatch_once(&once,^{queue=dispatch_queue_create("tv.getportico.records",DISPATCH_QUEUE_SERIAL);});
+ return queue;
+}
+
+/** A removed installation cannot inherit the previous installation's Keychain credentials. */
+static OSStatus PorticoPrepareInstallationStorage(void) {
+ NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
+ if([defaults boolForKey:@"PorticoInstallationPrepared"])return errSecSuccess;
+ for(NSString *suffix in @[@"queues",@"credentials",@"playback",@"network",@"profile-trust",@"account-continuation"]){
+  NSString *service=[@"tv.getportico.portico." stringByAppendingString:suffix];
+  OSStatus status=SecItemDelete((__bridge CFDictionaryRef)@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:service});
+  if(status!=errSecSuccess&&status!=errSecItemNotFound)return status;
+ }
+ [defaults removeObjectForKey:@"PorticoSelectedViewerQuarantined"];
+ [defaults setBool:YES forKey:@"PorticoInstallationPrepared"];
+ [defaults synchronize];
+ return errSecSuccess;
+}
+
 @interface PorticoRuntime : NSObject<RCTBridgeModule,RCTInvalidating> @end
 @implementation PorticoRuntime
 RCT_EXPORT_MODULE()
@@ -334,8 +367,13 @@ RCT_EXPORT_MODULE()
 }
 + (BOOL)requiresMainQueueSetup{return NO;}
 RCT_REMAP_METHOD(prepareSecureRecords,prepareSecureRecordsWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  // Keychain records do not depend on a separate app-held sealing key.
  resolve(@NO);
+
+ });
 }
 - (NSDictionary *)constantsToExport{
  NSMutableDictionary *values=[@{@"launchId":NSUUID.UUID.UUIDString} mutableCopy];
@@ -358,6 +396,9 @@ RCT_REMAP_METHOD(recordTestEvent,recordTestEvent:(NSString *)json){
 }
 #endif
 RCT_REMAP_METHOD(loadQueueRecord,loadQueueRecord:(NSString *)key resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.queues",(__bridge id)kSecAttrAccount:key,(__bridge id)kSecReturnData:@YES};CFTypeRef result=NULL;OSStatus status=SecItemCopyMatching((__bridge CFDictionaryRef)query,&result);
  id stored=CFBridgingRelease(result);
  // The Keychain returned the item, but its bytes are not text: not a record this app wrote, and
@@ -365,11 +406,18 @@ RCT_REMAP_METHOD(loadQueueRecord,loadQueueRecord:(NSString *)key resolver:(RCTPr
  // Every Keychain failure, a locked device before first unlock included, stays `secure_storage`.
  if(status==errSecSuccess&&[stored isKindOfClass:NSData.class]&&![[NSString alloc] initWithData:stored encoding:NSUTF8StringEncoding]){reject(@"secure_record_damaged",@"Queue recovery could not be read.",nil);return;}
  PorticoResolveSecureStorageRead(status,stored,NSNull.null,@"Queue recovery could not be read.",resolve,reject);
+
+ });
 }
 RCT_REMAP_METHOD(saveQueueRecord,saveQueueRecord:(NSString *)key json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(!data||data.length>262144){reject(@"queue_journal_size",@"Queue recovery is full.",nil);return;}
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.queues",(__bridge id)kSecAttrAccount:key};NSDictionary *attributes=@{(__bridge id)kSecValueData:data,(__bridge id)kSecAttrAccessible:(__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly};OSStatus status=SecItemUpdate((__bridge CFDictionaryRef)query,(__bridge CFDictionaryRef)attributes);
  if(status==errSecItemNotFound){NSMutableDictionary *insert=[query mutableCopy];[insert addEntriesFromDictionary:attributes];status=SecItemAdd((__bridge CFDictionaryRef)insert,NULL);}if(status==errSecSuccess)resolve(@YES);else reject(@"secure_storage",@"Queue recovery could not be saved.",nil);
+
+ });
 }
 RCT_REMAP_METHOD(queueRequest,queueRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  [self boundedRequest:identifier url:url method:method headers:headers body:body fullAPI:NO resolver:resolve rejecter:reject];
@@ -438,9 +486,17 @@ RCT_REMAP_METHOD(newRequestId,newRequestIdResolver:(RCTPromiseResolveBlock)resol
 // Each PIN attempt, including a failed decrypt, is durably charged before the
 // expensive operation. A restart or second React bridge cannot reset the delay.
 RCT_REMAP_METHOD(profileInstallation,profileInstallationResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){OSStatus e;NSString *value=PorticoProfileInstallation(&e);if(value)resolve(value);else reject(@"secure_storage",@"This device's profile installation could not be read.",nil);}
+
+ });
 }
 RCT_REMAP_METHOD(saveProfileTrust,saveProfileTrust:(NSString *)scope metadata:(NSString *)metadataJSON payload:(NSString *)payloadJSON pin:(NSString *)pin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){OSStatus e;NSString *key=PorticoProfileRecordKey(scope),*installation=PorticoProfileInstallation(&e);id metadata=PorticoProfileParse([metadataJSON dataUsingEncoding:NSUTF8StringEncoding]);
   if(!key||!installation||!PorticoProfileMetadata(scope,metadata,installation)||!PorticoProfilePIN(pin,[metadata[@"pinRequired"]boolValue])){reject(@"profile_trust_invalid",@"A current, fully scoped selection and its PIN are required to trust this profile.",nil);return;}
   NSArray *index=PorticoProfileActiveIndex(&e);if(!index){reject(@"secure_storage",@"Trusted profiles could not be read.",nil);return;}if(index.count>=64&&![index containsObject:key]){reject(@"profile_trust_full",@"Remove an unused trusted profile before remembering another.",nil);return;}
@@ -450,14 +506,24 @@ RCT_REMAP_METHOD(saveProfileTrust,saveProfileTrust:(NSString *)scope metadata:(N
   if(e!=errSecSuccess){PorticoProfileWrite(key,old);PorticoProfileWrite(@"index.v1",PorticoProfileJSON(index));}
   if(e==errSecSuccess)resolve(@YES);else reject(@"secure_storage",@"This profile selection could not be remembered.",nil);
  }
+
+ });
 }
 RCT_REMAP_METHOD(listProfileTrust,listProfileTrustResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){OSStatus e;NSArray *index=PorticoProfileActiveIndex(&e);if(!index){reject(@"secure_storage",@"Trusted profiles could not be read.",nil);return;}NSMutableArray *out=[NSMutableArray array];double now=NSDate.date.timeIntervalSince1970*1000;
   for(NSString *key in index){NSData *raw=PorticoProfileRead(key,&e);if(e==errSecItemNotFound)continue;if(e!=errSecSuccess){reject(@"secure_storage",@"A trusted profile could not be read.",nil);return;}id record=PorticoProfileParse(raw);if(![record isKindOfClass:NSDictionary.class]||!PorticoProfileText(record[@"metadata"],8192)){reject(@"secure_storage",@"A trusted profile record is invalid.",nil);return;}id metadata=PorticoProfileParse([record[@"metadata"]dataUsingEncoding:NSUTF8StringEncoding]);if(![metadata isKindOfClass:NSDictionary.class]){reject(@"secure_storage",@"A trusted profile record is invalid.",nil);return;}if([metadata[@"expiresAtMs"]isKindOfClass:NSNumber.class]&&[metadata[@"expiresAtMs"]doubleValue]>now)[out addObject:metadata];}
   resolve([[NSString alloc]initWithData:PorticoProfileJSON(out) encoding:NSUTF8StringEncoding]);
  }
+
+ });
 }
 RCT_REMAP_METHOD(unlockProfileTrust,unlockProfileTrust:(NSString *)scope pin:(NSString *)pin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){OSStatus e;NSString *key=PorticoProfileRecordKey(scope);if(!key){reject(@"profile_trust_invalid",@"Choose a previously trusted profile.",nil);return;}id value=PorticoProfileParse(PorticoProfileRead(key,&e));if(e!=errSecSuccess||![value isKindOfClass:NSDictionary.class]){reject(@"profile_trust_missing",@"This profile is not available for offline selection on this device.",nil);return;}NSMutableDictionary *record=[value mutableCopy];if(!PorticoProfileText(record[@"metadata"],8192)||!PorticoProfileAttempts(record)){reject(@"secure_storage",@"The trusted profile record is invalid. Select it online again.",nil);return;}id metadata=PorticoProfileParse([record[@"metadata"]dataUsingEncoding:NSUTF8StringEncoding]);NSString *installation=PorticoProfileInstallation(&e);
   if(!installation||!PorticoProfileMetadata(scope,metadata,installation)){reject(@"profile_trust_expired",@"This trusted profile expired or belongs to another installation. Select it online again.",nil);return;}
   double now=NSDate.date.timeIntervalSince1970;if([record[@"lockedUntil"]doubleValue]>now){reject(@"profile_pin_locked",@"Profile PIN attempts are temporarily locked. Try again later.",nil);return;}
@@ -467,17 +533,32 @@ RCT_REMAP_METHOD(unlockProfileTrust,unlockProfileTrust:(NSString *)scope pin:(NS
   NSString *payload=PorticoProfileDecrypt(record,scope,pin,&e);if(!payload){reject(e==errSecAuthFailed?@"profile_pin_required":@"secure_storage",e==errSecAuthFailed?@"That profile PIN is not correct. Try again after the delay.":@"The protected profile proof could not be read.",nil);return;}
   record[@"attempts"]=@0;record[@"lockedUntil"]=@0;e=PorticoProfileWrite(key,PorticoProfileJSON(record));if(e!=errSecSuccess){reject(@"secure_storage",@"The profile unlock could not be saved.",nil);return;}resolve(payload);
  }
+
+ });
 }
 RCT_REMAP_METHOD(removeProfileTrust,removeProfileTrust:(NSString *)scope resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){NSString *key=PorticoProfileRecordKey(scope);if(!key){reject(@"profile_trust_invalid",@"A complete profile scope is required.",nil);return;}OSStatus e=PorticoProfileWrite(key,nil);if(e==errSecSuccess){NSArray *index=PorticoProfileIndex(&e);if(index){NSMutableArray *next=[index mutableCopy];[next removeObject:key];e=PorticoProfileWrite(@"index.v1",PorticoProfileJSON(next));}}if(e==errSecSuccess)resolve(@YES);else reject(@"secure_storage",@"The trusted profile could not be removed.",nil);}
+
+ });
 }
 
 RCT_REMAP_METHOD(loadSelectedViewer,loadSelectedViewerResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){if([NSUserDefaults.standardUserDefaults boolForKey:@"PorticoSelectedViewerQuarantined"]){resolve(NSNull.null);return;}
   NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.credentials",(__bridge id)kSecAttrAccount:@"portico:selected-viewer:v1",(__bridge id)kSecReturnData:@YES};CFTypeRef value=NULL;OSStatus e=SecItemCopyMatching((__bridge CFDictionaryRef)query,&value);PorticoResolveSecureStorageRead(e,CFBridgingRelease(value),NSNull.null,@"The saved server selection could not be read.",resolve,reject);
  }
+
+ });
 }
 RCT_REMAP_METHOD(saveSelectedViewer,saveSelectedViewer:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  @synchronized(PorticoRuntime.class){BOOL removing=[json isEqual:@"null"];if(removing){[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"PorticoSelectedViewerQuarantined"];[NSUserDefaults.standardUserDefaults synchronize];}
   NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(!data||data.length>65536){reject(@"secure_storage",@"The server credential record is invalid.",nil);return;}
   NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.credentials",(__bridge id)kSecAttrAccount:@"portico:selected-viewer:v1"};OSStatus e;
@@ -487,23 +568,45 @@ RCT_REMAP_METHOD(saveSelectedViewer,saveSelectedViewer:(NSString *)json resolver
   if((removing&&e!=errSecItemNotFound)||(!removing&&(e!=errSecSuccess||![confirmed isKindOfClass:NSData.class]||![confirmed isEqualToData:data]))){[NSUserDefaults.standardUserDefaults setBool:YES forKey:@"PorticoSelectedViewerQuarantined"];[NSUserDefaults.standardUserDefaults synchronize];reject(@"secure_storage",@"Server credential storage could not be verified. Sign in to the server again.",nil);return;}
   if(!removing){[NSUserDefaults.standardUserDefaults setBool:NO forKey:@"PorticoSelectedViewerQuarantined"];[NSUserDefaults.standardUserDefaults synchronize];}resolve(@YES);
  }
+
+ });
 }
 
 RCT_REMAP_METHOD(loadCredentials,loadCredentials:(NSString *)origin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.credentials",(__bridge id)kSecAttrAccount:origin,(__bridge id)kSecReturnData:@YES};CFTypeRef result=NULL;OSStatus status=SecItemCopyMatching((__bridge CFDictionaryRef)query,&result);
  PorticoResolveSecureStorageRead(status,CFBridgingRelease(result),NSNull.null,@"Account credentials could not be read.",resolve,reject);
+
+ });
 }
 RCT_REMAP_METHOD(saveCredentials,saveCredentials:(NSString *)origin json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(!data||data.length>262144){reject(@"credential_size",@"Account credential storage is full.",nil);return;}
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.credentials",(__bridge id)kSecAttrAccount:origin};NSDictionary *attributes=@{(__bridge id)kSecValueData:data,(__bridge id)kSecAttrAccessible:(__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly};OSStatus status=SecItemUpdate((__bridge CFDictionaryRef)query,(__bridge CFDictionaryRef)attributes);if(status==errSecItemNotFound){NSMutableDictionary *insert=[query mutableCopy];[insert addEntriesFromDictionary:attributes];status=SecItemAdd((__bridge CFDictionaryRef)insert,NULL);}if(status==errSecSuccess)resolve(@YES);else reject(@"secure_storage",@"Account credentials could not be saved.",nil);
+
+ });
 }
 RCT_REMAP_METHOD(loadJournal,loadJournal:(NSString *)scope resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.playback",(__bridge id)kSecAttrAccount:scope,(__bridge id)kSecReturnData:@YES};CFTypeRef result=NULL;OSStatus status=SecItemCopyMatching((__bridge CFDictionaryRef)query,&result);
  PorticoResolveSecureStorageRead(status,CFBridgingRelease(result),@"[]",@"Playback recovery could not be read.",resolve,reject);
+
+ });
 }
 RCT_REMAP_METHOD(saveJournal,saveJournal:(NSString *)scope json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoRecordQueue(), ^{
+ if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
+
  NSData *data=[json dataUsingEncoding:NSUTF8StringEncoding];if(data.length>262144){reject(@"journal_size",@"Playback recovery is full.",nil);return;}
  NSDictionary *query=@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"tv.getportico.portico.playback",(__bridge id)kSecAttrAccount:scope};NSDictionary *attributes=@{(__bridge id)kSecValueData:data,(__bridge id)kSecAttrAccessible:(__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly};OSStatus status=SecItemUpdate((__bridge CFDictionaryRef)query,(__bridge CFDictionaryRef)attributes);if(status==errSecItemNotFound){NSMutableDictionary *insert=[query mutableCopy];[insert addEntriesFromDictionary:attributes];status=SecItemAdd((__bridge CFDictionaryRef)insert,NULL);}if(status==errSecSuccess)resolve(@YES);else reject(@"secure_storage",@"Playback recovery could not be saved.",nil);
+
+ });
 }
 
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(playbackRandomBytes:(NSNumber *)count){

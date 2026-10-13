@@ -116,7 +116,7 @@ const Roots = createRootsNavigator();
 const contentScreens = (Object.keys(screens) as (keyof typeof screens)[]).map(name => <Stack.Screen key={name} name={name} component={screens[name] as React.ComponentType} />);
 function useStackOptions() {
   const {isTV, motion} = useTheme();
-  return useMemo(() => ({headerShown: false, contentStyle: {backgroundColor: 'transparent'}, animation: (motion.reduce ? 'none' : isTV ? 'fade' : 'default') as 'none' | 'fade' | 'default', animationDuration: motion.standard, gestureEnabled: !isTV, fullScreenGestureEnabled: !isTV}), [motion.reduce, motion.standard, isTV]);
+  return useMemo(() => ({headerShown: false, freezeOnBlur: true, contentStyle: {backgroundColor: 'transparent'}, animation: (motion.reduce ? 'none' : isTV ? 'fade' : 'default') as 'none' | 'fade' | 'default', animationDuration: motion.standard, gestureEnabled: !isTV, fullScreenGestureEnabled: !isTV}), [motion.reduce, motion.standard, isTV]);
 }
 const stackStartingAt = (first: keyof ContentStackParams) => function RootStack() {
   const options = useStackOptions();

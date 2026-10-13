@@ -9,6 +9,8 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Dispatcher
@@ -38,12 +40,14 @@ internal object PorticoTransport {
   const val DEFAULT_LIMIT = 1L shl 20
   const val READ_LIMIT = 8L shl 20
 
-  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?) {
+  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean) {
+    var deadline: ScheduledFuture<*>? = null
     var call: Call? = null
     var completed = false
   }
 
   private val entries = HashMap<String, Entry>()
+  private val deadlines = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "portico-request-deadlines").apply { isDaemon = true } }
 
   private val client: OkHttpClient by lazy {
     OkHttpClient.Builder()
@@ -54,12 +58,13 @@ internal object PorticoTransport {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
-        .dispatcher(Dispatcher().apply { maxRequests = MAX_ACTIVE; maxRequestsPerHost = MAX_ACTIVE })
+        .dispatcher(Dispatcher().apply { maxRequests = 10; maxRequestsPerHost = 10 })
         .build()
   }
 
   // Reads retain safe connection alternatives. Writes may only be retried by their app owner.
-  private val writeClient: OkHttpClient by lazy { client.newBuilder().retryOnConnectionFailure(false).build() }
+  private val writeClient: OkHttpClient by lazy { client.newBuilder().retryOnConnectionFailure(false)
+      .dispatcher(Dispatcher().apply { maxRequests = 2; maxRequestsPerHost = 2 }).build() }
 
   /** A request URL the transport will carry: http or https, no credentials in it, no fragment. */
   fun target(url: String?): HttpUrl? {
@@ -100,17 +105,19 @@ internal object PorticoTransport {
 
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
   fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise) {
-    val entry = Entry(identifier, owner, limit, promise)
+    val critical = request.method !in setOf("GET", "HEAD")
+    val entry = Entry(identifier, owner, limit, promise, critical)
     val call: Call
     synchronized(entries) {
-      if (entries.containsKey(identifier) || entries.size >= MAX_ACTIVE + MAX_WAITING) {
+      if (entries.containsKey(identifier) || entries.size >= MAX_ACTIVE + MAX_WAITING || (!critical && entries.values.count { !it.critical } >= 66)) {
         promise.reject(domain, busy)
         return
       }
       entries[identifier] = entry
-      val transport = if (request.method in setOf("GET", "HEAD") && request.body == null) client else writeClient
+      val transport = if (critical) writeClient else client
       call = transport.newCall(request)
       entry.call = call
+      entry.deadline = deadlines.schedule({ finish(entry, "The queue request could not be confirmed.", null) }, 15, TimeUnit.SECONDS)
     }
     call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) = finish(entry, "The queue request could not be confirmed.", null)
@@ -174,6 +181,8 @@ internal object PorticoTransport {
     synchronized(entry) {
       if (entry.completed) return
       entry.completed = true
+      entry.deadline?.cancel(false)
+      entry.deadline = null
       promise = entry.promise
       entry.promise = null
     }

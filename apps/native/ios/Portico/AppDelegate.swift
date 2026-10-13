@@ -44,20 +44,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-    window = UIWindow(frame: UIScreen.main.bounds)
-    launchedAt = Date()
-    PorticoLink.launchedAt = launchedAt
-
-    // SEC-22: a cold launch's URL reaches JavaScript through `getInitialURL()`, which reads these
-    // options. Drop anything the allowlist refuses before React Native can see it.
-    var options = launchOptions
-    if let url = options?[.url] as? URL, !PorticoURLRoutes.allows(url) { options?.removeValue(forKey: .url) }
-
-    factory.startReactNative(
-      withModuleName: "Portico",
-      in: window,
-      launchOptions: options
-    )
 
     return true
   }
@@ -94,6 +80,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     PorticoLink.open(route)
     return true
   }
+  func connect(_ scene: UIWindowScene, options: UIScene.ConnectionOptions) -> UIWindow {
+    let window = UIWindow(windowScene: scene)
+    self.window = window
+    var launch: [UIApplication.LaunchOptionsKey: Any] = [:]
+    if let url = options.urlContexts.first?.url, PorticoURLRoutes.allows(url) {
+      launch[.url] = url
+    }
+    launchedAt = Date()
+    PorticoLink.launchedAt = launchedAt
+    // Deliver cold universal links through getInitialURL as the same allowlisted route.
+    if launch[.url] == nil, let activity = options.userActivities.first,
+       let route = PorticoURLRoutes.route(activityType: activity.activityType,
+                                          userInfo: activity.userInfo,
+                                          webpageURL: activity.webpageURL) {
+      launch[.url] = route
+    }
+    reactNativeFactory?.startReactNative(withModuleName: "Portico", in: window, launchOptions: launch)
+    return window
+  }
+
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
@@ -119,5 +125,29 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
   static var completions: [String: () -> Void] = [:]
   @objc static func finish(_ identifier: String) {
     DispatchQueue.main.async { completions.removeValue(forKey: identifier)?() }
+  }
+}
+
+/// A single scene owns the app's window; app-wide playback/download owners stay in the app delegate.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+             options connectionOptions: UIScene.ConnectionOptions) {
+    guard let scene = scene as? UIWindowScene,
+          let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    window = app.connect(scene, options: connectionOptions)
+  }
+
+  func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
+    guard let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    for context in contexts {
+      _ = app.application(UIApplication.shared, open: context.url, options: [:])
+    }
+  }
+
+  func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+    guard let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    _ = app.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
   }
 }
