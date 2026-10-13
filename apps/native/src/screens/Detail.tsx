@@ -4,7 +4,7 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {DetailProjection} from '../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
-import {dedupeNames, detailActions, networkName, originalTitleLine, relatedRowsForPage} from '../../../../packages/client-core/src/presentation/index';
+import {dedupeNames, detailActions, networkName, originalTitleLine, refreshMetadataPath, relatedRowsForPage} from '../../../../packages/client-core/src/presentation/index';
 import {formatDuration, useArtwork} from '../app/content';
 import {useDetail, useItemRecommendations} from '../app/detail';
 import {titleRecommendationRows} from '../../../../packages/client-core/src/recommendations';
@@ -118,6 +118,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         else if (action.id === 'addToCollection') menuItems.push({id: 'collection', label: i18n.t(action.label), icon: action.icon});
         else if (action.id === 'playFromStart') menuItems.push({id: 'start_over', label: i18n.t('title.playFromStart'), icon: 'restart'});
         else if (action.id === 'editMetadata') menuItems.push({id: 'edit', label: i18n.t(action.label), icon: action.icon});
+        // Refresh is offered only for the kinds of title this server can look up again.
+        else if (action.id === 'refreshMetadata') { if (refreshMetadataPath(item.kind, item.id)) menuItems.push({id: action.id, label: i18n.t(action.label), icon: action.icon}); }
         else menuItems.push({id: action.id, label: i18n.t(action.label), icon: action.icon});
       }
     }
@@ -129,7 +131,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         if (restart?.playback) { invoker.remember(); player.play(restart.playback.itemId, 0, entryOf(item)); }
         break;
       case 'refreshMetadata':
-        void api.request('/v1/items/' + encodeURIComponent(item.id) + '/metadata/refresh', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
+        void api.request(refreshMetadataPath(item.kind, item.id) ?? '', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
         break;
       case 'watchWithGroup':
         void together.service?.watch(item.id).then(ok => { if (ok) navigation.push('Together', {}); });
