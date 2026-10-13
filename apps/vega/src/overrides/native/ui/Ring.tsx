@@ -1,12 +1,10 @@
-// The shared `ui/Feedback.tsx`, with the loading ring drawn in a way Vega can turn.
+// The shared `ui/Ring.tsx` (the loading ring), drawn in a way Vega can turn.
 import React, {useEffect, useRef} from 'react';
 import {Animated, Easing, View, type StyleProp, type ViewStyle} from 'react-native';
 import Svg, {Path} from 'react-native-svg';
 import {uiI18n} from '../../../../../native/src/ui/i18n';
 import {alpha, spec, useSpecPlatform, useTheme} from '../../../../../native/src/ui/theme';
 import {animations} from '../../../shims/motion';
-
-export * from '../../../../../native/src/ui/Feedback';
 
 /**
  * The shared ring is one view: rounded, its border the track color with the top side in the
@@ -16,6 +14,9 @@ export * from '../../../../../native/src/ui/Feedback';
  *
  * So here the track is a still ring and the arc is a quarter circle drawn as a path, in a view of
  * its own that turns over it. Same size, stroke, colors, arc and speed.
+ *
+ * Every ring in the app is this one: the shared screens, buttons and loading states all take
+ * theirs from `ui/Ring`.
  */
 export function Ring({size, thickness, color, style, label}: {size?: number; thickness?: number; color?: string; style?: StyleProp<ViewStyle>; label?: string}) {
   const {colors, motion} = useTheme();

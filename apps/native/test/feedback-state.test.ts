@@ -26,6 +26,8 @@ async function load() {
     'react-native': {Animated: {}, Easing: {}, View: 'View'},
     './Button': {Button: 'Button'},
     './Icon': {Icon: 'Icon'},
+    './NavBar': {ScreenSpeechContext: {value: () => {}}},
+    './Ring': {Ring: 'Ring'},
     './Text': {Text: 'Text'},
     './i18n': {uiI18n: () => ({t: (id: string) => id})},
     './theme': theme,
