@@ -97,6 +97,7 @@ function guideApi(opts: {failKind?: string} = {}) {
     async request<T>(path: string): Promise<T> {
       requests.push(path);
       const url = new URL(path, 'http://x'), q = url.searchParams;
+      assert.ok(url.pathname === '/v1/guide/channels' || url.pathname === '/v1/guide', 'only current guide routes are used');
       const kind = q.get('kind')!, start = q.get('start')!, end = q.get('end')!;
       if (kind === opts.failKind) throw new Error('unavailable');
       const allKinds = [
@@ -163,7 +164,7 @@ test('one source asks only its own kind and passes the group filter', async () =
   assert.ok(requests.every(r => r.includes('kind=live-source') && r.includes('sourceId=antenna') && r.includes(`group=${encodeURIComponent(group).replace(/%20/g, '+')}`)));
 });
 
-test('All channels still loads when one kind fails; a single source surfaces the failure', async () => {
+test('the directory retains healthy sources when another is unavailable; a failed selected source surfaces the error', async () => {
   const all = channelGuideSource(guideApi({failKind: 'library-channel'}).api, SERVER, {entry: ALL, timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
   assert.equal((await all.channels(0, 50, new AbortController().signal)).total, demoChannels.length);
   const one = channelGuideSource(guideApi({failKind: 'live-source'}).api, SERVER, {entry: 'antenna', timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);

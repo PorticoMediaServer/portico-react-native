@@ -95,7 +95,6 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const content: ContentRoute = useMemo(() => (playlists ? {libraryId, view: 'discover'} : {libraryId, view: tab as ContentView, ...(category ? {category} : {}), ...sort}), [libraryId, tab, playlists, category, sort]);
   const {snapshot, retry, refresh, next} = useContent(engine ? {libraryId, view: 'discover'} : content);
   // A tab of groups (Genres, Series) is a list of the library's own; titles narrowed to a group are that group's titles.
-  const tabsOfKind = useMemo(() => libraryTabs(kind, tabOptions), [kind, tabOptions]);
   const opens = active.opens;
   const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, !opens && (genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field))) ? 'group-titles' : 'library');
   // The viewer's own filters. A remembered one this library no longer offers is left out, not sent.
