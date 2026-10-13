@@ -30,3 +30,13 @@ export async function resolve(specifier, context, next) {
     throw error;
   }
 }
+
+// Local test adapter until the canonical shared fixture encodes its file parameter.
+// The registry correctly rejects raw slashes in encodedRoutePath; only this fixture
+// used an unescaped generation/path. Keep every production route check unchanged.
+export async function load(url, context, next) {
+  const result = await next(url, context);
+  if (!url.endsWith('/playback-v1/testing/fake-server.ts')) return result;
+  const source = typeof result.source === 'string' ? result.source : Buffer.from(result.source).toString('utf8');
+  return {...result, source: source.replace("file:s.generation+'/master.m3u8'", "file:encodeURIComponent(s.generation+'/master.m3u8')")};
+}

@@ -17,13 +17,13 @@ import {mediaFamilyIcon} from '../../../../packages/design/src/index';
 import {Button, Dropdown, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, useTheme, type DropdownAnchor, type IconName, type WindowedGridHandle} from '../ui';
 import {RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
-import {genreFilter, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
+import {categoryDestination, genreFilter, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
 import {captionFor, formatClock} from '../app/content';
 import {usePlayerActions, usePlayingItemId} from '../app/player-actions';
 import type {BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {useBrowseCapabilities, useBrowseWindow, type Predicate} from '../app/browse';
 import {useLibraryMemory} from '../app/library-memory';
-import {categoryDestination, groupTabOpens, linkedView, offeredFilters, openingView, tabDefaultSort, tabView, type LibraryView} from '../app/library-view';
+import {linkedView, offeredFilters, openingView, tabView, type LibraryView} from '../app/library-view';
 import {AlphabetRail, BrowseBar} from './BrowseFilters';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
@@ -95,8 +95,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const content: ContentRoute = useMemo(() => (playlists ? {libraryId, view: 'discover'} : {libraryId, view: tab as ContentView, ...(category ? {category} : {}), ...sort}), [libraryId, tab, playlists, category, sort]);
   const {snapshot, retry, refresh, next} = useContent(engine ? {libraryId, view: 'discover'} : content);
   // A tab of groups (Genres, Series) is a list of the library's own; titles narrowed to a group are that group's titles.
-  const tabsOfKind = useMemo(() => libraryTabs(kind, tabOptions), [kind, tabOptions]);
-  const opens = useMemo(() => groupTabOpens(active, tabsOfKind), [active, tabsOfKind]);
+  const opens = active.opens;
   const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, !opens && (genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field))) ? 'group-titles' : 'library');
   // The viewer's own filters. A remembered one this library no longer offers is left out, not sent.
   const chosen = useMemo(() => offeredFilters(view, capabilities?.fields) as readonly Predicate[], [view, capabilities]);
@@ -139,7 +138,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     const picked = sort.sort ? capabilities?.sorts.find(x => x.id === sort.sort) : undefined;
     // The viewer's choice for this tab; without one, the order the tab opens in (Recently aired:
     // the latest episode first), and failing that the server's own for the pivot.
-    return offeredBrowseSort(capabilities, (sort.sort && picked ? {field: sort.sort, direction: sort.direction ?? picked.defaultDirection} : undefined) ?? tabDefaultSort(active));
+    return offeredBrowseSort(capabilities, (sort.sort && picked ? {field: sort.sort, direction: sort.direction ?? picked.defaultDirection} : undefined) ?? active.defaultSort);
   }, [sort.sort, sort.direction, capabilities, active]);
   // A genre opens the tab it groups (Albums), filtered to it.
   const openGroup = useCallback((entry: ContentEntry) => {

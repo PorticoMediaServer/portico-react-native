@@ -105,15 +105,11 @@ test('a device store that answers later is read before it decides, and newer cho
 
 // ── A tab's own order is only where it starts; category links are filtered tabs ─────────────────
 
-import {categoryDestination, groupTabOpens, tabDefaultSort} from '../src/app/library-view.ts';
-import {libraryTab, libraryTabs} from '../../../packages/client-core/src/presentation/index.ts';
+import {categoryDestination, libraryTab, libraryTabs} from '../../../packages/client-core/src/presentation/index.ts';
 
-test('Recently aired names an order to open in, whichever name the shared tab list gives it', () => {
-  assert.deepEqual(tabDefaultSort(libraryTab('tv', 'aired')), {field: 'latestAired', direction: 'desc'});
-  assert.equal(tabDefaultSort(libraryTab('tv', 'browse')), undefined);
-  // The shared list after its rename: the same order, read the same way.
-  const renamed = {id: 'aired', label: 'library.tab.aired', pivot: 'shows', shows: 'titles', defaultSort: {field: 'latestAired', direction: 'desc'}} as never;
-  assert.deepEqual(tabDefaultSort(renamed), {field: 'latestAired', direction: 'desc'});
+test('Recently aired has a starting order; the ordinary tab has none', () => {
+  assert.deepEqual(libraryTab('tv', 'aired').defaultSort, {field: 'latestAired', direction: 'desc'});
+  assert.equal(libraryTab('tv', 'browse').defaultSort, undefined);
 });
 
 test('a category link is the tab that lists its titles with one ordinary filter', () => {
@@ -122,7 +118,7 @@ test('a category link is the tab that lists its titles with one ordinary filter'
   assert.deepEqual(categoryDestination('movie', 'studio:A24: Films'), {tab: 'browse', predicate: {field: 'studio', operator: 'in', value: ['A24: Films']}});
   // Music genres open albums, as the Genres tab does; an audiobook series opens books.
   assert.equal(categoryDestination('music', 'genre:Jazz')?.tab, 'releases');
-  assert.deepEqual(categoryDestination('audiobook', 'series:Dune'), {tab: 'browse', predicate: {field: 'series', operator: 'in', value: ['Dune']}});
+  assert.deepEqual(categoryDestination('audiobook', 'series:Dune'), {tab: 'browse', predicate: {field: 'series', operator: 'contains-any', value: ['Dune']}});
 });
 
 test('a category this app does not know keeps the server’s own page', () => {
@@ -131,7 +127,7 @@ test('a category this app does not know keeps the server’s own page', () => {
 
 test('a tab of groups says where a group’s titles are listed', () => {
   const music = libraryTabs('music'), books = libraryTabs('audiobook');
-  assert.deepEqual(groupTabOpens(music.find(t => t.id === 'genres')!, music), {tab: 'releases', field: 'genre'});
-  assert.deepEqual(groupTabOpens(books.find(t => t.id === 'series')!, books), {tab: 'browse', field: 'series'});
-  assert.equal(groupTabOpens(music.find(t => t.id === 'songs')!, music), undefined);
+  assert.deepEqual(music.find(t => t.id === 'genres')!.opens, {tab: 'releases', field: 'genre'});
+  assert.deepEqual(books.find(t => t.id === 'series')!.opens, {tab: 'browse', field: 'series'});
+  assert.equal(music.find(t => t.id === 'songs')!.opens, undefined);
 });

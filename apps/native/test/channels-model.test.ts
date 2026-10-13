@@ -89,31 +89,43 @@ test('reminders: toggling adds and removes; passed and malformed ones are droppe
 
 // ── The guide source per entry (§8.1 stopgap) ──
 
-/** Today's `/v1/guide` over the demo fixture: 30 channels per signed page; Library Channels as a second kind. */
-function legacyApi(opts: {failKind?: string} = {}) {
+/** Current bounded channel directory and named-channel programme reads over the demo fixture. */
+function guideApi(opts: {failKind?: string} = {}) {
   const requests: string[] = [];
   const library = [{id: 'lc-1', name: 'Sharks', number: '', group: ''}, {id: 'lc-2', name: 'Aardvarks', number: '', group: ''}];
   const api = {
     async request<T>(path: string): Promise<T> {
       requests.push(path);
-      if (path.startsWith('/v1/guide/channels?')) throw Object.assign(new Error('unsupported'), {status: 404});
-      const q = new URL(path, 'http://x').searchParams;
+      const url = new URL(path, 'http://x'), q = url.searchParams;
+      assert.ok(url.pathname === '/v1/guide/channels' || url.pathname === '/v1/guide', 'only current guide routes are used');
       const kind = q.get('kind')!, start = q.get('start')!, end = q.get('end')!;
       if (kind === opts.failKind) throw new Error('unavailable');
-      const page = Number(q.get('cursor') || 0);
-      let all: readonly {id: string; name: string; number: string; group: string}[] = kind === 'live-source' ? demoChannels : library;
+      const allKinds = [
+        ...demoChannels.map(c => ({...c, provenance: 'live-source', sourceId: 'antenna'})),
+        ...library.map(c => ({...c, provenance: 'library-channel', sourceId: 'library-src'})),
+      ];
+      let all = allKinds.filter(c => (kind === 'all' || c.provenance === kind) && c.provenance !== opts.failKind);
+      if (q.get('sourceId')) all = all.filter(c => c.sourceId === q.get('sourceId'));
       if (q.get('group')) all = all.filter(c => c.group === q.get('group'));
       if (q.get('channels')) all = all.filter(c => q.get('channels')!.split(',').includes(c.id));
-      const slice = all.slice(page * 30, page * 30 + 30);
+      if (q.get('sort') === 'name') all.sort((a, b) => a.name.localeCompare(b.name));
+      else all.sort((a, b) => a.provenance.localeCompare(b.provenance) * -1 || (parseFloat(a.number) || 0) - (parseFloat(b.number) || 0) || a.name.localeCompare(b.name));
+      const directory = url.pathname === '/v1/guide/channels';
+      const limit = Number(q.get('limit')), offset = directory ? Number(q.get('offset')) : Number(q.get('cursor') || 0) * limit;
+      assert.ok(limit > 0 && limit <= 50);
+      if (!directory) assert.ok(q.get('channels'), 'programme reads name only the requested channels');
+      const slice = all.slice(offset, offset + limit);
       const channels = slice.map(c => ({
-        id: c.id, sourceId: kind === 'live-source' ? 'antenna' : 'library-src', provenance: kind, name: c.name, number: c.number, group: c.group, generation: 'g1', logoPath: '',
-        programmes: demoPrograms(c.id, Date.parse(start), Date.parse(end)).map(p => ({id: p.id, channelId: c.id, title: p.title, start: new Date(p.start).toISOString(), end: new Date(p.end).toISOString(), lineage: 'provider-id', seriesId: '', episodeId: '', newEvidence: 'unknown', description: `About ${p.title}`})),
-        tuneAvailable: true, recordAvailable: kind === 'live-source', tuneUnavailableReason: '', recordUnavailableReason: kind === 'live-source' ? '' : 'not-recordable', favorite: false, hidden: false, preferenceRevision: 0,
+        ...c, generation: 'g1', logoPath: '',
+        programmes: directory ? [] : demoPrograms(c.id, Date.parse(start), Date.parse(end)).map(p => ({id: p.id, channelId: c.id, title: p.title, start: new Date(p.start).toISOString(), end: new Date(p.end).toISOString(), lineage: 'provider-id', seriesId: '', episodeId: '', newEvidence: 'unknown', description: `About ${p.title}`})),
+        tuneAvailable: true, recordAvailable: c.provenance === 'live-source', tuneUnavailableReason: '', recordUnavailableReason: c.provenance === 'live-source' ? '' : 'not-recordable', favorite: false, hidden: false, preferenceRevision: 0,
       }));
+      const sources = ['live-source', 'library-channel'].map(provenance => ({id: provenance === 'live-source' ? 'antenna' : 'library-src', name: provenance === 'live-source' ? 'Antenna' : 'Library Channels', generation: 'g1', publishedAt: new Date(NOW).toISOString(), availableStart: '', availableEnd: '', provenance, refreshState: 'healthy'}));
+      if (directory) return {protocolVersion: '1.0', serverId: SERVER, directory: {viewerFence: 'fence', revision: 'r1', total: all.length, offset, limit, channels, sources}} as T;
       return {protocolVersion: '1.0', serverId: SERVER, guide: {
         state: all.length ? 'ready' : 'no-channels', viewerFence: 'fence', start, end, timezone: q.get('timezone'), observedAt: new Date(NOW).toISOString(),
-        nextCursor: (page + 1) * 30 < all.length ? String(page + 1) : '', channels,
-        sources: [{id: kind === 'live-source' ? 'antenna' : 'library-src', name: kind === 'live-source' ? 'Antenna' : 'Library Channels', generation: 'g1', publishedAt: new Date(NOW).toISOString(), availableStart: '', availableEnd: '', provenance: kind, refreshState: 'healthy'}],
+        nextCursor: offset + limit < all.length ? String(offset / limit + 1) : '', channels,
+        sources,
       }} as T;
     },
   };
@@ -121,7 +133,7 @@ function legacyApi(opts: {failKind?: string} = {}) {
 }
 
 test('All channels: live sources first in number order, then Library Channels; the raw objects are kept for tuning', async () => {
-  const {api} = legacyApi();
+  const {api} = guideApi();
   const raw = newRawIndex();
   const src = channelGuideSource(api, SERVER, {entry: ALL, timezone: 'America/New_York', sort: 'number'}, raw, () => NOW);
   const page = await src.channels(0, 50, new AbortController().signal);
@@ -136,7 +148,7 @@ test('All channels: live sources first in number order, then Library Channels; t
 });
 
 test('sort by name interleaves sources alphabetically', async () => {
-  const {api} = legacyApi();
+  const {api} = guideApi();
   const src = channelGuideSource(api, SERVER, {entry: ALL, timezone: 'UTC', sort: 'name'}, newRawIndex(), () => NOW);
   const names = (await src.channels(0, 50, new AbortController().signal)).items.map(c => c.name);
   assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)));
@@ -144,33 +156,34 @@ test('sort by name interleaves sources alphabetically', async () => {
 });
 
 test('one source asks only its own kind and passes the group filter', async () => {
-  const {api, requests} = legacyApi();
+  const {api, requests} = guideApi();
   const group = demoChannels.find(c => c.group)!.group;
   const src = channelGuideSource(api, SERVER, {entry: 'antenna', timezone: 'UTC', sort: 'number', group}, newRawIndex(), () => NOW);
   const page = await src.channels(0, 50, new AbortController().signal);
   assert.ok(page.items.length > 0 && page.items.every(c => c.group === group));
-  assert.ok(requests.filter(r => !r.startsWith('/v1/guide/channels?')).every(r => r.includes('kind=live-source') && r.includes('sourceId=antenna') && r.includes(`group=${encodeURIComponent(group).replace(/%20/g, '+')}`)));
+  assert.ok(requests.every(r => r.includes('kind=live-source') && r.includes('sourceId=antenna') && r.includes(`group=${encodeURIComponent(group).replace(/%20/g, '+')}`)));
 });
 
-test('All channels still loads when one kind fails; a single source surfaces the failure', async () => {
-  const all = channelGuideSource(legacyApi({failKind: 'library-channel'}).api, SERVER, {entry: ALL, timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
+test('the directory retains healthy sources when another is unavailable; a failed selected source surfaces the error', async () => {
+  const all = channelGuideSource(guideApi({failKind: 'library-channel'}).api, SERVER, {entry: ALL, timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
   assert.equal((await all.channels(0, 50, new AbortController().signal)).total, demoChannels.length);
-  const one = channelGuideSource(legacyApi({failKind: 'live-source'}).api, SERVER, {entry: 'antenna', timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
+  const one = channelGuideSource(guideApi({failKind: 'live-source'}).api, SERVER, {entry: 'antenna', timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
   await assert.rejects(one.channels(0, 50, new AbortController().signal));
 });
 
-test('through the windowed store: one walk per 3-hour block, shared by every channel page', async () => {
-  const {api, requests} = legacyApi();
+test('through the windowed store: bounded directory pages and named-channel blocks', async t => {
+  const {api, requests} = guideApi();
   const src = channelGuideSource(api, SERVER, {entry: ALL, timezone: 'UTC', sort: 'number'}, newRawIndex(), () => NOW);
   const store = new GuideWindowStore({source: src, channelPageSize: 5});
+  t.after(() => store.dispose());
   store.setViewport({firstRow: 0, lastRow: 15, start: NOW - 20 * 60_000, end: NOW + 2 * HOUR_MS});
   await settle();
   assert.equal(store.getSnapshot().total, demoChannels.length + 2);
   assert.ok(store.programsFor(0, NOW, NOW + HOUR_MS).complete);
-  // Old-server negotiation and one directory walk; programme requests name only visible channels.
-  // At most four blocks with four visible channel pages plus one shared library request.
-  assert.ok(requests.length <= 1 + 2 + 4 * 5, `${requests.length} requests`);
-  store.dispose();
+  const directories = requests.filter(r => r.startsWith('/v1/guide/channels?'));
+  assert.equal(directories.length, 4);
+  assert.ok(directories.every(r => new URL(r, 'http://x').searchParams.get('limit') === '5'));
+  assert.ok(requests.length <= 4 + 4 * 5, `${requests.length} requests`);
 });
 
 // ── FEAT-01 ──
