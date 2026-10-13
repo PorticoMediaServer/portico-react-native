@@ -6,6 +6,7 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import {parseBrowseResult} from '../../../../packages/client-core/src/browse';
 import {SavedService, type PlaylistCard, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
 import {useArtwork, viewerScope} from '../app/content';
+import {viewerKey} from '../app/viewer-scope';
 import {requestId} from '../app/detail';
 import {useI18n} from '../app/i18n';
 import type {ContentStackParams} from '../app/routes';
@@ -21,10 +22,11 @@ import {Card, Divider, ListRow, Notice, Skeleton, StateView, useTheme} from '../
 const covers = new Map<string, string | undefined>();
 
 export function GenreCard({libraryId, entry, width, onPress}: {libraryId: string; entry: ContentEntry; width?: number; onPress: () => void}) {
-  const {api} = useSession();
+  const {api, session} = useSession();
   const i18n = useI18n();
   const artwork = useArtwork();
-  const key = `${libraryId}:${entry.title}`;
+  // A cover is the newest album this viewer may see in the genre: it is kept for this viewer only.
+  const key = `${viewerKey(session, api)}:${libraryId}:${entry.title}`;
   const [cover, setCover] = useState<string | undefined>(entry.artworkPaths?.[0] ?? covers.get(key));
   useEffect(() => {
     if (cover || covers.has(key)) return;
@@ -33,6 +35,8 @@ export function GenreCard({libraryId, entry, width, onPress}: {libraryId: string
       raw => {
         const found = parseBrowseResult(raw).entries[0]?.posterUrl;
         covers.set(key, found);
+        // Bounded: the oldest covers go first.
+        while (covers.size > 400) covers.delete(covers.keys().next().value as string);
         if (live) setCover(found);
       },
       () => {},

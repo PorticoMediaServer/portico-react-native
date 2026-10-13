@@ -17,8 +17,12 @@ export type PlayerActions = {
   tune: (channel: GuideChannel, lineup?: () => Promise<readonly GuideChannel[]>) => void;
   /** `origin`: where the card sits, for actions only that place offers (X-12). */
   more: (entry: ContentEntry, origin?: EntryOrigin) => void;
-  /** OS-07: play a download in Portico's player. Absent outside the signed-in shell (the launch
-   * flow's offline Downloads), where the system player plays it instead. */
+  /** Whether there is a play queue to add to right now (one exists once something has been played, or was restored at launch). */
+  canQueue?: () => boolean;
+  /** Adds a title to the play queue: straight after what is playing (`next`), or at the end. Rejects with the server's error. */
+  enqueue?: (itemId: string, next: boolean) => Promise<void>;
+  /** OS-07: play a download in Portico's player. Present wherever the player is mounted: the
+   * signed-in shell and the launch flow's offline Downloads. */
   playLocal?: (entry: OfflineEntry) => Promise<void>;
 };
 

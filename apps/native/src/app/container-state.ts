@@ -1,4 +1,7 @@
 import {useCallback, useEffect, useState} from 'react';
+import {showToast} from '../ui';
+import {announceContainerMark} from './container-undo';
+import {activeI18n, say} from './errors';
 import {containerCarries, getContainerState, setContainerFlag, setContainerState, type ContainerFlag, type ContainerKind, type ContainerState, type ContainerStateApi} from '../../../../packages/client-core/src/container-state';
 
 /** Kinds with title-level personal state: a watched default (show, season, album, book) or a Favorite (those and artists). */
@@ -71,4 +74,19 @@ export function useContainerState(api: ContainerStateApi, kind: ContainerKind | 
     }
   }, [api, kind, id, state]);
   return {state, saving, refresh, carries, setWatched, setFlag};
+}
+
+/**
+ * Says a watched mark was made and offers Undo for as long as the server's receipt is good (see
+ * `container-undo.ts`). `onUndone`: the screen reads the title again once the earlier state is back.
+ */
+export function announceMark(api: ContainerStateApi, kind: ContainerKind, id: string, marked: ContainerState, message: string, onUndone?: () => void): void {
+  const i18n = activeI18n();
+  announceContainerMark({
+    api, kind, id, marked, message,
+    undoLabel: i18n.t('action.undo'),
+    describeFailure: (error, expired) => (expired ? i18n.t('personal.undoExpired') : say(error, 'show', 'save')),
+    toast: showToast,
+    onUndone: onUndone ? () => onUndone() : undefined,
+  });
 }

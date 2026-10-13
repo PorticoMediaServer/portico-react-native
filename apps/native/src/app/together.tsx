@@ -4,7 +4,6 @@ import {openEventStream} from '../bridge/event-stream';
 import type {PlayerEngine} from '../player/usePlayer';
 import {groupStep} from '../player/queue-step';
 import {activeI18n} from './errors';
-import {pauseOnceStarted} from './paused-load';
 import {useSession} from './session';
 
 const Ctx = createContext<GroupSessionService | null>(null);
@@ -29,7 +28,6 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
   const inRoom = phase === 'live' || phase === 'reconnecting';
   useEffect(() => {
     if (!service || !inRoom || !api) return;
-    let stopPausing = () => {};
     const player: GroupPlayer = {
       state: () => {
         const s = live.current.state;
@@ -38,16 +36,14 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
         return {itemId: s.itemId ?? '', positionSeconds: s.pendingSeek?.positionSeconds ?? s.positionSeconds, playing: s.phase === 'ready' && s.intent === 'playing', buffering: !!s.recovering || s.phase === 'starting', ready: s.phase === 'ready', seeking: !!s.pendingSeek, durationSeconds: s.duration > 0 ? s.duration : undefined};
       },
       load: (itemId, positionSeconds, playing) => {
-        stopPausing();
-        live.current.play(itemId, positionSeconds);
-        // A room that is paused, or holding for everyone, takes a new title paused: the pause is
-        // set the moment the player has the title, before it has a frame to show or a sound to make.
-        if (!playing) stopPausing = pauseOnceStarted(live.current.service, itemId);
+        // A room that is paused, or holding for everyone, takes a new title paused: the player
+        // starts it paused, so it shows its frame and makes no sound until the room plays.
+        live.current.play(itemId, positionSeconds, undefined, {paused: !playing});
         // The group only supplies an id; the title and artwork come from this viewer's library.
         void api.item(itemId).then(item => { if (live.current.state.itemId === itemId) live.current.describe({itemId, title: item.title, posterUrl: item.posterUrl, backdropUrl: item.backdropUrl, kind: item.kind, libraryId: item.libraryId}); }, () => {});
       },
       // Straight to the player: through the engine, a correction would go back out as a command.
-      play: () => live.current.service.resume(),
+      play: () => { live.current.cancelPausedStart(); live.current.service.resume(); },
       pause: () => live.current.service.pause(),
       seek: seconds => live.current.service.seek(seconds),
       // The native player has no private speed nudge; a small drift is closed by a seek instead.
@@ -73,7 +69,7 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
       // Next and Previous move the group's queue for everyone, never this device's own.
       step: action => groupStep(mine(), action, {transport: command => void service.transport(command), refuse: hostMoves}),
     });
-    return () => { stopPausing(); follower.stop(); live.current.setGroupControl(null); };
+    return () => { follower.stop(); live.current.setGroupControl(null); };
   }, [service, inRoom, api]);
   return <Ctx.Provider value={service}>{children}</Ctx.Provider>;
 }

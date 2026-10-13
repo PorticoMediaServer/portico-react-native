@@ -63,8 +63,10 @@ export type TitleHeroProps = {
  * Pages put it first in a `Page`/list whose content has no top padding: the hero owns the
  * safe-area inset so its backdrop runs under the status bar.
  */
-export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function TitleHero({backdrop, art, eyebrow, onEyebrow, title, originalTitle, logo, facts, genres, rating, scores, tagline, synopsis, credits, choices, primary, secondary = [], onMore, loading}, ref) {
-  const {space, isTV, window, colors, metrics} = useTheme();
+export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function TitleHero({backdrop: givenBackdrop, art, eyebrow, onEyebrow, title, originalTitle, logo, facts, genres, rating, scores, tagline, synopsis, credits, choices, primary, secondary = [], onMore, loading}, ref) {
+  const {space, isTV, window, colors, metrics, backdrops} = useTheme();
+  // "Show backdrops" off: the title has no backdrop here, so it gets the compact hero (its own art beside the identity).
+  const backdrop = backdrops ? givenBackdrop : undefined;
   const i18n = useI18n();
   const insets = useSafeAreaInsets();
   const platform = useSpecPlatform();

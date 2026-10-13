@@ -4,7 +4,7 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {SHOW_SETTING_ROWS, dedupeNames, networkName, nextUpPin, originalTitleLine, relatedRowsForPage, seasonProgress, showCreditLines, showPeople} from '../../../../packages/client-core/src/presentation/index';
-import {useContainerState} from '../app/container-state';
+import {announceMark, useContainerState} from '../app/container-state';
 import {saveShowSettings, type ShowSettings, type ShowWorkspaceRoute} from '../../../../packages/client-core/src/show-workspace';
 import {useArtwork} from '../app/content';
 import {useShowRecommendations, useShowWorkspace} from '../app/detail';
@@ -30,6 +30,9 @@ import {episodeCode, nextUpIn, orderSeasons, resumeFraction, seasonLabel} from '
 import {SeasonSwitcher, type SeasonChoice} from './title/SeasonSwitcher';
 import {StatusBarScrim, TitleHero, type HeroAction} from './title/TitleHero';
 import {usePullToRefresh} from '../app/refresh';
+import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
+import {containerScope} from '../app/group-scope';
+import {GroupBar} from './GroupBrowse';
 
 /** How many seasons the next-up rule may step forward before it settles (bounded work). */
 const NEXT_UP_HOPS = 4;
@@ -127,14 +130,27 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const seed = useMemo<EpisodeSeed | undefined>(() => (data ? {entries: section?.entries ?? [], nextCursor: section?.nextCursor || null, total: section?.totalCount ?? section?.entries.length ?? 0} : undefined), [data, section]);
   const stable = !!data && pending === null && reanchor.current === 'done' && !data.selected.episodeId;
   const where = useMemo<EpisodeSelection | null>(() => (stable && data ? {libraryId, showId: data.show.id, seasonId: data.selected.seasonId, ...(data.selected.group ? {group: data.selected.group} : {})} : null), [stable, data, libraryId]);
-  const {list, snapshot: episodes} = useEpisodeWindow(where, stable ? seed : undefined);
-  const total = episodes.total ?? seed?.total ?? 0;
+  const {list: seasonList, snapshot: episodes} = useEpisodeWindow(where, stable ? seed : undefined);
+  const seasonTotal = episodes.total ?? seed?.total ?? 0;
+  // ── Sort and filter ───────────────────────────────────────────────────────
+  // The episodes on screen (a season's, or the whole show's when it is one list) keep their own
+  // order until the viewer chooses a sort or a filter; then the list is the library's own browse
+  // of those episodes, in the same list on screen. A group of episodes that is not a season (an
+  // arc, a range, a year) is not something the server can name there, so it has no controls.
+  const groupOf = stable && data && !data.selected.group ? data.selected.seasonId ?? (flat ? data.show.id : undefined) : undefined;
+  const scope = useMemo(() => containerScope(libraryId, 'episodes', groupOf), [libraryId, groupOf]);
+  const group = useGroupBrowse(scope);
+  const sorted = useGroupWindow(group);
+  const sortedOn = group.engaged && !!sorted.list;
+  const list = sortedOn ? sorted.list : seasonList;
+  const total = sortedOn ? sorted.snapshot.total ?? 0 : seasonTotal;
   // The panel's index, once the season it belongs to is on screen.
   useEffect(() => {
-    if (!list || !panel || panel.index !== undefined) return;
+    // A place in the season's own order means nothing in a list the viewer has sorted.
+    if (!list || !panel || panel.index !== undefined || sortedOn) return;
     const at = seed?.entries.findIndex(e => e.id === panel.entry.id) ?? -1;
     if (at >= 0) setPanel({entry: panel.entry, index: at});
-  }, [list, panel, seed]);
+  }, [list, panel, seed, sortedOn]);
 
   // ── Next up ─────────────────────────────────────────────────────────────
   // M32: the server's nextUp is the primary action (Resume SxEy / Play next
@@ -171,9 +187,10 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     startedHere.current = new Set(queue.map(e => e.id));
     invoker.remember();
     // On Playback v1 the season plays as one server request from this episode; an episode group
-    // that isn't a season keeps the loaded list (the v1 selector can't name a range).
-    player.playSequence(queue, 0, startSeconds, sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group}));
-  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group]);
+    // that isn't a season keeps the loaded list (the v1 selector can't name a range), and so do
+    // episodes the viewer has sorted or filtered: they play on in the order shown.
+    player.playSequence(queue, 0, startSeconds, sortedOn ? undefined : sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group}));
+  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, sortedOn]);
   const startOf = (e: ContentEntry) => (e.watched ? 0 : e.playback?.startSeconds ?? e.progressSeconds ?? 0);
   const handlers = useMemo(() => ({
     onPlay: (index: number) => {
@@ -218,22 +235,24 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     if (!selectedSeasonId) return;
     setMarking(true);
     try {
-      await seasonState.setWatched(watched);
-      showToast({message: i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: seasonTitle}), icon: 'check'});
-      seasonState.refresh();
-      showState.refresh();
-      retry();
+      const marked = await seasonState.setWatched(watched);
+      const reread = () => { seasonState.refresh(); showState.refresh(); retry(); };
+      // Undo puts back exactly which episodes were watched and where each had got to.
+      announceMark(api, 'season', selectedSeasonId, marked, i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: seasonTitle}), reread);
+      reread();
     } catch (e) {
       showToast({message: say(e, 'show', 'save'), icon: 'warning'});
     } finally {
       setMarking(false);
     }
-  }, [selectedSeasonId, seasonState, showState, i18n, seasonTitle, retry]);
+  }, [selectedSeasonId, seasonState, showState, i18n, seasonTitle, retry, api]);
   const markShow = useCallback(async (watched: boolean) => {
     if (!show) return;
     setMarking(true);
     try {
-      await showState.setWatched(watched);
+      const marked = await showState.setWatched(watched);
+      const reread = () => { showState.refresh(); seasonState.refresh(); retry(); };
+      announceMark(api, 'show', show.id, marked, i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: show.title}), reread);
       seasonState.refresh();
       retry();
     } catch (e) {
@@ -241,10 +260,15 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     } finally {
       setMarking(false);
     }
-  }, [show, showState, seasonState, retry]);
+  }, [show, showState, seasonState, retry, api, i18n]);
   const setShowFlag = (flag: 'watchlisted' | 'favorite') => { void showState.setFlag(flag, !showState.state?.[flag]).catch(e => showToast({message: say(e, 'show', 'save'), icon: 'warning'})); };
   const onSeasonAction = (id: string) => {
-    if (id === 'play') playAt(0, 0);
+    if (id === 'play') {
+      // "Play season" is the season from its first episode, also while the list is sorted another way.
+      const first = loaded.find(e => e.playback);
+      if (!sortedOn) playAt(0, 0);
+      else if (first) { invoker.remember(); player.playSequence([first], 0, 0, sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group})); }
+    }
     else if (id === 'settings') setShowSettings(true);
     else if (id === 'watched' || id === 'unwatched') void markSeason(id === 'watched');
     else if (id === 'edit' && data?.selected.seasonId) {
@@ -270,7 +294,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     // A server nextUp from another season isn't in this list: the show plays
     // from it (one v1 request anchored at the episode), so Up Next continues.
     onPress: () => {
-      const at = loaded.findIndex(e => e.id === primaryEntry.id);
+      // The season's own order is what Play continues in, whatever order the list below is shown in.
+      const at = sortedOn ? -1 : loaded.findIndex(e => e.id === primaryEntry.id);
       if (at >= 0) { playAt(at, primaryResumes ? startOf(primaryEntry) : 0); return; }
       if (!primaryEntry.playback || !show) return;
       invoker.remember();
@@ -322,7 +347,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'show', 'load')} action={i18n.t('action.refresh')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
   ) : null;
   const switcher = data ? (
-    <SeasonSwitcher choices={choices} selected={selected} onSelect={id => { if (id !== selected) { setPanel(null); choose(id); } }} seasonActions={seasonActions} onSeasonAction={onSeasonAction} episodeTotal={stable ? total : undefined} onJumpToEpisode={index => (isTV ? setRailJump({index}) : listRef.current?.scrollToIndex(index))} progress={progress ? i18n.t('title.seasonProgress', progress) : undefined} />
+    <SeasonSwitcher choices={choices} selected={selected} onSelect={id => { if (id !== selected) { setPanel(null); choose(id); } }} seasonActions={seasonActions} onSeasonAction={onSeasonAction} episodeTotal={stable && !sortedOn ? total : undefined} onJumpToEpisode={index => (isTV ? setRailJump({index}) : listRef.current?.scrollToIndex(index))} progress={progress ? i18n.t('title.seasonProgress', progress) : undefined} />
   ) : null;
   // iPhone/iPad: Next up sits above the season's list unless it already is its first row (television
   // opens the list on it instead).
@@ -330,7 +355,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const pinned = pinnedEntry && !isTV ? (
     <View style={{marginBottom: space.sm}}>
       <Text variant="label" tone="tertiary" style={{paddingHorizontal: space.page}}>{i18n.t(primaryResumes ? 'title.continueEpisode' : 'title.nextUp')}</Text>
-      <EpisodeRowView entry={pinnedEntry} position={0} geometry={rowGeometry} highlighted={panel?.entry.id === pinnedEntry.id} onPlay={() => primary?.onPress()} onDetails={() => { const at = loaded.findIndex(e => e.id === pinnedEntry.id); setPanel({entry: pinnedEntry, ...(at >= 0 ? {index: at} : {})}); }} onMore={handlers.onMore} />
+      <EpisodeRowView entry={pinnedEntry} position={0} geometry={rowGeometry} highlighted={panel?.entry.id === pinnedEntry.id} onPlay={() => primary?.onPress()} onDetails={() => { const at = sortedOn ? -1 : loaded.findIndex(e => e.id === pinnedEntry.id); setPanel({entry: pinnedEntry, ...(at >= 0 ? {index: at} : {})}); }} onMore={handlers.onMore} />
     </View>
   ) : null;
   const recommendationRows = relatedRowsForPage((recommendations.data?.rows ?? []).map(row => withoutNotInterested(row, turnedDown, true)));
@@ -351,7 +376,10 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
       <TitleDetails rows={detailRows} genres={genreLinks ? {...genreLinks, names: dedupeNames(show?.genres ?? [], 20)} : undefined} />
     </View>
   ) : null;
-  const emptyState = stable && seed && seed.total === 0 ? <StateView icon="tv" title={i18n.t('title.noEpisodes')} message={i18n.t('title.noEpisodesBody')} /> : null;
+  const bar = <GroupBar group={group} />;
+  const emptyState = sortedOn
+    ? (sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} /> : null)
+    : stable && seed && seed.total === 0 ? <StateView icon="tv" title={i18n.t('title.noEpisodes')} message={i18n.t('title.noEpisodesBody')} /> : null;
 
   if (snapshot.phase === 'error' && !data) {
     return (
@@ -395,8 +423,9 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
           {/* Focus in the episodes brings the switcher near the top, with the row below it. */}
           <View {...({scrollSnapOffset: Math.round(window.height * 0.1)} as object)} style={{marginTop: space.md}}>
             {switcher}
+            {bar}
             {list && total > 0 ? (
-              <EpisodeBrowser list={list} total={total} initialIndex={nextUp ? Math.max(0, loaded.findIndex(e => e.id === nextUp.id)) : 0} jump={railJump} highlightId={panel?.entry.id} handlers={handlers} />
+              <EpisodeBrowser list={list} total={total} initialIndex={!sortedOn && nextUp ? Math.max(0, loaded.findIndex(e => e.id === nextUp.id)) : 0} jump={sortedOn ? undefined : railJump} highlightId={panel?.entry.id} handlers={handlers} />
             ) : emptyState ?? <ListSkeleton />}
           </View>
           {related}
@@ -417,7 +446,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
         highlightId={panel?.entry.id ?? episodeId}
         handlers={handlers}
         refreshControl={pull}
-        header={<View>{hero}{notices}{switcher}{pinned}</View>}
+        header={<View>{hero}{notices}{switcher}{bar}{pinned}</View>}
         footer={related}
         empty={emptyState ?? (data || snapshot.phase === 'loading' ? <ListSkeleton /> : null)}
       />

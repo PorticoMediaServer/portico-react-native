@@ -1,10 +1,11 @@
-import React, {useCallback, useMemo} from 'react';
+import React, {useCallback, useMemo, useRef} from 'react';
 import {FocusGroup, PreferredFocusContext} from './Focusable';
 import {uiI18n} from './i18n';
 import {FlatList, View, type ListRenderItem, type StyleProp, type ViewStyle} from 'react-native';
 import {Button} from './Button';
 import {Text} from './Text';
 import {useEntryFocus, useTheme} from './theme';
+import {Arriving, useArrivals} from './Arriving';
 
 export type ShelfProps<T> = {
   title?: string;
@@ -41,17 +42,22 @@ export function Shelf<T>({title, subtitle, data, keyExtractor, renderItem, itemW
   const contentStyle = useMemo(() => ({paddingHorizontal: space.page, gap}), [space.page, gap]);
   const header = useMemo(() => (leading ? <View style={{marginRight: gap}}>{leading}</View> : null), [leading, gap]);
   const listStyle = useMemo(() => (isTV ? {paddingVertical: space.md, marginVertical: -space.md, overflow: 'visible' as const} : undefined), [isTV, space.md]);
+  // A card that arrives after the row was first shown (a quiet refresh, the next page) fades in.
+  const arriving = useArrivals(data, keyExtractor);
+  const keyOf = useRef(keyExtractor);
+  keyOf.current = keyExtractor;
+  const arrived = useCallback<NonNullable<typeof renderItem>>(info => <Arriving on={arriving(keyOf.current(info.item, info.index))}>{renderItem?.(info) ?? null}</Arriving>, [renderItem, arriving]);
   const snapped = useCallback<NonNullable<typeof renderItem>>(info => (
     <View {...({scrollSnapAlign: 'start'} as object)}>
-      {info.index === 0 && claim ? <PreferredFocusContext.Provider value>{renderItem?.(info)}</PreferredFocusContext.Provider> : renderItem?.(info)}
+      {info.index === 0 && claim ? <PreferredFocusContext.Provider value>{arrived(info)}</PreferredFocusContext.Provider> : arrived(info)}
     </View>
-  ), [renderItem, claim]);
+  ), [arrived, claim]);
   const content = (
     <FlatList
       horizontal
       data={data as T[]}
       keyExtractor={keyExtractor}
-      renderItem={isTV ? snapped : renderItem}
+      renderItem={isTV ? snapped : arrived}
       getItemLayout={getItemLayout}
       showsHorizontalScrollIndicator={false}
       snapToInterval={isTV ? undefined : itemWidth + gap}

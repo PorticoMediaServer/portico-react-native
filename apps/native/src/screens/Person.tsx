@@ -14,6 +14,11 @@ import {useSession} from '../app/session';
 import {Card, Notice, Page, Ring, Segmented, Shelf, Skeleton, StateView, Text, WindowedGrid, useTheme} from '../ui';
 import {StatusBarScrim, TitleHero} from './title/TitleHero';
 import {usePullToRefresh} from '../app/refresh';
+import {useLibrariesContext} from '../app/libraries-context';
+import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
+import {groupLibraries, personScope} from '../app/group-scope';
+import {GroupBar, GroupLibraryPicker} from './GroupBrowse';
+import type {GridWindow} from '../ui/Grid';
 
 /** Credits per windowed page (the person's first page seeds page 0). */
 const CREDIT_PAGE = 40;
@@ -72,6 +77,13 @@ const idleSnapshot = Object.freeze({generation: 0, total: undefined, status: 'id
  * pages the credits; the role filter is a request parameter, never a client-side split. The
  * credits are a windowed grid that is itself the page scroller (the hero, "known for" and the
  * role filter are its header), so at most ~300 cards mount at any depth, whatever the filmography.
+ *
+ * Sort and Filter are the library's own, applied to this person's titles in one library at a
+ * time (each library has its own filters): the one that holds most of their credits, or another
+ * the viewer picks. Until a sort or a filter is chosen the page is the credits list as above.
+ * Once one is, the grid is the library's browse of the person's titles in the same scroller. A
+ * role (Cast, Crew) is a property of a credit, which that browse cannot ask for, so the role
+ * filter is put away while a sort or a filter is on rather than pretending to apply.
  */
 export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Person'>}) {
   const {personId, name} = route.params;
@@ -94,6 +106,16 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
     return () => { cancelled = true; };
   }, [api, scope, personId, role]);
   const seed: Seed | undefined = first.page ? {credits: first.page.credits, nextCursor: first.page.pageInfo.nextCursor, total: first.page.pageInfo.total} : undefined;
+  // ── Sort and filter ───────────────────────────────────────────────────────
+  const {items: allLibraries} = useLibrariesContext();
+  const creditLibraries = first.page?.credits;
+  const candidates = useMemo(() => groupLibraries(allLibraries.filter(l => l.kind === 'movie' || l.kind === 'tv' || l.kind === 'anime'), (creditLibraries ?? []).map(c => c.media.libraryId)), [allLibraries, creditLibraries]);
+  const [libraryChoice, setLibraryChoice] = React.useState<string>();
+  const library = candidates.find(l => l.id === libraryChoice) ?? candidates[0];
+  const groupScope = useMemo(() => (library ? personScope(library.id, library.kind, personId) : undefined), [library, personId]);
+  const group = useGroupBrowse(groupScope);
+  const sorted = useGroupWindow(group);
+  const sortedOn = group.engaged && !!sorted.list;
   const list = useMemo<WindowedCollection<PersonCredit> | null>(
     () => (seed ? createWindowedCollection<PersonCredit>({fetchPage: creditSource(api, scope, personId, role, seed), pageSize: CREDIT_PAGE, maxResidentPages: 5, keyOf: c => `${c.media.id}:${c.role}:${c.character}`}) : null),
     // A new role (or person) is a new collection, seeded by its own first page: one request total.
@@ -147,14 +169,19 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
       <View style={{paddingHorizontal: space.page, gap: space.sm, marginBottom: space.md}}>
         <View style={{flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between'}}>
           <Text variant="heading">{i18n.t('title.credits')}</Text>
-          {first.page && first.page.pageInfo.total > 0 ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: first.page.pageInfo.total})}</Text> : null}
+          {sortedOn ? (sorted.snapshot.total !== undefined ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: sorted.snapshot.total})}</Text> : null) : first.page && first.page.pageInfo.total > 0 ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: first.page.pageInfo.total})}</Text> : null}
         </View>
-        <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />
+        {sortedOn ? null : <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />}
       </View>
+      <GroupBar group={group} leading={<GroupLibraryPicker libraries={candidates} selected={library?.id} onSelect={setLibraryChoice} />} />
       {first.phase === 'error' && person ? <Notice tone="error" message={first.error ?? ''} action={i18n.t('title.retry')} onAction={reload} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
     </>
   );
-  const footer = !list || (snapshot.status === 'loading' && snapshot.total === undefined) ? (
+  const footer = sortedOn ? (
+    sorted.snapshot.status === 'error' && !sorted.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sorted.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sorted.list?.retry()} />
+    : sorted.snapshot.total === 0 && sorted.snapshot.status === 'ready' ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
+    : null
+  ) : !list || (snapshot.status === 'loading' && snapshot.total === undefined) ? (
     <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>
   ) : snapshot.status === 'error' && snapshot.total === undefined ? (
     <StateView icon="people" title={i18n.t('title.noCredits')} message={snapshot.error ? say(snapshot.error, 'person', 'load') : ''} />
@@ -166,12 +193,18 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   return (
     <View style={{flex: 1}}>
       {list ? (
-        <WindowedGrid
-          list={list}
-          total={snapshot.total}
+        // One grid for both lists, so the hero and the controls above it are never drawn again:
+        // a change of sort or filter leaves the page where it is, and television focus on the control.
+        <WindowedGrid<PersonCredit | ContentEntry>
+          list={(sortedOn ? sorted.list! : list) as GridWindow<PersonCredit | ContentEntry>}
+          total={sortedOn ? sorted.snapshot.total : snapshot.total}
           itemWidth={metrics.posterWidth}
           aspect={aspect}
-          renderItem={(c, w) => renderEntry(c.media, w, c.creditKind === 'cast' ? (c.character ? i18n.t('title.creditAs', {character: c.character}) : c.role) : c.role || c.department)}
+          renderItem={(item, w) => {
+            if (!('media' in item)) return renderEntry(item, w);
+            const c = item;
+            return renderEntry(c.media, w, c.creditKind === 'cast' ? (c.character ? i18n.t('title.creditAs', {character: c.character}) : c.role) : c.role || c.department);
+          }}
           header={header}
           footer={footer}
           generation={snapshot.generation}

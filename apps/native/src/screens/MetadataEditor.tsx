@@ -18,7 +18,6 @@ import {say} from '../app/errors';
  */
 type Tab = 'general' | 'artwork' | 'genres' | 'credits' | 'matching' | 'history';
 const tabs: readonly {id: Tab; label: MessageId}[] = [{id: 'general', label: 'web.metadata.tabGeneral'}, {id: 'artwork', label: 'web.metadata.tabArtwork'}, {id: 'genres', label: 'web.metadata.genres'}, {id: 'credits', label: 'web.metadata.tabPeople'}, {id: 'matching', label: 'web.librarySettings.matching'}, {id: 'history', label: 'web.metadata.tabHistory'}];
-const kindLabel: Record<RepairTarget['kind'], string> = {item: 'Item', show: 'Show', season: 'Season', album: 'Album', artist: 'Artist', book: 'Audiobook'};
 type Command = Parameters<MetadataRepairService['command']>[0];
 type FieldEdit = {value?: string; values?: readonly string[]; locked?: boolean; useAutomatic?: boolean};
 const splitList = (v: string) => v.split(',').map(x => x.trim()).filter(Boolean);
@@ -94,11 +93,12 @@ function useRepair(target: RepairTarget) {
 export function MetadataEditorSheet() {
   const editor = useMetadataEditor();
   const {isTV} = useTheme();
+  const i18n = useI18n();
   const request = editor?.request;
   if (isTV || !request) return null;
   const single = request.targets.length === 1;
   return (
-    <Sheet open onClose={editor!.close} placement="center" width={720} title={single ? `Edit ${request.titles[0] ?? 'metadata'}` : `Edit ${request.targets.length} items`} subtitle={single ? `${kindLabel[request.targets[0].kind]} metadata on this server` : 'Changes apply to every selected item.'} scroll={false}>
+    <Sheet open onClose={editor!.close} placement="center" width={720} title={single ? (request.titles[0] ? i18n.t('web.metadata.editTitle', {title: request.titles[0]}) : i18n.t('web.metadata.editFallbackTitle')) : i18n.t('web.metadata.editCount', {count: request.targets.length})} subtitle={single ? i18n.t('web.metadata.kindOnServer', {kind: request.targets[0].kind}) : i18n.t('web.metadata.bulkDescription')} scroll={false}>
       {single ? <SingleEditor key={request.targets[0].kind + request.targets[0].id} target={request.targets[0]} onSaved={request.onSaved} onClose={editor!.close} /> : <BulkEditor key={request.targets.map(t => t.id).join(',')} targets={request.targets} onSaved={request.onSaved} onClose={editor!.close} />}
     </Sheet>
   );
@@ -145,7 +145,8 @@ function SingleEditor({target, onSaved, onClose}: {target: RepairTarget; onSaved
 }
 
 function LockButton({locked, label, busy, onPress}: {locked: boolean; label: string; busy: boolean; onPress: () => void}) {
-  return <Button variant={locked ? 'secondary' : 'ghost'} round icon={locked ? 'lock' : 'shield'} selected={locked} accessibilityLabel={`${locked ? 'Unlock' : 'Lock'} ${label}`} disabled={busy} onPress={onPress} />;
+  const i18n = useI18n();
+  return <Button variant={locked ? 'secondary' : 'ghost'} round icon={locked ? 'lock' : 'shield'} selected={locked} accessibilityLabel={i18n.t(locked ? 'web.metadata.unlockField' : 'web.metadata.lockField', {label})} disabled={busy} onPress={onPress} />;
 }
 
 function GeneralTab({data, busy, onSave, onClose}: {data: RepairData; busy: boolean; onSave: (fields: Record<string, FieldEdit>) => Promise<boolean>; onClose: () => void}) {
@@ -198,12 +199,12 @@ function GeneralTab({data, busy, onSave, onClose}: {data: RepairData; busy: bool
           <View key={f} style={{gap: 4}}>
             <Field label={spec.label} value={value} onChangeText={v => edit(f, v)} multiline={spec.type === 'multiline'} numberOfLines={spec.type === 'multiline' ? 4 : 1} keyboardType={spec.type === 'integer' || spec.type === 'number' ? 'numeric' : 'default'} placeholder={spec.type === 'list' ? i18n.t('web.metadata.commaSeparated') : spec.type === 'date' ? 'YYYY-MM-DD' : undefined} editable={!busy} autoCapitalize={spec.type === 'text' || spec.type === 'multiline' ? 'sentences' : 'none'} trailing={<LockButton locked={isLocked(f)} label={spec.label} busy={busy} onPress={() => toggleLock(f)} />} /> {/* lint-strings-allow: YYYY-MM-DD is a date format example, not copy */}
             <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 18}}>
-              {automatic.has(f) ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.resetAutomatic')}</Text> : differs ? <><Text variant="caption" tone="tertiary" lines={1} style={{flex: 1}}>Automatic{source ? ` (${source})` : ''}: {auto || '—'}</Text><Button size="sm" variant="ghost" label={i18n.t('web.metadata.useIt')} disabled={busy} onPress={() => applyAuto(f)} /></> : source ? <Text variant="caption" tone="tertiary">From {source}</Text> : field?.source === 'manual' ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.editedHere')}</Text> : null}
+              {automatic.has(f) ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.resetAutomatic')}</Text> : differs ? <><Text variant="caption" tone="tertiary" lines={1} style={{flex: 1}}>{i18n.t(source ? 'web.metadata.automaticValueFrom' : 'web.metadata.automaticValue', {source, value: auto || '—'})}</Text><Button size="sm" variant="ghost" label={i18n.t('web.metadata.useIt')} disabled={busy} onPress={() => applyAuto(f)} /></> : source ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.fromSource', {source})}</Text> : field?.source === 'manual' ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.editedHere')}</Text> : null}
             </View>
           </View>
         );
       })}
-      <Footer copy={pending ? `${pending} pending ${pending === 1 ? 'change' : 'changes'}` : 'No changes yet'} busy={busy} primary={pending ? {label: i18n.t('web.metadata.saveChanges'), onPress: () => void save()} : undefined} onClose={onClose} />
+      <Footer copy={pending ? i18n.t('web.metadata.pendingCount', {count: pending}) : i18n.t('web.metadata.noChanges')} busy={busy} primary={pending ? {label: i18n.t('web.metadata.saveChanges'), onPress: () => void save()} : undefined} onClose={onClose} />
     </>
   );
 }
@@ -220,7 +221,6 @@ function Footer({copy, busy, primary, onClose}: {copy: string; busy: boolean; pr
   );
 }
 
-const roleLabels: Record<string, string> = {poster: 'Poster', backdrop: 'Backdrop', cover: 'Cover', square: 'Square', thumbnail: 'Thumbnail', banner: 'Banner', logo: 'Logo', still: 'Still', portrait: 'Portrait'};
 const roleShape = (role: string): 'poster' | 'landscape' | 'square' | 'circle' => (role === 'poster' ? 'poster' : role === 'cover' || role === 'square' ? 'square' : role === 'portrait' ? 'circle' : 'landscape');
 
 function ArtworkTab({data, busy, run}: {data: RepairData; busy: boolean; run: (c: Command) => Promise<boolean>; target: RepairTarget}) {
@@ -236,9 +236,9 @@ function ArtworkTab({data, busy, run}: {data: RepairData; busy: boolean; run: (c
   const cardWidth = Math.max(110, Math.floor((Math.min(window.width, 720) - space.lg * 2 - space.sm * 2) / 3));
   return (
     <>
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.xs}}>{roles.map(r => <Button key={r} size="sm" variant="secondary" selected={r === role} label={roleLabels[r] ?? r} onPress={() => setRole(r)} />)}</View>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.xs}}>{roles.map(r => <Button key={r} size="sm" variant="secondary" selected={r === role} label={i18n.t('web.metadata.artRole', {role: r})} onPress={() => setRole(r)} />)}</View>
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, alignItems: 'center'}}>
-        <Text variant="caption" tone="tertiary" style={{flex: 1}}>{candidates.length ? `${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}` : 'No candidates yet'}{chosen ? ` · ${chosen.locked ? 'locked' : 'unlocked'}` : ''}</Text>
+        <Text variant="caption" tone="tertiary" style={{flex: 1}}>{[i18n.t('web.metadata.candidateCount', {count: candidates.length}), chosen ? i18n.t(chosen.locked ? 'web.metadata.locked' : 'web.metadata.unlocked') : ''].filter(Boolean).join(' · ')}</Text>
         {chosen ? <Button size="sm" variant="ghost" icon={chosen.locked ? 'lock' : 'shield'} label={chosen.locked ? i18n.t('web.metadata.unlock') : i18n.t('web.metadata.lock')} disabled={busy} onPress={() => void run({action: 'artwork_lock', role, subject: chosen.subject, locked: !chosen.locked, confirm: true})} /> : null}
         <Button size="sm" variant="ghost" icon="search" label={i18n.t('web.metadata.findMore')} disabled={busy} onPress={() => void run({action: 'discover_artwork'})} />
       </View>
@@ -264,7 +264,7 @@ function RelationshipTab({data, busy, run, kind}: {data: RepairData; busy: boole
   useEffect(() => setRows(saved), [saved]);
   const locked = data.snapshot.relationshipLocks[kind] ?? false;
   const dirty = JSON.stringify(rows.map(r => [r.label, r.role, r.department])) !== JSON.stringify(saved.map(r => [r.label, r.role, r.department]));
-  if (data.target.kind !== 'item') return <Text variant="body" tone="secondary">{kind === 'genre' ? 'Genres' : 'Credits'} are kept on individual items. Open a movie, episode or song to edit them.</Text>;
+  if (data.target.kind !== 'item') return <Text variant="body" tone="secondary">{i18n.t(kind === 'genre' ? 'web.metadata.genresOnlyItems' : 'web.metadata.creditsOnlyItems')}</Text>;
   const add = () => { const name = draft.trim(); if (!name) return; setRows(prev => [...prev, kind === 'genre' ? {kind: 'genre', targetKind: 'genre', targetId: '', label: name, ordinal: prev.length, source: 'manual', locked: true} : {kind: 'credit', targetKind: 'scoped_credit', targetId: '', label: name, role: '', department: 'Acting', ordinal: prev.length, source: 'manual', locked: true}]); setDraft(''); };
   const update = (i: number, patch: Partial<RepairRelationship>) => setRows(prev => prev.map((r, n) => (n === i ? {...r, ...patch} : r)));
   return (
@@ -286,7 +286,7 @@ function RelationshipTab({data, busy, run, kind}: {data: RepairData; busy: boole
         </View>
       ))}
       <Field label={kind === 'genre' ? i18n.t('web.metadata.addGenre') : i18n.t('web.metadata.addPerson')} value={draft} onChangeText={setDraft} onSubmitEditing={add} returnKeyType="done" editable={!busy} trailing={<Button size="sm" variant="secondary" icon="plus" accessibilityLabel={i18n.t('player.opt.add')} disabled={busy || !draft.trim()} onPress={add} />} />
-      <Footer copy={dirty ? 'Changed' : locked ? 'Locked: refreshes keep these' : 'Refreshes may replace these'} busy={busy} primary={dirty ? {label: kind === 'genre' ? 'Save genres' : 'Save credits', onPress: () => void run({action: 'edit_relationships', role: kind, relationships: rows.filter(r => r.label.trim()).map((r, n) => ({...r, label: r.label.trim(), ordinal: n})), confirm: true})} : undefined} onClose={() => setRows(saved)} />
+      <Footer copy={i18n.t(kind === 'genre' ? (dirty ? 'web.metadata.genresChanged' : locked ? 'web.metadata.genresLocked' : 'web.metadata.genresUnlocked') : dirty ? 'web.metadata.creditsChanged' : locked ? 'web.metadata.lockedTip' : 'web.metadata.unlockedTip')} busy={busy} primary={dirty ? {label: i18n.t(kind === 'genre' ? 'web.metadata.saveGenres' : 'web.metadata.saveCredits'), onPress: () => void run({action: 'edit_relationships', role: kind, relationships: rows.filter(r => r.label.trim()).map((r, n) => ({...r, label: r.label.trim(), ordinal: n})), confirm: true})} : undefined} onClose={() => setRows(saved)} />
     </>
   );
 }
@@ -348,7 +348,7 @@ function MatchingTab({data, busy, run}: {data: RepairData; busy: boolean; run: (
   return (
     <>
       <Text variant="heading">{i18n.t('web.metadata.currentMatch')}</Text>
-      {identity ? <Text variant="body" tone="secondary">{providerName(identity.provider)} {identity.type ? `${identity.type} ` : ''}{identity.id || i18n.t('web.metadata.notMatched')} · {i18n.t(matchingStatusKey(identity.status))}</Text> : <Text variant="body" tone="secondary">{i18n.t('web.metadata.noIdentity', {kind: kindLabel[data.target.kind].toLowerCase()})}</Text>}
+      {identity ? <Text variant="body" tone="secondary">{providerName(identity.provider)} {identity.type ? `${identity.type} ` : ''}{identity.id || i18n.t('web.metadata.notMatched')} · {i18n.t(matchingStatusKey(identity.status))}</Text> : <Text variant="body" tone="secondary">{i18n.t('web.metadata.noIdentityFor', {kind: data.target.kind})}</Text>}
       {identity ? <Button size="sm" variant="ghost" icon={identityLocked ? 'lock' : 'shield'} label={i18n.t(identityLocked ? 'web.metadata.identityLocked' : 'web.metadata.identityUnlocked')} disabled={busy} onPress={() => void run({action: 'relationship_lock', role: 'identity', locked: !identityLocked, confirm: true})} style={{alignSelf: 'flex-start'}} /> : null}
       <Field label={i18n.t('web.metadata.searchProvider')} placeholder={i18n.t(isScreen ? 'web.metadata.searchProviderHelp' : 'web.metadata.searchProviderHelpAuto')} value={query} onChangeText={setQuery} onSubmitEditing={() => void run(matchingSearchCommand(identity, query))} returnKeyType="search" editable={!busy && isScreen} trailing={<Button size="sm" variant="secondary" icon="search" accessibilityLabel={i18n.t('web.search.title')} disabled={busy || !identity} onPress={() => void run(matchingSearchCommand(identity, query))} />} />
       <Button size="sm" variant="ghost" icon="refresh" label={i18n.t('action.tryAgain')} disabled={busy || !identity} onPress={() => void run({action: 'retry'})} style={{alignSelf: 'flex-start'}} />
@@ -369,7 +369,7 @@ function MatchingTab({data, busy, run}: {data: RepairData; busy: boolean; run: (
 function HistoryTab({data, busy, run}: {data: RepairData; busy: boolean; run: (c: Command) => Promise<boolean>}) {
   const i18n = useI18n();
   const {space} = useTheme();
-  const label = (t: string) => ({edit: 'Fields edited', lock_all: 'Everything locked', unlock_all: 'Everything unlocked', relationship_lock: 'Lock changed', edit_relationships: 'Genres or credits edited', identify: 'Match changed', undo: 'Undo', select_artwork: 'Artwork chosen', artwork_lock: 'Artwork lock changed', repair_assets: 'Artwork re-fetched', search: 'Provider searched', retry: 'Automatic match retried'} as Record<string, string>)[t] ?? t;
+  const label = (trigger: string) => i18n.t('web.metadata.history', {trigger});
   return (
     <>
       <Text variant="heading">{i18n.t('web.metadata.recentChanges')}</Text>

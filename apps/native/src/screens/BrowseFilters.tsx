@@ -20,11 +20,12 @@ import {RowGuide} from './title/RowGuide';
  * its values as a second level. On television that is a panel at the side, two short lists deep,
  * and nothing in it needs typing.
  */
-export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, onSaveView, owner = false, fixedSort = false, inline = false, trailing}: {/** Television: just Sort and Filter as two buttons for the tabs' row; every filter is in the side panel. */ inline?: boolean; /** Drawn after the buttons in the inline form (Jump to). */ trailing?: React.ReactNode; /** The tab has its own order (Recently aired): no Sort control. */ fixedSort?: boolean; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** Owners also get the availability filter. */ owner?: boolean}) {
+export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Television: just Sort and Filter as two buttons for the tabs' row; every filter is in the side panel. */ inline?: boolean; /** Drawn after the buttons in the inline form (Jump to). */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** Owners also get the availability filter. */ owner?: boolean}) {
   const {space, isTV} = useTheme();
   const i18n = useI18n();
   const model = useMemo(() => toolbarModel(capabilities, capabilities.library.kind, predicates, sort, {owner, textEntry: !isTV}), [capabilities, predicates, sort, owner, isTV]);
-  const hasSort = !fixedSort && model.sorts.length > 0;
+  const hasSort = model.sorts.length > 0;
+  const own = !!ownOrder?.selected;
   /** The filter sheet: closed, the grouped list, or one field's values (opened from the list or straight from a promoted button). */
   const [filters, setFilters] = useState<{field?: BrowseFieldCapability; direct?: boolean} | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
@@ -48,14 +49,25 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   };
   // Sort is one control: it names the field and the direction, and choosing the current field flips it.
   const sortCap = capabilities.sorts.find(x => x.id === sort.field);
-  const sortLabel = model.sort.flippable ? i18n.t('lib.sortChip', {field: fieldLabel(sort.field, sortCap?.labelKey), direction: directionLabel(i18n, sort.field, sort.direction)}) : fieldLabel(sort.field, sortCap?.labelKey);
-  const sortItems: MenuItem[] = model.sorts.map(x => ({id: x.id, label: fieldLabel(x.id, x.labelKey), selected: x.id === sort.field, detail: x.id === sort.field && model.sort.flippable ? directionLabel(i18n, sort.field, sort.direction) : undefined, icon: x.id === sort.field ? (sort.direction === 'desc' ? 'chevronDown' as const : 'chevronUp' as const) : undefined}));
+  const ownLabel = i18n.t('web.saved.sort.other');
+  const sortLabel = own ? ownLabel : model.sort.flippable ? i18n.t('lib.sortChip', {field: fieldLabel(sort.field, sortCap?.labelKey), direction: directionLabel(i18n, sort.field, sort.direction)}) : fieldLabel(sort.field, sortCap?.labelKey);
+  const sortItems: MenuItem[] = [
+    // The group's own order, while nothing narrows it: a filtered list is always in one of the server's orders.
+    ...(ownOrder && (own || !predicates.length) ? [{id: OWN_ORDER, label: ownLabel, selected: own} as MenuItem] : []),
+    ...model.sorts.map(x => { const current = !own && x.id === sort.field; return {id: x.id, label: fieldLabel(x.id, x.labelKey), selected: current, detail: current && model.sort.flippable ? directionLabel(i18n, sort.field, sort.direction) : undefined, icon: current ? (sort.direction === 'desc' ? 'chevronDown' as const : 'chevronUp' as const) : undefined} as MenuItem; }),
+  ];
+  const pickSort = (id: string) => {
+    if (id === OWN_ORDER) { ownOrder?.onSelect(); return; }
+    const picked = capabilities.sorts.find(x => x.id === id);
+    // From the group's own order a sort starts in its usual direction; choosing the current sort again flips it.
+    onSort(own && picked ? {field: id, direction: picked.defaultDirection} : nextToolbarSort(capabilities, sort, id));
+  };
   const groupTitle: Record<ToolbarGroupId, string> = {title: i18n.t('filter.group.title'), activity: i18n.t('filter.group.activity'), file: i18n.t('filter.group.file')};
   const open = filters?.field;
   const closeFilters = () => setFilters(null);
   const overlays = (
     <>
-      <Menu open={sortOpen} onClose={() => setSortOpen(false)} title={i18n.t('sort.title')} items={sortItems} onSelect={id => { setSortOpen(false); onSort(nextToolbarSort(capabilities, sort, id)); }} />
+      <Menu open={sortOpen} onClose={() => setSortOpen(false)} title={i18n.t('sort.title')} items={sortItems} onSelect={id => { setSortOpen(false); pickSort(id); }} />
       <Sheet
         open={!!filters}
         onClose={closeFilters}
@@ -94,6 +106,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   if (inline) {
     return (
       <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
+        {leading}
         {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
         <Button size="sm" variant="secondary" icon="filter" selected={predicates.length > 0} label={predicates.length ? i18n.t('lib.activeFilters', {count: predicates.length}) : i18n.t('filter.title')} onPress={() => setFilters({})} />
         {trailing}
@@ -107,6 +120,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
           arriving from the grid or the tabs never lands on the empty guide itself. */}
       <RowGuide>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: space.xs, paddingHorizontal: space.page, paddingVertical: isTV ? space.xs : 0}} style={isTV ? {overflow: 'visible'} : undefined}>
+        {leading}
         {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
         {model.quick.map(f => <Button key={f.id} size="sm" variant="secondary" selected={isQuickOn(f.id)} label={quickFilterLabel(f.labelKey)} onPress={() => toggleQuick(f.id)} />)}
         {model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
@@ -135,6 +149,9 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
     </View>
   );
 }
+
+/** The Sort menu's entry for a group's own order. Not a sort the server names, so it can never collide with one. */
+const OWN_ORDER = ':own-order';
 
 function directionLabel(i18n: I18n, field: string, direction: 'asc' | 'desc'): string {
   const kind = /title|name|artist|album|author/.test(field) ? 'alpha' : /added|date|year|release|played|last/.test(field) ? 'date' : /rating/.test(field) ? 'rating' : /duration|length/.test(field) ? 'duration' : 'other';

@@ -38,7 +38,8 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
   const [state, setState] = useState<{capabilities?: BrowseCapabilities; error?: string}>({});
   useEffect(() => {
     if (!libraryId || !pivot) { setState({}); return; }
-    const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}:${libraryId}:${pivot}`;
+    // The vocabulary is this viewer's under this role (an owner is offered filters a member is not).
+    const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}/${session?.viewer.role ?? ''}:${libraryId}:${pivot}`;
     const held = capabilityCache.get(key);
     if (held) setState({capabilities: held});
     let read = capabilityReads.get(key);
@@ -56,7 +57,7 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
       e => { if (!cancelled && !held) setState({error: say(e, 'library', 'load')}); },
     );
     return () => { cancelled = true; };
-  }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
+  }, [api, session?.sessionFamilyId, session?.viewer.profileId, session?.viewer.role, libraryId, pivot, attempt]);
   const capabilities = useMemo(() => state.capabilities && state.capabilities.library.id === libraryId && pivot ? scopeBrowseCapabilities(state.capabilities, pivot, surfaceId) : undefined, [state.capabilities, libraryId, pivot, surfaceId]);
   return {...state, capabilities};
 }
@@ -125,12 +126,14 @@ export function useFacets(libraryId: string | undefined) {
 }
 
 /** Field and quick-filter names come from the catalogue (`filter.field.*`, `filter.quick.*`), as on the web; a field the catalogue has no name for yet is said as plain words from its key. */
-function catalogueLabel(prefix: 'filter.field.' | 'filter.quick.', ...keys: string[]): string | undefined {
+function catalogueLabel(prefix: 'filter.field.' | 'filter.quick.' | 'sort.', ...keys: string[]): string | undefined {
   const i18n = activeI18n();
   const has = i18n.has as (id: string) => boolean;
   for (const key of keys) { const id = prefix + key; if (key && has(id)) return (i18n.t as (id: string) => string)(id); }
   return undefined;
 }
+/** `sort.*` entries that are the Sort control's own words, not the name of a sort. */
+const SORT_WORDS: ReadonlySet<string> = new Set(['title', 'direction', 'ascending', 'descending']);
 const sentence = (key: string) => key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^./, c => c.toUpperCase());
 /** Fields a server names two ways: both read the one catalogue entry. */
 const SAME_FIELD: Readonly<Record<string, string>> = {addedAt: 'dateAdded', personalRating: 'userRating', durationSeconds: 'duration', lastPlayedAt: 'lastPlayed', communityRating: 'audienceRating'};
@@ -138,7 +141,9 @@ export function fieldLabel(id: string, labelKey?: string): string {
   // P6: For you isn't a field; it names itself from the catalogue.
   if (labelKey === 'sort.forYou') return serviceText('sort.forYou');
   const key = (labelKey ?? '').replace(/^browse\.field\./, '').replace(/^sort\./, '') || id;
-  return catalogueLabel('filter.field.', key, id, SAME_FIELD[key] ?? '', SAME_FIELD[id] ?? '') ?? sentence(key);
+  // A sort that is not also a field (a group list's "Title count", "Recently added", "Random") is named under `sort.*`.
+  const sortName = labelKey?.startsWith('sort.') && !SORT_WORDS.has(key) ? catalogueLabel('sort.', key) : undefined;
+  return catalogueLabel('filter.field.', key, id, SAME_FIELD[key] ?? '', SAME_FIELD[id] ?? '') ?? sortName ?? sentence(key);
 }
 export function quickFilterLabel(labelKey: string): string {
   const key = labelKey.replace(/^filter\./, '');

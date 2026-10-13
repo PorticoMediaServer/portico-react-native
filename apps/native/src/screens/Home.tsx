@@ -169,7 +169,9 @@ const heroDuration = (seconds: number) => (seconds >= 120 ? formatDuration(secon
 
 /** Behind the hero: wide artwork as it is, or a softened copy of the cover when that is all there is. */
 function HeroArt({hero, source, height}: {hero: HomeHero; source?: ImageSourcePropType; height: number}) {
-  const {colors} = useTheme();
+  const {colors, backdrops} = useTheme();
+  // "Show backdrops" off: Home keeps its plain lit canvas behind the hero.
+  if (!backdrops) return null;
   if (hero.art === 'backdrop') return <Backdrop source={source} height={height} align="right" opacity={0.85} />;
   return (
     <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height, overflow: 'hidden'}}>

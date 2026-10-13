@@ -14,7 +14,9 @@ import {viewerScope} from './viewer-scope';
  * One hub and one pool of last-known documents per signed-in viewer on one server. They outlive
  * the screens: opening the same title, show or library again shows what was last known at once.
  * A different viewer or server gets a new hub and pool; the old ones are let go with everything
- * they held.
+ * they held. So does the same viewer under another role: what an owner was shown (files and
+ * their places, people's activity, the owner's tabs) is not kept for the member they have become,
+ * and nothing a member was refused is assumed for an owner. Every open screen reads again.
  *
  * On a phone, tablet or television a screen that another screen covers stays mounted. It is not
  * read while it is covered: it only remembers that something it shows has moved, and is brought
@@ -25,8 +27,8 @@ import {viewerScope} from './viewer-scope';
 type Runtime = {api: HttpLocalApi; scope: string; hub: FreshnessHub; pool: DocumentPool};
 let runtime: Runtime | undefined;
 
-export function freshnessFor(api: HttpLocalApi, scope: {viewerId: string; serverId: string}): Runtime {
-  const key = scope.serverId + '\n' + scope.viewerId;
+export function freshnessFor(api: HttpLocalApi, scope: {viewerId: string; serverId: string}, role = ''): Runtime {
+  const key = scope.serverId + '\n' + scope.viewerId + '\n' + role;
   if (runtime && runtime.api === api && runtime.scope === key) return runtime;
   const old = runtime;
   const hub = new FreshnessHub();
@@ -39,7 +41,8 @@ export function freshnessFor(api: HttpLocalApi, scope: {viewerId: string; server
 export function useFreshness(): Runtime {
   const {api, session} = useSession();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  return useMemo(() => freshnessFor(api, scope), [api, scope]);
+  const role = session?.viewer.role ?? '';
+  return useMemo(() => freshnessFor(api, scope, role), [api, scope, role]);
 }
 
 /** Tell the hub the person touched something just now (a touch on the root view; television keys are heard by the runtime). */

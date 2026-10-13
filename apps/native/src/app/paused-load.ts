@@ -1,26 +1,38 @@
-/** What `pauseOnceStarted` needs of the player's own service. */
-export type PausablePlayer = Readonly<{getSnapshot: () => {itemId?: string; phase: string; intent: string}; subscribe: (listener: () => void) => () => void; pause: () => void}>;
+/** What a paused start needs of the player's own service. */
+export type PausablePlayer = Readonly<{getSnapshot: () => {itemId?: string; intentId: number; phase: string; intent: string}; subscribe: (listener: () => void) => () => void; pause: () => void}>;
 
 /**
- * Pauses a title the moment the player has taken it (Watch Together: a room that is paused, or
- * holding for everyone, takes a new title paused). The player ignores a pause while it has
- * nothing loaded, so one asked for in the same breath as the load would be lost; this waits for
- * the title to be the player's, pauses once, and gives up after `giveUpMs`, when a third title
- * comes first, or when `stop` (the returned function) is called.
+ * Starts a title paused (Watch Together: a room that is paused, or holding for everyone, takes a
+ * new title paused). The player has no "start paused": it ignores a pause while it has nothing
+ * loaded, so one asked for in the same breath as the load would be lost. This arms the pause
+ * before the load is asked for and applies it the moment the player has begun that load, in the
+ * same turn the player says so. The engine reads the player's state a turn later, so the first
+ * thing it is ever told about the title is "paused": it shows its frame and makes no sound.
+ *
+ * `intentBefore` is the player's intent when the load was asked for (read before asking). A title
+ * that is loaded again while it is already the player's (the group moved everyone to another
+ * moment of it) is the same title under a new intent: the pause waits for that new intent, since
+ * one given to the playback from before would be undone when the load begins. A different title
+ * is paused as soon as it is the player's, whether or not the intent has changed by then.
+ *
+ * It gives up after `giveUpMs`, when another title begins first, or when `stop` (the returned
+ * function) is called.
  *
  * No React and no native code: tested under Node.
  */
-export function pauseOnceStarted(player: PausablePlayer, itemId: string, giveUpMs = 15000): () => void {
-  // The title that was playing when the new one was asked for is still the player's for a moment.
-  const before = player.getSnapshot().itemId;
+export function pauseNextStart(player: PausablePlayer, itemId: string, intentBefore: number, giveUpMs = 15000): () => void {
   let done = false;
   let off = () => {};
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stop = () => { if (done) return; done = true; off(); clearTimeout(timer); };
+  const itemBefore = player.getSnapshot().itemId;
   const look = () => {
     if (done) return;
     const s = player.getSnapshot();
-    if (s.itemId !== itemId) { if (s.itemId && s.itemId !== before) stop(); return; }
+    // Between two titles the player holds the old one, or none, for a moment; a third title beginning first ends the wait.
+    if (s.itemId !== itemId) { if (s.itemId && s.itemId !== itemBefore) stop(); return; }
+    // The same title as before, and still the playback from before: the load has not begun.
+    if (s.intentId === intentBefore && itemBefore === itemId) return;
     if (s.phase === 'idle') return;
     stop();
     if (s.intent === 'playing') player.pause();

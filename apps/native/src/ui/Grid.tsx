@@ -4,6 +4,7 @@ import {FlatList, View, VirtualizedList, type FlatListProps, type RefreshControl
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from './theme';
 import {gridColumns} from './grid-columns';
+import {Arriving, useArrivals} from './Arriving';
 
 export {gridColumns};
 
@@ -56,11 +57,15 @@ export function Grid<T>({data, itemWidth, width, renderItem, gap, gutter = true,
     for (let i = 0; i < data.length; i += columns) out.push(data.slice(i, i + columns));
     return out;
   }, [data, columns]);
+  // A card that arrives after the grid was first shown (a quiet refresh, "Show more") fades in.
+  const keyOf = rest.keyExtractor;
+  const arriving = useArrivals(data, (item, index) => (keyOf ? keyOf(item, index) : String(index)));
   const renderRow = (row: T[], rowIndex: number) => (
     <View key={rowIndex} style={{flexDirection: 'row', gap: spacing, marginBottom: space.lg}}>
       {row.map((item, i) => (
         <View key={rest.keyExtractor ? rest.keyExtractor(item, rowIndex * columns + i) : String(i)} style={{width: columnWidth}}>
-          {renderItem(item, columnWidth, rowIndex * columns + i)}
+          {/* Only cards with a key of their own can be told apart from the ones that were there. */}
+          <Arriving on={!!keyOf && arriving(keyOf(item, rowIndex * columns + i))}>{renderItem(item, columnWidth, rowIndex * columns + i)}</Arriving>
         </View>
       ))}
     </View>

@@ -20,6 +20,10 @@ import {mosaicPaths} from './layout';
 import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
 import {useAppendedPages, useEndReached} from '../../app/paging';
 import {usePullToRefresh} from '../../app/refresh';
+import {useLibrariesContext} from '../../app/libraries-context';
+import {useGroupBrowse, useGroupPages} from '../../app/group-browse';
+import {groupLibraries, listScope, playlistPivot, savedViewScope} from '../../app/group-scope';
+import {GroupBar, GroupLibraryPicker, GroupResults} from '../GroupBrowse';
 
 const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
 
@@ -65,6 +69,18 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const whole = !pageable && snapshot.pagination.cursor === null;
   const pull = usePullToRefresh(refresh, {busy: snapshot.phase === 'loading'});
   const onScroll = useEndReached(() => { if (pageable && snapshot.phase === 'ready') next(pageable.id); });
+  // ── Sort and filter ───────────────────────────────────────────────────────
+  // A playlist keeps the order its owner gave it until the viewer chooses a sort or a filter;
+  // then its entries are listed by the library's own browse, one library at a time (the one that
+  // holds most of them, or another the viewer picks). Reordering and removing belong to the
+  // playlist's own order, so they are offered there and not in a sorted list.
+  const {items: allLibraries} = useLibrariesContext();
+  const candidates = useMemo(() => groupLibraries(allLibraries.filter(l => !!playlistPivot(l.kind)), media.map(m => m.libraryId)), [allLibraries, media]);
+  const [libraryChoice, setLibraryChoice] = useState<string>();
+  const library = candidates.find(l => l.id === libraryChoice) ?? candidates[0];
+  const groupScope = useMemo(() => (library ? listScope(library.id, playlistPivot(library.kind), playlistId) : undefined), [library, playlistId]);
+  const group = useGroupBrowse(groupScope);
+  const sorted = useGroupPages(group);
   const count = playlist?.entryCount ?? sections[0]?.totalCount;
   // Total length only when the whole playlist is on screen; a page's sum would be wrong.
   const length = whole ? media.reduce((n, m) => n + (m.duration ?? 0), 0) : 0;
@@ -117,7 +133,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const managed = can('reorder') || can('remove');
   // Where each visible title sits among the playable ones, so a press plays the playlist from there.
   const from = useMemo(() => new Map(media.map((m, i) => [m, i])), [media]);
-  const loadMore = () => { if (pageable && snapshot.phase === 'ready') next(pageable.id); };
+  const loadMore = () => { if (!group.engaged && pageable && snapshot.phase === 'ready') next(pageable.id); };
   // The entries are the cells of the page's own list: only the rows near the viewport are
   // mounted, however long the playlist is and however much of it has been read.
   const renderOccurrence = ({item: occurrence, index}: {item: PlaylistOccurrence; index: number}) => {
@@ -155,7 +171,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   return (
     <View style={{flex: 1}}>
       <PageList
-        data={occurrences}
+        // While a sort or a filter is on, the sorted entries are listed under the header in place of the playlist's own rows.
+        data={group.engaged ? noOccurrences : occurrences}
         keyExtractor={occurrenceKey}
         renderItem={renderOccurrence}
         // Rows read the playlist's permissions and the playable order.
@@ -189,9 +206,10 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
             {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
             {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
             {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
+            {occurrences.length ? <GroupBar group={group} leading={<GroupLibraryPicker libraries={candidates} selected={library?.id} onSelect={setLibraryChoice} />} /> : null}
           </>
         }
-        ListFooterComponent={<MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
+        ListFooterComponent={group.engaged && library ? <GroupResults group={group} results={sorted} libraryId={library.id} as="list" /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
       />
       <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
       {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
@@ -221,14 +239,21 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const page = useMemo(() => snapshot.entries.map(e => e.media).filter((m): m is ContentEntry => !!m), [snapshot.entries]);
   const media = useAppendedPages(resourceId, snapshot.cursor, page, mediaKey);
   const pull = usePullToRefresh(refresh, {busy: snapshot.loading});
-  const loadMore = () => { if (!snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); };
-  const onScroll = useEndReached(loadMore);
   const view = resource?.kind === 'view';
   const cover = media.find(m => m.posterUrl);
   // M26 item 5: collections have no custom art — the hero shows a 2×2 mosaic
   // of the first 4 item posters or covers (nothing when no item has art).
   const mosaic = mosaicPaths({}, media);
   const claim = useEntryFocus(media.some(m => m.playback));
+  // ── Sort and filter ───────────────────────────────────────────────────────
+  // A saved view is a stored browse of one library: it keeps the sort it was saved with until the
+  // viewer chooses another or adds a filter, which narrows the view and never widens it.
+  const definition = view ? resource?.definition : undefined;
+  const groupScope = useMemo(() => savedViewScope(definition), [definition]);
+  const group = useGroupBrowse(groupScope);
+  const sorted = useGroupPages(group);
+  const loadMore = () => { if (!group.engaged && !snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); };
+  const onScroll = useEndReached(loadMore);
   const gather = useGatherView(resourceId);
   const gathering = useRef(false);
   const start = async (shuffle: boolean) => {
@@ -259,7 +284,8 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
       <PageList
-        data={rows}
+        // While a sort or a filter is on, the sorted titles are listed under the header in place of the view's own.
+        data={group.engaged ? noRows : rows}
         keyExtractor={rowKey}
         renderItem={renderRow}
         contentStyle={{paddingTop: 0}}
@@ -286,9 +312,10 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
               <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>
             ) : null}
             {!snapshot.loading && !snapshot.error && !media.length ? <StateView icon={view ? 'filter' : 'collection'} title={view ? i18n.t('title.viewEmpty') : i18n.t('title.collectionEmpty')} /> : null}
+            {media.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={<MoreSpinner busy={snapshot.loading && media.length > 0} />}
+        ListFooterComponent={group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
     </View>
@@ -296,6 +323,8 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
 }
 
 const rowKey = (row: CardRowModel<ContentEntry>) => row.key;
+const noRows: CardRowModel<ContentEntry>[] = [];
+const noOccurrences: PlaylistOccurrence[] = [];
 const occurrenceKey = (o: PlaylistOccurrence) => o.id;
 const mediaKey = (m: ContentEntry) => m.id;
 

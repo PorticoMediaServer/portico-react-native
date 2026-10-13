@@ -26,6 +26,7 @@ import {LinkTVSheet} from '../LinkTV';
 import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
+import {withNativeRows} from './native-structure';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {mpvAvailable} from '../../bridge/player-engines';
 import {parseEngineSetting} from '../../player/engine-choice';
@@ -47,12 +48,14 @@ export function useSettingsStructure(): SettingsStructure {
   // What the last capability probe found of this device: a receiver to pass sound through to,
   // and whether it shows or decodes HDR at all. The rows that turn those off appear with them.
   const probed = useSyncExternalStore(engineSettingStore.subscribeProbed, engineSettingStore.probed);
-  return useMemo(() => settingsStructure({
+  const preferenceKeys = useMemo(() => (registry ? new Set(registry.fields.map(f => f.key)) : undefined), [registry]);
+  // Card size, Show backdrops and the caption style are honoured on this device: their rows are added to the shared structure (`native-structure.ts`).
+  return useMemo(() => withNativeRows(settingsStructure({
     // The Server heading is the owner's, as on the web: all ten pages on iPhone and iPad, the Dashboard on television.
     owner: manages,
     platform: isTV ? 'tv' : 'phone',
     capabilities: {
-      ...(registry ? {preferenceKeys: new Set(registry.fields.map(f => f.key))} : {}),
+      ...(preferenceKeys ? {preferenceKeys} : {}),
       localAccount: account.local,
       porticoMember: member,
       hostedAccount: !!session.hosted,
@@ -67,7 +70,7 @@ export function useSettingsStructure(): SettingsStructure {
       audioPassthrough: probed?.audioPassthrough === true,
       ...(probed ? {hdr: probed.hdr} : {}),
     },
-  }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported, probed]);
+  }), preferenceKeys), [preferenceKeys, account.local, member, canManage, manages, session.hosted, offline.supported, probed]);
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */

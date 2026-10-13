@@ -23,7 +23,7 @@ import {usePlayerActions, usePlayingItemId} from '../app/player-actions';
 import type {BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {useBrowseCapabilities, useBrowseWindow, type Predicate} from '../app/browse';
 import {useLibraryMemory} from '../app/library-memory';
-import {linkedView, offeredFilters, openingView, tabView, type LibraryView} from '../app/library-view';
+import {categoryDestination, groupTabOpens, linkedView, offeredFilters, openingView, tabDefaultSort, tabView, type LibraryView} from '../app/library-view';
 import {AlphabetRail, BrowseBar} from './BrowseFilters';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
@@ -48,7 +48,7 @@ const sortLabel = (i18n: I18n, key: string): string => {
  * Playlists (the viewer's own).
  */
 export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Library'>}) {
-  const {libraryId, tab: initialTab, category, genre} = route.params;
+  const {libraryId, tab: initialTab, category: linkedCategory, genre} = route.params;
   const {items: libraries} = useLibrariesContext();
   const library = libraries.find(l => l.id === libraryId);
   const session = useSession();
@@ -60,27 +60,32 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const [capabilityAttempt, setCapabilityAttempt] = useState(0);
   const [switcher, setSwitcher] = useState<DropdownAnchor>();
   const kind = library?.kind ?? '';
+  // A category link (a genre, a decade, a studio, a series) is the tab that lists its titles with
+  // the category as one ordinary filter, so it has every sort and filter the tab has. A category
+  // this app does not know keeps the server's own page for it.
+  const group = useMemo(() => (linkedCategory && kind ? categoryDestination(kind, linkedCategory) : undefined), [linkedCategory, kind]);
+  const category = group || (linkedCategory && !kind) ? undefined : linkedCategory;
   const owner = session.session?.viewer.role === 'owner';
   const tabOptions = useMemo(() => ({owner, unmatched: true}), [owner]);
   // A library opened plainly comes back on the tab this profile last used here, with that tab's
   // last sort and filters. A link that names a tab, a category or a genre is shown as it is and
   // changes nothing that is remembered.
   const {memory, ready: memoryReady} = useLibraryMemory();
-  const opening = useCallback((): LibraryView<Tab> => openingView<Tab>({tab: initialTab, category, genre}, kind ? memory.recall(libraryId) : undefined, libraryTabs(kind, tabOptions).map(item => item.id), 'discover'),
-    [initialTab, category, genre, kind, memory, libraryId, tabOptions]);
+  const opening = useCallback((): LibraryView<Tab> => (group ? linkedView<Tab>(group.tab, [group.predicate]) : openingView<Tab>({tab: initialTab, category: linkedCategory, genre}, kind ? memory.recall(libraryId) : undefined, libraryTabs(kind, tabOptions).map(item => item.id), 'discover')),
+    [initialTab, linkedCategory, group, genre, kind, memory, libraryId, tabOptions]);
   const [view, setView] = useState<LibraryView<Tab>>(opening);
   const [published, setPublished] = useState<ContentSeeAll | null>(null);
   // Once the person has chosen something here, what was remembered no longer decides the screen.
   const touched = useRef(false);
-  const arrived = useRef(`${libraryId}\n${initialTab ?? ''}`);
+  const arrived = useRef(`${libraryId}\n${initialTab ?? ''}\n${linkedCategory ?? ''}`);
   useEffect(() => {
-    const place = `${libraryId}\n${initialTab ?? ''}`;
+    const place = `${libraryId}\n${initialTab ?? ''}\n${linkedCategory ?? ''}`;
     if (arrived.current !== place) { arrived.current = place; touched.current = false; setPublished(null); }
     // The saved choices and the library's kind can arrive a moment after the screen: they still decide how it opens.
     // An opening that says what is already on screen changes nothing (no redraw, nothing asked again).
     if (!touched.current && !genre) { const next = opening(); setView(current => (JSON.stringify(current) === JSON.stringify(next) ? current : next)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTab, libraryId, kind, memoryReady, memory]);
+  }, [initialTab, linkedCategory, libraryId, kind, memoryReady, memory]);
   const {tab, sort} = view;
   const setPredicates = useCallback((next: readonly Predicate[]) => setView(current => ({...current, filters: next, recalled: false})), []);
   const active: LibraryTab = libraryTab(kind, tab, tabOptions);
@@ -89,7 +94,10 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const engine = !!pivot && !category;
   const content: ContentRoute = useMemo(() => (playlists ? {libraryId, view: 'discover'} : {libraryId, view: tab as ContentView, ...(category ? {category} : {}), ...sort}), [libraryId, tab, playlists, category, sort]);
   const {snapshot, retry, refresh, next} = useContent(engine ? {libraryId, view: 'discover'} : content);
-  const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field)) ? 'group-titles' : 'library');
+  // A tab of groups (Genres, Series) is a list of the library's own; titles narrowed to a group are that group's titles.
+  const tabsOfKind = useMemo(() => libraryTabs(kind, tabOptions), [kind, tabOptions]);
+  const opens = useMemo(() => groupTabOpens(active, tabsOfKind), [active, tabsOfKind]);
+  const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, !opens && (genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field))) ? 'group-titles' : 'library');
   // The viewer's own filters. A remembered one this library no longer offers is left out, not sent.
   const chosen = useMemo(() => offeredFilters(view, capabilities?.fields) as readonly Predicate[], [view, capabilities]);
   // A tab's own conditions (Unmatched) come before the viewer's and are not shown as chips.
@@ -129,16 +137,17 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   };
   const engineSort = useMemo<BrowseSortSelection>(() => {
     const picked = sort.sort ? capabilities?.sorts.find(x => x.id === sort.sort) : undefined;
-    return offeredBrowseSort(capabilities, active.fixedSort ?? (sort.sort && picked ? {field: sort.sort, direction: sort.direction ?? picked.defaultDirection} : undefined));
-  }, [sort.sort, sort.direction, capabilities, active.fixedSort]);
+    // The viewer's choice for this tab; without one, the order the tab opens in (Recently aired:
+    // the latest episode first), and failing that the server's own for the pivot.
+    return offeredBrowseSort(capabilities, (sort.sort && picked ? {field: sort.sort, direction: sort.direction ?? picked.defaultDirection} : undefined) ?? tabDefaultSort(active));
+  }, [sort.sort, sort.direction, capabilities, active]);
   // A genre opens the tab it groups (Albums), filtered to it.
   const openGroup = useCallback((entry: ContentEntry) => {
-    const opens = active.opens;
     if (!opens) return;
     touched.current = true;
     setPublished(null);
     setView(linkedView<Tab>(opens.tab, [{field: opens.field, operator: 'in', value: [entry.title]} as Predicate]));
-  }, [active.opens]);
+  }, [opens]);
   // Names the current filters and sort as a saved view; the server reruns it whenever it is opened.
   const saveView = useCallback(async (name: string) => {
     if (!pivot) return;
@@ -197,7 +206,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
               <RowGuide>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: space.md, paddingRight: space.page, marginBottom: space.lg}}>
                   <View style={{flex: 1, minWidth: 0}}>{tabStrip}</View>
-                  {published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities && active.shows !== 'genres' ? <BrowseBar inline trailing={jumpTo} owner={owner} fixedSort={!!active.fixedSort} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} /> : jumpTo}
+                  {published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities ? <BrowseBar inline trailing={jumpTo} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} /> : jumpTo}
                 </View>
               </RowGuide>
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
@@ -205,14 +214,14 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           ) : (
             <>
               {header}
-              {published?.pivot === pivot ? <View style={{paddingHorizontal: space.page, paddingVertical: space.md}}><Button variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View> : capabilities && active.shows !== 'genres' ? <BrowseBar owner={owner} fixedSort={!!active.fixedSort} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} onSaveView={saveView} /> : <View style={{height: space.lg}} />}
+              {published?.pivot === pivot ? <View style={{paddingHorizontal: space.page, paddingVertical: space.md}}><Button variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View> : capabilities ? <BrowseBar owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} onSaveView={opens ? undefined : saveView} /> : <View style={{height: space.lg}} />}
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
             </>
           ))}
           sortField={published?.pivot === pivot ? published.sort[0]?.field ?? engineSort.field : engineSort.field}
           filtered={!!(published?.pivot === pivot && published.query) || chosen.length > 0}
           tab={active}
-          onOpenGroup={active.opens ? openGroup : undefined}
+          onOpenGroup={opens ? openGroup : undefined}
           onClearFilters={() => { setPublished(null); pickFilters([]); }}
           pivot={pivot ?? ''}
           refreshControl={pull}
@@ -316,7 +325,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, sortField, libra
   // and never shows the rail.
   // On TV the anchors ride the existing Jump-to pattern in the same place.
   // For you ranks by taste: it has no letters to jump to.
-  const rail = anchors.length > 0 && !filtered && sortField === 'title' && !tab.fixedSort && !groups;
+  const rail = anchors.length > 0 && !filtered && sortField === 'title' && !groups;
   const top = (
     <>
       {/* The letter rail narrows the grid, not the page header: the header keeps the screen's full width so its buttons do not move between tabs. */}

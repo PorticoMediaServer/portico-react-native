@@ -2,51 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {replanEngine} from '../src/player/engine-replan.ts';
 
-function make(intent: 'playing' | 'paused') {
-  const state = {intent, phase: 'ready', positionSeconds: 42, queue: ['current', 'next']};
-  let finish!: () => void;
-  const calls: boolean[] = [];
+function make(inPlace: boolean) {
+  const state = {intent: 'paused' as 'playing' | 'paused', positionSeconds: 42, queue: ['current', 'next'], sessionId: 's1'};
+  const changes: unknown[] = [];
   const playback = {
-    getSnapshot: () => state,
-    pause: () => { state.intent = 'paused'; },
+    changesInPlace: () => inPlace,
+    changePlayback: (choices: unknown) => { changes.push(choices); return Promise.resolve(); },
   };
-  const queue = {
-    check: (retry?: boolean) => {
-      calls.push(retry === true);
-      state.phase = 'starting';
-      state.intent = 'playing';
-      return new Promise<void>(resolve => { finish = () => { state.phase = 'ready'; resolve(); }; });
-    },
-  };
-  return {state, calls, playback, queue, finish: () => finish()};
+  return {state, changes, playback};
 }
 
-test('replanning uses the current-entry operation and preserves position and Up Next', async () => {
-  const {state, calls, playback, queue, finish} = make('playing');
-  const pending = replanEngine(playback as never, queue);
-  assert.deepEqual(calls, [true]);
-  assert.equal(state.positionSeconds, 42);
-  assert.deepEqual(state.queue, ['current', 'next']);
-  finish();
-  await pending;
-  assert.equal(state.intent, 'playing');
+test('a changed Player setting re-plans the playing session in place, with one request', async () => {
+  const {state, changes, playback} = make(true);
+  await replanEngine(playback as never);
+  assert.deepEqual(changes, [{replan: true}]);
+  // Nothing of the session is touched from here: the same session, queue, position and pause.
+  assert.deepEqual(state, {intent: 'paused', positionSeconds: 42, queue: ['current', 'next'], sessionId: 's1'});
 });
 
-test('a paused title is paused before the new session can be adopted', async () => {
-  const {state, playback, queue, finish} = make('paused');
-  const pending = replanEngine(playback as never, queue);
-  assert.equal(state.phase, 'starting');
-  assert.equal(state.intent, 'paused');
-  finish();
-  await pending;
-  assert.equal(state.intent, 'paused');
+test('a download or a channel is never re-planned', async () => {
+  const {changes, playback} = make(false);
+  await replanEngine(playback as never);
+  assert.deepEqual(changes, []);
 });
 
-test('a viewer resume during replanning is preserved when the request finishes', async () => {
-  const {state, playback, queue, finish} = make('paused');
-  const pending = replanEngine(playback as never, queue);
-  state.intent = 'playing';
-  finish();
-  await pending;
-  assert.equal(state.intent, 'playing');
+test('a refused change is the caller’s to hear of', async () => {
+  const playback = {changesInPlace: () => true, changePlayback: () => Promise.reject(new Error('refused'))};
+  await assert.rejects(replanEngine(playback as never), /refused/);
 });

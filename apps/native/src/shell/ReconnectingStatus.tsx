@@ -20,7 +20,7 @@ export function ReconnectingStatus() {
   const status = useConnectionStatus();
   const {retry, useAnother} = useConnectionActions();
   const session = useSession();
-  const host = session.saved?.host ?? '';
+  const host = session.saved?.host ?? session.outsideHours?.host ?? '';
   // `shown` always carries a reason (the store sets both together); fall back to the lost copy.
   const reason = status.reason ?? 'lost';
   const title =
