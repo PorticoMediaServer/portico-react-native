@@ -7,7 +7,7 @@ import {formatBytes} from '../../../../../packages/client-core/src/presentation/
 import type {PreferencePatch, PreferenceValue} from '../../../../../packages/client-core/src/preferences';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import type {ContentStackParams} from '../../app/routes';
-import {usePreferences, type Preferences} from '../../app/preferences';
+import {usePreferences} from '../../app/preferences';
 import {useServerPreferences} from '../../app/server-preferences';
 import {useAudioRenderAvailability} from '../../app/audio-render-status';
 import {useI18n} from '../../app/i18n';
@@ -26,8 +26,8 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
-import {parseEngineSetting} from '../../player/engine-choice';
 import {mpvAvailable} from '../../bridge/player-engines';
+import {parseEngineSetting} from '../../player/engine-choice';
 
 /**
  * The Settings structure for this viewer on this device (`settings-structure.ts`): the pages,
@@ -57,34 +57,10 @@ export function useSettingsStructure(): SettingsStructure {
       // Speed, gapless, crossfade and volume levelling are offered only where this device's players can do them.
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
-      // A build with mpv beside the device's own player has a player to choose.
+      // The Player setting is offered where this build carries a second player (mpv).
       playerEngines: mpvAvailable,
     },
   }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported]);
-}
-
-/**
- * What this installation keeps for a row it stores itself (`storage: 'device'`). A row this app
- * keeps no value for reads undefined and is left out, so a section never shows an empty control.
- */
-function deviceRowValue(id: string, preferences: Preferences): PreferenceValue | undefined {
-  switch (id) {
-    case 'reduceMotion': return preferences.reduceMotion;
-    case 'textSize': return preferences.textSize;
-    case 'receiveFromDevices': return preferences.receiveFromDevices;
-    case 'playerEngine': return preferences.playerEngine;
-    default: return undefined;
-  }
-}
-
-function deviceRowPatch(id: string, next: string | number | boolean | readonly string[]): Partial<Preferences> | undefined {
-  switch (id) {
-    case 'reduceMotion': return {reduceMotion: next === true};
-    case 'textSize': return {textSize: next === 'large' ? 'large' : 'standard'};
-    case 'receiveFromDevices': return {receiveFromDevices: next === true};
-    case 'playerEngine': return {playerEngine: parseEngineSetting(next)};
-    default: return undefined;
-  }
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
@@ -114,7 +90,6 @@ export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: th
 function SectionView({page, section, save, entryRow}: {page: string; section: SettingsSection; save: (patch: PreferencePatch) => void; entryRow?: string}) {
   const i18n = useI18n();
   const server = useServerPreferences();
-  const device = usePreferences();
   const [open, setOpen] = useState(!section.advanced);
   // X-02: why this server can't render effects for what's playing, quietly (the group footer).
   const render = useAudioRenderAvailability();
@@ -126,7 +101,6 @@ function SectionView({page, section, save, entryRow}: {page: string; section: Se
     if (row.when && server.value(row.when.key, row.when.equals) !== row.when.equals) return false;
     if (row.kind === 'preference') return has(row.key);
     if (row.kind === 'composite' && row.storage === 'registry') return !!server.snapshot;
-    if (row.kind === 'composite') return deviceRowValue(row.id, device.preferences) !== undefined;
     return true;
   });
   const groups = shown.filter(row => row.kind === 'custom' && GROUP_PANELS.has(row.id));
@@ -188,8 +162,14 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
     write = next => save(compositePatch(row.id, next as string | boolean));
   } else {
     // The device's own values, kept in this installation's store.
-    value = deviceRowValue(row.id, device.preferences);
-    write = next => { const patch = deviceRowPatch(row.id, next); if (patch) device.update(patch); };
+    value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices
+      : row.id === 'playerEngine' ? device.preferences.playerEngine : undefined;
+    write = next => {
+      if (row.id === 'reduceMotion') device.update({reduceMotion: next === true});
+      else if (row.id === 'textSize') device.update({textSize: next === 'large' ? 'large' : 'standard'});
+      else if (row.id === 'receiveFromDevices') device.update({receiveFromDevices: next === true});
+      else if (row.id === 'playerEngine') device.update({playerEngine: parseEngineSetting(next)});
+    };
   }
   if (value === undefined) return null;
   const control = row.control;
