@@ -173,7 +173,7 @@ internal object PorticoAppVisibility {
       override fun onActivityStopped(activity: Activity) { started.remove(activity); update() }
       override fun onActivityDestroyed(activity: Activity) { started.remove(activity); update() }
       override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-      override fun onActivityResumed(activity: Activity) {}
+      override fun onActivityResumed(activity: Activity) { started.add(activity); update() }
       override fun onActivityPaused(activity: Activity) {}
       override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
     })

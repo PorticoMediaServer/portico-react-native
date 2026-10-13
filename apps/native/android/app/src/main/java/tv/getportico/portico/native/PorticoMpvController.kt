@@ -147,6 +147,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var displayWait = 0
   /** The first frame is ready but no view has lent its surface yet: readiness waits for it (television). */
   private var pendingDisplayReady: (() -> Unit)? = null
+  private var pendingDisplayDeadline = 0L
 
   // Sound: audio focus is the app's to ask for, since mpv opens its own output.
   private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -173,6 +174,8 @@ internal class PorticoMpvController(private val context: Context) {
   private val captioning = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
   private val captionsChanged = object : CaptioningManager.CaptioningChangeListener() {
     override fun onFontScaleChanged(fontScale: Float) { main.post { captionStyleChanged() } }
+    override fun onUserStyleChanged(userStyle: CaptioningManager.CaptionStyle) { main.post { captionStyleChanged() } }
+    override fun onEnabledChanged(enabled: Boolean) { main.post { captionStyleChanged() } }
   }
 
   private val devicesChanged = object : AudioDeviceCallback() {
@@ -253,7 +256,7 @@ internal class PorticoMpvController(private val context: Context) {
     teardown?.let { main.removeCallbacks(it) }
     teardown = null
     destroyCore()
-    relay.stop()
+    relay.destroy()
   }
 
   // --- commands --------------------------------------------------------------------------
@@ -695,7 +698,10 @@ internal class PorticoMpvController(private val context: Context) {
       }
       is PorticoMpvEvent.EndFile -> {
         if (event.reason == PorticoMpvNative.END_ERROR) publishFailure(event.code, event.message, event.log)
-        else if (event.reason == PorticoMpvNative.END_EOF) reachedEnd()
+        else if (event.reason == PorticoMpvNative.END_EOF) {
+          if (!restarted) publishFailure(PorticoMpvNative.ERROR_NOTHING_TO_PLAY, "file ended before playback began", emptyList())
+          else reachedEnd()
+        }
       }
       is PorticoMpvEvent.TracksChanged -> {
         tracks = event.tracks
@@ -1274,11 +1280,13 @@ internal class PorticoMpvController(private val context: Context) {
     val same = style == captionStyle
     captionStyle = style
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(style), 2))
-    when (PorticoMpvSupport.styleBackground(style)) {
-      "none" -> { core?.set("sub-border-style", "outline-and-shadow"); core?.set("sub-outline-size", "3"); core?.set("sub-border-size", "3"); core?.set("sub-back-color", "0.0/0.0/0.0/0.0") }
-      "opaque" -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/1.0") }
-      else -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/0.7") }
-    }
+    val (text, box) = PorticoMpvSupport.captionColors(context, style)
+    core?.set("sub-color", PorticoMpvSupport.captionColor(text))
+    core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
+    val edge = android.graphics.Color.alpha(box) < 77
+    core?.set("sub-border-style", if (edge) "outline-and-shadow" else "background-box")
+    core?.set("sub-border-size", if (edge) "3" else "0")
+    core?.set("sub-outline-size", if (edge) "3" else "0")
     if (!same) overlayListeners.toList().forEach { it() }
   }
 
@@ -1409,7 +1417,7 @@ internal class PorticoMpvController(private val context: Context) {
   /** The viewer changed the caption size in the system's Accessibility settings. */
   private fun captionStyleChanged() {
     if (invalidated) return
-    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(captionStyle), 2))
+    applyCaptionStyle(captionStyle)
     overlayListeners.toList().forEach { it() }
   }
 
@@ -1520,7 +1528,7 @@ internal class PorticoMpvController(private val context: Context) {
     if (waiting != null) {
       pendingDisplayReady = null
       displayHold = false
-      matchDisplay(waiting)
+      matchDisplay(pendingDisplayDeadline, waiting)
     } else if (restarted && fileRequested) {
       if (!displayHold) matchDisplay { applyIntent() }
       else frameRate()?.let { fps -> if (next.isValid) voteFrameRate(next, fps) }
@@ -1569,7 +1577,7 @@ internal class PorticoMpvController(private val context: Context) {
    * switches. An HDR title drawn straight onto the surface also switches the screen to HDR
    * here, and the same wait covers it.
    */
-  private fun matchDisplay(done: () -> Unit) {
+  private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit) {
     val target = surface
     val fps = frameRate()
     if (Build.VERSION.SDK_INT >= 30 && PorticoMpvDevice.isTelevision && fps != null && (target == null || !target.isValid) && !backgroundHold) {
@@ -1578,6 +1586,7 @@ internal class PorticoMpvController(private val context: Context) {
       displayHold = true
       core?.set("pause", "yes")
       pendingDisplayReady = done
+      pendingDisplayDeadline = deadline
       val epoch = loadEpoch
       main.postDelayed({
         val waiting = pendingDisplayReady
@@ -1586,7 +1595,7 @@ internal class PorticoMpvController(private val context: Context) {
           displayHold = false
           waiting()
         }
-      }, 10_000)
+      }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
       return
     }
     if (Build.VERSION.SDK_INT < 30 || target == null || !target.isValid || fps == null) { done(); return }
@@ -1639,7 +1648,7 @@ internal class PorticoMpvController(private val context: Context) {
     displays.registerDisplayListener(listener, main)
     // No switch begins when the television is already in the right mode.
     main.postDelayed({ if (!switching) settle() }, 1000)
-    main.postDelayed({ settle() }, 10_000)
+    main.postDelayed({ settle() }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
   }
 
   /** The display goes back to its own rate a moment after playback is left, not between two episodes. */

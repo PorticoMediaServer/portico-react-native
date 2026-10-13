@@ -61,6 +61,7 @@ public final class PorticoMpvNative {
         System.loadLibrary("porticompv");
         loaded = Boolean.TRUE;
       } catch (Throwable missing) {
+        android.util.Log.w("PorticoMpv", "The mpv libraries could not be loaded.", missing);
         loaded = Boolean.FALSE;
       }
     }

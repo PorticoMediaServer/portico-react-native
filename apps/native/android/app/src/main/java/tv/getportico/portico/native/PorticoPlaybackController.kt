@@ -625,7 +625,7 @@ internal class PorticoPlaybackController(private val context: Context) {
    * on a phone or tablet, which change rate without a break. `done` runs when the wait is over;
    * false means there is nothing to wait for.
    */
-  private fun matchDisplay(done: () -> Unit): Boolean {
+  private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit): Boolean {
     val engine = player ?: return false
     if (displayHold) return true
     val item = itemInstanceId
@@ -647,7 +647,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       // READY can arrive before React has mounted the surface. Keep the opening frame until
       // there is somewhere to make the rate request, within the same bounded startup wait.
       val wait = ++displayWait
-      val until = SystemClock.elapsedRealtime() + 10_000
+      val until = deadline
       displayHold = true
       engine.playWhenReady = false
       val poll = object : Runnable {
@@ -656,7 +656,7 @@ internal class PorticoPlaybackController(private val context: Context) {
           val surface = try { displaySurface?.invoke() } catch (_: Exception) { null }
           if (surface?.isValid == true) {
             displayHold = false
-            if (!matchDisplay(done)) done()
+            if (!matchDisplay(until, done)) done()
           } else if (SystemClock.elapsedRealtime() >= until || backgroundHold) {
             displayHold = false
             displayMatchedItem = item
@@ -718,7 +718,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       }
     }
     main.postDelayed(quiet, 250)
-    main.postDelayed({ settle() }, 10_000)
+    main.postDelayed({ settle() }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
     return true
   }
 
@@ -1369,19 +1369,22 @@ internal class PorticoPlaybackController(private val context: Context) {
     private val DECODE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED)
     private val SOURCE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED)
-    private val UNCERTAIN_ERRORS = setOf(PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR)
+    private val UNCERTAIN_ERRORS = setOf(
+        PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR,
+        PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
 
     /** The app's one playback controller, for the player view and the system media surfaces. */
     @Volatile var shared: PorticoPlaybackController? = null
 
     /** Media addresses are capability URLs; one client keeps their connections warm. */
     private val mediaClient: OkHttpClient by lazy {
-      OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+          .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 
     fun number(value: Any?): Double? = (value as? Number)?.toDouble()?.takeIf { it.isFinite() }

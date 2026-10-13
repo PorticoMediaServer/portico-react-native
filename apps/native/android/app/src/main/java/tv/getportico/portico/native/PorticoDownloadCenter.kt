@@ -59,7 +59,8 @@ internal object PorticoDownloadCenter {
   /** An entry changed (or was removed: `{id, state: "removed"}`). Called on the bookkeeping thread. */
   var onChanged: ((Map<String, Any?>) -> Unit)? = null
 
-  private class Transfer(val attempt: Double, @Volatile var call: Call? = null, @Volatile var stopped: String? = null)
+  private class Transfer(val attempt: Double, val digest: String, val bytes: Long,
+      @Volatile var call: Call? = null, @Volatile var stopped: String? = null)
 
   private val work = Executors.newSingleThreadExecutor { Thread(it, "portico-downloads") }
   private val transfers = Executors.newFixedThreadPool(2) { Thread(it, "portico-download-transfer") }
@@ -163,7 +164,8 @@ internal object PorticoDownloadCenter {
     val id = request["id"] as? String
     val url = request["url"] as? String
     val wanted = (request["sha256"] as? String)?.lowercase() ?: ""
-    if (!safeIdentifier(id) || !SHA256.matches(wanted) || url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return null
+    val bytes = PorticoMpvSupport.integer(request["bytes"])
+    if (!safeIdentifier(id) || !SHA256.matches(wanted) || bytes == null || url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return null
     id!!
     val entry = entries[id] ?: HashMap()
     if (entry["state"] == "ready") return published(id, entry)
@@ -173,7 +175,7 @@ internal object PorticoDownloadCenter {
     // for that same file, and thrown away only when the file asked for now is a different one.
     for (key in TEXT_FIELDS) (request[key] as? String)?.let { entry[key] = it }
     entry["id"] = id
-    entry["bytes"] = (request["bytes"] as? Number)?.toDouble() ?: 0.0
+    entry["bytes"] = bytes.toDouble()
     entry["bytesDone"] = (if (partial(id).isFile) partial(id).length() else 0L).toDouble()
     entry["error"] = ""
     entry["intent"] = "run"
@@ -186,11 +188,17 @@ internal object PorticoDownloadCenter {
   /** Starts, or starts again, moving one entry's bytes from `url`. */
   private fun begin(id: String, url: String, entry: MutableMap<String, Any?>) {
     active.remove(id)?.let { it.stopped = "superseded"; it.call?.cancel() }
+    val digest = (entry["sha256"] as? String)?.lowercase() ?: ""
+    val bytes = PorticoMpvSupport.integer(entry["bytes"])
+    if (!SHA256.matches(digest) || bytes == null) {
+      entry["state"] = "failed"; entry["error"] = "verification_failed"; entry["waiting"] = ""
+      save(); changed(id, true); release()
+      return
+    }
     entry["grantUrl"] = url
     entry["state"] = "downloading"
     entry["waiting"] = ""
-    val transfer = Transfer(++attempts)
-    val digest = (entry["sha256"] as? String)?.lowercase() ?: ""
+    val transfer = Transfer(++attempts, digest, bytes)
     entry["taskIdentifier"] = transfer.attempt
     active[id] = transfer
     save()
@@ -436,11 +444,8 @@ internal object PorticoDownloadCenter {
   private fun attemptTransfer(id: String, url: String, transfer: Transfer, part: File): String? {
     try {
       if (transfer.stopped != null) return "stopped"
-      var expected = ""
-      var size = 0L
-      val known = java.util.concurrent.CountDownLatch(1)
-      post { entries[id]?.let { expected = (it["sha256"] as? String)?.lowercase() ?: ""; size = (it["bytes"] as? Number)?.toLong() ?: 0L }; known.countDown() }
-      known.await()
+      val expected = transfer.digest
+      val size = transfer.bytes
       var offset = if (part.isFile) part.length() else 0L
       // Everything is already here (the last attempt died between the last byte and the check).
       if (size > 0 && offset == size) return null
@@ -469,6 +474,7 @@ internal object PorticoDownloadCenter {
         val length = body.contentLength()
         var done = if (appending) offset else 0L
         val total = if (length > 0) length + done else 0L
+        if (total > size) return "verification_failed"
         RandomAccessFile(part, "rw").use { out ->
           if (appending) out.seek(offset) else out.setLength(0)
           val source = body.byteStream()
@@ -476,13 +482,13 @@ internal object PorticoDownloadCenter {
           while (true) {
             val read = source.read(buffer)
             if (read == -1) break
+            if (done + read > size) return "verification_failed"
             out.write(buffer, 0, read)
             done += read
             val reached = done
             post {
               val entry = accepts(id, transfer) ?: return@post
               entry["bytesDone"] = reached.toDouble()
-              if (total > 0) entry["bytes"] = total.toDouble()
               entry["state"] = "downloading"
               entry["waiting"] = ""
               changed(id, false)
@@ -491,7 +497,7 @@ internal object PorticoDownloadCenter {
           }
         }
         // The connection closed early without an error: the rest is fetched on the next attempt.
-        if (total > 0 && done < total) return "network"
+        if (done < size) return "network"
       }
       return null
     } catch (error: IOException) {
@@ -511,9 +517,9 @@ internal object PorticoDownloadCenter {
     active.remove(id)
     var error = failure
     if (error == null) {
-      val expected = (entry["sha256"] as? String)?.lowercase() ?: ""
-      if (expected.isNotEmpty() && digest != expected) { part.delete(); error = "verification_failed" }
+      if (digest != transfer.digest || part.length() != transfer.bytes) error = "verification_failed"
     }
+    if (error == "verification_failed") part.delete()
     if (error == null) {
       val final = File(directory(id), safeFileName(entry["fileName"] as? String))
       final.delete()
