@@ -1,3 +1,4 @@
+#import "PorticoInstallationStorage.h"
 #import <React/RCTViewManager.h>
 #import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
@@ -150,9 +151,9 @@ RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
 // player here; this is only the bounded JSON control transport.
 //
 // PERF-04: every request used to open its own NSURLSession, so each API call paid a new TCP
-// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now one
+// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now two
 // shared, ephemeral, cookie-less, cache-less session (so connections and TLS sessions are
-// reused), at most 12 requests in flight and up to 64 waiting in order. The security bounds are
+// reused), at most 12 requests in flight and up to 64 waiting, with control work first. The security bounds are
 // unchanged and enforced per task: no redirects, at most 1 MB bodies (8 MB for API GETs), 15 s timeouts.
 @interface PorticoQueueRequest : NSObject
 @property(nonatomic,strong) NSURLSessionDataTask *task;
@@ -171,27 +172,30 @@ RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
 @end
 static NSMutableDictionary<NSString *,PorticoQueueRequest *> *PorticoQueueRequests;
 static NSMutableArray<PorticoQueueRequest *> *PorticoQueueWaiting;
-static NSMutableDictionary<NSNumber *,PorticoQueueRequest *> *PorticoQueueTasks;
 static NSInteger PorticoQueueActive, PorticoQueueReads;
-static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
+static const NSInteger PorticoQueueMaxActive=12;
 
 @interface PorticoQueueTransport : NSObject<NSURLSessionDataDelegate,NSURLSessionTaskDelegate> @end
 @implementation PorticoQueueTransport
-+ (NSURLSession *)session {
- static NSURLSession *session;static dispatch_once_t once;
++ (NSURLSession *)sessionFor:(BOOL)critical {
+ static NSURLSession *reads,*writes;static dispatch_once_t once;
  dispatch_once(&once,^{
-  NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-  configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=15;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=6;
-  NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=@"tv.getportico.transport";
-  session=[NSURLSession sessionWithConfiguration:configuration delegate:[PorticoQueueTransport new] delegateQueue:queue];
+  // Separate socket pools keep ten slow reads from occupying the control connections.
+  for(NSInteger lane=0;lane<2;lane++){
+   NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
+   configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=15;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=lane?2:10;
+   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=lane?@"tv.getportico.control":@"tv.getportico.reads";
+   NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:[PorticoQueueTransport new] delegateQueue:queue];
+   if(lane)writes=session;else reads=session;
+  }
  });
- return session;
+ return critical?writes:reads;
 }
 /** Caller holds the class lock. */
 + (void)start:(PorticoQueueRequest *)request {
  request.started=YES;PorticoQueueActive++;if(!request.critical)PorticoQueueReads++;
- NSURLSessionDataTask *task=[[self session] dataTaskWithRequest:request.wire];request.task=task;
- if(!PorticoQueueTasks)PorticoQueueTasks=[NSMutableDictionary dictionary];PorticoQueueTasks[@(task.taskIdentifier)]=request;
+ NSURLSessionDataTask *task=[[self sessionFor:request.critical] dataTaskWithRequest:request.wire];request.task=task;
+ task.taskDescription=request.identifier;
  [task resume];
 }
 /** Caller holds the class lock. Two slots and eight waiting places are reserved for writes. */
@@ -218,7 +222,6 @@ static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
 + (void)release:(PorticoQueueRequest *)request {
  if(PorticoQueueRequests[request.identifier]==request)[PorticoQueueRequests removeObjectForKey:request.identifier];
  if(!request.started){[PorticoQueueWaiting removeObjectIdenticalTo:request];return;}
- if(request.task)[PorticoQueueTasks removeObjectForKey:@(request.task.taskIdentifier)];
  PorticoQueueActive=MAX(0,PorticoQueueActive-1);if(!request.critical)PorticoQueueReads=MAX(0,PorticoQueueReads-1);
  [self pump];
 }
@@ -227,7 +230,7 @@ static const NSInteger PorticoQueueMaxActive=12, PorticoQueueMaxWaiting=64;
  @synchronized(PorticoQueueRequest.class){owned=[PorticoQueueRequests.allValues filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(PorticoQueueRequest *r,NSDictionary *b){return r.owner==owner||r.owner==nil;}]];}
  for(PorticoQueueRequest *request in owned)[request finish:@"The app reloaded."];
 }
-- (PorticoQueueRequest *)requestFor:(NSURLSessionTask *)task {@synchronized(PorticoQueueRequest.class){return PorticoQueueTasks[@(task.taskIdentifier)];}}
+- (PorticoQueueRequest *)requestFor:(NSURLSessionTask *)task {@synchronized(PorticoQueueRequest.class){PorticoQueueRequest *request=PorticoQueueRequests[task.taskDescription];return request.task==task?request:nil;}}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
  completionHandler(nil);[[self requestFor:task] finish:@"Queue control redirects are not allowed."];
 }
@@ -340,19 +343,17 @@ static dispatch_queue_t PorticoRecordQueue(void) {
  return queue;
 }
 
-/** A removed installation cannot inherit the previous installation's Keychain credentials. */
 static OSStatus PorticoPrepareInstallationStorage(void) {
- NSUserDefaults *defaults=NSUserDefaults.standardUserDefaults;
- if([defaults boolForKey:@"PorticoInstallationPrepared"])return errSecSuccess;
- for(NSString *suffix in @[@"queues",@"credentials",@"playback",@"network",@"profile-trust",@"account-continuation"]){
-  NSString *service=[@"tv.getportico.portico." stringByAppendingString:suffix];
-  OSStatus status=SecItemDelete((__bridge CFDictionaryRef)@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:service});
-  if(status!=errSecSuccess&&status!=errSecItemNotFound)return status;
- }
- [defaults removeObjectForKey:@"PorticoSelectedViewerQuarantined"];
- [defaults setBool:YES forKey:@"PorticoInstallationPrepared"];
- [defaults synchronize];
- return errSecSuccess;
+ BOOL available=YES;
+#if !TARGET_OS_TV
+ __block BOOL unlocked=NO;
+ if(NSThread.isMainThread)unlocked=UIApplication.sharedApplication.isProtectedDataAvailable;
+ else dispatch_sync(dispatch_get_main_queue(),^{unlocked=UIApplication.sharedApplication.isProtectedDataAvailable;});
+ available=unlocked;
+#endif
+ return PorticoPrepareInstallation(NSUserDefaults.standardUserDefaults, available, ^OSStatus(NSString *service){
+  return SecItemDelete((__bridge CFDictionaryRef)@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:service});
+ });
 }
 
 @interface PorticoRuntime : NSObject<RCTBridgeModule,RCTInvalidating> @end

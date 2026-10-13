@@ -3,6 +3,7 @@ package tv.getportico.portico
 import android.app.Application
 import android.app.UiModeManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
@@ -36,7 +37,7 @@ internal object TelevisionDisplay {
   private fun measure(base: Context) {
     if (measured) return
     measured = true
-    val television = (base.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    val television = BuildConfig.FLAVOR == "firetv" || base.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || (base.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     if (!television) return
     val display = (base.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.getDisplay(Display.DEFAULT_DISPLAY) ?: return
     val real = DisplayMetrics()

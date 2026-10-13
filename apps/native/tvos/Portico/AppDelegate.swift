@@ -33,7 +33,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-
     return true
   }
   func connect(_ scene: UIWindowScene, options: UIScene.ConnectionOptions) -> UIWindow {
