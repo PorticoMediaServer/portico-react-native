@@ -45,23 +45,16 @@ final class PorticoMpvTests: XCTestCase {
             "https://user:secret@media.example/v1/media/grant/segment.ts",
             "/v1/media/grant/segment.ts#fragment",
         ] {
-            XCTAssertNil(rewrite("#EXTM3U
-#EXTINF:6,
-" + address), address)
-            XCTAssertNil(rewrite("#EXTM3U
-#EXT-X-KEY:METHOD=AES-128,URI=\"" + address + "\""), address)
+            XCTAssertNil(rewrite("#EXTM3U\n#EXTINF:6,\n" + address), address)
+            XCTAssertNil(rewrite("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"" + address + "\""), address)
         }
     }
 
     func testMalformedAndOversizedPlaylistsAreRefused() {
-        XCTAssertNil(rewrite("#EXTM3U
-#EXT-X-KEY:METHOD=AES-128,URI=/v1/media/grant/key"))
-        XCTAssertNil(rewrite("#EXTM3U
-#EXT-X-KEY:URI=\"key\",URI=/outside"))
-        XCTAssertNil(rewrite("#EXTM3U
-#EXT-X-DEFINE:NAME=\"path\",VALUE=\"outside\""))
-        XCTAssertNil(rewrite("#EXTM3U
-{$path}/segment.ts"))
+        XCTAssertNil(rewrite("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=/v1/media/grant/key"))
+        XCTAssertNil(rewrite("#EXTM3U\n#EXT-X-KEY:URI=\"key\",URI=/outside"))
+        XCTAssertNil(rewrite("#EXTM3U\n#EXT-X-DEFINE:NAME=\"path\",VALUE=\"outside\""))
+        XCTAssertNil(rewrite("#EXTM3U\n{$path}/segment.ts"))
         XCTAssertNil(rewrite("not a playlist"))
         XCTAssertNil(PorticoMpvSupport.relayPlaylist(Data(repeating: 120, count: 2 * 1024 * 1024 + 1), source: source, local: { $0 }))
     }

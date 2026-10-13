@@ -645,7 +645,6 @@ RCT_EXPORT_METHOD(setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)reso
   [[self session] getTasksWithCompletionHandler:^(NSArray *data, NSArray *uploads, NSArray<NSURLSessionDownloadTask *> *downloads) {
     for (NSURLSessionDownloadTask *task in downloads) {
       NSString *identifier = task.taskDescription;
-  if (!PorticoSafeIdentifier(identifier)) return;
       if (!PorticoSafeIdentifier(identifier)) continue;
       [task cancelByProducingResumeData:^(NSData *bytes) {
         dispatch_async(self->_queue, ^{
