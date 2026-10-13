@@ -14,9 +14,11 @@ holds only what Vega needs to run them.
 | `src/shims/snap.tsx` | Rows and pages that follow focus (the tvOS `snapToAlignment="item"` and `scrollSnap…` props). |
 | `src/shims/text-input.tsx` | A field's hidden input, mounted only while the system keyboard is up. |
 | `src/shims/motion.ts`, `reanimated.tsx` | The Reanimated API the shared screens use, without the library. |
+| `src/shims/menu-key.tsx` | The remote's Menu key (≡): it opens the focused control's menu, as on a Fire TV that runs Android. |
 | `src/debug.tsx`, `scripts/debug-sink.mjs` | An on-screen console for development (`portico.debugConsole` in `app.json`), and a listener for its lines. |
 | `src/bridge/` | Every `NativeModules.Portico…` module the shared `src/bridge` expects, with the Apple names, methods and events, written over the SDK's APIs. |
-| `src/overrides/` | Replacements for shared files that are Apple-specific: `native/<path under ../native/src>` and `packages/<path under ../../packages>`. |
+| `src/overrides/` | Replacements for shared files that cannot be right on Vega: `native/<path under ../native/src>` (and `packages/<path under ../../packages>`, none today). There are four: what the device is (`bridge/device-platform.ts`), what its players can do that Settings and the player offer a choice about (`bridge/native-listening-kinds.ts`), its capability document (`bridge/capability-publisher.ts`) and the loading ring (`ui/Ring.tsx`). |
+| `test/` | Tests of the bridge that need no device: the stream reader, the player engine, subtitles, event streams and the capability document, against stand-ins for the media element and a server (`test/stubs`). |
 | `metro.config.js` | Resolves `react-native` to the shim, community package names to the SDK's builds, and shared files to their overrides. |
 | `scripts/vega.mjs` | Build, install, launch, remote keys, screenshots and logs. |
 
@@ -40,7 +42,8 @@ node scripts/vega.mjs logs             # the app's recent log lines
 `node scripts/vega.mjs help` lists every command. A Release build embeds the bundle and needs no
 Metro; `node scripts/vega.mjs start` runs Metro for a Debug build.
 
-Checks: `npx tsc --noEmit` (this app and the shared sources together) and `npm run lint:strings`.
+Checks: `npx tsc --noEmit` (this app and the shared sources together), `npx tsc -p test/tsconfig.json --noEmit`,
+`npm run lint:strings`, and `npm test` (about ten seconds; no device and no SDK tools needed).
 
 ## Things the SDK's tools need to be told
 
@@ -71,7 +74,8 @@ Checks: `npx tsc --noEmit` (this app and the shared sources together) and `npm r
   is not installed (styles it drove were applied late or to the wrong control); the shared code's
   use of it is served by a small engine in `motion.ts`. React Native's own `Animated` is the SDK's.
 - A shared file that cannot be right on Vega has a replacement under `src/overrides` at the same
-  relative path (a replacement may import the file it replaces, to wrap it). Each one corresponds to a change the shared file should take; see the port log.
+  relative path (a replacement may import the file it replaces, to wrap it). They are kept few and
+  small: each is a statement of what this device is or can do, not a copy of a screen.
 
 ## Settings in `app.json`
 
@@ -88,22 +92,78 @@ Under `portico`:
   is the reason: once video is drawn, the virtual device's screenshots stop updating until the app
   is restarted, so the player is checked by its trace.
 
+## What this device is, and what it does not do
+
+The shared screens never ask the operating system what they run on. They ask three small files,
+and Vega answers each in its own override, so nothing else in the app checks for Vega:
+
+- **`bridge/device-platform.ts`**: a television called "Fire TV" (in Settings, in sign-in
+  approvals, in Link a TV), announced to servers and the Portico Account as platform `vega`, with
+  no AirPlay, no Picture in Picture and nothing to send playback on to.
+- **`bridge/native-listening-kinds.ts`**: no separate listening owner (music and audiobooks play
+  through the one player), one playback speed, and no gapless, crossfade or volume levelling. So
+  Settings leaves those rows out, the player has no Speed box, and a profile's default speed set
+  on another device is not applied here.
+- **`PorticoPlaybackModule.features`** (`src/bridge/playback.ts`) and the **capability document**
+  (below): what the player itself does. The player screen hides Picture in Picture, and the
+  Player setting (mpv) is not offered because this build has no second engine.
+
 ## Playback
 
-`src/bridge/playback.ts` is `PorticoPlaybackModule` and the `PorticoPlayer` view: the Apple
-controller's contract (a lease, full-state commands, sequenced facts) over the SDK's W3C media
-element. Three things about that element shape the rest:
+`src/bridge/playback.ts` is `PorticoPlaybackModule` and the `PorticoPlayer` view: the app's one
+player engine, written to the contract every platform's engines keep
+(`../native/Native/ENGINE-CONTRACT.md`: a lease, full-state commands, sequenced facts) over the
+SDK's W3C media element. The shared playback path drives it exactly as it drives AVPlayer or
+Media3: the shared playback service, the shared session controller, and a change of quality,
+version, audio or subtitles as a change to the playing session. Three things about the element
+shape the rest:
 
 - It opens an address itself only over HTTPS, and has no HLS client. The server's HLS is played by
   `src/bridge/hls.ts` through media source extensions (the app fetches the segments), which is
-  also the only way to play from a server on plain HTTP. `capability-profile.ts` asks an HTTP
-  server for `hls_fmp4` only.
+  also the only way to play from a server on plain HTTP.
 - It cannot change speed. `supportedRates` is `[1]`.
 - The system acts on it directly for the remote's transport keys unless the app declares the
   media category in `manifest.toml` and supplies a handler: `src/bridge/system-media.ts` turns
   those requests into `PorticoSystemMediaCommand` events for the shared player.
 
-Subtitles are the server's cue document, drawn by `PorticoPlayer` (`src/bridge/subtitles.ts`).
+What the engine does beyond playing:
+
+- **Automatic quality.** Every byte of a stream passes through `hls.ts`, so that is where the
+  connection is measured: `progress` facts carry `throughputKbps` (only while fresh) and
+  `bufferedSeconds`. A file the element opens from an HTTPS address is fetched out of sight: only
+  its buffer is reported, and Automatic then steps down on stalls alone.
+- **Live channels.** A channel's playlist slides and restarts its clock at a change of programme.
+  Segments are followed by number, placed one after another (the source buffer's `sequence` mode,
+  or carried across the gap where the device keeps the segments' own times), and a position is
+  the moment of broadcast the playlist gives, counted from the channel's origin.
+- **Subtitles.** The server's cue document (`src/bridge/subtitles.ts`, `subtitle-cues.ts`), from
+  the session's own address only, checked again every 25 seconds, drawn by `PorticoPlayer` in the
+  profile's caption size and background, with the track's timing offset. Styled and image
+  subtitles are burned in by the server (the capability document says the engine draws text only).
+- **A route in doubt.** While the connection to the server is being checked the media is closed
+  and the place kept; it opens again there.
+- **Why a title stopped.** Error facts say whether the server refused (with its status), the
+  connection gave no answer, or the element would not take the media, so the shared player can
+  tell "try again" from "this can't be played" and ask the server for another way to deliver it.
+
+Not done, because the SDK gives no way to: asking the television to match a title's frame rate or
+dynamic range before it starts, and following the caption style set in the system's
+Accessibility settings.
+
+### The capability document
+
+`src/bridge/capability-profile.ts` builds the one document the server plans from; the override of
+`bridge/capability-publisher.ts` keeps it published. One engine (`engines.native`), no mpv.
+
+- The floor is client-core's declared table for Vega. On top of it, `capability-probe.ts` asks
+  the device itself (`MediaSource.isTypeSupported` and the SDK's `decodingInfo`) which codecs its
+  decoders take and at what size, and the answers replace the table's codecs and transports.
+  (The SDK never fills in `smooth` for a picture, so a supported size is taken to play smoothly.)
+- Text subtitles only; no switching between the audio tracks inside an original file.
+- No HDR and no surround output are claimed: the SDK does not say what the television shows or
+  what the sound goes to. The server tone-maps and mixes down. "Turn off HDR" and "Don't pass
+  sound through" are therefore not offered in Settings.
+- Files are played from their address only when the server is reached over HTTPS.
 
 Music and audiobooks use the same player. On Apple a native owner takes them over so that they
 continue while JavaScript sleeps; here the shared queue player keeps them
@@ -117,8 +177,11 @@ edges: the next track starts when its stream opens.
   Amazon by catalog identifier. A personal library has no such identifiers, and Portico does not
   send viewing activity to third parties. `PorticoTopShelf` keeps the shared code's record and
   draws nothing.
-- **Nearby discovery** (no mDNS API), **AirPlay, picture in picture, downloads, casting**: the
-  modules exist with the Apple names and answer "nothing" or "not available".
+- **Nearby discovery** (no mDNS API): a server is found by code or by its address, and a phone
+  finds this television for "Play on" through the server, not on the local network.
+- **AirPlay, picture in picture, downloads, casting, a second player engine (mpv), playback
+  speed**: the modules exist with the Apple names and answer "nothing" or "not available", and
+  the shared screens do not offer them here.
 
 ## Storage
 

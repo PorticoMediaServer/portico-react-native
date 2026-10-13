@@ -1,6 +1,6 @@
 import {MediaSource, decodingInfo} from '@amazon-devices/react-native-w3cmedia';
 import {probeWebProfile, type CapabilityDocument, type DecodingAnswer, type VideoDecodingQuestion} from '../../../../packages/client-core/src/client-profile';
-import {trace} from '../debug';
+import {debugConsole, trace} from '../debug';
 
 /**
  * Asks this device what its player can really play, for the capability document
@@ -61,6 +61,14 @@ export function probeVegaPlayer(): Promise<CapabilityDocument | null> {
       if (native.evidence === 'probed' && h264 && (h264.maxHeight ?? 0) < 2160) {
         const uhd = await within(decoding({contentType: 'video/mp4; codecs="avc1.640033"', width: 3840, height: 2160, bitrate: 40000000, framerate: 30}));
         if (uhd?.supported) { h264.maxWidth = 4096; h264.maxHeight = 2160; }
+      }
+      // Asked only so that it is on record for whoever tests on a device: whether the decoder
+      // takes HDR. It is not claimed (the screen cannot be asked; see `capability-profile.ts`).
+      if (debugConsole) {
+        const ten = 'video/mp4; codecs="hvc1.2.4.L153.B0"';
+        const pq = await within(decoding({contentType: ten, width: 3840, height: 2160, bitrate: 25000000, framerate: 30, transferFunction: 'pq', colorGamut: 'rec2020', hdrMetadataType: 'smpteSt2086'}));
+        const hlg = await within(decoding({contentType: ten, width: 3840, height: 2160, bitrate: 25000000, framerate: 30, transferFunction: 'hlg', colorGamut: 'rec2020'}));
+        trace(`capability probe: the decoder says of 4K HEVC in HDR10: ${pq ? pq.supported : 'no answer'}; in HLG: ${hlg ? hlg.supported : 'no answer'} (not claimed)`);
       }
       trace(`capability probe: video ${native.video?.map(codec => `${codec.codec} ${codec.maxHeight ?? '?'}p ${codec.bitDepths?.join('/') ?? ''}`).join(', ')}; audio ${native.audio?.map(codec => codec.codec).join(', ')}`);
       return native.evidence === 'probed' ? document : null;
