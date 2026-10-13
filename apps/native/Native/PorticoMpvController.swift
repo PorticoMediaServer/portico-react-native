@@ -384,6 +384,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             // Decoding: VideoToolbox where the chip has the codec, software otherwise.
             ("hwdec", "videotoolbox"),
             ("target-colorspace-hint", "no"), ("tone-mapping", "auto"),
+            // Interlaced video (DVD rips, broadcast recordings) is deinterlaced when flagged so.
+            ("deinterlace", "auto"),
             // Sound: decoded on the device and handed to the system as PCM, in as many channels
             // as the output takes. Nothing is passed through as a bitstream.
             ("ao", "audiounit"),
