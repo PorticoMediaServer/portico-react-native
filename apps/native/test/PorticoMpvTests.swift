@@ -68,8 +68,11 @@ final class PorticoMpvTests: XCTestCase {
 
     func testPublicHTTPKeepsTheOriginAndGrantBoundary() {
         let media = URL(string: "http://media.example/v1/media/grant/file")!
-        XCTAssertTrue(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://media.example/v1/media/grant/subtitles/a/1/original.ass")!, toMedia: media))
-        XCTAssertFalse(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://other.example/v1/media/grant/subtitles/a/1/original.ass")!, toMedia: media))
+        // Subtitle files and their fonts live beside the media, under the same grant.
+        XCTAssertTrue(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://media.example/v1/media/subtitles/grant/a/1/original.ass")!, toMedia: media))
+        XCTAssertTrue(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://media.example/v1/media/subtitles/grant/a/1/fonts/3")!, toMedia: media))
+        XCTAssertFalse(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://other.example/v1/media/subtitles/grant/a/1/original.ass")!, toMedia: media))
+        XCTAssertFalse(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://media.example/v1/media/subtitles/another-grant/a/1/original.ass")!, toMedia: media))
         XCTAssertFalse(PorticoMpvSupport.subtitleFileBelongs(URL(string: "http://media.example/v1/media/grant/../other/file")!, toMedia: media))
     }
 

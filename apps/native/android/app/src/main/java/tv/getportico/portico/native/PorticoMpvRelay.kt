@@ -152,7 +152,8 @@ internal class PorticoMpvRelay {
 
   private fun prefixesFor(path: String): List<String> {
     val parts = path.split('/').filter { it.isNotEmpty() }
-    if (parts.size >= 3 && parts[0] == "v1" && parts[1] == "media") return listOf("/v1/media/" + parts[2])
+    // The media's own files, and the subtitle files and fonts the server keeps under the same grant.
+    if (parts.size >= 3 && parts[0] == "v1" && parts[1] == "media") return listOf("/v1/media/" + parts[2], "/v1/media/subtitles/" + parts[2])
     // A non-grant address grants only the source itself, never a whole server folder.
     return listOf(path)
   }

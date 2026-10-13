@@ -5,6 +5,7 @@ import {topShelfChanged} from '../app/top-shelf';
 import {viewerScope} from '../app/content';
 import {SubtitleService, type SubtitleSnapshot} from '../../../../packages/client-core/src/subtitles';
 import {advancePendingChoice, takePendingTrackChoice, type PendingChoiceProgress} from '../../../../packages/client-core/src/pending-track-choice';
+import {takePendingVersion} from '../app/pending-version';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import type {GuideChannel} from '../../../../packages/client-core/src/channel-guide';
@@ -645,7 +646,9 @@ export function usePlayerEngine() {
       setPipActive(false);
       setExpanded(opensFull(entry?.kind));
       ensureQueue();
-      void playback.play(itemId, startSeconds).catch(() => {});
+      // Pick before play: a version chosen on the title's page is the one the title starts on.
+      const versionId = takePendingVersion(itemId);
+      void playback.play(itemId, startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined).catch(() => {});
     },
     [api, playback, ensureQueue],
   );

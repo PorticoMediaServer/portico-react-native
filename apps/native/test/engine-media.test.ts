@@ -9,7 +9,7 @@ const absolute = (path: string) => 'https://portico.test' + path;
 const resource = (more: Record<string, unknown> = {}): any => ({id: 'res-1', sourceId: 'src', revision: 3, scope: 'shared', language: 'en', title: 'English', format: 'ass', origin: 'embedded', rights: '', offsetUs: '0', canManage: false, enabled: true, renderer: 'external_text', default: false, forced: false, ...more});
 const plan = (selected: any, more: Record<string, unknown> = {}): any => ({version: 1, sessionId: 's', generation: 1, sourceId: 'src', revision: 1, catalogRevision: 1, renderer: 'external_text', mode: 'track', offAvailable: true, offsetUs: '0', selected, resources: [selected], discovered: [], ...more});
 const session = (mode: string, more: Record<string, unknown> = {}): any => ({id: 's', generation: 1, streamUrl: '/v1/media/g1/file', mode, duration: 10, resumeSeconds: 0, ...more});
-const base = '/v1/media/g1/subtitles/res-1/3';
+const base = '/v1/media/subtitles/g1/res-1/3';
 
 const v1 = (more: Record<string, unknown> = {}): any => ({id: 's', revision: '1', kind: 'vod', role: 'local', state: 'playing', lease: {reportEveryMs: 10000}, presentation: {generation: 1, mode: 'direct', url: '/v1/media/g1/file', startPositionMs: 0, engine: 'native', subtitles: [], decision: {}, quality: {mode: 'original'}, ...more}});
 

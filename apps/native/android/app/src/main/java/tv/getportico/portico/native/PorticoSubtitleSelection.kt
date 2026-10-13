@@ -135,7 +135,8 @@ internal class PorticoSubtitleSelection {
       return
     }
     val grant = media?.pathSegments?.getOrNull(2) ?: ""
-    val expected = "/v1/media/$grant/subtitles/$resourceId/${(value["resourceRevision"] as Number).toLong()}"
+    // Subtitle files have a place of their own beside the media: /v1/media/subtitles/<grant>/<resource>/<revision>.
+    val expected = "/v1/media/subtitles/$grant/$resourceId/${(value["resourceRevision"] as Number).toLong()}"
     // The document travels the way the media does: the same scheme, host and port, under the
     // media's own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
     if (target == null || media == null || !(target.scheme == "https" || target.scheme == "http") || target.scheme != media.scheme ||
@@ -372,7 +373,7 @@ internal class PorticoSubtitleSelection {
 
     private const val BYTE_LIMIT = 8L * 1024 * 1024
     private const val DAY_US = 86_400_000_000L
-    private val ROUTE = Regex("^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$")
+    private val ROUTE = Regex("^/v1/media/subtitles/[A-Za-z0-9_-]{1,128}/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$")
 
     /** A scoped media grant, not a bearer credential; a redirect is never followed. */
     private val client: OkHttpClient by lazy {

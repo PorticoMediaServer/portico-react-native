@@ -419,7 +419,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
 
   companion object {
     private val EMPTY = PorticoMpvSnapshot()
-    private val GRANT = Regex("/v1/media/[A-Za-z0-9_-]+/")
+    private val GRANT = Regex("/v1/media/(?:subtitles/)?[A-Za-z0-9_-]+/")
     private val OBSERVED = listOf("pause", "paused-for-cache", "core-idle", "eof-reached", "seeking", "speed", "duration", "aid", "sid", "vid", "track-list", "video-params", "hwdec-current")
 
     /** The libraries are in this build and load on this device. */

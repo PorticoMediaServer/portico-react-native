@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
+import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsScopeLabel, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import type {PreferencePatch, PreferenceValue} from '../../../../../packages/client-core/src/preferences';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
@@ -15,8 +15,9 @@ import {useSession} from '../../app/session';
 import {useOffline} from '../../app/downloads';
 import {friendlyHost} from '../../app/content';
 import {say} from '../../app/errors';
+import {reportProblem, sendReport, useLastCrash} from '../../app/client-report';
 import {deviceIdentity} from '../../bridge/setup-codes';
-import {ListRow, Menu, Notice, RowGroup, ToggleRow, isTV, useTheme, type MenuItem} from '../../ui';
+import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, Text, ToggleRow, isTV, rowPaddingX, showToast, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 import {ChangePasswordSheet, DevicesSection, ProfileLimitsSheet, SignOutEverywhereSheet, TwoFactorSection} from '../Security';
 import {LocalProfilesSection, useDirectAccount} from '../Profiles';
 import {DeleteAccountSheet} from '../DeleteAccount';
@@ -26,7 +27,6 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
-import {word} from '../../app/new-words';
 import {mpvAvailable} from '../../bridge/player-engines';
 import {parseEngineSetting} from '../../player/engine-choice';
 import {engineSettingStore} from '../../player/engine-setting-store';
@@ -71,7 +71,7 @@ export function useSettingsStructure(): SettingsStructure {
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
-const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about']);
+const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote']);
 
 /** One page of Settings: its sections as row groups. Personal rows save on change. */
 export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: the first row takes focus when the page opens. */ entry?: boolean}) {
@@ -146,11 +146,11 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
   const [sheet, setSheet] = useState(false);
   const title = i18n.t(row.label);
   const help = row.help ? i18n.t(row.help) : undefined;
-  // Where a setting applies is said on the row, under its help. Only what this installation
-  // keeps for itself is "This device"; a device-scoped setting the server keeps is shared by this
-  // profile's devices of the same kind, and says so.
-  const here = row.kind === 'composite' && row.storage === 'device';
-  const subtitle = row.scope === 'device' ? [help, here ? i18n.t('settings.thisDevice') : i18n.t(isTV ? 'settings.scope.allTVs' : 'settings.scope.allPhones')].filter(Boolean).join(' · ') : help;
+  // Where a setting applies is said on the row, under its help: "This device" for what this
+  // installation keeps for itself, "All TVs" or "All phones and tablets" for what the server keeps
+  // for every device of this kind. A setting that follows the profile everywhere says nothing.
+  const scope = settingsScopeLabel(row.scope, isTV ? 'tv' : 'phone');
+  const subtitle = scope ? [help, i18n.t(scope)].filter(Boolean).join(' · ') : help;
   const focus = isTV && entry;
   if (row.kind === 'action') {
     if (row.id === 'resetRecommendations') return <ResetRecommendationsRow />;
@@ -215,8 +215,16 @@ function Panel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'deviceName': return <DeviceName entry={entry} />;
     case 'downloadsStorage': return <DownloadsStorage />;
     case 'about': return <About entry={entry} />;
+    case 'privacyNote': return <PrivacyNote />;
     default: return null;
   }
+}
+
+/** The one thing the privacy switches do not change: the owner's own record of what is played. Said before the switches that might suggest otherwise. */
+function PrivacyNote() {
+  const i18n = useI18n();
+  const x = rowPaddingX(useSpecPlatform());
+  return <Text variant="caption" tone="tertiary" style={{paddingHorizontal: x}}>{i18n.t('pref.note.privacy.ownerSeesPlays')}</Text>;
 }
 
 function Identity({entry}: {entry?: boolean}) {
@@ -316,11 +324,30 @@ function About({entry}: {entry?: boolean}) {
   // The installed build's version (CFBundleShortVersionString), from the native runtime.
   const [version, setVersion] = useState<string>();
   useEffect(() => { void deviceIdentity().then(d => setVersion(d.appVersion), () => {}); }, []);
+  // A report of this app's own trouble, sent to the owner of this server when the person asks.
+  const {crash, recheck} = useLastCrash();
+  const [asking, setAsking] = useState(false);
+  const serverId = session.system?.id ?? session.session?.viewer.serverId ?? '';
+  const server = session.system?.name ?? i18n.t('servers.fallbackName');
+  const send = async () => {
+    await sendReport(session.api, serverId);
+    setAsking(false);
+    recheck();
+    showToast({message: i18n.t('about.report.sent', {server}), icon: 'check'});
+  };
   return (
-    <RowGroup footer={`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`}>
-      <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
-      <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
-      <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />
-    </RowGroup>
+    <>
+      <RowGroup footer={`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`}>
+        <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
+        <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
+        <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />
+      </RowGroup>
+      {serverId ? (
+        <RowGroup footer={crash ? i18n.t('about.report.afterCrash') : undefined}>
+          <ListRow icon="flag" title={i18n.t('about.report.title')} subtitle={i18n.t('about.report.help', {server})} subtitleLines={3} accessory="navigation" onPress={() => setAsking(true)} />
+        </RowGroup>
+      ) : null}
+      <ConfirmSheet open={asking} onDismiss={() => setAsking(false)} tone="default" title={i18n.t('about.report.confirmTitle', {server})} consequence={i18n.t('about.report.confirmBody')} confirmLabel={i18n.t('about.report.send')} onConfirm={send} describeError={reportProblem} />
+    </>
   );
 }

@@ -8,7 +8,6 @@ import {viewerKey} from './viewer-scope';
 import {useI18n} from './i18n';
 import {say} from './errors';
 import {mpvAvailable} from '../bridge/player-engines';
-import {word} from './new-words';
 import {originalMayNotPlay} from './original-opens';
 import {usePreferences} from './preferences';
 
@@ -156,7 +155,7 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
             {view.options.map((o, i) => (
               <View key={o.quality}>
                 {i ? <Divider inset={space.md} /> : null}
-                <ListRow title={o.label} subtitle={o.available ? `${o.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(o.estimatedBytes)}) : downloadBytes(o.estimatedBytes)}${o.requiresPreparation ? ` · ${i18n.t('downloads.serverPrepares')}` : ''}${o.kind === 'source' && cannotOpen ? `\n${word('downloads.quality.originalMayNotPlay', undefined, i18n)}` : ''}` : downloadReasonMessage(o.reason)} subtitleLines={o.kind === 'source' && cannotOpen ? 4 : undefined} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!o.available || !!busy} onPress={() => void choose(o.quality)} />
+                <ListRow title={o.label} subtitle={o.available ? `${o.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(o.estimatedBytes)}) : downloadBytes(o.estimatedBytes)}${o.requiresPreparation ? ` · ${i18n.t('downloads.serverPrepares')}` : ''}${o.kind === 'source' && cannotOpen ? `\n${i18n.t('downloads.quality.originalMayNotPlay')}` : ''}` : downloadReasonMessage(o.reason)} subtitleLines={o.kind === 'source' && cannotOpen ? 4 : undefined} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!o.available || !!busy} onPress={() => void choose(o.quality)} />
               </View>
             ))}
           </Surface>

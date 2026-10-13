@@ -9,7 +9,6 @@ import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
 import {ConfirmSheet, ListRow, Page, PageHeader, RowGroup, Surface, Text, ToggleRow, isTV, showToast, useInitialFocus, useTheme, type IconName} from '../ui';
 import {useOffline} from '../app/downloads';
-import {word} from '../app/new-words';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {formatBytes} from '../../../../packages/client-core/src/presentation/content';
 import {HostedChooser} from './auth/HostedChooser';
@@ -72,8 +71,8 @@ export function SignOutConfirm({open, onClose}: {open: boolean; onClose: () => v
   };
   return (
     <ConfirmSheet open={open} onDismiss={onClose} title={i18n.t('settings.signOutConfirm.title', {server: session.system?.name ?? i18n.t('servers.fallbackName'), device})}
-      consequence={removing ? word('settings.signOutConfirm.bodyRemoving', undefined, i18n) : i18n.t(isTV ? 'settings.signOutConfirm.bodyTV' : 'settings.signOutConfirm.bodyDownloads')} confirmLabel={i18n.t('action.signOut')} onConfirm={signOut}>
-      {mine ? <RowGroup><ToggleRow title={word('settings.signOutConfirm.removeDownloads', undefined, i18n)} subtitle={formatBytes(offline.usedBytes)} value={removing} onChange={setRemoving} /></RowGroup> : null}
+      consequence={removing ? i18n.t('settings.signOutConfirm.bodyRemoving') : i18n.t(isTV ? 'settings.signOutConfirm.bodyTV' : 'settings.signOutConfirm.bodyDownloads')} confirmLabel={i18n.t('action.signOut')} onConfirm={signOut}>
+      {mine ? <RowGroup><ToggleRow title={i18n.t('settings.signOutConfirm.removeDownloads')} subtitle={formatBytes(offline.usedBytes)} value={removing} onChange={setRemoving} /></RowGroup> : null}
     </ConfirmSheet>
   );
 }

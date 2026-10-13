@@ -55,7 +55,9 @@ enum PorticoMpvSupport {
     }
 
     /// An external subtitle file belongs to the playback when it is on the media's own origin and
-    /// under the media's own grant (`/v1/media/<grant>/...`), with no credentials or fragment.
+    /// under the media's own grant, with no credentials or fragment: beside the media itself
+    /// (`/v1/media/<grant>/...`) or where the server keeps subtitle files and their fonts
+    /// (`/v1/media/subtitles/<grant>/...`).
     static func subtitleFileBelongs(_ url: URL, toMedia media: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               scheme == media.scheme?.lowercased(), url.host?.lowercased() == media.host?.lowercased(), (url.port ?? 0) == (media.port ?? 0),
@@ -65,7 +67,7 @@ enum PorticoMpvSupport {
         let path = url.path
         guard !path.contains("\\"), !path.lowercased().contains("%"),
               !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == "." || $0 == ".." }) else { return false }
-        return path.hasPrefix("/v1/media/\(parts[2])/")
+        return path.hasPrefix("/v1/media/\(parts[2])/") || path.hasPrefix("/v1/media/subtitles/\(parts[2])/")
     }
 
     /// HLS references (variants, segments, keys, maps and renditions) must pass through the
