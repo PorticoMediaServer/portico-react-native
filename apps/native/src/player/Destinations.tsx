@@ -12,6 +12,7 @@ import {browseNearby, type NearbyAdvert} from '../bridge/server-connections';
 import {deviceIdentity} from '../bridge/setup-codes';
 import {deviceModelName, hasAirPlay, playOnPlatform} from '../bridge/device-platform';
 import {Button, Divider, Icon, ListRow, Notice, Sheet, StateView, Text, rowPaddingX, showToast, useSpecPlatform, useTheme} from '../ui';
+import {LinkTVSheet} from '../screens/LinkTV';
 import type {PlayerEngine} from './usePlayer';
 
 /**
@@ -24,7 +25,8 @@ import type {PlayerEngine} from './usePlayer';
 export function DestinationSheet({open, onClose, engine}: {open: boolean; onClose: () => void; engine: PlayerEngine}) {
   const {api, session} = useSession();
   const i18n = useI18n();
-  const {space, colors, metrics} = useTheme();
+  const {space, colors, metrics, isTV} = useTheme();
+  const [linking, setLinking] = useState(false);
   // QA: rows and the heading line up with the sheet title (rows carry their own inset).
   const rowX = rowPaddingX(useSpecPlatform());
   const cast = useCastController();
@@ -86,6 +88,7 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
   }
   const players = destinations.rows.filter(r => r.kind === 'porticoDevice');
   return (
+    <>
     <Sheet open={open} onClose={close} title={i18n.t('player.playOn')} kind="picker">
       <View style={{gap: space.md}}>
         {state.phase === 'failed' ? <Notice tone="warning" message={state.message || i18n.t('playOn.failedHelp')} /> : null}
@@ -118,7 +121,17 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
         ) : !destinations.rows.some(r => r.kind !== 'airplay') ? (
           <Text variant="caption" tone="tertiary" style={{paddingHorizontal: rowX}}>{i18n.t('playOn.noneNearby')}</Text>
         ) : null}
+        {/* Always here, whether or not anything was found nearby (or looking is not allowed):
+            a TV that is not listed can still be signed in with the code it shows. */}
+        {isTV ? null : (
+          <View>
+            <Divider inset={rowX} />
+            <ListRow icon="tvDevice" title={i18n.t('settings.linkTV')} subtitle={i18n.t('settings.linkTVHelp')} accessory="navigation" onPress={() => { close(); setLinking(true); }} />
+          </View>
+        )}
       </View>
     </Sheet>
+    <LinkTVSheet open={linking} onClose={() => setLinking(false)} />
+    </>
   );
 }
