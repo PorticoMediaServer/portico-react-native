@@ -15,6 +15,7 @@ import {NativePlaybackCoordinator} from '../bridge/NativePlaybackCoordinator';
 import {playbackRates, speedFor} from '../bridge/NativePlaybackSpeed';
 import {useNativeAudioSelection} from '../bridge/useNativeAudioSelection';
 import {useNativePlayback} from '../bridge/useNativePlayback';
+import {playerSettingsSupport} from '../bridge/native-listening-kinds';
 import {containerPlay, type SequenceContainer} from '../app/container-play';
 import {queueItemInput} from '../../../../packages/client-core/src/queue-controller';
 import {useSession} from '../app/session';
@@ -179,7 +180,8 @@ export function usePlayerEngine() {
   const speedKind = identity.itemId === speedItem ? identity.kind : undefined;
   useEffect(() => {
     if (!speedItem || !speedKind) return;
-    speed.prefer(speedKind === 'song' ? 1 : speedKind === 'audiobook_file' ? audiobookSpeed : videoSpeed);
+    // A device whose player has one speed plays at it, whatever the profile prefers elsewhere.
+    speed.prefer(speedKind === 'song' || !playerSettingsSupport.playbackSpeed ? 1 : speedKind === 'audiobook_file' ? audiobookSpeed : videoSpeed);
   }, [speed, speedItem, speedKind, videoSpeed, audiobookSpeed]);
   useEffect(() => {
     if (playbackState.nativeListening) speed.reconcileNative(playbackState.nativeListening);
