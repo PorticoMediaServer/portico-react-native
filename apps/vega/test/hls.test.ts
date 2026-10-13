@@ -61,11 +61,14 @@ test('a title resumed part way is filled from there, and a seek refills only whe
   assert.equal(server.log.includes(base + 's0.m4s'), false);
   await until(() => spans(player)[0]?.[1] === 97);
   assert.deepEqual(spans(player), [[61, 97]]);
-  // Inside what is held: nothing is fetched again.
+  // Inside what is held: buffered segments stay in place and are not fetched again.
+  // Moving forward may fill one more segment inside the new 30-second look-ahead.
   const asked = server.log.length;
   assert.equal(source.seek(70), 71);
   await sleep(50);
-  assert.equal(server.log.length, asked);
+  const fetched = server.log.slice(asked);
+  assert.ok(fetched.length <= 1 && fetched.every(url => url === base + 's16.m4s'), `unexpected refetch: ${fetched}`);
+  assert.deepEqual(spans(player), [[61, fetched.length ? 103 : 97]]);
   // Outside it: emptied and filled from the segment that holds the place.
   assert.equal(source.seek(200), 201);
   await until(() => spans(player).length === 1 && spans(player)[0][0] === 199 && spans(player)[0][1] === 235);
