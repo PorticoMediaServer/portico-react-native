@@ -36,6 +36,8 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   override fun getConstants(): Map<String, Any> {
     val values = HashMap<String, Any>()
     values["launchId"] = launchId
+    values["pictureInPictureSupported"] = android.os.Build.VERSION.SDK_INT >= 26 && reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    values["television"] = BuildConfig.FLAVOR == "firetv" || reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     hostedUrl()?.let { values["hostedUrl"] = it }
     if (BuildConfig.DEBUG) testLogin()?.let { values["testLogin"] = it }
     return values

@@ -237,8 +237,8 @@ export const PLACEHOLDER_ORIGIN = 'http://127.0.0.1:1';
 export const hasRealOrigin = (api: {baseUrl: string}) => !api.baseUrl.startsWith(PLACEHOLDER_ORIGIN);
 
 // APL-SYS-04: sign-in failures are presented by code (a wrong password, an expired code, an
-// unreachable server), never by the raw error text. The fallback strings document intent only.
-const message = (e: unknown, _fallback: string) => signInMessage(e);
+// unreachable server), never by the raw error text.
+const message = (e: unknown) => signInMessage(e);
 
 /** What a person types is rarely a URL (shared with the direct-connect sequence). */
 export {serverAddress} from './direct-connect';
@@ -389,7 +389,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           refresher.current?.stop();
           refresher.current = undefined;
           viewer.clear();
-          void commit.clear().catch(() => setError('Server credential cleanup could not be verified.'));
+          void commit.clear().catch(() => setError(activeI18n().t('signIn.cleanupUnconfirmed')));
           setRecovery(undefined);
           offlineDownloads.adopt(undefined);
           setAttachedServer(undefined);
@@ -474,10 +474,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
               await forgetNativeConnection(record.session);
             }
           },
-          cleanupFailed: () => setError('An unused server session could not be ended. It will expire on its own.'),
+          cleanupFailed: () => setError(activeI18n().t('signIn.unusedSession')),
         });
       } catch (e) {
-        setError(message(e, 'Profile selection could not be saved.'));
+        setError(message(e));
         throw e;
       } finally {
         setBusy(false);
@@ -640,7 +640,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const found = await findDirectServer(directOrigin, nativeConnectionEnvironment, new AbortController().signal);
       if (gen === generation.current) { answered.current = {typed: directOrigin, address: found.address}; setPin(found.identity); }
     } catch (e) {
-      setError(message(addressFailure(e, directOrigin), 'That server could not be reached.'));
+      setError(message(addressFailure(e, directOrigin)));
     } finally {
       setBusy(false);
     }
@@ -648,7 +648,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
 
   const acceptDirect = useCallback(
     async (url: string, session: LocalSession, grant?: DirectPending) => {
-      if (session.viewer.authority !== 'local') throw new ShownError('Choose a profile on this server to continue.');
+      if (session.viewer.authority !== 'local') throw new ShownError(activeI18n().t('signIn.chooseLocalProfile'));
       const cleanup = grant?.accountGrant && grant.accountSession ? profileAPI(grant.api.baseUrl, grant.accountSession.accessToken) : undefined;
       const old = viewer.getSnapshot();
       const routed = grant?.api ?? (old.session && old.serverUrl === url ? profileAPI(url, old.session.accessToken) : new HttpLocalApi(url, session.accessToken, nativeNetworkFetch));
@@ -749,7 +749,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         await settleDirect(result, connected, username, password, gen);
         offered = true;
       } catch (e) {
-        setError(message(e, 'Sign-in failed.'));
+        setError(message(e));
       } finally {
         if (!offered && connected) {
           if (issued) {
@@ -785,7 +785,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         throw e;
       }
     } catch (e) {
-      setError(message(e, 'Sign-in failed.'));
+      setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -802,7 +802,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       await changeRequiredPassword(held.connected.api, held.password, newPassword);
       changed = true;
     } catch (e) {
-      setError(message(e, 'That password couldn’t be changed.'));
+      setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -848,7 +848,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       await rememberNativeSession(local, issued, nativeConnectionEnvironment);
       await acceptDirect(local.baseUrl, issued);
     } catch (e) {
-      setError(message(e, 'Sign-in failed.'));
+      setError(message(e));
       throw e;
     } finally {
       setBusy(false);
@@ -871,7 +871,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         const selection = await selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin});
         await acceptDirect(pending.api.baseUrl, selection.session, pending);
       } catch (e) {
-        setError(message(e, 'That profile could not be selected.'));
+        setError(message(e));
       } finally {
         setBusy(false);
       }
@@ -943,7 +943,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         return 'refused';
       }
       if (isClockSkew(e)) { setError(activeI18n().t('portico.clockSkew', {server: server.name})); return 'failed'; }
-      setError(message(e, 'That server could not be opened.'));
+      setError(message(e));
       const p = present(e, 'sign-in');
       return p.category === 'unreachable' || p.category === 'offline' || p.category === 'timeout' ? 'unreachable' : 'failed';
     } finally {
@@ -1008,7 +1008,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       checkServersNow();
       return true;
     } catch (e) {
-      setError(message(e, 'The invitation could not be accepted.'));
+      setError(message(e));
       throw e;
     } finally {
       if (!kept && connected) connected.connection.dispose();
@@ -1051,7 +1051,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         await credentials.adopt(session);
         if (!accept()) await credentials.logoutIfCurrent({accountId: session.account.id, familyId: session.familyId});
       } catch (e) {
-        setError(message(e, 'Account sign-in failed.'));
+        setError(message(e));
         throw e;
       }
     },
@@ -1065,10 +1065,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     attachment.current();
     const current = viewer.getSnapshot();
     stopRefresh();
-    if (credentials && (hosted || current.session?.viewer.authority === 'hosted')) void credentials.logout().catch(e => setError(message(e, 'Sign-out could not be saved.')));
+    if (credentials && (hosted || current.session?.viewer.authority === 'hosted')) void credentials.logout().catch(e => setError(message(e)));
     setHosted(undefined);
     setAttachedServer(undefined);
-    void commit.clear().catch(() => setError('Server credential cleanup could not be verified. This device is signed out.'));
+    void commit.clear().catch(() => setError(activeI18n().t('signIn.cleanupSignedOut')));
     setRecovery(undefined);
     // Signing out withdraws the offline list too: the files stay, but nobody is
     // named as their owner until that viewer signs in again.

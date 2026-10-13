@@ -33,21 +33,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
-    window = UIWindow(frame: UIScreen.main.bounds)
-
-    // SEC-22: a cold launch's URL reaches JavaScript through `getInitialURL()`, which reads these
-    // options. Drop anything the allowlist refuses before React Native can see it.
-    var options = launchOptions
-    if let url = options?[.url] as? URL, !PorticoURLRoutes.allows(url) { options?.removeValue(forKey: .url) }
-
-    factory.startReactNative(
-      withModuleName: "Portico",
-      in: window,
-      launchOptions: options
-    )
-
     return true
   }
+  func connect(_ scene: UIWindowScene, options: UIScene.ConnectionOptions) -> UIWindow {
+    let window = UIWindow(windowScene: scene)
+    self.window = window
+    var launch: [UIApplication.LaunchOptionsKey: Any] = [:]
+    if let url = options.urlContexts.first?.url, PorticoURLRoutes.allows(url) {
+      launch[.url] = url
+    }
+    reactNativeFactory?.startReactNative(withModuleName: "Portico", in: window, launchOptions: launch)
+    return window
+  }
+
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
@@ -64,5 +62,24 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 #else
     return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif
+  }
+}
+
+/// A single scene owns the app's window; app-wide playback/download owners stay in the app delegate.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+             options connectionOptions: UIScene.ConnectionOptions) {
+    guard let scene = scene as? UIWindowScene,
+          let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    window = app.connect(scene, options: connectionOptions)
+  }
+
+  func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
+    guard let app = UIApplication.shared.delegate as? AppDelegate else { return }
+    for context in contexts {
+      _ = app.application(UIApplication.shared, open: context.url, options: [:])
+    }
   }
 }

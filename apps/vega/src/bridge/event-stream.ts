@@ -1,6 +1,6 @@
 import {base64, utf8} from './encoding';
 import {failure} from './events';
-import {parseHeaders, redirected} from './transport';
+import {parseHeaders, redirected, sdkRequestAllowed} from './transport';
 
 /**
  * `PorticoRuntime.openNetworkStream`, `readNetworkStream` and `cancelNetworkStream`: the server's
@@ -19,8 +19,7 @@ import {parseHeaders, redirected} from './transport';
  *
  * There is no streaming socket in the SDK's JavaScript. An `XMLHttpRequest` does deliver text as
  * it arrives, and the text it holds only ever grows, which is what the 1 MiB bound is for here.
- * (Its redirects cannot be refused before they are followed: one is refused when the answer
- * arrives from another address, before a byte of it is handed on.)
+ * Credential-bearing streams are refused before dispatch because the SDK follows redirects.
  */
 const MAX_STREAMS = 4, PIECE_BYTES = 16384, MAX_BYTES = 1048576;
 const OPEN_MS = 15000, QUIET_MS = 60000, LIFETIME_MS = 2100000;
@@ -100,6 +99,7 @@ function take(identifier: string, stream: Stream): void {
 
 export function openNetworkStream(identifier: string, url: string, headers: unknown): Promise<{status: number; headers: Record<string, string>}> {
   const target = allowed(url);
+  if (target && !sdkRequestAllowed(url, 'GET', headers, null)) return Promise.reject(failure('transport_unavailable', 'The installed transport cannot refuse redirects before sending credentials.'));
   if (!target || typeof identifier !== 'string' || !identifier || identifier.length > 128) return Promise.reject(failure('event_local', 'Invalid event request.'));
   if (streams.size >= MAX_STREAMS || streams.has(identifier)) return Promise.reject(failure('event_local', 'Too many event streams.'));
   return new Promise((resolve, reject) => {

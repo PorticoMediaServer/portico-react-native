@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {Suspense, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {createNavigatorFactory, TabRouter, useNavigationBuilder, type ParamListBase, type TabNavigationState, type TabRouterOptions} from '@react-navigation/native';
 
@@ -12,6 +12,14 @@ import {createNavigatorFactory, TabRouter, useNavigationBuilder, type ParamListB
  * Only the tab router's state machine is used: no tab bar is drawn here (the shell draws its
  * own bottom bar and rail).
  */
+// Suspending a hidden root retains its navigation and scroll state while React holds
+// context/state renders until the root is visible again. The active player lives outside it.
+const hiddenRoot = new Promise<void>(() => {});
+function RootActivity({active, children}: {active: boolean; children: React.ReactNode}) {
+  if (!active) throw hiddenRoot;
+  return children;
+}
+
 function RootsNavigator({id, initialRouteName, children, screenOptions}: {id?: string; initialRouteName?: string; children: React.ReactNode; screenOptions?: object}) {
   const {state, descriptors, NavigationContent} = useNavigationBuilder<TabNavigationState<ParamListBase>, TabRouterOptions, Record<string, never>, object, Record<string, never>>(TabRouter, {id, initialRouteName, children, screenOptions, backBehavior: 'none'});
   const focusedKey = state.routes[state.index]?.key;
@@ -22,7 +30,9 @@ function RootsNavigator({id, initialRouteName, children, screenOptions}: {id?: s
       <View style={styles.fill}>
         {state.routes.map(route => (mounted.has(route.key) || route.key === focusedKey ? (
           <View key={route.key} style={route.key === focusedKey ? StyleSheet.absoluteFill : styles.hidden}>
-            {descriptors[route.key].render()}
+            <Suspense fallback={null}>
+              <RootActivity active={route.key === focusedKey}>{descriptors[route.key].render()}</RootActivity>
+            </Suspense>
           </View>
         ) : null))}
       </View>

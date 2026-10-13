@@ -3,11 +3,11 @@ import {failure} from './events';
 /**
  * The bounded control transport behind `PorticoRuntime.networkRequest`, `queueRequest` and
  * `profileRequest`, with the Apple module's rules: no cookies, no cache, 15 s, a bounded body
- * each way, at most 12 requests in flight and 64 waiting, and no redirects.
+ * each way, and at most 12 requests in flight and 64 waiting. Redirected public responses
+ * are discarded; sensitive exchanges are refused before the SDK can dispatch them.
  *
- * The SDK's networking follows redirects itself and offers no way to refuse one before it is
- * followed, so a redirect is refused when the answer arrives (the final address is not the one
- * asked for): the response is discarded, never delivered.
+ * The installed SDK follows redirects and provides no pre-follow control. Credential-bearing
+ * requests are refused before dispatch. Public identity probes remain available.
  */
 export type WireResponse = {status: number; headers: Record<string, string>; body: string};
 type Settle = {resolve(value: WireResponse): void; reject(error: Error): void};
@@ -20,9 +20,35 @@ let active = 0;
 
 export type Admission = {identifier: string; url: string; method: string; headers: unknown; body: string | null; limit: number; domain: string; busy: string};
 
+/** Fail before SDK networking can disclose a body or a credential to a redirect. */
+export function sdkRequestAllowed(url: string, method: string, headers: unknown, body: string | null): boolean {
+  let target: URL;
+  try { target = new URL(url); } catch { return false; }
+  if (target.username || target.password || target.search || target.hash) return false;
+  const allowed = new Set(['accept', 'content-type', 'cache-control', 'last-event-id']);
+  if (headers && typeof headers === 'object') {
+    for (const [name, value] of Object.entries(headers)) {
+      if (typeof value === 'string' && !allowed.has(name.toLowerCase())) return false;
+    }
+  }
+  if (['GET', 'HEAD'].includes(method)) return body === null &&
+    (/^\/v1\/(system|direct|events)$/.test(target.pathname) || /^\/v1\/groups\/[A-Za-z0-9_-]{1,128}\/events$/.test(target.pathname));
+  if (method !== 'POST' || target.pathname !== '/v1/networking/identity-proof' || !body || utf8Length(body) > 16384) return false;
+  try {
+    const proof = JSON.parse(body);
+    return !!proof && typeof proof === 'object' && !Array.isArray(proof) &&
+      Object.keys(proof).length === 2 && proof.baseUrl === target.origin &&
+      typeof proof.nonce === 'string' && /^[A-Za-z0-9_-]{43}$/.test(proof.nonce);
+  } catch { return false; }
+}
+
 export function submit(admission: Admission): Promise<WireResponse> {
   return new Promise((resolve, reject) => {
     const {identifier, domain} = admission;
+    if (!sdkRequestAllowed(admission.url, admission.method, admission.headers, admission.body)) {
+      reject(failure('transport_unavailable', 'The installed transport cannot refuse redirects before sending credentials.'));
+      return;
+    }
     if (requests.has(identifier) || (active >= MAX_ACTIVE && waiting.length >= MAX_WAITING)) { reject(failure(domain, admission.busy)); return; }
     const headers: Record<string, string> = {};
     if (admission.headers && typeof admission.headers === 'object') {

@@ -28,6 +28,10 @@ const internals = (
   }
 ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
 
+if (!internals || !Object.hasOwn(internals, 'H')) {
+  throw new Error('The hook driver does not support this React version. Update the driver before running hook tests.');
+}
+
 type Deps = readonly unknown[] | undefined;
 type Destructor = (() => void) | void;
 

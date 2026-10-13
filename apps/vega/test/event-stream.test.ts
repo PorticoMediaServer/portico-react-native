@@ -48,11 +48,11 @@ test('only the two event routes may be opened, with a short identifier and no cr
 });
 
 test('a stream opens with the headers it was given and is read a piece at a time', async () => {
-  const opening = openNetworkStream('one', 'http://192.168.1.20:32500/v1/groups/G1/events', {Accept: 'text/event-stream', Authorization: 'Bearer t', 'Last-Event-ID': '41', skipped: 5});
+  const opening = openNetworkStream('one', 'http://192.168.1.20:32500/v1/groups/G1/events', {Accept: 'text/event-stream', 'Last-Event-ID': '41', skipped: 5});
   const request = last();
   assert.equal(request.method, 'GET');
   assert.equal(request.withCredentials, false);
-  assert.deepEqual(request.headers, {Accept: 'text/event-stream', Authorization: 'Bearer t', 'Last-Event-ID': '41'});
+  assert.deepEqual(request.headers, {Accept: 'text/event-stream', 'Last-Event-ID': '41'});
   request.begin();
   const opened = await opening;
   assert.equal(opened.status, 200);
@@ -144,4 +144,11 @@ test('cancelling ends a waiting read, and at most four streams are open at once'
   for (const id of opened) cancelNetworkStream(id);
   cancelNetworkStream('never-opened');
   assert.equal(openStreamCount(), 0);
+});
+
+
+test('a credential-bearing event stream is refused before the SDK creates a request', async () => {
+  const before = FakeRequest.made.length;
+  await assert.rejects(openNetworkStream('private', events, {Authorization: 'Bearer secret'}), error => code(error) === 'transport_unavailable');
+  assert.equal(FakeRequest.made.length, before);
 });

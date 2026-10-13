@@ -1,4 +1,4 @@
-import {Dimensions, Platform} from 'react-native';
+import {Dimensions, NativeModules, Platform} from 'react-native';
 import type {MessageId} from '../../../../packages/i18n/src/index';
 import type {DestinationPlatform} from '../../../../packages/client-core/src/presentation/destinations';
 
@@ -43,4 +43,4 @@ export const playOnPlatform: DestinationPlatform = devicePlatform === 'ios' ? (i
 export const hasAirPlay: boolean = !android && !Platform.isTV;
 
 /** Picture in Picture: iPhone and iPad, and Android phones and tablets. Never a television. */
-export const hasPictureInPicture: boolean = !Platform.isTV;
+export const hasPictureInPicture: boolean = !Platform.isTV && NativeModules.PorticoRuntime?.pictureInPictureSupported === true;

@@ -21,3 +21,14 @@ test('X-04: cancellations stay silent', () => {
   assert.equal(say(Object.assign(new Error('aborted'), {name: 'AbortError'}), 'home', 'load'), '');
   assert.equal(present(Object.assign(new Error('aborted'), {name: 'AbortError'}), 'home').silent, true);
 });
+
+
+test('a redirect-incapable transport explains the unavailable device without offering a retry', () => {
+  const error = Object.assign(new Error('private diagnostic'), {code: 'transport_unavailable'});
+  for (const context of ['sign-in', 'playback', 'portico-account'] as const) {
+    const shown = present(error, context);
+    assert.equal(shown.messageId, 'error.transportUnavailable');
+    assert.equal(shown.action, 'none');
+    assert.doesNotMatch(shown.body, /private diagnostic|will keep trying/);
+  }
+});

@@ -1,3 +1,4 @@
+import './src/bridge/device-kind';
 import './src/app/legacy-events';
 import './src/bridge/random-id';
 import '@bacons/text-decoder/install';
