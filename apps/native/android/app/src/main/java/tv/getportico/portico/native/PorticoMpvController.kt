@@ -476,7 +476,7 @@ internal class PorticoMpvController(private val context: Context) {
         "demuxer-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
         // Sound: decoded on the device and handed to the system as PCM, in as many channels as
         // the output takes. Nothing is passed through as a bitstream.
-        "ao" to "audiotrack,opensles", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
+        "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
         "hr-seek" to "yes",
         "cache" to "yes", "demuxer-max-bytes" to (if (small) "48MiB" else "150MiB"), "demuxer-max-back-bytes" to (if (small) "8MiB" else "48MiB"),
         "network-timeout" to "30",
