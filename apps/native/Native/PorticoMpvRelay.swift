@@ -33,6 +33,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         var finished = false
         var queuedBytes = 0
         var upstreamSuspended = false
+        var playlist: Data?
+        var playlistSource: URL?
         init(connection: NWConnection) { self.connection = connection }
     }
 
@@ -136,12 +138,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         if parts.count >= 3, parts[0] == "v1", parts[1] == "media" {
             return ["/v1/media/" + parts[2]]
         }
-        // Anything else is scoped to the folder the source is in.
-        if let slash = path.lastIndex(of: "/") {
-            let folder = String(path[path.startIndex..<slash])
-            return [folder.isEmpty ? "/" : folder]
-        }
-        return ["/"]
+        // A non-grant address grants only the source itself, never a whole server folder.
+        return [path]
     }
 
     private static func local(_ remote: URL, port: UInt16) -> URL? {
@@ -161,8 +159,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         if lowered.contains("%2e") || lowered.contains("%2f") || lowered.contains("%5c") { return false }
         for segment in path.split(separator: "/", omittingEmptySubsequences: false) where segment == ".." || segment == "." { return false }
         for prefix in prefixes {
-            if prefix == "/" { return true }
-            if path == prefix || path.hasPrefix(prefix + "/") { return true }
+            if path == prefix { return true }
+            if prefix.hasPrefix("/v1/media/"), path.hasPrefix(prefix + "/") { return true }
         }
         return false
     }
@@ -225,6 +223,7 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
     // MARK: - One request
 
     private func accept(_ connection: NWConnection) {
+        guard exchanges.count < 16 else { connection.cancel(); return }
         let exchange = Exchange(connection: connection)
         exchanges[ObjectIdentifier(exchange)] = exchange
         connection.stateUpdateHandler = { [weak self, weak exchange] state in
@@ -238,12 +237,17 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         }
         connection.start(queue: queue)
         readHead(exchange)
+        queue.asyncAfter(deadline: .now() + 10) { [weak self, weak exchange] in
+            guard let self = self, let exchange = exchange, exchange.task == nil, !exchange.answered else { return }
+            self.end(exchange, cancelConnection: true)
+        }
     }
 
     private func readHead(_ exchange: Exchange) {
         exchange.connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self, weak exchange] data, _, isComplete, error in
             guard let self = self, let exchange = exchange, !exchange.finished else { return }
             if let data = data { exchange.head.append(data) }
+            guard exchange.head.count <= PorticoMpvRelay.maximumHead else { self.end(exchange, cancelConnection: true); return }
             if let end = exchange.head.range(of: Data([13, 10, 13, 10])) {
                 self.route(exchange, head: exchange.head.subdata(in: exchange.head.startIndex..<end.lowerBound))
                 return
@@ -265,7 +269,10 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         guard target.hasPrefix("/"), target.utf8.count <= 8192, let origin = origin else { reply(exchange, status: 404); return }
         let path: String
         if let mark = target.firstIndex(of: "?") { path = String(target[target.startIndex..<mark]) } else { path = target }
-        guard allowed(path: path), let url = URL(string: target, relativeTo: origin)?.absoluteURL else { reply(exchange, status: 404); return }
+        guard allowed(path: path), let url = URL(string: target, relativeTo: origin)?.absoluteURL,
+              url.scheme == origin.scheme, url.host?.lowercased() == origin.host?.lowercased(), url.port == origin.port,
+              url.user == nil, url.password == nil, url.fragment == nil,
+              allowed(path: url.path) else { reply(exchange, status: 404); return }
         var range: String?
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
@@ -279,7 +286,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         wire.httpMethod = request[0]
         wire.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         wire.setValue("*/*", forHTTPHeaderField: "Accept")
-        if let range = range { wire.setValue(range, forHTTPHeaderField: "Range") }
+        // Rewritten manifests have different byte offsets; always fetch them in full.
+        if let range = range, url.pathExtension.lowercased() != "m3u8" { wire.setValue(range, forHTTPHeaderField: "Range") }
         let task = upstream().dataTask(with: wire)
         exchange.task = task
         byTask[task.taskIdentifier] = exchange
@@ -335,6 +343,19 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
             return
         }
         if status >= 400 { record(status: status, urlErrorCode: nil) }
+        let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+        if status == 200 || status == 206, dataTask.originalRequest?.httpMethod != "HEAD",
+           http.url?.pathExtension.lowercased() == "m3u8" || type.contains("mpegurl") {
+            guard http.expectedContentLength <= 2 * 1024 * 1024 else {
+                refusePlaylist(exchange)
+                completionHandler(.cancel)
+                return
+            }
+            exchange.playlist = Data()
+            exchange.playlistSource = http.url
+            completionHandler(.allow)
+            return
+        }
         var head = "HTTP/1.1 \(status) Relay\r\n"
         for name in ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"] {
             if let value = http.value(forHTTPHeaderField: name), value.utf8.count <= 1024, !value.contains("\r"), !value.contains("\n") {
@@ -352,6 +373,11 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard let exchange = byTask[dataTask.taskIdentifier], !exchange.finished else { return }
+        if exchange.playlist != nil {
+            guard (exchange.playlist?.count ?? 0) + data.count <= 2 * 1024 * 1024 else { refusePlaylist(exchange); return }
+            exchange.playlist?.append(data)
+            return
+        }
         let count = data.count
         exchange.queuedBytes += count
         // mpv stops reading when its cache is full; the upstream transfer waits with it.
@@ -370,6 +396,13 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         })
     }
 
+    private func refusePlaylist(_ exchange: Exchange) {
+        record(status: 502, urlErrorCode: nil)
+        if let task = exchange.task { byTask[task.taskIdentifier] = nil; task.cancel() }
+        exchange.task = nil
+        reply(exchange, status: 502)
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let exchange = byTask[task.taskIdentifier] else { return }
         byTask[task.taskIdentifier] = nil
@@ -381,6 +414,21 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
             if !exchange.answered { reply(exchange, status: 502); return }
             // The body was cut short: closing here lets mpv ask again from where it stopped.
             end(exchange, cancelConnection: true)
+            return
+        }
+        if let playlist = exchange.playlist {
+            guard let source = exchange.playlistSource,
+                  let body = PorticoMpvSupport.relayPlaylist(playlist, source: source, local: { remote in
+                      guard let origin = self.origin, self.allowed(path: remote.path),
+                            remote.scheme == origin.scheme, remote.host?.lowercased() == origin.host?.lowercased(), remote.port == origin.port else { return nil }
+                      return PorticoMpvRelay.local(remote, port: self.listeningPort)
+                  }) else { refusePlaylist(exchange); return }
+            let head = "HTTP/1.1 200 Relay\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            exchange.answered = true
+            exchange.connection.send(content: (head.data(using: .utf8) ?? Data()) + body, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self, weak exchange] _ in
+                guard let self = self, let exchange = exchange else { return }
+                self.end(exchange, cancelConnection: true)
+            })
             return
         }
         exchange.connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self, weak exchange] _ in

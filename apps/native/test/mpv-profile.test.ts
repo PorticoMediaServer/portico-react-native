@@ -18,7 +18,7 @@ test('the device class comes from memory and processor count', () => {
   assert.equal(mpvDeviceClass(appleTV4K), 'standard');
   assert.equal(mpvDeviceClass(iPhonePro), 'strong');
   assert.equal(mpvDeviceClass({memoryBytes: 8 * GiB, processorCount: 4}), 'standard', 'much memory but few cores');
-  assert.equal(mpvDeviceClass(null), 'standard');
+  assert.equal(mpvDeviceClass(null), 'light');
 });
 
 test('mpv opens what the platform player refuses, draws every subtitle kind and tone-maps HDR itself', () => {
@@ -43,12 +43,15 @@ test('hardware codecs play at the chip\'s limits; the rest within what software 
   const standard = mpvEngineCapabilities(appleTV4K);
   assert.equal(codec(standard, 'hevc')!.maxWidth, 4096);
   assert.deepEqual(codec(standard, 'h264')!.bitDepths, [8, 10], '10-bit H.264 in software');
+  assert.equal(codec(standard, 'h264')!.maxWidth, 1920, 'a single codec limit must also fit software Hi10P');
+  assert.equal(codec(standard, 'h264')!.maxFrameRate, 30);
   assert.equal(codec(standard, 'av1')!.maxHeight, 1080, 'software AV1 stops at 1080p here');
   assert.equal(codec(standard, 'av1')!.maxFrameRate, 30);
   assert.equal(codec(standard, 'vp9')!.maxHeight, 1080);
 
   const light = mpvEngineCapabilities(appleTVHD);
   assert.deepEqual(codec(light, 'h264')!.bitDepths, [8]);
+  assert.equal(codec(light, 'h264')!.maxWidth, 1920, 'Apple TV HD does not have a 4K H.264 decoder');
   assert.equal(codec(light, 'hevc'), undefined, 'no hardware HEVC and no headroom for software: left to the server');
   assert.equal(codec(light, 'av1'), undefined);
   assert.equal(codec(light, 'mpeg2video')!.maxFrameRate, 30);
@@ -61,7 +64,8 @@ test('hardware codecs play at the chip\'s limits; the rest within what software 
 
   const unknown = mpvEngineCapabilities(null);
   assert.equal(unknown.evidence, 'declared');
-  assert.equal(codec(unknown, 'hevc')!.maxWidth, 4096);
+  assert.equal(codec(unknown, 'hevc'), undefined, 'HEVC hardware is not assumed when a probe failed');
+  assert.equal(codec(unknown, 'h264')!.maxWidth, 1920);
 });
 
 test('what the screen shows from mpv: HDR on an HDR phone or tablet, standard range on a television', () => {

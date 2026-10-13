@@ -14,7 +14,7 @@ class FakeEngine implements NativePlaybackTransport {
   constructor(name: string) { this.name = name; }
   async acquire() { this.acquired++; return {lease: `${this.name}-lease-${this.acquired}`, instanceId: `${this.name}-instance`}; }
   async command(value: Record<string, unknown>) { this.commands.push(value); return true; }
-  async release(lease: string) { this.released.push(lease); return true; }
+  async release(lease: string): Promise<unknown> { this.released.push(lease); return true; }
   subscribe(listener: (fact: any) => void) { this.listener = listener; return () => { if (this.listener === listener) this.listener = undefined; }; }
   emit(fact: Fact) { this.listener?.(fact); }
 }
@@ -29,10 +29,10 @@ class FakeService {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   update(patch: Record<string, unknown>) { this.snapshot = {...this.snapshot, ...patch}; this.listeners.forEach(l => l()); }
   engineLost(intentId: number) { this.lost.push(intentId); this.update({seekRevision: 1, pendingSeek: {revision: 1, positionSeconds: this.snapshot.positionSeconds}}); }
-  fail(_intent: number, message: string) { this.failed.push(message); }
+  fail(_intent: number, message: string) { this.failed.push(message); this.update({phase: 'error'}); }
 }
 
-const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 function make(initial: 'native' | 'mpv') {
   const service = new FakeService(), native = new FakeEngine('native'), mpv = new FakeEngine('mpv');
@@ -122,5 +122,93 @@ test('a build without the wanted engine stays where it is', async () => {
   await settle();
   assert.equal(coordinator.getEngine(), 'native');
   assert.equal(native.acquired, 1);
+  coordinator.stop();
+});
+
+test('the next engine waits for the old lease to finish releasing', async () => {
+  const {native, mpv, wanted, coordinator} = make('native');
+  coordinator.start();
+  await settle();
+  let released!: () => void;
+  native.release = lease => {
+    native.released.push(lease);
+    return new Promise<void>(resolve => { released = resolve; });
+  };
+  wanted.engine = 'mpv';
+  coordinator.reconsiderEngine();
+  await settle();
+  assert.equal(mpv.acquired, 0);
+  released();
+  await settle();
+  assert.equal(mpv.acquired, 1);
+  coordinator.stop();
+});
+
+test('switching during an acquisition waits for that stale lease to be released', async () => {
+  const {native, mpv, wanted, coordinator} = make('native');
+  let attached!: (lease: {lease: string; instanceId: string}) => void;
+  native.acquire = () => new Promise(resolve => { attached = resolve; });
+  coordinator.start();
+  await settle();
+  wanted.engine = 'mpv';
+  coordinator.reconsiderEngine();
+  await settle();
+  assert.equal(mpv.acquired, 0);
+  attached({lease: 'late-native', instanceId: 'native-instance'});
+  await settle();
+  assert.deepEqual(native.released, ['late-native']);
+  assert.equal(mpv.acquired, 1);
+  coordinator.stop();
+});
+
+test('a rejected release prevents a second engine from taking a lease', async () => {
+  const {native, mpv, wanted, service, coordinator} = make('native');
+  coordinator.start();
+  await settle();
+  native.release = async () => { throw new Error('release failed'); };
+  wanted.engine = 'mpv';
+  coordinator.reconsiderEngine();
+  await settle();
+  assert.equal(mpv.acquired, 0);
+  assert.equal(service.failed.length, 1);
+  coordinator.stop();
+});
+
+test('stopping and restarting waits for an acquisition from the previous lifecycle', async () => {
+  const {native, coordinator} = make('native');
+  let first!: (lease: {lease: string; instanceId: string}) => void;
+  let calls = 0;
+  native.acquire = async () => {
+    if (++calls === 1) return new Promise(resolve => { first = resolve; });
+    return {lease: 'fresh-native', instanceId: 'native-instance'};
+  };
+  coordinator.start();
+  await settle();
+  coordinator.stop();
+  coordinator.start();
+  await settle();
+  assert.equal(calls, 1);
+  first({lease: 'stale-native', instanceId: 'native-instance'});
+  await settle();
+  assert.deepEqual(native.released, ['stale-native']);
+  assert.equal(calls, 2);
+  assert.equal(coordinator.getSnapshot(), 'fresh-native');
+  coordinator.stop();
+});
+
+test('a stale acquisition whose release fails prevents the replacement from starting', async () => {
+  const {native, mpv, wanted, service, coordinator} = make('native');
+  let first!: (lease: {lease: string; instanceId: string}) => void;
+  native.acquire = () => new Promise(resolve => { first = resolve; });
+  native.release = async () => { throw new Error('release failed'); };
+  coordinator.start();
+  await settle();
+  wanted.engine = 'mpv';
+  coordinator.reconsiderEngine();
+  await settle();
+  first({lease: 'stale-native', instanceId: 'native-instance'});
+  await settle();
+  assert.equal(mpv.acquired, 0);
+  assert.equal(service.failed.length, 1);
   coordinator.stop();
 });

@@ -91,9 +91,10 @@ final class PorticoMpvPlaybackModule: RCTEventEmitter {
 
     @objc(release:resolver:rejecter:) func releaseLease(_ lease: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
         #if canImport(Libmpv)
-        controller.releaseLease(lease)
-        #endif
+        controller.releaseLease(lease) { resolve(true) }
+        #else
         resolve(true)
+        #endif
     }
 
     /// What this device gives the engine right now, for the mpv capability profile: which codecs

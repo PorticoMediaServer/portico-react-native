@@ -31,6 +31,7 @@ import {usePreferences} from '../app/preferences';
 import {engineFeatures, engineTransport, mpvAvailable} from '../bridge/player-engines';
 import {chooseEngine, localRuleFacts, parseEngineSetting, type EngineKind} from './engine-choice';
 import {engineSettingStore} from './engine-setting-store';
+import {replanEngine} from './engine-replan';
 import {chaptersOf, engineSubtitleRender, fontsUrlOf, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering, type EngineMedia, type SubtitleFonts} from './engine-media';
 
 /**
@@ -341,23 +342,22 @@ export function usePlayerEngine() {
   useEffect(() => setQualityChoice('auto'), [identity.itemId]);
   const offersData = offers?.phase === 'ready' && offers.data?.scope.itemId === identity.itemId ? offers.data : null;
   // The Player setting changed while a title the server planned for a named engine is playing:
-  // once the server has the new setting, the title is asked for again from where it stands, so
-  // the plan (and with it the engine) follows the viewer's choice. The queue is kept, as for a
-  // change of quality. Where the plan names no engine the coordinator has already moved the title.
+  // once the server has the new setting, the current queue entry is reopened at its retained
+  // position. This preserves Up Next; playback.play() would replace the queue with one title.
+  // Where the plan names no engine the coordinator has already moved the title.
   const settingSeen = useRef(engineSetting);
-  const qualityNow = useRef(quality);
-  qualityNow.current = quality;
   useEffect(() => {
     if (settingSeen.current === engineSetting) return;
     settingSeen.current = engineSetting;
     const state = playback.getSnapshot(), session = state.session, itemId = state.itemId, intent = state.intentId;
     if (!session || !itemId || state.channel || engineInputs.current.audio || isLocalSession(session.id) || !planEngineOf(session) || !['starting', 'ready'].includes(state.phase)) return;
-    void engineSettingStore.whenSettled(4000).then(() => {
+    void engineSettingStore.whenSettled(4000, engineSetting).then(() => {
       const now = playback.getSnapshot();
-      if (now.intentId !== intent || now.itemId !== itemId) return;
-      void playback.play(itemId, now.pendingSeek?.positionSeconds ?? now.positionSeconds ?? 0, undefined, qualityNow.current === 'auto' ? undefined : qualityNow.current).catch(() => {});
+      if (now.intentId !== intent || now.itemId !== itemId || now.session?.id !== session.id || !['starting', 'ready'].includes(now.phase) || engineInputs.current.setting !== engineSetting) return;
+      const queue = v1Queue();
+      if (queue) void replanEngine(playback, queue).catch(() => {});
     });
-  }, [engineSetting, playback]);
+  }, [engineSetting, playback, v1Queue]);
   const setQuality = useCallback((id: string) => {
     const itemId = playback.getSnapshot().itemId;
     if (!itemId) return;

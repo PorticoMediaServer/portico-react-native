@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import UIKit
 import MediaAccessibility
 
@@ -53,39 +54,54 @@ enum PorticoMpvSupport {
         return allowedLocalSource(url)
     }
 
-    /// Plain HTTP is for this device and the home network only: localhost, a `.local` name, or a
-    /// private or link-local address. The rule the app applies to every server address.
-    static func privateHost(_ value: String?) -> Bool {
-        guard var host = value?.lowercased(), !host.isEmpty, host.count <= 255 else { return false }
-        if host.count > 2, host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
-        if host == "localhost" || host == "::1" { return true }
-        if host.hasSuffix(".local") {
-            return host.unicodeScalars.allSatisfy { "abcdefghijklmnopqrstuvwxyz0123456789._-".unicodeScalars.contains($0) }
-        }
-        if host.contains(":") {
-            let characters = Array(host)
-            guard characters.count >= 5, characters.allSatisfy({ "0123456789abcdef:".contains($0) }), characters[2] != ":", characters[3] != ":", characters[4] == ":" else { return false }
-            return host.hasPrefix("fc") || host.hasPrefix("fd") || (host.hasPrefix("fe") && "89ab".contains(characters[2]))
-        }
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return false }
-        var numbers: [Int] = []
-        for part in parts {
-            guard !part.isEmpty, part.count <= 3, !(part.count > 1 && part.hasPrefix("0")), part.allSatisfy({ $0 >= "0" && $0 <= "9" }), let number = Int(part), number <= 255 else { return false }
-            numbers.append(number)
-        }
-        return numbers[0] == 10 || numbers[0] == 127 || (numbers[0] == 192 && numbers[1] == 168) || (numbers[0] == 172 && numbers[1] >= 16 && numbers[1] <= 31) || (numbers[0] == 169 && numbers[1] == 254)
-    }
-
     /// An external subtitle file belongs to the playback when it is on the media's own origin and
     /// under the media's own grant (`/v1/media/<grant>/...`), with no credentials or fragment.
     static func subtitleFileBelongs(_ url: URL, toMedia media: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), scheme == "https" || (scheme == "http" && privateHost(url.host)),
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               scheme == media.scheme?.lowercased(), url.host?.lowercased() == media.host?.lowercased(), (url.port ?? 0) == (media.port ?? 0),
               url.user == nil, url.password == nil, url.fragment == nil else { return false }
         let parts = media.path.split(separator: "/", omittingEmptySubsequences: true)
         guard parts.count >= 3, parts[0] == "v1", parts[1] == "media" else { return false }
-        return url.path.hasPrefix("/v1/media/\(parts[2])/")
+        let path = url.path
+        guard !path.contains("\\"), !path.lowercased().contains("%"),
+              !path.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == "." || $0 == ".." }) else { return false }
+        return path.hasPrefix("/v1/media/\(parts[2])/")
+    }
+
+    /// HLS references (variants, segments, keys, maps and renditions) must pass through the
+    /// same relay as the manifest. Resolve relative references against the upstream URL first.
+    static func relayPlaylist(_ data: Data, source: URL, local: (URL) -> URL?) -> Data? {
+        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8),
+              text.hasPrefix("#EXTM3U"),
+              let uriPattern = try? NSRegularExpression(pattern: "URI=\"([^\"]*)\"") else { return nil }
+        func address(_ value: String) -> String? {
+            guard !value.isEmpty, value.utf8.count <= 8192, !value.contains("{$"),
+                  let remote = URL(string: value, relativeTo: source)?.absoluteURL,
+                  subtitleFileBelongs(remote, toMedia: source), let rewritten = local(remote) else { return nil }
+            return rewritten.absoluteString
+        }
+        var lines: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if clean.isEmpty { lines.append(""); continue }
+            if !clean.hasPrefix("#") {
+                guard let rewritten = address(clean) else { return nil }
+                lines.append(rewritten)
+                continue
+            }
+            if clean.hasPrefix("#EXT-X-DEFINE:") { return nil }
+            let matches = uriPattern.matches(in: clean, range: NSRange(clean.startIndex..., in: clean))
+            // Unquoted or malformed URI attributes must never pass through untouched.
+            if clean.components(separatedBy: "URI=").count - 1 != matches.count { return nil }
+            var rewritten = clean
+            for match in matches.reversed() {
+                guard let valueRange = Range(match.range(at: 1), in: rewritten),
+                      let value = address(String(rewritten[valueRange])) else { return nil }
+                rewritten.replaceSubrange(valueRange, with: value)
+            }
+            lines.append(rewritten)
+        }
+        return lines.joined(separator: "\n").data(using: .utf8)
     }
 
     // MARK: - Tracks
@@ -211,18 +227,22 @@ enum PorticoMpvSupport {
 /// Fetches the fonts attached to a styled subtitle file into a folder mpv can read them from.
 /// Bounded in number, size and time; never follows a redirect; a font that cannot be fetched is
 /// left out, and the subtitles are then drawn with the nearest system font.
-final class PorticoMpvFontFetcher: NSObject, URLSessionTaskDelegate {
+final class PorticoMpvFontFetcher: NSObject, URLSessionDownloadDelegate {
     private static let maximumFonts = 16
-    private static let maximumBytes = 24 * 1024 * 1024
+    private static let maximumBytes: Int64 = 24 * 1024 * 1024
     private var session: URLSession?
     private(set) var folder: URL?
+    private var names: [Int: String] = [:]
+    private var received: [Int: Int64] = [:]
+    private var stored = 0
+    private var completion: ((URL?) -> Void)?
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
     }
 
-    /// `fonts` are `{name, url}` pairs on the media's own origin and under its grant. The
-    /// completion runs on the main queue with the folder, or nil when nothing was fetched.
+    /// Runs on the main queue. At most 24 MiB are downloaded in total, without buffering fonts
+    /// in memory. A stale session cannot write into or complete a newer subtitle selection.
     func fetch(_ fonts: [NSDictionary], media: URL, completion: @escaping (URL?) -> Void) {
         cancel()
         var wanted: [(String, URL)] = []
@@ -239,32 +259,60 @@ final class PorticoMpvFontFetcher: NSObject, URLSessionTaskDelegate {
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 20
         let made = URLSession(configuration: configuration, delegate: self, delegateQueue: OperationQueue.main)
         session = made
         folder = directory
-        var remaining = wanted.count
-        var stored = 0
+        self.completion = completion
         for (position, entry) in wanted.enumerated() {
-            let task = made.dataTask(with: entry.1) { [weak self] data, response, _ in
-                // Runs on the main queue (the session's delegate queue).
-                if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty, data.count <= PorticoMpvFontFetcher.maximumBytes,
-                   (try? data.write(to: directory.appendingPathComponent("\(position)-\(entry.0)"))) != nil {
-                    stored += 1
-                }
-                remaining -= 1
-                guard remaining == 0, let self = self, self.folder == directory else { return }
-                completion(stored > 0 ? directory : nil)
-            }
+            let task = made.downloadTask(with: entry.1)
+            names[task.taskIdentifier] = "\(position)-\(entry.0)"
             task.resume()
         }
     }
 
-    /// Stops any fetch and removes the folder.
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard session === self.session else { return }
+        received[downloadTask.taskIdentifier] = totalBytesWritten
+        if received.values.reduce(0, +) > Self.maximumBytes || totalBytesExpectedToWrite > Self.maximumBytes {
+            session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard session === self.session, let directory = folder, let name = names[downloadTask.taskIdentifier],
+              (downloadTask.response as? HTTPURLResponse)?.statusCode == 200,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: location.path),
+              let size = attributes[.size] as? NSNumber, size.int64Value > 0, size.int64Value <= Self.maximumBytes else { return }
+        // Account for the last chunk even if no progress delegate callback was delivered.
+        received[downloadTask.taskIdentifier] = size.int64Value
+        guard received.values.reduce(0, +) <= Self.maximumBytes else { return }
+        do {
+            try FileManager.default.moveItem(at: location, to: directory.appendingPathComponent(name))
+            stored += 1
+        } catch { }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard session === self.session else { return }
+        names[task.taskIdentifier] = nil
+        guard names.isEmpty else { return }
+        let done = completion
+        completion = nil
+        self.session = nil
+        session.finishTasksAndInvalidate()
+        done?(stored > 0 ? folder : nil)
+    }
+
     func cancel() {
+        completion = nil
         session?.invalidateAndCancel()
         session = nil
+        names = [:]
+        received = [:]
+        stored = 0
         if let folder = folder { try? FileManager.default.removeItem(at: folder) }
         folder = nil
     }

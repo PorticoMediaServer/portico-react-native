@@ -38,6 +38,8 @@ export class NativePlaybackCoordinator {
   private lease: NativeLease | null = null;
   private binding: NativeBinding | null = null;
   private acquiring = false;
+  private pendingAcquisition?: Promise<void>;
+  private releaseBarrier: Promise<unknown> = Promise.resolve();
   private commandRevision = 0;
   private factSequence = 0;
   private lastSemantic = '';
@@ -105,6 +107,9 @@ export class NativePlaybackCoordinator {
     this.unsubscribe?.();
     this.unsubscribeFacts?.();
     this.release();
+    if (this.pendingAcquisition) this.releaseBarrier = Promise.all([this.releaseBarrier, this.pendingAcquisition]);
+    this.pendingAcquisition = undefined;
+    void this.releaseBarrier.catch(() => {});
   }
   /** OS-07: a downloaded file on this device plays whatever the server route is doing. */
   /** What a start is waiting on (PlaybackService.setStartupProbe; development builds log it). */
@@ -145,6 +150,10 @@ export class NativePlaybackCoordinator {
    */
   private switchEngine(engine: string, transport: NativePlaybackTransport) {
     if (this.lease) this.release();
+    // An earlier acquisition may still return a lease. Its stale path releases that lease
+    // before resolving, so wait for it as well as the current engine's release.
+    if (this.pendingAcquisition) this.releaseBarrier = Promise.all([this.releaseBarrier, this.pendingAcquisition]);
+    this.pendingAcquisition = undefined;
     this.unsubscribeFacts?.();
     this.transport = transport;
     this.engine = engine;
@@ -165,7 +174,9 @@ export class NativePlaybackCoordinator {
     if (lease) {
       const state = this.service.getSnapshot();
       this.service.engineLost(state.intentId);
-      void this.transport.release(lease.lease).catch(() => {});
+      this.releaseBarrier = this.transport.release(lease.lease);
+      // stop() has no next acquisition to observe a rejection.
+      void this.releaseBarrier.catch(() => {});
     }
   }
   private schedule = () => {
@@ -191,7 +202,10 @@ export class NativePlaybackCoordinator {
     }
     if (!this.lease) {
       if (state.phase === 'error'||!this.connected()) return;
-      if (!this.acquiring) void this.acquire();
+      if (!this.acquiring) {
+        this.pendingAcquisition = this.acquire();
+        void this.pendingAcquisition.catch(() => {});
+      }
       return;
     }
     const listening=state.nativeListening;
@@ -288,7 +302,10 @@ export class NativePlaybackCoordinator {
         );
       }
     }, 5000);
+    let staleReleaseFailed = false;
     try {
+      await this.releaseBarrier;
+      if (expired || !this.active || life !== this.lifecycle || epoch !== this.engineEpoch) return;
       const lease = await transport.acquire(this.ownerId());
       if (
         expired ||
@@ -299,7 +316,8 @@ export class NativePlaybackCoordinator {
         intent !== this.service.getSnapshot().intentId
       ) {
         // The lease belongs to the engine it was asked of, which may no longer be the current one.
-        await transport.release(lease.lease);
+        try { await transport.release(lease.lease); }
+        catch (error) { staleReleaseFailed = true; throw error; }
         return;
       }
       this.lease = lease;
@@ -309,7 +327,8 @@ export class NativePlaybackCoordinator {
       this.lastSemantic = '';
       this.publish();
       this.schedule();
-    } catch {
+    } catch (error) {
+      if (staleReleaseFailed) throw error;
       if (this.active && life === this.lifecycle && epoch === this.engineEpoch)
         this.service.fail(
           intent,

@@ -41,6 +41,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     private let instanceId = UUID().uuidString
     private var invalidated = false
+    private var releasing = false
     private var owner: String?
     private var commandRevision = 0
     private var factSequence = 0
@@ -61,7 +62,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private var seekRevision = -1
     private var seeking = false
     private var seekToken: UInt64 = 1000
-    private var seekInFlight: (token: UInt64, revision: Int, target: Double, awaitingRestart: Bool)?
+    private var seekInFlight: (token: UInt64, revision: Int, target: Double, commandAccepted: Bool, restartSeen: Bool)?
     private var startSeek: (revision: Int, target: Double)?
 
     private var routeSuspended = false
@@ -108,6 +109,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     #if os(tvOS)
     private var displayCriteriaSet = false
+    private var pendingDisplayReady: (() -> Void)?
     private var criteriaClear: DispatchWorkItem?
     #endif
 
@@ -146,7 +148,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     // MARK: - Lease
 
     func acquire(_ owner: String?) -> [String: Any]? {
-        guard !invalidated, let owner = owner, !owner.isEmpty, owner.count <= 128 else { return nil }
+        guard !invalidated, !releasing, let owner = owner, !owner.isEmpty, owner.count <= 128 else { return nil }
         if lease != nil, self.owner != owner { return nil }
         if lease == nil {
             self.owner = owner
@@ -159,8 +161,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         return ["lease": lease ?? "", "instanceId": instanceId, "engine": "mpv"]
     }
 
-    func releaseLease(_ value: String?) {
-        guard let value = value, lease == value else { return }
+    func releaseLease(_ value: String?, completion: (() -> Void)? = nil) {
+        guard let value = value, lease == value else { completion?(); return }
+        releasing = true
         unload()
         resetAudio()
         subtitleOverlay.invalidate()
@@ -182,6 +185,19 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         if PorticoEngineClock.active === self { PorticoEngineClock.active = nil }
         NotificationCenter.default.post(name: .porticoMpvAttachmentChanged, object: self)
         releaseAudioSession()
+        // audiounit deactivates the shared audio session in its uninit. A stop command only
+        // requests that work; wait for complete destruction before another engine can start.
+        let retired = core
+        core = nil
+        if let retired = retired {
+            retired.destroy { [weak self] in
+                self?.releasing = false
+                completion?()
+            }
+        } else {
+            releasing = false
+            completion?()
+        }
         scheduleTeardown()
         #if os(tvOS)
         scheduleCriteriaClear()
@@ -388,10 +404,15 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             ("deinterlace", "auto"),
             // Sound: decoded on the device and handed to the system as PCM, in as many channels
             // as the output takes. Nothing is passed through as a bitstream.
-            ("ao", "audiounit"),
+            ("ao", "audiounit"), ("audio-channels", "auto"), ("audio-exclusive", "yes"),
             ("hr-seek", "yes"),
             ("cache", "yes"), ("demuxer-max-bytes", small ? "48MiB" : "150MiB"), ("demuxer-max-back-bytes", small ? "8MiB" : "48MiB"),
             ("network-timeout", "30"),
+            // Direct files may not introduce other network or filesystem sources. HLS is
+            // enabled per load only after the relay has rewritten every manifest reference.
+            ("access-references", "no"),
+            ("stream-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
+            ("demuxer-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
             // Tracks are chosen by command, never by mpv's own preferences or by files nearby.
             ("sub-auto", "no"), ("audio-file-auto", "no"), ("sid", "no"), ("audio-display", "no"),
             // Text subtitles look the way the AVPlayer engine draws them: white on a soft black
@@ -409,7 +430,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         teardown?.cancel()
         teardown = nil
         if let core = core { return core }
-        guard let made = PorticoMpvCore(layer: metalLayer, options: mpvOptions()) else { return nil }
+        let made = PorticoMpvCore(layer: metalLayer, options: mpvOptions())
         made.onEvent = { [weak self] epoch, event, snapshot in self?.handle(epoch: epoch, event: event, snapshot: snapshot) }
         core = made
         return made
@@ -434,6 +455,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         loaded = false
         restarted = false
         displayHold = false
+        #if os(tvOS)
+        pendingDisplayReady = nil
+        #endif
         startSeek = nil
         seekInFlight = nil
         audioTrackPending = nil
@@ -445,6 +469,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         fontFetcher.cancel()
         core?.setFastTicks(false)
         core?.stop()
+        relay.unbind()
         setVideoAspect(nil)
         updateOutputRange()
     }
@@ -489,6 +514,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private func startLoad(_ address: String, epoch: Int) {
         guard let core = core else { return }
         var options: [String: String] = [:]
+        if let sourceURL = URL(string: source ?? ""), !sourceURL.isFileURL, sourceURL.pathExtension.lowercased() == "m3u8" {
+            options["access-references"] = "yes"
+            options["demuxer-lavf-format"] = "hls"
+        }
         // The position to start at is part of opening the file, so nothing is decoded from the
         // beginning only to be thrown away.
         if routeResume, !routeSuspended {
@@ -532,14 +561,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             if !restarted {
                 restarted = true
                 firstFrame()
-            } else if let flight = seekInFlight, flight.awaitingRestart {
-                seekInFlight = nil
-                completeSeek(revision: flight.revision, target: flight.target, finished: true)
+            } else if var flight = seekInFlight {
+                flight.restartSeen = true
+                seekInFlight = flight
+                finishRestartedSeek()
             }
         case .endFile(let reason, let code, let message, let log):
             if reason == .error { publishFailure(code: code, message: message, log: log) } else if reason == .eof { reachedEnd() }
         case .tracksChanged(let list):
             tracks = list
+            removeStaleExternalSubtitles()
             if loaded {
                 applyAudio()
                 applySubtitles()
@@ -575,18 +606,19 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                     seekInFlight = nil
                     completeSeek(revision: flight.revision, target: flight.target, finished: false)
                 } else {
-                    flight.awaitingRestart = true
+                    flight.commandAccepted = true
                     seekInFlight = flight
+                    finishRestartedSeek()
                 }
             } else if token == subtitleToken, token != 0, code < 0 {
                 // The subtitle file could not be opened: fall back to the plain cue document.
-                subtitleToken = 0
                 refusedSubtitleKeys.insert(subtitleTokenKey)
-                engineSubtitleKey = nil
-                externalSubtitleAddress = nil
+                clearEngineSubtitle()
                 applySubtitles()
             }
         case .tick:
+            if next.eofReached { reachedEnd() }
+            finishRestartedSeek()
             applyPendingSeek()
             let position = currentPosition()
             // A paused picture reports once, not twice a second for as long as it stays paused.
@@ -707,9 +739,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         seeking = true
         startSeek = nil
         seekToken += 1
-        seekInFlight = (seekToken, revision, target, false)
+        seekInFlight = (seekToken, revision, target, false, false)
         core.set("pause", "yes")
         core.command(["seek", String(format: "%.3f", target), "absolute+exact"], token: seekToken)
+    }
+
+    // Command replies and playback-restart events can arrive in either order.
+    private func finishRestartedSeek() {
+        guard let flight = seekInFlight, flight.commandAccepted, flight.restartSeen, !snapshot.seeking else { return }
+        seekInFlight = nil
+        completeSeek(revision: flight.revision, target: flight.target, finished: true)
     }
 
     private func completeSeek(revision: Int, target: Double, finished: Bool) {
@@ -974,7 +1013,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     var subtitleOverlayActive: Bool { return subtitleOverlay.overlayActive }
 
     private func clearEngineSubtitle() {
-        guard engineSubtitleKey != nil else { return }
+        guard engineSubtitleKey != nil || externalSubtitleAddress != nil || subtitleToken != 0 else { return }
         engineSubtitleKey = nil
         core?.set("sid", "no")
         removeExternalSubtitle()
@@ -985,8 +1024,19 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         externalSubtitleAddress = nil
         subtitleToken = 0
         fontFetcher.cancel()
+        core?.set("sub-fonts-dir", "")
         for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external-filename"] as? String) == address {
             if let id = PorticoMpvSupport.trackId(track) { core?.command(["sub-remove", String(id)]) }
+        }
+    }
+
+    /// A sub-add already in flight can finish after its choice was replaced or turned off.
+    /// Remove those late tracks and restore the current choice instead of letting select win.
+    private func removeStaleExternalSubtitles() {
+        for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external"] as? Bool) == true {
+            guard (track["external-filename"] as? String) != externalSubtitleAddress,
+                  let id = PorticoMpvSupport.trackId(track) else { continue }
+            core?.command(["sub-remove", String(id)])
         }
     }
 
@@ -1005,9 +1055,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             // Which mpv track that is can only be said once the file is open.
             guard loaded else { return }
             let embedded = render["embedded"] as? NSDictionary
-            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")"
+            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")|\(embedded?["title"] ?? "")|\(render["fonts"] ?? "")"
             if !refusedSubtitleKeys.contains(key) {
                 if key == engineSubtitleKey {
+                    if let embedded = embedded, let track = PorticoMpvSupport.embeddedSubtitle(embedded, kind: (render["kind"] as? String) ?? "", subtitles: PorticoMpvSupport.tracks(tracks, type: "sub")) {
+                        core?.set("sid", String(track))
+                    } else if let address = externalSubtitleAddress,
+                              let track = PorticoMpvSupport.tracks(tracks, type: "sub").first(where: { ($0["external-filename"] as? String) == address }),
+                              let id = PorticoMpvSupport.trackId(track) {
+                        core?.set("sid", String(id))
+                    }
                     core?.set("sub-delay", String(format: "%.3f", offset))
                     return
                 }
@@ -1046,7 +1103,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let text = render["url"] as? String, text.utf8.count <= 8192, let media = URL(string: source ?? ""), let url = URL(string: text, relativeTo: media)?.absoluteURL else { return false }
         var address: String?
         if url.isFileURL {
-            if media.isFileURL, PorticoMpvSupport.allowedLocalSource(url) { address = url.path }
+            let companionAllowed = kind != "vobsub" || PorticoMpvSupport.allowedLocalSource(url.deletingPathExtension().appendingPathExtension("sub"))
+            if media.isFileURL, PorticoMpvSupport.allowedLocalSource(url), companionAllowed { address = url.path }
         } else if PorticoMpvSupport.subtitleFileBelongs(url, toMedia: media) {
             address = relay.localURL(for: url)?.absoluteString
         }
@@ -1064,7 +1122,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         // first line is already drawn in the right face.
         if kind == "ass", !url.isFileURL, let fonts = render["fonts"] as? [NSDictionary], !fonts.isEmpty {
             fontFetcher.fetch(fonts, media: media) { [weak self] folder in
-                if let folder = folder { self?.core?.set("sub-fonts-dir", folder.path) }
+                guard let self = self, self.subtitleToken == token, self.externalSubtitleAddress == target else { return }
+                if let folder = folder { self.core?.set("sub-fonts-dir", folder.path) }
                 add()
             }
         } else {
@@ -1129,8 +1188,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         attachedView = view
         updateOutputRange()
         #if os(tvOS)
-        // A view that arrives after the first frame still gets the television matched.
-        if restarted, !displayCriteriaSet { matchDisplay { [weak self] in self?.applyIntent() } }
+        // Even a very fast load waits for the view before asking the television to switch.
+        if let done = pendingDisplayReady {
+            pendingDisplayReady = nil
+            matchDisplay(done)
+        } else if restarted, !displayCriteriaSet {
+            matchDisplay { [weak self] in self?.applyIntent() }
+        }
         #endif
     }
 
@@ -1147,14 +1211,30 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     /// the switch to finish, so the first seconds are not lost to a blank screen. The picture is
     /// standard range (see `hdrOutputAvailable`), so only the rate is asked for.
     private func matchDisplay(_ done: @escaping () -> Void) {
-        guard #available(tvOS 17.0, *), let manager = attachedView?.window?.avDisplayManager, manager.isDisplayCriteriaMatchingEnabled, let criteria = displayCriteria() else {
+        guard let window = attachedView?.window else {
+            displayHold = true
+            core?.set("pause", "yes")
+            pendingDisplayReady = done
+            let epoch = loadEpoch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                guard let self = self, self.loadEpoch == epoch, let waiting = self.pendingDisplayReady else { return }
+                self.pendingDisplayReady = nil
+                self.displayHold = false
+                waiting()
+            }
+            return
+        }
+        guard #available(tvOS 17.0, *), window.avDisplayManager.isDisplayCriteriaMatchingEnabled, let criteria = displayCriteria() else {
+            displayHold = false
             done()
             return
         }
+        let manager = window.avDisplayManager
         criteriaClear?.cancel()
         criteriaClear = nil
         let epoch = loadEpoch
         displayHold = true
+        core?.set("pause", "yes")
         displayCriteriaSet = true
         manager.preferredDisplayCriteria = criteria
         var settled = false
@@ -1184,10 +1264,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let fps = (video?["demux-fps"] as? NSNumber)?.doubleValue, fps.isFinite, fps >= 1, fps <= 240,
               let width = (videoParams["w"] as? NSNumber)?.int32Value ?? (video?["demux-w"] as? NSNumber)?.int32Value, width > 0,
               let height = (videoParams["h"] as? NSNumber)?.int32Value ?? (video?["demux-h"] as? NSNumber)?.int32Value, height > 0 else { return nil }
-        let extensions: [CFString: Any] = [
-            kCMFormatDescriptionExtension_ColorPrimaries: kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
-            kCMFormatDescriptionExtension_TransferFunction: kCMFormatDescriptionTransferFunction_ITU_R_709_2,
-            kCMFormatDescriptionExtension_YCbCrMatrix: kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
+        let extensions: [String: Any] = [
+            kCMFormatDescriptionExtension_ColorPrimaries as String: kCMFormatDescriptionColorPrimaries_ITU_R_709_2,
+            kCMFormatDescriptionExtension_TransferFunction as String: kCMFormatDescriptionTransferFunction_ITU_R_709_2,
+            kCMFormatDescriptionExtension_YCbCrMatrix as String: kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2,
         ]
         var description: CMVideoFormatDescription?
         let status = CMVideoFormatDescriptionCreate(allocator: kCFAllocatorDefault, codecType: kCMVideoCodecType_H264, width: width, height: height, extensions: extensions as CFDictionary, formatDescriptionOut: &description)
