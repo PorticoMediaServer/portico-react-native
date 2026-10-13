@@ -4,7 +4,7 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import {queueItemInput} from '../../../../packages/client-core/src/queue-controller';
 import {SavedService, type PlaylistCard, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
 import {entryActions, type EntryActionId} from '../../../../packages/client-core/src/presentation/index';
-import {containerKindFor, useContainerState} from '../app/container-state';
+import {announceMark, containerKindFor, useContainerState} from '../app/container-state';
 import type {DownloadRequestKind} from '../../../../packages/client-core/src/download-requests';
 import {PersonalSavedService, type PersonalSavedSnapshot} from '../../../../packages/client-core/src/personal-saved';
 import {viewerScope} from '../app/content';
@@ -20,6 +20,7 @@ import {useI18n} from '../app/i18n';
 import type {EntryOrigin} from '../app/player-actions';
 import {continueScope, removeFromContinueWatching} from '../app/continue-watching';
 import {markNotInterested} from '../app/not-interested';
+import {emitPlaybackChange} from '../app/playback-events';
 
 type Engine = ReturnType<typeof usePlayerEngine>;
 
@@ -95,7 +96,15 @@ export function EntryMenu({entry, origin, engine, onClose, onOpen, onTogether}: 
       case 'addToGroupQueue': if (item) void together.service?.queueAdd([item]).then(ok => showToast(ok ? {message: i18n.t('entry.addedToGroupQueue'), icon: 'check'} : {message: i18n.t('entry.groupQueueFailed'), icon: 'warning'})); break;
       case 'watchlist': if (containerKind) void container.setFlag('watchlisted', !container.state?.watchlisted).catch(failed); else mutate({action: 'watchlist', value: !personal?.watchlisted}); break;
       case 'favorite': if (containerKind) void container.setFlag('favorite', !container.state?.favorite).catch(failed); else mutate({action: 'favorite', value: !personal?.favorite}); break;
-      case 'watched': if (containerKind) void container.setWatched(!(container.state?.watched ?? false)).catch(failed); else mutate({action: 'watched', value: !personal?.watched}); break;
+      case 'watched':
+        if (containerKind && containerId) {
+          // A show, season, album or book marked from its card: said, with Undo while the server's receipt is good.
+          const next = !(container.state?.watched ?? false), kind = containerKind, id = containerId, title = entry.title;
+          // The screens behind the menu read their titles again after the mark, and again after an Undo.
+          const reread = () => emitPlaybackChange({positionSeconds: 0, completed: false, reason: 'closed'});
+          void container.setWatched(next).then(marked => { announceMark(api, kind, id, marked, i18n.t(next ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: title}), reread); reread(); }, failed);
+        } else mutate({action: 'watched', value: !personal?.watched});
+        break;
       case 'removeFromContinueWatching': {
         const viewer = session?.viewer;
         void removeFromContinueWatching({

@@ -11,7 +11,7 @@ import {useOpenEntry} from '../app/open';
 import {useInvoker} from '../app/playback-events';
 import {sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
-import {containerKindFor, useContainerState} from '../app/container-state';
+import {announceMark, containerKindFor, useContainerState} from '../app/container-state';
 import {useSession} from '../app/session';
 import {activeYearsLabel, artistReleaseGroups} from '../../../../packages/client-core/src/presentation/index';
 import {TitleDetails} from './title/TitleDetails';
@@ -144,7 +144,11 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     ...(!isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
     ...(container.carries('watchlisted') && container.state ? [{icon: (listed ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(listed ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: listed, onPress: () => { void container.setFlag('watchlisted', !listed).catch(failed); }}] : []),
     ...(container.carries('favorite') && container.state ? [{icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => { void container.setFlag('favorite', !favorite).catch(failed); }}] : []),
-    ...(isBook && container.state ? [{icon: (finished ? 'watched' : 'check') as IconName, label: i18n.t(finished ? 'title.markNotFinished' : 'title.markFinished'), iconOnly: true, selected: finished, onPress: () => { void container.setWatched(!finished).then(() => { container.refresh(); refresh(); }, failed); }}] : []),
+    ...(isBook && container.state ? [{icon: (finished ? 'watched' : 'check') as IconName, label: i18n.t(finished ? 'title.markNotFinished' : 'title.markFinished'), iconOnly: true, selected: finished, onPress: () => {
+      const reread = () => { container.refresh(); refresh(); };
+      // A book marked finished (or not) can be put back as it was: which parts were heard, and where each had got to.
+      void container.setWatched(!finished).then(marked => { if (entity) announceMark(api, 'book', entity.id, marked, i18n.t(finished ? 'title.notFinished' : 'title.finished'), reread); reread(); }, failed);
+    }}] : []),
   ];
   const more = (entry: ContentEntry) => open(entry, 'more', libraryId);
   // The page's own ⋯: what a card of this album, artist or book offers, minus what the row already has.

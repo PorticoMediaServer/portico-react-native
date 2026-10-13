@@ -4,7 +4,7 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {SHOW_SETTING_ROWS, dedupeNames, networkName, nextUpPin, originalTitleLine, relatedRowsForPage, seasonProgress, showCreditLines, showPeople} from '../../../../packages/client-core/src/presentation/index';
-import {useContainerState} from '../app/container-state';
+import {announceMark, useContainerState} from '../app/container-state';
 import {saveShowSettings, type ShowSettings, type ShowWorkspaceRoute} from '../../../../packages/client-core/src/show-workspace';
 import {useArtwork} from '../app/content';
 import {useShowRecommendations, useShowWorkspace} from '../app/detail';
@@ -218,22 +218,24 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     if (!selectedSeasonId) return;
     setMarking(true);
     try {
-      await seasonState.setWatched(watched);
-      showToast({message: i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: seasonTitle}), icon: 'check'});
-      seasonState.refresh();
-      showState.refresh();
-      retry();
+      const marked = await seasonState.setWatched(watched);
+      const reread = () => { seasonState.refresh(); showState.refresh(); retry(); };
+      // Undo puts back exactly which episodes were watched and where each had got to.
+      announceMark(api, 'season', selectedSeasonId, marked, i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: seasonTitle}), reread);
+      reread();
     } catch (e) {
       showToast({message: say(e, 'show', 'save'), icon: 'warning'});
     } finally {
       setMarking(false);
     }
-  }, [selectedSeasonId, seasonState, showState, i18n, seasonTitle, retry]);
+  }, [selectedSeasonId, seasonState, showState, i18n, seasonTitle, retry, api]);
   const markShow = useCallback(async (watched: boolean) => {
     if (!show) return;
     setMarking(true);
     try {
-      await showState.setWatched(watched);
+      const marked = await showState.setWatched(watched);
+      const reread = () => { showState.refresh(); seasonState.refresh(); retry(); };
+      announceMark(api, 'show', show.id, marked, i18n.t(watched ? 'title.seasonMarkedWatched' : 'title.seasonMarkedUnwatched', {season: show.title}), reread);
       seasonState.refresh();
       retry();
     } catch (e) {
@@ -241,7 +243,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     } finally {
       setMarking(false);
     }
-  }, [show, showState, seasonState, retry]);
+  }, [show, showState, seasonState, retry, api, i18n]);
   const setShowFlag = (flag: 'watchlisted' | 'favorite') => { void showState.setFlag(flag, !showState.state?.[flag]).catch(e => showToast({message: say(e, 'show', 'save'), icon: 'warning'})); };
   const onSeasonAction = (id: string) => {
     if (id === 'play') playAt(0, 0);
