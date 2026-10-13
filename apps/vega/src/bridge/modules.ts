@@ -8,14 +8,18 @@ import {readRecord, serialized, writeRecord} from './storage';
 const appVersion: string = String((require('../../package.json') as {version?: string}).version ?? '');
 
 let named: Promise<string> | undefined;
+/** A name that only says what kind of device this is: no better than no name at all. */
+const genericName = /^(unknown|fire ?tv|amazon fire ?tv|fire ?tv stick|vega)$/i;
+
 /**
  * The name the owner gave this device ("Living Room"), for sign-in approvals; empty when the
- * system does not say, and the app then says what kind of device it is. Sign-in waits for the
- * device's identity, so the question is given a moment and no longer.
+ * system does not say or only says what kind of device it is, and the app then says that itself
+ * (`deviceModelName`). Sign-in waits for the device's identity, so the question is given a moment
+ * and no longer.
  */
 function deviceName(): Promise<string> {
   named ??= new Promise<string>(resolve => {
-    const settle = (value: unknown) => resolve(typeof value === 'string' && !/^unknown$/i.test(value) ? value : '');
+    const settle = (value: unknown) => resolve(typeof value === 'string' && !genericName.test(value.trim()) ? value.trim() : '');
     const timer = setTimeout(() => settle(''), 1500);
     try {
       Promise.resolve(DeviceInfo.getDeviceName()).then(settle, () => settle('')).finally(() => clearTimeout(timer));
@@ -55,7 +59,8 @@ export const PorticoCast = withEvents({
   end(_stopReceiver: boolean): void {},
 }, new ModuleEvents());
 
-/** `NativeModules.PorticoDownloads`: downloads are for handheld devices. */
+/** `NativeModules.PorticoDownloads`: downloads are for handheld devices. The shared code offers
+ * them nowhere on a television (`offline-downloads.ts`); every method still answers. */
 const noDownloads = () => Promise.reject(failure('downloads_unavailable', 'Downloads are unavailable on this device.'));
 export const PorticoDownloads = withEvents({
   list: (): Promise<unknown[]> => Promise.resolve([]),
@@ -63,6 +68,10 @@ export const PorticoDownloads = withEvents({
   pause: (_id: string): Promise<void> => Promise.resolve(),
   remove: (_id: string): Promise<void> => Promise.resolve(),
   setMeta: (_id: string, _meta: string): Promise<void> => Promise.resolve(),
+  setMetas: (_metas: unknown): Promise<void> => Promise.resolve(),
+  writeExtra: noDownloads,
+  readExtra: (..._args: unknown[]): Promise<null> => Promise.resolve(null),
+  fetchExtra: noDownloads,
   storage: (): Promise<{freeBytes: number; usedBytes: number}> => Promise.resolve({freeBytes: 0, usedBytes: 0}),
   setCellular: (_allowed: boolean): Promise<void> => Promise.resolve(),
   readState: (): Promise<string> => Promise.resolve(''),

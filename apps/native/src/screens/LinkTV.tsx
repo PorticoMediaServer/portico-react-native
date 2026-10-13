@@ -16,7 +16,7 @@ function formatCode(text: string): string {
 
 // APL-SYS-04: errors are presented by code; the old per-call fallback text is no longer shown.
 const say = (e: unknown, _fallback?: string) => presentedMessage(e, 'devices', 'action');
-const platforms: Record<string, string> = {tvos: 'Apple TV', androidtv: 'Android TV', firetv: 'Fire TV', webos: 'LG TV', tizen: 'Samsung TV', roku: 'Roku', web: 'Web browser', ios: 'iPhone or iPad', android: 'Android'};
+const platforms: Record<string, string> = {tvos: 'Apple TV', androidtv: 'Android TV', firetv: 'Fire TV', vega: 'Fire TV', webos: 'LG TV', tizen: 'Samsung TV', roku: 'Roku', web: 'Web browser', ios: 'iPhone or iPad', android: 'Android'};
 
 /**
  * Sign a television in from the phone: type the code the TV is showing, check it is the right
