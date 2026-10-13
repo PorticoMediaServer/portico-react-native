@@ -12,8 +12,12 @@ import {bitmapWarningNeeded, isBitmapResource, ownerPlaybackSwitches, textTrackF
 import {dedupQualityRungs, playbackInfoRows, qualityNetworkFooter, type PlaybackInfoFacts} from '../../../../packages/client-core/src/presentation/index';
 import {parseSession} from '../../../../packages/client-core/src/playback-v1/types';
 import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
+import {usePreferences} from '../app/preferences';
+import {engineSettings} from './engine-choice';
+import {chooseSubtitle} from './engine-media';
+import {engineText} from './engine-strings';
 
-export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info';
+export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info' | 'engine';
 export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
   {key: 'audio', label: defaultI18n.t('player.opt.audio'), icon: 'audio'},
   {key: 'subtitles', label: defaultI18n.t('player.opt.subtitles'), icon: 'subtitles'},
@@ -24,7 +28,7 @@ export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
 /** The boxes for what is playing: music has no Speed (an audiobook keeps it). */
 export const optionBoxesFor = (music: boolean) => (music ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
 const titleIds = {audio: 'player.opt.audio', subtitles: 'player.opt.subtitles', quality: 'player.opt.quality', speed: 'player.opt.speed', sleep: 'player.opt.sleepTimer', menu: 'player.opt.menu', queue: 'player.queue', info: 'player.opt.info'} as const;
-const titles = Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])) as Record<OptionKey, string>;
+const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: engineText('settings.row.player')} as Record<OptionKey, string>;
 
 /** A window rectangle an option panel hangs from (the box that opened it). */
 export type OptionAnchor = {x: number; y: number; width: number; height: number};
@@ -114,6 +118,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
   const {state} = engine;
   const {space, isTV} = useTheme();
   const i18n = useI18n();
+  const device = usePreferences();
   const back = fromMenu && option !== 'menu' ? <ListRow icon="back" title={i18n.t('player.opt.menu')} onPress={() => onPick('menu')} /> : null;
   // TV: a panel whose content has nothing to choose (loading, one track, info) still needs a focus stop inside its trapped guide.
   const closeRow = isTV ? <ListRow icon="close" title={i18n.t('player.opt.close')} hasTVPreferredFocus={!back} onPress={onClose} /> : null;
@@ -128,9 +133,15 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
         {/* The first row takes focus when the panel opens (TV), whichever rows this playback has. */}
         {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => onPick('queue')} /> : null}
         {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={!compact && upcoming === 0} onPress={() => { onClose(); onReport(); }} /> : null}
-        {!compact && upcoming === 0 && !onReport ? closeRow : null}
+        {/* Which player plays this title: changing it moves the title across where it stands. */}
+        {engine.engineSelectable ? <ListRow icon="settings" title={engineText('settings.row.player')} meta={engineText(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={!compact && upcoming === 0 && !onReport} onPress={() => onPick('engine')} /> : null}
+        {!compact && upcoming === 0 && !onReport && !engine.engineSelectable ? closeRow : null}
       </>
     );
+  } else if (option === 'engine') {
+    body = engineSettings.map(value => (
+      <ListRow key={value} title={engineText(`settings.player.${value}`)} selected={device.preferences.playerEngine === value} hasTVPreferredFocus={device.preferences.playerEngine === value} onPress={() => { device.update({playerEngine: value}); onClose(); }} />
+    ));
   } else if (option === 'speed') {
     body = engine.rates.map(rate => (
       <ListRow key={rate} title={rate === 1 ? i18n.t('player.opt.normalSpeed') : `${rate}×`} selected={engine.speedState.desired === rate} hasTVPreferredFocus={engine.speedState.desired === rate} disabled={engine.speedState.ready && !engine.speedState.supported.includes(rate)} onPress={() => { engine.setRate(rate); onClose(); }} />
@@ -140,7 +151,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
     const tracks = engine.state.audioTracks;
     body = (!audio.plan || audio.availability === 'unavailable') && tracks ? tracks.tracks.map(t => {
       const selected = t.streamIndex === (tracks.pending ?? tracks.selected);
-      return <ListRow key={t.streamIndex} title={t.label} selected={selected} hasTVPreferredFocus={selected} onPress={() => { engine.service.selectAudioTrack(t.streamIndex).catch(() => showToast({message: i18n.t('player.opt.audioChangeFailed'), icon: 'warning'})); onClose(); }} />;
+      return <ListRow key={t.streamIndex} title={t.label} selected={selected} hasTVPreferredFocus={selected} onPress={() => { engine.selectAudioTrack(t.streamIndex).catch(() => showToast({message: i18n.t('player.opt.audioChangeFailed'), icon: 'warning'})); onClose(); }} />;
     }) : audio.plan ? (
       audio.plan.renditions.map(r => {
         const current = (audio.pending?.renditionId ?? audio.observedRenditionId ?? audio.plan?.defaultRenditionId) === r.id;
@@ -222,9 +233,18 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
   const bitmapNote = i18n.t('player.subtitles.bitmapNote');
   // ARCH-API-08: a burned-in (bitmap) track converts the video, so the owner's transcoding switch turns it off too.
   const owner = ownerPlaybackSwitches(engine.quality.offers);
-  const ownerBlocks = (r: (typeof plan.resources)[number]) => !owner.subtitleBurnIn && isBitmapResource(r);
+  // A track the player in use draws itself (mpv: styled and image subtitles) is not burned in, so
+  // neither the owner's switch nor the conversion warning applies to it.
+  const drawn = (r: (typeof plan.resources)[number]) => engine.subtitleRendering(r);
+  const ownerBlocks = (r: (typeof plan.resources)[number]) => !owner.subtitleBurnIn && isBitmapResource(r) && !drawn(r);
   const chooseResource = (r: (typeof plan.resources)[number]) => {
     if (!r.enabled || snapshot.busy || ownerBlocks(r)) return;
+    const rendering = drawn(r);
+    if (rendering) {
+      void chooseSubtitle(service, r, rendering).catch(() => {});
+      onClose();
+      return;
+    }
     // A language with both a text and a bitmap track plays the text track.
     if (isBitmapResource(r)) {
       const text = textTrackForLanguage(plan.resources, r.language);
@@ -248,7 +268,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
       {plan.resources.map(r => {
         const selected = !snapshot.suppressed && plan.selected?.id === r.id;
         return (
-          <ListRow key={r.id} title={trackName(r, i18n.locale) || r.title || r.language} subtitle={[r.forced ? i18n.t('player.opt.forced') : '', origin(r.origin, r.provider), r.enabled && isBitmapResource(r) && !ownerBlocks(r) ? bitmapNote : ''].filter(Boolean).join(' · ')}
+          <ListRow key={r.id} title={trackName(r, i18n.locale) || r.title || r.language} subtitle={[r.forced ? i18n.t('player.opt.forced') : '', origin(r.origin, r.provider), r.enabled && isBitmapResource(r) && !ownerBlocks(r) && !drawn(r) ? bitmapNote : ''].filter(Boolean).join(' · ')}
             selected={selected} hasTVPreferredFocus={selected} disabled={!r.enabled || ownerBlocks(r)} meta={!r.enabled ? i18n.t('player.opt.unavailable') : ownerBlocks(r) ? i18n.t('player.ownerOff') : undefined} onPress={() => chooseResource(r)} />
         );
       })}

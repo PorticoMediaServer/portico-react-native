@@ -27,6 +27,8 @@ import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {word} from '../../app/new-words';
+import {PlayerEngineRow} from '../../player/EngineSettingRow';
+import {mpvAvailable} from '../../bridge/player-engines';
 
 /**
  * The Settings structure for this viewer on this device (`settings-structure.ts`): the pages,
@@ -103,13 +105,17 @@ function SectionView({page, section, save, entryRow}: {page: string; section: Se
   const groups = shown.filter(row => row.kind === 'custom' && GROUP_PANELS.has(row.id));
   const rows = shown.filter(row => !(row.kind === 'custom' && GROUP_PANELS.has(row.id)));
   const draw = (row: StructureRow) => row.kind === 'server-setting' ? null : row.kind === 'custom' ? <Panel key={row.id} id={row.id} entry={entryRow === row.id} /> : <RowView key={settingsRowId(row)} row={row} save={save} entry={entryRow === settingsRowId(row)} />;
+  // The Player setting (this device's own player, mpv, or Automatic) sits with the playback method.
+  // It is drawn here until the shared Settings structure has the row (see EngineSettingRow).
+  const player = mpvAvailable && page === 'quality' && section.id === 'method' ? <PlayerEngineRow key="playerEngine" /> : null;
   return (
     <>
       {groups.map(draw)}
-      {rows.length ? (
+      {rows.length || player ? (
         <RowGroup title={!section.advanced && section.title ? i18n.t(section.title) : undefined} footer={footer}>
           {section.advanced ? <ListRow title={i18n.t(section.title ?? 'settings.section.advanced')} trailingIcon={open ? 'chevronUp' : 'chevronDown'} accessibilityState={{expanded: open}} onPress={() => setOpen(o => !o)} /> : null}
           {open ? rows.map(draw) : null}
+          {player}
         </RowGroup>
       ) : null}
     </>

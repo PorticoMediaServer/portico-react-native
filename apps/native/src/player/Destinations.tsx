@@ -57,7 +57,7 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
   const nearby: NearbyPlayer[] = adverts.filter(a => a.serverId === serverId && receivers.has(a.receiverId)).map(a => ({id: a.receiverId, name: receivers.get(a.receiverId)?.displayName || a.name, kind: a.kind}));
   const playback = engine.state;
   const sendable = !!playback.session?.id && !playback.channel;
-  const destinations = playOnDestinations(playOnPlatform, {airplay: hasAirPlay, googleCast: cast.snapshot.available && sendable, nearby: sendable ? nearby : []});
+  const destinations = playOnDestinations(playOnPlatform, {airplay: hasAirPlay && engine.engineFeatures.airPlayVideo, googleCast: cast.snapshot.available && sendable, nearby: sendable ? nearby : []});
   const send = async (target: Receiver) => {
     const s = engine.service.getSnapshot();
     if (!s.session?.id) return;

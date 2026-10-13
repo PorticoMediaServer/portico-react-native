@@ -7,11 +7,12 @@ const noSubscribe = () => () => {};
 /** The volume slider needs a native build that has it; older builds simply don't show one. */
 const hasVolumeView = !!(UIManager as {hasViewManagerConfig?: (name: string) => boolean}).hasViewManagerConfig?.('PorticoVolumeView');
 const noSnapshot = () => null;
-import {BackHandler, NativeEventEmitter, NativeModules, Pressable, StyleSheet, TVFocusGuideView, UIManager, View, useTVEventHandler} from 'react-native';
+import {BackHandler, Pressable, StyleSheet, TVFocusGuideView, UIManager, View, useTVEventHandler} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import Animated, {Easing, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
-import {NativePlayer, VolumeSlider} from '../bridge/NativeViews';
+import {VolumeSlider} from '../bridge/NativeViews';
+import {enginePlayerView, subscribePictureInPicture} from '../bridge/player-engines';
 import {useI18n} from '../app/i18n';
 import {say} from '../app/errors';
 import {useSystemMedia, systemPosterPath, type SystemMediaCommand} from '../bridge/NativeSystemMedia';
@@ -252,7 +253,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const canPrevious = !!queueEntries && currentAt > 0;
   const upcoming = upcomingEntries(queueState?.view ?? null);
   // iPad and TV: a sixth box for what doesn't fit the five (Up next, Playback info, Report).
-  const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel));
+  const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel) || engine.engineSelectable);
   const systemItemId = state.itemId ?? identity.itemId;
   // Next and Previous move through the queue. Live TV has none: its own are the channel steps.
   const stepInQueue = (action: 'next' | 'previous') => { if (!state.channel) engine.step(action); };
@@ -274,6 +275,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
           skipForwardSeconds: skipForward,
           canNext,
           canPrevious,
+          // With no queue to step through, Next and Previous on the lock screen move by chapter.
+          chapters: state.channel ? undefined : engine.chapters,
           markers: markers?.markers.map(m => ({kind: m.kind, startSeconds: m.startSeconds, endSeconds: m.endSeconds})),
         },
     (c: SystemMediaCommand) => {
@@ -367,16 +370,16 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   };
   const pipLease = useRef('');
   pipLease.current = engine.lease ?? '';
-  useEffect(() => {
-    const module = NativeModules.PorticoPlaybackModule;
-    if (!module) return undefined;
-    const sub = new NativeEventEmitter(module).addListener('PorticoPictureInPicture', (change: {lease?: string; state: string; subtitlesCarried?: boolean}) => {
-      if (change.lease && change.lease === pipLease.current) onPictureInPicture.current(change);
-    });
-    return () => sub.remove();
-  }, []);
+  // Each engine answers on its own channel; the one in use is the one listened to.
+  const engineKind = engine.engineKind;
+  useEffect(() => subscribePictureInPicture(engineKind, change => {
+    if (change.lease && change.lease === pipLease.current) onPictureInPicture.current(change);
+  }), [engineKind]);
+  // An engine that cannot float its picture (mpv) has no Picture in Picture button at all.
+  const pipOffered = engine.engineFeatures.pictureInPicture && !pipUnavailable;
+  const EnginePlayer = enginePlayerView(engineKind);
   const pictureInPicture = (
-    <NativePlayer
+    <EnginePlayer
       style={isAudio || engine.pipActive ? {width: 1, height: 1, position: 'absolute'} : StyleSheet.absoluteFill}
       lease={engine.lease ?? ''}
       pictureInPictureRequest={engine.pipRequest}
@@ -461,7 +464,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
           <GroupPill />
           {lyricsAllowed ? <Button variant="ghost" round icon="lyrics" selected={lyricsOn} accessibilityLabel={i18n.t('player.lyrics')} accessibilityState={{selected: lyricsOn}} onPress={() => setLyricsOn(v => !v)} /> : null}
           {!isTV && !state.channel ? <Button variant="ghost" round icon="cast" accessibilityLabel={i18n.t('player.playOn')} onPress={() => setDestinations(true)} /> : null}
-          {!isAudio && !pipUnavailable ? <Button variant="ghost" round icon="pip" accessibilityLabel={i18n.t('player.pictureInPicture')} onPress={engine.requestPip} /> : null}
+          {!isAudio && pipOffered ? <Button variant="ghost" round icon="pip" accessibilityLabel={i18n.t('player.pictureInPicture')} onPress={engine.requestPip} /> : null}
           {!isTV ? <Button variant="ghost" round icon={isAudio ? 'chevronDown' : 'close'} accessibilityLabel={i18n.t(isAudio ? 'player.minimize' : 'player.close')} onPress={isAudio ? engine.collapse : engine.leave} /> : null}
         </View>
         <View style={{position: 'absolute', left: side, right: side, bottom: bottomInset, gap: isTV ? space.lg : space.md}}>
