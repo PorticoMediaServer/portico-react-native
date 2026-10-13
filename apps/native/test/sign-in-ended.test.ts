@@ -1,15 +1,21 @@
 /** Justin (23 Sep): an ended sign-in goes back to sign-in; an unreachable server keeps the shell. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {resumeEnding, stepAfterEnding} from '../src/app/sign-in-ended.ts';
+import {resumeEnding, savedStateAfter, stepAfterEnding} from '../src/app/sign-in-ended.ts';
 import {SessionRefreshError, ACCESS_REFUSED} from '../../../packages/client-core/src/server-connections.ts';
 import {RouteError} from '../../../packages/client-core/src/route-identity.ts';
 import {ApiError} from '../../../packages/client-core/src/index.ts';
 
-test('the same endings as web: a refused renewal, access refused, or another server at the address', () => {
-  assert.equal(resumeEnding(new SessionRefreshError('refresh_refused', 'ended', true), false, ACCESS_REFUSED), 'ended');
-  assert.equal(resumeEnding(new RouteError(ACCESS_REFUSED, 'no access'), false, ACCESS_REFUSED), 'noAccess');
-  assert.equal(resumeEnding(new Error('offline'), true, ACCESS_REFUSED), 'reset');
+test('the same endings as web: a refused renewal, or access refused', () => {
+  assert.equal(resumeEnding(new SessionRefreshError('refresh_refused', 'ended', true), ACCESS_REFUSED), 'ended');
+  assert.equal(resumeEnding(new RouteError(ACCESS_REFUSED, 'no access'), ACCESS_REFUSED), 'noAccess');
+});
+
+test('another server answering at the address ends nothing: the sign-in is kept and the shell says so', () => {
+  assert.equal(resumeEnding(new Error('offline'), ACCESS_REFUSED), undefined);
+  assert.equal(resumeEnding(new RouteError('identity_mismatch', 'another server'), ACCESS_REFUSED), undefined);
+  assert.equal(savedStateAfter(true), 'replaced');
+  assert.equal(savedStateAfter(false), 'offline');
 });
 
 test('everything else keeps the saved sign-in and the shell', () => {
@@ -20,7 +26,7 @@ test('everything else keeps the saved sign-in and the shell', () => {
     new ApiError(503, 'unavailable', 'down', true),
     new ApiError(429, 'rate_limited', 'wait', true),
     new ApiError(404, 'not_found', 'gone', false),
-  ]) assert.equal(resumeEnding(error, false, ACCESS_REFUSED), undefined, String((error as {code?: string}).code ?? error.name));
+  ]) assert.equal(resumeEnding(error, ACCESS_REFUSED), undefined, String((error as {code?: string}).code ?? error.name));
 });
 
 test('sign-in opens where the sign-in can be renewed', () => {

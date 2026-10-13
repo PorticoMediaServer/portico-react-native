@@ -99,8 +99,8 @@ test('other records in the same store keep their own failures', async () => {
 });
 
 test('a damaged saved connection ends the sign-in when the app resumes it; an unreadable store does not', () => {
-  assert.equal(resumeEnding(Object.assign(new Error('damaged'), {code: 'invalid_saved_connection'}), false, ACCESS_REFUSED), 'ended');
-  assert.equal(resumeEnding(Object.assign(new Error('locked'), {code: 'secure_storage'}), false, ACCESS_REFUSED), undefined);
+  assert.equal(resumeEnding(Object.assign(new Error('damaged'), {code: 'invalid_saved_connection'}), ACCESS_REFUSED), 'ended');
+  assert.equal(resumeEnding(Object.assign(new Error('locked'), {code: 'secure_storage'}), ACCESS_REFUSED), undefined);
 });
 
 test('both native stores answer a damaged record with the same code, apart from one they cannot read now', () => {

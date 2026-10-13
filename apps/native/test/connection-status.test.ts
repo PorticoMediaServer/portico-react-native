@@ -89,6 +89,21 @@ test('recovery clears the status and keeps the generation; a second loss bumps i
   store.dispose();
 });
 
+test('something else answering at the saved address shows as its own status and goes away when the server is back', () => {
+  const {timer, store, unsubscribe} = mounted();
+  store.update({saved: 'checking'});
+  timer.fire();
+  store.update({saved: 'replaced'});
+  assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'replaced', generation: 1});
+  // The next try reaches nothing at all: the same outage, said differently.
+  store.update({saved: 'offline'});
+  assert.deepEqual(store.getSnapshot(), {shown: true, reason: 'unreachable', generation: 1});
+  store.update({});
+  assert.deepEqual(store.getSnapshot(), {shown: false, reason: null, generation: 1});
+  unsubscribe();
+  store.dispose();
+});
+
 test('the saved server at launch: checking then unreachable', () => {
   const {timer, store, seen, unsubscribe} = mounted();
   store.update({saved: 'checking'});

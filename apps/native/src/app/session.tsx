@@ -6,7 +6,7 @@ import {acceptPorticoCustody, acceptPorticoInvitation, isAccessRefused, isClockS
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
 import {ViewerSelectionCommit, selectedViewerRecord, type SelectedViewerRecord} from '../../../../packages/client-core/src/viewer-selection';
 import {directOutcome} from './direct-outcome';
-import {connectDirectServer, serverAddress} from './direct-connect';
+import {addressFailure, changedWhileSigningIn, connectDirectServer, findDirectServer, serverAddress} from './direct-connect';
 import {routeRefusal} from './portico-refusal';
 import {classifyPorticoFailure, type PorticoFailure, type PorticoStage} from './portico-failure';
 import {lastPorticoServer} from '../bridge/last-server';
@@ -27,7 +27,7 @@ import {offlineDownloads} from '../bridge/offline-downloads';
 import {activeI18n, present, ShownError, signInMessage} from './errors';
 import {clearActivity} from '../bridge/NativeActivity';
 import {knownDirectServers} from '../bridge/known-servers';
-import {resumeEnding} from './sign-in-ended';
+import {resumeEnding, savedStateAfter} from './sign-in-ended';
 import {rememberDirectSignIn} from '../bridge/direct-memory';
 
 /**
@@ -102,18 +102,19 @@ export type SessionValue = {
    * Justin's rule: the app always opens into the shell. A remembered sign-in is shown at once and
    * checked in the background; while it isn't confirmed this says why, for the centered status that
    * replaces the page (shell/ReconnectingStatus.tsx):
-   * 'checking', 'offline' (retried a few times, then on request) or 'reset' (the server was
-   * rebuilt or refused the sign-in: sign in again). Undefined once confirmed, or with no saved sign-in.
+   * 'checking', 'offline' (retried a few times, then on request) or 'replaced' (something else
+   * answers at the server's address: the sign-in is kept and retried, and only the person decides
+   * to sign in again). Undefined once confirmed, or with no saved sign-in.
    */
-  /** 'reset': the address now answers as another server. 'ended': the server refused to renew this sign-in, or it is no longer on this device. 'noAccess': the server knows this sign-in and refuses it access (`access_refused`); not retried, the credential kept. */
-  saved?: {state: 'checking' | 'offline'; host?: string; retry: () => void; signInAgain: () => void; useAnother: () => void};
+  saved?: {state: 'checking' | 'offline' | 'replaced'; host?: string; retry: () => void; signInAgain: () => void; useAnother: () => void};
   /**
-   * Justin (23 Sep): a sign-in that has ended (the server refused to renew it, refused this profile
-   * access, or the address now answers as another server) goes straight back to sign-in, never a
-   * banner in the shell. This says where to: the direct form with the address (and username)
+   * Justin (23 Sep): a sign-in that has ended (the server refused to renew it, or refused this
+   * profile access) goes straight back to sign-in, never a banner in the shell. 'ended': the
+   * server refused to renew this sign-in, or it is no longer on this device. 'noAccess': the server
+   * knows this sign-in and refuses it access (`access_refused`); not retried, the credential kept. This says where to: the direct form with the address (and username)
    * filled in, or the Portico Account flow with its server chooser. Downloads stay on the device.
    */
-  signInHint?: {authority: 'local' | 'hosted'; reason: 'ended' | 'noAccess' | 'reset'};
+  signInHint?: {authority: 'local' | 'hosted'; reason: 'ended' | 'noAccess'};
   clearSignInHint: () => void;
   /** The quiet note the sign-in screens show after such an ending ("Your sign-in to … has ended."). */
   signInNote?: string;
@@ -261,7 +262,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const [busy, setBusy] = useState(false);
   const [recovery, setRecovery] = useState<SelectedViewerRecord>();
   const [resumeFailure, setResumeFailure] = useState<'offline' | 'auth'>();
-  const [savedState, setSavedState] = useState<'checking' | 'offline'>();
+  const [savedState, setSavedState] = useState<'checking' | 'offline' | 'replaced'>();
   const resumeAttempts = useRef(0);
   const resumeRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [restoring, setRestoring] = useState(true);
@@ -273,7 +274,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const refresher = useRef<LocalSessionRefresher | undefined>(undefined);
   const refreshEnded = useRef<(error?: unknown) => void>(() => {});
   /** The saved sign-in can't be used any more: back to sign-in (set once signOut exists, below). */
-  const signInNeeded = useRef<(reason: 'ended' | 'noAccess' | 'reset', record?: SelectedViewerRecord) => void>(() => {});
+  /** The address that answered for what was typed, kept beside the pinned identity so pairing goes to the same place. */
+  const answered = useRef<{typed: string; address: string} | undefined>(undefined);
+  const pinnedAddress = (typed: string) => (answered.current?.typed === typed ? answered.current.address : serverAddress(typed));
+  const signInNeeded = useRef<(reason: 'ended' | 'noAccess', record?: SelectedViewerRecord) => void>(() => {});
   const [signInHint, setSignInHint] = useState<SessionValue['signInHint']>();
   const [signInNote, setSignInNote] = useState<string>();
   const [deviceUnreadable, setDeviceUnreadable] = useState(false);
@@ -525,9 +529,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     } catch (e) {
       // An unreachable server is not a signed-out person, and neither is an expired or refused
       // access token: the restore renews it with the refresh token first (client-core). The saved
-      // sign-in counts as reset only when the renewal itself is refused (the server revoked the
-      // family, doesn't know it, or saw a refresh token reused), or when the address now answers
-      // as a different server. Nothing is discarded here: that waits for Sign in.
+      // sign-in has ended only when the renewal itself is refused (the server revoked the family,
+      // doesn't know it, or saw a refresh token reused). An address that now answers as a different
+      // server ends nothing: that answer is unsigned, so the sign-in is kept and retried, and the
+      // shell says a different server is answering. Nothing is discarded here: that waits for Sign in.
       // The server moved to its own membership (migration 0120): not a sign-out. Re-admit silently
       // with the Portico Account; only a refusal or no account session opens sign-in.
       if (isSessionMigrated(e)) {
@@ -536,8 +541,8 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         void readmitRef.current(record);
         return;
       }
-      const known = resumeEnding(e, false, ACCESS_REFUSED);
-      const ending = known ?? resumeEnding(e, await serverReplaced(record).catch(() => false), ACCESS_REFUSED);
+      const ending = resumeEnding(e, ACCESS_REFUSED);
+      const replaced = ending ? false : await serverReplaced(record).catch(() => false);
       clearTimeout(resumeRetry.current);
       if (ending) {
         // Must sign in again: straight to the sign-in screen (Justin, 23 Sep), never a banner.
@@ -546,7 +551,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         signInNeeded.current(ending, record);
       } else {
         setResumeFailure('offline');
-        setSavedState('offline');
+        setSavedState(savedStateAfter(replaced));
         // Offline: quick retries, then every 2 minutes while in the foreground, and at once on
         // returning to the foreground or a network change (so Home's "It will keep trying" holds).
         const wait = resumeAttempts.current < RESUME_RETRY_MS.length ? RESUME_RETRY_MS[resumeAttempts.current++]! : RESUME_SLOW_RETRY_MS;
@@ -561,6 +566,19 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [recovery, credentials, commitSelectedViewer, dropServer]);
   const resumeSavedRef = useRef(resumeSaved);
   resumeSavedRef.current = resumeSaved;
+  // A directly signed-in server that is now reached at another address (its identity proven there)
+  // is remembered at that address, so the server list never offers a dead one. A server this
+  // device knows only through a Portico Account is not in that list, and nothing is written for it.
+  const directServerId = scope.phase === 'ready' && scope.session?.viewer.authority === 'local' ? scope.session.viewer.serverId : undefined;
+  useEffect(() => {
+    if (!directServerId) return;
+    const follow = () => {
+      const route = api.getRouteSnapshot();
+      if (route?.phase === 'ready' && route.origin) void knownDirectServers.setAddress(directServerId, route.origin).catch(() => {});
+    };
+    follow();
+    return api.subscribeRoute(follow);
+  }, [directServerId, api]);
   // The remembered sign-in shown at launch is checked right away.
   useEffect(() => {
     if (savedState === 'checking' && recovery) void resumeSaved();
@@ -619,10 +637,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     setError('');
     const gen = ++generation.current;
     try {
-      const found = await inspectDirectServer(directOrigin.trim(), nativeConnectionEnvironment, new AbortController().signal);
-      if (gen === generation.current) setPin(found);
+      const found = await findDirectServer(directOrigin, nativeConnectionEnvironment, new AbortController().signal);
+      if (gen === generation.current) { answered.current = {typed: directOrigin, address: found.address}; setPin(found.identity); }
     } catch (e) {
-      setError(message(e, 'That server could not be reached.'));
+      setError(message(addressFailure(e, directOrigin), 'That server could not be reached.'));
     } finally {
       setBusy(false);
     }
@@ -681,7 +699,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const same = extra.preferProfileId ? result.snapshot.profiles.find(p => p.id === extra.preferProfileId && !p.pinRequired) : undefined;
       if (same) {
         const selection = await selectDirectProfile(local, {authority: 'local', accountId: result.snapshot.account.id, serverId: result.snapshot.serverId}, same.id, {});
-        if (gen !== generation.current) throw new ShownError('The server changed while you were signing in. Try again.');
+        if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
         await acceptDirect(local.baseUrl, selection.session, grant);
         return 'issued';
       }
@@ -690,7 +708,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     }
     // 'viewer': this session is the viewer; it is kept, never ended.
     await rememberNativeSession(local, result.session, nativeConnectionEnvironment, extra.hosted, () => gen === generation.current);
-    if (gen !== generation.current) throw new ShownError('The server changed while you were signing in. Try again.');
+    if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
     await acceptDirect(local.baseUrl, result.session, extra.hosted ? {api: local, accountGrant: false, hosted: extra.hosted} : undefined);
     return 'issued';
   }, [acceptDirect]);
@@ -709,15 +727,19 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         // One page, one button: the server is looked up and its identity pinned as part of signing in.
         let identity = pin;
         if (!identity) {
-          try { identity = await inspectDirectServer(serverAddress(directOrigin), nativeConnectionEnvironment, new AbortController().signal); }
-          catch (e) { const p = present(e, 'sign-in'); throw p.category === 'unreachable' || p.category === 'offline' || p.category === 'timeout' ? new ShownError('Portico couldn’t reach that server. Check the address and try again.') : e; }
+          // Each likely address for what was typed is tried until one answers and proves an identity.
+          let found: Awaited<ReturnType<typeof findDirectServer>>;
+          try { found = await findDirectServer(directOrigin, nativeConnectionEnvironment, new AbortController().signal); }
+          catch (e) { throw addressFailure(e, directOrigin); }
           if (gen !== generation.current) return;
+          answered.current = {typed: directOrigin, address: found.address};
+          identity = found.identity;
           setPin(identity);
         }
-        connected = await connectPairedServer(serverAddress(directOrigin), identity, nativeConnectionEnvironment, new AbortController().signal);
+        connected = await connectPairedServer(pinnedAddress(directOrigin), identity, nativeConnectionEnvironment, new AbortController().signal);
         const local = connected.api;
         const info = await local.system();
-        if (info.setupRequired) throw new ShownError('This server hasn’t finished setup. Complete setup in a web browser first.');
+        if (info.setupRequired) throw new ShownError(activeI18n().t('web.signIn.error.notSetUp'));
         const result = await directSignIn(local, username, password);
         // The server accepted the credentials: remember the address and username (not the password)
         // so a sign-in that ends later reopens with both filled in.
@@ -806,13 +828,15 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     // edited (or a Continue pressed twice) while it is in flight is superseded
     // instead of pinning a stale identity and returning a stale connection.
     const gen = pin ? generation.current : ++generation.current;
-    const {api, pin: identity} = await connectDirectServer({
+    const {api, pin: identity, address} = await connectDirectServer({
       origin: directOrigin,
       pin,
+      address: pin ? pinnedAddress(directOrigin) : undefined,
       env: nativeConnectionEnvironment,
       signal: new AbortController().signal,
       isCurrent: () => gen === generation.current,
     });
+    answered.current = {typed: directOrigin, address};
     setPin(identity);
     return api;
   }, [pin, directOrigin]);
@@ -900,7 +924,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       // The server's challenge is bound to this installation's ID, sent with it.
       await installationReady;
       const result = await porticoSignIn(hostedApi, hostedUrl, connected.api, server.id, {kind, signal: abort.signal, crypto: nativeConnectionEnvironment.crypto});
-      if (gen !== generation.current) throw new ShownError('The server changed while you were signing in. Try again.');
+      if (gen !== generation.current) throw changedWhileSigningIn(server.name);
       await settleDirect(result, connected, live.account.username, '', gen, {hosted: connected.hosted, retry: () => porticoConnectRef.current(server, options).then(() => {}), preferProfileId: options.preferProfileId});
       kept = true;
       // The server this account opened last reopens by itself after the next sign-in.
@@ -950,13 +974,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     let connected: Awaited<ReturnType<typeof connectPairedServer>> | undefined;
     let kept = false;
     try {
-      const address = serverAddress(origin);
-      const identity = await inspectDirectServer(address, nativeConnectionEnvironment, new AbortController().signal);
+      const {address, identity} = await findDirectServer(origin, nativeConnectionEnvironment, new AbortController().signal).catch(e => { throw addressFailure(e, origin); });
       connected = await connectPairedServer(address, identity, nativeConnectionEnvironment, new AbortController().signal);
       setPin(identity);
       await installationReady;
       const result = await acceptPorticoInvitation(hostedApi, hostedUrl, connected.api, identity.serverId, code, undefined, nativeConnectionEnvironment.crypto);
-      if (gen !== generation.current) throw new ShownError('The server changed while you were joining. Try again.');
+      if (gen !== generation.current) throw changedWhileSigningIn(origin);
       // The server told Portico at once: from here the server is one of this account's, reached
       // through its Portico routes and kept as a Portico sign-in (not a second, direct entry).
       const listed = await hostedApi.request<{items?: HostedServer[]}>('/v1/servers').then(list => list.items?.find(s => s.id === identity.serverId), () => undefined);

@@ -28,13 +28,17 @@ export function ReconnectingStatus() {
       ? i18n.t('launch.connectingTo', {host})
       : reason === 'unreachable'
         ? i18n.t('savedServer.title', {host})
-        : i18n.t('launch.reconnectingTitle');
+        : reason === 'replaced'
+          ? i18n.t('web.connection.replacedTitle')
+          : i18n.t('launch.reconnectingTitle');
   const message =
     reason === 'checking'
       ? undefined
       : reason === 'unreachable'
         ? i18n.t('error.unreachable')
-        : i18n.t('launch.reconnectingBody');
+        : reason === 'replaced'
+          ? i18n.t('web.connection.replacedBody', {server: host || i18n.t('servers.fallbackName')})
+          : i18n.t('launch.reconnectingBody');
   return (
     <View style={{flex: 1, justifyContent: 'center'}}>
       <StateView

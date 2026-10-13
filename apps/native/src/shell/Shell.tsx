@@ -380,7 +380,7 @@ export function Shell() {
  * MU1: feeds the connection-status store from the remembered server and the route's own
  * subscription. A leaf, so a route change re-renders only this, never the shell.
  */
-function ConnectionFeed({store, api, saved}: {store: ConnectionStatusStore; api: {subscribeRoute: (l: () => void) => () => void; getRouteSnapshot: () => {phase: string} | null | undefined}; saved?: 'checking' | 'offline'}) {
+function ConnectionFeed({store, api, saved}: {store: ConnectionStatusStore; api: {subscribeRoute: (l: () => void) => () => void; getRouteSnapshot: () => {phase: string} | null | undefined}; saved?: 'checking' | 'offline' | 'replaced'}) {
   const route = useSyncExternalStore(api.subscribeRoute, api.getRouteSnapshot);
   const phase = route?.phase;
   useEffect(() => { store.update({saved, routePhase: phase}); }, [store, saved, phase]);

@@ -9,6 +9,7 @@ import {useSession} from '../../app/session';
 import {nativeQuickConnect} from '../../bridge/setup-codes';
 import {Button, Text, useTheme} from '../../ui';
 import {AuthFrame} from './AuthFrame';
+import {PlainHttpNote} from './PlainHttpNote';
 import {approvalLink} from '../../app/approval-link';
 
 /**
@@ -85,6 +86,7 @@ export function QuickConnect({api, onPassword, onBack}: {api: HttpLocalApi; onPa
         {state.phase === 'error' ? <Button variant="primary" size="lg" label={i18n.t('action.tryAgain')} hasTVPreferredFocus onPress={() => void service.start()} /> : null}
         <Button variant={state.phase === 'error' ? 'secondary' : 'primary'} size="lg" label={i18n.t('quickConnect.usePassword')} hasTVPreferredFocus={state.phase !== 'error'} onPress={() => { void service.cancel().catch(() => {}); onPassword(); }} />
       </View>
+      <PlainHttpNote api={api} />
     </AuthFrame>
   );
 }
