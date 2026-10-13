@@ -2,12 +2,12 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
+import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsScopeLabel, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import type {PreferencePatch, PreferenceValue} from '../../../../../packages/client-core/src/preferences';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import type {ContentStackParams} from '../../app/routes';
-import {usePreferences} from '../../app/preferences';
+import {usePreferences, type Preferences} from '../../app/preferences';
 import {useServerPreferences} from '../../app/server-preferences';
 import {useAudioRenderAvailability} from '../../app/audio-render-status';
 import {useI18n} from '../../app/i18n';
@@ -26,8 +26,7 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
-import {word} from '../../app/new-words';
-import {PlayerEngineRow} from '../../player/EngineSettingRow';
+import {parseEngineSetting} from '../../player/engine-choice';
 import {mpvAvailable} from '../../bridge/player-engines';
 
 /**
@@ -58,8 +57,34 @@ export function useSettingsStructure(): SettingsStructure {
       // Speed, gapless, crossfade and volume levelling are offered only where this device's players can do them.
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
+      // A build with mpv beside the device's own player has a player to choose.
+      playerEngines: mpvAvailable,
     },
   }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported]);
+}
+
+/**
+ * What this installation keeps for a row it stores itself (`storage: 'device'`). A row this app
+ * keeps no value for reads undefined and is left out, so a section never shows an empty control.
+ */
+function deviceRowValue(id: string, preferences: Preferences): PreferenceValue | undefined {
+  switch (id) {
+    case 'reduceMotion': return preferences.reduceMotion;
+    case 'textSize': return preferences.textSize;
+    case 'receiveFromDevices': return preferences.receiveFromDevices;
+    case 'playerEngine': return preferences.playerEngine;
+    default: return undefined;
+  }
+}
+
+function deviceRowPatch(id: string, next: string | number | boolean | readonly string[]): Partial<Preferences> | undefined {
+  switch (id) {
+    case 'reduceMotion': return {reduceMotion: next === true};
+    case 'textSize': return {textSize: next === 'large' ? 'large' : 'standard'};
+    case 'receiveFromDevices': return {receiveFromDevices: next === true};
+    case 'playerEngine': return {playerEngine: parseEngineSetting(next)};
+    default: return undefined;
+  }
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
@@ -89,6 +114,7 @@ export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: th
 function SectionView({page, section, save, entryRow}: {page: string; section: SettingsSection; save: (patch: PreferencePatch) => void; entryRow?: string}) {
   const i18n = useI18n();
   const server = useServerPreferences();
+  const device = usePreferences();
   const [open, setOpen] = useState(!section.advanced);
   // X-02: why this server can't render effects for what's playing, quietly (the group footer).
   const render = useAudioRenderAvailability();
@@ -100,22 +126,19 @@ function SectionView({page, section, save, entryRow}: {page: string; section: Se
     if (row.when && server.value(row.when.key, row.when.equals) !== row.when.equals) return false;
     if (row.kind === 'preference') return has(row.key);
     if (row.kind === 'composite' && row.storage === 'registry') return !!server.snapshot;
+    if (row.kind === 'composite') return deviceRowValue(row.id, device.preferences) !== undefined;
     return true;
   });
   const groups = shown.filter(row => row.kind === 'custom' && GROUP_PANELS.has(row.id));
   const rows = shown.filter(row => !(row.kind === 'custom' && GROUP_PANELS.has(row.id)));
   const draw = (row: StructureRow) => row.kind === 'server-setting' ? null : row.kind === 'custom' ? <Panel key={row.id} id={row.id} entry={entryRow === row.id} /> : <RowView key={settingsRowId(row)} row={row} save={save} entry={entryRow === settingsRowId(row)} />;
-  // The Player setting (this device's own player, mpv, or Automatic) sits with the playback method.
-  // It is drawn here until the shared Settings structure has the row (see EngineSettingRow).
-  const player = mpvAvailable && page === 'quality' && section.id === 'method' ? <PlayerEngineRow key="playerEngine" /> : null;
   return (
     <>
       {groups.map(draw)}
-      {rows.length || player ? (
+      {rows.length ? (
         <RowGroup title={!section.advanced && section.title ? i18n.t(section.title) : undefined} footer={footer}>
           {section.advanced ? <ListRow title={i18n.t(section.title ?? 'settings.section.advanced')} trailingIcon={open ? 'chevronUp' : 'chevronDown'} accessibilityState={{expanded: open}} onPress={() => setOpen(o => !o)} /> : null}
           {open ? rows.map(draw) : null}
-          {player}
         </RowGroup>
       ) : null}
     </>
@@ -142,11 +165,11 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
   const [sheet, setSheet] = useState(false);
   const title = i18n.t(row.label);
   const help = row.help ? i18n.t(row.help) : undefined;
-  // Where a setting applies is said on the row, under its help. Only what this installation
-  // keeps for itself is "This device"; a device-scoped setting the server keeps is shared by this
-  // profile's devices of the same kind, and says so.
-  const here = row.kind === 'composite' && row.storage === 'device';
-  const subtitle = row.scope === 'device' ? [help, here ? i18n.t('settings.thisDevice') : word(isTV ? 'settings.scope.televisions' : 'settings.scope.handhelds', undefined, i18n)].filter(Boolean).join(' · ') : help;
+  // Where a setting applies is said on the row, under its help: "This device" for what this
+  // installation keeps for itself, "All TVs" or "All phones and tablets" for what the server keeps
+  // for every device of this kind. A setting that follows the profile everywhere says nothing.
+  const scope = settingsScopeLabel(row.scope, isTV ? 'tv' : 'phone');
+  const subtitle = scope ? [help, i18n.t(scope)].filter(Boolean).join(' · ') : help;
   const focus = isTV && entry;
   if (row.kind === 'action') {
     if (row.id === 'resetRecommendations') return <ResetRecommendationsRow />;
@@ -165,12 +188,8 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
     write = next => save(compositePatch(row.id, next as string | boolean));
   } else {
     // The device's own values, kept in this installation's store.
-    value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices : undefined;
-    write = next => {
-      if (row.id === 'reduceMotion') device.update({reduceMotion: next === true});
-      else if (row.id === 'textSize') device.update({textSize: next === 'large' ? 'large' : 'standard'});
-      else if (row.id === 'receiveFromDevices') device.update({receiveFromDevices: next === true});
-    };
+    value = deviceRowValue(row.id, device.preferences);
+    write = next => { const patch = deviceRowPatch(row.id, next); if (patch) device.update(patch); };
   }
   if (value === undefined) return null;
   const control = row.control;

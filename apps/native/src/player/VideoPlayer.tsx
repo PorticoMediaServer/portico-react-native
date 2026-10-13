@@ -32,7 +32,6 @@ import {GroupPill} from './GroupPill';
 import {endedCopy} from './ended-copy';
 import {cannotPlayReason} from './cannot-play';
 import {failureFor} from './failure-facts';
-import {word} from '../app/new-words';
 import {canStepChannel, channelStep, tunedChannel} from './channel-lineup';
 import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
@@ -429,7 +428,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       ) : cannotPlay ? (
         // Never playable: what is wrong, in one sentence, and the way out. Nothing to try again.
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
-          <StateView icon="info" title={word('player.cannotPlay.title', undefined, i18n)} message={word(`player.cannotPlay.${cannotPlay}`, {title: identity.title || word('player.cannotPlay.thisTitle', undefined, i18n)}, i18n)} />
+          <StateView icon="info" title={i18n.t('player.cannotPlay.title')} message={i18n.t(`player.cannotPlay.${cannotPlay}`, {title: identity.title || i18n.t('player.cannotPlay.thisTitle')})} />
           <View style={{flexDirection: 'row', gap: space.sm}}>
             <Button variant="ghost" label={i18n.t('action.close')} hasTVPreferredFocus={isTV} onPress={engine.leave} />
           </View>

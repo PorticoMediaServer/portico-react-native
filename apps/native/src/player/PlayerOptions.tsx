@@ -15,7 +15,6 @@ import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/cli
 import {usePreferences} from '../app/preferences';
 import {engineSettings} from './engine-choice';
 import {chooseSubtitle} from './engine-media';
-import {engineText} from './engine-strings';
 
 export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info' | 'engine';
 export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
@@ -28,7 +27,7 @@ export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
 /** The boxes for what is playing: music has no Speed (an audiobook keeps it). */
 export const optionBoxesFor = (music: boolean) => (music ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
 const titleIds = {audio: 'player.opt.audio', subtitles: 'player.opt.subtitles', quality: 'player.opt.quality', speed: 'player.opt.speed', sleep: 'player.opt.sleepTimer', menu: 'player.opt.menu', queue: 'player.queue', info: 'player.opt.info'} as const;
-const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: engineText('settings.row.player')} as Record<OptionKey, string>;
+const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: defaultI18n.t('settings.row.player')} as Record<OptionKey, string>;
 
 /** A window rectangle an option panel hangs from (the box that opened it). */
 export type OptionAnchor = {x: number; y: number; width: number; height: number};
@@ -134,13 +133,13 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
         {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => onPick('queue')} /> : null}
         {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={!compact && upcoming === 0} onPress={() => { onClose(); onReport(); }} /> : null}
         {/* Which player plays this title: changing it moves the title across where it stands. */}
-        {engine.engineSelectable ? <ListRow icon="settings" title={engineText('settings.row.player')} meta={engineText(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={!compact && upcoming === 0 && !onReport} onPress={() => onPick('engine')} /> : null}
+        {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={!compact && upcoming === 0 && !onReport} onPress={() => onPick('engine')} /> : null}
         {!compact && upcoming === 0 && !onReport && !engine.engineSelectable ? closeRow : null}
       </>
     );
   } else if (option === 'engine') {
     body = engineSettings.map(value => (
-      <ListRow key={value} title={engineText(`settings.player.${value}`)} selected={device.preferences.playerEngine === value} hasTVPreferredFocus={device.preferences.playerEngine === value} onPress={() => { device.update({playerEngine: value}); onClose(); }} />
+      <ListRow key={value} title={i18n.t(`settings.player.${value}`)} selected={device.preferences.playerEngine === value} hasTVPreferredFocus={device.preferences.playerEngine === value} onPress={() => { device.update({playerEngine: value}); onClose(); }} />
     ));
   } else if (option === 'speed') {
     body = engine.rates.map(rate => (

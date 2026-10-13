@@ -14,7 +14,6 @@ import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
 import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, dismissToast, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
-import {word} from '../../app/new-words';
 import {VIEW_PLAY_LIMIT} from '../../app/view-play';
 import {useGatherView, usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
@@ -237,12 +236,12 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
     if (!snapshot.nextCursor) { play(media, shuffle); return; }
     if (gathering.current) return;
     gathering.current = true;
-    showToast({message: word('saved.view.gathering', undefined, i18n)});
+    showToast({message: i18n.t('saved.view.gathering')});
     try {
       const whole = await gather(media, snapshot.nextCursor);
       play(whole.entries, shuffle);
       if (whole.complete) dismissToast();
-      else showToast({message: word('saved.view.partial', {count: VIEW_PLAY_LIMIT}, i18n)});
+      else showToast({message: i18n.t('saved.view.partial', {count: VIEW_PLAY_LIMIT})});
     } catch (e) {
       // Leaving the page cancels the read; anything else is said, and nothing half-known plays.
       if ((e as {name?: string} | null)?.name !== 'AbortError') showToast({message: say(e, 'saved', 'load'), icon: 'warning'});

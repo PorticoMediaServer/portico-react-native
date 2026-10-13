@@ -20,7 +20,6 @@ import {forgetNativeConnection, nativeConnectionEnvironment, nativeHostedSource,
 import {profileAPI} from '../bridge/profile-transport';
 import {nativeViewerStorage, prepareSecureRecords, profileInstallation} from '../bridge/profile-trust';
 import {isSecureRecordsLost, resetSecureRecords, restartApp} from '../bridge/secure-records';
-import {word} from './new-words';
 import {useHostedAccount} from '../bridge/useHostedAccount';
 import {useCredentialVerification} from '../bridge/useCredentialVerification';
 import {closeAttachedAccount, observeAttachedAccount} from '../bridge/attached-account-boundary';
@@ -366,7 +365,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         // answer to that question is waited for before anything is shown.
         async () => {
           await installationReady;
-          if (active && !secureRecordsLost) setError(word('signIn.savedUnreadable'));
+          if (active && !secureRecordsLost) setError(activeI18n().t('signIn.savedUnreadable'));
         },
       )
       .finally(() => {
