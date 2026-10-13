@@ -3,6 +3,8 @@ import {Animated, Image, PixelRatio, StyleSheet, View, type ImageSourcePropType,
 import {sizedUri, useArtworkPlacement, useArtworkSlot} from './ArtworkPipeline';
 import {Icon, type IconName} from './Icon';
 import {Text} from './Text';
+import {uiI18n} from './i18n';
+import {word} from '../app/new-words';
 import {alpha, useTheme} from './theme';
 
 export type ArtworkShape = 'poster' | 'landscape' | 'square' | 'circle';
@@ -51,6 +53,14 @@ export const Artwork = React.memo(function Artwork({source, shape = 'poster', wi
     setReady(slot.cached);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
+  // An image that had loaded and can no longer be shown gets its placeholder back while it is
+  // fetched again, instead of staying an empty tile.
+  useEffect(() => {
+    if (!slot.recovering) return;
+    opacity.setValue(0);
+    setReady(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slot.recovering, slot.attempt]);
   // Tiny thumbnails cannot hold a readable title; they show the family icon instead.
   const small = Math.min(w, h) < 80;
   const placeholderIcon = icon ?? (small ? 'film' : undefined);
@@ -58,7 +68,7 @@ export const Artwork = React.memo(function Artwork({source, shape = 'poster', wi
   // image and reports it loaded, which would take the placeholder away for nothing.)
   const mount = !!source && (remote ? slot.active : typeof source !== 'object' || Array.isArray(source));
   return (
-    <View style={[{width: w, height: h, borderRadius: r, overflow: 'hidden', backgroundColor: colors.raised}, style]} accessibilityLabel={!source || slot.gaveUp ? (title ? `${title}, artwork unavailable` : 'Artwork unavailable') : undefined}>
+    <View style={[{width: w, height: h, borderRadius: r, overflow: 'hidden', backgroundColor: colors.raised}, style]} accessibilityLabel={!source || slot.gaveUp ? (title ? word('a11y.artwork.unavailableFor', {title}, uiI18n()) : word('a11y.artwork.unavailable', undefined, uiI18n())) : undefined}>
       {!ready ? (
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.sm, backgroundColor: alpha(colors.raisedHigh, 0.75)}]}>
           {placeholder}
@@ -79,6 +89,7 @@ export const Artwork = React.memo(function Artwork({source, shape = 'poster', wi
             slot.loaded();
             setReady(true);
             if (!known) Animated.timing(opacity, {toValue: 1, duration: priority ? 120 : 200, useNativeDriver: true}).start();
+            else opacity.setValue(1);
           }}
           onError={e => slot.failed(new Error(String(e.nativeEvent?.error ?? 'Image failed to load.')))}
           style={[StyleSheet.absoluteFill, {opacity}]}

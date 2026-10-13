@@ -27,6 +27,20 @@ const listeners = new Map<string, Set<() => void>>();
 const tries = new Map<string, number>();
 /** Images that have decoded this session: shown at once on remount, never faded again. */
 export const shown = new Set<string>();
+const SHOWN_LIMIT = 4000;
+function remember(key: string) {
+  shown.add(key);
+  // Oldest first out: a long session of browsing must not grow this for ever.
+  if (shown.size > SHOWN_LIMIT) shown.delete(shown.values().next().value!);
+}
+/**
+ * Images that had loaded and then failed when shown again (the system dropped their bytes and
+ * the server could not be reached to fetch them anew). The scheduler believes these are done, so
+ * they are retried here: the count of tries so far, by image.
+ */
+const reloads = new Map<string, number>();
+/** Waits before each new try; after the last one the card keeps its placeholder until it is shown afresh. */
+export const RELOAD_BACKOFF_MS = [1500, 6000, 20000] as const;
 
 function notify(key: string) {
   const set = listeners.get(key);
@@ -42,7 +56,7 @@ const scheduler = new ArtworkScheduler<true>({
       const attempt: Attempt = {
         n,
         settle: (ok, error) => {
-          if (ok) shown.add(key);
+          if (ok) remember(key);
           if (attempts.get(key) === attempt) attempts.delete(key);
           notify(key);
           if (ok) resolve(true);
@@ -120,8 +134,12 @@ export function sizedUri(uri: string, pointWidth: number, aspect: number, scale:
  */
 export function useArtworkSlot(key: string, placement: ArtworkPlacement | null, priority: boolean) {
   const [, force] = useState(0);
-  const cached = !!key && (shown.has(key) || scheduler.peek(key) === true);
+  const reload = key ? reloads.get(key) : undefined;
+  const recovering = reload !== undefined;
+  const cached = !!key && !recovering && (shown.has(key) || scheduler.peek(key) === true);
   const [gaveUp, setGaveUp] = useState(false);
+  // The try this card may make now, while an image that had loaded is being fetched again.
+  const [armed, setArmed] = useState(0);
   useEffect(() => {
     if (!key) return;
     const set = listeners.get(key) ?? new Set();
@@ -135,7 +153,7 @@ export function useArtworkSlot(key: string, placement: ArtworkPlacement | null, 
   }, [key]);
   const order = placement ? placement.row * 1000 + (placement.column ?? 0) : undefined;
   useEffect(() => {
-    if (!key || shown.has(key) || scheduler.peek(key) === true) return;
+    if (!key || reloads.has(key) || shown.has(key) || scheduler.peek(key) === true) return;
     setGaveUp(false);
     const controller = new AbortController();
     scheduler
@@ -150,16 +168,46 @@ export function useArtworkSlot(key: string, placement: ArtworkPlacement | null, 
   useEffect(() => {
     if (key && order !== undefined) scheduler.reorder(key, order, placement?.group);
   }, [key, order, placement?.group]);
+  // An image that had loaded and now fails is tried again after a wait, a few times.
+  useEffect(() => {
+    if (!key || reload === undefined) return;
+    if (reload > RELOAD_BACKOFF_MS.length) {
+      setGaveUp(true);
+      // Out of tries for now. The next time this image is put on screen it starts afresh.
+      return () => { if ((reloads.get(key) ?? 0) > RELOAD_BACKOFF_MS.length) reloads.delete(key); };
+    }
+    setGaveUp(false);
+    const timer = setTimeout(() => setArmed(reload), RELOAD_BACKOFF_MS[reload - 1]);
+    return () => clearTimeout(timer);
+  }, [key, reload]);
   const attempt = key ? attempts.get(key) : undefined;
   const bypass = direct();
   return {
     cached,
+    /** It had loaded before and failed when shown again: the placeholder is back while it is fetched anew. */
+    recovering,
     /** Mount the image now: it loaded before, or its turn has come. */
-    active: cached || !!attempt || bypass,
-    attempt: attempt?.n ?? 0,
+    active: recovering ? armed === reload && reload <= RELOAD_BACKOFF_MS.length : cached || !!attempt || bypass,
+    attempt: recovering ? 1000 + reload : attempt?.n ?? 0,
     gaveUp,
-    loaded: () => { recordLoad(); if (bypass) shown.add(key); attempts.get(key)?.settle(true); },
-    failed: (error?: unknown) => attempts.get(key)?.settle(false, error),
+    loaded: () => {
+      recordLoad();
+      if (bypass) remember(key);
+      const pending = attempts.get(key);
+      if (pending) { pending.settle(true); return; }
+      if (reloads.delete(key)) { remember(key); notify(key); }
+    },
+    failed: (error?: unknown) => {
+      const pending = attempts.get(key);
+      if (pending) { pending.settle(false, error); return; }
+      // No attempt of the scheduler's is waiting on this image: it was shown from memory of an
+      // earlier load. Its placeholder comes back and it is fetched again.
+      if (!key || bypass) return;
+      shown.delete(key);
+      reloads.set(key, (reloads.get(key) ?? 0) + 1);
+      if (reloads.size > 500) reloads.delete(reloads.keys().next().value!);
+      notify(key);
+    },
   };
 }
 

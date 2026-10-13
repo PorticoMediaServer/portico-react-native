@@ -29,16 +29,9 @@ const awaiting = {
   'player.cannotPlay.conversionOff': '{title} needs converting to play on this device, and converting is turned off for this account.',
   'player.cannotPlay.unreadable': '{title} couldn’t be read by the server. The file may be damaged or incomplete.',
   'player.cannotPlay.fileMissing': '{title} couldn’t be sent by the server. Its file may have been moved or deleted.',
-  // What a screen reader hears.
-  'a11y.screen.opened': '{title}',
-  'a11y.card.watched': 'Watched',
-  'a11y.card.inProgress': '{percent, number}% watched',
-  'a11y.card.unwatchedCount': '{count, plural, one {# unwatched} other {# unwatched}}',
-  'a11y.card.moreActions': 'More options',
+  // What a screen reader hears in place of artwork that could not be shown.
   'a11y.artwork.unavailable': 'Artwork unavailable',
   'a11y.artwork.unavailableFor': '{title}, artwork unavailable',
-  'a11y.loading': 'Loading',
-  'a11y.loaded': 'Loaded',
   // A saved view larger than one play request can hold.
   'saved.view.gathering': 'Getting the rest of this view…',
   'saved.view.partial': 'This view has more than {count, number} titles. The first {count, number} are playing.',
