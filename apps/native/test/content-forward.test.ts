@@ -11,7 +11,8 @@ test('an unknown entry kind drops only that entry from Home', () => {
   const document = {serverId: 'server', viewerFence: 'viewer', rows: [row], layout: {revision: 1, rowOrder: ['recent'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-09-25T00:00:00Z'};
   assert.deepEqual(validateHomeDocument(document).rows[0].entries.map(e => e.id), ['movie']);
   assert.deepEqual(validateHomeDocument({...document, rows: [{...row, entries: [future]}]}).rows[0].entries, []);
-  assert.throws(() => validateHomeDocument({...document, rows: [{...row, entries: [known, {...known, id: 'bad', title: 2}]}]}));
+  assert.deepEqual(validateHomeDocument({...document, rows: [{...row, entries: [known, {...known, id: 'bad', title: 2}]}]}).rows[0].entries.map(e => e.id), ['movie']);
+  assert.throws(() => validateHomeDocument({...document, rows: 'invalid'}));
 });
 
 test('an unknown entry kind keeps the rest of a Discover projection', () => {

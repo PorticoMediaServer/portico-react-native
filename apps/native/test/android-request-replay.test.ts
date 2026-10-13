@@ -5,7 +5,8 @@ import {readFileSync} from 'node:fs';
 test('Android writes disable connection replay and mark every body as one-shot', () => {
   const native = readFileSync(new URL('../android/app/src/main/java/tv/getportico/portico/native/PorticoTransport.kt', import.meta.url), 'utf8');
   assert.match(native, /retryOnConnectionFailure\(false\)/);
-  assert.match(native, /request.method in setOf\("GET", "HEAD"\) && request.body == null/);
+  assert.match(native, /val critical = request.method !in setOf\("GET", "HEAD"\)/);
+  assert.match(native, /val transport = if \(critical\) writeClient else client/);
   assert.match(native, /override fun isOneShot\(\): Boolean = true/);
   assert.match(native, /override fun contentLength\(\): Long = data.size.toLong\(\)/);
   assert.match(native, /sink.write\(data\)/);
