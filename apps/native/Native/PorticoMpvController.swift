@@ -425,7 +425,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             ("sub-auto", "no"), ("audio-file-auto", "no"), ("sid", "no"), ("audio-display", "no"),
             // Text subtitles look the way the AVPlayer engine draws them: white on a soft black
             // box, inside the picture. Styled (ASS) tracks keep their own look.
-            ("sub-use-margins", "no"), ("sub-ass-force-margins", "no"),
+            ("sub-use-margins", "no"), ("sub-ass-force-margins", "no"), ("sub-ass-override", "no"),
             ("sub-font-size", "45"), ("sub-margin-y", "58"), ("sub-color", "1.0/1.0/1.0/1.0"),
             ("sub-border-style", "background-box"), ("sub-back-color", "0.0/0.0/0.0/0.7"), ("sub-outline-size", "0"), ("sub-shadow-offset", "0"),
             ("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale())),
@@ -1082,19 +1082,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         captionStyle = next
         let scale = PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(next)
         core?.set("sub-scale", String(format: "%.2f", scale))
-        switch PorticoMpvSupport.styleBackground(next) {
-        case "none":
-            core?.set("sub-border-style", "outline-and-shadow")
-            core?.set("sub-outline-size", "3")
-            core?.set("sub-back-color", "0.0/0.0/0.0/0.0")
-        case "opaque":
-            core?.set("sub-border-style", "background-box")
-            core?.set("sub-outline-size", "0")
-            core?.set("sub-back-color", "0.0/0.0/0.0/1.0")
-        default:
-            core?.set("sub-border-style", "background-box")
-            core?.set("sub-outline-size", "0")
-            core?.set("sub-back-color", "0.0/0.0/0.0/0.7")
+        for (name, value) in PorticoSubtitleSelection.mpvCaptionOptions(style: next) {
+            core?.set(name, value)
         }
         if !same { NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self) }
     }
@@ -1200,7 +1189,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     @objc private func captionStyleChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.captionStyleChanged() }; return }
-        core?.set("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(captionStyle)))
+        applyCaptionStyle(NSDictionary(dictionary: captionStyle))
         NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self)
     }
 

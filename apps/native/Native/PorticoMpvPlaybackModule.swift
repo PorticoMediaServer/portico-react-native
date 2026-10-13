@@ -89,7 +89,7 @@ final class PorticoMpvPlaybackModule: RCTEventEmitter {
         #endif
     }
 
-    @objc(release:resolver:rejecter:) func releaseLease(_ lease: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+    @objc(release:resolver:rejecter:) func releaseLease(_ lease: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
         #if canImport(Libmpv)
         controller.releaseLease(lease) { resolve(true) }
         #else

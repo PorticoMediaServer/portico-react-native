@@ -25,6 +25,16 @@ static BOOL PorticoAllowedLocalSource(NSURL *url) {
  BOOL directory=NO;
  return root.length&&[path hasPrefix:[root stringByAppendingString:@"/"]]&&[NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory]&&!directory;
 }
+static BOOL PorticoPlaybackNumber(id value) {
+ return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)!=CFBooleanGetTypeID()&&isfinite([value doubleValue]);
+}
+static BOOL PorticoPlaybackInteger(id value,double minimum) {
+ return PorticoPlaybackNumber(value)&&[value doubleValue]>=minimum&&[value doubleValue]<=9007199254740991.0&&floor([value doubleValue])==[value doubleValue];
+}
+static BOOL PorticoAllowedSource(NSURL *url) {
+ if([@[@"http",@"https"] containsObject:url.scheme.lowercaseString])return url.host.length>0&&!url.user&&!url.password;
+ return PorticoAllowedLocalSource(url);
+}
 static NSInteger PorticoHTTPStatusInComment(NSString *comment) {
  if(![comment isKindOfClass:NSString.class]||comment.length>4096)return 0;
  static NSRegularExpression *pattern;static dispatch_once_t once;
@@ -217,9 +227,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSDictionary *binding=command[@"binding"];
  if(![binding isKindOfClass:NSDictionary.class]||![_lease isEqual:binding[@"lease"]])return @"Playback lease is no longer active.";
  if(![command[@"paused"] isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)command[@"paused"])!=CFBooleanGetTypeID())return @"Invalid paused flag.";
- if(![command[@"source"] isKindOfClass:NSString.class]||![command[@"rate"] isKindOfClass:NSNumber.class]||!isfinite([command[@"rate"] doubleValue]))return @"Invalid playback command.";
- for(NSString *field in @[@"intentId",@"generation"]){id value=binding[field];double n=[value isKindOfClass:NSNumber.class]?[value doubleValue]:NAN;if(!isfinite(n)||n<1||n>9007199254740991.0||floor(n)!=n)return @"Invalid playback binding.";}
- id value=command[@"commandRevision"];double n=[value isKindOfClass:NSNumber.class]?[value doubleValue]:NAN;if(!isfinite(n)||n<1||n>9007199254740991.0||floor(n)!=n)return @"Invalid playback revision.";
+ if(![command[@"source"] isKindOfClass:NSString.class]||!PorticoPlaybackNumber(command[@"rate"]))return @"Invalid playback command.";
+ for(NSString *field in @[@"intentId",@"generation"]){id value=binding[field];if(!PorticoPlaybackInteger(value,1))return @"Invalid playback binding.";}
+ id value=command[@"commandRevision"];if(!PorticoPlaybackInteger(value,1))return @"Invalid playback revision.";
  NSInteger revision=[command[@"commandRevision"] integerValue];
  if(revision<_commandRevision)return @"Stale playback command.";
  if(revision==_commandRevision)return [_command isEqual:command]?nil:@"Conflicting playback command.";
@@ -227,14 +237,14 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  id clock=command[@"timelineOriginMs"];BOOL linear=clock&&clock!=NSNull.null;
  if(linear&&(![clock isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)clock)==CFBooleanGetTypeID()||!isfinite([clock doubleValue])||[clock doubleValue]<=0||[clock doubleValue]>9007199254740991.0||floor([clock doubleValue])!=[clock doubleValue]))return @"Invalid channel clock.";
  id connection=command[@"connectionState"],route=command[@"routeRevision"];
- if(connection&&(![@[@"ready",@"verifying"] containsObject:connection]||![route isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)route)==CFBooleanGetTypeID()||[route doubleValue]<0||[route doubleValue]>9007199254740991.0||floor([route doubleValue])!=[route doubleValue]))return @"Invalid route transition.";
- if(_command[@"routeRevision"]&&(!route||[route doubleValue]<[_command[@"routeRevision"] doubleValue]))return @"Stale route transition.";
+ if((connection&&connection!=NSNull.null&&(![@[@"ready",@"verifying"] containsObject:connection]||!PorticoPlaybackInteger(route,0)))||(route&&route!=NSNull.null&&!PorticoPlaybackInteger(route,0)))return @"Invalid route transition.";
+ if(PorticoPlaybackInteger(_command[@"routeRevision"],0)&&(!PorticoPlaybackInteger(route,0)||[route doubleValue]<[_command[@"routeRevision"] doubleValue]))return @"Stale route transition.";
  if(_binding){
   NSInteger intent=[binding[@"intentId"] integerValue],old=[_binding[@"intentId"] integerValue];
   BOOL sameBinding=[_binding isEqual:binding],sameSource=[_source isEqual:command[@"source"]];
   NSURL *oldURL=[NSURL URLWithString:_source?:@""],*nextURL=[NSURL URLWithString:command[@"source"]];
   BOOL sameResource=oldURL&&nextURL&&[oldURL.path isEqual:nextURL.path]&&[(oldURL.query?:@"") isEqual:(nextURL.query?:@"")]&&!nextURL.user.length&&!nextURL.password.length&&!nextURL.fragment.length;
-  BOOL routeChange=sameBinding&&sameResource&&route&&[route doubleValue]>[_command[@"routeRevision"] doubleValue];
+  BOOL routeChange=sameBinding&&sameResource&&PorticoPlaybackInteger(route,0)&&[route doubleValue]>(PorticoPlaybackInteger(_command[@"routeRevision"],0)?[_command[@"routeRevision"] doubleValue]:0);
   BOOL same=sameBinding&&(sameSource||routeChange);
   BOOL newWindow=linear&&_timelineOriginMS&&[binding[@"sessionId"] isEqual:_binding[@"sessionId"]]&&[binding[@"itemId"] isEqual:_binding[@"itemId"]]&&[binding[@"generation"] longLongValue]>[_binding[@"generation"] longLongValue];
   if(intent<old||(intent==old&&!same&&!newWindow))return @"Stale playback binding.";
@@ -243,7 +253,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 
 
  id pending=command[@"pendingSeek"];
- if(pending && pending!=NSNull.null){if(![pending isKindOfClass:NSDictionary.class])return @"Invalid seek command.";for(NSString *field in @[@"revision",@"positionSeconds"]){id number=pending[field];double v=[number isKindOfClass:NSNumber.class]?[number doubleValue]:NAN;if(!isfinite(v)||fabs(v)>9007199254740991.0||v<0&&(!linear||[field isEqual:@"revision"]))return @"Invalid seek command.";}if([pending[@"revision"] doubleValue]<1||floor([pending[@"revision"]doubleValue])!=[pending[@"revision"]doubleValue])return @"Invalid seek revision.";}
+ if(pending && pending!=NSNull.null){if(![pending isKindOfClass:NSDictionary.class])return @"Invalid seek command.";for(NSString *field in @[@"revision",@"positionSeconds"]){id number=pending[field];double v=PorticoPlaybackNumber(number)?[number doubleValue]:NAN;if(!isfinite(v)||fabs(v)>9007199254740991.0||v<0&&(!linear||[field isEqual:@"revision"]))return @"Invalid seek command.";}if([pending[@"revision"] doubleValue]<1||floor([pending[@"revision"]doubleValue])!=[pending[@"revision"]doubleValue])return @"Invalid seek revision.";}
  BOOL sameBinding=[_binding isEqual:binding];
  BOOL hasPending=[pending isKindOfClass:NSDictionary.class];
  NSInteger incoming=hasPending?[pending[@"revision"] integerValue]:-1;
@@ -364,7 +374,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   [self endDisplayObservation];
 #endif
   [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
-  if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!([@[@"http",@"https"] containsObject:url.scheme]||PorticoAllowedLocalSource(url))){[self emit:@"error" error:@"Invalid media address."];return;}
+  if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!PorticoAllowedSource(url)){[self emit:@"error" error:@"Invalid media address."];return;}
    [self configureVideoAudioSession];
    AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
    if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"Connection restored, but the retained position is not available. Your playback session was not replaced."];}});}
@@ -474,6 +484,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [self emit:@"rateStatus" error:nil];
 }
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+ if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self observeValueForKeyPath:keyPath ofObject:object change:change context:context];});return;}
  if(object!=_player.currentItem)return;
  // The seekable-range observation exists for the live window only. It used to fall through to
  // the status handling, so every window update announced "ready" again and re-applied intent.
@@ -591,8 +602,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
-- (void)stalled:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
-- (void)failedToEnd:(NSNotification *)note{if(note.object!=_player.currentItem)return;NSError *error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];[self publishFailure:error?:_player.currentItem.error];}
+- (void)stalled:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self stalled:note];});return;}if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
+- (void)failedToEnd:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self failedToEnd:note];});return;}if(note.object!=_player.currentItem)return;NSError *error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];[self publishFailure:error?:_player.currentItem.error];}
 /** Video never configured the audio session, so on iOS the default category applied: the silent
  * switch muted a film, and nothing told the system this is long-form, multichannel content. */
 - (void)configureVideoAudioSession {
@@ -607,7 +618,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [audio setActive:YES error:nil];
  _videoSessionActive=YES;
 }
-- (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
+- (void)ended:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self ended:note];});return;}if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
 - (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"])[self addConnectionFacts:fact position:position];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
 /** What the player measured of the connection and how much it holds ahead of the picture, for
  * Automatic quality: the transfer rate of the stream's own downloads (a stream only; a file read
