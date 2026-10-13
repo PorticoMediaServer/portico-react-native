@@ -36,7 +36,8 @@ export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSna
     }).catch(() => {});
     return sending;
   };
-  const ready = publish();
+  // The viewer's saved overrides are read from the device's store first (briefly, and bounded).
+  const ready = engineSettingStore.whenLoaded(2000).then(() => (stopped ? undefined : publish()));
   const changed = () => { if (settle) clearTimeout(settle); settle = setTimeout(() => void publish(), 1500); };
   const module = NativeModules.PorticoCapabilities;
   const subscription = module ? new NativeEventEmitter(module).addListener('portico.capabilities', changed) : undefined;

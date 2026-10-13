@@ -79,6 +79,8 @@ export function PreferencesProvider({children}: {children: React.ReactNode}) {
   // capability publisher reads them here, and only once this device's saved values are known.
   useEffect(() => { if (loaded) engineSettingStore.set(preferences.playerEngine); }, [loaded, preferences.playerEngine]);
   useEffect(() => { if (loaded) engineSettingStore.setOverrides({forceStereo: preferences.forceStereo, disablePassthrough: preferences.disablePassthrough, disableHdr: preferences.disableHdr}); }, [loaded, preferences.forceStereo, preferences.disablePassthrough, preferences.disableHdr]);
+  // After the two above: what the publisher reads from here on is what this device saved.
+  useEffect(() => { if (loaded) engineSettingStore.markLoaded(); }, [loaded]);
   const value = useMemo(() => ({preferences, update, loaded}), [preferences, update, loaded]);
   return React.createElement(PreferencesContext.Provider, {value}, children);
 }

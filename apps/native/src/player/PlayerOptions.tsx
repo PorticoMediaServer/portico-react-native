@@ -140,21 +140,24 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
   const closeRow = isTV ? <ListRow icon="close" title={i18n.t('player.opt.close')} hasTVPreferredFocus={!back} onPress={onClose} /> : null;
   let body: React.ReactNode = null;
   if (option === 'menu') {
+    const hasChapters = engine.chapters.length > 1, hasVersions = engine.versions.list.length > 1;
+    // The first row takes focus when the panel opens (TV), whichever rows this playback has.
+    const rows = [compact ? 'boxes' : '', isChannel && onMiniGuide ? 'guide' : '', isChannel && canRecordLive && onRecordLive ? 'record' : '', upcoming > 0 ? 'queue' : '', onReport ? 'report' : '', hasChapters ? 'chapters' : '', hasVersions ? 'version' : '', engine.engineSelectable ? 'engine' : ''].filter(Boolean);
+    const first = (key: string) => rows[0] === key;
     body = (
       <>
         {compact ? optionBoxesFor(engine.identity.kind === 'song').map((o, i) => <ListRow key={o.key} icon={o.icon} title={o.label} meta={valueOf(o.key)} trailingIcon="forward" hasTVPreferredFocus={i === 0} onPress={() => onPick(o.key)} />) : null}
         {/* MU4 FEAT-07: on a channel the menu opens the mini guide and records the programme. */}
-        {isChannel && onMiniGuide ? <ListRow icon="channels" title={i18n.t('player.live.guide')} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => { onClose(); onMiniGuide(); }} /> : null}
-        {isChannel && canRecordLive && onRecordLive ? <ListRow icon="dvr" title={i18n.t('guide.record')} onPress={() => { onClose(); onRecordLive(); }} /> : null}
-        {/* The first row takes focus when the panel opens (TV), whichever rows this playback has. */}
-        {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={!compact} onPress={() => onPick('queue')} /> : null}
-        {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={!compact && upcoming === 0} onPress={() => { onClose(); onReport(); }} /> : null}
+        {isChannel && onMiniGuide ? <ListRow icon="channels" title={i18n.t('player.live.guide')} trailingIcon="forward" hasTVPreferredFocus={first('guide')} onPress={() => { onClose(); onMiniGuide(); }} /> : null}
+        {isChannel && canRecordLive && onRecordLive ? <ListRow icon="dvr" title={i18n.t('guide.record')} hasTVPreferredFocus={first('record')} onPress={() => { onClose(); onRecordLive(); }} /> : null}
+        {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={first('queue')} onPress={() => onPick('queue')} /> : null}
+        {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={first('report')} onPress={() => { onClose(); onReport(); }} /> : null}
         {/* The title's chapters, and its other versions (an edition, another copy), when it has them. */}
-        {engine.chapters.length > 1 ? <ListRow icon="queue" title={playerWord('player.opt.chapters', undefined, i18n)} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" onPress={() => onPick('chapters')} /> : null}
-        {engine.versions.list.length > 1 ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.list.find(v => v.id === engine.versions.playingId)?.label} trailingIcon="forward" onPress={() => onPick('version')} /> : null}
+        {hasChapters ? <ListRow icon="queue" title={playerWord('player.opt.chapters', undefined, i18n)} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" hasTVPreferredFocus={first('chapters')} onPress={() => onPick('chapters')} /> : null}
+        {hasVersions ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.list.find(v => v.id === engine.versions.playingId)?.label} trailingIcon="forward" hasTVPreferredFocus={first('version')} onPress={() => onPick('version')} /> : null}
         {/* Which player plays this title: changing it moves the title across where it stands. */}
-        {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={!compact && upcoming === 0 && !onReport} onPress={() => onPick('engine')} /> : null}
-        {!compact && upcoming === 0 && !onReport && !engine.engineSelectable ? closeRow : null}
+        {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={first('engine')} onPress={() => onPick('engine')} /> : null}
+        {!rows.length ? closeRow : null}
       </>
     );
   } else if (option === 'engine') {

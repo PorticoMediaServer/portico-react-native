@@ -71,3 +71,14 @@ test('what the probe found of the device is told to whoever draws Settings', () 
   assert.deepEqual(store.probed(), {audioPassthrough: true, hdr: false});
   off();
 });
+
+test('nothing is published before the device has read what the viewer saved', async () => {
+  let ready = false;
+  const waiting = store.whenLoaded(1000).then(() => { ready = true; });
+  await Promise.resolve();
+  assert.equal(ready, false);
+  store.markLoaded();
+  await waiting;
+  assert.equal(ready, true);
+  await store.whenLoaded(1);
+});

@@ -43,7 +43,9 @@ export function keepCapabilitiesPublished(http: V1Http, _route?: unknown): Reado
     }).catch(() => {});
     return sending;
   };
-  const initial = publish();
+  // The viewer's saved Player setting and fixes are read from the device's store first (briefly,
+  // and bounded): publishing the defaults would undo what the server already holds for them.
+  const initial = engineSettingStore.whenLoaded(2000).then(() => (stopped ? undefined : publish()));
   const ready = initial.then(async () => {
     // A setting changed during the first probe is queued behind it; that write is part of being
     // ready too, so the first session is planned for the player the viewer saved.

@@ -21,6 +21,11 @@ const listeners = new Set<() => void>();
 const probeListeners = new Set<() => void>();
 let revision = 0, settledRevision = -1;
 const waiting = new Set<{revision: number; done: () => void}>();
+// The device's saved values are read from its store when the app starts. Until they are in hand
+// the values here are only the defaults, and publishing those would tell the server the viewer
+// chose Automatic and no fixes, whatever they really chose.
+let loaded = false;
+const loadWaiters = new Set<() => void>();
 
 function changed(): void {
   revision++;
@@ -72,6 +77,22 @@ export const engineSettingStore = Object.freeze({
       const waiter = {revision: wanted, done: () => { clearTimeout(timer); waiting.delete(waiter); resolve(); }};
       const timer = setTimeout(waiter.done, timeoutMs);
       waiting.add(waiter);
+    });
+  },
+  /** The device's saved values have been read (or it has none): what is here is the viewer's. */
+  markLoaded(): void {
+    if (loaded) return;
+    loaded = true;
+    for (const done of [...loadWaiters]) done();
+    loadWaiters.clear();
+  },
+  /** Resolve once the saved values are in hand, or at the deadline (a store that never answers). */
+  whenLoaded(timeoutMs: number): Promise<void> {
+    if (loaded) return Promise.resolve();
+    return new Promise(resolve => {
+      const done = () => { clearTimeout(timer); loadWaiters.delete(done); resolve(); };
+      const timer = setTimeout(done, timeoutMs);
+      loadWaiters.add(done);
     });
   },
   probed: (): ProbedDevice | null => probed,
