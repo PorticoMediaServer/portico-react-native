@@ -410,6 +410,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const assertCandidate = () => { if (expectedGeneration !== generation.current) throw changedWhileSigningIn(url); };
       assertCandidate();
       const candidate = selectedViewerRecord(url, session);
+      const priorFamily = viewer.getSnapshot().session?.sessionFamilyId;
       const central = credentials?.getSnapshot().session;
       const oldServer = attachedServer;
       setError('');
@@ -473,6 +474,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
             if (record.session.viewer.authority === 'hosted' && central?.account.id === record.session.viewer.accountId) bindAccountAttachment(local, record.session, central);
           },
           revoke: async record => {
+            // A refreshed access token is the same sign-in. Retiring it would revoke the
+            // selected family, and a failed restore must keep its established family usable.
+            if (record.serverUrl === candidate.serverUrl && record.session.sessionFamilyId === candidate.session.sessionFamilyId && (established || priorFamily === candidate.session.sessionFamilyId)) return;
             try {
               await profileAPI(record.serverUrl, record.session.accessToken).logout();
             } finally {
@@ -823,6 +827,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     setBusy(true);
     setError('');
     let changed = false;
+    const gen = generation.current;
     try {
       await changeRequiredPassword(held.connected.api, held.password, newPassword);
       changed = true;
@@ -831,7 +836,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     } finally {
       setBusy(false);
     }
-    if (!changed) return;
+    if (!changed || gen !== generation.current || stepState.current !== held) return;
     // The change ended every session of the account, the step's included.
     releaseStep(false);
     await signInDirectRef.current(held.username, newPassword);

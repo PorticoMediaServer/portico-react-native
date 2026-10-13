@@ -35,6 +35,7 @@ test('a current saved-session restore is still verified, stored and published', 
   viewer.clear();
   auth.saved = selectedViewerRecord('http://server.test', session) as any;
   auth.chosen = session as any;
+  auth.revoked = [];
   const refreshed = {...session, accessToken: 'current-access', tokenGeneration: '2'};
   auth.restore = async () => ({api: profileAPI('http://server.test', 'current-access'), session: refreshed});
   let current: any;
@@ -43,5 +44,6 @@ test('a current saved-session restore is still verified, stored and published', 
     await act(() => host.mount());
     assert.equal(viewer.getSnapshot().session?.accessToken, 'current-access');
     assert.equal((auth.saved as any).session.accessToken, 'current-access');
+    assert.deepEqual(auth.revoked, [], 'a rotation within the established family is never a logout');
   } finally {await act(() => {current.signOut(); host.unmount();}); viewer.clear();}
 });

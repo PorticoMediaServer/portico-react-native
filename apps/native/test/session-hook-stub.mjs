@@ -1,4 +1,5 @@
 // Authentication/storage/device boundaries; SessionProvider and ViewerSelectionCommit stay real.
+/** @type {{saved: any, restore: (...args: any[]) => Promise<any>, chosen: any, writes: any[], revoked: string[]}} */
 export const auth = {saved: null, restore: async () => undefined, chosen: undefined, writes: [], revoked: []};
 export const nativeViewerStorage = {read: async () => auth.saved, write: async record => {auth.writes.push(record); auth.saved = record;}};
 export const prepareSecureRecords = async () => false;

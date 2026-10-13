@@ -171,7 +171,7 @@ test('a change in the request\'s counts reads on from where the reading stopped,
   assert.deepEqual(s.cursors.slice(before + 1), [member(1_199), member(1_299), member(1_399)]);
 });
 
-test('a page that cannot be read stops the reading until the request changes, then it carries on', async () => {
+test('a failed page waits for its retry floor unless request counts change sooner', async () => {
   const {offlineDownloads} = await bridge();
   const s = containerServer(900);
   s.state.fail = cursor => cursor === member(499);

@@ -9,14 +9,14 @@ import type {PlayerEngine} from '../src/player/usePlayer';
 register(new URL('./player-hook-loader.mjs', import.meta.url));
 (globalThis as {__DEV__?: boolean}).__DEV__ = false;
 const {usePlayerEngine} = await import('../src/player/usePlayer.ts');
-NativeModules.PorticoPlaybackModule = {acquire: async () => ({lease: 'lease', instanceId: 'instance'}), command: async () => true, release: async () => true};
+(NativeModules as unknown as Record<string, any>).PorticoPlaybackModule = {acquire: async () => ({lease: 'lease', instanceId: 'instance'}), command: async () => true, release: async () => true};
 
 const session = (id: string) => ({id, generation: 1, streamUrl: '/v1/media/grant/file.mp4', duration: 100, resumeSeconds: 0, mode: 'direct'});
 const entry = (id: string) => ({id, title: id, kind: 'movie', playback: {itemId: id}}) as never;
 const defer = <T,>() => { let resolve!: (value: T) => void, reject!: (e: Error) => void; const task = new Promise<T>((a, b) => {resolve = a; reject = b;}); return {task, resolve, reject}; };
 function mount() {
   const starts: string[] = [];
-  const api = {baseUrl: 'http://server.test', item: async (id: string) => ({id, title: id, kind: 'movie'}), request: async () => ({}), mediaUrl: (s: string) => 'http://server.test' + s,
+  const api = {baseUrl: 'http://server.test', item: async (id: string) => ({id, title: id, kind: 'movie'}), request: async (): Promise<unknown> => ({}), mediaUrl: (s: string) => 'http://server.test' + s,
     getRouteSnapshot: () => undefined, subscribeRoute: () => () => {}};
   const playback = new PlaybackService({createPlayback: async (id: string) => { starts.push(id); return session(id); }, progressPlayback: async () => {}, stopPlayback: async () => {}}, () => 'request', {deferRecovery: true});
   const off = () => () => {};

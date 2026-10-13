@@ -1,4 +1,5 @@
 // Runtime boundaries only. The player hook, coordinator and shared playback service stay real.
+/** @type {{session: any, stack: any}} */
 export const control = {session: undefined, stack: undefined};
 export const useSession = () => control.session;
 export const useNativePlayback = () => control.stack;
