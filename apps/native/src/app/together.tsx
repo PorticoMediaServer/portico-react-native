@@ -3,6 +3,7 @@ import {GroupFollower, GroupSessionService, type GroupPlayer, type GroupSessionS
 import {openEventStream} from '../bridge/event-stream';
 import type {PlayerEngine} from '../player/usePlayer';
 import {groupStep} from '../player/queue-step';
+import {activeI18n} from './errors';
 import {pauseOnceStarted} from './paused-load';
 import {useSession} from './session';
 
@@ -55,12 +56,12 @@ export function TogetherProvider({engine, children}: {engine: PlayerEngine; chil
     const follower = new GroupFollower(service, player);
     follower.start();
     const mine = () => { const group = service.getSnapshot().group; return group?.timeline.itemId && group.timeline.itemId === live.current.state.itemId ? group : undefined; };
-    const hostMoves = () => service.notice('Only the host can move the group to another moment.');
+    const hostMoves = () => service.notice(activeI18n().t('together.hostOnly.move'));
     live.current.setGroupControl({
       toggle: playing => {
         const group = mine(); if (!group) return false;
         if (group.permissions.canControl) void service.transport(playing ? 'pause' : 'play');
-        else service.notice('Only the host can play and pause for the group.');
+        else service.notice(activeI18n().t('together.hostOnly.playPause'));
         return true;
       },
       seek: seconds => {

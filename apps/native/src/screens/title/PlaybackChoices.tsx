@@ -2,8 +2,10 @@ import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
 import {PlayerOffersService, type PlayerOfferedStream} from '../../../../../packages/client-core/src/player-offers';
 import {peekPendingTrackChoice, setPendingTrackChoice} from '../../../../../packages/client-core/src/pending-track-choice';
-import {channelsLabel, codecLabel, resolutionLabel} from '../../../../../packages/client-core/src/presentation/index';
-import {peekPendingVersion, setPendingVersion, versionPickOffered} from '../../app/pending-version';
+import {PlaybackOptionsClient, type MediaVersion} from '../../../../../packages/client-core/src/playback-v1/index';
+import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
+import {channelsLabel, codecLabel} from '../../../../../packages/client-core/src/presentation/index';
+import {peekPendingVersion, setPendingVersion} from '../../app/pending-version';
 import {viewerScope} from '../../app/content';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
@@ -13,9 +15,10 @@ import {useLanguageName} from './language';
 /**
  * Pick before play (Spec — Title Pages §1): Version, Audio and Subtitles under the credit lines,
  * preselected so the usual viewer never touches them. A title can hold several files; Version
- * names the one that plays (the server's best, unless another is picked) and is offered once the
- * player starts a title on the version picked here (`pending-version`). A control appears only
- * where there is a real choice; with none anywhere the row is absent. Each is a button that names its current
+ * names the one that plays (the one the server would choose for this device, unless another is
+ * picked), from the title's playback options, so a title in several parts is one version and an
+ * edition is named. A control appears only where there is a real choice; with none anywhere the
+ * row is absent. Each is a button that names its current
  * value and opens a short list — the same on iPhone, iPad and television (no text entry).
  *
  * The choice is left for the player (client-core `pending-track-choice`, and `pending-version`
@@ -41,12 +44,24 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
   const [open, setOpen] = useState<'version' | 'audio' | 'subtitles' | null>(null);
   useEffect(() => { setVersion(''); setAudio(undefined); setSubtitle(''); }, [itemId]);
   const data = snapshot.data && snapshot.data.scope.itemId === itemId ? snapshot.data : null;
-  const source = useMemo(() => (data ? data.sources.find(x => x.id === (version || data.current?.sourceId)) ?? data.sources.find(x => x.available) ?? data.sources[0] : undefined), [data, version]);
-  const versionChoice = versionPickOffered() && !!data && data.sources.length > 1;
-  // The version travels to the player too; the one the server would play anyway sends nothing.
+  // The title's versions, and the one a start that names nothing would play. An older server, or
+  // a read that fails, simply offers no version to choose.
+  const [options, setOptions] = useState<{itemId: string; versions: readonly MediaVersion[]; preferred?: string}>();
   useEffect(() => {
-    setPendingVersion(versionChoice && version && version !== data?.current?.sourceId ? {itemId, versionId: version} : undefined);
-  }, [itemId, version, versionChoice, data]);
+    let live = true;
+    setOptions(undefined);
+    void new PlaybackOptionsClient(localV1Http(api)).options(itemId).then(o => { if (live) setOptions({itemId, versions: o.versions, preferred: o.preferred?.versionId}); }, () => {});
+    return () => { live = false; };
+  }, [api, itemId]);
+  const versionList = options?.itemId === itemId && options.versions.length > 1 ? options.versions : [];
+  const playing = versionList.length ? version || options?.preferred || versionList[0]!.id : '';
+  // A version's first file is what the offers list it under: its tracks are the ones to choose from.
+  const source = useMemo(() => (data ? data.sources.find(x => x.id === (playing || data.current?.sourceId)) ?? data.sources.find(x => x.available) ?? data.sources[0] : undefined), [data, playing]);
+  // The version travels to the player too (it starts the title on it); the one the server would play anyway sends nothing.
+  useEffect(() => {
+    setPendingVersion(versionList.length && version && version !== options?.preferred ? {itemId, versionId: version} : undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, version, versionList.length, options?.preferred]);
   useEffect(() => () => { if (peekPendingVersion(itemId)) setPendingVersion(undefined); }, [itemId]);
   const audioStreams = useMemo(() => source?.streams.filter(x => x.type === 'audio' && x.enabled) ?? [], [source]);
   const subtitleLanguages = useMemo(() => [...new Set((source?.streams ?? []).filter(x => x.type === 'subtitle' && x.language && x.language !== 'und').map(x => x.language!))], [source]);
@@ -67,9 +82,10 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
     {id: 'off', label: i18n.t('title.subtitlesOff'), selected: subtitle === 'off'},
     ...subtitleLanguages.map(code => ({id: code, label: name(code), selected: subtitle === code})),
   ];
-  const versionLabel = (x: (typeof data.sources)[number]) => [x.height ? resolutionLabel(x.height, t) : undefined, x.videoCodec ? codecLabel(x.videoCodec) : undefined, x.container ? x.container.toUpperCase() : undefined].filter(Boolean).join(' · ');
+  // Named as the player's own Version menu names them: the server's label, the edition, the picture's height and the container.
+  const versionLabel = (x: MediaVersion) => [x.label, x.edition && x.edition !== x.label ? x.edition : '', x.video[0]?.height ? i18n.t('quality.height', {height: x.video[0].height}) : '', x.container?.toUpperCase() ?? ''].filter(Boolean).join(' · ');
   // Two copies that read the same are told apart by their place in the list (best first).
-  const versions: MenuItem[] = versionChoice ? data.sources.map((x, i, all) => { const label = versionLabel(x); const same = !label || all.some((other, n) => n !== i && versionLabel(other) === label); return {id: x.id, label: same ? [i18n.t('mediaInfo.version', {number: i + 1}), label].filter(Boolean).join(' · ') : label, selected: x.id === source.id}; }) : [];
+  const versions: MenuItem[] = versionList.map((x, i, all) => { const label = versionLabel(x); const same = !label || all.some((other, n) => n !== i && versionLabel(other) === label); return {id: x.id, label: same ? [i18n.t('mediaInfo.version', {number: i + 1}), label].filter(Boolean).join(' · ') : label, selected: x.id === playing}; });
   const versionValue = versions.find(x => x.selected)?.label ?? '';
   // One control is noise; the row appears when there is a choice to make somewhere.
   if (versions.length < 2 && audios.length < 2 && !subtitleLanguages.length) return null;

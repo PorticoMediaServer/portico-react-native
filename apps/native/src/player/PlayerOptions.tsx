@@ -18,7 +18,6 @@ import {usePreferences} from '../app/preferences';
 import {useServerPreferences} from '../app/server-preferences';
 import {engineSettings} from './engine-choice';
 import {chapterAt} from './engine-media';
-import {playerWord} from './player-words';
 
 export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info' | 'engine' | 'chapters' | 'version';
 
@@ -31,9 +30,9 @@ export function qualityName(quality: Readonly<{mode: string; id?: string; maxHei
 }
 
 /** The quality in force, said in a few words: "Original", "720p", "Automatic · 720p". */
-export function qualityInForceLabel(inForce: QualityInForce | undefined, t: Parameters<typeof qualityName>[1]): string {
+export function qualityInForceLabel(inForce: QualityInForce | undefined, t: ReturnType<typeof useI18n>['t']): string {
   if (inForce?.mode !== 'automatic' || !inForce.id) return qualityName(inForce, t);
-  return playerWord('player.quality.automaticNow', {quality: qualityName({mode: 'fixed', id: inForce.id}, t)});
+  return t('player.quality.automaticNow', {quality: qualityName({mode: 'fixed', id: inForce.id}, t)});
 }
 export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
   {key: 'audio', label: defaultI18n.t('player.opt.audio'), icon: 'audio'},
@@ -45,7 +44,7 @@ export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
 /** The boxes for what is playing: music has no Speed (an audiobook keeps it). */
 export const optionBoxesFor = (music: boolean) => (music ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
 const titleIds = {audio: 'player.opt.audio', subtitles: 'player.opt.subtitles', quality: 'player.opt.quality', speed: 'player.opt.speed', sleep: 'player.opt.sleepTimer', menu: 'player.opt.menu', queue: 'player.queue', info: 'player.opt.info'} as const;
-const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: defaultI18n.t('settings.row.player'), chapters: playerWord('player.opt.chapters', undefined, defaultI18n), version: defaultI18n.t('title.version')} as Record<OptionKey, string>;
+const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: defaultI18n.t('settings.row.player'), chapters: defaultI18n.t('player.opt.chapters'), version: defaultI18n.t('title.version')} as Record<OptionKey, string>;
 
 /** A window rectangle an option panel hangs from (the box that opened it). */
 export type OptionAnchor = {x: number; y: number; width: number; height: number};
@@ -154,7 +153,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
         {upcoming > 0 ? <ListRow icon="queue" title={i18n.t('player.queue')} meta={String(upcoming)} trailingIcon="forward" hasTVPreferredFocus={first('queue')} onPress={() => onPick('queue')} /> : null}
         {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={first('report')} onPress={() => { onClose(); onReport(); }} /> : null}
         {/* The title's chapters, and its other versions (an edition, another copy), when it has them. */}
-        {hasChapters ? <ListRow icon="queue" title={playerWord('player.opt.chapters', undefined, i18n)} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" hasTVPreferredFocus={first('chapters')} onPress={() => onPick('chapters')} /> : null}
+        {hasChapters ? <ListRow icon="queue" title={i18n.t('player.opt.chapters')} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" hasTVPreferredFocus={first('chapters')} onPress={() => onPick('chapters')} /> : null}
         {hasVersions ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.list.find(v => v.id === engine.versions.playingId)?.label} trailingIcon="forward" hasTVPreferredFocus={first('version')} onPress={() => onPick('version')} /> : null}
         {/* Which player plays this title: changing it moves the title across where it stands. */}
         {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={first('engine')} onPress={() => onPick('engine')} /> : null}
@@ -175,7 +174,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
       const current = version.id === engine.versions.playingId;
       const video = version.video[0];
       return <ListRow key={version.id} title={version.label || version.edition || i18n.t('title.version')} subtitle={[version.edition && version.edition !== version.label ? version.edition : '', video?.height ? i18n.t('quality.height', {height: video.height}) : '', version.container?.toUpperCase() ?? ''].filter(Boolean).join(' · ')} selected={current} hasTVPreferredFocus={current}
-        onPress={() => { if (!current) engine.versions.choose(version.id).catch(() => showToast({message: playerWord('player.opt.versionChangeFailed', undefined, i18n), icon: 'warning'})); onClose(); }} />;
+        onPress={() => { if (!current) engine.versions.choose(version.id).catch(() => showToast({message: i18n.t('player.opt.versionChangeFailed'), icon: 'warning'})); onClose(); }} />;
     });
   } else if (option === 'speed') {
     body = engine.rates.map(rate => (
@@ -217,7 +216,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
       if (option.mode === 'original') return i18n.t('player.quality.originalHelp');
       if (!owner.transcoding) return i18n.t('player.ownerOff');
       if (option.mode === 'automatic') return inForce?.mode === 'automatic' && inForce.id ? qualityInForceLabel(inForce, i18n.t) : i18n.t('web.player.quality.automaticHelp');
-      return option.maxHeight ? playerWord('player.quality.fixedHelp', {height: option.maxHeight}, i18n) : undefined;
+      return option.maxHeight ? i18n.t('player.quality.fixedHelp', {height: option.maxHeight}) : undefined;
     };
     body = (
       <>
@@ -254,7 +253,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
 function qualityFailure(error: unknown, i18n: ReturnType<typeof useI18n>): string {
   if (error instanceof PlaybackApiError && error.code === 'connection_too_slow') {
     const fits = (error as {reason?: unknown}).reason;
-    return typeof fits === 'string' && /^\d+p$/.test(fits) ? playerWord('player.quality.tooSlow', {quality: qualityName({mode: 'fixed', id: fits}, i18n.t)}, i18n) : playerWord('player.quality.tooSlowAny', undefined, i18n);
+    return typeof fits === 'string' && /^\d+p$/.test(fits) ? i18n.t('player.quality.tooSlow', {quality: qualityName({mode: 'fixed', id: fits}, i18n.t)}) : i18n.t('player.quality.tooSlowAny');
   }
   return i18n.t('web.player.quality.changeFailed');
 }
@@ -262,7 +261,7 @@ function qualityFailure(error: unknown, i18n: ReturnType<typeof useI18n>): strin
 /** A chapter's name: its own title, or its number among the title's chapters. */
 function chapterTitle(chapter: PlayerEngine['chapters'][number] | undefined, chapters: PlayerEngine['chapters'], i18n: ReturnType<typeof useI18n>): string {
   if (!chapter) return '';
-  return chapter.title || playerWord('player.chapter.numbered', {number: chapters.indexOf(chapter) + 1}, i18n);
+  return chapter.title || i18n.t('player.chapter.numbered', {number: chapters.indexOf(chapter) + 1});
 }
 
 const captionSizes = ['small', 'medium', 'large', 'extra-large'] as const;
@@ -281,7 +280,7 @@ function CaptionStyleRows() {
   const size = prefs.value<string>('playback.subtitleSize', 'medium');
   const background = prefs.value<string>('playback.subtitleBackground', 'translucent');
   const next = <T extends string>(all: readonly T[], current: string): T => all[(Math.max(0, all.indexOf(current as T)) + 1) % all.length]!;
-  const save = (key: string, value: string) => { prefs.set({[key]: value}).catch(() => showToast({message: playerWord('player.subtitles.changeFailed', undefined, i18n), icon: 'warning'})); };
+  const save = (key: string, value: string) => { prefs.set({[key]: value}).catch(() => showToast({message: i18n.t('player.subtitles.changeFailed'), icon: 'warning'})); };
   return (
     <>
       {has('playback.subtitleSize') ? <ListRow title={i18n.t('settings.row.subtitleSize')} meta={i18n.t(`settings.subtitleSize.${captionSizes.find(v => v === size) ?? 'medium'}`)} accessory="value" disabled={prefs.saving} onPress={() => save('playback.subtitleSize', next(captionSizes, size))} /> : null}
@@ -329,7 +328,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
   // The track on screen is the selection's, or one the engine reads from the file it is playing.
   const shownId = engine.subtitles.shownId;
   const off = shownId === null;
-  const choose = (resource: (typeof plan.resources)[number] | null) => { engine.subtitles.choose(resource).catch(() => showToast({message: playerWord('player.subtitles.changeFailed', undefined, i18n), icon: 'warning'})); };
+  const choose = (resource: (typeof plan.resources)[number] | null) => { engine.subtitles.choose(resource).catch(() => showToast({message: i18n.t('player.subtitles.changeFailed'), icon: 'warning'})); };
   const addable = plan.discovered.filter(d => !plan.resources.some(r => r.discoveryId === d.id && r.enabled));
   const provider = snapshot.catalog?.provider;
   const language = i18n.locale.split('-')[0] ?? 'en';
@@ -340,7 +339,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
   const offersHeight = Math.max(0, ...(engine.quality.offers?.sources.map(s => s.height ?? 0) ?? []), ...engine.versions.list.flatMap(v => v.video.map(x => x.height ?? 0)));
   const sourceFacts = {is4k: !!cachedFacts?.is4k || offersHeight >= 2100, isHdr: !!cachedFacts?.isHdr};
   const bitmapNote = i18n.t('player.subtitles.bitmapNote');
-  const drawnNote = playerWord('player.subtitles.drawnHere', undefined, i18n);
+  const drawnNote = i18n.t('player.subtitles.drawnHere');
   // ARCH-API-08: a burned-in (bitmap) track converts the video, so the owner's transcoding switch turns it off too.
   const owner = ownerPlaybackSwitches(engine.quality.offers);
   // A track the player in use draws itself (mpv: styled and image subtitles) is not burned in, so

@@ -8,7 +8,6 @@ import {Button, Text, useTheme} from '../../ui';
 import {AuthFrame} from './AuthFrame';
 import {signInMessage} from '../../app/errors';
 import {useI18n} from '../../app/i18n';
-import {word} from '../../app/new-words';
 
 /**
  * Television activation: a short code plus a QR link that the viewer approves
@@ -58,7 +57,7 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
   // The television's front door: nothing to type. Scan or visit, approve on a phone, done;
   // the two buttons are for people who would rather use the remote.
   return (
-    <AuthFrame title={i18n.t('activation.title')} lead={i18n.t('activation.lead', {host})} wide centered error={error || (state.phase === 'error' ? word('activation.failed', undefined, i18n) : '') || (onSavedServer ? '' : session.error)} onDismissError={() => { setError(''); session.clearError(); }}>
+    <AuthFrame title={i18n.t('activation.title')} lead={i18n.t('activation.lead', {host})} wide centered error={error || (state.phase === 'error' ? i18n.t('activation.failed') : '') || (onSavedServer ? '' : session.error)} onDismissError={() => { setError(''); session.clearError(); }}>
       <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xxl, minHeight: 300}}>
         {state.phase === 'waiting' && code && link ? (
           <View style={{padding: space.md, backgroundColor: colors.white, borderRadius: 12}}>

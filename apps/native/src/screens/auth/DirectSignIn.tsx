@@ -90,7 +90,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
   if (step === 'address') {
     return (
-      <AuthFrame title={i18n.t('auth.signInToServer')} lead="Enter your server’s address. Then approve this TV from a phone or computer that’s already signed in — no password to type." onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
+      <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
         {address}
         {/* A sign-in that ended reopens with the address filled in: Continue is the one press. */}
         <Button variant="primary" size="lg" label={i18n.t('action.continue')} fullWidth loading={connecting} disabled={!direct.origin.trim()} hasTVPreferredFocus={prefilled} onPress={() => void connect()} />
@@ -99,7 +99,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
     );
   }
   return (
-    <AuthFrame title={i18n.t('auth.signInToServer')} lead="Use an account that lives on your server. It stays between this device and that server." onBack={() => go('back')} error={session.error} onDismissError={session.clearError}>
+    <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.lead')} onBack={() => go('back')} error={session.error} onDismissError={session.clearError}>
       {address}
       <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
       <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={setPassword} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />

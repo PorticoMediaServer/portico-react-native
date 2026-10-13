@@ -7,7 +7,6 @@ import {deviceIdentity} from '../bridge/setup-codes';
 import {forgetCrash, journal, lastCrash} from './error-capture';
 import {reportBody, type FatalRecord} from './error-journal';
 import {activeI18n} from './errors';
-import {word} from './new-words';
 
 /**
  * A report of this app's own trouble, sent to the owner of the server the person is signed in to
@@ -32,7 +31,7 @@ export function reportProblem(error: unknown): string {
   const code = (error as {code?: unknown} | null)?.code;
   if (code === 'client_log_budget') return activeI18n().t('web.diagnostics.clientReportBudget');
   if (code === 'device_session_required') return activeI18n().t('web.diagnostics.clientReportDevice');
-  return word('about.report.failed');
+  return activeI18n().t('about.report.failed');
 }
 
 /** Whether the last run ended unexpectedly and what ended it is still waiting to be sent. */
