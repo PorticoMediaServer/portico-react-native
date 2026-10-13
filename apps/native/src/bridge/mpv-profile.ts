@@ -75,11 +75,11 @@ const GiB = 1024 ** 3;
  * - standard: up to 5 GB (Apple TV 4K, most phones). Heavy codecs in software up to 1080p.
  * - strong: more than 5 GB and six or more cores (recent Pro phones, iPad Pro and Air).
  *   Heavy codecs in software up to 4K at film frame rates.
- * Unknown (the module did not answer): standard.
+ * Unknown (the module did not answer): light, with no heavy software decoding claimed.
  */
 export function mpvDeviceClass(facts: MpvDeviceFacts | null): MpvDeviceClass {
   const memory = facts?.memoryBytes, cores = facts?.processorCount;
-  if (!memory || !Number.isFinite(memory)) return 'standard';
+  if (!memory || !Number.isFinite(memory) || memory <= 0) return 'light';
   if (memory <= 2.5 * GiB || (!!cores && cores <= 2)) return 'light';
   if (memory > 5 * GiB && (!cores || cores >= 6)) return 'strong';
   return 'standard';
@@ -110,6 +110,9 @@ export function softwareLimit(codec: string, tier: MpvDeviceClass): Limit | null
   return lightSoftware[tier];
 }
 
+/** The limit that fits inside both. */
+const within = (a: Limit, b: Limit): Limit => ({maxWidth: Math.min(a.maxWidth, b.maxWidth), maxHeight: Math.min(a.maxHeight, b.maxHeight), maxFrameRate: Math.min(a.maxFrameRate, b.maxFrameRate)});
+
 const whole = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) && value >= 1 ? Math.round(value) : undefined);
 
 const hdrRanges: readonly DynamicRange[] = ['sdr', 'hdr10', 'hdr10plus', 'hlg'];
@@ -123,13 +126,13 @@ const fileContainers = ['mkv', 'webm', 'mp4', 'm4v', 'mov', 'avi', 'ts', 'm2ts',
 
 /**
  * The mpv engine's capabilities on this device. `facts` is what `PorticoMpvPlaybackModule.facts()`
- * reports; null (it could not be asked) gives the declared table for a standard device with
- * hardware H.264 and HEVC, which every device the app supports has.
+ * reports; null (it could not be asked) gives a conservative 1080p H.264 baseline. A decoder
+ * availability probe does not establish its maximum dimensions or software decoding throughput.
  */
 export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapabilities {
   const tier = mpvDeviceClass(facts);
-  const hardware = {h264: facts?.hardwareDecode?.h264 !== false, hevc: facts?.hardwareDecode?.hevc !== false, vp9: facts?.hardwareDecode?.vp9 === true, av1: facts?.hardwareDecode?.av1 === true};
-  const probed: ProfileEvidence = facts ? 'probed' : 'declared';
+  const hardware = {h264: facts?.hardwareDecode?.h264 !== false, hevc: facts?.hardwareDecode?.hevc === true, vp9: facts?.hardwareDecode?.vp9 === true, av1: facts?.hardwareDecode?.av1 === true};
+  const probed: ProfileEvidence = facts ? 'mixed' : 'declared';
   const heavy = heavySoftware[tier], light = lightSoftware[tier];
   // A hardware codec's limits: the decoder's own where the device reports them (Android), the
   // chip's fixed limits otherwise (Apple).
@@ -145,15 +148,22 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
   const deinterlaces = facts?.softwareDeinterlace !== false;
   const video: ClientVideoCodec[] = [];
   // H.264: 8-bit in hardware. 10-bit (Hi10P) has no hardware decoder anywhere, so it is offered
-  // only where software keeps up; one entry describes a codec, so the size limit is the 8-bit one.
-  video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(hardware.h264 ? chip('h264') : heavy ?? hd30), dynamicRanges: ['sdr'], evidence: probed});
-  // HEVC, VP9 and AV1: a chip that decodes only 8-bit (an older Android device) leaves 10-bit, and
-  // with it HDR, to software where software keeps up.
+  // only where software keeps up. The document has one limit per codec, so both depths must
+  // fit that limit. Availability alone cannot give an A8-based Apple TV HD a 4K decoder; an
+  // Android device reports its H.264 decoder's own limits.
+  const h264Hardware = facts?.hardwareLimits?.h264 ? chip('h264') : tier === 'light' ? hd60 : uhd60;
+  const h264Limit = heavy ?? (hardware.h264 ? h264Hardware : hd30);
+  video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...h264Limit, dynamicRanges: ['sdr'], evidence: probed});
+  // HEVC, VP9 and AV1. A chip that decodes only 8-bit (an older Android device) leaves 10-bit,
+  // and with it HDR, to software where software keeps up; both depths then share the limit both
+  // fit, as for H.264.
   const modern = (codec: 'hevc' | 'vp9' | 'av1'): void => {
     if (!hardware[codec] && !heavy) return;
-    const tenBit = hardware[codec] ? deep(codec) || !!heavy : true;
+    const chipTenBit = hardware[codec] && deep(codec);
+    const tenBit = chipTenBit || !!heavy;
+    const limit = !hardware[codec] ? heavy! : chipTenBit || !heavy ? chip(codec) : within(chip(codec), heavy);
     const ranges: DynamicRange[] = tenBit ? [...hdrRanges, ...(codec === 'hevc' && dolbyVision.length ? ['dolby_vision' as const] : [])] : ['sdr'];
-    video.push({codec, bitDepths: tenBit ? [8, 10] : [8], ...(hardware[codec] ? chip(codec) : heavy!), dynamicRanges: ranges, ...(codec === 'hevc' && tenBit && dolbyVision.length ? {dolbyVisionProfiles: dolbyVision} : {}), evidence: probed});
+    video.push({codec, bitDepths: tenBit ? [8, 10] : [8], ...limit, dynamicRanges: ranges, ...(codec === 'hevc' && tenBit && dolbyVision.length ? {dolbyVisionProfiles: dolbyVision} : {}), evidence: probed});
   };
   modern('hevc'); modern('vp9'); modern('av1');
   // The older codecs: the chip's decoder where the device has one (Android), software otherwise.

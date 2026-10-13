@@ -36,9 +36,9 @@ test('a hardware codec plays at its own decoder\'s limits, as the device reports
   assert.deepEqual([codec(e, 'hevc')!.maxWidth, codec(e, 'hevc')!.maxHeight, codec(e, 'hevc')!.maxFrameRate], [4096, 2160, 60]);
   assert.equal(codec(e, 'h264')!.maxFrameRate, 30, 'the chip\'s own H.264 rate at its largest picture');
   assert.deepEqual(codec(e, 'h264')!.bitDepths, [8], 'no headroom for 10-bit H.264 in software on this class');
-  assert.equal(codec(e, 'av1')!.evidence, 'probed');
+  assert.equal(codec(e, 'av1')!.evidence, 'mixed', 'the decoder is probed; that it keeps up is not measured');
   assert.deepEqual([codec(e, 'mpeg2video')!.maxWidth, codec(e, 'mpeg2video')!.maxHeight], [1920, 1088], 'the chip\'s MPEG-2 decoder');
-  assert.equal(codec(e, 'mpeg2video')!.evidence, 'probed');
+  assert.equal(codec(e, 'mpeg2video')!.evidence, 'mixed');
   assert.equal(codec(e, 'vc1')!.evidence, 'declared', 'software: an estimate');
   assert.equal(codec(e, 'vc1')!.maxFrameRate, 30);
 });
@@ -58,12 +58,15 @@ test('a chip that decodes only 8-bit leaves 10-bit and HDR to software where sof
   const standard = mpvEngineCapabilities(olderPhone);
   assert.equal(mpvDeviceClass(olderPhone), 'standard');
   assert.deepEqual(codec(standard, 'hevc')!.bitDepths, [8, 10]);
-  assert.equal(codec(standard, 'hevc')!.maxHeight, 1088, 'the chip\'s limit');
+  assert.deepEqual([codec(standard, 'hevc')!.maxHeight, codec(standard, 'hevc')!.maxFrameRate], [1080, 30], 'one limit per codec: the one both depths fit');
+  assert.deepEqual(codec(standard, 'h264')!.bitDepths, [8, 10]);
+  assert.equal(codec(standard, 'h264')!.maxHeight, 1080, '10-bit H.264 is software\'s, so its limit is the entry\'s');
   assert.equal(codec(standard, 'vp9')!.maxHeight, 1080, 'software VP9 on a standard device');
   assert.equal(codec(standard, 'vp9')!.maxFrameRate, 30);
 
   const light = mpvEngineCapabilities({...olderPhone, memoryBytes: 2 * GiB});
   assert.deepEqual(codec(light, 'hevc')!.bitDepths, [8]);
+  assert.equal(codec(light, 'hevc')!.maxHeight, 1088, 'the chip\'s own limit, 8-bit only');
   assert.deepEqual(codec(light, 'hevc')!.dynamicRanges, ['sdr'], 'no 10-bit, so no HDR title');
   assert.equal(codec(light, 'hevc')!.dolbyVisionProfiles, undefined);
   assert.equal(codec(light, 'vp9'), undefined, 'left to the server');
