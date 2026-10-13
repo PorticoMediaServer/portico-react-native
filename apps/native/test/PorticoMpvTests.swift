@@ -90,6 +90,37 @@ final class PorticoMpvTests: XCTestCase {
         XCTAssertNil(PorticoMpvSupport.embeddedSubtitle(["streamIndex": 3], kind: "pgs", subtitles: tracks))
     }
 
+    func testNativeRejectsMalformedNumbersWithoutChangingTheAcceptedCommand() throws {
+        let controller = PorticoPlaybackController()
+        defer { controller.invalidate() }
+        let lease = try XCTUnwrap(controller.acquire("viewer")?["lease"] as? String)
+        let binding: [String: Any] = ["lease": lease, "intentId": 1, "sessionId": "session", "generation": 1, "itemId": "item"]
+        let accepted: [String: Any] = ["binding": binding, "commandRevision": 1, "source": "", "rate": 1, "paused": true]
+        XCTAssertNil(controller.acceptCommand(accepted))
+        var malformed = accepted
+        for value in [NSNumber(value: true), NSNumber(value: Double.nan), NSNumber(value: Double.infinity)] {
+            malformed["commandRevision"] = 2
+            malformed["rate"] = value
+            XCTAssertEqual(controller.acceptCommand(malformed), "Invalid playback command.")
+            XCTAssertNil(controller.acceptCommand(accepted))
+        }
+        malformed = accepted
+        malformed["commandRevision"] = NSNumber(value: true)
+        XCTAssertEqual(controller.acceptCommand(malformed), "Invalid playback revision.")
+        malformed = accepted
+        malformed["commandRevision"] = 2
+        malformed["connectionState"] = "ready"
+        for value in [NSNumber(value: true), NSNumber(value: Double.nan), NSNumber(value: 1.5), NSNull()] as [Any] {
+            malformed["routeRevision"] = value
+            XCTAssertEqual(controller.acceptCommand(malformed), "Invalid route transition.")
+        }
+        malformed = accepted
+        malformed["commandRevision"] = 2
+        malformed["pendingSeek"] = ["revision": NSNumber(value: true), "positionSeconds": 30]
+        XCTAssertEqual(controller.acceptCommand(malformed), "Invalid seek command.")
+        XCTAssertNil(controller.acceptCommand(accepted))
+    }
+
     #if canImport(Libmpv)
     func testCommandsAreFencedByLeaseRevisionAndSeekRetirement() throws {
         let controller = PorticoMpvController()

@@ -255,7 +255,7 @@ static void AREvict(void){
 @implementation ARDecoder {
  ARBytes *_bytes;NSDictionary *_plan;AudioFileID _file;ExtAudioFileRef _ext;long long _first,_next;
  AudioConverterRef _aac;SInt64 _packet;long long _packetFrames,_aacSkip;
- void *_packetBuffer;AudioStreamPacketDescription *_packetDescriptions;UInt32 _packetCapacity;
+ void *_packetBuffer;AudioStreamPacketDescription *_packetDescriptions;UInt32 _packetCapacity,_aacInputChannels;
 }
 static OSStatus ARRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
 // A converted stream of unknown length reads as very long; its real end reads as end of file.
@@ -268,7 +268,7 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
  OSStatus status=AudioFileReadPacketData(d->_file,false,&bytes,d->_packetDescriptions,d->_packet,&packets,d->_packetBuffer);
  if(status!=noErr&&status!=kAudioFileEndOfFileError){*count=0;return status;}
  d->_packet+=packets;*count=packets;
- data->mNumberBuffers=1;data->mBuffers[0].mNumberChannels=0;data->mBuffers[0].mDataByteSize=bytes;data->mBuffers[0].mData=d->_packetBuffer;
+ data->mNumberBuffers=1;data->mBuffers[0].mNumberChannels=d->_aacInputChannels;data->mBuffers[0].mDataByteSize=bytes;data->mBuffers[0].mData=d->_packetBuffer;
  if(descriptions)*descriptions=d->_packetDescriptions;
  return noErr;
 }
@@ -311,6 +311,7 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
   if(!_packetBuffer||!_packetDescriptions)return @"The audio decoder is out of memory.";
   UInt32 sourceSize=sizeof(source);
   if(AudioConverterGetProperty(_aac,kAudioConverterCurrentInputStreamDescription,&sourceSize,&source)!=noErr||source.mSampleRate<=0)return @"The AAC decoder's clock isn’t available.";
+  _aacInputChannels=source.mChannelsPerFrame;
   _packetFrames=llround(source.mFramesPerPacket*rate/source.mSampleRate);
   if(_packetFrames<=0||_packetFrames>8192)return @"This AAC packet clock isn’t supported.";
   _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
@@ -438,6 +439,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  if(!APInteger(p[@"sampleRate"],8000,768000)||!APInteger(p[@"channels"],1,32)||!APInteger(p[@"durationFrames"],1,9007199254740991.0)||!APDictionary(p[@"trim"])||!APInteger(p[@"trim"][@"startFrames"],0,9007199254740991.0)||!APInteger(p[@"trim"][@"endFrames"],0,9007199254740991.0))return NO;
  if(![PorticoFileRender decodes:p])return NO;
  NSURL *url=[NSURL URLWithString:p[@"url"]?:@""];if(!url||![@[@"http",@"https"] containsObject:url.scheme]||!APSameOrigin(url,source))return NO;
+ if(p[@"gain"]&&!APDictionary(p[@"gain"]))return NO;
  for(NSString *k in @[@"trackDb",@"albumDb"])if(p[@"gain"][k]&&!APNumber(p[@"gain"][k],-60,30))return NO;
  for(NSString *k in @[@"trackPeak",@"albumPeak"])if(p[@"gain"][k]&&!APNumber(p[@"gain"][k],.000001,64))return NO;
  return YES;

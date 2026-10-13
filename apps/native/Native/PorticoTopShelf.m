@@ -37,8 +37,7 @@ static BOOL PorticoTopShelfHasToken(void) {
 static void PorticoTopShelfClearCache(void) {
   NSURL *caches = [[NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:PorticoTopShelfGroup] URLByAppendingPathComponent:@"Library/Caches" isDirectory:YES];
   if (!caches) return;
-  [NSFileManager.defaultManager removeItemAtURL:[caches URLByAppendingPathComponent:@"topshelf-feed.json"] error:nil];
-  [NSFileManager.defaultManager removeItemAtURL:[caches URLByAppendingPathComponent:@"topshelf-art" isDirectory:YES] error:nil];
+  [NSFileManager.defaultManager removeItemAtURL:[caches URLByAppendingPathComponent:@"topshelf" isDirectory:YES] error:nil];
 }
 #endif
 
