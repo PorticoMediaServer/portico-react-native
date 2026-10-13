@@ -145,6 +145,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
           icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)}
           progress={progressFor(m)}
           watched={m.watched === true && m.kind !== 'song'}
+          unavailable={m.available === false}
           onPress={() => (m.playback ? play(media.slice(from.get(m) ?? 0), false, {kind: 'playlist', id: playlistId}) : open(m))}
           onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
         />
@@ -253,7 +254,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
-  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1}} onLayout={onLayout}>

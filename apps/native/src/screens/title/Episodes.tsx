@@ -46,9 +46,9 @@ export function episodeTitle(i18n: I18n, entry: ContentEntry): string {
   return code ? `${code} · ${entry.title}` : entry.title;
 }
 
-/** "Aired Jan 20, 2008 · 47m": what a row says under the title. */
+/** "Aired Jan 20, 2008 · 47m": what a row says under the title. An episode whose files are not on disk right now says so first. */
 export function episodeMeta(i18n: I18n, entry: ContentEntry): string | undefined {
-  const parts = [entry.airDate ? i18n.t('title.airedOn', {date: formatAirDate(entry.airDate)}) : undefined, entry.duration ? formatDuration(entry.duration) : undefined].filter(Boolean);
+  const parts = [entry.available === false ? i18n.t('card.unavailable') : undefined, entry.airDate ? i18n.t('title.airedOn', {date: formatAirDate(entry.airDate)}) : undefined, entry.duration ? formatDuration(entry.duration) : undefined].filter(Boolean);
   return parts.length ? parts.join(' · ') : undefined;
 }
 

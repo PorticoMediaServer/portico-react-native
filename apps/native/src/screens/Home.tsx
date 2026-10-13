@@ -226,6 +226,7 @@ const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred,
       shape={shape}
       width={width}
       watched={entry.watched === true && entry.kind !== 'category' && entry.kind !== 'collection'}
+      unavailable={entry.available === false}
       titleLines={entry.kind === 'book' ? 2 : 1}
       progress={progressFor(entry)}
       icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
@@ -289,7 +290,7 @@ export function SectionView({section, onSeeAll, onMore, hideTitle = false, libra
         {!hideTitle ? <Text variant="heading" style={{marginBottom: space.sm}}>{title}</Text> : null}
         {section.entries.map(entry => (
           // APL-AUDIO-03: a track plays (with the rest of the list queued after it); details stay one long-press away.
-          <ListRow key={entry.id} title={entry.title} subtitle={captionFor(entry)} meta={lengthFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} progress={progressFor(entry)} watched={entry.watched}
+          <ListRow key={entry.id} title={entry.title} subtitle={captionFor(entry)} meta={lengthFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} progress={progressFor(entry)} watched={entry.watched} unavailable={entry.available === false}
             onPress={() => {
               if ((entry.kind === 'song' || entry.kind === 'audiobook_file') && entry.playback) {
                 const playable = section.entries.filter(e => e.playback);

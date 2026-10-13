@@ -20,6 +20,8 @@ export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & 
   badge?: string;
   /** Finished: a check in the artwork's corner. There is no mark for "not watched yet". */
   watched?: boolean;
+  /** The title is in the library but none of its files is on disk right now: the artwork is dimmed and says so. It still opens. */
+  unavailable?: boolean;
   /** Lines the title may take (books run long: two). */
   titleLines?: number;
   /** Placeholder icon when no artwork exists (library family). */
@@ -29,6 +31,9 @@ export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & 
   style?: StyleProp<ViewStyle>;
 };
 
+/** How far a card's artwork is dimmed when its title's files are not on disk (the web card's value). */
+const UNAVAILABLE_OPACITY = 0.55;
+
 /**
  * Media card: artwork + two-line caption. Shape decides the ratio (poster
  * for film/TV, landscape for episodes/live, square for music/books, circle
@@ -36,7 +41,7 @@ export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & 
  * clips the title, and the focus halo is drawn around the artwork only.
  */
 /** Memoised; pays off once the list passes stable handlers. */
-export const Card = React.memo(function Card({title, subtitle, source, shape = 'poster', width, progress = 0, badge, watched, titleLines = 1, icon, captionless, style, ...rest}: CardProps) {
+export const Card = React.memo(function Card({title, subtitle, source, shape = 'poster', width, progress = 0, badge, watched, unavailable, titleLines = 1, icon, captionless, style, ...rest}: CardProps) {
   const {metrics, space, colors, isTV, type} = useTheme();
   const w = width ?? (shape === 'landscape' ? metrics.landscapeWidth : shape === 'poster' ? metrics.posterWidth : metrics.squareWidth);
   // The caption keeps one height whatever the card says: room for the title's lines and one
@@ -46,13 +51,18 @@ export const Card = React.memo(function Card({title, subtitle, source, shape = '
   const scale = isTV ? 1 : fontScale || 1;
   const captionHeight = Math.ceil(space.sm + titleLines * (type.captionStrong.lineHeight ?? 18) * scale + 1 + (type.micro.lineHeight ?? 14) * Math.min(scale, 2));
   return (
-    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, watched, progress, badge})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
+    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, watched, progress, badge, unavailable})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
       {({focused, hovered}) => (
         <View>
           <FocusHalo active={focused} width={w} height={w / artworkRatio[shape]} radius={metrics.radius.card} />
           <View style={{borderRadius: metrics.radius.card, overflow: 'hidden'}}>
-            <Artwork source={source} shape={shape} width={w} title={title} icon={icon} />
+            <View style={unavailable ? {opacity: UNAVAILABLE_OPACITY} : undefined}><Artwork source={source} shape={shape} width={w} title={title} icon={icon} /></View>
             <ProgressLine value={progress} />
+            {unavailable ? (
+              <View pointerEvents="none" style={{position: 'absolute', left: space.sm, bottom: space.sm, maxWidth: w - space.sm * 2, paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: metrics.radius.small, backgroundColor: alpha(colors.ink, 0.82)}}>
+                <Text variant="micro" lines={1}>{uiI18n().t('card.unavailable')}</Text>
+              </View>
+            ) : null}
             {badge ? (
               <View style={{position: 'absolute', top: space.sm, left: space.sm, paddingHorizontal: space.sm, paddingVertical: 2, borderRadius: metrics.radius.small, backgroundColor: alpha(colors.ink, 0.82)}}>
                 <Text variant="micro">{badge}</Text>

@@ -161,6 +161,8 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
           {buttons}
         </View>
         {snapshot.mutationError ? <Notice tone="error" message={say(snapshot.mutationError, 'detail', 'save')} action={i18n.t('title.retry')} onAction={retryMutation} style={{marginHorizontal: space.md}} /> : null}
+        {/* The episode stays in the library while its files are gone; it says since when, and that it comes back by itself. */}
+        {data?.missingSince ? <Notice tone="warning" title={i18n.t('title.missing')} message={i18n.t('title.missingSince', {when: i18n.date(data.missingSince, 'long')})} style={{marginHorizontal: space.md}} /> : null}
         {item?.overview ?? entry.overview ? <Text variant="body" tone="secondary" style={[pad, {maxWidth: 960}]}>{item?.overview ?? entry.overview}</Text> : !data && snapshot.phase === 'loading' ? <View style={pad}><Skeleton height={14} width="90%" /></View> : null}
         {directors.length || writers.length ? (
           <View style={[pad, {gap: space.xxs}]}>
