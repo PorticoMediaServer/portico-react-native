@@ -64,6 +64,19 @@ android {
     sourceSets {
         main.assets.srcDirs += layout.buildDirectory.dir("generated/portico/assets")
     }
+
+    // One APK carries every architecture in `reactNativeArchitectures`, as before. The mpv engine
+    // adds roughly 8 MB of download per architecture, so a build for sideloading or a store that
+    // takes APKs can be split: -PporticoAbiSplits=true also writes one APK per architecture
+    // beside the universal one. (An app bundle is split by the store without this.)
+    splits {
+        abi {
+            enable project.findProperty("porticoAbiSplits")?.toString() == "true"
+            reset()
+            include(*((project.findProperty("reactNativeArchitectures") ?: "armeabi-v7a,arm64-v8a,x86,x86_64").toString().split(",").collect { it.trim() }))
+            universalApk true
+        }
+    }
 }
 
 // The typefaces live once, in ../assets. React Native looks a `fontFamily` up as
@@ -99,6 +112,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("androidx.media3:media3-session:$media3")
+    // The second player engine: libmpv (LGPL build) and its JNI bridge. See portico-mpv/build.gradle.
+    implementation project(":portico-mpv")
     // Google Cast: only in the build for devices with Google Play services (never Fire OS).
     googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
     // The provider sign-in browser (PorticoAccountAuth).
