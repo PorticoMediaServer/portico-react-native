@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
-import {StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
+import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
 import {ModuleEvents, failure, withEvents} from './events';
@@ -81,6 +81,8 @@ let engine: Engine | undefined;
 /** The place reached when the route to the server was put in doubt: the media is closed until the
  * route is ready again, and opens there. */
 let kept: {binding: Binding; position: number} | undefined;
+/** The app is not on screen. */
+let away = false;
 /** The surface the mounted `PorticoPlayer` view draws on. */
 let surface: string | null = null;
 /** The app's component, which the system addresses transport keys to. */
@@ -115,6 +117,8 @@ class Engine {
   private played = false;
   private lastProgress = '';
   private lastPosition = NaN;
+  /** The viewer has been told the video was paused because the app left the screen. */
+  private toldAway = false;
 
   /**
    * `start`: where to open (the place reached on another route to the same item), or NaN for the
@@ -277,7 +281,8 @@ class Engine {
     }
     applySubtitles(command.subtitles, this.source, error => this.publish('subtitleStatus', {error}));
     this.applyAudio(command.audio);
-    if (this.wantPaused) { if (!this.player.paused) this.player.pause(); }
+    const held = this.heldAway();
+    if (this.wantPaused || held) { if (!this.player.paused) this.player.pause(); }
     else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail({uncertain: true}, 'play'));
   }
 
@@ -313,6 +318,29 @@ class Engine {
       },
       () => { if (key === this.audioKey) this.publish('audioFailed', {...stamp, audioRevision: pending.revision}); },
     );
+  }
+
+  /** Whether what is playing has a picture (music and audiobooks do not). */
+  private pictured(): boolean {
+    if (this.hls) return this.hls.hasPicture();
+    try { return Number((this.player as {videoWidth?: number}).videoWidth) > 0; } catch { return true; }
+  }
+
+  /**
+   * Leaving the app: a video cannot go on being drawn while the app is not on screen, so it stays
+   * paused until the app is back, whatever is wanted, and the engine says so once when the app
+   * wanted it playing: the shared player then shows Play, and one press continues. Music and
+   * audiobooks have no picture and play on.
+   */
+  private heldAway(): boolean {
+    if (!away || !this.pictured()) { this.toldAway = false; return false; }
+    if (!this.wantPaused && !this.toldAway) { this.toldAway = true; this.publish('systemPaused', {paused: true, reason: 'background'}); }
+    return true;
+  }
+
+  /** The app left the screen or came back: what is wanted is applied again in that light. */
+  refresh(): void {
+    if (this.ready && !this.closed && !this.failed && accepted && engine === this) this.apply(accepted);
   }
 
   private sought(applied: boolean): void {
@@ -465,6 +493,18 @@ function release(held: string): Promise<boolean> {
 }
 
 const unavailable = () => Promise.reject(failure('listening_unavailable', 'This device has no separate listening owner.'));
+
+// Leaving the app and coming back (the contract's "System behaviour every engine keeps"). Only
+// the app going to the background counts: something of the system's drawn over it does not.
+try {
+  AppState.addEventListener('change', state => {
+    if (state !== 'background' && state !== 'active') return;
+    const now = state === 'background';
+    if (now === away) return;
+    away = now;
+    engine?.refresh();
+  });
+} catch { /* without the app's state a video simply plays on, as before */ }
 
 /**
  * What this engine does and does not do, as every engine's module says it (the contract's

@@ -7,6 +7,7 @@ import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {resetServer, segment, server} from './stubs/server.mjs';
 import {resetWorld, world} from './stubs/w3cmedia.mjs';
+import {AppState} from './stubs/kepler.mjs';
 import {PorticoPlaybackModule as engine, playbackEvents} from '../src/bridge/playback.ts';
 import {subtitleDisplay} from '../src/bridge/subtitles.ts';
 
@@ -147,6 +148,43 @@ test('while the route is in doubt the engine is silent, and it opens again where
   assert.equal(server.log.find(url => url.endsWith('.m4s')), other + 's21.m4s');
   await until(() => of('progress').length >= 1);
   assert.ok(Math.abs(of('progress')[0].position - 130) < 0.01, `at ${of('progress')[0].position}`);
+});
+
+test('leaving the app pauses a video and says so; coming back leaves it for the viewer to continue', async () => {
+  film();
+  await acquire();
+  await engine.command(command());
+  await until(() => of('firstFrame').length === 1);
+  assert.equal(player().paused, false);
+  AppState.emit('background');
+  assert.equal(player().paused, true);
+  assert.equal(of('systemPaused').length, 1);
+  assert.equal(of('systemPaused')[0].reason, 'background');
+  // Still wanted playing as far as the engine was told, but it stays paused while away.
+  await engine.command(command({rate: 1, subtitles: null, audio: null, routeRevision: 0, paused: false, pendingSeek: null, timelineOriginMs: null, connectionState: 'ready'}));
+  assert.equal(player().paused, true);
+  // JavaScript follows (its intent becomes paused), and the app returns: paused until Play.
+  await engine.command(command({paused: true}));
+  AppState.emit('active');
+  assert.equal(player().paused, true);
+  await engine.command(command());
+  assert.equal(player().paused, false);
+  // A video that was already paused says nothing when the app leaves.
+  await engine.command(command({paused: true}));
+  AppState.emit('background');
+  assert.equal(of('systemPaused').length, 1);
+  AppState.emit('active');
+});
+
+test('a video that becomes ready while the app is away does not start behind its back', async () => {
+  film();
+  await acquire();
+  AppState.emit('background');
+  await engine.command(command());
+  await until(() => of('ready').length === 1 && of('systemPaused').length === 1);
+  assert.equal(player().paused, true);
+  AppState.emit('active');
+  assert.equal(player().paused, false);
 });
 
 test('a title that stops says why, in the contract\'s terms', async () => {

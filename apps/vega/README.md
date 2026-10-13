@@ -142,6 +142,8 @@ What the engine does beyond playing:
   subtitles are burned in by the server (the capability document says the engine draws text only).
 - **A route in doubt.** While the connection to the server is being checked the media is closed
   and the place kept; it opens again there.
+- **Leaving the app.** A video is paused while the app is not on screen, and the shared player
+  is told, so it shows Play when the viewer comes back. Music and audiobooks play on.
 - **Why a title stopped.** Error facts say whether the server refused (with its status), the
   connection gave no answer, or the element would not take the media, so the shared player can
   tell "try again" from "this can't be played" and ask the server for another way to deliver it.
