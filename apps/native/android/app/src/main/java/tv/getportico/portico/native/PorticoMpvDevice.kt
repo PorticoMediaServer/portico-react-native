@@ -75,10 +75,15 @@ internal object PorticoMpvDevice {
 
   val isTelevision: Boolean get() = TelevisionDisplay.isTelevision
 
+  @Volatile private var memory = 0L
+
+  /** The device's memory. It does not change, so it is asked for once. */
   fun memoryBytes(context: Context): Long {
+    if (memory > 0) return memory
     val info = ActivityManager.MemoryInfo()
     (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.getMemoryInfo(info)
-    return info.totalMem
+    memory = info.totalMem
+    return memory
   }
 
   fun display(context: Context): Display? =

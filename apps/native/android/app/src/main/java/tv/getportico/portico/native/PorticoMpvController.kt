@@ -132,6 +132,9 @@ internal class PorticoMpvController(private val context: Context) {
   private var surfaceHeight = 0
   /** The decoder could not draw straight onto the surface for this file; mpv draws it instead. */
   private var directRefused = false
+  /** When the way the picture is drawn last changed (`SystemClock.elapsedRealtime()`). */
+  private var outputChangedAt = 0L
+  private var pictureRetried = false
   private var frameRateVoted = false
   private var frameRateClear: Runnable? = null
   private var displayWait = 0
@@ -557,6 +560,7 @@ internal class PorticoMpvController(private val context: Context) {
     displayHold = false
     endedEmitted = false
     directRefused = false
+    pictureRetried = false
     lastPosition = Double.NaN
     lastProgressFact = Double.NaN
     snapshot = PorticoMpvSnapshot()
@@ -673,7 +677,7 @@ internal class PorticoMpvController(private val context: Context) {
           sampleAudio()
           confirmAudioTrack()
         }
-        "vid" -> directOutputLost()
+        "vid" -> pictureLost()
         "pause", "speed", "core-idle" -> {
           emit("rateStatus", null)
           sessionPlayer.changed()
@@ -1315,17 +1319,27 @@ internal class PorticoMpvController(private val context: Context) {
     val wanted = wantsDirectOutput()
     if (wanted == directOutput) return
     directOutput = wanted
+    outputChangedAt = SystemClock.elapsedRealtime()
     core?.configureOutput(if (wanted) "mediacodec_embed" else "gpu", if (wanted) "mediacodec" else gpuDecoding())
     overlayListeners.toList().forEach { it() }
     publishMediaInfo()
   }
 
-  /** The picture went away while the decoder was drawing straight onto the surface: mpv draws this file instead. */
-  private fun directOutputLost() {
-    if (!directOutput || snapshot.vid != "no") return
-    directRefused = true
-    updateOutput()
-    core?.set("vid", "auto")
+  /**
+   * mpv dropped the picture track after playback had begun. While the decoder was drawing
+   * straight onto the surface, that way of drawing does not work for this file: mpv draws it
+   * instead. Just after any other change of output or surface, the track is chosen again, once.
+   */
+  private fun pictureLost() {
+    if (snapshot.vid != "no" || !restarted || !PorticoMpvSupport.hasVideo(tracks)) return
+    if (directOutput) {
+      directRefused = true
+      updateOutput()
+      core?.set("vid", "auto")
+    } else if (!pictureRetried && SystemClock.elapsedRealtime() - outputChangedAt < 5000) {
+      pictureRetried = true
+      core?.set("vid", "auto")
+    }
   }
 
   /**
@@ -1360,6 +1374,7 @@ internal class PorticoMpvController(private val context: Context) {
     surfaceWidth = width
     surfaceHeight = height
     frameRateVoted = false
+    outputChangedAt = SystemClock.elapsedRealtime()
     core?.attachSurface(next, width, height)
     // A surface that arrives after the first frame still gets the display matched.
     if (restarted && fileRequested && !displayHold) matchDisplay { applyIntent() }

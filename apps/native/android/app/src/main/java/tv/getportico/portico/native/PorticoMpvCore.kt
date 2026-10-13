@@ -205,8 +205,16 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       this.decoding = decoding
       val current = handle
       if (current == 0L || !surfaceAttached) return
-      PorticoMpvNative.setProperty(current, "hwdec", decoding.toByteArray())
-      PorticoMpvNative.setProperty(current, "vo", output.toByteArray())
+      // Each step leaves a picture that can be drawn. Towards the decoder drawing straight onto
+      // the surface, the decoder is switched first (its frames suit both outputs); away from it,
+      // the output first (mpv's own output takes the frames the decoder was already making).
+      if (output == "gpu") {
+        PorticoMpvNative.setProperty(current, "vo", output.toByteArray())
+        PorticoMpvNative.setProperty(current, "hwdec", decoding.toByteArray())
+      } else {
+        PorticoMpvNative.setProperty(current, "hwdec", decoding.toByteArray())
+        PorticoMpvNative.setProperty(current, "vo", output.toByteArray())
+      }
     }
   }
 

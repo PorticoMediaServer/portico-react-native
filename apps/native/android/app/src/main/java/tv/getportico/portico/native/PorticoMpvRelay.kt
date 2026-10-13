@@ -224,7 +224,8 @@ internal class PorticoMpvRelay {
 
   /** The request head, without its final blank line; null when it is too long or the peer left. */
   private fun readHead(socket: Socket): String? {
-    val input = socket.getInputStream()
+    // Nothing after the head is read from this connection, so reading ahead loses nothing.
+    val input = socket.getInputStream().buffered(4096)
     val head = ByteArrayOutputStream(1024)
     var matched = 0
     while (head.size() <= MAXIMUM_HEAD) {
