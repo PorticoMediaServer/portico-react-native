@@ -36,8 +36,8 @@ const awaiting = {
   'saved.view.gathering': 'Getting the rest of this view…',
   'saved.view.partial': 'This view has more than {count, number} titles. The first {count, number} are playing.',
   // Settings that apply to a kind of device, not one device.
-  'settings.scope.handhelds': 'Phones and tablets',
-  'settings.scope.televisions': 'TVs',
+  'settings.scope.handhelds': 'All your phones and tablets',
+  'settings.scope.televisions': 'All your TVs',
   // A subtitle track with no language.
   'tracks.unknownLanguage': 'Unknown language',
   'tracks.forced': 'Forced',

@@ -25,6 +25,8 @@ import {LinkTVSheet} from '../LinkTV';
 import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
+import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
+import {word} from '../../app/new-words';
 
 /**
  * The Settings structure for this viewer on this device (`settings-structure.ts`): the pages,
@@ -51,6 +53,9 @@ export function useSettingsStructure(): SettingsStructure {
       downloads: offline.supported,
       deviceName: true,
       manageSignIn: account.local && canManage && !member,
+      // Speed, gapless, crossfade and volume levelling are offered only where this device's players can do them.
+      playbackSpeed: playerSettingsSupport.playbackSpeed,
+      audioEffects: playerSettingsSupport.audioEffects,
     },
   }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported]);
 }
@@ -131,8 +136,11 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
   const [sheet, setSheet] = useState(false);
   const title = i18n.t(row.label);
   const help = row.help ? i18n.t(row.help) : undefined;
-  // "This device" is said on the row, under its help.
-  const subtitle = row.scope === 'device' ? [help, i18n.t('settings.thisDevice')].filter(Boolean).join(' · ') : help;
+  // Where a setting applies is said on the row, under its help. Only what this installation
+  // keeps for itself is "This device"; a device-scoped setting the server keeps is shared by this
+  // profile's devices of the same kind, and says so.
+  const here = row.kind === 'composite' && row.storage === 'device';
+  const subtitle = row.scope === 'device' ? [help, here ? i18n.t('settings.thisDevice') : word(isTV ? 'settings.scope.televisions' : 'settings.scope.handhelds', undefined, i18n)].filter(Boolean).join(' · ') : help;
   const focus = isTV && entry;
   if (row.kind === 'action') {
     if (row.id === 'resetRecommendations') return <ResetRecommendationsRow />;

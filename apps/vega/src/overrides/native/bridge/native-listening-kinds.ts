@@ -13,3 +13,10 @@ export const nativeV1ListeningKinds: readonly string[] = Object.freeze([]);
 export function nativeListeningFor(_serverKinds: readonly string[], _enabled: readonly string[] = nativeV1ListeningKinds) {
   return (_kind: string) => false;
 }
+
+/**
+ * The Vega media element plays at normal speed only (`supportedRates` is `[1]`), and with no
+ * separate listening owner nothing joins tracks, crossfades or levels volume. Settings therefore
+ * offers neither here.
+ */
+export const playerSettingsSupport: Readonly<{playbackSpeed: boolean; audioEffects: boolean}> = Object.freeze({playbackSpeed: false, audioEffects: false});

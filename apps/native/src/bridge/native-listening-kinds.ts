@@ -22,3 +22,11 @@ export function serverPlaybackV1Kinds(capabilities: unknown): readonly string[] 
 export function nativeListeningFor(serverKinds: readonly string[], enabled: readonly string[] = nativeV1ListeningKinds) {
   return (kind: string) => serverKinds.includes(kind) && enabled.includes(kind);
 }
+
+/**
+ * What this runtime's players can do that Settings offers a choice about. A setting that could
+ * never take effect on this device is not shown on it.
+ * - `playbackSpeed`: the player can play faster or slower than normal.
+ * - `audioEffects`: a listening owner joins tracks without a gap, crossfades and levels volume.
+ */
+export const playerSettingsSupport: Readonly<{playbackSpeed: boolean; audioEffects: boolean}> = Object.freeze({playbackSpeed: true, audioEffects: true});
