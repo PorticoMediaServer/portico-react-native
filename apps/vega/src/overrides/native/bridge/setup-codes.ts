@@ -4,6 +4,9 @@
 import {NativeModules} from 'react-native';
 import {HttpLocalApi, type DeviceAuthorization, type HostedSession, type LocalSession} from '../../../../../../packages/client-core/src/index';
 import {parseLocalSession} from '../../../../../../packages/client-core/src/local-session';
+import {hostedGate} from '../../../../../../packages/client-core/src/hosted-gate';
+import {activationGate} from '../../../../../native/src/bridge/hosted-activation-gate';
+import {deviceApprovalWatch} from '../../../../../native/src/bridge/device-approval';
 import {SetupCodeService, type SetupCodeEntry, type SetupCodeJournal, type SetupCodeStorage} from '../../../../../../packages/client-core/src/setup-code';
 import type {SetupDraft, SetupDraftStore} from '../../../../../../packages/client-core/src/setup-onboarding';
 import {NativeQueueStore} from '../../../../../native/src/bridge/queue-storage';
@@ -28,10 +31,13 @@ function hostedGrant(raw: unknown): HostedSession {
 const requestId = () => NativeModules.PorticoRuntime.newRequestId().then((value: string) => value.toLowerCase());
 
 /** The only clear TV grant exists after private-key decryption. Both the private key and the
- * redemption receipt survive process termination. */
+ * redemption receipt survive process termination. Every request goes through the app's one gate
+ * for the account service (`hosted-activation-gate`): `userActed` says a person just asked. */
 export function nativeTVActivation(origin: string) {
   const http = new HttpLocalApi(origin, '', nativeNetworkFetch);
   let advertised: string | undefined;
+  const gate = activationGate(hostedGate(origin));
+  gate.userActed();
   const display = (entry: SetupCodeEntry<HostedSession> | undefined) => {
     const id = entry?.requestId;
     if (id === advertised) return;
@@ -43,22 +49,24 @@ export function nativeTVActivation(origin: string) {
       }).catch(() => { /* Nearby is optional; the durable QR and manual code remain. */ });
     }
   };
-  return new SetupCodeService<HostedSession>(origin + '#' + protocol, {
+  const service = new SetupCodeService<HostedSession>(origin + '#' + protocol, {
     create: async (id, signal) => {
       const publicKey = await NativeModules.PorticoNetwork.tvPublicKey(id);
       if (signal.aborted) throw new Error('Activation paused.');
-      return http.request<DeviceAuthorization>('/v1/device-authorizations', 'POST', {requestId: id, ...(await deviceIdentity()), platform: platformId, protocol, publicKey}, signal);
+      const identity = await deviceIdentity();
+      return gate.run('create', () => http.request<DeviceAuthorization>('/v1/device-authorizations', 'POST', {requestId: id, ...identity, platform: platformId, protocol, publicKey}, signal));
     },
     poll: async (entry, signal) => {
-      const envelope = await http.request<Record<string, unknown>>('/v1/tv-authorizations/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal);
+      const envelope = await gate.run('poll', () => http.request<Record<string, unknown>>('/v1/tv-authorizations/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal));
       const key = await NativeModules.PorticoNetwork.tvPublicKey(entry.requestId);
       if (envelope.issuer !== origin || envelope.requestId !== entry.requestId || envelope.recipientKey !== key) throw new Error('The TV approval does not belong to this device and account service.');
       return hostedGrant(JSON.parse(await NativeModules.PorticoNetwork.openTVGrant(entry.requestId, envelope)));
     },
-    cancel: (entry, signal) => http.request<void>('/v1/device-authorizations/cancel', 'POST', {deviceCode: entry.authorization.deviceCode}, signal),
+    cancel: (entry, signal) => gate.run('cancel', () => http.request<void>('/v1/device-authorizations/cancel', 'POST', {deviceCode: entry.authorization.deviceCode}, signal)),
     forgotten: entry => { NativeModules.PorticoNetwork.forgetTVKey(entry.requestId); },
     displayed: display,
   }, nativeSetupStorage(origin + '#' + protocol), requestId);
+  return Object.assign(service, {/** A person just asked for something on the activation screen. */ userActed: () => gate.userActed()});
 }
 
 /** What an approval screen calls this device: its own name ("Living Room"), or what kind of
@@ -79,11 +87,14 @@ export function deviceIdentity() {
 export function nativeQuickConnect(api: HttpLocalApi) {
   const serverId = api.getRouteConnection()?.pin.serverId;
   if (!serverId) throw new Error('Verify the server identity before using Quick Connect.');
-  return new SetupCodeService<LocalSession>('local:' + serverId, {
+  // Says when the code was approved and the server's owner still has to approve this device.
+  const approval = deviceApprovalWatch();
+  const service = new SetupCodeService<LocalSession>('local:' + serverId, {
     create: async (id, signal) => api.request<DeviceAuthorization>('/v1/quick-connect', 'POST', {requestId: id, ...(await deviceIdentity()), platform: platformId}, signal),
-    poll: async (entry, signal) => parseLocalSession(await api.request('/v1/quick-connect/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal), {authority: 'local', serverId}),
+    poll: async (entry, signal) => parseLocalSession(await approval.watch(() => api.request('/v1/quick-connect/token', 'POST', {deviceCode: entry.authorization.deviceCode}, signal)), {authority: 'local', serverId}),
     cancel: (entry, signal) => api.request<void>('/v1/quick-connect/cancel', 'POST', {deviceCode: entry.authorization.deviceCode}, signal),
   }, nativeSetupStorage('local:' + serverId), requestId);
+  return Object.assign(service, {approval});
 }
 
 export function nativeSetupDraft(serverId: string): SetupDraftStore {

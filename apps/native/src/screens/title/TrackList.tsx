@@ -60,6 +60,7 @@ export function TrackList({title, entries, ordinal, subtitle, art = false, highl
                 icon={art && !entry.posterUrl && !entry.backdropUrl ? iconFor(entry.kind) : undefined}
                 selected={entry.id === (highlightId ?? playing)}
                 watched={entry.watched === true && entry.kind !== 'song'}
+                unavailable={entry.available === false}
                 disabled={unavailable && !entry.navigation}
                 onPress={() => onPlay(index)}
                 onLongPress={onMore ? () => onMore(entry) : undefined}

@@ -26,6 +26,13 @@ RCT_EXPORT_MODULE()
 - (dispatch_queue_t)methodQueue { return dispatch_get_main_queue(); }
 - (NSArray<NSString *> *)supportedEvents { return @[@"PorticoCastSession", @"PorticoCastMessage"]; }
 
+/** The receiver application this build was made for, so the app can tell whether the server names the same one. Empty when the build has none. */
+- (NSDictionary *)constantsToExport {
+  NSString *application = [NSBundle.mainBundle objectForInfoDictionaryKey:@"PorticoCastApplicationID"];
+  BOOL named = [application isKindOfClass:NSString.class] && application.length > 0 && ![application hasPrefix:@"$("];
+  return @{@"applicationId": named ? application : @""};
+}
+
 - (void)startObserving {
   _listening = YES;
   if (GCKCastContext.isSharedInstanceInitialized) [GCKCastContext.sharedInstance.sessionManager addListener:self];

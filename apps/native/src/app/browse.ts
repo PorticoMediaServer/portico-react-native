@@ -21,22 +21,36 @@ export type {PagePredicate};
  */
 export type Predicate = Extract<BrowseNode, {field: string}>;
 
-const capabilityCache = new Map<string, Promise<BrowseCapabilities>>();
-/** `attempt`: bump it to read again after a failure (a failed read is not cached). */
+/** The vocabulary last read for each library and pivot, and the reads under way. */
+const capabilityCache = new Map<string, BrowseCapabilities>();
+const capabilityReads = new Map<string, Promise<BrowseCapabilities>>();
+/**
+ * A library's sorts and filters. What was read last is shown at once, and it is read again every
+ * time the library is opened, so a change on the server (a new field, a sort that has gone)
+ * arrives without restarting the app. `attempt`: bump it to read again after a failure.
+ */
 export function useBrowseCapabilities(libraryId: string | undefined, pivot: string | undefined, attempt = 0) {
   const {api, session} = useSession();
   const [state, setState] = useState<{capabilities?: BrowseCapabilities; error?: string}>({});
   useEffect(() => {
     if (!libraryId || !pivot) { setState({}); return; }
     const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}:${libraryId}:${pivot}`;
-    let promise = capabilityCache.get(key);
-    if (!promise) {
-      promise = api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/browse-capabilities?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
-      capabilityCache.set(key, promise);
-      promise.catch(() => capabilityCache.delete(key));
+    const held = capabilityCache.get(key);
+    if (held) setState({capabilities: held});
+    let read = capabilityReads.get(key);
+    if (!read) {
+      const started = api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/browse-capabilities?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
+      read = started;
+      capabilityReads.set(key, started);
+      started.then(c => { if (!sameVocabulary(capabilityCache.get(key), c)) capabilityCache.set(key, c); }, () => {}).finally(() => { if (capabilityReads.get(key) === started) capabilityReads.delete(key); });
     }
     let cancelled = false;
-    promise.then(c => { if (!cancelled) setState({capabilities: c}); }, e => { if (!cancelled) setState({error: say(e, 'library', 'load')}); });
+    read.then(
+      // An unchanged answer keeps the object the screen already has, so nothing redraws or asks again.
+      () => { if (!cancelled) setState(current => { const now = capabilityCache.get(key); return now && current.capabilities !== now ? {capabilities: now} : current; }); },
+      // A recheck that fails leaves the vocabulary already on screen; only a first read reports it.
+      e => { if (!cancelled && !held) setState({error: say(e, 'library', 'load')}); },
+    );
     return () => { cancelled = true; };
   }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
   return state;
@@ -77,6 +91,9 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
   const snapshot = useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idleSnapshot);
   return {list, snapshot};
 }
+function sameVocabulary(a: BrowseCapabilities | undefined, b: BrowseCapabilities): boolean {
+  return !!a && JSON.stringify(a) === JSON.stringify(b);
+}
 const idleSnapshot = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined, positionIndex: undefined, refreshing: false});
 
 export function useFacets(libraryId: string | undefined) {
@@ -90,18 +107,25 @@ export function useFacets(libraryId: string | undefined) {
   }, [api, libraryId]);
 }
 
-const fieldNames: Record<string, string> = {genre: 'Genre', decade: 'Decade', year: 'Year', title: 'Title', dateAdded: 'Date added', addedAt: 'Date added', playState: 'Play state', availability: 'Availability', resolution: 'Resolution', contentRating: 'Content rating', studio: 'Studio', network: 'Network', tag: 'Tag', label: 'Label', audioLanguage: 'Audio language', dynamicRange: 'Dynamic range', releaseDate: 'Release date', series: 'Series', person: 'Person', actor: 'Actor', director: 'Director', writer: 'Writer', rating: 'Rating', userRating: 'Your rating', personalRating: 'Your rating', favorite: 'Favorite', watchlisted: 'My List', duration: 'Duration', durationSeconds: 'Duration', entityKind: 'Type', collection: 'Collection', artist: 'Artist', album: 'Album', author: 'Author', narrator: 'Narrator', lastPlayed: 'Last played', lastPlayedAt: 'Last played', played: 'Played', communityRating: 'Audience rating', audienceRating: 'Audience rating', criticRating: 'Critic rating'}; // lint-strings-allow: server field-name map (only Title/Label match the lint's prop list; needs server label IDs like the web editor)
+/** Field and quick-filter names come from the catalogue (`filter.field.*`, `filter.quick.*`), as on the web; a field the catalogue has no name for yet is said as plain words from its key. */
+function catalogueLabel(prefix: 'filter.field.' | 'filter.quick.', ...keys: string[]): string | undefined {
+  const i18n = activeI18n();
+  const has = i18n.has as (id: string) => boolean;
+  for (const key of keys) { const id = prefix + key; if (key && has(id)) return (i18n.t as (id: string) => string)(id); }
+  return undefined;
+}
 const sentence = (key: string) => key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^./, c => c.toUpperCase());
+/** Fields a server names two ways: both read the one catalogue entry. */
+const SAME_FIELD: Readonly<Record<string, string>> = {addedAt: 'dateAdded', personalRating: 'userRating', durationSeconds: 'duration', lastPlayedAt: 'lastPlayed', communityRating: 'audienceRating'};
 export function fieldLabel(id: string, labelKey?: string): string {
   // P6: For you isn't a field; it names itself from the catalogue.
   if (labelKey === 'sort.forYou') return serviceText('sort.forYou');
   const key = (labelKey ?? '').replace(/^browse\.field\./, '').replace(/^sort\./, '') || id;
-  return fieldNames[key] ?? fieldNames[id] ?? sentence(key);
+  return catalogueLabel('filter.field.', key, id, SAME_FIELD[key] ?? '', SAME_FIELD[id] ?? '') ?? sentence(key);
 }
 export function quickFilterLabel(labelKey: string): string {
   const key = labelKey.replace(/^filter\./, '');
-  const names: Record<string, string> = {inProgress: 'In progress', unplayed: 'Unplayed', unwatched: 'Unwatched', recentlyAdded: 'Recently added', favorites: 'Favorites', watchlist: 'My List', hd: 'HD', uhd: '4K', unavailable: 'Unavailable', played: 'Played', notStarted: 'Not started', finished: 'Finished'};
-  return names[key] ?? sentence(key);
+  return catalogueLabel('filter.quick.', key) ?? sentence(key);
 }
 export function predicateLabel(p: Predicate, capabilities?: BrowseCapabilities): string {
   return appliedFilterLabel(p, id => fieldLabel(id, capabilities?.fields.find(f => f.id === id)?.labelKey), activeI18n().t);

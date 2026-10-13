@@ -416,6 +416,7 @@ function useMediaCard() {
         width={w}
         progress={progressFor(entry)}
         watched={entry.watched === true}
+        unavailable={entry.available === false}
         icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
         onPress={() => open(entry)}
         onLongPress={() => open(entry, 'more')}

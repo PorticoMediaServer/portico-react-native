@@ -28,6 +28,8 @@ export type ListRowProps = Omit<FocusableProps, 'children' | 'style' | 'radius'>
   trailing?: React.ReactNode;
   progress?: number;
   watched?: boolean;
+  /** A media row whose title is in the library with none of its files on disk right now: dimmed artwork, and "Unavailable" where its length would be. */
+  unavailable?: boolean;
   selected?: boolean;
   /** Overview text shown under the title on wide layouts. */
   description?: string;
@@ -58,7 +60,7 @@ export function rowPaddingX(platform: SpecPlatform): number {
  * The one row (rowSpec, COMPONENTS.md § Rows): settings, menus, episodes, tracks, chapters.
  * A row with no press action is static: not focusable, no highlight (APL-SYS-09).
  */
-export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordinal, source, shape = 'landscape', icon, accessory, trailingIcon, trailing, progress = 0, watched, selected, description, subtitleLines, tone = 'default', readable = false, leadingView, focusRef, style, ...rest}: ListRowProps) {
+export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordinal, source, shape = 'landscape', icon, accessory, trailingIcon, trailing, progress = 0, watched, unavailable, selected, description, subtitleLines, tone = 'default', readable = false, leadingView, focusRef, style, ...rest}: ListRowProps) {
   const {colors, metrics, isTV} = useTheme();
   const platform = useSpecPlatform();
   const r = spec.row;
@@ -94,7 +96,7 @@ export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordin
       ) : null}
       {source ? (
         <View>
-          <Artwork source={source} shape={shape} width={thumbWidth} title={title} />
+          <View style={unavailable ? {opacity: 0.55} : undefined}><Artwork source={source} shape={shape} width={thumbWidth} title={title} /></View>
           <ProgressLine value={progress} />
         </View>
       ) : null}
@@ -103,7 +105,7 @@ export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordin
         {subtitle ? <Text variant={r.subtitle.role} tone="tertiary" lines={subtitleLines ?? (media ? r.subtitle.lines.media : r.subtitle.lines.settings)}>{subtitle}</Text> : null}
         {description ? <Text variant="caption" tone="secondary" lines={2} style={{marginTop: 2}}>{description}</Text> : null}
       </View>
-      {meta ? <Text variant="caption" tone={accessory === 'value' ? 'secondary' : 'tertiary'} style={{flexShrink: 0, maxWidth: '45%'}} lines={1}>{meta}</Text> : null}
+      {unavailable ? <Text variant="caption" tone="tertiary" style={{flexShrink: 0}} lines={1}>{uiI18n().t('card.unavailable')}</Text> : meta ? <Text variant="caption" tone={accessory === 'value' ? 'secondary' : 'tertiary'} style={{flexShrink: 0, maxWidth: '45%'}} lines={1}>{meta}</Text> : null}
       {watched ? <Icon name="watched" size={metrics.iconSmall} color={colors.textTertiary} /> : null}
       {trailing}
       {glyph ? <Icon name={glyph} size={glyphSize} color={colors.textTertiary} /> : null}
@@ -124,7 +126,7 @@ export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordin
     );
   }
   return (
-    <Focusable ref={focusRef} accessibilityRole="button" accessibilityLabel={media ? cardName(title, {watched, progress}) : title} accessibilityHint={subtitle} accessibilityState={selected ? {selected: true} : undefined} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.control} scale={isTV ? spec.focus.scale.row.tv : 1} style={style} {...rest}>
+    <Focusable ref={focusRef} accessibilityRole="button" accessibilityLabel={media ? cardName(title, {watched, progress, unavailable}) : title} accessibilityHint={subtitle} accessibilityState={selected ? {selected: true} : undefined} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.control} scale={isTV ? spec.focus.scale.row.tv : 1} style={style} {...rest}>
       {({focused, hovered, pressed}) => body(focused || hovered || pressed)}
     </Focusable>
   );

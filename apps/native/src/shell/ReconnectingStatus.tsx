@@ -28,17 +28,27 @@ export function ReconnectingStatus() {
       ? i18n.t('launch.connectingTo', {host})
       : reason === 'unreachable'
         ? i18n.t('savedServer.title', {host})
-        : i18n.t('launch.reconnectingTitle');
+        : reason === 'replaced'
+          ? i18n.t('web.connection.replacedTitle')
+          : reason === 'outsideHours'
+            // The server answers; it is the hour that is wrong. The page is named for the server, and the sentence says why.
+            ? host || i18n.t('servers.fallbackName')
+            : i18n.t('launch.reconnectingTitle');
   const message =
     reason === 'checking'
       ? undefined
       : reason === 'unreachable'
         ? i18n.t('error.unreachable')
-        : i18n.t('launch.reconnectingBody');
+        : reason === 'replaced'
+          ? i18n.t('web.connection.replacedBody', {server: host || i18n.t('servers.fallbackName')})
+          : reason === 'outsideHours'
+            ? i18n.t('web.signIn.error.outsideHours', {server: host || i18n.t('servers.fallbackName')})
+            : i18n.t('launch.reconnectingBody');
   return (
     <View style={{flex: 1, justifyContent: 'center'}}>
       <StateView
-        loading
+        loading={reason !== 'outsideHours'}
+        icon={reason === 'outsideHours' ? 'clock' : undefined}
         title={title}
         message={message}
         action={reason === 'checking' ? undefined : i18n.t('action.tryAgain')}

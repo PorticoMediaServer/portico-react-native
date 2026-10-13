@@ -100,6 +100,7 @@ const TrackRow = React.memo(function TrackRow({list, index, height, row}: {list:
         icon={row.art && !entry.posterUrl && !entry.backdropUrl ? iconFor(entry.kind) : undefined}
         selected={entry.id === (row.highlightId ?? playing)}
         watched={entry.watched === true && entry.kind !== 'song'}
+        unavailable={entry.available === false}
         disabled={unavailable && !entry.navigation}
         onPress={() => row.onPlay(index)}
         onLongPress={row.onMore ? () => row.onMore!(entry) : undefined}

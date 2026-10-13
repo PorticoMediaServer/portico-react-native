@@ -9,7 +9,7 @@ import {parseUpdateReport} from '../../../../../packages/client-core/src/adminis
 import {ClaimOnboarding} from '../../../../../packages/client-core/src/claim-onboarding';
 import {viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {addressKind, certificateBadge, connectivityWarning, deliveryStatusRows, listedAddresses, mappingProblem, remoteStatusLine} from '../../../../../packages/client-core/src/server-admin/status-words';
+import {addressKind, certificateBadge, connectionLine, connectivityWarning, deliveryStatusRows, listedAddresses, mappingProblem, ownCertificateLine, remoteStatusLine} from '../../../../../packages/client-core/src/server-admin/status-words';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src/index';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
@@ -98,6 +98,24 @@ export function AddressesRows() {
       {remote?.mappings.map(m => <ListRow key={m.protocol} title={`${t('web.network.mappings')} · ${m.protocol.toUpperCase()}`} subtitle={[sentence(m.state), t('server.address.port', {port: m.externalPort}), m.errorCode ? mappingProblem(t, m.errorCode) : ''].filter(Boolean).join(' · ')} />)}
     </>
   );
+}
+
+/** Home network › where the owner is connected from right now, and whether the home-networks list counts that as home. */
+export function ConnectionRows() {
+  const t = useI18n().t;
+  const status = useServerForm<ConnectivityDraft, ConnectivityStatus>('connectivity').state.status;
+  const line = connectionLine(t, status?.connection);
+  if (!line || !status) return null;
+  return <ListRow readable title={t('settings.server.yourConnection')} subtitle={[line.text, status.connection.plainHttpOutsideHome ? t('web.connectivity.httpOutsideHome') : ''].filter(Boolean).join('\n')} subtitleLines={4} meta={t(status.connection.remote ? 'server.connection.badgeAway' : 'server.connection.badgeHome')} />;
+}
+
+/** Your own certificate › whether the server is using the files named below, and until when. */
+export function OwnCertificateStatusRows() {
+  const i18n = useI18n();
+  const status = useServerForm<ConnectivityDraft, ConnectivityStatus>('connectivity').state.status;
+  const line = ownCertificateLine(i18n.t, status?.tls.customCertificate, iso => i18n.date(iso));
+  if (!line) return null;
+  return <ListRow readable title={i18n.t('web.general.status')} subtitle={line.text} subtitleLines={3} />;
 }
 
 /** Remote access › Portico Account: whether this server is connected to its owner's account. Connecting is approved in a browser. */

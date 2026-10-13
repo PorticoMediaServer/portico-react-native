@@ -8,9 +8,7 @@ import {Button, Text, useTheme} from '../../ui';
 import {AuthFrame} from './AuthFrame';
 import {signInMessage} from '../../app/errors';
 import {useI18n} from '../../app/i18n';
-
-/** APL-SYS-04: the activation service's own text is diagnostic; this is what a person reads. */
-const activationFailed = 'Portico couldn’t get a sign-in code. Check your connection, then get a new code.';
+import {word} from '../../app/new-words';
 
 /**
  * Television activation: a short code plus a QR link that the viewer approves
@@ -28,7 +26,8 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
   useEffect(() => {
     void service.start();
     const sub = AppState.addEventListener('change', s => {
-      if (s === 'active') void service.start();
+      // Coming back to the app is a person asking again; a timed retry is not.
+      if (s === 'active') { service.userActed(); void service.start(); }
       else service.pause();
     });
     return () => {
@@ -59,7 +58,7 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
   // The television's front door: nothing to type. Scan or visit, approve on a phone, done;
   // the two buttons are for people who would rather use the remote.
   return (
-    <AuthFrame title={i18n.t('activation.title')} lead={i18n.t('activation.lead', {host})} wide centered error={error || (state.phase === 'error' ? activationFailed : '') || (onSavedServer ? '' : session.error)} onDismissError={() => { setError(''); session.clearError(); }}>
+    <AuthFrame title={i18n.t('activation.title')} lead={i18n.t('activation.lead', {host})} wide centered error={error || (state.phase === 'error' ? word('activation.failed', undefined, i18n) : '') || (onSavedServer ? '' : session.error)} onDismissError={() => { setError(''); session.clearError(); }}>
       <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xxl, minHeight: 300}}>
         {state.phase === 'waiting' && code && link ? (
           <View style={{padding: space.md, backgroundColor: colors.white, borderRadius: 12}}>
@@ -78,12 +77,12 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
           ) : state.phase === 'denied' ? (
             <>
               <Text variant="body" tone="secondary" align="center">{i18n.t('activation.declined')}</Text>
-              <Button variant="secondary" label={i18n.t('activation.getNewCode')} onPress={() => void service.start()} />
+              <Button variant="secondary" label={i18n.t('activation.getNewCode')} onPress={() => { service.userActed(); void service.start(); }} />
             </>
           ) : (
             <>
               <Text variant="body" tone="secondary" align="center">{state.phase === 'error' ? i18n.t('activation.codeFailed') : i18n.t('activation.preparingCode')}</Text>
-              {state.phase === 'error' ? <Button variant="secondary" label={i18n.t('action.tryAgain')} onPress={() => void service.start()} /> : null}
+              {state.phase === 'error' ? <Button variant="secondary" label={i18n.t('action.tryAgain')} onPress={() => { service.userActed(); void service.start(); }} /> : null}
             </>
           )}
         </View>

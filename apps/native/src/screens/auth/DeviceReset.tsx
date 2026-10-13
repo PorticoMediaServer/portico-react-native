@@ -1,7 +1,6 @@
 import React, {useState} from 'react';
 import {View} from 'react-native';
 import {useI18n} from '../../app/i18n';
-import {word} from '../../app/new-words';
 import {useSession} from '../../app/session';
 import {Button, ConfirmSheet, Ring, Text, useTheme} from '../../ui';
 import {AuthFrame} from './AuthFrame';
@@ -31,29 +30,29 @@ export function DeviceReset() {
       if ((await work()) === 'reopen') setState('reopen');
     } catch {
       setState('idle');
-      setError(word('signIn.reset.failed', undefined, i18n));
+      setError(i18n.t('signIn.reset.failed'));
     }
   };
   return (
-    <AuthFrame title={word('signIn.reset.title', undefined, i18n)} lead={word('signIn.reset.body', undefined, i18n)} centered={isTV} wide={isTV} error={error} onDismissError={() => setError('')}>
+    <AuthFrame title={i18n.t('signIn.reset.title')} lead={i18n.t('signIn.reset.body')} centered={isTV} wide={isTV} error={error} onDismissError={() => setError('')}>
       {state === 'idle' ? (
         <View style={{gap: space.sm, alignItems: isTV ? 'center' : 'stretch'}}>
-          <Button variant="primary" size="lg" label={word('signIn.reset.action', undefined, i18n)} fullWidth={!isTV} hasTVPreferredFocus onPress={() => setConfirming(true)} />
+          <Button variant="primary" size="lg" label={i18n.t('signIn.reset.action')} fullWidth={!isTV} hasTVPreferredFocus onPress={() => setConfirming(true)} />
           <Button variant="ghost" label={i18n.t('action.tryAgain')} fullWidth={!isTV} onPress={() => void run(reset.tryAgain)} />
         </View>
       ) : (
         <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: isTV ? 'center' : 'flex-start', gap: space.sm}}>
           {state === 'working' ? <Ring size={isTV ? 28 : 18} thickness={2} /> : null}
-          <Text variant="body" tone="secondary" accessibilityLiveRegion="polite">{word(state === 'working' ? 'signIn.reset.working' : 'signIn.reset.reopen', undefined, i18n)}</Text>
+          <Text variant="body" tone="secondary" accessibilityLiveRegion="polite">{i18n.t(state === 'working' ? 'signIn.reset.working' : 'signIn.reset.reopen')}</Text>
         </View>
       )}
       <ConfirmSheet
         open={confirming}
         onDismiss={() => setConfirming(false)}
-        title={word('signIn.reset.confirmTitle', undefined, i18n)}
-        consequence={word('signIn.reset.consequence', undefined, i18n)}
-        confirmLabel={word('signIn.reset.confirm', undefined, i18n)}
-        describeError={() => word('signIn.reset.failed', undefined, i18n)}
+        title={i18n.t('signIn.reset.confirmTitle')}
+        consequence={i18n.t('signIn.reset.consequence')}
+        confirmLabel={i18n.t('signIn.reset.confirm')}
+        describeError={() => i18n.t('signIn.reset.failed')}
         onConfirm={async () => {
           // A failure stays in the confirmation, where the person can try again or cancel.
           const outcome = await reset.reset();

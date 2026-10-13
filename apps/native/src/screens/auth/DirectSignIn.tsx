@@ -7,6 +7,7 @@ import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
 import {Button, Field, useTheme, type FieldHandle} from '../../ui';
 import {AuthFrame} from './AuthFrame';
+import {PlainHttpNote} from './PlainHttpNote';
 import {QuickConnect} from './QuickConnect';
 import {directStepAfter, firstDirectStep, type DirectStep} from './sign-in-steps';
 
@@ -36,6 +37,9 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const [connectError, setConnectError] = useState('');
   // Opened with the address already filled in (a sign-in that ended): on TV, Continue takes focus.
   const [prefilled] = useState(() => !!direct.origin.trim());
+  // The address once the person has finished typing it (the field was left, or it came filled in):
+  // only then is the server asked whether this is plain HTTP from outside its home networks.
+  const [settled, setSettled] = useState(() => direct.origin.trim());
   // The username the server accepted last time for this address (a sign-in that ended reopens
   // with it); the password is always typed.
   useEffect(() => {
@@ -83,7 +87,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   if (direct.step) return <DirectStepScreen />;
   if (step === 'code' && connected) return <QuickConnect api={connected} onPassword={() => leaveCode('usePassword')} onBack={() => leaveCode('back')} />;
   // TV-AUTH-03: placeholders are examples, never a repeat of the label.
-  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { if (direct.pin) direct.resetPin(); direct.setOrigin(v); release(connected); setConnected(undefined); }} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
+  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
   if (step === 'address') {
     return (
       <AuthFrame title={i18n.t('auth.signInToServer')} lead="Enter your server’s address. Then approve this TV from a phone or computer that’s already signed in — no password to type." onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
@@ -100,6 +104,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
       <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
       <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={setPassword} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
       <Button variant="primary" size="lg" label={i18n.t('auth.signIn')} fullWidth loading={session.busy} disabled={!ready} onPress={submit} />
+      <PlainHttpNote address={settled} />
     </AuthFrame>
   );
 }

@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import type {HttpLocalApi, LocalSession} from '../../../../../packages/client-core/src/index';
@@ -9,6 +9,7 @@ import {useSession} from '../../app/session';
 import {nativeQuickConnect} from '../../bridge/setup-codes';
 import {Button, Text, useTheme} from '../../ui';
 import {AuthFrame} from './AuthFrame';
+import {PlainHttpNote} from './PlainHttpNote';
 import {approvalLink} from '../../app/approval-link';
 
 /**
@@ -24,6 +25,8 @@ export function QuickConnect({api, onPassword, onBack}: {api: HttpLocalApi; onPa
   const [state, setState] = useState(service.getSnapshot());
   const [error, setError] = useState('');
   const handled = useRef(false);
+  // The code was approved, and this server's owner approves new devices: that is what is still awaited.
+  const approval = useSyncExternalStore(service.approval.subscribe, service.approval.getSnapshot);
   useEffect(() => service.subscribe(() => setState(service.getSnapshot())), [service]);
   useEffect(() => {
     void service.start();
@@ -67,7 +70,16 @@ export function QuickConnect({api, onPassword, onBack}: {api: HttpLocalApi; onPa
           {state.phase === 'waiting' && code ? (
             <>
               <Text variant="display" style={{fontSize: 84, lineHeight: 96, letterSpacing: 10, fontVariant: ['tabular-nums']}}>{code}</Text>
-              <Text variant="caption" tone="tertiary" align="center">{i18n.t('activation.codeRefreshes')}</Text>
+              {approval === 'pending' ? (
+                <>
+                  <Text variant="heading" align="center" accessibilityLiveRegion="polite">{i18n.t('device.approval.titleThisDevice')}</Text>
+                  <Text variant="caption" tone="tertiary" align="center">{i18n.t('device.approval.body')}</Text>
+                </>
+              ) : approval === 'denied' ? (
+                <Text variant="body" tone="secondary" align="center" accessibilityLiveRegion="polite">{i18n.t('portico.failure.deviceDenied.title', {server: host})}</Text>
+              ) : (
+                <Text variant="caption" tone="tertiary" align="center">{i18n.t('activation.codeRefreshes')}</Text>
+              )}
             </>
           ) : state.phase === 'approved' ? (
             <Text variant="heading" tone="healthy">{i18n.t('launch.approvedConnecting')}</Text>
@@ -85,6 +97,7 @@ export function QuickConnect({api, onPassword, onBack}: {api: HttpLocalApi; onPa
         {state.phase === 'error' ? <Button variant="primary" size="lg" label={i18n.t('action.tryAgain')} hasTVPreferredFocus onPress={() => void service.start()} /> : null}
         <Button variant={state.phase === 'error' ? 'secondary' : 'primary'} size="lg" label={i18n.t('quickConnect.usePassword')} hasTVPreferredFocus={state.phase !== 'error'} onPress={() => { void service.cancel().catch(() => {}); onPassword(); }} />
       </View>
+      <PlainHttpNote api={api} />
     </AuthFrame>
   );
 }

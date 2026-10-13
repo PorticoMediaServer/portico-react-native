@@ -55,6 +55,11 @@ const signInCodes: Record<string, MessageId> = {
  * when the error is none of these. `session_migrated` is re-admitted silently, so it says nothing.
  */
 export function signInCause(error: unknown, category?: string, server = active.t('invitation.thisServer')): string | undefined {
+  // What the owner's own rules say about this account: not a failure of the sign-in, and nothing to retry differently.
+  const code = (error as {code?: unknown} | null)?.code;
+  if (code === 'outside_allowed_hours') return active.t('web.signIn.error.outsideHours', {server});
+  if (code === 'remote_sign_in_not_allowed') return active.t('web.signIn.error.remoteNotAllowed', {server});
+  if (code === 'invitation_for_another_account') return active.t('web.signIn.error.invitationOtherAccount', {server});
   const f = classifyPorticoFailure(error, 'signIn', server, category);
   switch (f.kind) {
     case 'migrated': return '';

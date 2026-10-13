@@ -1,8 +1,10 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Share, View} from 'react-native';
-import {contentRatings, keyScopes, parseAccessAPIKey, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, type AccessAPIKey, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type KeyScope, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
+import {contentRatings, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
+import {apiScopePresetIds, apiScopePresets, createApiKey, listApiKeys, revokeApiKey, type ApiCredential, type ApiScope, type ApiScopePreset, type IssuedApiCredential} from '../../../../../packages/client-core/src/api-access';
+import {credentialFacts, credentialState, credentialWorks, scopesText} from '../../../../../packages/client-core/src/server-admin/api-words';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
-import {accessListPath, scopeHelp, scopeLabels, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {accessListPath, memberOffLine, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
@@ -11,6 +13,9 @@ import {nextCursorOf, operationId, problem, useAction, usePagedList, useRead} fr
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, ToggleRow, useTheme} from '../../ui';
 import {InviteSheet} from '../InviteSheet';
 import {PickRow, TypedRow} from '../settings/ServerForms';
+
+/** The widest scope of each ready-made choice: its help says what the choice adds. */
+const accessHelp: Readonly<Record<ApiScopePreset, ApiScope>> = {read: 'read', playback: 'playback', library: 'library', admin: 'admin'};
 
 /** The platform words that mean a television, whichever client announced the device. */
 const televisionPlatforms = new Set(['tvos', 'androidtv', 'firetv', 'vega', 'roku', 'webos', 'tizen']);
@@ -25,7 +30,8 @@ const rows = <T,>(raw: unknown, each: (x: unknown) => T): T[] => {
 /** People › Accounts: everyone who can use this server. An account opens to its role, libraries, sign-in, limits and devices. */
 export function AccountsPanel() {
   const {api} = useSession();
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const libraries = useLibrariesContext();
   const read = useRead<{items: DirectMember[]}>(() => api.request('/v1/direct/members'), [api]);
   // Roles and limits come from the access list, joined by account.
@@ -43,7 +49,9 @@ export function AccountsPanel() {
         {members.map(m => {
           const limits = access.items?.find(a => a.accountId === m.id)?.limits;
           const facts = [m.hostedAccountId ? t('server.people.porticoAccount') : '', m.role === 'owner' || !m.allowedLibraries.length ? t('server.people.allLibraries') : m.allowedLibraries.map(libName).join(', '), limits?.maxStreams ? t('server.people.streams', {count: limits.maxStreams}) : '', limits?.maxContentRating ? t('server.people.upTo', {rating: limits.maxContentRating}) : ''];
-          return <ListRow key={m.id} icon="account" title={m.username} subtitle={facts.filter(Boolean).join(' · ')} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.id)} />;
+          // An account that is off says since when, and whether the owner turned it off or the person left.
+          const off = memberOffLine(m, t, iso => i18n.date(iso));
+          return <ListRow key={m.id} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.id)} />;
         })}
         {access.more ? <ListRow tone="action" title={t('server.showMore')} onPress={access.loadMore} /> : null}
         <ListRow tone="action" icon="plus" title={t('web.people.addAccount')} onPress={() => setAdding(true)} />
@@ -207,52 +215,65 @@ export function InvitationsPanel() {
   );
 }
 
-/** People › API keys: access for scripts and integrations. A key is shown once, when it is made. */
+/** People › API keys: access for scripts and other programs. A key is shown once, when it is made. */
 export function APIKeysPanel() {
   const {api} = useSession();
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const {space} = useTheme();
-  const read = usePagedList(async cursor => { const raw = await api.request(accessListPath('apiKeys', cursor)); return {items: rows(raw, parseAccessAPIKey), nextCursor: nextCursorOf(raw)}; }, [api]);
+  const read = usePagedList(async cursor => { const page = await listApiKeys(api, cursor); return {items: [...page.items], nextCursor: page.nextCursor ?? ''}; }, [api]);
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [scope, setScope] = useState<KeyScope>('read-only');
-  const [issued, setIssued] = useState<AccessAPIKey>();
-  const [revoking, setRevoking] = useState<AccessAPIKey>();
-  const active = useMemo(() => read.items?.filter(k => !k.revoked) ?? [], [read.items]);
-  const create = () => void action.run(async () => { const payload = {name: name.trim(), scope}; setIssued(parseAccessAPIKey(await api.request('/v1/admin/access/api-keys', 'POST', {operationId: opIds.forPayload(JSON.stringify(payload)), ...payload}))); opIds.release(); read.reload(); });
+  const [access, setAccess] = useState<ApiScopePreset>('read');
+  const [issued, setIssued] = useState<IssuedApiCredential>();
+  const [revoking, setRevoking] = useState<ApiCredential>();
+  const [showEnded, setShowEnded] = useState(false);
+  const working = useMemo(() => read.items?.filter(credentialWorks) ?? [], [read.items]);
+  const ended = useMemo(() => read.items?.filter(k => !credentialWorks(k)) ?? [], [read.items]);
+  const format = {relative: (iso: string) => i18n.relativeTime(iso), date: (iso: string) => i18n.date(iso)};
+  const create = () => void action.run(async () => { const scopes = apiScopePresets[access]; setIssued(await createApiKey(api, {operationId: opIds.forPayload(JSON.stringify({name: name.trim(), scopes})), name: name.trim(), scopes})); opIds.release(); read.reload(); });
+  const row = (k: ApiCredential) => {
+    const state = credentialState(t, id => i18n.has(id), k);
+    return <ListRow key={k.id} icon="lock" title={k.name} subtitle={[credentialFacts(t, k, format), state?.text].filter(Boolean).join('\n')} subtitleLines={3} {...(credentialWorks(k) ? {accessory: 'menu' as const, onPress: () => setRevoking(k)} : {readable: true})} />;
+  };
   return (
     <>
       {read.error ? <Notice tone={read.items ? 'warning' : 'error'} message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       <RowGroup title={t('web.access.apiKeys')} footer={t('server.access.keyLede')}>
-        {active.map(k => <ListRow key={k.id} icon="lock" title={k.name} subtitle={t('web.access.keyMeta', {access: scopeLabels[k.scope], hint: k.hint, when: since(k.lastUsedAt)})} accessory="menu" onPress={() => setRevoking(k)} />)}
-        {read.items && !active.length ? <ListRow title={t('web.access.noApiKeys')} /> : null}
+        {working.map(row)}
+        {read.items && !working.length ? <ListRow readable title={t('web.access.noApiKeys')} /> : null}
+        {showEnded ? ended.map(row) : null}
+        {ended.length ? <ListRow title={showEnded ? t('api.credential.hideEnded') : t('api.credential.showEnded', {count: ended.length})} trailingIcon={showEnded ? 'chevronUp' : 'chevronDown'} accessibilityState={{expanded: showEnded}} onPress={() => setShowEnded(v => !v)} /> : null}
         {read.more ? <ListRow tone="action" title={t('server.showMore')} onPress={read.loadMore} /> : null}
-        <ListRow tone="action" icon="plus" title={t('web.access.createKey')} onPress={() => { setIssued(undefined); setName(''); action.clear(); setOpen(true); }} />
+        <ListRow tone="action" icon="plus" title={t('web.access.createKey')} onPress={() => { setIssued(undefined); setName(''); setAccess('read'); action.clear(); setOpen(true); }} />
       </RowGroup>
       <Sheet open={open} onClose={() => setOpen(false)} kind={issued ? 'acknowledge' : 'form'} title={issued ? t('web.access.copyKeyTitle') : t('web.access.createKeyTitle')}
         primary={issued ? {label: t('web.access.copiedIt'), onPress: () => setOpen(false)} : {label: t('web.saved.create'), loading: action.busy, disabled: !name.trim(), onPress: create}}>
         <View style={{gap: space.md}}>
-          {issued ? (
+          {issued?.secret ? (
             <>
               <Notice tone="warning" message={t('web.access.keyShownOnce')} />
               <RowGroup>
-                <ListRow title={t('web.access.apiKey')} subtitle={issued.secret ?? ''} subtitleLines={4} />
+                <ListRow readable title={t('web.access.apiKey')} subtitle={issued.secret} subtitleLines={4} />
                 <ListRow tone="action" icon="upload" title={t('server.people.shareKey')} onPress={() => { void Share.share({message: issued.secret ?? ''}).catch(() => {}); }} />
               </RowGroup>
             </>
+          ) : issued ? (
+            // The server answers a repeated request without the secret: the key exists and cannot be shown again.
+            <Notice tone="warning" message={t('api.credential.secretNotShown')} />
           ) : (
             <>
               {action.error ? <Notice tone="error" message={action.error} /> : null}
               <Field label={t('profile.name')} hint={t('web.access.keyNameHelp')} value={name} onChangeText={setName} maxLength={80} />
-              <RowGroup footer={scopeHelp[scope]}><PickRow title={t('web.access.scopeLabel')} value={scope} options={keyScopes.map(s => ({id: s, label: scopeLabels[s]}))} onChange={v => setScope(v as KeyScope)} /></RowGroup>
+              <RowGroup footer={`${t(`api.scope.${accessHelp[access]}.help`)} ${t('api.scopes.note')}`}><PickRow title={t('web.access.scopeLabel')} value={access} options={apiScopePresetIds.map(id => ({id, label: scopesText(t, apiScopePresets[id])}))} onChange={v => setAccess(v as ApiScopePreset)} /></RowGroup>
             </>
           )}
         </View>
       </Sheet>
       <ConfirmSheet open={!!revoking} onDismiss={() => setRevoking(undefined)} title={t('web.access.revokeTitle', {name: revoking?.name ?? ''})} consequence={t('web.access.revokeBody')} confirmLabel={t('web.access.revoke')} describeError={e => problem(e, 'action')}
-        onConfirm={async () => { const k = revoking; if (!k) return; await api.request(`/v1/admin/access/api-keys/${encodeURIComponent(k.id)}/revoke`, 'POST', {expectedRevision: k.revision, operationId: opIds.forPayload(JSON.stringify({id: k.id, revision: k.revision}))}); opIds.release(); setRevoking(undefined); read.reload(); }} />
+        onConfirm={async () => { const k = revoking; if (!k) return; await revokeApiKey(api, k.id); setRevoking(undefined); read.reload(); }} />
     </>
   );
 }

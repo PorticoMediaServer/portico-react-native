@@ -14,7 +14,6 @@ import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
 import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, dismissToast, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
-import {word} from '../../app/new-words';
 import {VIEW_PLAY_LIMIT} from '../../app/view-play';
 import {useGatherView, usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
@@ -146,6 +145,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
           icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)}
           progress={progressFor(m)}
           watched={m.watched === true && m.kind !== 'song'}
+          unavailable={m.available === false}
           onPress={() => (m.playback ? play(media.slice(from.get(m) ?? 0), false, {kind: 'playlist', id: playlistId}) : open(m))}
           onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
         />
@@ -237,12 +237,12 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
     if (!snapshot.nextCursor) { play(media, shuffle); return; }
     if (gathering.current) return;
     gathering.current = true;
-    showToast({message: word('saved.view.gathering', undefined, i18n)});
+    showToast({message: i18n.t('saved.view.gathering')});
     try {
       const whole = await gather(media, snapshot.nextCursor);
       play(whole.entries, shuffle);
       if (whole.complete) dismissToast();
-      else showToast({message: word('saved.view.partial', {count: VIEW_PLAY_LIMIT}, i18n)});
+      else showToast({message: i18n.t('saved.view.partial', {count: VIEW_PLAY_LIMIT})});
     } catch (e) {
       // Leaving the page cancels the read; anything else is said, and nothing half-known plays.
       if ((e as {name?: string} | null)?.name !== 'AbortError') showToast({message: say(e, 'saved', 'load'), icon: 'warning'});
@@ -254,7 +254,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
-  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1}} onLayout={onLayout}>

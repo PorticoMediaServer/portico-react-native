@@ -2,15 +2,14 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {Share, View} from 'react-native';
 import {useNavigation, useRoute, type RouteProp} from '@react-navigation/native';
 import type {ContentStackParams} from '../app/routes';
-import {groupTargetPositionUs, type Group, type GroupHostAuthority, type GroupMember, type GroupQueueEntry, type MediaItem} from '../../../../packages/client-core/src/index';
+import {groupTargetPositionUs, type GroupHostAuthority, type GroupMember, type GroupQueueEntry, type MediaItem} from '../../../../packages/client-core/src/index';
 import {useSession} from '../app/session';
 import {useTogether} from '../app/together';
+import {currentTitle, groupEndedReason, groupStateLabel, mayBeMadeHost, mayClaimHost, memberName, memberStatus, readinessLine} from '../app/together-words';
 import {Badge, Button, ConfirmSheet, Divider, Field, ListRow, Menu, Notice, Page, PageHeader, Section, Segmented, Sheet, StateView, Surface, Text, useTheme, type MenuItem} from '../ui';
 import {useI18n, type MessageId} from '../app/i18n';
 
 const authorities: readonly {id: GroupHostAuthority; label: MessageId}[] = [{id: 'host-only', label: 'web.together.onlyMe'}, {id: 'anyone', label: 'web.together.everyone'}] as const;
-const stateLabel: Partial<Record<Group['state'], string>> = {lobby: 'Waiting to start', preparing: 'Getting ready', ready: 'Ready', playing: 'Playing', paused: 'Paused', 'host-reconnecting-playing': 'Host reconnecting', 'host-reconnecting-paused': 'Host reconnecting', degraded: 'Playing', ending: 'Ending', ended: 'Ended', failed: 'Ended'};
-const endedReason: Record<string, string> = {'host-ended': 'The host ended the group.', 'host-unavailable': 'The host was away too long, so the group ended.', empty: 'Everyone left.'};
 const clock = (seconds: number) => { const s = Math.max(0, Math.floor(seconds)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return `${h ? h + ':' + String(m).padStart(2, '0') : m}:${String(s % 60).padStart(2, '0')}`; };
 
 /** Titles for the ids a group carries. A group never sends titles, because what each member
@@ -113,7 +112,7 @@ function Lobby({initialCode}: {initialCode?: string}) {
             {state.directory.map((g, i) => (
               <View key={g.id}>
                 {i ? <Divider inset={space.md} /> : null}
-                <ListRow icon="people" title={g.name} subtitle={i18n.t('web.together.groupLine', {count: g.members.filter(m => m.state === 'joined').length, state: stateLabel[g.state] ?? g.state})} meta={g.permissions.isHost ? i18n.t('web.together.youHost') : undefined} trailingIcon="forward" onPress={() => void service.open(g.id)} />
+                <ListRow icon="people" title={g.name} subtitle={i18n.t('web.together.groupLine', {count: g.members.filter(m => m.state === 'joined').length, state: groupStateLabel(i18n.t, g.state)})} meta={g.permissions.isHost ? i18n.t('web.together.youHost') : undefined} trailingIcon="forward" onPress={() => void service.open(g.id)} />
               </View>
             ))}
           </Surface>
@@ -123,14 +122,6 @@ function Lobby({initialCode}: {initialCode?: string}) {
     </>
   );
 }
-
-function readinessLine(group: Group): string {
-  const r = group.readiness;
-  if (r.aggregate === 'ready') return r.memberCount > 1 ? 'Everyone is ready.' : 'Ready.';
-  const waiting = r.buffering + r.lagging + r.stale;
-  return `${r.ready} of ${r.memberCount} ready · waiting for ${waiting === 1 ? 'one person' : waiting + ' people'}`;
-}
-const memberStatus = (m: GroupMember) => (m.presence !== 'connected' ? 'Away' : m.readiness === 'ready' ? 'In step' : m.readiness === 'buffering' ? 'Buffering' : 'Catching up');
 
 function Room() {
   const i18n = useI18n();
@@ -145,10 +136,12 @@ function Room() {
   const ids = useMemo(() => [group.timeline.itemId, ...(queue?.entries.map(e => e.itemId ?? '') ?? [])].filter(Boolean), [group.timeline.itemId, queue]);
   const titles = useTitles(ids);
   if (!service) return null;
-  if (state.phase === 'ended') return <StateView icon="people" title={i18n.t('web.together.endedTitle')} message={endedReason[group.endedReason] ?? i18n.t('web.together.ended.other')} action={i18n.t('web.together.backToLobby')} onAction={() => service.dismiss()} />;
+  if (state.phase === 'ended') return <StateView icon="people" title={i18n.t('web.together.endedTitle')} message={groupEndedReason(i18n.t, group.endedReason)} action={i18n.t('web.together.backToLobby')} onAction={() => service.dismiss()} />;
   const can = group.permissions;
   const playing = group.timeline.state === 'playing';
   const now = group.timeline.itemId ? titles[group.timeline.itemId] : undefined;
+  // A title this viewer may not see arrives without its id: the room still has a title on.
+  const current = currentTitle(group.timeline);
   // PERF-S10: only the clock and the host countdown change every second; they tick on their own
   // (`Ticking`) instead of re-rendering the whole room.
   const position = () => (group.timeline.itemId ? Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), service.serverNow()) / 1000000n) : 0);
@@ -166,16 +159,16 @@ function Room() {
     <>
       <View style={{paddingHorizontal: space.page, gap: space.md}}>
         {state.phase === 'reconnecting' ? <Notice tone="info" message={i18n.t('web.together.reconnectingApple')} /> : null}
-        {away ? <Ticking>{() => { const d = deadline(); const when = d ? clock((Date.parse(d.at) - service.serverNow()) / 1000) : ''; return <Notice tone="warning" message={d ? `${i18n.t('web.together.hostDropped')} ${i18n.t(d.label === 'pauses' ? 'web.together.pausesIn' : 'web.together.endsIn', {time: when})}` : i18n.t('web.together.hostDropped')} action={me && !can.isHost ? i18n.t('web.together.becomeHost') : undefined} onAction={me && !can.isHost ? () => void service.makeHost(me.id) : undefined} />; }}</Ticking> : null}
+        {away ? <Ticking>{() => { const d = deadline(); const claim = mayClaimHost(group, me, service.serverNow()); const when = d ? clock((Date.parse(d.at) - service.serverNow()) / 1000) : ''; return <Notice tone="warning" message={d ? `${i18n.t('web.together.hostDropped')} ${i18n.t(d.label === 'pauses' ? 'web.together.pausesIn' : 'web.together.endsIn', {time: when})}` : i18n.t('web.together.hostDropped')} action={claim ? i18n.t('web.together.becomeHost') : undefined} onAction={claim && me ? () => void service.makeHost(me.id) : undefined} />; }}</Ticking> : null}
         <Surface>
           <View style={{gap: space.sm}}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
-              <Badge label={stateLabel[group.state] ?? group.state} tone={playing ? 'accent' : 'neutral'} />
+              <Badge label={groupStateLabel(i18n.t, group.state)} tone={playing ? 'accent' : 'neutral'} />
               {group.timeline.itemId ? <Ticking>{() => <Text variant="caption" tone="tertiary">{clock(position())}{now?.duration ? ` of ${clock(now.duration)}` : ''}</Text>}</Ticking> : null}
             </View>
-            <Text variant="heading" numberOfLines={2}>{group.timeline.itemId ? (now === null ? i18n.t('web.together.hiddenTitle') : now?.title ?? i18n.t('web.together.loadingTitle')) : i18n.t('web.together.nothingChosen')}</Text>
-            <Text variant="caption" tone="tertiary">{group.timeline.itemId ? readinessLine(group) : can.canManageQueue ? i18n.t('web.together.pickHelpHold') : i18n.t('web.together.hostPicks')}</Text>
-            {can.canControl && group.timeline.itemId ? <Button variant="primary" icon={playing ? 'pause' : 'play'} label={playing ? i18n.t('web.together.pauseAll') : group.readiness.aggregate === 'ready' ? i18n.t('web.together.playAll') : i18n.t('web.together.playAnyway')} disabled={state.busy} hasTVPreferredFocus onPress={() => void service.transport(playing ? 'pause' : 'play')} style={{marginTop: space.sm}} /> : null}
+            <Text variant="heading" numberOfLines={2}>{current === 'chosen' ? (now === null ? i18n.t('web.together.hiddenTitle') : now?.title ?? i18n.t('web.together.loadingTitle')) : current === 'hidden' ? i18n.t('web.together.hiddenTitle') : i18n.t('web.together.nothingChosen')}</Text>
+            <Text variant="caption" tone="tertiary">{current !== 'none' ? readinessLine(i18n.t, group.readiness) : can.canManageQueue ? i18n.t('web.together.pickHelpHold') : i18n.t('web.together.hostPicks')}</Text>
+            {can.canControl && current !== 'none' ? <Button variant="primary" icon={playing ? 'pause' : 'play'} label={playing ? i18n.t('web.together.pauseAll') : group.readiness.aggregate === 'ready' ? i18n.t('web.together.playAll') : i18n.t('web.together.playAnyway')} disabled={state.busy} hasTVPreferredFocus onPress={() => void service.transport(playing ? 'pause' : 'play')} style={{marginTop: space.sm}} /> : null}
           </View>
         </Surface>
       </View>
@@ -184,7 +177,7 @@ function Room() {
           {members.map((m, i) => (
             <View key={m.id}>
               {i ? <Divider inset={space.md} /> : null}
-              <ListRow hasTVPreferredFocus={i === 0 && !(can.canControl && group.timeline.itemId)} icon="profile" title={m.id === group.viewerMemberId ? i18n.t('web.together.you', {name: m.displayName}) : m.displayName} subtitle={m.role === 'host' ? i18n.t('web.together.hostStatus', {status: memberStatus(m)}) : memberStatus(m)} trailingIcon={can.isHost && m.role !== 'host' ? 'more' : undefined} onPress={can.isHost && m.role !== 'host' ? () => setMember(m) : undefined} />
+              <ListRow hasTVPreferredFocus={i === 0 && !(can.canControl && current !== 'none')} icon="profile" title={m.id === group.viewerMemberId ? i18n.t('web.together.you', {name: m.displayName}) : memberName(i18n.t, m)} subtitle={m.role === 'host' ? i18n.t('web.together.hostStatus', {status: memberStatus(i18n.t, m)}) : memberStatus(i18n.t, m)} trailingIcon={can.isHost && mayBeMadeHost(m) ? 'more' : undefined} onPress={can.isHost && mayBeMadeHost(m) ? () => setMember(m) : undefined} />
             </View>
           ))}
         </Surface>
@@ -234,7 +227,7 @@ function Room() {
           {can.isHost ? <Button variant="ghost" label={i18n.t('web.together.endAll')} onPress={() => setConfirm('end')} /> : null}
         </View>
       </Section>
-      <Menu open={!!member} onClose={() => setMember(undefined)} title={member?.displayName} items={[{id: 'host', label: i18n.t('web.together.makeHost'), icon: 'profile'}]} onSelect={() => { if (member) void service.makeHost(member.id); }} />
+      <Menu open={!!member} onClose={() => setMember(undefined)} title={member ? memberName(i18n.t, member) : undefined} items={[{id: 'host', label: i18n.t('web.together.makeHost'), icon: 'profile'}]} onSelect={() => { if (member) void service.makeHost(member.id); }} />
       <Menu open={!!entry} onClose={() => setEntry(undefined)} title={entry?.itemId ? titles[entry.itemId]?.title : undefined} items={entryItems} onSelect={id => { if (!entry) return; if (id === 'load') void service.transport('load', {entryId: entry.entryId}); else void service.queueRemove(entry.entryId); }} />
       {/* CON-06: a tier-1 confirmation with a red verb. */}
       <ConfirmSheet open={!!confirm} onDismiss={() => setConfirm(undefined)} title={confirm === 'end' ? i18n.t('confirm.endGroup.title') : i18n.t('confirm.leaveAsHost.title')} consequence={confirm === 'end' ? i18n.t('confirm.endGroup.body') : i18n.t('confirm.leaveAsHost.body')} confirmLabel={confirm === 'end' ? i18n.t('confirm.endGroup.action') : i18n.t('confirm.leaveAsHost.action')} onConfirm={async () => { await (confirm === 'end' ? service.end() : service.leave()); }} />

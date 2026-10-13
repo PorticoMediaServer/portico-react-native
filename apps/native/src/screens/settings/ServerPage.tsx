@@ -9,14 +9,14 @@ import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
 import {APIKeysPanel, AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
-import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, IdentityRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
+import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
-import {BackupsPanel, DeletedTitlesPanel, DiskUsagePanel, RemoteSourcesPanel, RetentionRows} from '../server/StoragePanels';
+import {BackupsPanel, DiskUsagePanel, MissingTitlesPanel, RemoteSourcesPanel, RetentionRows} from '../server/StoragePanels';
 import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SupportExportPanel} from '../server/Troubleshooting';
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
-const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.retention', 'server.detailWindow', 'server.identity']);
+const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity']);
 
 /** The Server pages' `custom` rows (settings-structure.ts), drawn natively. The state-folder warning is part of the alerts. */
 function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
@@ -40,12 +40,14 @@ function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'server.accountConnection': return <AccountConnectionPanel />;
     case 'server.certificateStatus': return <CertificateStatusRows />;
     case 'server.addresses': return <AddressesRows />;
+    case 'server.connection': return <ConnectionRows />;
+    case 'server.ownCertificateStatus': return <OwnCertificateStatusRows />;
     case 'server.diskUsage': return <DiskUsagePanel />;
     case 'server.retention': return <RetentionRows />;
     case 'server.remoteSources': return <RemoteSourcesPanel />;
     case 'server.backups': return <BackupsPanel />;
     case 'server.playHistory': return <PlayHistoryPanel />;
-    case 'server.deletedTitles': return <DeletedTitlesPanel />;
+    case 'server.missingTitles': return <MissingTitlesPanel />;
     case 'server.windows': return <WindowsPanel />;
     case 'server.jobs': return <ScheduledJobsPanel />;
     case 'server.detailWindow': return <DetailWindowRow />;
@@ -104,9 +106,12 @@ function ServerSection({section, entry}: {section: SettingsSection; entry?: bool
   // A group of settings whose documents this server does not have is left out, heading and all.
   const absent = useFormsAbsent(forms) && rows.every(row => row.kind === 'server-setting');
   const draw = (row: StructureRow, index: number) => row.kind === 'custom' ? <ServerPanel key={row.id} id={row.id} entry={entry && index === 0} /> : row.kind === 'server-setting' ? <ServerSettingRowView key={settingsRowId(row)} row={row} /> : null;
+  // A panel keeps its authored place: one written after the section's rows (the list under a rule) is drawn below them.
+  const firstRow = section.rows.findIndex(row => rows.includes(row));
+  const after = firstRow < 0 ? [] : groups.filter(row => section.rows.indexOf(row) > firstRow);
   return (
     <>
-      {groups.map(draw)}
+      {groups.filter(row => !after.includes(row)).map(draw)}
       {forms.map(id => <FormLoadNotice key={id} id={id} />)}
       {rows.length && !absent ? (
         <RowGroup title={!section.advanced && section.title ? t(section.title) : undefined} footer={section.description ? t(section.description) : undefined}>
@@ -114,6 +119,7 @@ function ServerSection({section, entry}: {section: SettingsSection; entry?: bool
           {open ? rows.map(draw) : null}
         </RowGroup>
       ) : null}
+      {after.map(draw)}
     </>
   );
 }

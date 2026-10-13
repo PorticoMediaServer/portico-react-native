@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {connectDirectServer, serverAddress} from '../src/app/direct-connect.ts';
+import {connectDirectServer, findDirectServer, serverAddress} from '../src/app/direct-connect.ts';
 import {ShownError} from '../src/app/errors.ts';
 import {RouteError, routeBase64, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 import {RouteConnection} from '../../../packages/client-core/src/route-connection.ts';
@@ -135,7 +135,7 @@ test('an unreachable server keeps its reachability message', async () => {
   const {env} = scripted({probe: () => { throw new TypeError('Network request failed'); }});
   await assert.rejects(
     connectDirectServer({origin: ORIGIN, env, signal: new AbortController().signal, isCurrent: () => true}),
-    (e: unknown) => e instanceof ShownError && e.message === 'Portico couldn’t reach that server. Check the address and try again.',
+    (e: unknown) => e instanceof ShownError && e.message === 'Portico can’t reach 127.0.0.1:19631. Check that it’s on and connected, then try again.',
   );
 });
 
@@ -150,7 +150,7 @@ test('RACE: an inspect that resolves after the address moved on publishes nothin
   current = 2;
   releases.splice(0).forEach(run => run());
   await attempt;
-  assert.match(String((failure as Error)?.message ?? failure), /The server changed while you were signing in/);
+  assert.match(String((failure as Error)?.message ?? failure), /changed while you were signing in/);
   assert.equal(published, undefined, 'a superseded attempt must not yield a pin to publish');
   assert.ok(calls.every(c => c.url.endsWith('/v1/networking/identity-proof')), 'a superseded inspect must not reach pairing or system');
 });
@@ -173,7 +173,7 @@ test('RACE: a system answer that arrives after supersede is discarded and its co
     current = 2;
     releases.splice(0).forEach(run => run());
     await attempt;
-    assert.match(String((failure as Error)?.message ?? failure), /The server changed while you were signing in/);
+    assert.match(String((failure as Error)?.message ?? failure), /changed while you were signing in/);
   });
   assert.equal(disposes, 1, 'the superseded connection must be disposed, not handed back');
 });
@@ -191,7 +191,7 @@ test('a server that needs setup disposes its connection and says so', async () =
   const disposes = await countDisposals(async () => {
     await assert.rejects(
       connectDirectServer({origin: ORIGIN, env, signal: new AbortController().signal, isCurrent: () => true}),
-      /hasn’t finished setup/,
+      /isn’t set up yet/,
     );
   });
   assert.equal(disposes, 1);
@@ -216,13 +216,69 @@ test('a bare address gets the scheme and port it most likely needs', () => {
   assert.equal(serverAddress('localhost'), 'http://localhost:32500');
   assert.equal(serverAddress('[fd00::1]'), 'http://[fd00::1]:32500');
   assert.equal(serverAddress('[fd00::1]:8443'), 'http://[fd00::1]:8443');
-  // A number has no certificate, wherever it is.
-  assert.equal(serverAddress('203.0.113.9'), 'http://203.0.113.9:32500');
-  assert.equal(serverAddress('[2001:db8::1]'), 'http://[2001:db8::1]:32500');
-  // A published name: HTTPS, as typed.
+  // An IPv6 address may be typed without its brackets.
+  assert.equal(serverAddress('fd00::1'), 'http://[fd00::1]:32500');
+  // A published name or a public address: HTTPS first, as typed.
   assert.equal(serverAddress('portico.example.com'), 'https://portico.example.com');
   assert.equal(serverAddress('portico.example.com:8443'), 'https://portico.example.com:8443');
   assert.equal(serverAddress('box.tail1234.ts.net'), 'https://box.tail1234.ts.net');
+  assert.equal(serverAddress('203.0.113.9'), 'https://203.0.113.9');
+  assert.equal(serverAddress('[2001:db8::1]'), 'https://[2001:db8::1]');
+});
+
+test('a public address is also tried over plain HTTP, which a server accepts from anywhere', async () => {
+  // HTTPS answers nowhere; the server's own port over plain HTTP does.
+  const base = scripted();
+  const asked: string[] = [];
+  const env: ConnectionEnvironment = {...base.env, fetcher: (async (input: unknown, init?: RequestInit) => {
+    const origin = new URL(String(input)).origin;
+    asked.push(origin);
+    if (origin.startsWith('https:')) throw new TypeError('Network request failed');
+    return base.env.fetcher!(input as string, init);
+  }) as typeof fetch};
+  const found = await findDirectServer('203.0.113.9', env, new AbortController().signal);
+  assert.equal(found.address, 'http://203.0.113.9:32500');
+  assert.equal(found.identity.serverId, SERVER_ID);
+  assert.deepEqual(asked, ['https://203.0.113.9', 'https://203.0.113.9:32500', 'http://203.0.113.9:32500']);
+});
+
+test('an IPv6 address is reached as typed, with or without its brackets', async () => {
+  const {env} = scripted();
+  assert.equal((await findDirectServer('[fd00::20]:8096', env, new AbortController().signal)).address, 'http://[fd00::20]:8096');
+  assert.equal((await findDirectServer('fd00::20', env, new AbortController().signal)).address, 'http://[fd00::20]:32500');
+});
+
+test('when nothing answers, the most likely address is the one reported, in the sign-in’s words', async () => {
+  const base = scripted();
+  const env: ConnectionEnvironment = {...base.env, fetcher: async () => { throw new TypeError('Network request failed'); }};
+  await assert.rejects(
+    connectDirectServer({origin: 'media.example.com', env, signal: new AbortController().signal, isCurrent: () => true}),
+    /can’t reach media\.example\.com/,
+  );
+});
+
+test('something that cannot be an address says what one looks like', async () => {
+  const {env} = scripted();
+  await assert.rejects(
+    connectDirectServer({origin: 'not an address', env, signal: new AbortController().signal, isCurrent: () => true}),
+    /isn’t a server address Portico can use/,
+  );
+  await assert.rejects(
+    connectDirectServer({origin: 'ftp://nas.local', env, signal: new AbortController().signal, isCurrent: () => true}),
+    /isn’t a server address Portico can use/,
+  );
+});
+
+test('a pinned attempt goes to the address that answered, not to a fresh guess', async () => {
+  const {calls, env} = scripted();
+  const first = await connectDirectServer({origin: '127.0.0.1:19631', env, signal: new AbortController().signal, isCurrent: () => true});
+  assert.equal(first.address, ORIGIN);
+  first.api.getRouteConnection()?.dispose();
+  calls.length = 0;
+  const again = await connectDirectServer({origin: '127.0.0.1:19631', pin: first.pin, address: first.address, env, signal: new AbortController().signal, isCurrent: () => true});
+  assert.equal(again.address, ORIGIN);
+  assert.ok(calls.every(c => c.url.startsWith(ORIGIN)));
+  again.api.getRouteConnection()?.dispose();
 });
 
 test('an address typed with its scheme is used as typed', () => {

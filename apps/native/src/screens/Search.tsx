@@ -289,6 +289,7 @@ function useResultCard() {
           title={entry.title}
           subtitle={captionFor(entry)}
           watched={entry.watched === true}
+          unavailable={entry.available === false}
           source={artwork(shape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl ?? entry.backdropUrl)}
           shape={shape}
           width={width}

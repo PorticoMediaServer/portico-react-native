@@ -9,35 +9,22 @@ import {activeI18n} from './errors';
  * and call `i18n.t` at its call sites.
  */
 const awaiting = {
-  // A device whose saved sign-in can no longer be read (the system lost the key that protects it).
-  'signIn.savedUnreadable': 'This device couldn’t read its saved sign-in. Sign in again.',
-  'signIn.reset.title': 'This device can’t read its saved sign-in',
-  'signIn.reset.body': 'Reset this device to sign in again.',
-  'signIn.reset.action': 'Reset this device',
-  'signIn.reset.confirmTitle': 'Reset this device?',
-  'signIn.reset.consequence': 'Everyone is signed out of Portico on this device, and the servers and settings it remembers are forgotten. Downloads stay. Nothing on your server changes.',
-  'signIn.reset.confirm': 'Reset',
-  'signIn.reset.failed': 'This device couldn’t be reset. Try again, or clear Portico’s storage in this device’s settings.',
-  'signIn.reset.working': 'Starting Portico again…',
-  'signIn.reset.reopen': 'Close Portico and open it again to finish.',
-  // Media that can never be played, as opposed to playback that stopped and may work on another try.
-  'player.cannotPlay.title': 'This can’t be played',
-  'player.cannotPlay.thisTitle': 'This title',
-  'player.cannotPlay.gone': '{title} is no longer on this server.',
-  'player.cannotPlay.denied': '{title} can’t be played on this profile.',
-  'player.cannotPlay.unsupported': '{title} can’t be played on this device, and the server couldn’t convert it.',
-  'player.cannotPlay.conversionOff': '{title} needs converting to play on this device, and converting is turned off for this account.',
-  'player.cannotPlay.unreadable': '{title} couldn’t be read by the server. The file may be damaged or incomplete.',
-  'player.cannotPlay.fileMissing': '{title} couldn’t be sent by the server. Its file may have been moved or deleted.',
-  // What a screen reader hears in place of artwork that could not be shown.
-  'a11y.artwork.unavailable': 'Artwork unavailable',
-  'a11y.artwork.unavailableFor': '{title}, artwork unavailable',
-  // A saved view larger than one play request can hold.
-  'saved.view.gathering': 'Getting the rest of this view…',
-  'saved.view.partial': 'This view has more than {count, number} titles. The first {count, number} are playing.',
-  // Settings that apply to a kind of device, not one device.
-  'settings.scope.handhelds': 'All your phones and tablets',
-  'settings.scope.televisions': 'All your TVs',
+  // Settings › About: a report of this app's own trouble, sent to the owner of the server.
+  'about.report.title': 'Send a report',
+  'about.report.help': 'Sends this app’s recent warnings and errors to the owner of {server}, to help find a problem.',
+  'about.report.afterCrash': 'Portico closed unexpectedly last time. A report would include what went wrong.',
+  'about.report.confirmTitle': 'Send a report to the owner of {server}?',
+  'about.report.confirmBody': 'It holds what this app logged while something went wrong. That can include the names of titles and of this device. It never includes your password or sign-in.',
+  'about.report.send': 'Send',
+  'about.report.sent': 'The report was sent to the owner of {server}.',
+  'about.report.failed': 'The report couldn’t be sent. Try again later.',
+  // Television activation: the code could not be fetched (the service's own text is diagnostic; this is what a person reads).
+  'activation.failed': 'Portico couldn’t get a sign-in code. Check your connection, then get a new code.',
+  // The download menu, beside "Original", when the file is one this device cannot open by itself.
+  'downloads.quality.originalMayNotPlay': 'This device can’t open this kind of file, so the original may not play here. A smaller version will.',
+  // Signing out: the person may take their downloads off the device as they go.
+  'settings.signOutConfirm.removeDownloads': 'Remove my downloads from this device',
+  'settings.signOutConfirm.bodyRemoving': 'Your downloads are removed from this device. Anything you downloaded stays on your server.',
 } as const;
 
 export type NewWordId = keyof typeof awaiting;

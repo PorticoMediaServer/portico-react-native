@@ -4,7 +4,6 @@ import {sizedUri, useArtworkPlacement, useArtworkSlot} from './ArtworkPipeline';
 import {Icon, type IconName} from './Icon';
 import {Text} from './Text';
 import {uiI18n} from './i18n';
-import {word} from '../app/new-words';
 import {alpha, useTheme} from './theme';
 
 export type ArtworkShape = 'poster' | 'landscape' | 'square' | 'circle';
@@ -68,7 +67,7 @@ export const Artwork = React.memo(function Artwork({source, shape = 'poster', wi
   // image and reports it loaded, which would take the placeholder away for nothing.)
   const mount = !!source && (remote ? slot.active : typeof source !== 'object' || Array.isArray(source));
   return (
-    <View style={[{width: w, height: h, borderRadius: r, overflow: 'hidden', backgroundColor: colors.raised}, style]} accessibilityLabel={!source || slot.gaveUp ? (title ? word('a11y.artwork.unavailableFor', {title}, uiI18n()) : word('a11y.artwork.unavailable', undefined, uiI18n())) : undefined}>
+    <View style={[{width: w, height: h, borderRadius: r, overflow: 'hidden', backgroundColor: colors.raised}, style]} accessibilityLabel={!source || slot.gaveUp ? (title ? uiI18n().t('a11y.artwork.unavailableFor', {title}) : uiI18n().t('a11y.artwork.unavailable')) : undefined}>
       {!ready ? (
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.sm, backgroundColor: alpha(colors.raisedHigh, 0.75)}]}>
           {placeholder}

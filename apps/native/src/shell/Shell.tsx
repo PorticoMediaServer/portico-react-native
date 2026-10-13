@@ -4,6 +4,7 @@ import {isTablet} from '../bridge/device-platform';
 import {CommonActions, DarkTheme, StackActions, TabActions, NavigationContainer, type NavigationContainerRef, type NavigationState} from '@react-navigation/native';
 import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {useLibraryMemory} from '../app/library-memory';
 import {useLibraries} from '../app/libraries';
 import {viewerScope} from '../app/content';
 import {viewerKey} from '../app/viewer-scope';
@@ -60,6 +61,8 @@ import {InvitationScreen} from '../screens/Invitation';
 import {holdJoinLink, isLegacyInvite, releaseJoinLink} from '../app/join-link';
 import {RecordingsScreen} from '../screens/Recordings';
 import {CastProvider} from '../app/cast';
+import {PlayOnProvider} from '../app/play-on';
+import {PlayOnBar} from './PlayOnBar';
 import {createRootsNavigator} from './Roots';
 import {activeI18n} from '../app/errors';
 import {announceFinishedDownloads} from '../app/download-toasts';
@@ -136,6 +139,8 @@ export function Shell() {
   const [lastLibrary, setLastLibrary] = useState<string>();
   // Keyed on who is signed in, not on the access token: a renewed sign-in does not read the list again.
   const libraries = useLibraries(session.api, viewerKey(session.session, session.api) || undefined);
+  // Read this profile's remembered library choices now, so a library opens on them without a wait.
+  useLibraryMemory();
   // ONB-04: a dot on each rail entry whose library is scanning (viewer-safe status, polled).
   const serverId = useMemo(() => viewerScope(session.session, session.api).serverId, [session.session, session.api]);
   const libraryIds = useMemo(() => libraries.items.map(l => l.id), [libraries.items]);
@@ -328,11 +333,12 @@ export function Shell() {
     <MetadataEditorProvider>
     <DownloadsProvider onViewDownloads={viewDownloads}>
     <CastProvider>
+    <PlayOnProvider>
       <View style={{flex: 1, backgroundColor: colors.ink}}>
         <Atmosphere />
         <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state} />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>
-        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}>
+        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}</>}>
           <TVMenuGate gate={gate} />
           <View style={{flex: 1, flexDirection: handheld ? 'column' : 'row'}}>
             {handheld ? null : (
@@ -364,6 +370,7 @@ export function Shell() {
         <ChannelReminderHost onOpenChannels={() => select('Channels')} />
         <DeviceApprovalCover />
       </View>
+    </PlayOnProvider>
     </CastProvider>
     </DownloadsProvider>
     </MetadataEditorProvider>
@@ -377,7 +384,7 @@ export function Shell() {
  * MU1: feeds the connection-status store from the remembered server and the route's own
  * subscription. A leaf, so a route change re-renders only this, never the shell.
  */
-function ConnectionFeed({store, api, saved}: {store: ConnectionStatusStore; api: {subscribeRoute: (l: () => void) => () => void; getRouteSnapshot: () => {phase: string} | null | undefined}; saved?: 'checking' | 'offline'}) {
+function ConnectionFeed({store, api, saved}: {store: ConnectionStatusStore; api: {subscribeRoute: (l: () => void) => () => void; getRouteSnapshot: () => {phase: string} | null | undefined}; saved?: 'checking' | 'offline' | 'replaced' | 'outsideHours'}) {
   const route = useSyncExternalStore(api.subscribeRoute, api.getRouteSnapshot);
   const phase = route?.phase;
   useEffect(() => { store.update({saved, routePhase: phase}); }, [store, saved, phase]);

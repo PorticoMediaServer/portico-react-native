@@ -14,8 +14,8 @@
 export type ConnectionStatus = Readonly<{
   /** The centered status is showing (the problem has lasted the settle delay). */
   shown: boolean;
-  /** Why: 'checking' = the remembered server is still being confirmed at launch; 'unreachable' = the remembered server couldn't be reached at launch; 'lost' = a working route dropped. */
-  reason: 'checking' | 'unreachable' | 'lost' | null;
+  /** Why: 'checking' = the remembered server is still being confirmed at launch; 'unreachable' = the remembered server couldn't be reached at launch; 'replaced' = something else answers at its address; 'outsideHours' = the server does not let this account in at this time of day; 'lost' = a working route dropped. */
+  reason: 'checking' | 'unreachable' | 'replaced' | 'outsideHours' | 'lost' | null;
   /** Increments each time `shown` goes false → true. Screens compare it to know they must reload. */
   generation: number;
 }>;
@@ -26,7 +26,7 @@ export const SETTLE_MS = 2500;
 type Reason = Exclude<ConnectionStatus['reason'], null>;
 
 export type ConnectionStatusInput = {
-  saved?: 'checking' | 'offline';
+  saved?: 'checking' | 'offline' | 'replaced' | 'outsideHours';
   routePhase?: string;
 };
 
@@ -34,6 +34,9 @@ function reasonFor(input: ConnectionStatusInput): Reason | null {
   // The remembered server at launch wins over the route: it is what the viewer is waiting on.
   if (input.saved === 'checking') return 'checking';
   if (input.saved === 'offline') return 'unreachable';
+  // Something else answers at the saved address. The sign-in is kept and retried; only the person can decide their server really was set up again.
+  if (input.saved === 'replaced') return 'replaced';
+  if (input.saved === 'outsideHours') return 'outsideHours';
   // A live route that proves a different identity reads as can't reach (as on web): it may be a
   // network pointing somewhere else for a while. A sign-in that has really ended goes back to
   // sign-in instead (`app/session.tsx`, untouched here).

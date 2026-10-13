@@ -4,7 +4,7 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {DetailProjection} from '../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
-import {dedupeNames, detailActions, networkName, originalTitleLine, relatedRowsForPage} from '../../../../packages/client-core/src/presentation/index';
+import {dedupeNames, detailActions, networkName, originalTitleLine, refreshMetadataPath, relatedRowsForPage} from '../../../../packages/client-core/src/presentation/index';
 import {formatDuration, useArtwork} from '../app/content';
 import {useDetail, useItemRecommendations} from '../app/detail';
 import {titleRecommendationRows} from '../../../../packages/client-core/src/recommendations';
@@ -17,6 +17,7 @@ import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
+import {useGroupActions} from '../app/together';
 import {useCurrentActivity} from '../bridge/NativeActivity';
 import {Button, Card, Menu, Notice, Page, PersonCard, Shelf, Skeleton, StateView, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
 import {SectionView} from './Home';
@@ -53,6 +54,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const artwork = useArtwork();
   const player = usePlayerActions();
   const downloads = useDownloads();
+  // A Watch Together room this viewer may add to: the page offers it, as the title's card does.
+  const together = useGroupActions();
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<'rate' | 'playlist' | 'collection' | null>(null);
   const data = snapshot.data;
@@ -97,7 +100,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
     // owner edit however they signed in, so an owner is always answered yes here.
     local: viewerSession?.viewer.role === 'owner',
     platform: isTV ? 'tv' : 'phone',
-  }) : undefined), [data, viewerSession, isTV]);
+    group: together.inRoom && together.canQueue,
+  }) : undefined), [data, viewerSession, isTV, together.inRoom, together.canQueue]);
   const menuItems: MenuItem[] = [];
   if (item && detail) {
     for (const group of detail.more) {
@@ -114,6 +118,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         else if (action.id === 'addToCollection') menuItems.push({id: 'collection', label: i18n.t(action.label), icon: action.icon});
         else if (action.id === 'playFromStart') menuItems.push({id: 'start_over', label: i18n.t('title.playFromStart'), icon: 'restart'});
         else if (action.id === 'editMetadata') menuItems.push({id: 'edit', label: i18n.t(action.label), icon: action.icon});
+        // Refresh is offered only for the kinds of title this server can look up again.
+        else if (action.id === 'refreshMetadata') { if (refreshMetadataPath(item.kind, item.id)) menuItems.push({id: action.id, label: i18n.t(action.label), icon: action.icon}); }
         else menuItems.push({id: action.id, label: i18n.t(action.label), icon: action.icon});
       }
     }
@@ -125,7 +131,13 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         if (restart?.playback) { invoker.remember(); player.play(restart.playback.itemId, 0, entryOf(item)); }
         break;
       case 'refreshMetadata':
-        void api.request('/v1/items/' + encodeURIComponent(item.id) + '/metadata/refresh', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
+        void api.request(refreshMetadataPath(item.kind, item.id) ?? '', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
+        break;
+      case 'watchWithGroup':
+        void together.service?.watch(item.id).then(ok => { if (ok) navigation.push('Together', {}); });
+        break;
+      case 'addToGroupQueue':
+        if (item) void together.service?.queueAdd([item.id]).then(ok => showToast(ok ? {message: i18n.t('entry.addedToGroupQueue'), icon: 'check'} : {message: i18n.t('entry.groupQueueFailed'), icon: 'warning'}));
         break;
       case 'rate':
         setSheet('rate');
@@ -238,7 +250,9 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         />
         {snapshot.mutationError ? <Notice tone="error" message={say(snapshot.mutationError, 'detail', 'save')} action={i18n.t('title.retry')} onAction={retryMutation} style={{marginHorizontal: space.page, marginBottom: space.md}} /> : null}
         {snapshot.pending.some(p => p.phase === 'conflict') ? <Notice tone="warning" message={i18n.t('title.changedElsewhere')} action={i18n.t('title.ok')} onAction={dismissMutation} style={{marginHorizontal: space.page, marginBottom: space.md}} /> : null}
-        {item && !item.available ? <Notice tone="warning" message={i18n.t('title.fileUnavailable')} style={{marginHorizontal: space.page, marginBottom: space.xl}} /> : null}
+        {/* A title whose files are gone from disk stays in the library, marked missing; a file that is only out of reach right now says that instead. */}
+        {item && data?.missingSince ? <Notice tone="warning" title={i18n.t('title.missing')} message={i18n.t('title.missingSince', {when: i18n.date(data.missingSince, 'long')})} style={{marginHorizontal: space.page, marginBottom: space.xl}} />
+          : item && !item.available ? <Notice tone="warning" message={i18n.t('title.fileUnavailable')} style={{marginHorizontal: space.page, marginBottom: space.xl}} /> : null}
         {shownCast.length ? <RowGuide><Shelf title={i18n.t('title.cast')} data={shownCast} itemWidth={personWidth} keyExtractor={c => c.id} onSeeAll={!allCast && cast.length > CAST_ON_PAGE ? () => setAllCast(true) : undefined} seeAllLabel={i18n.t('title.seeAll')} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.personId ? () => navigation.push('Person', {personId: c.personId!, name: c.name}) : undefined} />} /></RowGuide> : null}
         {keyCrewList.length ? <RowGuide><Shelf title={i18n.t('title.crew')} data={allCrew ? crew : keyCrewList} itemWidth={personWidth} keyExtractor={c => c.id} onSeeAll={!allCrew && crew.length > keyCrewList.length ? () => setAllCrew(true) : undefined} seeAllLabel={i18n.t('title.allCrew')} renderItem={({item: c}) => <PersonCard name={c.name} subtitle={c.role || c.department} width={personWidth} source={artwork(c.portraitUrl)} onPress={c.personId ? () => navigation.push('Person', {personId: c.personId!, name: c.name}) : undefined} />} /></RowGuide> : null}
         {/* Spec §0.3: people → related → extras. P4: the endpoint's rows for movies, as returned. */}
