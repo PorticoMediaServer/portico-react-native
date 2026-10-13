@@ -83,7 +83,7 @@ export type NowPlaying = {
 export type BitmapConfirm = {resource: {id: string; language: string; format?: string; renderer?: string}; onConfirm: () => void};
 
 /** Show titles for episodes and artist/album for songs, looked up once per item. */
-const extraTitles = new Map<string, Partial<NowPlaying>>();
+const titleCaches = new WeakMap<object, Map<string, Partial<NowPlaying>>>();
 
 /** A song on a handheld starts in the mini player (the list it came from stays in view); the
  * television has no mini player, and everything else opens full. */
@@ -103,6 +103,11 @@ const noOffers = (): PlayerOffersSnapshot | null => null;
 
 export function usePlayerEngine() {
   const {api, session} = useSession();
+  const extraTitles = useMemo(() => {
+    let cache = titleCaches.get(api);
+    if (!cache) { cache = new Map(); titleCaches.set(api, cache); }
+    return cache;
+  }, [api]);
   const {playback, playbackState, ensureQueue, v1Queue, playLocal, path} = useNativePlayback(api, session);
   // The server's own account of the session being played: the engine it named, the quality in
   // force, the tracks it chose. Read through the session path, which hears of every re-plan.
@@ -630,7 +635,7 @@ export function usePlayerEngine() {
       if (live) setIdentity(prev => (prev.itemId === itemId ? {...prev, ...extra} : prev));
     }, () => {});
     return () => { live = false; };
-  }, [api, identity.itemId, identity.kind, identity.seriesTitle, identity.artist, identity.offline]);
+  }, [api, extraTitles, identity.itemId, identity.kind, identity.seriesTitle, identity.artist, identity.offline]);
 
   const startSingle = useCallback(
     (itemId: string, startSeconds: number, entry?: ContentEntry) => {

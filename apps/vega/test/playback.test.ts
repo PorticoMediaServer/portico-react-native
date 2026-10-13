@@ -355,3 +355,31 @@ test('invalid, conflicting and retired seeks keep the accepted state intact', as
   await engine.command(command({paused: true}));
   await assert.rejects(engine.command(command({pendingSeek: {revision: 2, positionSeconds: 62}})), (e: any) => e.message === 'Conflicting or retired seek command.');
 });
+
+test('a seeked event at the wrong position reports failure and keeps the element paused', async () => {
+  await acquire();
+  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', paused: true}));
+  await until(() => of('ready').length === 1);
+  world.seekClamp = 0;
+  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', pendingSeek: {revision: 1, positionSeconds: 62}}));
+  await until(() => of('seekApplied').length + of('seekFailed').length > 0);
+  assert.equal(of('seekApplied').length, 0);
+  assert.equal(of('seekFailed').length, 1);
+  assert.equal(player().paused, true);
+});
+
+test('a route that cannot restore the retained position never announces ready or starts over', async () => {
+  await acquire();
+  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4'}));
+  await until(() => of('firstFrame').length === 1);
+  player().advance(130);
+  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', connectionState: 'verifying', routeRevision: 1}));
+  facts = [];
+  world.seekClamp = 0;
+  await engine.command(command({source: 'https://other.test/v1/media/GRANT/file.mp4', routeRevision: 2}));
+  await until(() => of('ready').length + of('error').length > 0);
+  assert.equal(of('ready').length, 0);
+  assert.equal(of('firstFrame').length, 0);
+  assert.equal(of('error')[0]?.error, 'The previous playback position is unavailable on this connection. Your position has been retained.');
+  assert.equal(player().paused, true);
+});

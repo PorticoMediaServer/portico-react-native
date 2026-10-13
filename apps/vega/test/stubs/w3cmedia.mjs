@@ -7,8 +7,8 @@
  * one before it, as the real thing does. `world.sequenceMode = false` makes a device that refuses
  * `sequence`; `world.refuse` makes one that will not take a type.
  */
-export const world = {sequenceMode: true, refuse: /** @type {RegExp | null} */ (null), players: /** @type {VideoPlayer[]} */ ([]), appendFails: false};
-export function resetWorld() { world.sequenceMode = true; world.refuse = null; world.players = []; world.appendFails = false; }
+export const world = {sequenceMode: true, refuse: /** @type {RegExp | null} */ (null), players: /** @type {VideoPlayer[]} */ ([]), appendFails: false, seekClamp: /** @type {number | undefined} */ (undefined)};
+export function resetWorld() { world.sequenceMode = true; world.refuse = null; world.players = []; world.appendFails = false; world.seekClamp = undefined; }
 
 class Target {
   listeners = new Map();
@@ -100,7 +100,7 @@ export class VideoPlayer extends Target {
   set srcObject(source) { this.source = source; source.player = this; source.readyState = 'open'; setTimeout(() => source.emit('sourceopen'), 0); }
   get buffered() { return ranges(this.source?.buffers[0]?.spans ?? (this.#src ? [[0, 3600]] : [])); }
   get currentTime() { return this.#time; }
-  set currentTime(value) { this.#time = value; setTimeout(() => this.emit('seeked'), 0); }
+  set currentTime(value) { this.#time = world.seekClamp === undefined ? value : world.seekClamp; setTimeout(() => this.emit('seeked'), 0); }
   /** The test moves time on by hand, as playback would. */
   advance(seconds) { this.#time += seconds; }
   described() { if (this.#described) return; this.#described = true; this.emit('loadedmetadata'); }

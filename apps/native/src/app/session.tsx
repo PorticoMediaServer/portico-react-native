@@ -330,6 +330,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, []);
   const attachment = useRef<() => void>(() => {});
   const generation = useRef(0);
+  useEffect(() => () => { generation.current++; resumeWake = undefined; }, []);
   // The account's server list is kept on the device and version-checked (Spec — Hosted at Scale), so
   // it stays available while signed in to a server: re-admission and Switch server use it.
   const {credentials, hosted, setHosted, servers, directoryStatus, directoryError, refreshServers, dropServer, checkServersNow, serversCheckedAt, attachedServer, setAttachedServer} = useHostedAccount(hostedUrl, 'hosted', !restoring);
@@ -405,7 +406,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   );
 
   const commitSelectedViewer = useCallback(
-    async (url: string, session: LocalSession, result?: {server: HostedServer; context: {sessionId: string; profileId: string}; isCurrent?: () => boolean}, established = false) => {
+    async (url: string, session: LocalSession, result?: {server: HostedServer; context: {sessionId: string; profileId: string}; isCurrent?: () => boolean}, established = false, expectedGeneration = generation.current) => {
+      const assertCandidate = () => { if (expectedGeneration !== generation.current) throw changedWhileSigningIn(url); };
+      assertCandidate();
       const candidate = selectedViewerRecord(url, session);
       const central = credentials?.getSnapshot().session;
       const oldServer = attachedServer;
@@ -455,10 +458,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
             }
             if (!central || live?.account.id !== candidate.session.viewer.accountId || live.familyId !== central.familyId || (result && result.context.sessionId !== live.familyId)) throw new ShownError(activeI18n().t('web.signIn.error.accountChanged'));
           },
+          assertCandidateCurrent: assertCandidate,
           verify: (record, signal) => profileAPI(record.serverUrl, record.session.accessToken).request('/v1/me', 'GET', undefined, signal),
           prepareContext: result ? () => credentials!.updateContext({profileId: result.context.profileId, server: result.server}) : undefined,
           publish,
           restore: record => {
+            if (expectedGeneration !== generation.current) return;
             const local = profileAPI(record.serverUrl, record.session.accessToken);
             trackNativeConnection(local);
             keepAlive(local, record);
@@ -491,23 +496,25 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // saved-server screen, which keeps retrying. If the slow attempt succeeds later it still signs
   // the person in (the commit publishes the session), and a retry joins it instead of starting a
   // second one against the same server.
-  const resumeInFlight = useRef<{record: SelectedViewerRecord; work: Promise<'signed-in' | 'gone'>} | null>(null);
+  const resumeInFlight = useRef<{record: SelectedViewerRecord; generation: number; work: Promise<'signed-in' | 'gone'>} | null>(null);
   const resumeSaved = useCallback(async () => {
     if (!recovery) return;
-    const record = recovery;
+    const record = recovery, gen = generation.current;
     setBusy(true);
     setError('');
     try {
       let flight = resumeInFlight.current;
-      if (!flight || flight.record !== record) {
+      if (!flight || flight.record !== record || flight.generation !== gen) {
         const work = (async (): Promise<'signed-in' | 'gone'> => {
           await installationReady;
+          if (gen !== generation.current) throw changedWhileSigningIn(record.serverUrl);
           const routed = await restoreNativeConnection(hostedUrl, credentials, record.session);
+          if (gen !== generation.current) throw changedWhileSigningIn(record.serverUrl);
           if (!routed) return 'gone';
-          await commitSelectedViewer(routed.api.baseUrl, routed.session, undefined, true);
+          await commitSelectedViewer(routed.api.baseUrl, routed.session, undefined, true, gen);
           return 'signed-in';
         })();
-        flight = {record, work};
+        flight = {record, generation: gen, work};
         resumeInFlight.current = flight;
         const settled = () => { if (resumeInFlight.current === flight) resumeInFlight.current = null; };
         work.then(settled, settled);
@@ -515,6 +522,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<'timeout'>(resolve => { timer = setTimeout(() => resolve('timeout'), RESUME_DEADLINE_MS); });
       const outcome = await Promise.race([flight.work, deadline]).finally(() => clearTimeout(timer));
+      if (gen !== generation.current) return;
       if (outcome === 'timeout') throw Object.assign(new Error('Resume deadline passed.'), {code: 'timeout'});
       if (outcome === 'gone') {
         // Nothing left on this device to resume with: sign in again.
@@ -527,6 +535,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       resumeAttempts.current = 0;
       resumeWake = undefined;
     } catch (e) {
+      if (gen !== generation.current) return;
       // An unreachable server is not a signed-out person, and neither is an expired or refused
       // access token: the restore renews it with the refresh token first (client-core). The saved
       // sign-in has ended only when the renewal itself is refused (the server revoked the family,
@@ -561,7 +570,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         resumeWake = () => { clearTimeout(resumeRetry.current); void resumeSavedRef.current(); };
       }
     } finally {
-      setBusy(false);
+      if (gen === generation.current) setBusy(false);
     }
   }, [recovery, credentials, commitSelectedViewer, dropServer]);
   const resumeSavedRef = useRef(resumeSaved);
@@ -599,6 +608,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, []);
   /** The server was reset (or refused the sign-in): drop the remembered sign-in and sign in again. Downloads stay listed. */
   const signInAgain = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     const record = recovery;
     clearTimeout(resumeRetry.current);
     viewer.clear();
@@ -611,6 +623,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [recovery, commit]);
   /** Leave the remembered sign-in for now (kept; sign-in offers to come back to it). */
   const useAnother = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     clearTimeout(resumeRetry.current);
     viewer.clear();
     setSavedState(undefined);
@@ -618,6 +633,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, []);
 
   const forgetSaved = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     const record = recovery;
     setRecovery(undefined);
     setResumeFailure(undefined);
@@ -647,13 +665,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [busy, directOrigin]);
 
   const acceptDirect = useCallback(
-    async (url: string, session: LocalSession, grant?: DirectPending) => {
+    async (url: string, session: LocalSession, grant?: DirectPending, gen = generation.current) => {
       if (session.viewer.authority !== 'local') throw new ShownError(activeI18n().t('signIn.chooseLocalProfile'));
       const cleanup = grant?.accountGrant && grant.accountSession ? profileAPI(grant.api.baseUrl, grant.accountSession.accessToken) : undefined;
       const old = viewer.getSnapshot();
       const routed = grant?.api ?? (old.session && old.serverUrl === url ? profileAPI(url, old.session.accessToken) : new HttpLocalApi(url, session.accessToken, nativeNetworkFetch));
-      await rememberNativeSession(routed, session, nativeConnectionEnvironment, grant?.hosted);
-      await commitSelectedViewer(url, session);
+      if (gen !== generation.current) throw changedWhileSigningIn(url);
+      await rememberNativeSession(routed, session, nativeConnectionEnvironment, grant?.hosted, () => gen === generation.current);
+      await commitSelectedViewer(url, session, undefined, false, gen);
       // C45: the account-tier session is a separate family; it ends once a profile is chosen.
       if (cleanup) void cleanup.request('/v1/sessions/current', 'DELETE').catch(() => {});
     },
@@ -664,6 +683,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const [directStep, setDirectStep] = useState<DirectStep>();
   const stepState = useRef<{connected: Awaited<ReturnType<typeof connectPairedServer>>; username: string; password: string; token?: string; session?: LocalSession; /** A Portico sign-in retries with the account, not a password. */ retry?: () => Promise<void>; /** A Portico sign-in's route source and re-admission profile, kept across its two-step verification. */ extra?: {hosted?: RememberedServer['hosted']; preferProfileId?: string}} | undefined>(undefined);
   const releaseStep = useCallback((signOutAccount: boolean) => {
+    generation.current++;
     const held = stepState.current;
     stepState.current = undefined;
     setDirectStep(undefined);
@@ -674,6 +694,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   /** Returns 'held' when the connection now belongs to a pending step or profile choice, 'issued' when a viewer session was accepted. */
   const settleDirect = useCallback(async (result: DirectSignIn, connected: Awaited<ReturnType<typeof connectPairedServer>>, username: string, password: string, gen: number, extra: {hosted?: RememberedServer['hosted']; retry?: () => Promise<void>; preferProfileId?: string} = {}): Promise<'held' | 'issued'> => {
     const local = connected.api;
+    if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
     const outcome = directOutcome(result);
     if (result.kind === 'challenge') {
       stepState.current = {connected, username, password, token: result.token, retry: extra.retry, extra: {hosted: extra.hosted, preferProfileId: extra.preferProfileId}};
@@ -700,7 +721,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       if (same) {
         const selection = await selectDirectProfile(local, {authority: 'local', accountId: result.snapshot.account.id, serverId: result.snapshot.serverId}, same.id, {});
         if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
-        await acceptDirect(local.baseUrl, selection.session, grant);
+        await acceptDirect(local.baseUrl, selection.session, grant, gen);
         return 'issued';
       }
       setPending(grant);
@@ -709,7 +730,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     // 'viewer': this session is the viewer; it is kept, never ended.
     await rememberNativeSession(local, result.session, nativeConnectionEnvironment, extra.hosted, () => gen === generation.current);
     if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
-    await acceptDirect(local.baseUrl, result.session, extra.hosted ? {api: local, accountGrant: false, hosted: extra.hosted} : undefined);
+    await acceptDirect(local.baseUrl, result.session, extra.hosted ? {api: local, accountGrant: false, hosted: extra.hosted} : undefined, gen);
     return 'issued';
   }, [acceptDirect]);
 
@@ -775,6 +796,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     const gen = generation.current;
     try {
       const result = await completeDirectSignInChallenge(held.connected.api, held.token, code);
+      if (gen !== generation.current || stepState.current !== held) {
+        if (result.kind === 'signed-in') { held.connected.api.setAccessToken(result.session.accessToken); void held.connected.api.logout().catch(() => {}); }
+        return;
+      }
       stepState.current = undefined;
       setDirectStep(undefined);
       try {
@@ -842,11 +867,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [pin, directOrigin]);
 
   const acceptQuickConnect = useCallback(async (local: HttpLocalApi, issued: LocalSession) => {
+    const gen = ++generation.current;
     setBusy(true);
     setError('');
     try {
-      await rememberNativeSession(local, issued, nativeConnectionEnvironment);
-      await acceptDirect(local.baseUrl, issued);
+      await rememberNativeSession(local, issued, nativeConnectionEnvironment, undefined, () => gen === generation.current);
+      await acceptDirect(local.baseUrl, issued, undefined, gen);
     } catch (e) {
       setError(message(e));
       throw e;
@@ -858,6 +884,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const chooseProfile = useCallback(
     async (profileId: string, profilePin?: string) => {
       if (!pending) return;
+      const gen = ++generation.current;
       clearActivity();
       const snapshot = pending.snapshot ?? (await (async () => {
         const current = viewer.getSnapshot();
@@ -869,7 +896,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         const serverId = snapshot?.serverId ?? viewer.getSnapshot().session?.viewer.serverId ?? pending.api.getRouteConnection()?.pin.serverId ?? '';
         const accountId = snapshot?.account.id ?? viewer.getSnapshot().session?.viewer.accountId ?? '';
         const selection = await selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin});
-        await acceptDirect(pending.api.baseUrl, selection.session, pending);
+        await acceptDirect(pending.api.baseUrl, selection.session, pending, gen);
       } catch (e) {
         setError(message(e));
       } finally {
@@ -880,12 +907,18 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   );
 
   const cancelPending = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     // C45: the account-tier session is its own family; abandoning the choice signs it out.
     if (pending?.accountGrant && pending.accountSession) void profileAPI(pending.api.baseUrl, pending.accountSession.accessToken).request('/v1/sessions/current', 'DELETE').catch(() => {});
     setPending(undefined);
   }, [pending]);
 
   const openProfileChooser = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     const current = viewer.getSnapshot();
     if (current.session?.viewer.authority !== 'local' || !hasRealOrigin(api)) return;
     // QA (switch profile): the live API, with its route connection and its renewed token. A fresh
@@ -1059,6 +1092,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   );
 
   const signOut = useCallback(() => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     setSignInNote(undefined);
     // OS-02/03: nothing this viewer indexed stays in Spotlight or Handoff after they leave.
     clearActivity();
@@ -1082,6 +1118,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     setApi(new HttpLocalApi(PLACEHOLDER_ORIGIN));
   }, [api, cancelPending, commit, credentials, hosted, setAttachedServer, setHosted, stopRefresh]);
   const leaveServer = useCallback(async () => {
+    generation.current++;
+    clearTimeout(resumeRetry.current);
+    resumeWake = undefined;
     const current = viewer.getSnapshot();
     const serverId = current.session?.viewer.serverId;
     if (!credentials?.getSnapshot().session || !serverId) throw new ShownError(activeI18n().t('web.portico.signInFirst'));
@@ -1129,6 +1168,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
    * server connection record.
    */
   signInNeeded.current = (reason, record) => {
+    generation.current++;
     const current = viewer.getSnapshot();
     const session = record?.session ?? current.session;
     const serverUrl = record?.serverUrl ?? current.serverUrl;

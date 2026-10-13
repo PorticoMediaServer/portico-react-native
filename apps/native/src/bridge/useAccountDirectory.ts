@@ -25,12 +25,16 @@ export function useAccountDirectory({credentials, snapshot, origin, enabled, fet
   const owner = accountId ? JSON.stringify([origin, accountId]) : '';
   const [directory, setDirectory] = useState<Directory>(() => empty('', 'idle'));
   const watcher = useRef<ServerListWatcher | undefined>(undefined);
+  const currentOwner = useRef(owner); currentOwner.current = owner;
+  const readEpoch = useRef(0);
   const listServers = useCallback(async (signal?: AbortSignal): Promise<ServerListAnswer> => {
     if (!credentials) throw new Error('No Portico Account.');
+    const epoch = readEpoch.current;
     const session = await credentials.accessSession();
+    if (signal?.aborted || epoch !== readEpoch.current || owner !== currentOwner.current || session.account.id !== accountId) throw Object.assign(new Error('The directory account changed.'), {code: 'account_changed'});
     const out = await new HttpHostedApi(origin, session.accessToken, fetcher).servers(signal);
     return {items: out.items, version: out.version ?? '', watch: out.watch ?? ''};
-  }, [credentials, origin, fetcher]);
+  }, [credentials, origin, fetcher, owner, accountId]);
   useEffect(() => {
     watcher.current = undefined;
     if (!owner) {
@@ -59,7 +63,7 @@ export function useAccountDirectory({credentials, snapshot, origin, enabled, fet
     });
     // Returning to the foreground: the version check, only when it is due.
     const sub = AppState.addEventListener('change', state => { if (state === 'active') void watcher.current?.foreground().catch(() => {}); });
-    return () => { live = false; sub.remove(); };
+    return () => { live = false; readEpoch.current++; sub.remove(); };
   }, [owner, accountId, origin, listServers, fetcher]);
 
   /** Settings › Refresh Servers (and a chooser's Try again): one check now, then the list if it moved. */

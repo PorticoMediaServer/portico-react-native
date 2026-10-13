@@ -103,7 +103,8 @@ class Engine {
   private wantPaused = true;
   private attached: string | null = null;
   private seekRevision = -1;
-  private seek?: {revision: number; timer: ReturnType<typeof setTimeout>};
+  private seek?: {revision: number; target: number; timer: ReturnType<typeof setTimeout>};
+  private restoring?: {target: number; started: boolean; timer: ReturnType<typeof setTimeout>};
   private ticker?: ReturnType<typeof setInterval>;
   private captions?: ReturnType<typeof setInterval>;
   private audioKey = '';
@@ -152,7 +153,7 @@ class Engine {
     this.on('pause', () => this.publish('rateStatus'));
     // Running dry while playing is a stall; waiting for a seek or for the first picture is not.
     this.on('waiting', () => { this.waiting = true; if (this.shown && !this.seek) this.publish('stalled'); });
-    this.on('seeked', () => this.sought(true));
+    this.on('seeked', () => { if (this.restoring) { if (this.restoring.started) this.restored(true); } else this.sought(true); });
     this.on('ended', () => { this.over = true; this.publish('ended'); });
     this.on('error', () => {
       const code = Number((this.player.error as {code?: number} | null)?.code);
@@ -240,31 +241,60 @@ class Engine {
   /** Ready once the element knows what it is playing and the stream has its first data. */
   private loaded(): void {
     if (this.closed || this.ready || this.failed || !this.described || !this.filled) return;
-    this.ready = true;
+    if (Number.isFinite(this.start) && !accepted?.pendingSeek) { this.restorePosition(this.start); return; }
     if (this.originMs !== undefined) {
       // A channel was filled from where it is to begin (the place kept, the place asked for, or
       // where live viewing begins): the element is sent to that segment.
       const begin = this.hls?.beginning() ?? NaN;
       if (Number.isFinite(begin) && Math.abs(Number(this.player.currentTime) - begin) > 0.25) { try { this.player.currentTime = begin; } catch { /* plays from where the buffer starts */ } }
-    } else if (this.start > 0) {
-      // A source reopened under the same binding (another route to the same item) resumes where it was.
-      this.hls?.seek(this.start);
-      try { this.player.currentTime = this.elementTime(this.start); } catch { /* starts from the beginning */ }
     }
+    this.completeReady();
+  }
+
+  private completeReady(): void {
+    if (this.closed || this.failed || this.ready) return;
+    this.ready = true;
     this.publish('ready');
     if (accepted && engine === this) this.apply(accepted);
     // Nothing sent the element anywhere: it plays from where the stream was filled.
     if (!this.seek) this.hls?.settled();
   }
 
+  private restorePosition(target: number): void {
+    this.restoring = {target, started: false, timer: setTimeout(() => this.restored(false, true), SEEK_LIMIT_MS)};
+    const go = (elementTime: number) => {
+      if (!this.restoring || this.closed || this.failed) return;
+      if (!Number.isFinite(elementTime)) { this.restored(false); return; }
+      this.restoring.started = true;
+      if (Math.abs(Number(this.player.currentTime) - elementTime) < 0.25) { this.restored(true); return; }
+      try { this.player.currentTime = elementTime; } catch { this.restored(false); }
+    };
+    const destination = this.hls ? this.hls.seek(target) : target;
+    if (typeof destination === 'number') go(destination); else destination.then(go, () => this.restored(false));
+  }
+
+  private restored(applied: boolean, timedOut = false): void {
+    const held = this.restoring;
+    if (!held || this.closed) return;
+    clearTimeout(held.timer); this.restoring = undefined;
+    if (!applied || !Number.isFinite(this.position()) || Math.abs(this.position() - held.target) > 0.5) {
+      this.fail({uncertain: true, message: timedOut ? 'Connection restored, but the retained position is not available. Your playback session was not replaced.' : 'The previous playback position is unavailable on this connection. Your position has been retained.'}, 'position restoration');
+      return;
+    }
+    this.completeReady();
+  }
+
   apply(command: Command): void {
     this.wantPaused = command.paused;
+    if (this.restoring && command.pendingSeek) {
+      clearTimeout(this.restoring.timer); this.restoring = undefined; this.completeReady();
+    }
     if (!this.ready || this.closed || this.failed) return;
     const pending = command.pendingSeek;
     if (pending && pending.revision > this.seekRevision) {
       this.seekRevision = pending.revision;
       if (this.seek) clearTimeout(this.seek.timer);
-      this.seek = {revision: pending.revision, timer: setTimeout(() => this.sought(false), SEEK_LIMIT_MS)};
+      this.seek = {revision: pending.revision, target: pending.positionSeconds, timer: setTimeout(() => this.sought(false), SEEK_LIMIT_MS)};
       this.over = false;
       // A channel's timeline has no beginning at zero; a title's does.
       const position = this.originMs === undefined ? Math.max(0, pending.positionSeconds) : pending.positionSeconds;
@@ -350,6 +380,7 @@ class Engine {
     clearTimeout(seek.timer);
     this.seek = undefined;
     this.hls?.settled();
+    applied = applied && Number.isFinite(this.position()) && Math.abs(this.position() - seek.target) <= 0.5;
     this.publish(applied ? 'seekApplied' : 'seekFailed', {seekRevision: seek.revision, error: applied ? '' : SEEK_UNAVAILABLE});
   }
 
@@ -394,7 +425,7 @@ class Engine {
   }
 
   private publish(type: string, extra: Readonly<Record<string, unknown>> = {}): void {
-    if (this.closed || engine !== this || !lease || !accepted) return;
+    if (this.closed || engine !== this || !lease || !accepted || (this.restoring && type !== 'error')) return;
     const paused = this.opened ? this.player.paused : true;
     const moving = this.ready && !paused && !this.waiting && !this.over && !this.failed;
     const place = this.position();
@@ -419,6 +450,8 @@ class Engine {
     if (this.captions) clearInterval(this.captions);
     clearSubtitles();
     if (this.seek) clearTimeout(this.seek.timer);
+    if (this.restoring) clearTimeout(this.restoring.timer);
+    this.restoring = undefined;
     this.hls?.close();
     if (!this.opened) return;
     for (const [type, listener] of this.listeners) this.player.removeEventListener(type, listener);
@@ -498,7 +531,7 @@ function command(value: Command): Promise<boolean> {
   }
   if (!engine || !same(engine.binding, value.binding) || engine.source !== value.source) {
     // The same binding with another address is another route to the same item: it carries on.
-    const carried = engine && same(engine.binding, value.binding) ? engine.position() : kept ? kept.position : NaN;
+    const carried = value.pendingSeek ? NaN : engine && same(engine.binding, value.binding) ? engine.position() : kept ? kept.position : NaN;
     kept = undefined;
     engine?.close();
     const origin = whole(value.timelineOriginMs, 1) ? value.timelineOriginMs : undefined;

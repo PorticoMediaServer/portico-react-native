@@ -81,3 +81,14 @@ test('a delayed download lookup cannot replace a newer play', async () => {
     assert.deepEqual(d.starts, ['new']);
   } finally { d.close(); }
 });
+
+test('the same item ID on a different API does not inherit another server\'s title identity', async () => {
+  for (const showTitle of ['First server show', 'Second server show']) {
+    const d = mount();
+    d.api.request = async () => ({item: {episode: {showTitle, seasonNumber: 1, number: 1}}});
+    try {
+      await act(() => d.result().play('same-item', 0, {...entry('same-item') as any, kind: 'episode'}));
+      assert.equal(d.result().identity.seriesTitle, showTitle);
+    } finally { d.close(); }
+  }
+});
