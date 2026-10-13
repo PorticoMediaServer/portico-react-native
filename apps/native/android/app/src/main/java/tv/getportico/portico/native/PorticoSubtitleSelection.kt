@@ -281,7 +281,7 @@ internal class PorticoSubtitleSelection {
      * app connects to already passes: localhost, a .local name, or a private or link-local
      * address. Anything else needs HTTPS.
      */
-    private fun privateHost(value: String?): Boolean {
+    internal fun privateHost(value: String?): Boolean {
       if (value.isNullOrEmpty() || value.length > 255) return false
       var h = value.lowercase()
       if (h.length > 2 && h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length - 1)

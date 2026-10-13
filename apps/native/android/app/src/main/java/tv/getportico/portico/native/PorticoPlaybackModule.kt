@@ -7,6 +7,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import tv.getportico.portico.TelevisionDisplay
 
 /**
  * `NativeModules.PorticoPlaybackModule`: the lease, the commands and the facts of the app's one
@@ -35,6 +36,23 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
 
   override fun getName(): String = "PorticoPlaybackModule"
 
+  /**
+   * What this engine is and does (`Native/ENGINE-CONTRACT.md`, section 2), so the player offers
+   * only what applies while it is the active engine. The app draws the server's plain-text cues
+   * itself and nothing else: Media3's own subtitle drawing is switched off.
+   */
+  override fun getConstants(): Map<String, Any> = mapOf(
+      "engine" to "native",
+      "available" to true,
+      "features" to mapOf(
+          "pictureInPicture" to !TelevisionDisplay.isTelevision,
+          "airPlayVideo" to false,
+          "liveChannels" to true,
+          "musicSessions" to true,
+          "audioTrackSwitching" to false,
+          "subtitleRendering" to listOf("text"),
+          "chapters" to false))
+
   @ReactMethod fun addListener(eventName: String) {}
 
   @ReactMethod fun removeListeners(count: Double) {}
@@ -42,7 +60,11 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   override fun initialize() {
     super.initialize()
     // The player view asks for the shared controller as soon as it mounts.
-    main.post { if (!invalidated) listening }
+    main.post {
+      if (invalidated) return@post
+      PorticoAppVisibility.install(reactApplicationContext, reactApplicationContext.currentActivity)
+      listening
+    }
   }
 
   override fun invalidate() {

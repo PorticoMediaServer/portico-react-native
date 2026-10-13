@@ -1,0 +1,129 @@
+// libmpv for the mpv player engine: the prebuilt library, and the small JNI bridge to it.
+//
+// What is fetched: one `libmpv.so` per architecture from the media-kit project's published
+// Android builds (github.com/media-kit/libmpv-android-video-build), release v1.1.11, flavour
+// "full". That flavour is the LGPL one: FFmpeg 6.0 configured `--disable-gpl --enable-version3`
+// with every decoder and demuxer, linked statically into libmpv; mpv built `-Dgpl=false`; libass
+// 0.17.1 for styled subtitles; dav1d for AV1; mbedTLS. Each archive is checked against the
+// SHA-256 below before anything is taken from it. Nothing else in the archives is used.
+//
+// To use a libmpv built elsewhere (a newer mpv, or your own build of the same scripts), pass
+// -PporticoLibmpvDir=/path/to/dir, where dir holds <abi>/libmpv.so for every architecture built.
+// Nothing is fetched then. The library must be LGPL (no GPL parts) to ship in this app.
+apply plugin: "com.android.library"
+
+def mpvRelease = "v1.1.11"
+def mpvBase = "https://github.com/media-kit/libmpv-android-video-build/releases/download/${mpvRelease}"
+def mpvArchives = [
+    "arm64-v8a"  : [name: "full-arm64-v8a.jar",   sha256: "cdb54c5cf24725623ca717bbbd6d991031d625a377460bd128f19c2dffe189bd"],
+    "armeabi-v7a": [name: "full-armeabi-v7a.jar", sha256: "b658f2ff91169f8dad0e09e0240ebe200bb3df999da5712f8fab96ad11a4fbec"],
+    "x86"        : [name: "full-x86.jar",         sha256: "8b3b84e54ec09bb79972095dc04bcaf651294da4e73b1e7c3251055fd8a2b901"],
+    "x86_64"     : [name: "full-x86_64.jar",      sha256: "848936cfd7333077f21759adaca4a9e1a5647891da2e42ab211c5bdc30f4535d"],
+]
+
+// The same list the app is built for (gradle.properties, or -PreactNativeArchitectures=...).
+def mpvAbis = (project.findProperty("reactNativeArchitectures") ?: "armeabi-v7a,arm64-v8a,x86,x86_64")
+    .toString().split(",").collect { it.trim() }.findAll { mpvArchives.containsKey(it) }
+def mpvLocalDir = project.findProperty("porticoLibmpvDir")?.toString()
+def mpvRoot = layout.buildDirectory.dir("libmpv").get().asFile
+def mpvArchiveDir = new File(mpvRoot, "archives")
+def mpvFetchedDir = new File(mpvRoot, "imported")
+def mpvImportedDir = mpvLocalDir ? file(mpvLocalDir) : mpvFetchedDir
+
+def sha256Of = { File file ->
+    def digest = java.security.MessageDigest.getInstance("SHA-256")
+    file.withInputStream { input ->
+        byte[] buffer = new byte[65536]
+        int count
+        while ((count = input.read(buffer)) >= 0) digest.update(buffer, 0, count)
+    }
+    digest.digest().collect { String.format("%02x", it) }.join()
+}
+
+def fetchLibmpv = tasks.register("fetchLibmpv") {
+    description = "Fetches and checks the prebuilt libmpv for each architecture."
+    inputs.property("release", mpvRelease)
+    inputs.property("abis", mpvAbis.join(","))
+    inputs.property("checksums", mpvAbis.collect { mpvArchives[it].sha256 }.join(","))
+    inputs.property("local", mpvLocalDir ?: "")
+    outputs.dir(mpvFetchedDir)
+    doLast {
+        if (mpvLocalDir) {
+            mpvAbis.each { abi ->
+                def library = new File(mpvImportedDir, "${abi}/libmpv.so")
+                if (!library.isFile()) throw new GradleException("porticoLibmpvDir has no ${abi}/libmpv.so (${library})")
+            }
+            return
+        }
+        mpvArchiveDir.mkdirs()
+        mpvAbis.each { abi ->
+            def entry = mpvArchives[abi]
+            def archive = new File(mpvArchiveDir, entry.name)
+            if (!archive.isFile() || sha256Of(archive) != entry.sha256) {
+                archive.delete()
+                def partial = new File(mpvArchiveDir, entry.name + ".part")
+                def connection = new URL("${mpvBase}/${entry.name}").openConnection()
+                connection.connectTimeout = 30000
+                connection.readTimeout = 120000
+                try {
+                    connection.inputStream.withStream { input -> partial.withOutputStream { output -> output << input } }
+                } catch (Exception error) {
+                    partial.delete()
+                    throw new GradleException("libmpv ${mpvRelease} could not be fetched for ${abi} (${mpvBase}/${entry.name}). Build with a network connection, or pass -PporticoLibmpvDir.", error)
+                }
+                def actual = sha256Of(partial)
+                if (actual != entry.sha256) {
+                    partial.delete()
+                    throw new GradleException("libmpv ${mpvRelease} for ${abi} does not match its pinned checksum: expected ${entry.sha256}, got ${actual}.")
+                }
+                if (!partial.renameTo(archive)) throw new GradleException("Could not store ${archive}")
+            }
+            def library = new File(mpvFetchedDir, "${abi}/libmpv.so")
+            library.parentFile.mkdirs()
+            def zip = new java.util.zip.ZipFile(archive)
+            try {
+                def packed = zip.getEntry("lib/${abi}/libmpv.so")
+                if (packed == null) throw new GradleException("${entry.name} has no lib/${abi}/libmpv.so")
+                zip.getInputStream(packed).withStream { input -> library.withOutputStream { output -> output << input } }
+            } finally {
+                zip.close()
+            }
+        }
+    }
+}
+
+android {
+    namespace "tv.getportico.portico.mpv"
+    compileSdk rootProject.ext.compileSdkVersion
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles "consumer-rules.pro"
+        ndk { abiFilters(*mpvAbis) }
+        externalNativeBuild {
+            cmake {
+                arguments "-DPORTICO_LIBMPV_DIR=${mpvImportedDir.absolutePath}",
+                          "-DANDROID_STL=none",
+                          "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                cFlags "-Wall", "-Wextra", "-Werror"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path file("src/main/cpp/CMakeLists.txt") }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// libmpv must be in place before CMake links the bridge against it.
+preBuild.dependsOn(fetchLibmpv)
+tasks.configureEach { task ->
+    if (task.name.contains("CMake") || task.name.contains("ExternalNative")) task.dependsOn(fetchLibmpv)
+}

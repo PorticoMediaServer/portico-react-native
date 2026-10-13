@@ -108,6 +108,9 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var hasPlayed = false
   private var previousProgress = Double.NaN
   private var readyAnnounced = false
+  /** The app is off the screen with a video that is not in a Picture in Picture window: it waits. */
+  private var backgroundHold = false
+  private val visibility: (Boolean) -> Unit = { visible -> if (visible) enteredForeground() else enteredBackground() }
   private var lastProgress = ""
   private var ticking = false
 
@@ -140,6 +143,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private class SeekWait(val revision: Long, val target: Double, val binding: Map<String, Any?>?, val intent: Long, val item: String)
 
   init {
+    PorticoAppVisibility.listeners.add(visibility)
     subtitles.onText = { cue -> subtitleCue = cue; subtitleListeners.toList().forEach { it() } }
     subtitles.onStatus = { error -> emit("subtitleStatus", error) }
     audioSelection.onFact = { fact ->
@@ -166,8 +170,9 @@ internal class PorticoPlaybackController(private val context: Context) {
       lease = UUID.randomUUID().toString()
       commandRevision = 0
       factSequence = 0
+      backgroundHold = false
     }
-    return mapOf("lease" to lease, "instanceId" to instanceId)
+    return mapOf("lease" to lease, "instanceId" to instanceId, "engine" to "native")
   }
 
   fun release(lease: String?) {
@@ -195,6 +200,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   fun invalidate() {
     invalidated = true
     onFact = null
+    PorticoAppVisibility.listeners.remove(visibility)
     release(lease)
     player?.release()
     player = null
@@ -564,7 +570,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || routeSuspended || routeResume || routeSeeking || routeFailed || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {
@@ -578,6 +584,32 @@ internal class PorticoPlaybackController(private val context: Context) {
       } else engine.playWhenReady = false
     }
     emit("rateStatus", null)
+  }
+
+  // --- leaving the screen ------------------------------------------------------------------
+
+  /**
+   * The app left the screen (Home on a television, the screen switched off) and the picture is
+   * not in a Picture in Picture window, which would have kept the activity on screen. A video
+   * stops: its sound must not carry on behind the launcher. JavaScript is told, so its intent
+   * becomes "paused" and one press continues when the viewer comes back. Music and audiobooks
+   * (the listening owner's, or a file with no picture) play on.
+   */
+  private fun enteredBackground() {
+    val engine = player
+    if (lease == null || listeningOwner != null || engine == null || engine.currentMediaItem == null) return
+    val tracks = engine.currentTracks
+    if (!tracks.isEmpty && !tracks.isTypeSelected(C.TRACK_TYPE_VIDEO)) return
+    backgroundHold = true
+    val wasPlaying = !desiredPaused
+    engine.playWhenReady = false
+    if (wasPlaying) emit("systemPaused", null, mapOf("paused" to true, "reason" to "background"))
+  }
+
+  private fun enteredForeground() {
+    if (!backgroundHold) return
+    backgroundHold = false
+    if (lease != null) applyIntent()
   }
 
   // --- gapless and crossfade (the version 2 audio plan) ------------------------------------
