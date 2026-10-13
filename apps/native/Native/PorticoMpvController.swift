@@ -41,6 +41,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     private let instanceId = UUID().uuidString
     private var invalidated = false
+    private var releasing = false
     private var owner: String?
     private var commandRevision = 0
     private var factSequence = 0
@@ -146,7 +147,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     // MARK: - Lease
 
     func acquire(_ owner: String?) -> [String: Any]? {
-        guard !invalidated, let owner = owner, !owner.isEmpty, owner.count <= 128 else { return nil }
+        guard !invalidated, !releasing, let owner = owner, !owner.isEmpty, owner.count <= 128 else { return nil }
         if lease != nil, self.owner != owner { return nil }
         if lease == nil {
             self.owner = owner
@@ -159,8 +160,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         return ["lease": lease ?? "", "instanceId": instanceId, "engine": "mpv"]
     }
 
-    func releaseLease(_ value: String?) {
-        guard let value = value, lease == value else { return }
+    func releaseLease(_ value: String?, completion: (() -> Void)? = nil) {
+        guard let value = value, lease == value else { completion?(); return }
+        releasing = true
         unload()
         resetAudio()
         subtitleOverlay.invalidate()
@@ -182,6 +184,19 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         if PorticoEngineClock.active === self { PorticoEngineClock.active = nil }
         NotificationCenter.default.post(name: .porticoMpvAttachmentChanged, object: self)
         releaseAudioSession()
+        // audiounit deactivates the shared audio session in its uninit. A stop command only
+        // requests that work; wait for complete destruction before another engine can start.
+        let retired = core
+        core = nil
+        if let retired = retired {
+            retired.destroy { [weak self] in
+                self?.releasing = false
+                completion?()
+            }
+        } else {
+            releasing = false
+            completion?()
+        }
         scheduleTeardown()
         #if os(tvOS)
         scheduleCriteriaClear()
@@ -551,6 +566,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             if reason == .error { publishFailure(code: code, message: message, log: log) } else if reason == .eof { reachedEnd() }
         case .tracksChanged(let list):
             tracks = list
+            removeStaleExternalSubtitles()
             if loaded {
                 applyAudio()
                 applySubtitles()
@@ -592,10 +608,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                 }
             } else if token == subtitleToken, token != 0, code < 0 {
                 // The subtitle file could not be opened: fall back to the plain cue document.
-                subtitleToken = 0
                 refusedSubtitleKeys.insert(subtitleTokenKey)
-                engineSubtitleKey = nil
-                externalSubtitleAddress = nil
+                clearEngineSubtitle()
                 applySubtitles()
             }
         case .tick:
@@ -995,7 +1009,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     var subtitleOverlayActive: Bool { return subtitleOverlay.overlayActive }
 
     private func clearEngineSubtitle() {
-        guard engineSubtitleKey != nil else { return }
+        guard engineSubtitleKey != nil || externalSubtitleAddress != nil || subtitleToken != 0 else { return }
         engineSubtitleKey = nil
         core?.set("sid", "no")
         removeExternalSubtitle()
@@ -1009,6 +1023,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         core?.set("sub-fonts-dir", "")
         for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external-filename"] as? String) == address {
             if let id = PorticoMpvSupport.trackId(track) { core?.command(["sub-remove", String(id)]) }
+        }
+    }
+
+    /// A sub-add already in flight can finish after its choice was replaced or turned off.
+    /// Remove those late tracks and restore the current choice instead of letting select win.
+    private func removeStaleExternalSubtitles() {
+        for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external"] as? Bool) == true {
+            guard (track["external-filename"] as? String) != externalSubtitleAddress,
+                  let id = PorticoMpvSupport.trackId(track) else { continue }
+            core?.command(["sub-remove", String(id)])
         }
     }
 
@@ -1030,6 +1054,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")|\(embedded?["title"] ?? "")|\(render["fonts"] ?? "")"
             if !refusedSubtitleKeys.contains(key) {
                 if key == engineSubtitleKey {
+                    if let embedded = embedded, let track = PorticoMpvSupport.embeddedSubtitle(embedded, kind: (render["kind"] as? String) ?? "", subtitles: PorticoMpvSupport.tracks(tracks, type: "sub")) {
+                        core?.set("sid", String(track))
+                    } else if let address = externalSubtitleAddress,
+                              let track = PorticoMpvSupport.tracks(tracks, type: "sub").first(where: { ($0["external-filename"] as? String) == address }),
+                              let id = PorticoMpvSupport.trackId(track) {
+                        core?.set("sid", String(id))
+                    }
                     core?.set("sub-delay", String(format: "%.3f", offset))
                     return
                 }

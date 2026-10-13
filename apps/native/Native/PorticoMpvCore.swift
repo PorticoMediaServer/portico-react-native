@@ -60,6 +60,8 @@ final class PorticoMpvCore {
     private let layer: CAMetalLayer
     private var initializationError: Int32 = -15
     private var initializationDetail = "mpv could not start"
+    private let wakeLock = NSLock()
+    private var wakeQueued = false
     private var epoch = 0
     /// mpv has announced the start of the file loaded for `epoch`.
     private var started = false
@@ -115,7 +117,17 @@ final class PorticoMpvCore {
     }
 
     private func wake() {
-        queue.async { [weak self] in self?.drain() }
+        wakeLock.lock()
+        if wakeQueued { wakeLock.unlock(); return }
+        wakeQueued = true
+        wakeLock.unlock()
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            self.wakeLock.lock()
+            self.wakeQueued = false
+            self.wakeLock.unlock()
+            self.drain()
+        }
     }
 
     // MARK: - Commands (any thread)
@@ -164,9 +176,9 @@ final class PorticoMpvCore {
     func command(_ arguments: [String], token: UInt64 = 0) {
         queue.async {
             guard let handle = self.handle else { return }
-            let pointers = PorticoMpvCore.pointers(arguments)
+            var pointers = PorticoMpvCore.pointers(arguments)
             defer { PorticoMpvCore.release(pointers) }
-            let code = pointers.withUnsafeBufferPointer { mpv_command_async(handle, token, $0.baseAddress) }
+            let code = pointers.withUnsafeMutableBufferPointer { mpv_command_async(handle, token, $0.baseAddress) }
             if code < 0, token != 0 { self.deliver(.reply(token: token, code: code)) }
         }
     }
@@ -189,16 +201,18 @@ final class PorticoMpvCore {
     }
 
     /// Ends mpv. Nothing is delivered afterwards. The core stays alive until mpv has gone.
-    func destroy() {
+    func destroy(completion: (() -> Void)? = nil) {
         if Thread.isMainThread { onEvent = nil } else { DispatchQueue.main.async { self.onEvent = nil } }
         queue.async {
             self.stopTickers()
             self.epoch = 0
             self.started = false
-            guard let handle = self.handle else { return }
-            self.handle = nil
-            mpv_set_wakeup_callback(handle, nil, nil)
-            mpv_terminate_destroy(handle)
+            if let handle = self.handle {
+                self.handle = nil
+                mpv_set_wakeup_callback(handle, nil, nil)
+                mpv_terminate_destroy(handle)
+            }
+            if let completion = completion { DispatchQueue.main.async { completion() } }
         }
     }
 
@@ -227,9 +241,9 @@ final class PorticoMpvCore {
 
     private func run(_ arguments: [String]) -> Int32 {
         guard let handle = handle else { return initializationError }
-        let pointers = PorticoMpvCore.pointers(arguments)
+        var pointers = PorticoMpvCore.pointers(arguments)
         defer { PorticoMpvCore.release(pointers) }
-        return pointers.withUnsafeBufferPointer { mpv_command(handle, $0.baseAddress) }
+        return pointers.withUnsafeMutableBufferPointer { mpv_command(handle, $0.baseAddress) }
     }
 
     private func startTicker() {
@@ -269,7 +283,7 @@ final class PorticoMpvCore {
 
     /// A list or map property, which mpv prints as JSON.
     private func json(_ name: String) -> Any? {
-        guard let text = string(name), let data = text.data(using: .utf8) else { return nil }
+        guard let text = string(name), text.utf8.count <= 2 * 1024 * 1024, let data = text.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: [])
     }
 

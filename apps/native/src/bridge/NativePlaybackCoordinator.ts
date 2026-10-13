@@ -107,6 +107,9 @@ export class NativePlaybackCoordinator {
     this.unsubscribe?.();
     this.unsubscribeFacts?.();
     this.release();
+    if (this.pendingAcquisition) this.releaseBarrier = Promise.all([this.releaseBarrier, this.pendingAcquisition]);
+    this.pendingAcquisition = undefined;
+    void this.releaseBarrier.catch(() => {});
   }
   /** OS-07: a downloaded file on this device plays whatever the server route is doing. */
   /** What a start is waiting on (PlaybackService.setStartupProbe; development builds log it). */
@@ -199,7 +202,10 @@ export class NativePlaybackCoordinator {
     }
     if (!this.lease) {
       if (state.phase === 'error'||!this.connected()) return;
-      if (!this.acquiring) this.pendingAcquisition = this.acquire();
+      if (!this.acquiring) {
+        this.pendingAcquisition = this.acquire();
+        void this.pendingAcquisition.catch(() => {});
+      }
       return;
     }
     const listening=state.nativeListening;
@@ -296,6 +302,7 @@ export class NativePlaybackCoordinator {
         );
       }
     }, 5000);
+    let staleReleaseFailed = false;
     try {
       await this.releaseBarrier;
       if (expired || !this.active || life !== this.lifecycle || epoch !== this.engineEpoch) return;
@@ -309,7 +316,8 @@ export class NativePlaybackCoordinator {
         intent !== this.service.getSnapshot().intentId
       ) {
         // The lease belongs to the engine it was asked of, which may no longer be the current one.
-        await transport.release(lease.lease);
+        try { await transport.release(lease.lease); }
+        catch { staleReleaseFailed = true; throw new Error('The previous player could not release its lease.'); }
         return;
       }
       this.lease = lease;
@@ -319,7 +327,8 @@ export class NativePlaybackCoordinator {
       this.lastSemantic = '';
       this.publish();
       this.schedule();
-    } catch {
+    } catch (error) {
+      if (staleReleaseFailed) throw error;
       if (this.active && life === this.lifecycle && epoch === this.engineEpoch)
         this.service.fail(
           intent,

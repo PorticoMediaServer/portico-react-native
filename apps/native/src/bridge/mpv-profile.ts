@@ -56,11 +56,11 @@ const GiB = 1024 ** 3;
  * - standard: up to 5 GB (Apple TV 4K, most phones). Heavy codecs in software up to 1080p.
  * - strong: more than 5 GB and six or more cores (recent Pro phones, iPad Pro and Air).
  *   Heavy codecs in software up to 4K at film frame rates.
- * Unknown (the module did not answer): standard.
+ * Unknown (the module did not answer): light, with no heavy software decoding claimed.
  */
 export function mpvDeviceClass(facts: MpvDeviceFacts | null): MpvDeviceClass {
   const memory = facts?.memoryBytes, cores = facts?.processorCount;
-  if (!memory || !Number.isFinite(memory)) return 'standard';
+  if (!memory || !Number.isFinite(memory) || memory <= 0) return 'light';
   if (memory <= 2.5 * GiB || (!!cores && cores <= 2)) return 'light';
   if (memory > 5 * GiB && (!cores || cores >= 6)) return 'strong';
   return 'standard';
@@ -88,18 +88,21 @@ const fileContainers = ['mkv', 'webm', 'mp4', 'm4v', 'mov', 'avi', 'ts', 'm2ts',
 
 /**
  * The mpv engine's capabilities on this device. `facts` is what `PorticoMpvPlaybackModule.facts()`
- * reports; null (it could not be asked) gives the declared table for a standard device with
- * hardware H.264 and HEVC, which every device the app supports has.
+ * reports; null (it could not be asked) gives a conservative 1080p H.264 baseline. A decoder
+ * availability probe does not establish its maximum dimensions or software decoding throughput.
  */
 export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapabilities {
   const tier = mpvDeviceClass(facts);
-  const hardware = {h264: facts?.hardwareDecode?.h264 !== false, hevc: facts?.hardwareDecode?.hevc !== false, vp9: facts?.hardwareDecode?.vp9 === true, av1: facts?.hardwareDecode?.av1 === true};
-  const probed: ProfileEvidence = facts ? 'probed' : 'declared';
+  const hardware = {h264: facts?.hardwareDecode?.h264 !== false, hevc: facts?.hardwareDecode?.hevc === true, vp9: facts?.hardwareDecode?.vp9 === true, av1: facts?.hardwareDecode?.av1 === true};
+  const probed: ProfileEvidence = facts ? 'mixed' : 'declared';
   const heavy = heavySoftware[tier], light = lightSoftware[tier];
   const video: ClientVideoCodec[] = [];
   // H.264: 8-bit in hardware. 10-bit (Hi10P) has no hardware decoder anywhere, so it is offered
-  // only where software keeps up; one entry describes a codec, so the size limit is the 8-bit one.
-  video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(hardware.h264 ? uhd60 : heavy ?? hd30), dynamicRanges: ['sdr'], evidence: probed});
+  // only where software keeps up. The document has one limit per codec, so both depths must
+  // fit that limit. Availability alone cannot give an A8-based Apple TV HD a 4K decoder.
+  const h264Hardware = tier === 'light' ? hd60 : uhd60;
+  const h264Limit = heavy ?? (hardware.h264 ? h264Hardware : hd30);
+  video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...h264Limit, dynamicRanges: ['sdr'], evidence: probed});
   if (hardware.hevc || heavy) video.push({codec: 'hevc', bitDepths: [8, 10], ...(hardware.hevc ? uhd60 : heavy!), dynamicRanges: [...hdrRanges, 'dolby_vision'], dolbyVisionProfiles: [5, 7, 8], evidence: probed});
   if (hardware.vp9 || heavy) video.push({codec: 'vp9', bitDepths: [8, 10], ...(hardware.vp9 ? uhd60 : heavy!), dynamicRanges: [...hdrRanges], evidence: probed});
   if (hardware.av1 || heavy) video.push({codec: 'av1', bitDepths: [8, 10], ...(hardware.av1 ? uhd60 : heavy!), dynamicRanges: [...hdrRanges], evidence: probed});

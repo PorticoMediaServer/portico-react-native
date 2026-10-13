@@ -173,3 +173,42 @@ test('a rejected release prevents a second engine from taking a lease', async ()
   assert.equal(service.failed.length, 1);
   coordinator.stop();
 });
+
+test('stopping and restarting waits for an acquisition from the previous lifecycle', async () => {
+  const {native, coordinator} = make('native');
+  let first!: (lease: {lease: string; instanceId: string}) => void;
+  let calls = 0;
+  native.acquire = async () => {
+    if (++calls === 1) return new Promise(resolve => { first = resolve; });
+    return {lease: 'fresh-native', instanceId: 'native-instance'};
+  };
+  coordinator.start();
+  await settle();
+  coordinator.stop();
+  coordinator.start();
+  await settle();
+  assert.equal(calls, 1);
+  first({lease: 'stale-native', instanceId: 'native-instance'});
+  await settle();
+  assert.deepEqual(native.released, ['stale-native']);
+  assert.equal(calls, 2);
+  assert.equal(coordinator.getSnapshot(), 'fresh-native');
+  coordinator.stop();
+});
+
+test('a stale acquisition whose release fails prevents the replacement from starting', async () => {
+  const {native, mpv, wanted, service, coordinator} = make('native');
+  let first!: (lease: {lease: string; instanceId: string}) => void;
+  native.acquire = () => new Promise(resolve => { first = resolve; });
+  native.release = async () => { throw new Error('release failed'); };
+  coordinator.start();
+  await settle();
+  wanted.engine = 'mpv';
+  coordinator.reconsiderEngine();
+  await settle();
+  first({lease: 'stale-native', instanceId: 'native-instance'});
+  await settle();
+  assert.equal(mpv.acquired, 0);
+  assert.equal(service.failed.length, 1);
+  coordinator.stop();
+});
