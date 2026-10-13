@@ -52,7 +52,7 @@ export function LibrariesPanel() {
   const reload = () => { order.reload(); attention.reload(); void service.loadLibraries().catch(() => {}); };
   const openTitle = (target: TitleTarget) => {
     setOpen(undefined);
-    // The title's page is pushed once the sheets are gone: a page under a closing sheet is not shown.
+    // The sheets close from the inside out, and the title's page is pushed once they are gone: a page under a closing sheet is not shown.
     requestAnimationFrame(() => afterOverlaysClose(() => (target.kind === 'show' ? navigation.push('Show', {libraryId: target.libraryId, showId: target.id}) : navigation.push('Detail', {libraryId: target.libraryId, itemId: target.id}))));
   };
   const move = (index: number, by: -1 | 1) => {
@@ -311,7 +311,7 @@ function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAt
         onConfirm={async () => { const f = removing; if (!f) return; await inventory.service.removeSource(f.id, f.revision); setRemoving(undefined); refresh(); }} />
       <FolderSheet open={adding} start="" onClose={() => setAdding(false)} onPick={path => { if (config) void action.run(() => inventory.service.saveSource(undefined, {...addSourceSettings(config.revision), name: path, path})).then(refresh); }} />
       <IssuesSheet open={issues} libraryId={library.id} onClose={() => setIssues(false)} />
-      <NeedsAttentionSheet libraryId={matching ? library.id : undefined} onClose={() => setMatching(false)} onChanged={onAttentionChanged} onOpenTitle={target => { setMatching(false); onOpenTitle(target); }} />
+      <NeedsAttentionSheet libraryId={matching ? library.id : undefined} onClose={() => setMatching(false)} onChanged={onAttentionChanged} onOpenTitle={target => { setMatching(false); requestAnimationFrame(() => afterOverlaysClose(() => onOpenTitle(target))); }} />
       <ConfirmSheet open={leaving} onDismiss={() => setLeaving(false)} title={t('server.library.removeTitle', {name: library.name})} consequence={`${t('server.library.removeGoes')}\n\n${t('server.library.removeKept')}`} confirmLabel={t('server.library.remove')} confirmToken={library.name} describeError={e => problem(e, 'action')} onConfirm={removeWhole} />
     </>
   );
