@@ -10,7 +10,7 @@ import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {useLibrariesContext} from '../../app/libraries-context';
 import {findInPages, nextCursorOf, operationId, problem, saveRebased, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
-import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, ToggleRow, useTheme} from '../../ui';
+import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, Text, ToggleRow, useTheme} from '../../ui';
 import {InviteSheet} from '../InviteSheet';
 import {PickRow, TypedRow} from '../settings/ServerForms';
 import {ratingChoices, typedClock} from './owner-rules';
@@ -246,6 +246,7 @@ function DeleteMemberSheet({member, onClose, onDeleted}: {member?: DirectMember;
         onDeleted();
       }}>
       {error ? <Notice tone="error" message={error} action={t('action.tryAgain')} onAction={read} /> : null}
+      {!preview && !error ? <Text variant="caption" tone="tertiary">{t('deleteMedia.checking')}</Text> : null}
     </ConfirmSheet>
   );
 }
