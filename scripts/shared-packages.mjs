@@ -15,6 +15,7 @@ const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const server = path.resolve(process.env.PORTICO_SERVER_REPO ?? path.join(here, '../portico-server'));
 const SHARED = {
   'packages/client-core': ['src', 'package.json', 'tsconfig.json'],
+  'packages/contracts': ['src', 'package.json'],
   'packages/design': ['src', 'package.json', 'COMPONENTS.md'],
   'packages/i18n': ['src', 'scripts', 'baselines', 'package.json'],
 };
