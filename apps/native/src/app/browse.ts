@@ -21,22 +21,36 @@ export type {PagePredicate};
  */
 export type Predicate = Extract<BrowseNode, {field: string}>;
 
-const capabilityCache = new Map<string, Promise<BrowseCapabilities>>();
-/** `attempt`: bump it to read again after a failure (a failed read is not cached). */
+/** The vocabulary last read for each library and pivot, and the reads under way. */
+const capabilityCache = new Map<string, BrowseCapabilities>();
+const capabilityReads = new Map<string, Promise<BrowseCapabilities>>();
+/**
+ * A library's sorts and filters. What was read last is shown at once, and it is read again every
+ * time the library is opened, so a change on the server (a new field, a sort that has gone)
+ * arrives without restarting the app. `attempt`: bump it to read again after a failure.
+ */
 export function useBrowseCapabilities(libraryId: string | undefined, pivot: string | undefined, attempt = 0) {
   const {api, session} = useSession();
   const [state, setState] = useState<{capabilities?: BrowseCapabilities; error?: string}>({});
   useEffect(() => {
     if (!libraryId || !pivot) { setState({}); return; }
     const key = `${session?.sessionFamilyId ?? ''}/${session?.viewer.profileId ?? ''}:${libraryId}:${pivot}`;
-    let promise = capabilityCache.get(key);
-    if (!promise) {
-      promise = api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/browse-capabilities?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
-      capabilityCache.set(key, promise);
-      promise.catch(() => capabilityCache.delete(key));
+    const held = capabilityCache.get(key);
+    if (held) setState({capabilities: held});
+    let read = capabilityReads.get(key);
+    if (!read) {
+      const started = api.request<unknown>(`/v1/libraries/${encodeURIComponent(libraryId)}/browse-capabilities?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
+      read = started;
+      capabilityReads.set(key, started);
+      started.then(c => { if (!sameVocabulary(capabilityCache.get(key), c)) capabilityCache.set(key, c); }, () => {}).finally(() => { if (capabilityReads.get(key) === started) capabilityReads.delete(key); });
     }
     let cancelled = false;
-    promise.then(c => { if (!cancelled) setState({capabilities: c}); }, e => { if (!cancelled) setState({error: say(e, 'library', 'load')}); });
+    read.then(
+      // An unchanged answer keeps the object the screen already has, so nothing redraws or asks again.
+      () => { if (!cancelled) setState(current => { const now = capabilityCache.get(key); return now && current.capabilities !== now ? {capabilities: now} : current; }); },
+      // A recheck that fails leaves the vocabulary already on screen; only a first read reports it.
+      e => { if (!cancelled && !held) setState({error: say(e, 'library', 'load')}); },
+    );
     return () => { cancelled = true; };
   }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
   return state;
@@ -76,6 +90,9 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
   const subscribe = useCallback((listener: () => void) => list?.subscribe(listener) ?? (() => {}), [list]);
   const snapshot = useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idleSnapshot);
   return {list, snapshot};
+}
+function sameVocabulary(a: BrowseCapabilities | undefined, b: BrowseCapabilities): boolean {
+  return !!a && JSON.stringify(a) === JSON.stringify(b);
 }
 const idleSnapshot = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined, positionIndex: undefined, refreshing: false});
 

@@ -4,6 +4,7 @@ import {isTablet} from '../bridge/device-platform';
 import {CommonActions, DarkTheme, StackActions, TabActions, NavigationContainer, type NavigationContainerRef, type NavigationState} from '@react-navigation/native';
 import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {useLibraryMemory} from '../app/library-memory';
 import {useLibraries} from '../app/libraries';
 import {viewerScope} from '../app/content';
 import {viewerKey} from '../app/viewer-scope';
@@ -136,6 +137,8 @@ export function Shell() {
   const [lastLibrary, setLastLibrary] = useState<string>();
   // Keyed on who is signed in, not on the access token: a renewed sign-in does not read the list again.
   const libraries = useLibraries(session.api, viewerKey(session.session, session.api) || undefined);
+  // Read this profile's remembered library choices now, so a library opens on them without a wait.
+  useLibraryMemory();
   // ONB-04: a dot on each rail entry whose library is scanning (viewer-safe status, polled).
   const serverId = useMemo(() => viewerScope(session.session, session.api).serverId, [session.session, session.api]);
   const libraryIds = useMemo(() => libraries.items.map(l => l.id), [libraries.items]);
