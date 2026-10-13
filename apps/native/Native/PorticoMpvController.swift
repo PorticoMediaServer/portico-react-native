@@ -1082,19 +1082,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         captionStyle = next
         let scale = PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(next)
         core?.set("sub-scale", String(format: "%.2f", scale))
-        switch PorticoMpvSupport.styleBackground(next) {
-        case "none":
-            core?.set("sub-border-style", "outline-and-shadow")
-            core?.set("sub-outline-size", "3")
-            core?.set("sub-back-color", "0.0/0.0/0.0/0.0")
-        case "opaque":
-            core?.set("sub-border-style", "background-box")
-            core?.set("sub-outline-size", "0")
-            core?.set("sub-back-color", "0.0/0.0/0.0/1.0")
-        default:
-            core?.set("sub-border-style", "background-box")
-            core?.set("sub-outline-size", "0")
-            core?.set("sub-back-color", "0.0/0.0/0.0/0.7")
+        for (name, value) in PorticoSubtitleSelection.mpvCaptionOptions(style: next) {
+            core?.set(name, value)
         }
         if !same { NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self) }
     }
