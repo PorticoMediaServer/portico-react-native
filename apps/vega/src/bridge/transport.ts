@@ -110,7 +110,7 @@ function finish(pending: Pending, problem?: string, response?: WireResponse): vo
 }
 
 /** True when the response came from somewhere other than the address that was asked for. */
-function redirected(asked: string, answered: string | undefined | null): boolean {
+export function redirected(asked: string, answered: string | undefined | null): boolean {
   if (!answered) return false;
   try {
     const a = new URL(asked), b = new URL(answered);
@@ -120,7 +120,7 @@ function redirected(asked: string, answered: string | undefined | null): boolean
   }
 }
 
-function parseHeaders(raw: string | null): Record<string, string> {
+export function parseHeaders(raw: string | null): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const line of (raw ?? '').split(/\r?\n/)) {
     const at = line.indexOf(':');

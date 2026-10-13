@@ -1,3 +1,4 @@
+import {cancelNetworkStream, openNetworkStream, readNetworkStream} from './event-stream';
 import {failure} from './events';
 import {profileTrust} from './profile-trust';
 import {randomBytes, uuid} from './random';
@@ -76,6 +77,11 @@ export const PorticoRuntime = {
   },
 
   cancelQueueRequest(identifier: string): void { cancel(identifier); },
+
+  /** The server's event streams, read a piece at a time (`event-stream.ts`). */
+  openNetworkStream: (identifier: string, url: string, headers: unknown) => openNetworkStream(identifier, url, headers),
+  readNetworkStream: (identifier: string) => readNetworkStream(identifier),
+  cancelNetworkStream(identifier: string): void { cancelNetworkStream(identifier); },
 
   playbackRequestId: (): string => uuid(),
   newRequestId: (): Promise<string> => Promise.resolve(uuid()),
