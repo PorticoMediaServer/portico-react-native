@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {PlaybackService} from '../../../packages/client-core/src/index.ts';
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
 import {FakePlaybackServer, type FakeRequest} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
-import {V1PlaybackApi} from '../../../packages/client-core/src/playback-v1/legacy-bridge.ts';
+import {NativePlayback} from '../src/player/native-playback.ts';
 import {V1QueuePlayer} from '../../../packages/client-core/src/playback-v1/v1-queue-player.ts';
 import {groupStep, stepQueue} from '../src/player/queue-step.ts';
 
@@ -25,8 +25,10 @@ async function playing(seconds: number) {
     return server.handle(request);
   }};
   let serial = 0;
-  const api = new V1PlaybackApi(http, {timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const path = new NativePlayback({http, timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const api = path.transport;
   const playback = new PlaybackService(api, () => `r${++serial}`, {queueRequired: true, deferRecovery: true});
+  path.bind(playback);
   const player = new V1QueuePlayer({http, api, playback, viewer, key: () => `q${++serial}-key-000000`, pendingPollMs: 10});
   const stop = player.connect();
   const close = () => { stop(); player.dispose(); };

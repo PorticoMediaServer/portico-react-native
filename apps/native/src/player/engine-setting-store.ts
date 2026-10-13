@@ -1,24 +1,52 @@
 import {defaultEngineSetting, type EngineSetting} from './engine-choice';
 
+/** The viewer's "if something looks or sounds wrong" switches, kept by this device. */
+export type PlaybackOverrides = Readonly<{forceStereo: boolean; disablePassthrough: boolean; disableHdr: boolean}>;
+export const noOverrides: PlaybackOverrides = Object.freeze({forceStereo: false, disablePassthrough: false, disableHdr: false});
+
+/** What the last capability probe found that Settings needs: whether there is a receiver to pass
+ * sound through to, and whether this device shows or decodes HDR at all. Null until probed. */
+export type ProbedDevice = Readonly<{audioPassthrough: boolean; hdr: boolean}>;
+
 /**
- * The viewer's Player setting, where code outside React can read it: the capability publisher
- * sends it with the device's capability document (`engineSetting`), so the server plans for the
- * engine the viewer chose, and sends it again when it changes. The preferences provider is the
- * only writer.
+ * The viewer's playback settings that this device keeps and the server plans from, where code
+ * outside React can read them: the Player setting (`engineSetting`) and the three overrides. The
+ * capability publisher sends them with the device's capability document and sends it again when
+ * one changes. The preferences provider is the only writer.
  */
 let current: EngineSetting = defaultEngineSetting;
+let overrides: PlaybackOverrides = noOverrides;
+let probed: ProbedDevice | null = null;
 const listeners = new Set<() => void>();
+const probeListeners = new Set<() => void>();
 let revision = 0, settledRevision = -1;
 const waiting = new Set<{revision: number; done: () => void}>();
+// The device's saved values are read from its store when the app starts. Until they are in hand
+// the values here are only the defaults, and publishing those would tell the server the viewer
+// chose Automatic and no fixes, whatever they really chose.
+let loaded = false;
+const loadWaiters = new Set<() => void>();
+
+function changed(): void {
+  revision++;
+  listeners.forEach(listener => listener());
+}
 
 export const engineSettingStore = Object.freeze({
   get: (): EngineSetting => current,
   set(value: EngineSetting): void {
     if (value === current) return;
     current = value;
-    revision++;
-    listeners.forEach(listener => listener());
+    changed();
   },
+  overrides: (): PlaybackOverrides => overrides,
+  setOverrides(value: Partial<PlaybackOverrides>): void {
+    const next = {forceStereo: value.forceStereo === true, disablePassthrough: value.disablePassthrough === true, disableHdr: value.disableHdr === true};
+    if (next.forceStereo === overrides.forceStereo && next.disablePassthrough === overrides.disablePassthrough && next.disableHdr === overrides.disableHdr) return;
+    overrides = Object.freeze(next);
+    changed();
+  },
+  /** Called when the Player setting or an override changes. */
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => { listeners.delete(listener); };
@@ -40,5 +68,41 @@ export const engineSettingStore = Object.freeze({
       const timer = setTimeout(waiter.done, timeoutMs);
       waiting.add(waiter);
     });
+  },
+  /** Resolve once the settings as they stand now are published, or at the deadline. */
+  whenCurrentSettled(timeoutMs: number): Promise<void> {
+    const wanted = revision;
+    if (settledRevision === wanted) return Promise.resolve();
+    return new Promise(resolve => {
+      const waiter = {revision: wanted, done: () => { clearTimeout(timer); waiting.delete(waiter); resolve(); }};
+      const timer = setTimeout(waiter.done, timeoutMs);
+      waiting.add(waiter);
+    });
+  },
+  /** The device's saved values have been read (or it has none): what is here is the viewer's. */
+  markLoaded(): void {
+    if (loaded) return;
+    loaded = true;
+    for (const done of [...loadWaiters]) done();
+    loadWaiters.clear();
+  },
+  /** Resolve once the saved values are in hand, or at the deadline (a store that never answers). */
+  whenLoaded(timeoutMs: number): Promise<void> {
+    if (loaded) return Promise.resolve();
+    return new Promise(resolve => {
+      const done = () => { clearTimeout(timer); loadWaiters.delete(done); resolve(); };
+      const timer = setTimeout(done, timeoutMs);
+      loadWaiters.add(done);
+    });
+  },
+  probed: (): ProbedDevice | null => probed,
+  setProbed(value: ProbedDevice): void {
+    if (probed && probed.audioPassthrough === value.audioPassthrough && probed.hdr === value.hdr) return;
+    probed = Object.freeze({...value});
+    probeListeners.forEach(listener => listener());
+  },
+  subscribeProbed(listener: () => void): () => void {
+    probeListeners.add(listener);
+    return () => { probeListeners.delete(listener); };
   },
 });

@@ -1,92 +1,59 @@
-import {androidProfile, appleProfile, type AndroidNativeFacts, type AppleNativeFacts, type ClientProfile, type DynamicRange} from '../../../../packages/client-core/src/client-profile';
-import type {AudioDecodeCapability} from '../../../../packages/client-core/src/playback-v1/audio-render';
+import {androidProfile, appleProfile, capabilityDocumentProblem, withViewerSettings, type AndroidNativeFacts, type AppleNativeFacts, type CapabilityDocument, type CapabilityOverrides, type EngineCapabilities as DocumentEngine, type EngineSetting} from '../../../../packages/client-core/src/client-profile';
 import {androidAudioDecodeFor, appleAudioDecode} from './audio-decode';
 import type {NativeFacts} from './device-profile';
 import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, softwareLimit, type EngineCapabilities, type MpvDeviceClass, type MpvDeviceFacts} from './mpv-profile';
-import type {EngineSetting} from '../player/engine-choice';
+
+export type {CapabilityDocument};
 
 /**
- * The device's capability document, version 2 (`PUT /v1/me/devices/current/capabilities`): the
- * one description of what this device can play. It carries one profile per player engine
- * (`engines.native`, and `engines.mpv` where the build has mpv), the viewer's Player setting
- * (`engineSetting`), the screen and the audio output. The server plans every title from it and
- * names the engine in the plan.
+ * The device's capability document (`PUT /v1/me/devices/current/capabilities`): the one
+ * description of what this device can play. It carries one profile per player engine
+ * (`engines.native`, and `engines.mpv` where the build has mpv), the viewer's Player setting and
+ * overrides, the screen and the audio output. The server plans every title from it and names the
+ * engine in the plan.
  *
- * The shape is the server's (`server/internal/playback/capability_document.go`). The shared
- * package's own type for it is not in this repository's copy yet, so the document type lives here
- * until it is; the builder's inputs are the probes the app already has.
- */
-export type CapabilityDocument = Readonly<{
-  version: 2;
-  client: Readonly<{family: string; form: 'tv' | 'phone' | 'tablet'; platform?: string; os?: string; osVersion?: string; model?: string; app?: string; appVersion?: string}>;
-  engineSetting: EngineSetting;
-  overrides: Readonly<{forceStereo: boolean; disablePassthrough: boolean; disableHdr: boolean}>;
-  display: Readonly<{width: number; height: number; dynamicRanges: readonly DynamicRange[]; maxFrameRate: number}>;
-  audioOutput: Readonly<{route: string; maxChannels: number; spatial: boolean}>;
-  maxBitrateBps: number;
-  engines: Readonly<{native: EngineCapabilities; mpv?: EngineCapabilities}>;
-  audioDecode: readonly AudioDecodeCapability[];
-}>;
-
-/**
- * The platform player's profile, from the client profile the app already builds for it (the
- * declared table for the platform, narrowed by what the device reports).
+ * The platform player's profile is the shared one for the platform (the declared table narrowed by
+ * what the device reports), with what is true of this app's own engines stated on top:
  *
- * - `subtitleRendering` is `text` only: on every platform the app draws the server's plain cue
- *   document itself, whatever the system's player could draw on its own.
- * - `embeddedAudioSwitching` is false: the app switches audio between the named tracks of an HLS
- *   stream, not between the tracks inside an original file.
- * - AVPlayer plays HEVC from an original file only under the `hvc1` (Dolby Vision: `dvh1`) sample
- *   entry; a file tagged `hev1` plays sound over a black picture, so the tags are stated.
- * - AVPlayer with a hardware HEVC decoder tone-maps HDR for a standard-range screen by itself.
+ * - It draws text subtitles only: the app draws the server's plain cue document itself, whatever
+ *   the system's player could draw on its own.
+ * - It does not switch between the audio tracks inside an original file: the app switches between
+ *   the named tracks of a stream, and asks the server for the title again for anything else.
+ * - Android: a codec the system has only a software decoder for is held to what software keeps
+ *   up with on this class of device, or left out where it does not keep up at all.
  */
-export function nativeEngineCapabilities(client: ClientProfile, apple: boolean, facts: AppleNativeFacts | null, android?: Readonly<{facts: AndroidNativeFacts | null; deviceClass: MpvDeviceClass}>): EngineCapabilities {
-  const passed = (client.audio ?? []).filter(a => a.passthrough === true);
-  let decoded = (client.audio ?? []).filter(a => a.passthrough !== true);
-  let video = client.video ?? [];
-  let transports = client.transports ?? [];
-  if (android?.facts) {
-    // A codec the receiver takes as a bitstream may also be one the device decodes itself. The
-    // shared profile keeps one entry per codec and the bitstream replaces the decoder there, so
-    // the decoder is put back: with headphones on, or a receiver that refuses, it still plays.
-    const known = new Set(decoded.map(a => a.codec));
-    for (const d of android.facts.audioDecoders ?? []) {
-      if (!known.has(d.codec) && passed.some(p => p.codec === d.codec)) decoded = [...decoded, {codec: d.codec, maxChannels: d.maxChannels ?? 2, evidence: 'probed'}];
-    }
-    // A codec the system has only a software decoder for is declared at what software keeps up
-    // with on this class of device (an estimate), not at the decoder's own advertised limits,
-    // which no phone or stick reaches in time. Where software does not keep up, it is left out.
-    const software = new Set((android.facts.decoders ?? []).filter(d => d.hardware === false).map(d => d.codec));
-    if (software.size) {
-      video = video.flatMap(v => {
-        if (!software.has(v.codec)) return [v];
-        const limit = softwareLimit(v.codec, android.deviceClass);
-        if (!limit) return [];
-        const width = Math.min(v.maxWidth ?? limit.maxWidth, limit.maxWidth), height = Math.min(v.maxHeight ?? limit.maxHeight, limit.maxHeight);
-        return [{...v, maxWidth: width, maxHeight: height, maxFrameRate: Math.min(v.maxFrameRate ?? limit.maxFrameRate, limit.maxFrameRate), evidence: 'declared' as const}];
-      });
-      const names = new Set(video.map(v => v.codec));
-      transports = transports.map(t => (t.video ? {...t, video: t.video.filter(name => names.has(name))} : t));
-    }
+export function nativeEngineCapabilities(document: CapabilityDocument, android?: Readonly<{facts: AndroidNativeFacts | null; deviceClass: MpvDeviceClass}>): DocumentEngine {
+  const base = document.engines.native;
+  let video = base.video ?? [];
+  let transports = base.transports ?? [];
+  const software = new Set((android?.facts?.decoders ?? []).filter(d => d.hardware === false).map(d => d.codec));
+  if (android && software.size) {
+    video = video.flatMap(v => {
+      if (!software.has(v.codec)) return [v];
+      const limit = softwareLimit(v.codec, android.deviceClass);
+      if (!limit) return [];
+      return [{...v, maxWidth: Math.min(v.maxWidth ?? limit.maxWidth, limit.maxWidth), maxHeight: Math.min(v.maxHeight ?? limit.maxHeight, limit.maxHeight), maxFrameRate: Math.min(v.maxFrameRate ?? limit.maxFrameRate, limit.maxFrameRate), evidence: 'declared' as const}];
+    });
+    const names = new Set(video.map(v => v.codec));
+    transports = transports.map(t => (t.video ? {...t, video: t.video.filter(name => names.has(name))} : t));
   }
-  return Object.freeze({
-    name: client.client.engine ?? (apple ? 'avplayer' : 'exoplayer'),
-    evidence: client.evidence,
-    video: Object.freeze(video.map(v => Object.freeze(apple && v.codec === 'hevc' ? {...v, codecTags: ['hvc1', 'dvh1']} : {...v}))),
-    audio: Object.freeze(decoded.map(({passthrough: _passthrough, ...a}) => Object.freeze(a))),
-    audioPassthrough: Object.freeze(passed.map(a => Object.freeze({codec: a.codec, ...(a.maxChannels ? {maxChannels: a.maxChannels} : {}), ...(a.objectAudio ? {objectAudio: a.objectAudio} : {}), ...(a.evidence ? {evidence: a.evidence} : {})}))),
-    transports: Object.freeze(transports.map(t => Object.freeze({...t}))),
-    // On every platform the app draws the server's plain cue document and nothing else. Media3's
-    // own text and image subtitle drawing is switched off in the Android engine, so it draws no
-    // styled (ASS) or image (PGS) subtitles, whatever the shared profile's table says.
-    subtitleRendering: Object.freeze(['text'] as const),
-    toneMapsHdr: apple && facts?.hardwareDecode?.hevc === true,
-    embeddedAudioSwitching: false,
-  });
+  return {...base, video, transports, subtitleRendering: ['text'], embeddedAudioSwitching: false};
+}
+
+/** The mpv profile in the document's own (plain) shape. */
+function documentEngine(engine: EngineCapabilities): DocumentEngine {
+  return {
+    name: engine.name, ...(engine.version ? {version: engine.version} : {}), evidence: engine.evidence,
+    video: engine.video.map(v => ({...v})), audio: engine.audio.map(a => ({...a})), audioPassthrough: [],
+    transports: engine.transports.map(t => ({...t})), subtitleRendering: [...engine.subtitleRendering],
+    toneMapsHdr: engine.toneMapsHdr, embeddedAudioSwitching: engine.embeddedAudioSwitching,
+  };
 }
 
 export type CapabilityDocumentInput = Readonly<{
   setting: EngineSetting;
+  /** The viewer's overrides (force stereo, no passthrough, no HDR). Absent: none. */
+  overrides?: CapabilityOverrides;
   /** `PorticoCapabilities.facts()`, or null when it could not be asked. */
   native: NativeFacts | null;
   /** `PorticoMpvPlaybackModule.facts()`; null when this build has no mpv (no `engines.mpv`). */
@@ -97,39 +64,41 @@ export type CapabilityDocumentInput = Readonly<{
   device: Readonly<{television: boolean; pad: boolean; family?: 'android' | 'androidtv' | 'firetv'; osVersion?: string}>;
 }>;
 
-const whole = (value: number | undefined, fallback = 0): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : fallback);
-
 export function deviceCapabilityDocument(input: CapabilityDocumentInput): CapabilityDocument {
   const device = input.device;
   const osVersion = input.native?.osVersion ?? device.osVersion;
   const apple = !device.family;
-  const client = apple
-    ? appleProfile({television: device.television, osVersion, model: input.native?.model, appVersion: input.appVersion}, input.native as AppleNativeFacts | null)
-    : androidProfile({family: device.family, television: device.television, osVersion, model: input.native?.model}, input.native as AndroidNativeFacts | null);
-  const native = nativeEngineCapabilities(client, apple, apple ? (input.native as AppleNativeFacts | null) : null,
-    apple ? undefined : {facts: input.native as AndroidNativeFacts | null, deviceClass: mpvDeviceClass(input.mpv)});
-  const mpv = input.mpvAvailable ? mpvEngineCapabilities(input.mpv) : undefined;
+  const shared = apple
+    ? appleProfile({television: device.television, phone: !device.pad, osVersion, model: input.native?.model, appVersion: input.appVersion}, input.native as AppleNativeFacts | null)
+    : androidProfile({family: device.family, television: device.television, tablet: device.pad, osVersion, model: input.native?.model}, input.native as AndroidNativeFacts | null);
+  const native = nativeEngineCapabilities(shared, apple ? undefined : {facts: input.native as AndroidNativeFacts | null, deviceClass: mpvDeviceClass(input.mpv)});
+  const settings = {engine: input.setting, overrides: input.overrides ?? {}};
   // The screen is one screen: what it shows is said once, for the platform player. Where mpv
   // shows less (an Apple TV shows mpv's picture in standard range) its own tone mapping covers
   // the difference, and `mpvDisplayRanges` is what a planner that weighs it would read.
-  const display = client.display ?? {};
-  const output = client.audioOutput ?? {};
-  return Object.freeze({
-    version: 2,
-    client: Object.freeze({
-      family: client.client.family, form: device.television ? 'tv' : device.pad ? 'tablet' : 'phone',
-      ...(client.client.platform ? {platform: client.client.platform} : {}), ...(client.client.os ? {os: client.client.os} : {}),
-      ...(client.client.osVersion ? {osVersion: client.client.osVersion} : {}), ...(client.client.model ? {model: client.client.model} : {}),
-      ...(client.client.app ? {app: client.client.app} : {}), ...(input.appVersion ? {appVersion: input.appVersion} : {}),
-    }),
-    engineSetting: mpv ? input.setting : 'native',
-    overrides: Object.freeze({forceStereo: false, disablePassthrough: false, disableHdr: false}),
-    display: Object.freeze({width: whole(display.width), height: whole(display.height), dynamicRanges: Object.freeze([...(display.dynamicRanges ?? ['sdr'])]), maxFrameRate: whole(display.maxFrameRate)}),
-    audioOutput: Object.freeze({route: output.route ?? '', maxChannels: whole(output.maxChannels, 2), spatial: output.spatial === true}),
-    maxBitrateBps: 0,
-    engines: Object.freeze({native, ...(mpv ? {mpv} : {})}),
-    audioDecode: apple ? appleAudioDecode : androidAudioDecodeFor(input.native as AndroidNativeFacts | null),
-  });
+  const base: CapabilityDocument = {
+    ...shared,
+    client: {...shared.client, ...(input.appVersion ? {appVersion: input.appVersion} : {})},
+    engines: {native},
+    audioDecode: (apple ? appleAudioDecode : androidAudioDecodeFor(input.native as AndroidNativeFacts | null)).map(({sampleRates, ...d}) => ({...d, containers: [...d.containers], ...(sampleRates ? {sampleRates: [...sampleRates]} : {})})),
+  };
+  const withoutMpv = withViewerSettings(base, settings);
+  if (!input.mpvAvailable) return capabilityDocumentProblem(withoutMpv) ? withViewerSettings(shared, settings) : withoutMpv;
+  const both = withViewerSettings({...base, engines: {native, mpv: documentEngine(mpvEngineCapabilities(input.mpv))}}, settings);
+  // A document the server would refuse is never sent: the title would then be planned against
+  // nothing at all. The mpv profile is the newest part, so it is the part that is left out.
+  return capabilityDocumentProblem(both) ? (capabilityDocumentProblem(withoutMpv) ? withViewerSettings(shared, settings) : withoutMpv) : both;
+}
+
+/** What Settings needs to know of the document: whether there is a receiver to pass sound through
+ * to, and whether this device shows or decodes HDR at all. */
+export function probedDevice(document: CapabilityDocument): Readonly<{audioPassthrough: boolean; hdr: boolean}> {
+  const engines = [document.engines.native, ...(document.engines.mpv ? [document.engines.mpv] : [])];
+  const hdr = (ranges: readonly string[] | undefined) => !!ranges?.some(r => r !== 'sdr');
+  return {
+    audioPassthrough: engines.some(e => !!e.audioPassthrough?.length),
+    hdr: hdr(document.display?.dynamicRanges) || engines.some(e => !!e.video?.some(v => hdr(v.dynamicRanges))),
+  };
 }
 
 /** What the screen shows from the mpv engine, for diagnostics and for a planner that weighs it. */

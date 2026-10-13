@@ -106,6 +106,12 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private var subtitleToken: UInt64 = 0
     private var subtitleTokenCount: UInt64 = 0
     private var subtitleTokenKey = ""
+    /// The open title is an HLS stream, which may open the resources its playlists name.
+    private var referencesAllowed = false
+    /// The adding of a subtitle file that may open one companion file (a VobSub index and its `.sub`).
+    private var referencesToken: UInt64 = 0
+    /// Portico's caption style from the subtitle command in force ({scale, background}).
+    private(set) var captionStyle: [AnyHashable: Any] = [:]
 
     #if os(tvOS)
     private var displayCriteriaSet = false
@@ -129,6 +135,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self)
         }
         subtitleOverlay.onStatus = { [weak self] error in self?.emit("subtitleStatus", error: error) }
+        // A downloaded title's plain subtitles are a WebVTT file beside it, inside Downloads.
+        subtitleOverlay.allowsLocalFile = { url in PorticoMpvSupport.allowedLocalSource(url) }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(enteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(enteringForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -469,6 +477,11 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         fontFetcher.cancel()
         core?.setFastTicks(false)
         core?.stop()
+        if referencesToken != 0 {
+            referencesToken = 0
+            core?.set("access-references", "no")
+        }
+        referencesAllowed = false
         relay.unbind()
         setVideoAspect(nil)
         updateOutputRange()
@@ -517,6 +530,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         if let sourceURL = URL(string: source ?? ""), !sourceURL.isFileURL, sourceURL.pathExtension.lowercased() == "m3u8" {
             options["access-references"] = "yes"
             options["demuxer-lavf-format"] = "hls"
+            referencesAllowed = true
         }
         // The position to start at is part of opening the file, so nothing is decoded from the
         // beginning only to be thrown away.
@@ -601,6 +615,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                 break
             }
         case .reply(let token, let code):
+            if token == referencesToken, token != 0 { closeReferences() }
             if var flight = seekInFlight, flight.token == token {
                 if code < 0 {
                     seekInFlight = nil
@@ -806,6 +821,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             previousProgress = position
         }
         var fact: [String: Any] = ["instanceId": instanceId, "type": type, "intentId": intentId, "position": position.isFinite ? position : 0, "paused": pausedFact(), "error": error ?? ""]
+        if type == "progress", let address = URL(string: source), !address.isFileURL {
+            // What the reader measured of the connection, for Automatic quality: only while it is
+            // reading as fast as it can. With the cache full it rests, and its speed is then the
+            // title's own bit rate, which says nothing about the connection.
+            if !snapshot.cacheIdle, snapshot.cacheSpeed.isFinite, snapshot.cacheSpeed > 0 { fact["throughputKbps"] = (snapshot.cacheSpeed * 8 / 1000).rounded() }
+            if snapshot.cacheDuration.isFinite, snapshot.cacheDuration >= 0 { fact["bufferedSeconds"] = snapshot.cacheDuration }
+        }
         for (key, value) in rateFacts() { fact[key] = value }
         publish(fact)
     }
@@ -1019,6 +1041,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         removeExternalSubtitle()
     }
 
+    /// The one companion file has been opened (or the adding failed): files may name no others again.
+    private func closeReferences() {
+        guard referencesToken != 0 else { return }
+        referencesToken = 0
+        if !referencesAllowed { core?.set("access-references", "no") }
+    }
+
     private func removeExternalSubtitle() {
         guard let address = externalSubtitleAddress else { return }
         externalSubtitleAddress = nil
@@ -1043,7 +1072,35 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     /// Draws the chosen track with mpv itself (styled text through libass, image subtitles as
     /// images) when the command says where the track is (`render`); otherwise the app draws the
     /// server's plain cue document over the picture, exactly as the AVPlayer engine does.
+    /// Portico's caption style on top of the system's: the size multiplies the size the viewer set
+    /// for captions in Accessibility; the background is a soft box, a solid box, or none (the
+    /// line then gets an outline instead, so it stays readable). Styled (ASS) tracks keep their
+    /// own look; this is for plain text mpv draws, and the app's own line follows the same style.
+    private func applyCaptionStyle(_ style: NSDictionary?) {
+        let next = (style as? [AnyHashable: Any]) ?? [:]
+        let same = NSDictionary(dictionary: next).isEqual(to: captionStyle)
+        captionStyle = next
+        let scale = PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(next)
+        core?.set("sub-scale", String(format: "%.2f", scale))
+        switch PorticoMpvSupport.styleBackground(next) {
+        case "none":
+            core?.set("sub-border-style", "outline-and-shadow")
+            core?.set("sub-outline-size", "3")
+            core?.set("sub-back-color", "0.0/0.0/0.0/0.0")
+        case "opaque":
+            core?.set("sub-border-style", "background-box")
+            core?.set("sub-outline-size", "0")
+            core?.set("sub-back-color", "0.0/0.0/0.0/1.0")
+        default:
+            core?.set("sub-border-style", "background-box")
+            core?.set("sub-outline-size", "0")
+            core?.set("sub-back-color", "0.0/0.0/0.0/0.7")
+        }
+        if !same { NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self) }
+    }
+
     private func applySubtitles() {
+        applyCaptionStyle(scoped(command?["subtitles"])?["style"] as? NSDictionary)
         guard let subtitles = scoped(command?["subtitles"]), (subtitles["mode"] as? String) == "track" else {
             clearEngineSubtitle()
             subtitleOverlay.apply(nil, item: nil, source: source)
@@ -1116,6 +1173,15 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         subtitleTokenKey = key
         let add = { [weak self] in
             guard let self = self, self.subtitleToken == token, self.externalSubtitleAddress == target else { return }
+            // A VobSub track is two files: the index names the `.sub` beside it, and mpv opens that
+            // itself. A file played as it is may open nothing else, so that one opening is allowed
+            // for as long as this adding takes, and closed again when it has answered. The
+            // companion is under the same media grant (the relay serves nothing else), or, for a
+            // download, was checked above to lie inside Downloads.
+            if kind == "vobsub", !self.referencesAllowed {
+                self.referencesToken = token
+                self.core?.set("access-references", "yes")
+            }
             self.core?.command(["sub-add", target, "select"], token: token)
         }
         // A styled file may name fonts that came attached to it: they are fetched first, so the
@@ -1134,7 +1200,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     @objc private func captionStyleChanged() {
         guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.captionStyleChanged() }; return }
-        core?.set("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale()))
+        core?.set("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale() * PorticoMpvSupport.styleScale(captionStyle)))
         NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self)
     }
 

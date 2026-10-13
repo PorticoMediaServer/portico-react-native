@@ -15,8 +15,14 @@ operating system it is on. Screens know `isTV` and nothing else.
 - `device-platform.ts`: the platform name sent to the server (`ios`, `tvos`, `android`,
   `androidtv`, `firetv`), the device noun, and what the platform has (`hasAirPlay`,
   `playOnPlatform`).
-- `device-profile.ts` and `audio-decode.ts`: the capability profile, from the Apple table or from
-  what the Android device reports (`MediaCodecList`, the display, the audio output).
+- `capability-document.ts`, `mpv-profile.ts` and `audio-decode.ts`: the one capability document the
+  server plans from (a profile for the platform's player and one for mpv, the screen, the audio
+  output, the viewer's Player setting and playback fixes), from the shared table for the platform
+  and what the device reports (`MediaCodecList`, the display, the audio output).
+  `capability-publisher.ts` sends it when it changes.
+- `NativePlaybackCoordinator.ts` and `player-engines.ts`: the lease, commands and facts of the
+  player engine in use (`../../Native/ENGINE-CONTRACT.md`). The server's side of a session (its
+  timeline, re-plans and end) is `../player/native-playback.ts`.
 - `random-id.ts`: installs `crypto.randomUUID` from the native UUID source (Hermes has no Web
   Crypto, and shared services make request ids with it).
 

@@ -258,6 +258,20 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
       }
     }
+    // The player's own answer as well: what its audio output would hand on untouched. It reads
+    // what the system says can be played directly, what the HDMI plug reported, and the surround
+    // setting some televisions and Fire TV keep instead, so a receiver the device list above says
+    // nothing about is still found. Asked only while sound is going to the digital output.
+    if (active == null || active.type in DIGITAL_OUTPUTS) {
+      val player = try { androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(reactApplicationContext, androidx.media3.common.AudioAttributes.DEFAULT, null) } catch (_: Throwable) { null }
+      if (player != null) for ((encoding, entry) in BITSTREAMS) {
+        if (!player.supportsEncoding(encoding)) continue
+        val (codec, limit, atmos) = entry
+        val channels = player.maxChannelCount
+        val previous = found[codec]
+        found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
+      }
+    }
     val out = Arguments.createArray()
     for ((codec, value) in found) out.pushMap(Arguments.createMap().apply {
       putString("codec", codec)
@@ -360,7 +374,8 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         AudioFormat.ENCODING_E_AC3_JOC to Triple("eac3", 8, true),
         AudioFormat.ENCODING_DOLBY_TRUEHD to Triple("truehd", 8, false),
         AudioFormat.ENCODING_DTS to Triple("dts", 6, false),
-        AudioFormat.ENCODING_DTS_HD to Triple("dtshd", 8, false))
+        // DTS-HD is the same codec as DTS to the server (a longer form of it): one name, eight channels.
+        AudioFormat.ENCODING_DTS_HD to Triple("dts", 8, false))
 
     /** In the order a new playback would choose them. */
     private val ROUTES = listOf(

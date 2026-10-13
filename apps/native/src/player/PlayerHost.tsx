@@ -18,7 +18,6 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {ToastHost} from '../ui';
 import {CastBar} from './CastBar';
 import {offlineDownloads} from '../bridge/offline-downloads';
-import {watchEngineFailures} from './failure-facts';
 
 /**
  * Owns the player engine for the signed-in session and layers the player
@@ -38,8 +37,6 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents}: {chi
   const skipBack = serverPrefs.value<number>('playback.skipBackSeconds', 10);
   const skipForward = serverPrefs.value<number>('playback.skipForwardSeconds', 30);
   useEffect(() => setListeningSkipIntervals(skipBack, skipForward), [skipBack, skipForward]);
-  // The error card needs to know whether a failure can ever mend; the engine's own facts say.
-  useEffect(() => watchEngineFailures(() => engine.service.getSnapshot().itemId), [engine.service]);
   const playOffline = engine.playOffline;
   const actions = useMemo<PlayerActions>(
     () => ({

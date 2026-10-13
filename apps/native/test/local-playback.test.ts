@@ -15,7 +15,8 @@ function setup(journal?: {entries: unknown[]}) {
     createPlayback: async itemId => { server.push(`create ${itemId}`); return {id: 'srv1', generation: 1, streamUrl: '/media', mode: 'direct', duration: 100, resumeSeconds: 0}; },
     progressPlayback: async id => { server.push(`progress ${id}`); },
     stopPlayback: async id => { server.push(`stop ${id}`); },
-    reportRouteFailure: async id => { server.push(`route ${id}`); return {route: 'original', escalates: true}; },
+    reportPlayerFailure: async id => { server.push(`failure ${id}`); return {escalates: true}; },
+    markerSkipped: async id => { server.push(`skip ${id}`); },
   };
   const local = new LocalPlayback(p => progress.push(p));
   const store = journal ?? {entries: []};

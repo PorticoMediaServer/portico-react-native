@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {StyleSheet, TVFocusGuideView, View} from 'react-native';
 import {IdentityClient, announceDevice} from '../../../../packages/client-core/src/index';
-import {keepDeviceProfilePublished} from '../bridge/client-profile';
 import {profileInstallation} from '../bridge/profile-trust';
 import {deviceIdentity} from '../bridge/setup-codes';
 import {devicePlatform} from '../bridge/device-platform';
@@ -41,11 +40,6 @@ export function DeviceApprovalCover() {
     if (isTV && outcome === 'bound' && api && session) void refreshTopShelf(api, installationId, `${session.viewer.serverId}/${session.viewer.profileId}`);
   }, [identity, family, isTV, api, session?.viewer.serverId, session?.viewer.profileId]);
   useEffect(() => { void announce(); }, [announce]);
-  // Every sign-in, direct or Portico Account, tells its server what this device plays, so the
-  // server stops converting what would have played as it is.
-  // Scoped to the sign-in and profile (the access token rotates; that is not a new sign-in).
-  const signIn = session ? `${session.sessionFamilyId ?? ''}/${session.viewer.serverId}/${session.viewer.profileId}` : '';
-  useEffect(() => (api && signIn ? keepDeviceProfilePublished(api, signIn) : undefined), [api, signIn]);
   // Signed out: the shelf must not go on showing this profile's titles.
   useEffect(() => { if (isTV && !session) clearTopShelf(); }, [isTV, session]);
   if (!pending) return null;

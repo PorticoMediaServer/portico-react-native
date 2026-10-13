@@ -7,7 +7,7 @@ import {
   type LocalSession,
 } from '../../../../packages/client-core/src/index';
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
-import {V1PlaybackApi} from '../../../../packages/client-core/src/playback-v1/legacy-bridge';
+import {NativePlayback} from '../player/native-playback';
 import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {EventsClient} from '../../../../packages/client-core/src/playback-v1/events';
 import {useServerPreferences} from '../app/server-preferences';
@@ -23,8 +23,9 @@ import {keepCapabilitiesPublished} from './capability-publisher';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 
 /**
- * The player's playback stack (Playback Protocol v1): one `PlaybackService` per viewer, its v1
- * queue player, channels as v1 sessions (spec §18.6), this device's event feed, and the native
+ * The player's playback stack (Playback Protocol v1): one `PlaybackService` per viewer, the
+ * session path behind it (`NativePlayback`: the server session's timeline, re-plans and end), its
+ * v1 queue player, channels as v1 sessions (spec §18.6), this device's event feed, and the native
  * listening owner for audio (plan §9.3 C3). Downloaded titles play in the same service with a
  * session that never leaves the device (OS-07).
  */
@@ -36,7 +37,9 @@ export function useNativePlayback(
   // The viewer's music defaults (shuffle, repeat) for a music queue started with Play.
   const preferences=useServerPreferences().snapshot;const preferencesRef=useRef(preferences);preferencesRef.current=preferences;
   // Hermes has no crypto.randomUUID, so request keys come from the native UUID source.
-  const v1Api = useMemo(() => new V1PlaybackApi(localV1Http(api), {key: () => NativeModules.PorticoRuntime.playbackRequestId()}), [api]);
+  const path = useMemo(() => new NativePlayback({http: localV1Http(api), key: () => NativeModules.PorticoRuntime.playbackRequestId()}), [api]);
+  useEffect(() => () => path.dispose(), [path]);
+  const v1Api = path.transport;
   // OS-07: downloaded titles' progress goes to the offline journal (resume point, later sync).
   const local = useMemo(() => new LocalPlayback(progress => offlineDownloads.recordProgress(progress)), []);
   const playback = useMemo(
@@ -73,12 +76,16 @@ export function useNativePlayback(
   );
   useEffect(()=>{if(session?.accessToken)void playback.refreshPlaybackAuthority().catch(()=>{});},[playback,session?.accessToken]);
   useEffect(()=>{const listener=AppState.addEventListener('change',state=>{if(state==='active')void playback.refreshPlaybackAuthority().catch(()=>{});});return()=>listener.remove();},[playback]);
+  // Leaving the screen: the server is told where the picture is now, while this app can still say so.
+  useEffect(()=>{const listener=AppState.addEventListener('change',state=>{if(state!=='active')void path.controller.flush().catch(()=>{});});return()=>listener.remove();},[path]);
   useEffect(() => {
     void playback.startRecovery();
     return()=>playback.leave();
   }, [playback]);
   const queue=useRef<PlaybackQueue|undefined>(undefined);
   const v1Player=useRef<V1QueuePlayer|undefined>(undefined);
+  // The session path follows the service; a lapsed lease is given back to the installed queue player.
+  useEffect(()=>path.bind(playback,()=>{const player=v1Player.current;return player&&queue.current?.controller===player?player:undefined;}),[path,playback]);
   /** The installed v1 queue player (container plays call its `playSelector`). */
   const v1Queue=useCallback(():V1QueuePlayer|undefined=>{const player=v1Player.current;return player&&queue.current?.controller===player?player:undefined;},[]);
   /** Before a play from the server: the v1 queue player is installed (after a download played, it isn't). */
@@ -146,5 +153,5 @@ export function useNativePlayback(
     playback.subscribe,
     playback.getSnapshot,
   );
-  return { playback, playbackState, ensureQueue, v1Queue, playLocal };
+  return { playback, playbackState, ensureQueue, v1Queue, playLocal, path };
 }

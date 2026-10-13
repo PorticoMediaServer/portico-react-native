@@ -15,31 +15,6 @@ static BOOL PlainText(id value){
  for(NSUInteger i=0;i<[value length];i++){unichar c=[value characterAtIndex:i];if((c<32&&c!=9&&c!=10)||c==127)return NO;}
  return YES;
 }
-// Plain HTTP is for this device and the home network only, the rule every server address the app
-// connects to already passes: localhost, a .local name, or a private or link-local address.
-// Anything else needs HTTPS.
-static BOOL PrivateHost(NSString *value){
- if(![value isKindOfClass:NSString.class]||!value.length||value.length>255)return NO;
- NSString *h=value.lowercaseString;
- if(h.length>2&&[h hasPrefix:@"["]&&[h hasSuffix:@"]"])h=[h substringWithRange:NSMakeRange(1,h.length-2)];
- if([h isEqualToString:@"localhost"]||[h isEqualToString:@"::1"])return YES;
- if([h hasSuffix:@".local"])return [h rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789._-"].invertedSet].location==NSNotFound;
- if([h containsString:@":"]){
-  // IPv6: unique local (fc00::/7) or link-local (fe80::/10), with no zone and no embedded IPv4.
-  if(h.length<5||[h rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef:"].invertedSet].location!=NSNotFound||[h characterAtIndex:2]==':'||[h characterAtIndex:3]==':'||[h characterAtIndex:4]!=':')return NO;
-  unichar third=[h characterAtIndex:2];
-  return [h hasPrefix:@"fc"]||[h hasPrefix:@"fd"]||([h hasPrefix:@"fe"]&&(third=='8'||third=='9'||third=='a'||third=='b'));
- }
- // IPv4 in plain dotted decimal: 10/8, 127/8, 172.16/12, 192.168/16 or 169.254/16.
- NSArray<NSString *> *parts=[h componentsSeparatedByString:@"."];if(parts.count!=4)return NO;
- NSInteger n[4]={0,0,0,0};
- for(NSUInteger i=0;i<4;i++){
-  NSString *part=parts[i];if(!part.length||part.length>3||(part.length>1&&[part characterAtIndex:0]=='0'))return NO;
-  NSInteger v=0;for(NSUInteger j=0;j<part.length;j++){unichar c=[part characterAtIndex:j];if(c<'0'||c>'9')return NO;v=v*10+(c-'0');}
-  if(v>255)return NO;n[i]=v;
- }
- return n[0]==10||n[0]==127||(n[0]==192&&n[1]==168)||(n[0]==172&&n[1]>=16&&n[1]<=31)||(n[0]==169&&n[1]==254);
-}
 @interface PorticoSubtitleSelection ()<NSURLSessionDataDelegate>
 @end
 @implementation PorticoSubtitleSelection {
@@ -50,6 +25,8 @@ static BOOL PrivateHost(NSString *value){
  // The validator of the document held in _cues. It is sent by hand on every reload, so the
  // server can answer "still authorised, unchanged" with a header instead of the whole track.
  NSString *_etag,*_responseEtag;BOOL _notModified;
+ // A download's subtitle file on this device: read once, never re-checked with a server.
+ BOOL _local;NSInteger _localEpoch;
 }
 + (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {
  NSString *wanted=[[language lowercaseString] componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
@@ -67,6 +44,7 @@ static BOOL PrivateHost(NSString *value){
 - (void)setText:(NSString *)text{NSDictionary *cue=@{@"text":text,@"italic":@(_italic&&text.length>0),@"top":@(_top&&text.length>0)};if([_displayCue isEqual:cue])return;_displayCue=cue;_text=[text copy];if(self.onText)self.onText(cue);}
 - (void)status:(NSString *)error{if(self.onStatus)self.onStatus(error?:@"");}
 - (void)invalidate {
+ _local=NO;_localEpoch++;
  [_task cancel];_task=nil;[_session invalidateAndCancel];_session=nil;[_timer invalidate];_timer=nil;
  _command=nil;_item=nil;_cues=nil;_prefixEnds=nil;_bytes=nil;_url=nil;_etag=nil;_responseEtag=nil;_notModified=NO;_revision=0;_offset=0;_authorizedUntil=0;_lastRequest=0;_legibleRequested=NO;_nativeSelected=NO;_nativeName=nil;_nativeLanguage=nil;_nativeTitle=nil;
  [self setText:@""];
@@ -86,12 +64,21 @@ static BOOL PrivateHost(NSString *value){
  int64_t offset=0;
  if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"The subtitle command is invalid."];return;}
  NSURL *url=[NSURL URLWithString:command[@"documentUrl"]],*media=[NSURL URLWithString:source];
+ // A downloaded title: its subtitles are a WebVTT file beside it, inside the app's Downloads
+ // folder. Only a download may name one, and only there.
+ if(url.isFileURL){
+  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;}
+  if(_item==item&&_local&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]]){_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;[self tick:_time];return;}
+  [self invalidate];_item=item;_url=url;_local=YES;_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
+  [self disableEmbedded:item];[self readLocal:url];return;
+ }
  NSArray *mediaParts=media.path.pathComponents;
  NSString *grant=mediaParts.count>=4?mediaParts[3]:@"";
  NSString *expected=[NSString stringWithFormat:@"/v1/media/%@/subtitles/%@/%@",grant,command[@"resourceId"],command[@"resourceRevision"]];
  NSRegularExpression *route=[NSRegularExpression regularExpressionWithPattern:@"^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$" options:0 error:nil];
- BOOL privateHost=PrivateHost(url.host);
- if(!url||!media||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&privateHost))||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
+ // The document travels the way the media does: the same scheme, host and port, under the media's
+ // own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
+ if(!url||!media||(![url.scheme isEqual:@"https"]&&![url.scheme isEqual:@"http"])||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
   [self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;
  }
  if(_item==item&&[_command[@"binding"] isEqual:command[@"binding"]]&&[command[@"revision"] integerValue]<_revision)return;
@@ -114,8 +101,52 @@ static BOOL PrivateHost(NSString *value){
  if(!_timer){__weak PorticoSubtitleSelection *weakSelf=self;_timer=[NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer){PorticoSubtitleSelection *self=weakSelf;if(!self)return;NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;if(now>self->_authorizedUntil){[self setText:@""];}if(!self->_task&&now-self->_lastRequest>=25)[self fetch];}];}
  if(!sameResource||refreshRequested)[self fetch];else [self tick:_time];
 }
+/** Reads a download's WebVTT file off the main thread and keeps its cues. Tags are dropped (the
+ * line is plain text, italic when the cue is), and a cue that cannot be read costs only itself. */
+- (void)readLocal:(NSURL *)url {
+ NSInteger epoch=_localEpoch;__weak PorticoSubtitleSelection *weakSelf=self;
+ dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
+  NSNumber *size=nil;[url getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+  NSData *data=size&&size.unsignedIntegerValue<=SubtitleByteLimit?[NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil]:nil;
+  NSString *text=data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:nil;
+  NSMutableArray *cues=[NSMutableArray new];
+  if(text){
+   NSArray<NSString *> *lines=[[text stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
+   NSRegularExpression *timing=[NSRegularExpression regularExpressionWithPattern:@"^\\s*(?:(\\d{1,3}):)?(\\d{2}):(\\d{2})[.,](\\d{3})\\s+-->\\s+(?:(\\d{1,3}):)?(\\d{2}):(\\d{2})[.,](\\d{3})(.*)$" options:0 error:nil];
+   NSRegularExpression *tags=[NSRegularExpression regularExpressionWithPattern:@"<[^>]{0,64}>" options:0 error:nil];
+   NSRegularExpression *linePosition=[NSRegularExpression regularExpressionWithPattern:@"\\bline:(-?\\d{1,3})(%?)" options:0 error:nil];
+   NSUInteger textBytes=0;
+   for(NSUInteger i=0;i<lines.count&&cues.count<20000;i++){
+    NSString *line=lines[i];NSTextCheckingResult *m=[timing firstMatchInString:line options:0 range:NSMakeRange(0,line.length)];if(!m)continue;
+    int64_t (^part)(NSUInteger)=^int64_t(NSUInteger group){NSRange r=[m rangeAtIndex:group];return r.location==NSNotFound?0:[line substringWithRange:r].longLongValue;};
+    int64_t start=((part(1)*60+part(2))*60+part(3))*1000000+part(4)*1000,end=((part(5)*60+part(6))*60+part(7))*1000000+part(8)*1000;
+    NSString *settings=[line substringWithRange:[m rangeAtIndex:9]];
+    NSMutableArray<NSString *> *body=[NSMutableArray new];
+    for(i++;i<lines.count&&lines[i].length;i++)[body addObject:lines[i]];
+    NSString *raw=[body componentsJoinedByString:@"\n"];
+    BOOL italic=[raw containsString:@"<i>"]||[raw containsString:@"<i."];
+    NSString *plain=[tags stringByReplacingMatchesInString:raw options:0 range:NSMakeRange(0,raw.length) withTemplate:@""];
+    for(NSArray<NSString *> *entity in @[@[@"&lt;",@"<"],@[@"&gt;",@">"],@[@"&nbsp;",@" "],@[@"&lrm;",@""],@[@"&rlm;",@""],@[@"&amp;",@"&"]])plain=[plain stringByReplacingOccurrencesOfString:entity[0] withString:entity[1]];
+    plain=[plain stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if(end<=start||end>86400000000||!PlainText(plain))continue;
+    textBytes+=[plain lengthOfBytesUsingEncoding:NSUTF8StringEncoding];if(textBytes>4194304)break;
+    // A cue placed in the upper half of the picture is drawn at the top.
+    BOOL top=NO;NSTextCheckingResult *position=[linePosition firstMatchInString:settings options:0 range:NSMakeRange(0,settings.length)];
+    if(position){NSInteger value=[settings substringWithRange:[position rangeAtIndex:1]].integerValue;BOOL percent=[position rangeAtIndex:2].length>0;top=percent?(value>=0&&value<50):(value>=0&&value<8);}
+    [cues addObject:@{@"start":@(start),@"end":@(end),@"text":plain,@"italic":@(italic),@"top":@(top)}];
+   }
+   [cues sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [a[@"start"] compare:b[@"start"]];}];
+  }
+  NSMutableArray *ends=[NSMutableArray new];int64_t maxEnd=0;for(NSDictionary *cue in cues){maxEnd=MAX(maxEnd,[cue[@"end"] longLongValue]);[ends addObject:@(maxEnd)];}
+  dispatch_async(dispatch_get_main_queue(),^{
+   PorticoSubtitleSelection *self=weakSelf;if(!self||self->_localEpoch!=epoch||!self->_local)return;
+   if(!text){[self status:@"Subtitles could not be read from this download."];return;}
+   self->_cues=cues;self->_prefixEnds=ends;self->_authorizedUntil=DBL_MAX;[self status:@""];[self tick:self->_time];
+  });
+ });
+}
 - (void)fetch {
- if(!_url||!_session||_task)return;
+ if(_local||!_url||!_session||_task)return;
  _lastRequest=NSProcessInfo.processInfo.systemUptime;_bytes=[NSMutableData new];_failed=NO;_transientFailure=NO;_responseEtag=nil;
  NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:_url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
  _notModified=NO;if(_etag.length&&_cues)[request setValue:_etag forHTTPHeaderField:@"If-None-Match"];

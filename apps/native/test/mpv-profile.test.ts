@@ -5,7 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, type EngineCapabilities, type MpvDeviceFacts} from '../src/bridge/mpv-profile.ts';
-import {deviceCapabilityDocument, type CapabilityDocument} from '../src/bridge/capability-document.ts';
+import {deviceCapabilityDocument, probedDevice} from '../src/bridge/capability-document.ts';
+import {capabilityDocumentProblem} from '../../../packages/client-core/src/client-profile.ts';
 
 const GiB = 1024 ** 3;
 const appleTV4K: MpvDeviceFacts = {available: true, memoryBytes: 4 * GiB, processorCount: 6, hardwareDecode: {h264: true, hevc: true, vp9: false, av1: false}, hdrOutput: false};
@@ -74,35 +75,8 @@ test('what the screen shows from mpv: HDR on an HDR phone or tablet, standard ra
   assert.deepEqual([...mpvDisplayRanges(null)], ['sdr']);
 });
 
-// The server's admission rules, restated.
-const token = /^[a-z0-9][a-z0-9_.+-]{0,31}$/;
-const ranges = ['sdr', 'hdr10', 'hdr10plus', 'hlg', 'dolby_vision'];
-const int = (v: unknown, max: number) => v === undefined || (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max);
-function engineProblem(e: EngineCapabilities): string | null {
-  if (!['declared', 'probed', 'mixed'].includes(e.evidence)) return 'evidence';
-  if (e.video.length > 32 || e.audio.length > 48 || e.audioPassthrough.length > 24 || e.transports.length > 16) return 'bounds';
-  for (const v of e.video) {
-    if (!token.test(v.codec) || !(v.profiles ?? []).every(p => token.test(p)) || !int(v.maxLevel, 1000) || !int(v.maxWidth, 32768) || !int(v.maxHeight, 32768) || !int(v.maxBitrateBps, 2_000_000_000)) return 'video.' + v.codec;
-    if (!(v.bitDepths ?? []).every(d => Number.isInteger(d) && d >= 1 && d <= 16) || !(v.dolbyVisionProfiles ?? []).every(d => d >= 1 && d <= 31) || !(v.dynamicRanges ?? []).every(r => ranges.includes(r))) return 'video.' + v.codec;
-    if (v.evidence && !['declared', 'probed', 'mixed'].includes(v.evidence)) return 'video.evidence';
-  }
-  for (const a of e.audio) if (!token.test(a.codec) || !int(a.maxChannels, 64) || 'passthrough' in a) return 'audio.' + a.codec;
-  for (const a of e.audioPassthrough) if (!token.test(a.codec)) return 'passthrough.' + a.codec;
-  for (const t of e.transports) {
-    if (!['direct', 'hls_ts', 'hls_fmp4'].includes(t.transport)) return 'transport';
-    if ((t.containers ?? []).length > 32 || (t.video ?? []).length > 32 || (t.audio ?? []).length > 48 || ![...(t.containers ?? []), ...(t.video ?? []), ...(t.audio ?? [])].every(x => token.test(x))) return 'transport.' + t.transport;
-  }
-  if (e.subtitleRendering.length > 8 || !e.subtitleRendering.every(k => ['text', 'ass', 'pgs', 'vobsub', 'dvb'].includes(k))) return 'subtitleRendering';
-  return null;
-}
-function documentProblem(d: CapabilityDocument): string | null {
-  if (d.version !== 2 || !token.test(d.client.family) || !token.test(d.client.form)) return 'head';
-  if (!['automatic', 'native', 'mpv'].includes(d.engineSetting)) return 'engineSetting';
-  if (!int(d.display.width, 32768) || !int(d.display.height, 32768) || !d.display.dynamicRanges.every(r => ranges.includes(r))) return 'display';
-  if ((d.audioOutput.route !== '' && !token.test(d.audioOutput.route)) || !int(d.audioOutput.maxChannels, 64)) return 'audioOutput';
-  if (JSON.stringify(d).length > 64 * 1024) return 'size';
-  return engineProblem(d.engines.native) ?? (d.engines.mpv ? engineProblem(d.engines.mpv) : null);
-}
+// The server's admission rules are the shared package's own check (`capabilityDocumentProblem`).
+const documentProblem = capabilityDocumentProblem;
 
 const nativeFacts = {model: 'AppleTV14,1', osVersion: '26.1', hardwareDecode: {hevc: true, av1: false, dolbyVision: true}, hdrModes: {hdr10: true, hlg: true, dolbyVision: true}, eligibleForHDRPlayback: true, screen: {width: 3840, height: 2160, maxFrameRate: 60}, audio: {maxOutputChannels: 8, route: 'hdmi', spatial: false}};
 const tv = {television: true, pad: false, osVersion: '26.1'};
@@ -116,25 +90,36 @@ test('the capability document carries one profile per engine, the setting, the s
   assert.equal(d.client.family, 'apple');
   assert.equal(d.engines.native.name, 'avplayer');
   assert.equal(d.engines.mpv?.name, 'mpv');
-  assert.deepEqual([...d.engines.native.subtitleRendering], ['text']);
+  assert.deepEqual([...d.engines.native.subtitleRendering!], ['text']);
   assert.equal(d.engines.native.embeddedAudioSwitching, false);
   assert.equal(d.engines.native.toneMapsHdr, true, 'AVPlayer with hardware HEVC tone-maps for a standard-range screen');
-  assert.deepEqual((d.engines.native.video.find(v => v.codec === 'hevc') as {codecTags?: string[]}).codecTags, ['hvc1', 'dvh1']);
-  assert.ok(!d.engines.native.transports.find(t => t.transport === 'direct')!.containers!.includes('mkv'));
-  assert.ok(d.engines.mpv!.transports.find(t => t.transport === 'direct')!.containers!.includes('mkv'));
+  assert.deepEqual(d.engines.native.video!.find(v => v.codec === 'hevc')!.codecTags, ['hvc1', 'dvh1']);
+  assert.ok(!d.engines.native.transports!.find(t => t.transport === 'direct')!.containers!.includes('mkv'));
+  assert.ok(d.engines.mpv!.transports!.find(t => t.transport === 'direct')!.containers!.includes('mkv'));
   assert.deepEqual(d.display, {width: 3840, height: 2160, dynamicRanges: ['sdr', 'hdr10', 'hlg', 'dolby_vision'], maxFrameRate: 60});
   assert.deepEqual(d.audioOutput, {route: 'hdmi', maxChannels: 8, spatial: false});
-  assert.ok(d.audioDecode.some(a => a.codec === 'flac'));
+  assert.ok(d.audioDecode!.some(a => a.codec === 'flac'));
   assert.deepEqual(d.overrides, {forceStereo: false, disablePassthrough: false, disableHdr: false});
+  assert.deepEqual(probedDevice(d), {audioPassthrough: false, hdr: true});
 });
 
-test('a build without mpv publishes the native profile only, and its setting reads as native', () => {
+test('the viewer\'s overrides travel in the document, and a setting the device cannot honour reads as Automatic', () => {
+  const d = deviceCapabilityDocument({setting: 'mpv', overrides: {forceStereo: true, disableHdr: true}, native: nativeFacts, mpv: appleTV4K, mpvAvailable: true, appVersion: '0.1.0', device: tv});
+  assert.equal(documentProblem(d), null);
+  assert.equal(d.engineSetting, 'mpv');
+  assert.deepEqual(d.overrides, {forceStereo: true, disablePassthrough: false, disableHdr: true});
+  const without = deviceCapabilityDocument({setting: 'mpv', native: nativeFacts, mpv: null, mpvAvailable: false, appVersion: '0.1.0', device: tv});
+  assert.equal(without.engineSetting, 'automatic', 'there is no second player to choose');
+  assert.equal(without.engines.mpv, undefined);
+});
+
+test('a build without mpv publishes the native profile only, and its setting reads as Automatic', () => {
   const d = deviceCapabilityDocument({setting: 'mpv', native: null, mpv: null, mpvAvailable: false, appVersion: '0.1.0', device: {television: false, pad: true}});
   assert.equal(documentProblem(d), null);
   assert.equal(d.engines.mpv, undefined);
-  assert.equal(d.engineSetting, 'native');
+  assert.equal(d.engineSetting, 'automatic');
   assert.equal(d.client.form, 'tablet');
-  assert.equal(d.engines.native.toneMapsHdr, false, 'nothing probed: nothing claimed');
+  assert.ok(!d.engines.native.toneMapsHdr, 'nothing probed: nothing claimed');
 });
 
 test('an Android device describes its own player and, with mpv, the same second profile', () => {
@@ -142,7 +127,7 @@ test('an Android device describes its own player and, with mpv, the same second 
   assert.equal(documentProblem(d), null);
   assert.equal(d.client.family, 'firetv');
   assert.equal(d.engines.native.name, 'exoplayer');
-  assert.deepEqual([...d.engines.native.subtitleRendering], ['text'], 'the app draws plain text only, whatever ExoPlayer could draw');
+  assert.deepEqual([...d.engines.native.subtitleRendering!], ['text'], 'the app draws plain text only, whatever ExoPlayer could draw');
   assert.equal(d.engineSetting, 'native');
   assert.equal(d.engines.mpv?.name, 'mpv');
 });

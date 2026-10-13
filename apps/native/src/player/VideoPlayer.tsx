@@ -25,14 +25,13 @@ import {useSession} from '../app/session';
 import {useServerPreferences} from '../app/server-preferences';
 import type {PlayerEngine} from './usePlayer';
 import {useCurrentActivity} from '../bridge/NativeActivity';
-import {PlayerOptions, QueueToggle, optionBoxesFor, upcomingEntries, type OptionAnchor, type OptionKey} from './PlayerOptions';
+import {PlayerOptions, QueueToggle, optionBoxesFor, qualityInForceLabel, upcomingEntries, type OptionAnchor, type OptionKey} from './PlayerOptions';
 import {scrubTarget, useSiriRemoteTouch} from '../bridge/NativeSiriRemote';
 import {activeI18n} from '../app/errors';
 import {GroupPill} from './GroupPill';
 import {endedCopy} from './ended-copy';
 import {cannotPlayReason} from './cannot-play';
 import {failureFor} from './failure-facts';
-import {word} from '../app/new-words';
 import {canStepChannel, channelStep, tunedChannel} from './channel-lineup';
 import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
@@ -63,7 +62,9 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const skipModes: Record<string, SkipMode> = {intro: prefs.value('playback.introSkip', 'ask'), credits: prefs.value('playback.creditsSkip', 'ask'), recap: prefs.value('playback.recapSkip', 'ask'), outro: prefs.value('playback.creditsSkip', 'ask'), commercial: 'ask'};
   const {api, session} = useSession();
   const i18n = useI18n();
-  const markers = usePlayerMarkers(engine.service, api, session, identity.libraryId, state.channel ? undefined : state.itemId, state.session?.id);
+  // Skip markers: the server's for the session, or the ones a download brought with it.
+  const serverMarkers = usePlayerMarkers(engine.service, api, session, identity.libraryId, state.channel || identity.offline ? undefined : state.itemId, state.session?.id);
+  const markers = engine.downloadMarkers ?? serverMarkers;
   const [chrome, setChrome] = useState(true);
   const [option, setOptionNow] = useState<OptionKey | null>(null);
   const [anchor, setAnchor] = useState<OptionAnchor>();
@@ -253,7 +254,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const canPrevious = !!queueEntries && currentAt > 0;
   const upcoming = upcomingEntries(queueState?.view ?? null);
   // iPad and TV: a sixth box for what doesn't fit the five (Up next, Playback info, Report).
-  const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel) || engine.engineSelectable);
+  const hasMore = !compact && (upcoming.length > 0 || (!isTV && !state.channel) || engine.engineSelectable || engine.chapters.length > 1 || engine.versions.list.length > 1);
   const systemItemId = state.itemId ?? identity.itemId;
   // Next and Previous move through the queue. Live TV has none: its own are the channel steps.
   const stepInQueue = (action: 'next' | 'previous') => { if (!state.channel) engine.step(action); };
@@ -328,13 +329,14 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         return current?.label ?? (audio.availability === 'loading' ? i18n.t('player.opt.loadingAudio') : i18n.t('player.opt.defaultTrack'));
       }
       case 'subtitles': {
+        const offline = engine.subtitles.offline;
+        if (offline) { const track = offline.tracks.find(t => t.id === offline.selectedId); return track ? track.language || track.title : i18n.t('player.opt.off'); }
         const plan = engine.subtitles.snapshot.plan;
-        return plan && plan.mode === 'track' && plan.selected && !engine.subtitles.snapshot.suppressed ? plan.selected.language || plan.selected.title : i18n.t('player.opt.off');
+        const shown = engine.subtitles.shownId ? plan?.resources.find(r => r.id === engine.subtitles.shownId) : undefined;
+        return shown ? shown.language || shown.title : engine.subtitles.shownId ? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
       }
-      case 'quality': {
-        const chosen = engine.quality.offers?.sources.flatMap(src => src.qualities).find(q => q.id === engine.quality.selected);
-        return chosen ? chosen.label : state.session?.mode === 'hls' ? 'Automatic · converted' : 'Automatic';
-      }
+      case 'quality':
+        return qualityInForceLabel(engine.quality.inForce, i18n.t);
       case 'sleep':
         return state.listeningDeadlines?.sleepAtMs ? 'On' : 'Off';
       default:
@@ -429,7 +431,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       ) : cannotPlay ? (
         // Never playable: what is wrong, in one sentence, and the way out. Nothing to try again.
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
-          <StateView icon="info" title={word('player.cannotPlay.title', undefined, i18n)} message={word(`player.cannotPlay.${cannotPlay}`, {title: identity.title || word('player.cannotPlay.thisTitle', undefined, i18n)}, i18n)} />
+          <StateView icon="info" title={i18n.t('player.cannotPlay.title')} message={i18n.t(`player.cannotPlay.${cannotPlay}`, {title: identity.title || i18n.t('player.cannotPlay.thisTitle')})} />
           <View style={{flexDirection: 'row', gap: space.sm}}>
             <Button variant="ghost" label={i18n.t('action.close')} hasTVPreferredFocus={isTV} onPress={engine.leave} />
           </View>
@@ -469,7 +471,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         </View>
         <View style={{position: 'absolute', left: side, right: side, bottom: bottomInset, gap: isTV ? space.lg : space.md}}>
           <TVFocusGuideView trapFocusLeft trapFocusRight>
-            <Timeline position={state.positionSeconds} duration={state.duration} pending={scrub ?? state.pendingSeek?.positionSeconds} live={!!state.channel} onSeek={engine.seekTo} focused={timelineFocused} onFocusChange={setTimelineFocused} hasTVPreferredFocus={isTV && !overlayUp && !returnedFromOverlay.current} programmeLabel={liveProgrammeLabel} behindLabel={liveBehindLabel} />
+            <Timeline position={state.positionSeconds} duration={state.duration} pending={scrub ?? state.pendingSeek?.positionSeconds} live={!!state.channel} onSeek={engine.seekTo} focused={timelineFocused} onFocusChange={setTimelineFocused} hasTVPreferredFocus={isTV && !overlayUp && !returnedFromOverlay.current} programmeLabel={liveProgrammeLabel} behindLabel={liveBehindLabel}
+              chapters={state.channel || isAudio ? undefined : engine.chapters} trickplay={state.channel || isAudio ? null : engine.trickplay} artwork={artwork} scrubbing={scrub !== undefined || (isTV && timelineFocused && state.pendingSeek !== undefined)} />
           </TVFocusGuideView>
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isTV ? space.lg : space.md}}>
             {queueModes ? <QueueToggle engine={engine} kind="shuffle" size={controlSize} /> : null}

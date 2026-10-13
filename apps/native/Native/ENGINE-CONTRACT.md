@@ -164,12 +164,12 @@ only `error` facts are sent. JavaScript drops any fact whose `instanceId`, bindi
 | --- | --- | --- |
 | `ready` | The media is open and can play (after a kept position is restored). | |
 | `firstFrame` | The first picture is on screen. | |
-| `progress` | Twice a second while the position moves, and once when it stops. Never repeated for a paused picture. | |
+| `progress` | Twice a second while the position moves, and once when it stops. Never repeated for a paused picture. | Optional, for a stream from the server only: `throughputKbps` (what the engine measured of the connection while it was downloading as fast as it could; absent when nothing fresh was measured, never an estimate made before any transfer), `bufferedSeconds` (media held ahead of the position). JavaScript feeds Automatic quality and the session's timeline from them. |
 | `stalled` | The buffer ran dry after playback had begun. Not an error. | |
 | `ended` | The media played to its end. Once per load (again after a seek back). | |
 | `rateStatus` | The intent was applied, or the pause, speed or waiting state changed. | |
 | `seekApplied`, `seekFailed` | A `pendingSeek` finished. | `seekRevision` |
-| `error` | The media cannot continue. `paused` is true. | `networkError`, `deliveryError` (booleans), `httpStatus` (0 or 400-599), `hasPlayed` (a frame was shown or time advanced), `uncertain` (the cause is not the media: an interruption, an output that would not start), `engineCode` (`''`, `decode_error` or `source_not_supported`; empty when it is a network or delivery error), `errorDetail` (a short technical string) |
+| `error` | The media cannot continue. `paused` is true. The Android native engine also sends it, with `engineCode: 'source_not_supported'`, when a seek lands at the start of a streamed file that has no index to seek by: the server then delivers the title another way at the position asked for. | `networkError`, `deliveryError` (booleans), `httpStatus` (0 or 400-599), `hasPlayed` (a frame was shown or time advanced), `uncertain` (the cause is not the media: an interruption, an output that would not start), `engineCode` (`''`, `decode_error` or `source_not_supported`; empty when it is a network or delivery error), `errorDetail` (a short technical string) |
 | `subtitleStatus` | The subtitle command was taken up or could not be. `error` is empty on success. | |
 | `systemPaused` | The system paused a video the app wanted playing (the app left the screen). JavaScript sets its intent to paused. | `reason` (mpv: `'background'`) |
 | `audioMapped`, `audioObserved`, `audioApplied`, `audioFailed`, `audioUnavailable` | Section 6. | |
@@ -230,10 +230,20 @@ only for the playback it was chosen in.
 {binding: {intentId, sessionId, generation}, mode: 'off' | 'track', revision: number,
  resourceId: string, resourceRevision: number, offsetUs: string, refreshRevision: number,
  documentUrl?: string, manifestName?: string, origin?: string, language?: string, title?: string,
+ style?: {scale: number, background: 'none' | 'translucent' | 'opaque'},
  render?: {kind: 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb',
            embedded?: {streamIndex?: number, ordinal?: number, language?: string, title?: string},
            url?: string, fonts?: [{name: string, url: string}]}}
 ```
+
+`style` is Portico's caption style (the profile's subtitle size and background), for text the
+device draws: the app's own line, and plain text an engine draws itself. `scale` (0.5 to 3)
+multiplies the size; it is multiplied again by the caption size the viewer set in the system's
+Accessibility settings. `background` is a soft black box (the default), a solid one, or none (the
+line then has an edge of its own). Where the viewer's system caption style names a colour, a
+background or a typeface of its own and says it overrides what a video provides (Apple), or
+captions are switched on in the system with a style that names one (Android), the system's wins.
+Styled (ASS) tracks keep their own look.
 
 It applies only when its binding matches the command's. `mode: 'off'`, or no `subtitles`, shows
 nothing. `offsetUs` is a decimal string of microseconds, -600 s to +600 s; a positive value shows
@@ -243,20 +253,28 @@ Two ways to draw a track:
 
 1. **The cue document** (`documentUrl`): the server's plain-text cues as JSON. The engine fetches
    it and the app draws the line over the picture, inside the picture area: white on a 70 % black
-   box, 3.5 % of the picture's width (12 to 40 points, times the viewer's system caption size),
-   bottom centred, or at the top for a cue marked `top`, italic for a cue marked `italic`. The
+   box, 3.5 % of the picture's width (12 to 40 points, times `style.scale` and the viewer's system
+   caption size), bottom centred, or at the top for a cue marked `top`, italic for a cue marked
+   `italic`. For a downloaded title (a `file:` source) the address is instead a WebVTT file
+   (`.vtt`) inside the app's Downloads folder, checked like the source: the engine reads it once
+   and draws its cues the same way, with no re-check. Otherwise the
    address must be on the media's own origin, under the media's grant
-   (`/v1/media/<grant>/subtitles/<resourceId>/<resourceRevision>`), `https` or `http` to a private
-   address, with no credentials, query or fragment; otherwise `subtitleStatus`: `The subtitle
+   (`/v1/media/<grant>/subtitles/<resourceId>/<resourceRevision>`), `https` or `http` as the media is,
+   with no credentials, query or fragment; otherwise `subtitleStatus`: `The subtitle
    address does not belong to this playback session.` The document is re-checked every 25 seconds
-   with its ETag and blanked after 40 seconds without a good answer. Native also lets the system
+   with its ETag and blanked after 40 seconds without a good answer. A subtitle file or font is
+   accepted from any host over `http` or `https` under the same origin and grant rule (the media
+   source itself stays restricted, and redirects stay refused). On Android, plain text that also
+   has a cue document is always drawn from the cue document. Native also lets the system
    draw an embedded text track when it can match one by `manifestName` or by language and title.
    Both engines implement this. It is the only way the native engine draws subtitles.
 2. **The engine draws the track itself** (`render`; engines whose `features.subtitleRendering`
    lists the `kind`). The engine first looks for the track inside the media (`embedded`: by
    stream index, else by position among the file's own subtitle tracks, else by language and
    title, and only among tracks of that kind), then for the original subtitle file at `url`
-   (same origin and grant rule as above; for VobSub the `.idx` address, the `.sub` beside it).
+   (same origin and grant rule as above; for VobSub the `.idx` address, the `.sub` beside it: a
+   file played as it is may open nothing but itself, so the engine allows that one companion to
+   be opened for as long as the adding of the track takes, and no longer).
    `fonts` are the fonts attached to a styled file: at most 16, fetched before the file is added.
    On success `subtitleStatus` with an empty `error`. If neither can be done the engine falls back
    to the cue document when the command has one, and otherwise sends `subtitleStatus`: `This
@@ -288,6 +306,10 @@ do not appear in the floating picture.
  screen: {width, height, maxFrameRate}, audio: {maxOutputChannels}}
 ```
 
+Android also sends, and Apple leaves out: `hardwareLimits: {<codec>: {maxWidth, maxHeight,
+maxFrameRate, tenBit}}` (each hardware decoder's own limits), `hdrOutputRanges: string[]`,
+`dolbyVisionProfiles: number[]`, `softwareDeinterlace: boolean`.
+
 ## 9. System behaviour every engine keeps
 
 - **Audio session.** Opening a video sets the session to playback, movie mode, multichannel
@@ -301,8 +323,13 @@ do not appear in the floating picture.
 - **Leaving the app.** An engine that cannot keep drawing (mpv; AVPlayer without Picture in
   Picture or AirPlay) ends up paused. It sends `systemPaused` when the app wanted it playing.
 - **Display matching (television).** Before the first `ready`, the engine asks the display to
-  match the title's frame rate and waits for the switch to end (10 s at most). mpv does this;
-  the native engine still applies its criteria at the first frame.
+  match the title (its frame rate; on Apple TV its dynamic range too) and holds playback until
+  the switch has ended (10 s at most; a title that needs no switch is held well under a second).
+  Every engine does this. Apple: the system's Match Content settings decide, and with them off
+  nothing is waited for. Android: Android 11 and later, through the system's frame-rate request,
+  so its "match content frame rate" setting decides; an HDR title on a television that shows HDR
+  is also held for a moment after its first picture, which is when the television changes to HDR.
+  Never on a phone or tablet, and never for music.
 - **Network.** The engine reads only the command's `source` and addresses under the same media
   grant. TLS is validated by the system. Redirects of subtitle and font fetches are refused.
 

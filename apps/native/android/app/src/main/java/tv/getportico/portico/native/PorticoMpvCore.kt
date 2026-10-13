@@ -23,6 +23,12 @@ internal class PorticoMpvSnapshot(
     val vid: String = "no",
     /** The hardware decoder in use ("mediacodec", "mediacodec-copy"), or "no" for software. */
     val hwdec: String = "no",
+    /** How fast the cache is being filled, in bytes a second, and whether the reader is resting
+     * because the cache is full (the speed then says nothing about the connection). */
+    val cacheSpeed: Double = 0.0,
+    val cacheIdle: Boolean = true,
+    /** Seconds of media held ahead of the position; NaN when unknown. */
+    val cacheDuration: Double = Double.NaN,
 )
 
 internal sealed class PorticoMpvEvent {
@@ -366,7 +372,10 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       aid = string("aid") ?: "no",
       sid = string("sid") ?: "no",
       vid = string("vid") ?: "no",
-      hwdec = string("hwdec-current") ?: "no")
+      hwdec = string("hwdec-current") ?: "no",
+      cacheSpeed = double("cache-speed") ?: 0.0,
+      cacheIdle = flag("demuxer-cache-idle") ?: true,
+      cacheDuration = double("demuxer-cache-duration") ?: Double.NaN)
 
   private fun deliver(event: PorticoMpvEvent) {
     val snapshot = readSnapshot()

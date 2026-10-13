@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PlaybackService} from '../../../packages/client-core/src/index.ts';
 import {FakePlaybackServer, fakeHttp} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
-import {V1PlaybackApi} from '../../../packages/client-core/src/playback-v1/legacy-bridge.ts';
+import {NativePlayback} from '../src/player/native-playback.ts';
 import {V1QueuePlayer} from '../../../packages/client-core/src/playback-v1/v1-queue-player.ts';
 import {NativePlaybackCoordinator} from '../src/bridge/NativePlaybackCoordinator.ts';
 
@@ -49,8 +49,10 @@ function apple(options: {startupTimeoutMs?: number} = {}) {
   const server = new FakePlaybackServer();
   const http = fakeHttp(server);
   let serial = 0;
-  const api = new V1PlaybackApi(http, {timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const path = new NativePlayback({http, timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const api = path.transport;
   const playback = new PlaybackService(api, () => `r${++serial}`, {queueRequired: true, deferRecovery: true, ...options});
+  path.bind(playback);
   const player = new V1QueuePlayer({http, api, playback, viewer, key: () => `q${++serial}-key-000000`, pendingPollMs: 10});
   const stop = player.connect();
   const native = new FakeNative();
@@ -58,6 +60,7 @@ function apple(options: {startupTimeoutMs?: number} = {}) {
   const accept = (f: any) => {
     const s = playback.getSnapshot();
     if (f.intentId !== s.intentId) return;
+    path.engineFact(f);
     if (f.type === 'seekApplied') { playback.seekApplied(f.intentId, f.seekRevision, f.position, f.paused ? 'paused' : 'playing'); return; }
     if (f.type === 'ready') playback.ready(f.intentId);
     else playback.fact(f.intentId, f.position, f.paused ? 'paused' : 'playing');
@@ -115,8 +118,10 @@ test('a start that times out says, in development builds, what it was waiting on
   const server = new FakePlaybackServer();
   const http = fakeHttp(server);
   let serial = 0;
-  const api = new V1PlaybackApi(http, {timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const path = new NativePlayback({http, timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const api = path.transport;
   const playback = new PlaybackService(api, () => `r${++serial}`, {queueRequired: true, deferRecovery: true, startupTimeoutMs: 30, diagnostics: true});
+  path.bind(playback);
   const player = new V1QueuePlayer({http, api, playback, viewer, key: () => `q${++serial}-key-000000`, pendingPollMs: 10});
   const stop = player.connect();
   const native = new FakeNative();

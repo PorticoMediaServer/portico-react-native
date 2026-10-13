@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -27,8 +27,9 @@ import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {word} from '../../app/new-words';
-import {PlayerEngineRow} from '../../player/EngineSettingRow';
 import {mpvAvailable} from '../../bridge/player-engines';
+import {parseEngineSetting} from '../../player/engine-choice';
+import {engineSettingStore} from '../../player/engine-setting-store';
 
 /**
  * The Settings structure for this viewer on this device (`settings-structure.ts`): the pages,
@@ -43,6 +44,9 @@ export function useSettingsStructure(): SettingsStructure {
   const member = !!account.snapshot?.account.hostedAccountId;
   const canManage = !!account.snapshot?.canManage;
   const manages = session.session?.viewer.role === 'owner';
+  // What the last capability probe found of this device: a receiver to pass sound through to,
+  // and whether it shows or decodes HDR at all. The rows that turn those off appear with them.
+  const probed = useSyncExternalStore(engineSettingStore.subscribeProbed, engineSettingStore.probed);
   return useMemo(() => settingsStructure({
     // The Server heading is the owner's, as on the web: all ten pages on iPhone and iPad, the Dashboard on television.
     owner: manages,
@@ -58,8 +62,12 @@ export function useSettingsStructure(): SettingsStructure {
       // Speed, gapless, crossfade and volume levelling are offered only where this device's players can do them.
       playbackSpeed: playerSettingsSupport.playbackSpeed,
       audioEffects: playerSettingsSupport.audioEffects,
+      // The Player setting is offered where this build carries a second player (mpv).
+      playerEngines: mpvAvailable,
+      audioPassthrough: probed?.audioPassthrough === true,
+      ...(probed ? {hdr: probed.hdr} : {}),
     },
-  }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported]);
+  }), [registry, account.local, member, canManage, manages, session.hosted, offline.supported, probed]);
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
@@ -105,17 +113,13 @@ function SectionView({page, section, save, entryRow}: {page: string; section: Se
   const groups = shown.filter(row => row.kind === 'custom' && GROUP_PANELS.has(row.id));
   const rows = shown.filter(row => !(row.kind === 'custom' && GROUP_PANELS.has(row.id)));
   const draw = (row: StructureRow) => row.kind === 'server-setting' ? null : row.kind === 'custom' ? <Panel key={row.id} id={row.id} entry={entryRow === row.id} /> : <RowView key={settingsRowId(row)} row={row} save={save} entry={entryRow === settingsRowId(row)} />;
-  // The Player setting (this device's own player, mpv, or Automatic) sits with the playback method.
-  // It is drawn here until the shared Settings structure has the row (see EngineSettingRow).
-  const player = mpvAvailable && page === 'quality' && section.id === 'method' ? <PlayerEngineRow key="playerEngine" /> : null;
   return (
     <>
       {groups.map(draw)}
-      {rows.length || player ? (
-        <RowGroup title={!section.advanced && section.title ? i18n.t(section.title) : undefined} footer={footer}>
+      {rows.length ? (
+        <RowGroup title={!section.advanced && section.title ? i18n.t(section.title) : undefined} footer={footer ?? (section.description ? i18n.t(section.description) : undefined)}>
           {section.advanced ? <ListRow title={i18n.t(section.title ?? 'settings.section.advanced')} trailingIcon={open ? 'chevronUp' : 'chevronDown'} accessibilityState={{expanded: open}} onPress={() => setOpen(o => !o)} /> : null}
           {open ? rows.map(draw) : null}
-          {player}
         </RowGroup>
       ) : null}
     </>
@@ -165,11 +169,17 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
     write = next => save(compositePatch(row.id, next as string | boolean));
   } else {
     // The device's own values, kept in this installation's store.
-    value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices : undefined;
+    value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices
+      // The player and the playback fixes: kept by this device, and sent to the server with what this device can play.
+      : row.id === 'playerEngine' ? device.preferences.playerEngine : row.id === 'forceStereo' ? device.preferences.forceStereo : row.id === 'disablePassthrough' ? device.preferences.disablePassthrough : row.id === 'disableHdr' ? device.preferences.disableHdr : undefined;
     write = next => {
       if (row.id === 'reduceMotion') device.update({reduceMotion: next === true});
       else if (row.id === 'textSize') device.update({textSize: next === 'large' ? 'large' : 'standard'});
       else if (row.id === 'receiveFromDevices') device.update({receiveFromDevices: next === true});
+      else if (row.id === 'playerEngine') device.update({playerEngine: parseEngineSetting(next)});
+      else if (row.id === 'forceStereo') device.update({forceStereo: next === true});
+      else if (row.id === 'disablePassthrough') device.update({disablePassthrough: next === true});
+      else if (row.id === 'disableHdr') device.update({disableHdr: next === true});
     };
   }
   if (value === undefined) return null;

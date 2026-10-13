@@ -44,6 +44,9 @@ internal class PorticoMpvController(private val context: Context) {
   var lease: String? = null
     private set
   /** The app-drawn subtitle line (plain cues from the server's cue document), when mpv is not drawing the chosen track itself. */
+  /** Portico's caption style from the subtitle command in force ({scale, background}). */
+  var captionStyle: Map<*, *>? = null
+    private set
   var overlayCue = PorticoSubtitleSelection.Display("", italic = false, top = false)
     private set
   /** Width over height of the picture as displayed, when known. */
@@ -183,6 +186,8 @@ internal class PorticoMpvController(private val context: Context) {
       overlayListeners.toList().forEach { it() }
     }
     subtitleOverlay.onStatus = { error -> emit("subtitleStatus", error) }
+    // A downloaded title's plain subtitles are a WebVTT file beside it, inside Downloads.
+    subtitleOverlay.allowsLocalFile = { url -> PorticoMpvSupport.allowedLocalSource(context, url) }
     PorticoAppVisibility.listeners.add(visibility)
     captioning?.addCaptioningChangeListener(captionsChanged)
   }
@@ -963,7 +968,15 @@ internal class PorticoMpvController(private val context: Context) {
       if (effectiveRate() > 0 && !seeking && !routeResume && position.isFinite() && previousProgress.isFinite() && position > previousProgress + 0.05) hasPlayed = true
       previousProgress = position
     }
-    publish(baseFact(type, position, error))
+    val fact = baseFact(type, position, error)
+    if (type == "progress" && source?.startsWith("file:") != true) {
+      // What the reader measured of the connection, for Automatic quality: only while it is
+      // reading as fast as it can. With the cache full it rests, and its speed is then the
+      // title's own bit rate, which says nothing about the connection.
+      if (!snapshot.cacheIdle && snapshot.cacheSpeed.isFinite() && snapshot.cacheSpeed > 0) fact["throughputKbps"] = Math.round(snapshot.cacheSpeed * 8 / 1000).toDouble()
+      if (snapshot.cacheDuration.isFinite() && snapshot.cacheDuration >= 0) fact["bufferedSeconds"] = snapshot.cacheDuration
+    }
+    publish(fact)
   }
 
   /**
@@ -1251,8 +1264,27 @@ internal class PorticoMpvController(private val context: Context) {
    * Plain text that the server also publishes as a cue document is drawn by the app: Android's
    * own text drawing has a font for every script, and mpv here has one default font.
    */
+  /**
+   * Portico's caption style on top of the system's: the size multiplies the size the viewer set
+   * for captions in Accessibility; the background is a soft box, a solid box, or none (the line
+   * then gets an outline instead, so it stays readable). Styled (ASS) tracks keep their own look;
+   * this is for plain text mpv draws, and the app's own line follows the same style.
+   */
+  private fun applyCaptionStyle(style: Map<*, *>?) {
+    val same = style == captionStyle
+    captionStyle = style
+    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(style), 2))
+    when (PorticoMpvSupport.styleBackground(style)) {
+      "none" -> { core?.set("sub-border-style", "outline-and-shadow"); core?.set("sub-outline-size", "3"); core?.set("sub-border-size", "3"); core?.set("sub-back-color", "0.0/0.0/0.0/0.0") }
+      "opaque" -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/1.0") }
+      else -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/0.7") }
+    }
+    if (!same) overlayListeners.toList().forEach { it() }
+  }
+
   private fun applySubtitles() {
     val subtitles = scoped(command?.get("subtitles"))
+    applyCaptionStyle(subtitles?.get("style") as? Map<*, *>)
     if (subtitles == null || subtitles["mode"] != "track") {
       clearEngineSubtitle()
       overlayOff()
@@ -1377,7 +1409,7 @@ internal class PorticoMpvController(private val context: Context) {
   /** The viewer changed the caption size in the system's Accessibility settings. */
   private fun captionStyleChanged() {
     if (invalidated) return
-    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context), 2))
+    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(captionStyle), 2))
     overlayListeners.toList().forEach { it() }
   }
 

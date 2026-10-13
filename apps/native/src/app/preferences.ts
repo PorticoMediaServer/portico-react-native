@@ -20,9 +20,14 @@ export type Preferences = {
   receiveFromDevices: boolean;
   /** Which player plays video on this device: Automatic (the default), the system's own, or mpv. */
   playerEngine: EngineSetting;
+  /** "If something looks or sounds wrong": the server plans every title for this device as two
+   * channels, without handing sound to a receiver untouched, or as a standard-range screen. */
+  forceStereo: boolean;
+  disablePassthrough: boolean;
+  disableHdr: boolean;
 };
 
-const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting};
+const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false};
 const key = 'preferences:v1';
 const store = new NativeQueueStore();
 
@@ -38,6 +43,9 @@ function parse(raw: unknown): Preferences {
     textSize: r.textSize === 'large' ? 'large' : 'standard',
     receiveFromDevices: typeof r.receiveFromDevices === 'boolean' ? r.receiveFromDevices : defaults.receiveFromDevices,
     playerEngine: parseEngineSetting(r.playerEngine),
+    forceStereo: r.forceStereo === true,
+    disablePassthrough: r.disablePassthrough === true,
+    disableHdr: r.disableHdr === true,
   };
 }
 
@@ -67,8 +75,12 @@ export function PreferencesProvider({children}: {children: React.ReactNode}) {
       return next;
     });
   }, []);
-  // The server plans for the player the viewer chose: the capability publisher reads it here.
-  useEffect(() => engineSettingStore.set(preferences.playerEngine), [preferences.playerEngine]);
+  // The server plans for the player the viewer chose and under the viewer's overrides: the
+  // capability publisher reads them here, and only once this device's saved values are known.
+  useEffect(() => { if (loaded) engineSettingStore.set(preferences.playerEngine); }, [loaded, preferences.playerEngine]);
+  useEffect(() => { if (loaded) engineSettingStore.setOverrides({forceStereo: preferences.forceStereo, disablePassthrough: preferences.disablePassthrough, disableHdr: preferences.disableHdr}); }, [loaded, preferences.forceStereo, preferences.disablePassthrough, preferences.disableHdr]);
+  // After the two above: what the publisher reads from here on is what this device saved.
+  useEffect(() => { if (loaded) engineSettingStore.markLoaded(); }, [loaded]);
   const value = useMemo(() => ({preferences, update, loaded}), [preferences, update, loaded]);
   return React.createElement(PreferencesContext.Provider, {value}, children);
 }

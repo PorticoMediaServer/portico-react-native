@@ -19,15 +19,15 @@ test('an owner stop reads as web does, with the owner message when there is one'
   assert.equal(moved.short, 'Playback continued on another device.');
 });
 
-test('session.updated events for a session reach the v1 bridge; others are ignored', () => {
-  const listeners = new Map<string, (event: {resource?: {kind: string; id: string}; data?: unknown}) => void>();
-  const events = {on: (type: string, listener: (event: {resource?: {kind: string; id: string}; data?: unknown}) => void) => { listeners.set(type, listener); return () => listeners.delete(type); }};
-  const seen: [string, unknown][] = [];
-  const off = forwardSessionEnds(events, {sessionUpdated: (id: string, data?: unknown) => { seen.push([id, data]); }});
-  listeners.get('session.updated')!({resource: {kind: 'session', id: 'ses_1'}, data: {state: 'ended', reason: 'terminated'}});
+test('session.updated events for a session reach the playback path with their revision; others are ignored', () => {
+  type Event = {resource?: {kind: string; id: string}; revision?: string; data?: unknown};
+  const listeners = new Map<string, (event: Event) => void>();
+  const events = {on: (type: string, listener: (event: Event) => void) => { listeners.set(type, listener); return () => listeners.delete(type); }};
+  const seen: [string, string | undefined, unknown][] = [];
+  const off = forwardSessionEnds(events, {sessionUpdated: (id: string, revision?: string, data?: unknown) => { seen.push([id, revision, data]); }});
+  listeners.get('session.updated')!({resource: {kind: 'session', id: 'ses_1'}, revision: '7', data: {state: 'ended', reason: 'terminated'}});
   listeners.get('session.updated')!({resource: {kind: 'queue', id: 'q_1'}});
-  assert.deepEqual(seen, [['ses_1', {state: 'ended', reason: 'terminated'}]]);
+  assert.deepEqual(seen, [['ses_1', '7', {state: 'ended', reason: 'terminated'}]]);
   off();
   assert.equal(listeners.size, 0);
 });
-

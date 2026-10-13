@@ -3,6 +3,8 @@
 #import <React/RCTBridgeModule.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
+#import <MediaAccessibility/MediaAccessibility.h>
+#import <CoreText/CoreText.h>
 #import <Security/Security.h>
 #import "PorticoPlaybackController.h"
 #import "PorticoSecureStorageRead.h"
@@ -14,12 +16,15 @@
 @property(nonatomic,strong) PorticoPlaybackController *controller;
 @end
 @implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; }
-- (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];}return self;}
+- (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];
+ // The viewer's caption style in the device's Accessibility settings is followed as it changes.
+ [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:(__bridge NSString *)kMACaptionAppearanceSettingsChangedNotification object:nil];}return self;}
 - (void)setLease:(NSString *)lease {_lease=[lease copy];[self attachLayer];}
 - (void)setController:(PorticoPlaybackController *)controller {_controller=controller;[self attachLayer];}
 - (void)attachLayer {if(![_lease isEqual:_controller.lease]){[self.pictureInPicture stopPictureInPicture];self.pictureInPicture=nil;}
 #if TARGET_OS_TV
  if(!_lease.length||![_lease isEqual:_controller.lease])self.window.avDisplayManager.preferredDisplayCriteria=nil;
+ else if(self.window)_controller.displayWindow=self.window;
 #endif
  _layer.player=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.player:nil;[self updateSubtitle];[self preparePictureInPicture];}
 /** OS-04: the controller exists as soon as a video is attached, so leaving the app (Home swipe)
@@ -51,13 +56,69 @@
 - (void)pictureInPictureController:(AVPictureInPictureController *)controller failedToStartPictureInPictureWithError:(NSError *)error {[self pictureInPictureChanged:@{@"state":@"unavailable"}];}
 - (void)pictureInPictureController:(AVPictureInPictureController *)controller restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL restored))completionHandler {[self pictureInPictureChanged:@{@"state":@"restore"}];completionHandler(YES);}
 - (void)updateSubtitle {_subtitle.text=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.subtitleText:@"";_subtitle.hidden=!_subtitle.text.length;[self setNeedsLayout];}
-- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;CGFloat width=video.size.width*0.9;CGFloat fontSize=MAX(12,MIN(40,video.size.width*0.035));_subtitle.font=[_controller.subtitleCue[@"italic"]boolValue]?[UIFont italicSystemFontOfSize:fontSize]:[UIFont systemFontOfSize:fontSize weight:UIFontWeightMedium];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,([_controller.subtitleCue[@"top"]boolValue]?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*0.08)-height),width,height);}
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==_layer&&_layer.readyForDisplay){[_controller displayReadyForLease:_lease];
+/**
+ * The look of the line the app draws: Portico's caption style (the profile's size and background,
+ * sent with the subtitle command) on top of the system's. The size the viewer set for captions in
+ * Accessibility always multiplies. A colour, background or typeface is taken from the system only
+ * where the viewer's style there says it overrides what a video provides; otherwise Portico's.
+ */
+- (void)styleSubtitle:(CGFloat)base {
+ NSDictionary *style=_controller.subtitleStyle;
+ CGFloat scale=[style[@"scale"] isKindOfClass:NSNumber.class]?[style[@"scale"] doubleValue]:1;if(!isfinite(scale)||scale<0.5||scale>3)scale=1;
+ NSString *background=[style[@"background"] isKindOfClass:NSString.class]?style[@"background"]:@"translucent";
+ MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CGFloat system=MACaptionAppearanceGetRelativeCharacterSize(kMACaptionAppearanceDomainUser,&behavior);if(!isfinite(system)||system<=0)system=1;
+ CGFloat fontSize=base*scale*MAX(0.5,MIN(3,system));
+ BOOL italic=[_controller.subtitleCue[@"italic"]boolValue];
+ UIFont *font=italic?[UIFont italicSystemFontOfSize:fontSize]:[UIFont systemFontOfSize:fontSize weight:UIFontWeightMedium];
+ behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
+ if(descriptor){
+  if(behavior==kMACaptionAppearanceBehaviorUseValue){
+   UIFontDescriptor *chosen=(__bridge UIFontDescriptor *)descriptor;
+   if(italic){UIFontDescriptor *slanted=[chosen fontDescriptorWithSymbolicTraits:chosen.symbolicTraits|UIFontDescriptorTraitItalic];if(slanted)chosen=slanted;}
+   UIFont *custom=[UIFont fontWithDescriptor:chosen size:fontSize];if(custom)font=custom;
+  }
+  CFRelease(descriptor);
+ }
+ _subtitle.font=font;
+ UIColor *text=UIColor.whiteColor;
+ behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CGColorRef foreground=MACaptionAppearanceCopyForegroundColor(kMACaptionAppearanceDomainUser,&behavior);
+ if(foreground){
+  if(behavior==kMACaptionAppearanceBehaviorUseValue){
+   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+   CGFloat opacity=MACaptionAppearanceGetForegroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
+   text=[[UIColor colorWithCGColor:foreground] colorWithAlphaComponent:(opacityBehavior==kMACaptionAppearanceBehaviorUseValue&&isfinite(opacity))?MAX(0.25,MIN(1,opacity)):1];
+  }
+  CGColorRelease(foreground);
+ }
+ _subtitle.textColor=text;
+ UIColor *box=[background isEqual:@"none"]?UIColor.clearColor:[UIColor colorWithWhite:0 alpha:[background isEqual:@"opaque"]?1:0.7];
+ behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CGColorRef systemBox=MACaptionAppearanceCopyBackgroundColor(kMACaptionAppearanceDomainUser,&behavior);
+ if(systemBox){
+  if(behavior==kMACaptionAppearanceBehaviorUseValue){
+   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+   CGFloat opacity=MACaptionAppearanceGetBackgroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
+   box=[[UIColor colorWithCGColor:systemBox] colorWithAlphaComponent:isfinite(opacity)?MAX(0,MIN(1,opacity)):0.7];
+  }
+  CGColorRelease(systemBox);
+ }
+ _subtitle.backgroundColor=box;
+ // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
+ BOOL bare=CGColorGetAlpha(box.CGColor)<0.3;
+ _subtitle.layer.shadowColor=UIColor.blackColor.CGColor;_subtitle.layer.shadowOffset=CGSizeZero;_subtitle.layer.shadowRadius=bare?MAX(2,fontSize*0.08):0;_subtitle.layer.shadowOpacity=bare?1:0;
+}
+- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;CGFloat width=video.size.width*0.9;[self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,([_controller.subtitleCue[@"top"]boolValue]?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*0.08)-height),width,height);}
+// The display is matched to the title by the controller before the title is announced ready
+// (it used to be asked for here, at the first frame, when the title was already playing).
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==_layer&&_layer.readyForDisplay)[_controller displayReadyForLease:_lease];}
+- (void)didMoveToWindow {[super didMoveToWindow];
 #if TARGET_OS_TV
- AVPlayerItem *item=_layer.player.currentItem;__weak PorticoPlayerView *weakSelf=self;
- [item.asset loadValuesAsynchronouslyForKeys:@[@"preferredDisplayCriteria"] completionHandler:^{dispatch_async(dispatch_get_main_queue(),^{PorticoPlayerView *view=weakSelf;if(view&&view->_layer.player.currentItem==item)view.window.avDisplayManager.preferredDisplayCriteria=item.asset.preferredDisplayCriteria;});}];
+ if(self.window&&_lease.length&&[_lease isEqual:_controller.lease])_controller.displayWindow=self.window;
 #endif
- }}
+}
 - (void)willMoveToWindow:(UIWindow *)newWindow {
 #if TARGET_OS_TV
  if(self.window&&self.window!=newWindow)self.window.avDisplayManager.preferredDisplayCriteria=nil;

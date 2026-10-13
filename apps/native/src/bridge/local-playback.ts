@@ -62,7 +62,10 @@ export class LocalPlayback {
         // The mapping stays (bounded) so a checkpoint flushed after the stop is still recorded.
         return isLocalSession(id) ? Promise.resolve() : inner.stopPlayback(id, signal);
       },
-      ...(inner.reportRouteFailure ? {reportRouteFailure: (id: string, code: Parameters<NonNullable<PlaybackApi['reportRouteFailure']>>[1], detail: string) => (isLocalSession(id) ? Promise.resolve(null) : inner.reportRouteFailure!(id, code, detail))} : {}),
+      // A download is what it is: no server can deliver it another way.
+      ...(inner.reportPlayerFailure ? {reportPlayerFailure: (id: string, code: Parameters<NonNullable<PlaybackApi['reportPlayerFailure']>>[1], detail: string, positionSeconds: number) => (isLocalSession(id) ? Promise.resolve({escalates: false}) : inner.reportPlayerFailure!(id, code, detail, positionSeconds))} : {}),
+      // A skipped marker is evidence for the server's session; a download has none.
+      ...(inner.markerSkipped ? {markerSkipped: (id: string, skipped: Parameters<NonNullable<PlaybackApi['markerSkipped']>>[1]) => (isLocalSession(id) ? Promise.resolve() : inner.markerSkipped!(id, skipped))} : {}),
       ...(inner.onServerEnded ? {onServerEnded: (listener: Parameters<NonNullable<PlaybackApi['onServerEnded']>>[0]) => inner.onServerEnded!(listener)} : {}),
     };
   }

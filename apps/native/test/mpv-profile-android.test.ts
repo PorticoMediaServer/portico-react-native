@@ -104,29 +104,29 @@ const box = {television: true, pad: false, family: 'androidtv', osVersion: '14'}
 
 test('the Android platform player declares only the subtitles it draws: plain text', () => {
   const d = deviceCapabilityDocument({setting: 'automatic', native: boxFacts as never, mpv: stick, mpvAvailable: true, appVersion: '0.1.0', device: box});
-  assert.deepEqual([...d.engines.native.subtitleRendering], ['text']);
+  assert.deepEqual([...d.engines.native.subtitleRendering!], ['text']);
   assert.equal(d.engines.native.embeddedAudioSwitching, false);
-  assert.deepEqual([...d.engines.mpv!.subtitleRendering], ['text', 'ass', 'pgs', 'vobsub', 'dvb']);
+  assert.deepEqual([...d.engines.mpv!.subtitleRendering!], ['text', 'ass', 'pgs', 'vobsub', 'dvb']);
   assert.ok(JSON.stringify(d).length < 64 * 1024);
 });
 
 test('a codec Android decodes only in software is declared at what software keeps up with, or left out', () => {
   const light = deviceCapabilityDocument({setting: 'automatic', native: boxFacts as never, mpv: stick, mpvAvailable: true, appVersion: '0.1.0', device: box});
-  assert.equal(light.engines.native.video.find(v => v.codec === 'av1'), undefined, 'a 2 GB box does not keep up with software AV1');
-  assert.ok(light.engines.native.transports.every(t => !(t.video ?? []).includes('av1')));
-  assert.equal(light.engines.native.video.find(v => v.codec === 'hevc')!.maxWidth, 4096, 'the hardware decoder is untouched');
+  assert.equal(light.engines.native.video!.find(v => v.codec === 'av1'), undefined, 'a 2 GB box does not keep up with software AV1');
+  assert.ok(light.engines.native.transports!.every(t => !(t.video ?? []).includes('av1')));
+  assert.equal(light.engines.native.video!.find(v => v.codec === 'hevc')!.maxWidth, 4096, 'the hardware decoder is untouched');
 
   const standard = deviceCapabilityDocument({setting: 'automatic', native: boxFacts as never, mpv: {...stick, memoryBytes: 4 * GiB}, mpvAvailable: true, appVersion: '0.1.0', device: box});
-  const av1 = standard.engines.native.video.find(v => v.codec === 'av1')!;
+  const av1 = standard.engines.native.video!.find(v => v.codec === 'av1')!;
   assert.deepEqual([av1.maxWidth, av1.maxHeight, av1.maxFrameRate], [1920, 1080, 30]);
   assert.equal(av1.evidence, 'declared', 'an estimate, and marked as one');
 });
 
 test('a codec the receiver takes as a bitstream is still declared as decoded when the device decodes it', () => {
   const d = deviceCapabilityDocument({setting: 'automatic', native: boxFacts as never, mpv: stick, mpvAvailable: true, appVersion: '0.1.0', device: box});
-  assert.ok(d.engines.native.audioPassthrough.some(a => a.codec === 'ac3'));
-  assert.ok(d.engines.native.audioPassthrough.some(a => a.codec === 'dts'));
-  assert.equal(d.engines.native.audio.find(a => a.codec === 'ac3')?.maxChannels, 6, 'the device\'s own AC-3 decoder');
-  assert.equal(d.engines.native.audio.find(a => a.codec === 'dts'), undefined, 'no DTS decoder on the device: bitstream only');
-  assert.ok(d.engines.native.audio.every(a => !('passthrough' in a)));
+  assert.ok(d.engines.native.audioPassthrough!.some(a => a.codec === 'ac3'));
+  assert.ok(d.engines.native.audioPassthrough!.some(a => a.codec === 'dts'));
+  assert.equal(d.engines.native.audio!.find(a => a.codec === 'ac3')?.maxChannels, 6, 'the device\'s own AC-3 decoder');
+  assert.equal(d.engines.native.audio!.find(a => a.codec === 'dts'), undefined, 'no DTS decoder on the device: bitstream only');
+  assert.ok(d.engines.native.audio!.every(a => !('passthrough' in a)));
 });

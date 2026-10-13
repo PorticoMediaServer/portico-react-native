@@ -1,7 +1,5 @@
-import {vegaDeclaredProfile, type ClientProfile} from '../../../../packages/client-core/src/client-profile';
+import {capabilityDocumentProblem, vegaDeclaredProfile, withViewerSettings, type CapabilityDocument, type CapabilityOverrides} from '../../../../packages/client-core/src/client-profile';
 import type {AudioDecodeCapability} from '../../../../packages/client-core/src/playback-v1/audio-render';
-import {capabilityProfileFromClient, networkClassOf} from '../../../../packages/client-core/src/playback-v1/capability-profile';
-import type {CapabilityProfile} from '../../../../packages/client-core/src/playback-v1/options';
 
 /** What `PorticoCapabilities.facts()` answers on Vega. */
 export type VegaFacts = Readonly<{model?: string; osVersion?: string; deviceName?: string; appVersion?: string}>;
@@ -14,8 +12,10 @@ export type VegaFacts = Readonly<{model?: string; osVersion?: string; deviceName
 export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([]);
 
 /**
- * The device's client profile: client-core's declared table for Vega, with what the device says
- * of itself, and the transports this app can really take from `origin`.
+ * The device's capability document: client-core's declared table for Vega, with what the device
+ * says of itself, the transports this app can really take from `origin`, and the viewer's
+ * overrides. There is one player engine here (the platform's media element), so the Player
+ * setting is always Automatic.
  *
  * The media element opens an address itself only over HTTPS (it refuses `http:` as insecure, and
  * a server on the home network is usually plain HTTP). Everything else goes through media source
@@ -23,21 +23,19 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  * fragmented MP4 or MPEG-TS, so from an HTTP server both HLS transports are asked for and files
  * are not played from their address. (The server converts into `hls_ts`, music included, and
  * remuxes into `hls_fmp4`: without the first nothing that needs converting would play.)
+ *
+ * The app draws the server's plain cue document and nothing else, and does not switch between
+ * the audio tracks inside an original file.
  */
-export function vegaClientProfile(facts: VegaFacts | null, origin: string | null = null): ClientProfile {
-  const profile = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
-  if (facts?.appVersion) profile.client.appVersion = facts.appVersion;
+export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string | null = null, overrides: CapabilityOverrides = {}): CapabilityDocument {
+  const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
+  if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
   const secure = typeof origin === 'string' && origin.toLowerCase().startsWith('https:');
-  profile.transports = (profile.transports ?? []).filter(transport => transport.transport !== 'direct' || secure);
-  return profile;
-}
-
-/** This device's v1 capability profile (spec §3). */
-export function vegaCapabilityProfile(facts: VegaFacts | null, origin: string | null): CapabilityProfile {
-  return capabilityProfileFromClient(vegaClientProfile(facts, origin), {
-    form: 'tv',
-    network: networkClassOf(origin),
-    audioDecode: vegaAudioDecode,
-    features: {trickplay: true, chapters: true, gapless: false, crossfade: false, pip: false},
-  });
+  const native = declared.engines.native;
+  const document: CapabilityDocument = {
+    ...declared,
+    engines: {native: {...native, transports: (native.transports ?? []).filter(transport => transport.transport !== 'direct' || secure), subtitleRendering: ['text'], embeddedAudioSwitching: false}},
+  };
+  const stamped = withViewerSettings(document, {engine: 'automatic', overrides});
+  return capabilityDocumentProblem(stamped) ? withViewerSettings(declared, {engine: 'automatic', overrides}) : stamped;
 }

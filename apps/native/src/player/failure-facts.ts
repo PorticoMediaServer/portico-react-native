@@ -1,4 +1,3 @@
-import {NativeEventEmitter, NativeModules} from 'react-native';
 import {classifyPlaybackFailure} from './playback-failure';
 import type {FailureFact} from './cannot-play';
 
@@ -6,18 +5,18 @@ import type {FailureFact} from './cannot-play';
  * The last failure the player engine reported for each attempt, kept for the player's error
  * card. The playback service keeps only a sentence; whether that failure can ever mend is in the
  * engine's own facts (the delivery status, whether it was the network, whether the engine itself
- * refused the media). This listens beside the player and changes nothing about playback.
+ * refused the media). It is told beside the player and changes nothing about playback.
  */
 type Kept = {intentId: number; itemId?: string; fact: FailureFact};
 
 let last: Kept | undefined;
 /** Attempts in a row that ended with the file refused, for one title. */
 let refusals: {itemId: string; count: number; intents: Set<number>} | undefined;
-let listening = false;
 
 const refused = (fact: FailureFact) => !fact.networkError && ((typeof fact.httpStatus === 'number' && [403, 404, 410].includes(fact.httpStatus)) || (fact.httpStatus === undefined && fact.deliveryError === true));
 
-/** One engine fact. Exported for tests; the app feeds it from the engine's event. */
+/** One engine fact, from whichever engine is playing: the player's fact handler feeds every fact
+ * the engine in use reports, so the card is right for either engine. */
 export function noteEngineFact(raw: unknown, itemId: string | undefined): void {
   if (!raw || typeof raw !== 'object') return;
   const f = raw as {type?: unknown; intentId?: unknown; httpStatus?: unknown; deliveryError?: unknown; networkError?: unknown; engineCode?: unknown; hasPlayed?: unknown; uncertain?: unknown; position?: unknown};
@@ -48,19 +47,4 @@ export function failureFor(intentId: number, itemId: string | undefined): {fact?
 export function resetFailureFacts(): void {
   last = undefined;
   refusals = undefined;
-}
-
-let itemOf: () => string | undefined = () => undefined;
-
-/**
- * Listens to the engine for as long as the app runs (the listener is added once). `currentItem`
- * names the title the current attempt is for; the newest one given is used.
- */
-export function watchEngineFailures(currentItem: () => string | undefined): void {
-  itemOf = currentItem;
-  if (listening) return;
-  const module = NativeModules.PorticoPlaybackModule;
-  if (!module) return;
-  listening = true;
-  new NativeEventEmitter(module).addListener('PorticoPlaybackFact', fact => noteEngineFact(fact, itemOf()));
 }

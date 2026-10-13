@@ -24,7 +24,13 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.TsExtractor
+import android.os.Build
+import android.view.Surface
+import tv.getportico.portico.TelevisionDisplay
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import java.io.File
@@ -63,6 +69,9 @@ internal class PorticoPlaybackController(private val context: Context) {
   var player: ExoPlayer? = null
     private set
   var subtitleCue = PorticoSubtitleSelection.Display("", italic = false, top = false)
+    private set
+  /** Portico's caption style for the line the app draws ({scale, background}), from the subtitle command in force. */
+  var subtitleStyle: Map<*, *>? = null
     private set
   /** The picture's size as the player last reported it (it keeps the last one across a reload of the same film). */
   val videoSize: VideoSize get() = player?.videoSize?.takeIf { it.width > 0 && it.height > 0 } ?: lastVideoSize
@@ -108,6 +117,20 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var hasPlayed = false
   private var previousProgress = Double.NaN
   private var readyAnnounced = false
+  /** What the player last measured of the connection (bits a second), and when. */
+  private var measuredBitrate = 0L
+  private var measuredAt = 0L
+  /** The player in use came out of a music crossfade: it was built for music, not for a film. */
+  private var playerIsDeck = false
+  /** Television: the title is held until the display has matched it (its rate, its HDR mode). */
+  private var displayHold = false
+  private var displayWait = 0
+  private var displayMatchedItem = ""
+  private var firstFrameItem = ""
+  private var frameRateVoted = false
+  private var frameRateClear: Runnable? = null
+  /** The surface the picture is drawn on, lent by the view that shows it (for the display's frame rate). */
+  var displaySurface: (() -> Surface?)? = null
   /** The app is off the screen with a video that is not in a Picture in Picture window: it waits. */
   private var backgroundHold = false
   private val visibility: (Boolean) -> Unit = { visible -> if (visible) enteredForeground() else enteredBackground() }
@@ -146,6 +169,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     PorticoAppVisibility.listeners.add(visibility)
     subtitles.onText = { cue -> subtitleCue = cue; subtitleListeners.toList().forEach { it() } }
     subtitles.onStatus = { error -> emit("subtitleStatus", error) }
+    // A downloaded title's plain subtitles are a WebVTT file beside it, inside Downloads.
+    subtitles.allowsLocalFile = { url -> allowedLocalSource(url) }
     audioSelection.onFact = { fact ->
       if (source?.isNotEmpty() == true && (fact["audioBinding"] as? Map<*, *>)?.get("intentId")?.let { number(it) } == intentId.toDouble()) {
         val out = HashMap(fact)
@@ -362,7 +387,10 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (pending != null && (routeResume || routeSeeking || routeFailed)) { routeResume = false; routeSeeking = false; routeFailed = false; routeEpoch++ }
     if (pending == null && seeking) { seeking = false; seekWait = null }
     audioSelection.apply(scoped(next["audio"]), player, itemInstanceId)
-    subtitles.apply(scoped(next["subtitles"]), source)
+    val chosenSubtitles = scoped(next["subtitles"])
+    val style = chosenSubtitles?.get("style") as? Map<*, *>
+    if (style != subtitleStyle) { subtitleStyle = style; subtitleListeners.toList().forEach { it() } }
+    subtitles.apply(chosenSubtitles, source)
     applyRenderEdges(render)
     applyRouteResume()
     applyPendingSeek()
@@ -381,16 +409,22 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   // --- the engine ------------------------------------------------------------------------
 
-  private fun engine(): ExoPlayer {
-    player?.let { return it }
+  /**
+   * One way to build a player, for the player itself and for the second one a music crossfade
+   * starts under it (which then becomes the player): the same data source, the same memory limit
+   * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
+   */
+  private fun build(music: Boolean, ownsFocus: Boolean): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
     val load = DefaultLoadControl.Builder()
     // A high-bitrate stream must not take memory the interface needs on a small device.
     if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
+    // A transport stream is searched further for the time asked for, so a seek in one lands.
+    val extractors = DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
     val made = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
-        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
+        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors))
         .setLoadControl(load.build())
-        .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+        .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(if (music) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE).build(), ownsFocus)
         .setHandleAudioBecomingNoisy(false)
         // Music goes on with the screen off: the processor and the network stay awake while it plays.
         .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -402,17 +436,47 @@ internal class PorticoPlaybackController(private val context: Context) {
         .setMaxVideoSize(screen.first, screen.second)
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         .build()
-    made.addListener(listener)
-    player = made
+    // On a television the app asks the display to match the title itself, and waits for it
+    // (matchDisplay): the player's own request is only ever for a switch nobody sees.
+    if (TelevisionDisplay.isTelevision) made.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
+    made.addAnalyticsListener(bandwidth)
     return made
   }
 
+  private fun engine(): ExoPlayer {
+    player?.let { return it }
+    val made = build(music = false, ownsFocus = true)
+    made.addListener(listener)
+    player = made
+    playerIsDeck = false
+    return made
+  }
+
+  /** What the player measures of the connection as it downloads, for Automatic quality. */
+  private val bandwidth = object : AnalyticsListener {
+    override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
+      if (bitrateEstimate > 0 && totalBytesLoaded > 0) { measuredBitrate = bitrateEstimate; measuredAt = SystemClock.elapsedRealtime() }
+    }
+  }
+
   private fun load(url: Uri, startSeconds: Double? = null) {
+    // A player that came out of a music crossfade was built for music (its sound is announced to
+    // the system as music). A title with a picture gets the app's own player again.
+    if (playerIsDeck && listeningOwner == null) {
+      player?.let { it.removeListener(listener); it.release() }
+      player = null
+      playerIsDeck = false
+      attachmentListeners.toList().forEach { it() }
+    }
     val engine = engine()
     itemInstanceId = UUID.randomUUID().toString()
     hasPlayed = false
     previousProgress = Double.NaN
     readyAnnounced = false
+    measuredBitrate = 0
+    measuredAt = 0
+    displayHold = false
+    displayWait++
     val start = if (routeResume && timelineOriginMs == null) (routePosition * 1000).toLong()
         else if (startSeconds != null && startSeconds > 0 && timelineOriginMs == null) (startSeconds * 1000).toLong() else C.TIME_UNSET
     engine.playWhenReady = false
@@ -438,17 +502,18 @@ internal class PorticoPlaybackController(private val context: Context) {
     engine.stop()
     engine.clearMediaItems()
     readyAnnounced = false
+    displayHold = false
+    displayWait++
+    scheduleFrameRateClear()
   }
 
   private val listener = object : Player.Listener {
     override fun onPlaybackStateChanged(state: Int) {
       when (state) {
         Player.STATE_READY -> {
-          applyRouteResume()
-          if (!readyAnnounced && !routeResume && !routeFailed) { readyAnnounced = true; emit("ready", null) }
-          finishSeek()
-          applyPendingSeek()
-          applyIntent()
+          // A television is asked to match the title first; the rest happens when it has.
+          if (matchDisplay { becameReady() }) return
+          becameReady()
         }
         // The buffer ran dry while the item is still healthy.
         Player.STATE_BUFFERING -> if (readyAnnounced && !seeking && player?.playWhenReady == true) emit("stalled", null)
@@ -487,7 +552,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
     override fun onPlayerError(error: PlaybackException) = publishFailure(error)
 
-    override fun onRenderedFirstFrame() { hasPlayed = true; if (lease != null) emit("firstFrame", null) }
+    override fun onRenderedFirstFrame() { hasPlayed = true; firstFrameItem = itemInstanceId; if (lease != null) emit("firstFrame", null) }
 
     override fun onTracksChanged(tracks: Tracks) = audioSelection.tracksChanged(tracks)
 
@@ -497,6 +562,126 @@ internal class PorticoPlaybackController(private val context: Context) {
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) { lastProgress = "" }
+  }
+
+  private fun becameReady() {
+    if (player?.playbackState != Player.STATE_READY) return
+    applyRouteResume()
+    if (!readyAnnounced && !routeResume && !routeFailed) { readyAnnounced = true; emit("ready", null) }
+    finishSeek()
+    applyPendingSeek()
+    applyIntent()
+  }
+
+  // --- matching the display (television) ---------------------------------------------------
+
+  private fun voteFrameRate(target: Surface, fps: Float): Boolean {
+    if (Build.VERSION.SDK_INT < 30) return false
+    return try {
+      if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
+      else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+      frameRateVoted = true
+      true
+    } catch (_: Exception) { false }
+  }
+
+  /** The display goes back to its own rate a moment after playback is left, not between two episodes. */
+  private fun scheduleFrameRateClear() {
+    frameRateClear?.let { main.removeCallbacks(it) }
+    if (!frameRateVoted) return
+    val work = Runnable {
+      frameRateClear = null
+      val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+      if (lease != null && player?.currentMediaItem != null) return@Runnable
+      frameRateVoted = false
+      if (target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
+      try { target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (_: Exception) {}
+    }
+    frameRateClear = work
+    main.postDelayed(work, 2000)
+  }
+
+  /**
+   * On a television, before a title is announced ready: the display is asked to match the
+   * title's frame rate (the system's own request, so its "match content frame rate" setting
+   * decides, Android 11 and later), and the title is held while the television may be changing
+   * mode, so its opening seconds are not played into a screen that is renegotiating. An HDR title
+   * on a television that shows HDR is held a moment after its first picture as well: that is when
+   * the television changes to HDR. Bounded (10 s), once for each load, never for music, and never
+   * on a phone or tablet, which change rate without a break. `done` runs when the wait is over;
+   * false means there is nothing to wait for.
+   */
+  private fun matchDisplay(done: () -> Unit): Boolean {
+    val engine = player ?: return false
+    if (displayHold) return true
+    val item = itemInstanceId
+    if (!TelevisionDisplay.isTelevision || listeningOwner != null || displayMatchedItem == item) return false
+    val format = engine.videoFormat ?: return false
+    displayMatchedItem = item
+    val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return false
+    val display = displays.getDisplay(Display.DEFAULT_DISPLAY) ?: return false
+    val transfer = format.colorInfo?.colorTransfer
+    val hdrTitle = transfer == C.COLOR_TRANSFER_ST2084 || transfer == C.COLOR_TRANSFER_HLG
+    val hdrScreen = try { @Suppress("DEPRECATION") (display.hdrCapabilities?.supportedHdrTypes?.isNotEmpty() == true) } catch (_: Exception) { false }
+    val hdrSwitch = hdrTitle && hdrScreen
+    // The viewer's setting, where the system has one (Android 12): never, only when the picture
+    // does not break, or always.
+    val preference = if (Build.VERSION.SDK_INT >= 31) displays.matchContentFrameRateUserPreference else null
+    val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
+    val fps = format.frameRate.takeIf { it.isFinite() && it >= 1f && it <= 240f }
+    val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+    val before = display.mode
+    val voted = !never && fps != null && target != null && target.isValid && voteFrameRate(target, fps)
+    val mayBreak = voted && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
+    if (!mayBreak && !hdrSwitch) return false
+    val wait = ++displayWait
+    displayHold = true
+    // Nothing plays while the television may be switching.
+    engine.playWhenReady = false
+    var settled = false
+    var listener: DisplayManager.DisplayListener? = null
+    val settle = {
+      if (!settled) {
+        settled = true
+        listener?.let { displays.unregisterDisplayListener(it) }
+        if (displayWait == wait && displayHold && itemInstanceId == item) {
+          displayHold = false
+          done()
+        }
+      }
+    }
+    var switching = false
+    listener = object : DisplayManager.DisplayListener {
+      override fun onDisplayAdded(displayId: Int) {}
+      override fun onDisplayRemoved(displayId: Int) {}
+      override fun onDisplayChanged(displayId: Int) {
+        if (displayId != Display.DEFAULT_DISPLAY || switching) return
+        val now = display.mode
+        if (now.modeId == before.modeId && Math.abs(now.refreshRate - before.refreshRate) < 0.01f) return
+        switching = true
+        // A switch the television makes without renegotiating its connection shows no break;
+        // any other needs a moment before its picture is steady.
+        val seamless = Build.VERSION.SDK_INT >= 31 && before.alternativeRefreshRates.any { Math.abs(it - now.refreshRate) < 0.01f }
+        main.postDelayed({ settle() }, if (seamless) 100 else 2000)
+      }
+    }
+    displays.registerDisplayListener(listener, main)
+    // No switch begins when the television is already in the right mode. An HDR title is given
+    // its first picture first, and then the time a television takes to change to HDR.
+    val quiet = object : Runnable {
+      var waited = 0
+      override fun run() {
+        if (settled || switching) return
+        waited += 250
+        val shown = firstFrameItem == item
+        if (hdrSwitch && !shown && waited < 3000) { main.postDelayed(this, 250); return }
+        if (hdrSwitch && shown) { main.postDelayed({ if (!switching) settle() }, 1500); return }
+        if (waited >= 1000) settle() else main.postDelayed(this, 250)
+      }
+    }
+    main.postDelayed(quiet, 250)
+    main.postDelayed({ settle() }, 10_000)
+    return true
   }
 
   /** Restore the retained position on this exact lease, session and presentation, then resume the desired state. */
@@ -555,6 +740,33 @@ internal class PorticoPlaybackController(private val context: Context) {
     seeking = false
     val observed = sourcePosition()
     val applied = observed.isFinite() && Math.abs(observed - wait.target) <= 0.5
+    // A file the player cannot seek in at all (a Matroska file with no index, some transport
+    // streams) lands at its start whatever is asked. That is the player being unable to play this
+    // file as it was given, not a position that will be there in a moment: the server is told,
+    // and delivers the title another way (repackaged, with a timeline that seeks) at the place
+    // asked for. A download has no other way and keeps the plain answer.
+    val engine = player
+    if (!applied && engine != null && timelineOriginMs == null && listeningOwner == null && !engine.isCurrentMediaItemSeekable &&
+        engine.playbackState == Player.STATE_READY && source?.startsWith("file:") != true) {
+      val fact = HashMap<String, Any?>()
+      fact["instanceId"] = instanceId
+      fact["type"] = "error"
+      fact["intentId"] = wait.intent.toDouble()
+      fact["position"] = wait.target
+      fact["paused"] = true
+      fact["networkError"] = false
+      fact["deliveryError"] = false
+      fact["httpStatus"] = 0.0
+      fact["hasPlayed"] = hasPlayed
+      fact["uncertain"] = false
+      fact["engineCode"] = "source_not_supported"
+      fact["errorDetail"] = "The file has no index to seek by."
+      fact["error"] = "This media could not be played. Check its format or try again."
+      fact.putAll(rateFacts())
+      engine.playWhenReady = false
+      publish(fact)
+      return
+    }
     val fact = HashMap<String, Any?>()
     fact["instanceId"] = instanceId
     fact["type"] = if (applied) "seekApplied" else "seekFailed"
@@ -570,7 +782,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || displayHold || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {
@@ -709,12 +921,9 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** The next track starts on a second player under the end of this one; when the fade is done it is the player. */
   private fun startCrossfade(seconds: Double) {
     val plan = nextPlan ?: return
-    val deck = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
-        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, OkHttpDataSource.Factory(mediaClient))))
-        .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
-        .setHandleAudioBecomingNoisy(false)
-        .setWakeMode(C.WAKE_MODE_NETWORK)
-        .build()
+    // Built like the player itself (the memory limit on a small device, the cap at the screen's
+    // size): when the fade is done it is the player.
+    val deck = build(music = true, ownsFocus = false)
     deck.volume = 0f
     deck.addListener(incomingListener)
     deck.setMediaItem(MediaItem.fromUri(plan["url"] as String))
@@ -757,9 +966,9 @@ internal class PorticoPlaybackController(private val context: Context) {
       old.release()
       deck.volume = arriving
       deck.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
-      deck.trackSelectionParameters = deck.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
       deck.addListener(listener)
       player = deck
+      playerIsDeck = true
       finishEdge(token)
       attachmentListeners.toList().forEach { it() }
     }
@@ -1010,8 +1219,22 @@ internal class PorticoPlaybackController(private val context: Context) {
     fact["paused"] = isPaused()
     fact["error"] = error ?: ""
     fact.putAll(rateFacts())
+    if (type == "progress") connectionFacts(fact)
     if (extra != null) fact.putAll(extra)
     publish(fact)
+  }
+
+  /**
+   * What the player measured of the connection and how much it holds ahead of the picture, for
+   * Automatic quality. A measurement is said only while it is fresh: with a full buffer nothing
+   * is downloaded, and an old figure says nothing about the connection now.
+   */
+  private fun connectionFacts(fact: MutableMap<String, Any?>) {
+    val engine = player ?: return
+    if (timelineOriginMs != null || listeningOwner != null || source?.startsWith("file:") == true) return
+    if (measuredBitrate > 0 && SystemClock.elapsedRealtime() - measuredAt <= 15_000) fact["throughputKbps"] = Math.round(measuredBitrate / 1000.0).toDouble()
+    val buffered = engine.totalBufferedDuration
+    if (buffered >= 0) fact["bufferedSeconds"] = buffered / 1000.0
   }
 
   private fun publish(fact: MutableMap<String, Any?>) {

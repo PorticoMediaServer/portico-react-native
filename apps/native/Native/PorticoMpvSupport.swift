@@ -222,6 +222,18 @@ enum PorticoMpvSupport {
         let size = Double(MACaptionAppearanceGetRelativeCharacterSize(.user, nil))
         return size.isFinite && size > 0 ? min(3, max(0.5, size)) : 1
     }
+
+    /// The size of Portico's own caption style (the subtitle command's `style.scale`), 1 when absent.
+    static func styleScale(_ style: [AnyHashable: Any]) -> Double {
+        guard let scale = number(style["scale"]), scale >= 0.5, scale <= 3 else { return 1 }
+        return scale
+    }
+
+    /// The background of Portico's own caption style: "none", "translucent" (the default) or "opaque".
+    static func styleBackground(_ style: [AnyHashable: Any]) -> String {
+        let value = style["background"] as? String
+        return value == "none" || value == "opaque" ? value! : "translucent"
+    }
 }
 
 /// Fetches the fonts attached to a styled subtitle file into a folder mpv can read them from.

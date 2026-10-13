@@ -34,6 +34,12 @@ internal class PorticoSubtitleSelection {
   var onText: ((Display) -> Unit)? = null
   var onStatus: ((String) -> Unit)? = null
 
+  /**
+   * Whether a `file:` address is one this app may read (a file inside its own Downloads folder).
+   * A downloaded title's subtitles are WebVTT files there; without this none is read.
+   */
+  var allowsLocalFile: ((Uri) -> Boolean)? = null
+
   /** A track is chosen, so the app is drawing text over the picture. */
   val overlayActive: Boolean get() = command != null
 
@@ -52,9 +58,12 @@ internal class PorticoSubtitleSelection {
   private var positionUs = 0L
   private var display = Display("", italic = false, top = false)
   private var timer: Runnable? = null
+  /** A download's subtitle file on this device: read once, never re-checked with a server. */
+  private var local = false
 
   fun invalidate() {
     generation++
+    local = false
     call?.cancel()
     call = null
     timer?.let { main.removeCallbacks(it) }
@@ -99,10 +108,37 @@ internal class PorticoSubtitleSelection {
     // grant the media address carries, at exactly the resource and revision the command names.
     val target = try { Uri.parse(documentUrl) } catch (_: Exception) { null }
     val media = try { Uri.parse(source ?: "") } catch (_: Exception) { null }
+    // A downloaded title: its subtitles are a WebVTT file beside it, inside the app's Downloads
+    // folder. Only a download may name one, and only there.
+    if (target?.scheme?.lowercase() == "file") {
+      val allowed = allowsLocalFile
+      if (media?.scheme?.lowercase() != "file" || allowed == null || !allowed(target) || !allowed(media) || target.path?.lowercase()?.endsWith(".vtt") != true) {
+        invalidate()
+        status("The subtitle address does not belong to this playback session.")
+        return
+      }
+      val held = command
+      if (local && url == target && held != null && held["binding"] == value["binding"]) {
+        command = value
+        revision = (value["revision"] as Number).toLong()
+        offsetUs = offset
+        tick(positionUs)
+        return
+      }
+      invalidate()
+      url = target
+      local = true
+      command = value
+      revision = (value["revision"] as Number).toLong()
+      offsetUs = offset
+      readLocal(target)
+      return
+    }
     val grant = media?.pathSegments?.getOrNull(2) ?: ""
     val expected = "/v1/media/$grant/subtitles/$resourceId/${(value["resourceRevision"] as Number).toLong()}"
-    val homeNetwork = privateHost(target?.host)
-    if (target == null || media == null || !(target.scheme == "https" || (target.scheme == "http" && homeNetwork)) || target.scheme != media.scheme ||
+    // The document travels the way the media does: the same scheme, host and port, under the
+    // media's own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
+    if (target == null || media == null || !(target.scheme == "https" || target.scheme == "http") || target.scheme != media.scheme ||
         target.host?.lowercase() != media.host?.lowercase() || target.port != media.port || target.userInfo != null ||
         target.encodedQuery != null || target.encodedFragment != null || target.path != expected || !ROUTE.matches(expected)) {
       invalidate()
@@ -136,7 +172,33 @@ internal class PorticoSubtitleSelection {
     if (!sameResource || refreshRequested) fetch() else tick(positionUs)
   }
 
+  /**
+   * Reads a download's WebVTT file off the main thread and keeps its cues. Tags are dropped (the
+   * line is plain text, italic when the cue is), and a cue that cannot be read costs only itself.
+   */
+  private fun readLocal(target: Uri) {
+    val attempt = generation
+    val path = target.path ?: return
+    Thread({
+      val parsed = try {
+        val file = java.io.File(path)
+        if (file.length() > BYTE_LIMIT) null else parseWebVtt(file.readText(Charsets.UTF_8))
+      } catch (_: Exception) { null }
+      main.post {
+        if (attempt != generation || !local) return@post
+        if (parsed == null) { status("Subtitles could not be read from this download."); return@post }
+        cues = parsed
+        var maxEnd = 0L
+        prefixEnds = LongArray(parsed.size) { index -> maxOf(maxEnd, parsed[index].end).also { maxEnd = it } }
+        authorizedUntil = Long.MAX_VALUE
+        status("")
+        tick(positionUs)
+      }
+    }, "portico-subtitle-file").start()
+  }
+
   private fun fetch() {
+    if (local) return
     val target = url ?: return
     if (call != null) return
     lastRequest = SystemClock.elapsedRealtime()
@@ -272,38 +334,45 @@ internal class PorticoSubtitleSelection {
   }
 
   companion object {
+    private val VTT_TIMING = Regex("^\\s*(?:(\\d{1,3}):)?(\\d{2}):(\\d{2})[.,](\\d{3})\\s+-->\\s+(?:(\\d{1,3}):)?(\\d{2}):(\\d{2})[.,](\\d{3})(.*)$")
+    private val VTT_TAG = Regex("<[^>]{0,64}>")
+    private val VTT_LINE = Regex("\\bline:(-?\\d{1,3})(%?)")
+
+    /** The cues of a WebVTT file, in order. Bounded like the server's cue document. */
+    internal fun parseWebVtt(text: String): List<Cue> {
+      val lines = text.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+      val out = ArrayList<Cue>()
+      var textBytes = 0L
+      var i = 0
+      while (i < lines.size && out.size < 20000) {
+        val match = VTT_TIMING.find(lines[i])
+        i++
+        if (match == null) continue
+        val g = match.groupValues
+        fun part(index: Int) = g[index].toLongOrNull() ?: 0L
+        val start = ((part(1) * 60 + part(2)) * 60 + part(3)) * 1_000_000 + part(4) * 1000
+        val end = ((part(5) * 60 + part(6)) * 60 + part(7)) * 1_000_000 + part(8) * 1000
+        val settings = g[9]
+        val body = ArrayList<String>()
+        while (i < lines.size && lines[i].isNotEmpty()) { body.add(lines[i]); i++ }
+        val raw = body.joinToString("\n")
+        val italic = raw.contains("<i>") || raw.contains("<i.")
+        val plain = VTT_TAG.replace(raw, "").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ").replace("&lrm;", "").replace("&rlm;", "").replace("&amp;", "&").trim()
+        if (end <= start || end > DAY_US || !plainText(plain)) continue
+        textBytes += plain.toByteArray(Charsets.UTF_8).size
+        if (textBytes > 4_194_304) break
+        // A cue placed in the upper half of the picture is drawn at the top.
+        val position = VTT_LINE.find(settings)
+        val top = position?.let { val value = it.groupValues[1].toIntOrNull() ?: -1; if (it.groupValues[2].isNotEmpty()) value in 0..49 else value in 0..7 } ?: false
+        out.add(Cue(start, end, plain, italic, top))
+      }
+      out.sortBy { it.start }
+      return out
+    }
+
     private const val BYTE_LIMIT = 8L * 1024 * 1024
     private const val DAY_US = 86_400_000_000L
     private val ROUTE = Regex("^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$")
-
-    /**
-     * Plain HTTP is for this device and the home network only, the rule every server address the
-     * app connects to already passes: localhost, a .local name, or a private or link-local
-     * address. Anything else needs HTTPS.
-     */
-    internal fun privateHost(value: String?): Boolean {
-      if (value.isNullOrEmpty() || value.length > 255) return false
-      var h = value.lowercase()
-      if (h.length > 2 && h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length - 1)
-      if (h == "localhost" || h == "::1") return true
-      if (h.endsWith(".local")) return h.all { it in "abcdefghijklmnopqrstuvwxyz0123456789._-" }
-      if (h.contains(':')) {
-        // IPv6: unique local (fc00::/7) or link-local (fe80::/10), with no zone and no embedded IPv4.
-        if (h.length < 5 || !h.all { it in "0123456789abcdef:" } || h[2] == ':' || h[3] == ':' || h[4] != ':') return false
-        return h.startsWith("fc") || h.startsWith("fd") || (h.startsWith("fe") && h[2] in "89ab")
-      }
-      // IPv4 in plain dotted decimal: 10/8, 127/8, 172.16/12, 192.168/16 or 169.254/16.
-      val parts = h.split('.')
-      if (parts.size != 4) return false
-      val n = IntArray(4)
-      for (i in 0 until 4) {
-        val part = parts[i]
-        if (part.isEmpty() || part.length > 3 || (part.length > 1 && part[0] == '0') || !part.all { it in '0'..'9' }) return false
-        n[i] = part.toInt()
-        if (n[i] > 255) return false
-      }
-      return n[0] == 10 || n[0] == 127 || (n[0] == 192 && n[1] == 168) || (n[0] == 172 && n[1] in 16..31) || (n[0] == 169 && n[1] == 254)
-    }
 
     /** A scoped media grant, not a bearer credential; a redirect is never followed. */
     private val client: OkHttpClient by lazy {
