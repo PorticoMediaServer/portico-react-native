@@ -2,6 +2,7 @@ import React, {createContext, useContext, useEffect, useMemo, useSyncExternalSto
 import {AppState} from 'react-native';
 import {InboxService, type InboxSnapshot} from '../../../../packages/client-core/src/index';
 import {useSession} from './session';
+import {viewerKey} from './viewer-scope';
 
 const InboxContext = createContext<InboxService | null>(null);
 
@@ -9,7 +10,8 @@ const InboxContext = createContext<InboxService | null>(null);
  * refreshes when the app returns to the foreground and once a minute while it is there. */
 export function InboxProvider({children}: {children: React.ReactNode}) {
   const {api, session} = useSession();
-  const key = session?.accessToken ?? '';
+  // One per viewer, not per access token: a renewed sign-in keeps the same inbox.
+  const key = viewerKey(session, api);
   const service = useMemo(() => (key && api ? new InboxService(api) : null), [api, key]);
   useEffect(() => {
     if (!service) return;

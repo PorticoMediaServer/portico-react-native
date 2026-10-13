@@ -4,6 +4,7 @@ import {DownloadsService, downloadBytes, downloadReasonMessage, type DownloadOpt
 import {offlineDownloads, type OfflineDisplay, type OfflineSnapshot} from '../bridge/offline-downloads';
 import {Button, Divider, ListRow, Notice, Sheet, StateView, Surface, Text, useTheme} from '../ui';
 import {useSession} from './session';
+import {viewerKey} from './viewer-scope';
 import {useI18n, type MessageId} from './i18n';
 import {say} from './errors';
 
@@ -16,19 +17,21 @@ const Ctx = createContext<Value>({service: null, ask: () => {}});
  * "what quality?" sheet for the whole app. */
 export function DownloadsProvider({children, onViewDownloads}: {children: React.ReactNode; onViewDownloads: () => void}) {
   const {api, session} = useSession();
-  const key = session?.accessToken ?? '';
+  // One per viewer, not per access token: a renewed sign-in must not tear down the service that
+  // is following the server's list and bringing finished downloads to the device.
+  const key = viewerKey(session, api);
   const service = useMemo(() => (key && api && offlineDownloads.getSnapshot().supported ? new DownloadsService(api) : null), [api, key]);
-  const viewer = session?.viewer;
+  const authority = session?.viewer.authority, accountId = session?.viewer.accountId ?? '', profileId = session?.viewer.profileId, serverId = session?.viewer.serverId;
   useEffect(() => {
-    if (!service || !api || !viewer) return;
-    offlineDownloads.connect(api, service, {authority: viewer.authority, accountId: viewer.accountId ?? '', profileId: viewer.profileId, serverId: viewer.serverId});
+    if (!service || !api || !authority || !profileId || !serverId) return;
+    offlineDownloads.connect(api, service, {authority, accountId, profileId, serverId});
     // Follow the server's list only while the app is in front: that is when a finished
     // preparation can be brought to the device, and nothing is asked of the server otherwise.
     const follow = () => (AppState.currentState === 'active' ? service.start() : service.stop());
     follow();
     const listener = AppState.addEventListener('change', follow);
     return () => { listener.remove(); offlineDownloads.disconnect(); service.dispose(); };
-  }, [service, api, viewer]);
+  }, [service, api, authority, accountId, profileId, serverId]);
   const [request, setRequest] = useState<DownloadRequest | null>(null);
   const ask = useCallback((r: DownloadRequest) => setRequest(r), []);
   const value = useMemo(() => ({service, ask}), [service, ask]);

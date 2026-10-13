@@ -38,3 +38,13 @@ test('the remembered scopes stay bounded', () => {
   const again = viewerScope(session('bound-0'), api);
   assert.deepEqual(again, first);
 });
+
+test('the viewer key survives a renewed sign-in and is empty when signed out', async () => {
+  const {viewerKey} = await import('../src/app/viewer-scope.ts');
+  assert.equal(viewerKey(undefined, api), '');
+  const before = viewerKey(session('p1', 'server-1', 'first'), api);
+  assert.ok(before);
+  assert.equal(viewerKey(session('p1', 'server-1', 'second'), api), before);
+  assert.notEqual(viewerKey(session('p2'), api), before);
+  assert.notEqual(viewerKey(session('p1', 'server-2'), api), before);
+});

@@ -24,3 +24,14 @@ export function viewerScope(session: Parameters<typeof describeViewer>[0], api: 
   known.set(key, scope);
   return scope;
 }
+
+/**
+ * A text key for the signed-in viewer on this server, or '' when nobody is signed in. For
+ * services that live as long as the sign-in does: it stays the same when the sign-in is renewed
+ * (unlike the access token, which is replaced every few minutes).
+ */
+export function viewerKey(session: Parameters<typeof describeViewer>[0], api: {baseUrl: string}): string {
+  if (!session) return '';
+  const scope = viewerScope(session, api);
+  return scope.viewerId + '\n' + scope.serverId;
+}

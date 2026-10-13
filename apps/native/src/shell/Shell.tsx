@@ -6,6 +6,7 @@ import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimate
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useLibraries} from '../app/libraries';
 import {viewerScope} from '../app/content';
+import {viewerKey} from '../app/viewer-scope';
 import {useScanningLibraries} from '../app/library-scan';
 import {LibrariesContext} from '../app/libraries-context';
 import type {ContentStackParams} from '../app/routes';
@@ -133,7 +134,8 @@ export function Shell() {
   const hasChannels = useChannelSources().sources.length > 0;
   const offline = useOffline();
   const [lastLibrary, setLastLibrary] = useState<string>();
-  const libraries = useLibraries(session.api, session.session?.accessToken);
+  // Keyed on who is signed in, not on the access token: a renewed sign-in does not read the list again.
+  const libraries = useLibraries(session.api, viewerKey(session.session, session.api) || undefined);
   // ONB-04: a dot on each rail entry whose library is scanning (viewer-safe status, polled).
   const serverId = useMemo(() => viewerScope(session.session, session.api).serverId, [session.session, session.api]);
   const libraryIds = useMemo(() => libraries.items.map(l => l.id), [libraries.items]);
