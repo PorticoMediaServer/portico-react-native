@@ -204,3 +204,30 @@ test('a non-reachability refusal from the probe is not rewritten', async () => {
     (e: unknown) => e instanceof RouteError && e.code === 'identity_mismatch',
   );
 });
+
+test('a bare address gets the scheme and port it most likely needs', () => {
+  // Reached directly: plain HTTP on Portico's own port, unless a port was typed.
+  assert.equal(serverAddress('192.168.1.20'), 'http://192.168.1.20:32500');
+  assert.equal(serverAddress('192.168.1.20:8080'), 'http://192.168.1.20:8080');
+  assert.equal(serverAddress('nas'), 'http://nas:32500');
+  assert.equal(serverAddress('nas.local'), 'http://nas.local:32500');
+  assert.equal(serverAddress('media.lan/'), 'http://media.lan:32500');
+  assert.equal(serverAddress('box.home.arpa:9000'), 'http://box.home.arpa:9000');
+  assert.equal(serverAddress('localhost'), 'http://localhost:32500');
+  assert.equal(serverAddress('[fd00::1]'), 'http://[fd00::1]:32500');
+  assert.equal(serverAddress('[fd00::1]:8443'), 'http://[fd00::1]:8443');
+  // A number has no certificate, wherever it is.
+  assert.equal(serverAddress('203.0.113.9'), 'http://203.0.113.9:32500');
+  assert.equal(serverAddress('[2001:db8::1]'), 'http://[2001:db8::1]:32500');
+  // A published name: HTTPS, as typed.
+  assert.equal(serverAddress('portico.example.com'), 'https://portico.example.com');
+  assert.equal(serverAddress('portico.example.com:8443'), 'https://portico.example.com:8443');
+  assert.equal(serverAddress('box.tail1234.ts.net'), 'https://box.tail1234.ts.net');
+});
+
+test('an address typed with its scheme is used as typed', () => {
+  assert.equal(serverAddress('http://192.168.1.20'), 'http://192.168.1.20');
+  assert.equal(serverAddress('https://192.168.1.20:8443/'), 'https://192.168.1.20:8443');
+  assert.equal(serverAddress('HTTP://nas.local'), 'HTTP://nas.local');
+  assert.equal(serverAddress('http://portico.example.com'), 'http://portico.example.com');
+});

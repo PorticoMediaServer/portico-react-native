@@ -16,14 +16,30 @@ import {present, ShownError} from './errors';
  * one works from clean state.
  */
 
-/** What a person types is rarely a URL. A bare host gets a scheme: plain HTTP for an address on
- * the home network (an IP, localhost, a .local name), HTTPS for anything else. */
+/** The port a Portico server listens on unless its owner chose another. */
+export const DEFAULT_SERVER_PORT = 32500;
+
+/**
+ * What a person types is rarely a URL. An address with a scheme is used as typed. A bare one gets
+ * the scheme and the port it most likely needs:
+ *
+ * - a number (an IPv4 address, or an IPv6 address in brackets) or a name that only means
+ *   something at home (`localhost`, a one-word name, `.local`, `.lan`, `.home`, `.internal`,
+ *   `.home.arpa`) is a server reached directly: plain HTTP, on Portico's own port unless a port
+ *   was typed. No certificate can exist for such an address, so HTTPS could never answer.
+ * - any other name is a published address: HTTPS, on the port typed or the usual one.
+ */
 export function serverAddress(typed: string): string {
   const value = typed.trim().replace(/\/+$/, '');
   if (/^https?:\/\//i.test(value)) return value;
-  const host = value.replace(/[:/].*$/, '');
-  const home = /^(localhost|\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\]|[^.]+|.+\.local|.+\.lan|.+\.home)$/i.test(host);
-  return (home ? 'http://' : 'https://') + value;
+  const parts = /^(\[[0-9a-f:.]+\]|[^:/\s[\]]+)(?::(\d{1,5}))?(\/.*)?$/i.exec(value);
+  // Not a host this can read: left for the connection to refuse with its own message.
+  if (!parts) return 'https://' + value;
+  const [, host, port, path = ''] = parts;
+  const number = host.startsWith('[') || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  const home = number || /^(localhost|[^.]+|.+\.local|.+\.lan|.+\.home|.+\.internal|.+\.home\.arpa)$/i.test(host);
+  if (!home) return 'https://' + value;
+  return `http://${host}:${port ?? DEFAULT_SERVER_PORT}${path}`;
 }
 
 export type DirectConnectRequest = {
