@@ -513,7 +513,20 @@ export class HlsSource {
             const last = this.placed[this.placed.length - 1];
             if (!this.arrival && last && last.end - Number(this.player.currentTime) > AHEAD_S && Number(this.player.currentTime) >= this.placed[0].start - 0.05) continue;
           } else if (segment.start > position + AHEAD_S) continue;
-          await this.feed(track, segment, generation);
+          try {
+            await this.feed(track, segment, generation);
+          } catch (error) {
+            // A channel's segment that the server no longer has (viewing was paused while the
+            // channel moved on): the playlist is read again, and playback goes on from the oldest
+            // segment it still lists. A segment the playlist still names is a real failure.
+            const gone = this.live && error instanceof SourceError && (error.status === 404 || error.status === 410);
+            if (!gone || generation !== this.generation) throw error;
+            const playlist = this.read(await this.get(track.url, 'text'), track.url);
+            if (generation !== this.generation) return;
+            track.playlist = playlist; track.loaded = Date.now();
+            if (track.next >= playlist.sequence) throw error;
+            continue;
+          }
           if (generation !== this.generation) return;
           fed = true;
           trace(`hls ${track.kind} segment ${segment.number} (${segment.start.toFixed(2)}+${segment.duration.toFixed(2)}) buffered ${this.ranges(track)} at ${Number(this.player.currentTime).toFixed(2)}`);

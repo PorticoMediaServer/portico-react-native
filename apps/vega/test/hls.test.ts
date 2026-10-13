@@ -183,6 +183,24 @@ test('a change of programme on a device that keeps the segments\' own clock is c
   assert.deepEqual(failures, []);
 });
 
+test('a channel that moved on while viewing was paused goes on from the oldest segment it still has', async () => {
+  const window = {first: 100, count: 12};
+  channel(window);
+  const {player, source, failures} = start(base + 'index.m3u8', origin);
+  await source.open(100 * 4);
+  // Half a minute is held and nothing more is fetched; meanwhile the channel moves a long way on.
+  await until(() => spans(player)[0]?.[1] === 32);
+  window.first = 200;
+  await sleep(450);
+  // Viewing resumes and plays on: segment 108 is gone, so the playlist is read again.
+  player.advance(20);
+  await until(() => server.log.includes(base + 's200.ts'), 6000);
+  await until(() => spans(player)[0]?.[1] >= 36);
+  assert.deepEqual(failures, []);
+  player.advance(12.5);
+  near(source.position(), 200 * 4 + 0.5);
+});
+
 test('what has been watched on a channel is given back', async () => {
   channel({first: 100, count: 40});
   const {player, source} = start(base + 'index.m3u8', origin);
