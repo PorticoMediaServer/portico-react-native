@@ -49,7 +49,9 @@ export function CastProvider({children}: {children: React.ReactNode}) {
     // Cast is offered when this build can cast and this server names the receiver application
     // this build was made for. The server's setting is the authority: with none set, or another
     // application named, there is no Cast row.
-    void Promise.all([native.available() as Promise<boolean>, api.request<{applicationId?: unknown}>('/v1/cast/configuration')]).then(
+    const canCast: Promise<boolean> = native.available();
+    const configured: Promise<{applicationId?: unknown}> = api.request('/v1/cast/configuration');
+    void Promise.all([canCast, configured]).then(
       ([can, configuration]) => { if (live) controller.setAvailable(castOffered(can, configuration?.applicationId, native.applicationId)); },
       () => { if (live) controller.setAvailable(false); },
     );

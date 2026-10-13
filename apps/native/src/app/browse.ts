@@ -107,18 +107,25 @@ export function useFacets(libraryId: string | undefined) {
   }, [api, libraryId]);
 }
 
-const fieldNames: Record<string, string> = {genre: 'Genre', decade: 'Decade', year: 'Year', title: 'Title', dateAdded: 'Date added', addedAt: 'Date added', playState: 'Play state', availability: 'Availability', resolution: 'Resolution', contentRating: 'Content rating', studio: 'Studio', network: 'Network', tag: 'Tag', label: 'Label', audioLanguage: 'Audio language', dynamicRange: 'Dynamic range', releaseDate: 'Release date', series: 'Series', person: 'Person', actor: 'Actor', director: 'Director', writer: 'Writer', rating: 'Rating', userRating: 'Your rating', personalRating: 'Your rating', favorite: 'Favorite', watchlisted: 'My List', duration: 'Duration', durationSeconds: 'Duration', entityKind: 'Type', collection: 'Collection', artist: 'Artist', album: 'Album', author: 'Author', narrator: 'Narrator', lastPlayed: 'Last played', lastPlayedAt: 'Last played', played: 'Played', communityRating: 'Audience rating', audienceRating: 'Audience rating', criticRating: 'Critic rating'}; // lint-strings-allow: server field-name map (only Title/Label match the lint's prop list; needs server label IDs like the web editor)
+/** Field and quick-filter names come from the catalogue (`filter.field.*`, `filter.quick.*`), as on the web; a field the catalogue has no name for yet is said as plain words from its key. */
+function catalogueLabel(prefix: 'filter.field.' | 'filter.quick.', ...keys: string[]): string | undefined {
+  const i18n = activeI18n();
+  const has = i18n.has as (id: string) => boolean;
+  for (const key of keys) { const id = prefix + key; if (key && has(id)) return (i18n.t as (id: string) => string)(id); }
+  return undefined;
+}
 const sentence = (key: string) => key.replace(/([A-Z])/g, ' $1').toLowerCase().replace(/^./, c => c.toUpperCase());
+/** Fields a server names two ways: both read the one catalogue entry. */
+const SAME_FIELD: Readonly<Record<string, string>> = {addedAt: 'dateAdded', personalRating: 'userRating', durationSeconds: 'duration', lastPlayedAt: 'lastPlayed', communityRating: 'audienceRating'};
 export function fieldLabel(id: string, labelKey?: string): string {
   // P6: For you isn't a field; it names itself from the catalogue.
   if (labelKey === 'sort.forYou') return serviceText('sort.forYou');
   const key = (labelKey ?? '').replace(/^browse\.field\./, '').replace(/^sort\./, '') || id;
-  return fieldNames[key] ?? fieldNames[id] ?? sentence(key);
+  return catalogueLabel('filter.field.', key, id, SAME_FIELD[key] ?? '', SAME_FIELD[id] ?? '') ?? sentence(key);
 }
 export function quickFilterLabel(labelKey: string): string {
   const key = labelKey.replace(/^filter\./, '');
-  const names: Record<string, string> = {inProgress: 'In progress', unplayed: 'Unplayed', unwatched: 'Unwatched', recentlyAdded: 'Recently added', favorites: 'Favorites', watchlist: 'My List', hd: 'HD', uhd: '4K', unavailable: 'Unavailable', played: 'Played', notStarted: 'Not started', finished: 'Finished'};
-  return names[key] ?? sentence(key);
+  return catalogueLabel('filter.quick.', key) ?? sentence(key);
 }
 export function predicateLabel(p: Predicate, capabilities?: BrowseCapabilities): string {
   return appliedFilterLabel(p, id => fieldLabel(id, capabilities?.fields.find(f => f.id === id)?.labelKey), activeI18n().t);

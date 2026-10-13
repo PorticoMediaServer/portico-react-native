@@ -18,6 +18,8 @@ const awaiting = {
   'about.report.send': 'Send',
   'about.report.sent': 'The report was sent to the owner of {server}.',
   'about.report.failed': 'The report couldn’t be sent. Try again later.',
+  // Television activation: the code could not be fetched (the service's own text is diagnostic; this is what a person reads).
+  'activation.failed': 'Portico couldn’t get a sign-in code. Check your connection, then get a new code.',
   // The download menu, beside "Original", when the file is one this device cannot open by itself.
   'downloads.quality.originalMayNotPlay': 'This device can’t open this kind of file, so the original may not play here. A smaller version will.',
   // Signing out: the person may take their downloads off the device as they go.

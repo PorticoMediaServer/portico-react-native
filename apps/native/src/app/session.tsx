@@ -411,7 +411,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const oldServer = attachedServer;
       setError('');
       let transferred = false;
-      if (result?.isCurrent?.() === false) throw new ShownError('The profile changed while you were choosing. Choose it again.');
+      if (result?.isCurrent?.() === false) throw new ShownError(activeI18n().t('web.signIn.error.profilesChanged', {server: result?.server.name ?? activeI18n().t('invitation.thisServer')}));
       const publish = (record: SelectedViewerRecord) => {
         const local = profileAPI(record.serverUrl, record.session.accessToken);
         trackNativeConnection(local);
@@ -446,14 +446,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
             viewer.clear();
           },
           assertCurrent: () => {
-            if (!transferred && result?.isCurrent?.() === false) throw new ShownError('The profile changed while you were choosing. Choose it again.');
+            if (!transferred && result?.isCurrent?.() === false) throw new ShownError(activeI18n().t('web.signIn.error.profilesChanged', {server: result?.server.name ?? activeI18n().t('invitation.thisServer')}));
             if (candidate.session.viewer.authority !== 'hosted') return;
             const live = credentials?.getSnapshot().session;
             if (established) {
-              if (live && live.account.id !== candidate.session.viewer.accountId) throw new ShownError('A different Portico Account is now signed in.');
+              if (live && live.account.id !== candidate.session.viewer.accountId) throw new ShownError(activeI18n().t('web.signIn.error.accountChanged'));
               return;
             }
-            if (!central || live?.account.id !== candidate.session.viewer.accountId || live.familyId !== central.familyId || (result && result.context.sessionId !== live.familyId)) throw new ShownError('Your Portico Account changed. Choose the profile again.');
+            if (!central || live?.account.id !== candidate.session.viewer.accountId || live.familyId !== central.familyId || (result && result.context.sessionId !== live.familyId)) throw new ShownError(activeI18n().t('web.signIn.error.accountChanged'));
           },
           verify: (record, signal) => profileAPI(record.serverUrl, record.session.accessToken).request('/v1/me', 'GET', undefined, signal),
           prepareContext: result ? () => credentials!.updateContext({profileId: result.context.profileId, server: result.server}) : undefined,
