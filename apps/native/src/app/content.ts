@@ -3,7 +3,7 @@ import {cardCaption, continueCaption, formatClock, formatDuration} from '../../.
 import type {ImageSourcePropType} from 'react-native';
 import {LibraryContentService, type ContentRoute, type LibraryContentSnapshot} from '../../../../packages/client-core/src/library-content';
 import {compatContentApi} from '../../../../packages/client-core/src/presentation/index';
-import {viewerScope} from '../../../../packages/client-core/src/presentation/index';
+import {viewerScope} from './viewer-scope';
 import {hasRealOrigin, useSession} from './session';
 import {activeI18n} from './errors';
 
@@ -85,7 +85,8 @@ export function useArtwork() {
 }
 
 /** The pure helpers live in client-core's shared presentation layer (X-05); re-exported for the screens. */
-export {viewerScope, shapeFor, iconFor, progressFor, formatDuration, formatClock, formatBytes, friendlyHost} from '../../../../packages/client-core/src/presentation/index';
+export {viewerScope};
+export {shapeFor, iconFor, progressFor, formatDuration, formatClock, formatBytes, friendlyHost} from '../../../../packages/client-core/src/presentation/index';
 
 /** A card's caption: client-core's one rule (an album names its artist, a book its author, an episode its show and number). */
 export function captionFor(entry: Parameters<typeof cardCaption>[0]): string | undefined {

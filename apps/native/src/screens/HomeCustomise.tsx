@@ -142,7 +142,8 @@ function SavedViewSheet({open, exclude, onPick, onClose}: {open: boolean; exclud
   const i18n = useI18n();
   const {space} = useTheme();
   const {api, session} = useSession();
-  const service = useMemo(() => new PersonalSavedService(api, viewerScope(session, api), requestId), [api, session]);
+  const scope = useMemo(() => viewerScope(session, api), [session, api]);
+  const service = useMemo(() => new PersonalSavedService(api, scope, requestId), [api, scope]);
   const [snapshot, setSnapshot] = useState<PersonalSavedSnapshot>(service.getSnapshot());
   useEffect(() => {
     const unsubscribe = service.subscribe(() => setSnapshot(service.getSnapshot()));

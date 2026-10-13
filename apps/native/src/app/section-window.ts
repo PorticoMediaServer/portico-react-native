@@ -4,7 +4,8 @@ import type {ContentEntry, ContentRoute, ContentSection} from '../../../../packa
 import {SECTION_PAGE, sectionSource} from './section-source';
 
 export {SECTION_PAGE, sectionSource};
-import {compatContentApi, viewerScope} from '../../../../packages/client-core/src/presentation/index';
+import {compatContentApi} from '../../../../packages/client-core/src/presentation/index';
+import {viewerScope} from './viewer-scope';
 import {useSession} from './session';
 
 /** One collection per entity section (reseeded when the entity's first page is read again). */

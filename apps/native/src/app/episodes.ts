@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {createWindowedCollection, type PageResult, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import {validateContentProjection, type ContentEntry, type ContentScope, type LibraryContentApi} from '../../../../packages/client-core/src/library-content';
-import {viewerScope} from '../../../../packages/client-core/src/presentation/index';
+import {viewerScope} from './viewer-scope';
 import {useSession} from './session';
 
 /** The show workspace's episode page size; the workspace's own first page seeds page 0. */
