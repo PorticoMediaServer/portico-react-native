@@ -80,7 +80,7 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     if (subtitle.visibility != View.VISIBLE) return
     val density = resources.displayMetrics.density
     val line = (w * 0.9f).toInt()
-    subtitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(12 * density, Math.min(40 * density, w * 0.035f)))
+    subtitle.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(12 * density, Math.min(40 * density, w * 0.035f)) * PorticoMpvSupport.captionScale(context).toFloat())
     subtitle.measure(MeasureSpec.makeMeasureSpec(line, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec((h * 0.6f).toInt(), MeasureSpec.AT_MOST))
     val textHeight = subtitle.measuredHeight
     val x = left + (w - line) / 2
