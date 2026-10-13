@@ -89,9 +89,8 @@ function placed<T extends {id: string}>(present: readonly T[], added: T, order: 
 
 /** A page's sub-pages after its sections changed: one with no section left is gone, and a single one is not a choice. */
 function withTabs(page: SettingsPage, sections: readonly SettingsSection[], tabs = page.tabs): SettingsPage {
-  const {tabs: _tabs, ...rest} = page;
   const kept = tabs?.filter(tab => sections.some(section => section.tab === tab.id));
-  return {...rest, ...(kept && kept.length > 1 ? {tabs: kept} : {}), sections};
+  return {id: page.id, title: page.title, icon: page.icon, ...(kept && kept.length > 1 ? {tabs: kept} : {}), sections};
 }
 
 /**

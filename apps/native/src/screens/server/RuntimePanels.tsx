@@ -13,7 +13,7 @@ import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {operationId, problem, untilDone, useAction, usePagedList, useRead, useServerId} from '../../app/server-console';
-import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, Sheet, Text, rowPaddingX, useSpecPlatform} from '../../ui';
+import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, Sheet, Text, rowPaddingX, useSpecPlatform, useTheme} from '../../ui';
 import {useServerForm} from '../settings/ServerForms';
 
 /** Schedule › pause background work for an hour, or resume it. The pause ends by itself; work already running finishes its step. A row of its section. */
@@ -215,6 +215,7 @@ export function ClientReportsPanel() {
   const {api} = useSession();
   const serverId = useServerId();
   const pad = rowPaddingX(useSpecPlatform());
+  const {space} = useTheme();
   const read = usePagedList(async cursor => { const page = await listClientReports(api, serverId, cursor); return {items: [...page.items], nextCursor: page.nextCursor ?? ''}; }, [api, serverId]);
   const [menu, setMenu] = useState<ClientReport>();
   const [open, setOpen] = useState<{report: ClientReport; body?: string; error?: string}>();
@@ -237,7 +238,7 @@ export function ClientReportsPanel() {
         onSelect={id => { const report = menu; if (!report) return; if (id === 'read') show(report); else setRemoving(report); }} />
       <Sheet open={!!open} onClose={() => setOpen(undefined)} kind="form" cancelLabel={t('action.done')} title={t('server.reports.title')} subtitle={open ? `${sender(open.report)} · ${i18n.dateTime(open.report.receivedAt)}` : undefined}
         leading={open?.body ? {label: t('invite.share'), onPress: () => { void Share.share({message: open.body ?? ''}).catch(() => {}); }} : undefined}>
-        <View style={{paddingHorizontal: pad, gap: 12}}>
+        <View style={{paddingHorizontal: pad, gap: space.md}}>
           {open?.error ? <Notice tone="error" message={open.error} action={t('action.tryAgain')} onAction={() => show(open.report)} /> : null}
           {open?.body !== undefined ? <Text variant="caption" tone="secondary" selectable>{open.body || t('server.reports.empty')}</Text> : null}
         </View>

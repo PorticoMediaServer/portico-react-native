@@ -142,14 +142,17 @@ function MergeSheet({open, title, onClose, onMerged}: {open: boolean; title: Too
   const [other, setOther] = useState<Other>();
   const [keep, setKeep] = useState(title.id);
   const group = mergeSearchGroup(title.kind);
-  useEffect(() => { if (open) { setQuery(''); setOther(undefined); setKeep(title.id); action.clear(); service.cancel(); }
+  // A search that cannot be started (the sheet is on its way out) is simply not made; one that fails says so in the list.
+  const search = (words: string) => { try { if (words) void service.select(words, {group, libraryIds: [title.libraryId]}).catch(() => {}); else service.cancel(); } catch { /* the service was let go with the page */ } };
+  useEffect(() => { if (open) { setQuery(''); setOther(undefined); setKeep(title.id); action.clear(); search(''); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, title.id]);
   // What is typed is searched once typing pauses.
   useEffect(() => {
     if (!open || !group || other) return;
-    const timer = setTimeout(() => { void service.select(query.trim(), {group, libraryIds: [title.libraryId]}).catch(() => {}); }, 300);
+    const timer = setTimeout(() => search(query.trim()), 300);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, group, other, query, service, title.libraryId]);
   // A show is named by its own id, as its page is; the rest by the entry's.
   const found = (snapshot.groups.find(g => g.id === group)?.items ?? []).flatMap((result): Other[] => {

@@ -4,7 +4,7 @@ import {parseRatingSystems, type RatingSystem} from '../../../../../packages/cli
 import {deleteMember, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, previewMemberDeletion, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberDeletionPreview, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
 import {accessListPath, clockText, memberOffLine, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
-import {VIEWING_HOURS_MAX, dayChoiceOf, daysOfChoice, newViewingHours, type DayChoice} from '../../../../../packages/client-core/src/server-admin/people-words';
+import {VIEWING_HOURS_MAX, dayChoiceOf, daysOfChoice, newViewingHours, trustApplies, type DayChoice} from '../../../../../packages/client-core/src/server-admin/people-words';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
@@ -282,11 +282,16 @@ function AddAccountSheet({open, libraries, onClose, onAdded}: {open: boolean; li
 function AccountDevices({accountId}: {accountId: string}) {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = usePagedList(async cursor => { const raw = await api.request(accessListPath('devices', cursor) + '&account=' + encodeURIComponent(accountId)); return {items: [...parseAccessDevicePage(raw).items], nextCursor: nextCursorOf(raw)}; }, [api, accountId]);
+  const page = async (cursor: string) => { const raw = await api.request(accessListPath('devices', cursor) + '&account=' + encodeURIComponent(accountId)); return {items: [...parseAccessDevicePage(raw).items], nextCursor: nextCursorOf(raw)}; };
+  const read = usePagedList(page, [api, accountId]);
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [menu, setMenu] = useState<AccessDevice>();
-  const trust = (d: AccessDevice, next: 'approved' | 'blocked') => void action.run(async () => { await api.request(`/v1/admin/access/devices/${encodeURIComponent(d.id)}/trust`, 'PUT', {expectedRevision: d.revision, operationId: opIds.forPayload(JSON.stringify({id: d.id, revision: d.revision, trust: next})), trust: next}); opIds.release(); read.reload(); });
+  // A device that signed in again since the list was read has moved on: it is read again and the choice is sent again, unless it already is what was chosen.
+  const trust = (d: AccessDevice, next: 'approved' | 'blocked') => void action.run(async () => {
+    await sendFresh(d, x => api.request(`/v1/admin/access/devices/${encodeURIComponent(x.id)}/trust`, 'PUT', {expectedRevision: x.revision, operationId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, trust: next})), trust: next}), () => findInPages(page, x => x.id === d.id), now => trustApplies(now, next));
+    opIds.release(); read.reload();
+  });
   const waiting = read.items?.filter(d => d.trust === 'pending').length ?? 0;
   return (
     <>
@@ -308,7 +313,8 @@ function AccountDevices({accountId}: {accountId: string}) {
 export function InvitationsPanel() {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = usePagedList(async cursor => { const raw = await api.request(accessListPath('invitations', cursor)); return {items: rows(raw, parseInvitation), nextCursor: nextCursorOf(raw)}; }, [api]);
+  const page = async (cursor: string) => { const raw = await api.request(accessListPath('invitations', cursor)); return {items: rows(raw, parseInvitation), nextCursor: nextCursorOf(raw)}; };
+  const read = usePagedList(page, [api]);
   const [opIds] = useState(() => createOperationIds(operationId));
   const [inviting, setInviting] = useState(false);
   const [revoking, setRevoking] = useState<Invitation>();
@@ -324,7 +330,13 @@ export function InvitationsPanel() {
       </RowGroup>
       <InviteSheet open={inviting} onClose={() => { setInviting(false); read.reload(); }} />
       <ConfirmSheet open={!!revoking} onDismiss={() => setRevoking(undefined)} title={t('server.people.revokeInvitation', {name: revoking?.email || t('web.access.invitationUnlabelled')})} confirmLabel={t('web.access.revoke')} describeError={e => problem(e, 'action')}
-        onConfirm={async () => { const i = revoking; if (!i) return; await api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}); opIds.release(); setRevoking(undefined); read.reload(); }} />
+        onConfirm={async () => {
+          const invitation = revoking;
+          if (!invitation) return;
+          // Used or already revoked in the meantime: there is nothing left to revoke.
+          await sendFresh(invitation, i => api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}), () => findInPages(page, i => i.id === invitation.id), now => (now.state === 'pending' ? true : 'done'));
+          opIds.release(); setRevoking(undefined); read.reload();
+        }} />
     </>
   );
 }

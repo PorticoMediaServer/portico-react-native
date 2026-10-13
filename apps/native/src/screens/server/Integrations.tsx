@@ -205,6 +205,7 @@ export function AccessTokensPanel() {
 export function WebhooksPanel() {
   const i18n = useI18n();
   const t = i18n.t;
+  const {space} = useTheme();
   const {api} = useSession();
   // Whether each one is arriving changes as the server delivers; nothing on the feed says so.
   const read = useRead(() => listWebhooks(api), [api], {every: QUIET_READ_EVERY_MS});
@@ -252,7 +253,7 @@ export function WebhooksPanel() {
           if (change) saved(await updateWebhook(api, w.id, change));
         }).then(ok => { if (ok) setEditing(undefined); })} />
       <Sheet open={!!issued?.secret} onClose={() => setIssued(undefined)} kind="acknowledge" title={t('api.webhooks.secretTitle')} primary={{label: t('web.access.copiedIt'), onPress: () => setIssued(undefined)}}>
-        <View style={{gap: 12}}>
+        <View style={{gap: space.md}}>
           <Notice tone="warning" message={t('api.webhooks.secretShownOnce')} />
           <SecretRows label={t('api.webhooks.secret')} secret={issued?.secret ?? ''} share={t('invite.share')} />
         </View>
