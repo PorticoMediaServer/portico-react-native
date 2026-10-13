@@ -28,7 +28,8 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
   useEffect(() => {
     void service.start();
     const sub = AppState.addEventListener('change', s => {
-      if (s === 'active') void service.start();
+      // Coming back to the app is a person asking again; a timed retry is not.
+      if (s === 'active') { service.userActed(); void service.start(); }
       else service.pause();
     });
     return () => {
@@ -78,12 +79,12 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
           ) : state.phase === 'denied' ? (
             <>
               <Text variant="body" tone="secondary" align="center">{i18n.t('activation.declined')}</Text>
-              <Button variant="secondary" label={i18n.t('activation.getNewCode')} onPress={() => void service.start()} />
+              <Button variant="secondary" label={i18n.t('activation.getNewCode')} onPress={() => { service.userActed(); void service.start(); }} />
             </>
           ) : (
             <>
               <Text variant="body" tone="secondary" align="center">{state.phase === 'error' ? i18n.t('activation.codeFailed') : i18n.t('activation.preparingCode')}</Text>
-              {state.phase === 'error' ? <Button variant="secondary" label={i18n.t('action.tryAgain')} onPress={() => void service.start()} /> : null}
+              {state.phase === 'error' ? <Button variant="secondary" label={i18n.t('action.tryAgain')} onPress={() => { service.userActed(); void service.start(); }} /> : null}
             </>
           )}
         </View>
