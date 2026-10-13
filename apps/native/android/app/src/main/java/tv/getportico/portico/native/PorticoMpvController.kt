@@ -109,7 +109,6 @@ internal class PorticoMpvController(private val context: Context) {
   private var tracks: List<Map<String, Any?>> = emptyList()
   private var chapters: List<Map<String, Any?>> = emptyList()
   private var videoParams: Map<String, Any?> = emptyMap()
-  private var teardown: Runnable? = null
 
   private var audioCommand: Map<String, Any?>? = null
   private var audioMap: Map<String, Int>? = null
@@ -147,6 +146,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var displayWait = 0
   /** The first frame is ready but no view has lent its surface yet: readiness waits for it (television). */
   private var pendingDisplayReady: (() -> Unit)? = null
+  private var pendingDisplayDeadline = 0L
 
   // Sound: audio focus is the app's to ask for, since mpv opens its own output.
   private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -173,6 +173,8 @@ internal class PorticoMpvController(private val context: Context) {
   private val captioning = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
   private val captionsChanged = object : CaptioningManager.CaptioningChangeListener() {
     override fun onFontScaleChanged(fontScale: Float) { main.post { captionStyleChanged() } }
+    override fun onUserStyleChanged(userStyle: CaptioningManager.CaptionStyle) { main.post { captionStyleChanged() } }
+    override fun onEnabledChanged(enabled: Boolean) { main.post { captionStyleChanged() } }
   }
 
   private val devicesChanged = object : AudioDeviceCallback() {
@@ -239,9 +241,9 @@ internal class PorticoMpvController(private val context: Context) {
     routeEpoch++
     attachmentListeners.toList().forEach { it() }
     releaseAudioFocus()
-    scheduleTeardown()
-    val current = core
-    if (completion != null) { if (current != null) current.flush(completion) else completion() }
+    // The stop command only requests teardown. Termination is the fence that proves its sound
+    // has closed before the coordinator starts the other engine, and runs off the main thread.
+    destroyCore(completion)
   }
 
   fun invalidate() {
@@ -250,10 +252,8 @@ internal class PorticoMpvController(private val context: Context) {
     release(lease)
     PorticoAppVisibility.listeners.remove(visibility)
     captioning?.removeCaptioningChangeListener(captionsChanged)
-    teardown?.let { main.removeCallbacks(it) }
-    teardown = null
     destroyCore()
-    relay.stop()
+    relay.destroy()
   }
 
   // --- commands --------------------------------------------------------------------------
@@ -500,8 +500,6 @@ internal class PorticoMpvController(private val context: Context) {
   }
 
   private fun ensureCore(): PorticoMpvCore? {
-    teardown?.let { main.removeCallbacks(it) }
-    teardown = null
     core?.let { return it }
     outputChannels = PorticoMpvDevice.outputChannels(context)
     PorticoMpvFonts.select(context, null)
@@ -530,37 +528,23 @@ internal class PorticoMpvController(private val context: Context) {
     surface?.let { if (it.isValid) started.attachSurface(it, surfaceWidth, surfaceHeight) }
   }
 
-  private fun destroyCore() {
-    val current = core ?: return
+  private fun destroyCore(completion: (() -> Unit)? = null) {
+    val current = core
+    if (current == null) { completion?.invoke(); return }
     core = null
     directOutput = false
     // The surface goes back before mpv ends, so nothing draws on it afterwards.
     current.detachSurface()
-    current.destroy()
+    current.destroy(completion)
     if (watchingDevices) {
       watchingDevices = false
       try { audioManager.unregisterAudioDeviceCallback(devicesChanged) } catch (_: Exception) {}
     }
   }
 
-  /** mpv is kept for a short while after a lease ends, so the next title starts at once. */
-  private fun scheduleTeardown() {
-    teardown?.let { main.removeCallbacks(it) }
-    val work = Runnable {
-      teardown = null
-      if (lease != null) return@Runnable
-      destroyCore()
-      relay.stop()
-    }
-    teardown = work
-    main.postDelayed(work, 30_000)
-  }
-
   /** The system is short of memory: an idle mpv is given up at once. */
   fun trimMemory() {
     if (lease != null || core == null) return
-    teardown?.let { main.removeCallbacks(it) }
-    teardown = null
     destroyCore()
     relay.stop()
   }
@@ -695,7 +679,10 @@ internal class PorticoMpvController(private val context: Context) {
       }
       is PorticoMpvEvent.EndFile -> {
         if (event.reason == PorticoMpvNative.END_ERROR) publishFailure(event.code, event.message, event.log)
-        else if (event.reason == PorticoMpvNative.END_EOF) reachedEnd()
+        else if (event.reason == PorticoMpvNative.END_EOF) {
+          if (!restarted) publishFailure(PorticoMpvNative.ERROR_NOTHING_TO_PLAY, "file ended before playback began", emptyList())
+          else reachedEnd()
+        }
       }
       is PorticoMpvEvent.TracksChanged -> {
         tracks = event.tracks
@@ -1274,11 +1261,13 @@ internal class PorticoMpvController(private val context: Context) {
     val same = style == captionStyle
     captionStyle = style
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(style), 2))
-    when (PorticoMpvSupport.styleBackground(style)) {
-      "none" -> { core?.set("sub-border-style", "outline-and-shadow"); core?.set("sub-outline-size", "3"); core?.set("sub-border-size", "3"); core?.set("sub-back-color", "0.0/0.0/0.0/0.0") }
-      "opaque" -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/1.0") }
-      else -> { core?.set("sub-border-style", "background-box"); core?.set("sub-outline-size", "0"); core?.set("sub-border-size", "0"); core?.set("sub-back-color", "0.0/0.0/0.0/0.7") }
-    }
+    val (text, box) = PorticoMpvSupport.captionColors(context, style)
+    core?.set("sub-color", PorticoMpvSupport.captionColor(text))
+    core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
+    val edge = android.graphics.Color.alpha(box) < 77
+    core?.set("sub-border-style", if (edge) "outline-and-shadow" else "background-box")
+    core?.set("sub-border-size", if (edge) "3" else "0")
+    core?.set("sub-outline-size", if (edge) "3" else "0")
     if (!same) overlayListeners.toList().forEach { it() }
   }
 
@@ -1409,7 +1398,7 @@ internal class PorticoMpvController(private val context: Context) {
   /** The viewer changed the caption size in the system's Accessibility settings. */
   private fun captionStyleChanged() {
     if (invalidated) return
-    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(captionStyle), 2))
+    applyCaptionStyle(captionStyle)
     overlayListeners.toList().forEach { it() }
   }
 
@@ -1520,7 +1509,7 @@ internal class PorticoMpvController(private val context: Context) {
     if (waiting != null) {
       pendingDisplayReady = null
       displayHold = false
-      matchDisplay(waiting)
+      matchDisplay(pendingDisplayDeadline, waiting)
     } else if (restarted && fileRequested) {
       if (!displayHold) matchDisplay { applyIntent() }
       else frameRate()?.let { fps -> if (next.isValid) voteFrameRate(next, fps) }
@@ -1569,15 +1558,16 @@ internal class PorticoMpvController(private val context: Context) {
    * switches. An HDR title drawn straight onto the surface also switches the screen to HDR
    * here, and the same wait covers it.
    */
-  private fun matchDisplay(done: () -> Unit) {
+  private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit) {
     val target = surface
     val fps = frameRate()
-    if (Build.VERSION.SDK_INT >= 30 && PorticoMpvDevice.isTelevision && fps != null && (target == null || !target.isValid) && !backgroundHold) {
+    if (((Build.VERSION.SDK_INT >= 30 && fps != null) || directOutput) && PorticoMpvDevice.isTelevision && (target == null || !target.isValid) && !backgroundHold) {
       // Even a very fast load waits for its view before the television is asked to switch, so
       // the title never starts and then loses its opening seconds to the switch.
       displayHold = true
       core?.set("pause", "yes")
       pendingDisplayReady = done
+      pendingDisplayDeadline = deadline
       val epoch = loadEpoch
       main.postDelayed({
         val waiting = pendingDisplayReady
@@ -1586,10 +1576,10 @@ internal class PorticoMpvController(private val context: Context) {
           displayHold = false
           waiting()
         }
-      }, 10_000)
+      }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
       return
     }
-    if (Build.VERSION.SDK_INT < 30 || target == null || !target.isValid || fps == null) { done(); return }
+    if ((Build.VERSION.SDK_INT < 30 && !directOutput) || target == null || !target.isValid || (fps == null && !directOutput)) { done(); return }
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
     // does not break, or always.
@@ -1598,11 +1588,12 @@ internal class PorticoMpvController(private val context: Context) {
     if (never && !directOutput) { done(); return }
     val display = displays?.getDisplay(Display.DEFAULT_DISPLAY)
     val before = display?.mode
-    if (!never && !voteFrameRate(target, fps)) { done(); return }
+    val voted = Build.VERSION.SDK_INT >= 30 && !never && fps != null && voteFrameRate(target, fps)
+    if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && !voted) { done(); return }
     // A phone or tablet changes rate without a break in the picture, and so does a television
     // set to switch only when there is none: nothing to wait for. A television that may
     // renegotiate its connection (or is about to switch to HDR) is waited for.
-    val mayBreak = !never && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
+    val mayBreak = voted && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
     if (!PorticoMpvDevice.isTelevision || displays == null || display == null || !(mayBreak || directOutput)) { done(); return }
     val epoch = loadEpoch
     val wait = ++displayWait
@@ -1639,7 +1630,7 @@ internal class PorticoMpvController(private val context: Context) {
     displays.registerDisplayListener(listener, main)
     // No switch begins when the television is already in the right mode.
     main.postDelayed({ if (!switching) settle() }, 1000)
-    main.postDelayed({ settle() }, 10_000)
+    main.postDelayed({ settle() }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
   }
 
   /** The display goes back to its own rate a moment after playback is left, not between two episodes. */

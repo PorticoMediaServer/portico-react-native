@@ -122,12 +122,12 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
     // the player there is no video session: a second one, even for a moment, takes the headset
     // and lock-screen keys with it when it goes.
     if (video == null || player == null || controller?.listeningActive == true) {
-      close()
+      close(stopArtwork = video == null)
       if (video != null) watch(true)
       return
     }
     if (wrapped !== player) {
-      close()
+      close(stopArtwork = false)
       watch(true)
       wrapped = player
       player.addListener(interruptions)
@@ -143,9 +143,11 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
     (session?.player as? Proxy)?.describe()
   }
 
-  private fun close() {
-    artworkCall?.cancel()
-    artworkCall = null
+  private fun close(stopArtwork: Boolean = true) {
+    if (stopArtwork) {
+      artworkCall?.cancel()
+      artworkCall = null
+    }
     wrapped?.removeListener(interruptions)
     wrapped = null
     session?.release()
@@ -185,7 +187,18 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
       override fun onFailure(call: Call, e: IOException) {}
 
       override fun onResponse(call: Call, response: Response) {
-        val bytes = response.use { if (it.code == 200 && (it.body?.contentLength() ?: 0) <= ARTWORK_LIMIT) try { it.body?.bytes() } catch (_: IOException) { null } else null }
+        val bytes = response.use {
+          val body = it.body
+          if (it.code != 200 || body == null || body.contentLength() > ARTWORK_LIMIT) null
+          else try {
+            val source = body.source()
+            val buffer = okio.Buffer()
+            while (source.read(buffer, 16384) != -1L) {
+              if (buffer.size > ARTWORK_LIMIT) return@use null
+            }
+            buffer.readByteArray()
+          } catch (_: IOException) { null }
+        }
         if (bytes == null || bytes.size > ARTWORK_LIMIT) return
         main.post { if (info?.get("itemId") == item && artworkCall === call) { artwork = bytes; (session?.player as? Proxy)?.describe() } }
       }

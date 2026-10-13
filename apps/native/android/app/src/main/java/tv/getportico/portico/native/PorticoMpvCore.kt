@@ -172,11 +172,6 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     }
   }
 
-  /** Runs [done] on the main thread once every command asked for so far has been carried out. */
-  fun flush(done: () -> Unit) {
-    if (!queue.post { main.post(done) }) main.post(done)
-  }
-
   /** Whether the app wants [PorticoMpvEvent.FastTick] (it is drawing subtitles itself). */
   fun setFastTicks(wanted: Boolean) {
     queue.post {
@@ -192,10 +187,10 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   }
 
   /** Ends mpv. Nothing is delivered afterwards. Call on the main thread. */
-  fun destroy() {
+  fun destroy(completion: (() -> Unit)? = null) {
     onEvent = null
     onStarted = null
-    queue.post {
+    val queued = queue.post {
       stopTickers()
       epoch = 0
       started = false
@@ -204,8 +199,10 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
         handle = 0
         if (current != 0L) PorticoMpvNative.destroy(current)
       }
+      if (completion != null) main.post(completion)
       thread.quitSafely()
     }
+    if (!queued && completion != null) main.post(completion)
   }
 
   // --- the surface (the caller's thread; these wait) --------------------------------------
@@ -394,7 +391,12 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
         if (!started) return
         deliver(PorticoMpvEvent.FileLoaded(PorticoMpvSupport.jsonList(string("track-list")), PorticoMpvSupport.jsonList(string("chapter-list"))))
       }
-      PorticoMpvNative.EVENT_PLAYBACK_RESTART -> if (started) deliver(PorticoMpvEvent.PlaybackRestart)
+      PorticoMpvNative.EVENT_PLAYBACK_RESTART -> if (started) {
+        // A property notification can trail restart. The first frame's colour information
+        // must reach the controller before it chooses the output and releases the display hold.
+        deliver(PorticoMpvEvent.VideoParams(PorticoMpvSupport.jsonMap(string("video-params"))))
+        deliver(PorticoMpvEvent.PlaybackRestart)
+      }
       PorticoMpvNative.EVENT_END_FILE -> {
         if (!started) return
         if (entry != 0L && eventEntry != entry) return

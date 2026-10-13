@@ -1,8 +1,51 @@
 import TVServices
+import Foundation
+import CryptoKit
 import Security
 import ImageIO
 import UniformTypeIdentifiers
 import os
+
+/// A bounded, cookie-free shelf read. The session owns its delegate until completion.
+private final class PorticoShelfRead: NSObject, URLSessionDataDelegate {
+  private let limit: Int
+  private var body = Data()
+  private var response: URLResponse?
+  private var session: URLSession?
+  private var task: URLSessionDataTask?
+  private var completion: ((Data?, URLResponse?, Error?) -> Void)?
+
+  private init(limit: Int, completion: @escaping (Data?, URLResponse?, Error?) -> Void) {
+    self.limit = limit; self.completion = completion; super.init()
+  }
+  static func fetch(_ request: URLRequest, limit: Int, completion: @escaping (Data?, URLResponse?, Error?) -> Void) {
+    let reader = PorticoShelfRead(limit: limit, completion: completion)
+    let config = URLSessionConfiguration.ephemeral
+    config.urlCache = nil; config.httpCookieStorage = nil; config.httpShouldSetCookies = false
+    config.urlCredentialStorage = nil; config.timeoutIntervalForResource = 20
+    let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
+    let session = URLSession(configuration: config, delegate: reader, delegateQueue: queue)
+    reader.session = session; reader.task = session.dataTask(with: request); reader.task?.resume()
+  }
+  func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+    completionHandler(nil)
+  }
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                  completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    self.response = response
+    completionHandler(response.expectedContentLength > Int64(limit) ? .cancel : .allow)
+  }
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    guard data.count <= limit - body.count else { dataTask.cancel(); return }
+    body.append(data)
+  }
+  func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    let done = completion; completion = nil
+    self.task = nil; self.session = nil; session.finishTasksAndInvalidate()
+    done?(error == nil ? body : nil, response, error)
+  }
+}
 
 /// The Portico shelf on the Apple TV home screen.
 ///
@@ -47,24 +90,32 @@ final class ContentProvider: TVTopShelfContentProvider {
     return UserDefaults(suiteName: group)?.string(forKey: "topshelf.token")
   }
 
-  private static var cacheDirectory: URL? {
-    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
-      .appendingPathComponent("Library/Caches", isDirectory: true)
+  private static func cacheDirectory(origin: URL, owner: String) -> URL? {
+    // A response from a retired profile may finish after the app cleared its cache. It must
+    // never write into the new profile's folder, even if that happens between a check and write.
+    let identity = Data((origin.absoluteString + "\u{0}" + owner).utf8)
+    let key = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+    return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
+      .appendingPathComponent("Library/Caches/topshelf", isDirectory: true).appendingPathComponent(key, isDirectory: true)
   }
-  private static var feedURL: URL? { cacheDirectory?.appendingPathComponent("topshelf-feed.json") }
-  private static func posterURL(_ id: String) -> URL? {
+  private static func posterURL(_ id: String, cache: URL?) -> URL? {
     guard id.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else { return nil }
-    return cacheDirectory?.appendingPathComponent("topshelf-art", isDirectory: true).appendingPathComponent(id + ".jpg")
+    return cache?.appendingPathComponent("art", isDirectory: true).appendingPathComponent(id + ".jpg")
   }
 
   override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
     let log = Self.log
     let defaults = UserDefaults(suiteName: Self.group)
     guard let base = defaults?.string(forKey: "topshelf.baseUrl"), let origin = URL(string: base),
-          origin.scheme == "https" || origin.scheme == "http" else {
+          origin.scheme == "https" || origin.scheme == "http",
+          !(origin.host ?? "").isEmpty, origin.user == nil, origin.password == nil, origin.query == nil, origin.fragment == nil,
+          origin.path.isEmpty || origin.path == "/" else {
       log.error("no server configured; shelf empty")
       completionHandler(nil); return
     }
+    let owner = defaults?.string(forKey: "topshelf.owner") ?? ""
+    let cache = Self.cacheDirectory(origin: origin, owner: owner)
+    let feedURL = cache?.appendingPathComponent("feed.json")
     guard let token = Self.token() else {
       log.error("no feed token in the shared keychain or defaults; shelf empty")
       completionHandler(nil); return
@@ -73,16 +124,16 @@ final class ContentProvider: TVTopShelfContentProvider {
     var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
     request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
-    let session = URLSession(configuration: .ephemeral)
-    session.dataTask(with: request) { data, response, error in
+    PorticoShelfRead.fetch(request, limit: 1024 * 1024) { data, response, error in
+      guard Self.isCurrent(origin: origin, owner: owner) else { completionHandler(nil); return }
       let status = (response as? HTTPURLResponse)?.statusCode ?? 0
       var body = data
       if let error { log.error("feed request failed: \(error.localizedDescription, privacy: .public)") }
       if status != 200 {
         log.error("feed answered \(status, privacy: .public); using the last feed if there is one")
-        body = Self.feedURL.flatMap { try? Data(contentsOf: $0) }
+        body = feedURL.flatMap { try? Data(contentsOf: $0) }
         // An expired or revoked token must not keep showing someone's history.
-        if status == 401 || status == 403 { Self.clearCache(); body = nil }
+        if status == 401 || status == 403 { Self.clearCache(cache); body = nil }
       }
       guard let body else { completionHandler(nil); return }
       let feed: Feed
@@ -90,7 +141,7 @@ final class ContentProvider: TVTopShelfContentProvider {
         log.error("feed could not be read: \(String(describing: error), privacy: .public)")
         completionHandler(nil); return
       }
-      if status == 200, let file = Self.feedURL {
+      if status == 200, let file = feedURL {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? body.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
       }
@@ -98,15 +149,21 @@ final class ContentProvider: TVTopShelfContentProvider {
       // Posters: whatever is cached is used now; missing ones are fetched for up to ~6 s, and any
       // that arrive later refresh the shelf on its next load.
       let missing = (continuing + (next?.entries ?? [])).filter { entry in
-        guard entry.imageUrl != nil, let file = Self.posterURL(entry.id) else { return false }
+        guard entry.imageUrl != nil, let file = Self.posterURL(entry.id, cache: cache) else { return false }
         return !FileManager.default.fileExists(atPath: file.path)
       }
-      Self.fetchPosters(missing, origin: origin, token: token, session: session, budget: 6) {
-        let content = Self.content(continuing: continuing, next: next)
+      Self.fetchPosters(missing, origin: origin, owner: owner, token: token, cache: cache, budget: 6) {
+        guard Self.isCurrent(origin: origin, owner: owner) else { completionHandler(nil); return }
+        let content = Self.content(continuing: continuing, next: next, cache: cache)
         log.notice("feed drawn: \(continuing.count, privacy: .public) continue, \(next?.entries.count ?? 0, privacy: .public) next")
         completionHandler(content)
       }
-    }.resume()
+    }
+  }
+
+  private static func isCurrent(origin: URL, owner: String) -> Bool {
+    let defaults = UserDefaults(suiteName: group)
+    return defaults?.string(forKey: "topshelf.baseUrl") == origin.absoluteString && (defaults?.string(forKey: "topshelf.owner") ?? "") == owner
   }
 
   /// Continue Watching from the server's `continue` row, and the next row of the viewer's Home
@@ -122,7 +179,7 @@ final class ContentProvider: TVTopShelfContentProvider {
     return (continuing, nil)
   }
 
-  private static func fetchPosters(_ entries: [Feed.Entry], origin: URL, token: String, session: URLSession, budget: TimeInterval, done: @escaping () -> Void) {
+  private static func fetchPosters(_ entries: [Feed.Entry], origin: URL, owner: String, token: String, cache: URL?, budget: TimeInterval, done: @escaping () -> Void) {
     guard !entries.isEmpty else { done(); return }
     let group = DispatchGroup(), gate = DispatchSemaphore(value: 4)
     let queue = DispatchQueue(label: "tv.getportico.topshelf.art", attributes: .concurrent)
@@ -131,22 +188,23 @@ final class ContentProvider: TVTopShelfContentProvider {
       // The server's poster URL is used as given: its query carries the artwork grant the art
       // route resolves (and the width), so nothing in it may be replaced.
       guard let path = entry.imageUrl, let parts = URLComponents(string: path) else { continue }
-      guard let url = parts.url(relativeTo: origin)?.absoluteURL, url.host == origin.host, let file = posterURL(entry.id) else { continue }
+      guard let url = parts.url(relativeTo: origin)?.absoluteURL, url.scheme == origin.scheme, url.host?.lowercased() == origin.host?.lowercased(), url.port == origin.port,
+            url.user == nil, url.password == nil, url.fragment == nil, let file = posterURL(entry.id, cache: cache) else { continue }
       group.enter()
       queue.async {
         gate.wait()
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         request.setValue("image/*", forHTTPHeaderField: "Accept")
-        session.dataTask(with: request) { data, response, error in
+        PorticoShelfRead.fetch(request, limit: 8 << 20) { data, response, error in
           defer { gate.signal(); group.leave() }
-          guard (response as? HTTPURLResponse)?.statusCode == 200, let data, data.count < 8 << 20, let small = shrink(data) else {
+          guard Self.isCurrent(origin: origin, owner: owner), (response as? HTTPURLResponse)?.statusCode == 200, let data, data.count < 8 << 20, let small = shrink(data) else {
             log.error("poster \(entry.id, privacy: .public) answered \((response as? HTTPURLResponse)?.statusCode ?? 0, privacy: .public) \(error?.localizedDescription ?? "", privacy: .public)")
             return
           }
           try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
           if (try? small.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil { lock.lock(); any = true; lock.unlock() }
-        }.resume()
+        }
       }
     }
     // Draw with what's there after the budget; posters that land later refresh the shelf.
@@ -171,19 +229,18 @@ final class ContentProvider: TVTopShelfContentProvider {
     return CGImageDestinationFinalize(destination) ? out as Data : nil
   }
 
-  private static func clearCache() {
-    if let feed = feedURL { try? FileManager.default.removeItem(at: feed) }
-    if let art = cacheDirectory?.appendingPathComponent("topshelf-art", isDirectory: true) { try? FileManager.default.removeItem(at: art) }
+  private static func clearCache(_ cache: URL?) {
+    if let cache = cache { try? FileManager.default.removeItem(at: cache) }
   }
 
-  private static func item(_ entry: Feed.Entry, section: String) -> TVTopShelfSectionedItem? {
+  private static func item(_ entry: Feed.Entry, section: String, cache: URL?) -> TVTopShelfSectionedItem? {
     guard let display = URL(string: entry.displayUrl), display.scheme == "portico" else { return nil }
     let item = TVTopShelfSectionedItem(identifier: section + "/" + entry.id)
     item.title = entry.title
     item.imageShape = .poster
     // A tile without a poster would show the system's loading dots; leave it out until its
     // poster has arrived (the shelf refreshes when it does).
-    guard let file = posterURL(entry.id), FileManager.default.fileExists(atPath: file.path) else { return nil }
+    guard let file = posterURL(entry.id, cache: cache), FileManager.default.fileExists(atPath: file.path) else { return nil }
     item.setImageURL(file, for: [.screenScale1x, .screenScale2x])
     if let percent = entry.progressPercent, percent > 0 { item.playbackProgress = min(1, Double(percent) / 100) }
     item.displayAction = TVTopShelfAction(url: display)
@@ -191,10 +248,10 @@ final class ContentProvider: TVTopShelfContentProvider {
     return item
   }
 
-  private static func content(continuing: [Feed.Entry], next: Next?) -> TVTopShelfContent? {
+  private static func content(continuing: [Feed.Entry], next: Next?, cache: URL?) -> TVTopShelfContent? {
     var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
     for (id, title, entries) in [("continue", "Continue Watching", continuing), ("next", next?.title ?? "", next?.entries ?? [])] {
-      let items = entries.compactMap { item($0, section: id) }
+      let items = entries.compactMap { item($0, section: id, cache: cache) }
       guard !items.isEmpty else { continue }   // an empty section is left out, never shown as dots
       let collection = TVTopShelfItemCollection(items: items)
       collection.title = title

@@ -17,10 +17,17 @@ int main(void) {
     entry[@"state"] = @"ready";
     NSCAssert(!PorticoDownloadAcceptsTask(entry, 22), @"late progress degrades completed file");
     NSCAssert(!PorticoDownloadAcceptsTask(nil, 22), @"removed entry accepts callback");
-    NSMutableDictionary *legacy = [@{@"state": @"downloading"} mutableCopy];
-    NSCAssert(PorticoDownloadAcceptsTask(legacy, 21), @"existing upgraded transfer cannot finish");
-    legacy[@"taskIdentifier"] = @23;
-    NSCAssert(!PorticoDownloadAcceptsTask(legacy, 21), @"legacy attempt survives replacement");
-    NSLog(@"PASS download attempt fencing: replacement, serialized restart, completed/removed files, legacy upgrade");
+    NSMutableDictionary *damaged = [@{@"state": @"downloading"} mutableCopy];
+    NSCAssert(!PorticoDownloadAcceptsTask(damaged, 21), @"missing task identity accepts callback");
+    entry[@"cellularAllowed"] = @YES;
+    NSCAssert(PorticoDownloadResumePolicyMatches(entry, YES), @"same cellular policy cannot resume");
+    NSCAssert(!PorticoDownloadResumePolicyMatches(entry, NO), @"old cellular request can resume under Wi-Fi only");
+    entry[@"cellularAllowed"] = @NO;
+    NSCAssert(PorticoDownloadResumePolicyMatches(entry, NO), @"same Wi-Fi policy cannot resume");
+    [entry removeObjectForKey:@"cellularAllowed"];
+    NSCAssert(!PorticoDownloadResumePolicyMatches(entry, NO), @"unknown resume policy was trusted");
+    entry[@"cellularAllowed"] = @1;
+    NSCAssert(!PorticoDownloadResumePolicyMatches(entry, YES), @"malformed resume policy was trusted");
+    NSLog(@"PASS download attempt fencing: replacement, serialized restart, completed/removed files, missing identity, resume policy");
   }
 }

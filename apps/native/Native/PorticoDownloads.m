@@ -66,6 +66,7 @@ static NSString *const PorticoDownloadPlayback = @"PorticoDownloadPlayback";
 
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup { return NO; }
+- (dispatch_queue_t)methodQueue { return _queue; }
 - (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged, PorticoDownloadPlayback]; }
 - (void)startObserving { _observing = YES; }
 - (void)stopObserving { _observing = NO; }
@@ -172,6 +173,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
         NSDictionary *entry = self->_entries[task.taskDescription ?: @""];
         // A task the session still lists, in any state, will report for itself.
         if (PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) [live addObject:task.taskDescription];
+        else [task cancel];
       }
       BOOL changed = NO;
       for (NSString *identifier in self->_entries.allKeys) {
@@ -252,6 +254,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didWriteData:(int64_t)written totalBytesWritten:(int64_t)total totalBytesExpectedToWrite:(int64_t)expected {
   NSString *identifier = task.taskDescription;
+  if (!PorticoSafeIdentifier(identifier)) return;
   dispatch_async(_queue, ^{
     NSMutableDictionary *entry = self->_entries[identifier];
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
@@ -268,6 +271,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 // all, or mobile data only while "Wi-Fi only" is on. It starts the task by itself when one comes.
 - (void)URLSession:(NSURLSession *)session taskIsWaitingForConnectivity:(NSURLSessionTask *)task {
   NSString *identifier = task.taskDescription;
+  if (!PorticoSafeIdentifier(identifier)) return;
   dispatch_async(_queue, ^{
     NSMutableDictionary *entry = self->_entries[identifier];
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
@@ -278,6 +282,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didFinishDownloadingToURL:(NSURL *)location {
   NSString *identifier = task.taskDescription;
+  if (!PorticoSafeIdentifier(identifier)) return;
   NSInteger status = [task.response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)task.response).statusCode : 0;
   // The temporary file is only valid during this call: move it before returning. It goes into
   // the download's own folder, so if the app is stopped before it has been verified the next
@@ -362,6 +367,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
   if (!error) return;
   NSString *identifier = task.taskDescription;
+  if (!PorticoSafeIdentifier(identifier)) return;
   NSData *resume = error.userInfo[NSURLSessionDownloadTaskResumeData];
   dispatch_async(_queue, ^{
     NSMutableDictionary *entry = self->_entries[identifier];
@@ -387,6 +393,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   [stream open];
   CC_SHA256_CTX context; CC_SHA256_Init(&context);
   uint8_t *buffer = malloc(1 << 20);
+  if (!buffer) { [stream close]; return @""; }
   NSInteger read;
   while ((read = [stream read:buffer maxLength:1 << 20]) > 0) CC_SHA256_Update(&context, buffer, (CC_LONG)read);
   free(buffer); [stream close];
@@ -442,13 +449,17 @@ RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)
     NSURL *resumeURL = [self resumeURLFor:identifier];
     NSData *resume = [NSData dataWithContentsOfURL:resumeURL];
     NSString *address = url.absoluteString;
-    BOOL sameGrant = sameFile && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
+    // Resume data contains its original request's cellular policy too. It cannot be tightened
+    // by requestFor:, so only reuse data created under the current preference.
+    BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
+    BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
     if (resume.length > 0 && !sameGrant) {
       [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
       resume = nil;
     }
     if (!resume.length) entry[@"bytesDone"] = @0;
     entry[@"grantUrl"] = address;
+    entry[@"cellularAllowed"] = @(self->_cellular);
     NSURLSessionDownloadTask *task = resume.length ? [[self session] downloadTaskWithResumeData:resume]
                                                    : [[self session] downloadTaskWithRequest:[self requestFor:url]];
     // Serial publication fences every callback from the previous attempt,
@@ -527,14 +538,19 @@ RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(
 // Several entries' details in one write of the manifest (a day's receipt renewals).
 RCT_EXPORT_METHOD(setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   dispatch_async(_queue, ^{
+    // Validate the whole batch before changing any entry. A later invalid value must not
+    // leave earlier receipts changed in memory and saved by an unrelated progress update.
+    for (NSString *identifier in metas) {
+      if (!self->_entries[identifier]) continue;
+      NSString *meta = metas[identifier];
+      if (![meta isKindOfClass:NSString.class] || meta.length >= 65536) { reject(@"too_large", @"This download's details are too large to keep.", nil); return; }
+    }
     NSMutableDictionary *previous = [NSMutableDictionary new];
     for (NSString *identifier in metas) {
       NSMutableDictionary *entry = self->_entries[identifier];
-      NSString *meta = metas[identifier];
       if (!entry) continue;
-      if (![meta isKindOfClass:NSString.class] || meta.length >= 65536) { reject(@"too_large", @"This download's details are too large to keep.", nil); return; }
       previous[identifier] = entry[@"meta"] ?: NSNull.null;
-      entry[@"meta"] = meta;
+      entry[@"meta"] = metas[identifier];
     }
     if (![self saveManifest]) {
       for (NSString *identifier in previous) {

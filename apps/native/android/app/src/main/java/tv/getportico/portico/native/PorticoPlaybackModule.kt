@@ -17,7 +17,7 @@ import tv.getportico.portico.TelevisionDisplay
 class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val main = Handler(Looper.getMainLooper())
   @Volatile private var invalidated = false
-  private val controller: PorticoPlaybackController by lazy {
+  private val controllerStore = lazy {
     PorticoPlaybackController(reactApplicationContext.applicationContext).also { made ->
       made.onFact = { fact -> if (!invalidated) emit("PorticoPlaybackFact", fact) }
       made.onPictureInPicture = { change -> if (!invalidated) emit("PorticoPictureInPicture", change) }
@@ -25,14 +25,16 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
       PorticoPlaybackController.shared = made
     }
   }
+  private val controller: PorticoPlaybackController by controllerStore
   /** The native listening owner (Playback v1): music and audiobooks. */
-  private val listening: PorticoListeningOwner by lazy {
+  private val listeningStore = lazy {
     PorticoListeningOwner(reactApplicationContext.applicationContext, controller).also { made ->
       made.onSnapshot = { snapshot -> if (!invalidated) emit("PorticoListeningSnapshot", Arguments.makeNativeMap(snapshot)) }
       PorticoListeningOwner.shared = made
       PorticoListeningSession.attach(reactApplicationContext.applicationContext, made)
     }
   }
+  private val listening: PorticoListeningOwner by listeningStore
 
   override fun getName(): String = "PorticoPlaybackModule"
 
@@ -70,15 +72,14 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   override fun invalidate() {
     invalidated = true
     main.post {
-      PorticoListeningOwner.shared?.let { owner ->
+      if (listeningStore.isInitialized()) listeningStore.value.let { owner ->
         owner.invalidate()
         PorticoListeningSession.detach(reactApplicationContext.applicationContext, owner)
-        PorticoListeningOwner.shared = null
+        if (PorticoListeningOwner.shared === owner) PorticoListeningOwner.shared = null
       }
-      val current = PorticoPlaybackController.shared
-      if (current != null) {
+      if (controllerStore.isInitialized()) controllerStore.value.let { current ->
         current.invalidate()
-        PorticoPlaybackController.shared = null
+        if (PorticoPlaybackController.shared === current) PorticoPlaybackController.shared = null
       }
     }
     super.invalidate()

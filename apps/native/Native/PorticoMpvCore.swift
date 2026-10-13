@@ -377,7 +377,10 @@ final class PorticoMpvCore {
                 let message = data.assumingMemoryBound(to: mpv_event_log_message.self).pointee
                 guard let prefix = message.prefix, let text = message.text else { break }
                 let line = "\(String(cString: prefix)): \(String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines))"
-                logTail.append(String(line.prefix(300)))
+                // Diagnostic facts may become a viewer's saved report; media grants are credentials.
+                let redacted = line.replacingOccurrences(of: "https?://[^\\s\"'<>]+", with: "[media]", options: .regularExpression)
+                    .replacingOccurrences(of: "/v1/media/(?:subtitles/)?[A-Za-z0-9_-]+", with: "/v1/media/[grant]", options: .regularExpression)
+                logTail.append(String(redacted.prefix(300)))
                 if logTail.count > 24 { logTail.removeFirst(logTail.count - 24) }
             default:
                 break

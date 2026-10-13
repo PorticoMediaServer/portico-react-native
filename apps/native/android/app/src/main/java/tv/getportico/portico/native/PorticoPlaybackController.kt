@@ -195,7 +195,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       lease = UUID.randomUUID().toString()
       commandRevision = 0
       factSequence = 0
-      backgroundHold = false
+      backgroundHold = !PorticoAppVisibility.visible
     }
     return mapOf("lease" to lease, "instanceId" to instanceId, "engine" to "native")
   }
@@ -219,7 +219,14 @@ internal class PorticoPlaybackController(private val context: Context) {
     routeFailed = false
     routeEpoch++
     stopTicking()
+    val retiring = player
+    player = null
+    playerIsDeck = false
+    if (retiring != null) audioGains.remove(retiring)
+    // Views detach while the player is still valid. Media3 release waits for its playback
+    // thread to close the renderer and audio sink before the module resolves this release.
     attachmentListeners.toList().forEach { it() }
+    retiring?.let { it.removeListener(listener); it.release() }
   }
 
   fun invalidate() {
@@ -265,7 +272,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     val route = command["routeRevision"]
     if (connection != null && (connection !in CONNECTION_STATES || route is Boolean || !wholeNumber(route))) return "Invalid route transition."
     val previousRoute = number(this.command?.get("routeRevision"))
-    if (previousRoute != null && (route == null || number(route)!! < previousRoute)) return "Stale route transition."
+    val nextRoute = number(route)
+    if (previousRoute != null && (nextRoute == null || nextRoute < previousRoute)) return "Stale route transition."
     val current = currentBinding
     if (current != null) {
       val intent = number(bound["intentId"])!!
@@ -276,7 +284,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       val nextUrl = parse(next)
       val sameResource = oldUrl != null && nextUrl != null && oldUrl.path == nextUrl.path && (oldUrl.encodedQuery ?: "") == (nextUrl.encodedQuery ?: "") &&
           nextUrl.userInfo == null && nextUrl.encodedFragment == null
-      val routeChange = sameBinding && sameResource && route != null && number(route)!! > (previousRoute ?: 0.0)
+      val routeChange = sameBinding && sameResource && nextRoute != null && nextRoute > (previousRoute ?: 0.0)
       val same = sameBinding && (sameSource || routeChange)
       val newWindow = linear && timelineOriginMs != null && bound["sessionId"] == current["sessionId"] && bound["itemId"] == current["itemId"] &&
           number(bound["generation"])!! > number(current["generation"])!!
@@ -366,7 +374,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       val address = (plan?.get("url") as? String) ?: nextSource
       if (address.isNotEmpty()) {
         val url = parse(address)
-        if (url == null || !(url.scheme == "http" || url.scheme == "https" || allowedLocalSource(url))) { emit("error", "Invalid media address."); return }
+        if (url == null || !PorticoMpvSupport.allowedSource(context, url)) { emit("error", "Invalid media address."); return }
         val pendingStart = (next["pendingSeek"] as? Map<*, *>)?.get("positionSeconds")?.let { number(it) }
         load(url, if (plan != null && !routeResume) pendingStart else null)
         enginePlan = plan?.get("id") as? String
@@ -624,13 +632,12 @@ internal class PorticoPlaybackController(private val context: Context) {
    * on a phone or tablet, which change rate without a break. `done` runs when the wait is over;
    * false means there is nothing to wait for.
    */
-  private fun matchDisplay(done: () -> Unit): Boolean {
+  private fun matchDisplay(deadline: Long = SystemClock.elapsedRealtime() + 10_000, done: () -> Unit): Boolean {
     val engine = player ?: return false
     if (displayHold) return true
     val item = itemInstanceId
     if (!TelevisionDisplay.isTelevision || listeningOwner != null || displayMatchedItem == item) return false
     val format = engine.videoFormat ?: return false
-    displayMatchedItem = item
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return false
     val display = displays.getDisplay(Display.DEFAULT_DISPLAY) ?: return false
     val transfer = format.colorInfo?.colorTransfer
@@ -643,6 +650,31 @@ internal class PorticoPlaybackController(private val context: Context) {
     val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     val fps = format.frameRate.takeIf { it.isFinite() && it >= 1f && it <= 240f }
     val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+    if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && (target == null || !target.isValid) && !backgroundHold) {
+      // READY can arrive before React has mounted the surface. Keep the opening frame until
+      // there is somewhere to make the rate request, within the same bounded startup wait.
+      val wait = ++displayWait
+      val until = deadline
+      displayHold = true
+      engine.playWhenReady = false
+      val poll = object : Runnable {
+        override fun run() {
+          if (invalidated || displayWait != wait || itemInstanceId != item || !displayHold) return
+          val surface = try { displaySurface?.invoke() } catch (_: Exception) { null }
+          if (surface?.isValid == true) {
+            displayHold = false
+            if (!matchDisplay(until, done)) done()
+          } else if (SystemClock.elapsedRealtime() >= until || backgroundHold) {
+            displayHold = false
+            displayMatchedItem = item
+            done()
+          } else main.postDelayed(this, 50)
+        }
+      }
+      main.postDelayed(poll, 50)
+      return true
+    }
+    displayMatchedItem = item
     val before = display.mode
     val voted = !never && fps != null && target != null && target.isValid && voteFrameRate(target, fps)
     val mayBreak = voted && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
@@ -693,7 +725,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       }
     }
     main.postDelayed(quiet, 250)
-    main.postDelayed({ settle() }, 10_000)
+    main.postDelayed({ settle() }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
     return true
   }
 
@@ -795,7 +827,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || displayHold || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || displayHold || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {
@@ -1344,19 +1376,22 @@ internal class PorticoPlaybackController(private val context: Context) {
     private val DECODE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED)
     private val SOURCE_ERRORS = setOf(
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED)
-    private val UNCERTAIN_ERRORS = setOf(PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR)
+    private val UNCERTAIN_ERRORS = setOf(
+        PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR,
+        PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
 
     /** The app's one playback controller, for the player view and the system media surfaces. */
     @Volatile var shared: PorticoPlaybackController? = null
 
     /** Media addresses are capability URLs; one client keeps their connections warm. */
     private val mediaClient: OkHttpClient by lazy {
-      OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+          .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 
     fun number(value: Any?): Double? = (value as? Number)?.toDouble()?.takeIf { it.isFinite() }
