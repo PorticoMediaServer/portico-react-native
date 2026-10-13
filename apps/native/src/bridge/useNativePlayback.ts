@@ -76,6 +76,8 @@ export function useNativePlayback(
   );
   useEffect(()=>{if(session?.accessToken)void playback.refreshPlaybackAuthority().catch(()=>{});},[playback,session?.accessToken]);
   useEffect(()=>{const listener=AppState.addEventListener('change',state=>{if(state==='active')void playback.refreshPlaybackAuthority().catch(()=>{});});return()=>listener.remove();},[playback]);
+  // Leaving the screen: the server is told where the picture is now, while this app can still say so.
+  useEffect(()=>{const listener=AppState.addEventListener('change',state=>{if(state!=='active')void path.controller.flush().catch(()=>{});});return()=>listener.remove();},[path]);
   useEffect(() => {
     void playback.startRecovery();
     return()=>playback.leave();

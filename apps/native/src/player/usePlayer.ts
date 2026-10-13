@@ -398,7 +398,11 @@ export function usePlayerEngine() {
   useEffect(() => {
     if (!optionsItem) { setTitleOptions(null); return; }
     const key = `${optionsItem}/${optionsVersion ?? ''}`;
-    setTitleOptions(optionsKnown.current.get(key) ?? optionsKnown.current.get(`${optionsItem}/`) ?? null);
+    const generic = optionsKnown.current.get(`${optionsItem}/`);
+    // The answer read before the title started is the answer for the version it chose to play.
+    const known = optionsKnown.current.get(key) ?? (generic && (!optionsVersion || generic.preferred?.versionId === optionsVersion) ? generic : undefined);
+    setTitleOptions(known ?? generic ?? null);
+    if (known) return;
     let live = true;
     void optionsClient.options(optionsItem, optionsVersion ? {versionId: optionsVersion} : {}).then(options => {
       optionsKnown.current.set(key, options);

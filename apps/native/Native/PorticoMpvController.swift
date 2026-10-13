@@ -821,7 +821,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             previousProgress = position
         }
         var fact: [String: Any] = ["instanceId": instanceId, "type": type, "intentId": intentId, "position": position.isFinite ? position : 0, "paused": pausedFact(), "error": error ?? ""]
-        if type == "progress", let source = URL(string: source), !source.isFileURL {
+        if type == "progress", let address = URL(string: source), !address.isFileURL {
             // What the reader measured of the connection, for Automatic quality: only while it is
             // reading as fast as it can. With the cache full it rests, and its speed is then the
             // title's own bit rate, which says nothing about the connection.
