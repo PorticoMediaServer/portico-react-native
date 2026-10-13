@@ -509,10 +509,11 @@ export function usePlayerEngine() {
   const subtitlePlan = subtitles.plan && playbackState.session && subtitles.plan.sessionId === playbackState.session.id ? subtitles.plan : null;
   // A track the engine reads from the file it is playing: the server's own copy of the choice is
   // off then, and the session's presentation is what says which track shows.
-  const deviceTrack = presentation ? deviceDrawnTrack(subtitlePlan, v1Session) : undefined;
+  const deviceTrack = useMemo(() => (presentation ? deviceDrawnTrack(subtitlePlan, v1Session) : undefined), [presentation, subtitlePlan, v1Session]);
   // Portico's caption style (the profile's size and background), applied by every engine on top
   // of the system's own caption settings.
-  const captions = captionStyle(speedPreferences.value<string>('playback.subtitleSize', 'medium'), speedPreferences.value<string>('playback.subtitleBackground', 'translucent'));
+  const captionSize = speedPreferences.value<string>('playback.subtitleSize', 'medium'), captionBackground = speedPreferences.value<string>('playback.subtitleBackground', 'translucent');
+  const captions = useMemo(() => captionStyle(captionSize, captionBackground), [captionSize, captionBackground]);
   // A styled track's attached fonts: the list is read once per track, for the engine to fetch.
   const subtitleFontsUrl = engineKind === 'mpv' && !subtitles.suppressed ? fontsUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
   const [subtitleFonts, setSubtitleFonts] = useState<SubtitleFonts | null>(null);
