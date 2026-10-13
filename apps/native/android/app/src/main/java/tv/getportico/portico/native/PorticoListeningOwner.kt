@@ -884,15 +884,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     var amount = value
     if (resolved == "resume" && ended) { resolved = "retry"; amount = 0.0 }
     if (resolved == "pause") { if (intent == "playing") pausedAt = mono(); dropPrepared(null); intent = "paused"; patchWanted = true; reportNow = true; apply() }
-    if (resolved == "resume") {
-      val elapsed = if (pausedAt > 0) Math.max(0.0, mono() - pausedAt) else 0.0
-      if (kind() == "audiobook_file" && elapsed >= 300 && nativeSeek == null) {
-        val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
-        dropPrepared(null)
-        nativeSeek = seekTo(Math.max(0.0, position - if (elapsed >= 3600) 30 else 15))
-      }
-      pausedAt = 0.0
-      intent = "playing"; safetyPaused = false; timerStopped = false; error = null; patchWanted = true; reportNow = true; apply() }
+    if (resolved == "resume") { intent = "playing"; safetyPaused = false; timerStopped = false; error = null; patchWanted = true; reportNow = true; apply() }
     if (resolved == "seek") pausedAt = 0.0
     if (resolved == "seek" && committed != null) { promoteCommitted(); persist(); emit(); return !terminal }
     if (resolved == "seek" && audible == null) {

@@ -679,13 +679,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  [self checkDeadlines];[self beginControlGrace];[self resetInactivity];
  if([action isEqual:@"resume"]&&_ended){action=@"retry";value=@0;}
  if([action isEqual:@"pause"]){if([_intent isEqual:@"playing"])_pausedAt=PauseClock();[self dropPrepared:nil];_intent=@"paused";_patchWanted=YES;_reportNow=YES;[self apply];}
- if([action isEqual:@"resume"]){
-  double elapsed=_pausedAt>0?MAX(0,PauseClock()-_pausedAt):0;
-  if([[self kind] isEqual:@"audiobook_file"]&&elapsed>=300&&!_nativeSeek){
-   double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
-   [self dropPrepared:nil];_nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,position-(elapsed>=3600?30:15)))};
-  }
-  _pausedAt=0;_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_error=nil;_patchWanted=YES;_reportNow=YES;[self apply];}
+ if([action isEqual:@"resume"]){_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_error=nil;_patchWanted=YES;_reportNow=YES;[self apply];}
  if([action isEqual:@"seek"])_pausedAt=0;
  if([action isEqual:@"seek"]&&_committed){[self promoteCommitted];[self persist];[self emit];return !_terminal;}
  if([action isEqual:@"seek"]&&!_audible){

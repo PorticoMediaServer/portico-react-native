@@ -688,7 +688,10 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun startCrossfade(seconds: Double) {
     val plan = nextPlan ?: return
     val gain = PorticoAudioGain()
+    val load = DefaultLoadControl.Builder()
+    if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
     val deck = ExoPlayer.Builder(context, PorticoAudioRenderers(context, gain).setEnableDecoderFallback(true))
+        .setLoadControl(load.build())
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, OkHttpDataSource.Factory(mediaClient))))
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
         .setHandleAudioBecomingNoisy(false)
@@ -785,7 +788,13 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */
   fun listeningOwner(owner: String, state: Map<String, Any?>, origin: String, allowed: Boolean, seek: Map<String, Any?>?, render: Map<String, Any?>?) {
-    if (listeningOwner != owner) { player?.playWhenReady = false; incoming?.playWhenReady = false }
+    if (listeningOwner != owner) {
+      player?.playWhenReady = false; incoming?.playWhenReady = false
+      // A prior video player's sink cannot apply the listening PCM gain.
+      player?.takeIf { !audioGains.containsKey(it) }?.let { old ->
+        unload(); old.removeListener(listener); old.release(); player = null; source = null
+      }
+    }
     listeningOwner = owner
     listeningState = state
     listeningOrigin = origin
@@ -808,6 +817,10 @@ internal class PorticoPlaybackController(private val context: Context) {
     listeningRender = null
     // Retire the transport too: a command kept from before the pause must not restart the player.
     lease?.let { release(it) }
+    // A listening/crossfade sink must not become the next video's sink or buffer policy.
+    player?.let { old -> old.removeListener(listener); old.release(); audioGains.remove(old) }
+    player = null
+    attachmentListeners.toList().forEach { it() }
   }
 
   /** A clean engine under the same lease: a retry, or a committed track started as an ordinary one. */

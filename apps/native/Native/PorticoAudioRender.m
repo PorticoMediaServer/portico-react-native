@@ -309,6 +309,8 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
   if(AudioFileGetProperty(_file,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768)return @"The AAC packet size exceeds its limit.";
   _packetCapacity=maxPacket*128;_packetBuffer=malloc(_packetCapacity);_packetDescriptions=calloc(128,sizeof(AudioStreamPacketDescription));
   if(!_packetBuffer||!_packetDescriptions)return @"The audio decoder is out of memory.";
+  UInt32 sourceSize=sizeof(source);
+  if(AudioConverterGetProperty(_aac,kAudioConverterCurrentInputStreamDescription,&sourceSize,&source)!=noErr||source.mSampleRate<=0)return @"The AAC decoder's clock isn’t available.";
   _packetFrames=llround(source.mFramesPerPacket*rate/source.mSampleRate);
   if(_packetFrames<=0||_packetFrames>8192)return @"This AAC packet clock isn’t supported.";
   _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
@@ -433,7 +435,7 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
 }
 static BOOL ARPlan(NSDictionary *p,NSURL *source){
  if(!APDictionary(p)||![p[@"version"] isEqual:@2]||![@[@"direct",@"converted"] containsObject:p[@"mode"]]||![p[@"id"] isKindOfClass:NSString.class]||[p[@"id"] length]<1||[p[@"id"] length]>256)return NO;
- if(!APInteger(p[@"sampleRate"],8000,768000)||!APInteger(p[@"channels"],1,32)||!APInteger(p[@"durationFrames"],1,9007199254740991.0)||!APDictionary(p[@"trim"])||!APInteger(p[@"trim"][@"startFrames"],0,9007199254740991.0))return NO;
+ if(!APInteger(p[@"sampleRate"],8000,768000)||!APInteger(p[@"channels"],1,32)||!APInteger(p[@"durationFrames"],1,9007199254740991.0)||!APDictionary(p[@"trim"])||!APInteger(p[@"trim"][@"startFrames"],0,9007199254740991.0)||!APInteger(p[@"trim"][@"endFrames"],0,9007199254740991.0))return NO;
  if(![PorticoFileRender decodes:p])return NO;
  NSURL *url=[NSURL URLWithString:p[@"url"]?:@""];if(!url||![@[@"http",@"https"] containsObject:url.scheme]||!APSameOrigin(url,source))return NO;
  for(NSString *k in @[@"trackDb",@"albumDb"])if(p[@"gain"][k]&&!APNumber(p[@"gain"][k],-60,30))return NO;

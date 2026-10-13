@@ -48,7 +48,7 @@ internal object PorticoAudioPlan {
     val id = plan["id"] as? String ?: return false
     if (id.isEmpty() || id.length > 256 || !integer(plan["channels"], 1.0, 32.0)) return false
     val trim = plan["trim"] as? Map<*, *> ?: return false
-    if (!integer(trim["startFrames"], 0.0, MAX_INTEGER)) return false
+    if (!integer(trim["startFrames"], 0.0, MAX_INTEGER) || !integer(trim["endFrames"], 0.0, MAX_INTEGER)) return false
     val url = try { Uri.parse(plan["url"] as String) } catch (_: Exception) { return false }
     if (url.scheme != "http" && url.scheme != "https") return false
     if (url.scheme != origin.scheme || url.host?.lowercase() != origin.host?.lowercase() || url.port != origin.port || url.userInfo != null) return false
