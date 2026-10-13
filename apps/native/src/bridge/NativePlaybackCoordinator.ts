@@ -17,6 +17,17 @@ export interface NativePlaybackTransport {
   release(lease: string): Promise<unknown>;
   subscribe(listener: (fact: any) => void): () => void;
 }
+/**
+ * More than one player engine (ENGINE-CONTRACT.md). `choose` names the engine for what is playing
+ * now; it is asked on every change of the playback snapshot, before a lease is taken, so a title
+ * never starts on one engine only to be moved to another. `transport` is that engine's channel, or
+ * undefined when this build does not have it (the coordinator then stays where it is).
+ */
+export type EngineSelection = Readonly<{
+  initial: string;
+  choose(snapshot: PlaybackSnapshot): string;
+  transport(engine: string): NativePlaybackTransport | undefined;
+}>;
 const key = (b: NativeBinding) =>
   JSON.stringify([b.lease, b.intentId, b.sessionId, b.generation, b.itemId]);
 /** Sole RN command adapter. Construction is inert; view lifetime is unrelated to this lease. */
@@ -34,6 +45,10 @@ export class NativePlaybackCoordinator {
   private rate = 1;
   private audio: unknown = null;
   private subtitles: unknown = null;
+  private audioTrack: unknown = null;
+  private engines?: EngineSelection;
+  private engine = 'native';
+  private engineEpoch = 0;
   private routeReady=true;
   private routeRevision=0;
   private routeSource='';
@@ -52,14 +67,19 @@ export class NativePlaybackCoordinator {
     ownerId: () => string,
     source: (snapshot: PlaybackSnapshot) => string,
     accept: (fact: any) => void,
+    engines?: EngineSelection,
   ) {
     this.service = service;
     this.transport = transport;
     this.ownerId = ownerId;
     this.source = source;
     this.accept = accept;
+    this.engines = engines;
+    if (engines) this.engine = engines.initial;
   }
   getSnapshot = () => this.lease?.lease ?? '';
+  /** The engine in use (or about to be): "native" or "mpv". Published with the lease. */
+  getEngine = () => this.engine;
   subscribe = (f: () => void) => {
     this.listeners.add(f);
     return () => {
@@ -90,7 +110,7 @@ export class NativePlaybackCoordinator {
   /** What a start is waiting on (PlaybackService.setStartupProbe; development builds log it). */
   diagnostics():Readonly<Record<string,unknown>>{
     const s=this.service.getSnapshot();
-    return {active:this.active,routeReady:this.routeReady,connected:this.connected(),routeSource:!!this.routeSource,leaseAcquired:!!this.lease,acquiring:this.acquiring,commandSent:this.lastSemantic!=='',commandRevision:this.commandRevision,factSequence:this.factSequence,boundSession:this.binding?.sessionId??null,snapshotSession:s.session?.id??null,nativeListening:!!s.nativeListening};
+    return {engine:this.engine,active:this.active,routeReady:this.routeReady,connected:this.connected(),routeSource:!!this.routeSource,leaseAcquired:!!this.lease,acquiring:this.acquiring,commandSent:this.lastSemantic!=='',commandRevision:this.commandRevision,factSequence:this.factSequence,boundSession:this.binding?.sessionId??null,snapshotSession:s.session?.id??null,nativeListening:!!s.nativeListening};
   }
   private connected():boolean{return this.routeReady||isLocalSource(this.service.getSnapshot().session?.streamUrl);}
   setConnection(ready:boolean) {
@@ -107,6 +127,32 @@ export class NativePlaybackCoordinator {
     this.audio = audio;
     this.subtitles = subtitles;
     this.schedule();
+  }
+  /** A direct-played file's audio track for an engine that switches tracks itself
+   * (`{binding, revision, streamIndex}`, bound like `audio`), or null. */
+  setAudioTrack(value: unknown) {
+    this.audioTrack = value;
+    this.schedule();
+  }
+  /** Ask again which engine should be playing (the viewer changed the Player setting). */
+  reconsiderEngine() {
+    this.schedule();
+  }
+  /**
+   * Moves playback to another engine. The lease on the old engine is released, which makes the
+   * service ask for the position already reached as a seek; the new engine then starts there.
+   * The session, and so the queue, are untouched.
+   */
+  private switchEngine(engine: string, transport: NativePlaybackTransport) {
+    if (this.lease) this.release();
+    this.unsubscribeFacts?.();
+    this.transport = transport;
+    this.engine = engine;
+    this.engineEpoch++;
+    this.acquiring = false;
+    this.lastSemantic = '';
+    this.unsubscribeFacts = this.transport.subscribe(this.fact);
+    this.publish();
   }
   private release() {
     const lease = this.lease;
@@ -137,6 +183,11 @@ export class NativePlaybackCoordinator {
     if (!state.session || !state.itemId) {
       if (this.lease) this.release();
       return;
+    }
+    if (this.engines) {
+      const wanted = this.engines.choose(state);
+      const next = wanted === this.engine ? undefined : this.engines.transport(wanted);
+      if (next) this.switchEngine(wanted, next);
     }
     if (!this.lease) {
       if (state.phase === 'error'||!this.connected()) return;
@@ -171,6 +222,9 @@ export class NativePlaybackCoordinator {
         : null;
     const subtitleBinding=(this.subtitles as any)?.binding;
     const subtitles=subtitleBinding && subtitleBinding.intentId===binding.intentId && subtitleBinding.sessionId===binding.sessionId && subtitleBinding.generation===binding.generation ? this.subtitles : null;
+    const trackBinding=(this.audioTrack as any)?.binding;
+    const audioTrack=trackBinding && trackBinding.intentId===binding.intentId && trackBinding.sessionId===binding.sessionId && trackBinding.generation===binding.generation
+      ? {revision:(this.audioTrack as any).revision,streamIndex:(this.audioTrack as any).streamIndex} : null;
     const candidate=this.connected()?this.source(state):'';
     if(candidate)this.routeSource=candidate;
     if(!this.routeSource)return;
@@ -191,6 +245,9 @@ export class NativePlaybackCoordinator {
       audio,
       audioRender: null,
       subtitles,
+      // Only an engine that switches a file's tracks itself is ever given this; the command an
+      // engine without it receives is exactly what it always was.
+      ...(audioTrack ? {audioTrack} : {}),
     };
     const encoded = JSON.stringify(semantic);
     if (encoded === this.lastSemantic) return;
@@ -217,11 +274,13 @@ export class NativePlaybackCoordinator {
   private async acquire() {
     this.acquiring = true;
     const life = this.lifecycle,
+      epoch = this.engineEpoch,
+      transport = this.transport,
       intent = this.service.getSnapshot().intentId;
     let expired = false;
     const timer = setTimeout(() => {
       expired = true;
-      if (this.active && life === this.lifecycle) {
+      if (this.active && life === this.lifecycle && epoch === this.engineEpoch) {
         this.acquiring = false;
         this.service.fail(
           intent,
@@ -230,15 +289,17 @@ export class NativePlaybackCoordinator {
       }
     }, 5000);
     try {
-      const lease = await this.transport.acquire(this.ownerId());
+      const lease = await transport.acquire(this.ownerId());
       if (
         expired ||
         !this.active ||
         life !== this.lifecycle ||
+        epoch !== this.engineEpoch ||
         !this.service.getSnapshot().session ||
         intent !== this.service.getSnapshot().intentId
       ) {
-        await this.transport.release(lease.lease);
+        // The lease belongs to the engine it was asked of, which may no longer be the current one.
+        await transport.release(lease.lease);
         return;
       }
       this.lease = lease;
@@ -249,14 +310,14 @@ export class NativePlaybackCoordinator {
       this.publish();
       this.schedule();
     } catch {
-      if (this.active && life === this.lifecycle)
+      if (this.active && life === this.lifecycle && epoch === this.engineEpoch)
         this.service.fail(
           intent,
           'The player could not attach. Close playback and try again.',
         );
     } finally {
       clearTimeout(timer);
-      if (life === this.lifecycle) {
+      if (life === this.lifecycle && epoch === this.engineEpoch) {
         this.acquiring = false;
         this.schedule();
       }

@@ -1,5 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
 import {NativeQueueStore} from '../bridge/queue-storage';
+import {defaultEngineSetting, parseEngineSetting, type EngineSetting} from '../player/engine-choice';
+import {engineSettingStore} from '../player/engine-setting-store';
 
 /**
  * Installation-scoped viewing preferences. These are device conveniences,
@@ -16,9 +18,11 @@ export type Preferences = {
   textSize: 'standard' | 'large';
   /** Television only: let this profile's other devices send playback here. */
   receiveFromDevices: boolean;
+  /** Which player plays video on this device: Automatic (the default), the system's own, or mpv. */
+  playerEngine: EngineSetting;
 };
 
-const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true};
+const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting};
 const key = 'preferences:v1';
 const store = new NativeQueueStore();
 
@@ -33,6 +37,7 @@ function parse(raw: unknown): Preferences {
     subtitleLanguage: typeof r.subtitleLanguage === 'string' ? r.subtitleLanguage : defaults.subtitleLanguage,
     textSize: r.textSize === 'large' ? 'large' : 'standard',
     receiveFromDevices: typeof r.receiveFromDevices === 'boolean' ? r.receiveFromDevices : defaults.receiveFromDevices,
+    playerEngine: parseEngineSetting(r.playerEngine),
   };
 }
 
@@ -62,6 +67,8 @@ export function PreferencesProvider({children}: {children: React.ReactNode}) {
       return next;
     });
   }, []);
+  // The server plans for the player the viewer chose: the capability publisher reads it here.
+  useEffect(() => engineSettingStore.set(preferences.playerEngine), [preferences.playerEngine]);
   const value = useMemo(() => ({preferences, update, loaded}), [preferences, update, loaded]);
   return React.createElement(PreferencesContext.Provider, {value}, children);
 }
