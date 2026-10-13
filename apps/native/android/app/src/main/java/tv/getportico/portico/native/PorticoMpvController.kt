@@ -1379,8 +1379,13 @@ internal class PorticoMpvController(private val context: Context) {
     frameRateVoted = false
     outputChangedAt = SystemClock.elapsedRealtime()
     core?.attachSurface(next, width, height)
-    // A surface that arrives after the first frame still gets the display matched.
-    if (restarted && fileRequested && !displayHold) matchDisplay { applyIntent() }
+    // A surface that arrives after the first frame still gets the display matched. One that
+    // arrives while the display is being waited for (a television may replace the surface as
+    // it switches) is told the rate again, so the display does not switch back.
+    if (restarted && fileRequested) {
+      if (!displayHold) matchDisplay { applyIntent() }
+      else frameRate()?.let { fps -> if (next.isValid) voteFrameRate(next, fps) }
+    }
   }
 
   fun surfaceChanged(owner: Any, width: Int, height: Int) {
@@ -1397,6 +1402,19 @@ internal class PorticoMpvController(private val context: Context) {
     surface = null
     surfaceOwner = null
     frameRateVoted = false
+  }
+
+  /** Tells the system the title's frame rate for this surface. False when the surface would not take it. */
+  private fun voteFrameRate(target: Surface, fps: Float): Boolean {
+    if (Build.VERSION.SDK_INT < 30) return false
+    return try {
+      if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
+      else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+      frameRateVoted = true
+      true
+    } catch (_: Exception) {
+      false
+    }
   }
 
   private fun frameRate(): Float? {
@@ -1417,22 +1435,19 @@ internal class PorticoMpvController(private val context: Context) {
     val fps = frameRate()
     if (Build.VERSION.SDK_INT < 30 || target == null || !target.isValid || fps == null) { done(); return }
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
-    val never = Build.VERSION.SDK_INT >= 31 && displays?.matchContentFrameRateUserPreference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
+    // The viewer's setting, where the system has one (Android 12): never, only when the picture
+    // does not break, or always.
+    val preference = if (Build.VERSION.SDK_INT >= 31) displays?.matchContentFrameRateUserPreference else null
+    val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     if (never && !directOutput) { done(); return }
     val display = displays?.getDisplay(Display.DEFAULT_DISPLAY)
     val before = display?.mode
-    try {
-      if (!never) {
-        if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
-        else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
-        frameRateVoted = true
-      }
-    } catch (_: Exception) {
-      done()
-      return
-    }
-    // A phone or tablet changes rate without a break in the picture: nothing to wait for.
-    if (!PorticoMpvDevice.isTelevision || displays == null || display == null) { done(); return }
+    if (!never && !voteFrameRate(target, fps)) { done(); return }
+    // A phone or tablet changes rate without a break in the picture, and so does a television
+    // set to switch only when there is none: nothing to wait for. A television that may
+    // renegotiate its connection (or is about to switch to HDR) is waited for.
+    val mayBreak = !never && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
+    if (!PorticoMpvDevice.isTelevision || displays == null || display == null || !(mayBreak || directOutput)) { done(); return }
     val epoch = loadEpoch
     val wait = ++displayWait
     displayHold = true
