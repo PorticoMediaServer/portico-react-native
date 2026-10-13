@@ -171,12 +171,13 @@ internal object PorticoAppVisibility {
     application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
       override fun onActivityStarted(activity: Activity) { started.add(activity); update() }
       override fun onActivityStopped(activity: Activity) { started.remove(activity); update() }
-      override fun onActivityDestroyed(activity: Activity) { started.remove(activity) }
+      override fun onActivityDestroyed(activity: Activity) { started.remove(activity); update() }
       override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
       override fun onActivityResumed(activity: Activity) {}
       override fun onActivityPaused(activity: Activity) {}
       override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
     })
+    update()
   }
 
   private fun update() {

@@ -48,14 +48,14 @@ internal object PorticoEventStream {
     }
     entry.call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) {
-        cancel(id)
+        cancel(id, entry)
         // No response has begun, so a time-out here is a route that does not answer: route
         // evidence, as it is for an ordinary request. Only an open stream that goes quiet is idle.
         promise.reject("event_transport", "The event connection could not be opened.")
       }
       override fun onResponse(call: Call, response: Response) {
         if (response.code in 300..399) {
-          response.close(); cancel(id)
+          response.close(); cancel(id, entry)
           promise.reject("event_redirect", "Event redirects are not allowed.")
           return
         }
@@ -100,12 +100,12 @@ internal object PorticoEventStream {
         val result = Arguments.createMap()
         result.putBoolean("done", ended)
         if (!ended && count > 0) result.putString("data", Base64.encodeToString(bytes.copyOf(count), Base64.NO_WRAP))
-        if (ended) cancel(id)
+        if (ended) cancel(id, entry)
         promise.resolve(result)
       } catch (e: Exception) {
         val expired = SystemClock.elapsedRealtime() - entry.startedAt >= 2_100_000
         val cancelled = synchronized(entries) { entries[id] !== entry }
-        cancel(id)
+        cancel(id, entry)
         if (expired) promise.resolve(Arguments.createMap().apply { putBoolean("done", true) })
         else {
           val code = when {
@@ -120,15 +120,22 @@ internal object PorticoEventStream {
     }
   }
 
-  fun cancel(id: String?) {
-    val entry = synchronized(entries) { entries.remove(id) } ?: return
+  fun cancel(id: String?) = cancel(id, null)
+
+  /** A late callback can end its own stream, never a replacement with the same identifier. */
+  private fun cancel(id: String?, expected: Entry?) {
+    val entry = synchronized(entries) {
+      val current = entries[id] ?: return
+      if (expected != null && current !== expected) return
+      entries.remove(id)
+    } ?: return
     entry.call.cancel()
     entry.response?.close()
   }
 
   fun cancelOwnedBy(owner: Any) {
-    val ids = synchronized(entries) { entries.filterValues { it.owner === owner }.keys.toList() }
-    for (id in ids) cancel(id)
+    val owned = synchronized(entries) { entries.filterValues { it.owner === owner }.toMap() }
+    for ((id, entry) in owned) cancel(id, entry)
   }
 
   private val GROUP_EVENTS = Regex("^/v1/groups/[A-Za-z0-9_-]{1,128}/events$")

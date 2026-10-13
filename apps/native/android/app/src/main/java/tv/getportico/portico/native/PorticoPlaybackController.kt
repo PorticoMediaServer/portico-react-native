@@ -195,7 +195,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       lease = UUID.randomUUID().toString()
       commandRevision = 0
       factSequence = 0
-      backgroundHold = false
+      backgroundHold = !PorticoAppVisibility.visible
     }
     return mapOf("lease" to lease, "instanceId" to instanceId, "engine" to "native")
   }
@@ -265,7 +265,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     val route = command["routeRevision"]
     if (connection != null && (connection !in CONNECTION_STATES || route is Boolean || !wholeNumber(route))) return "Invalid route transition."
     val previousRoute = number(this.command?.get("routeRevision"))
-    if (previousRoute != null && (route == null || number(route)!! < previousRoute)) return "Stale route transition."
+    val nextRoute = number(route)
+    if (previousRoute != null && (nextRoute == null || nextRoute < previousRoute)) return "Stale route transition."
     val current = currentBinding
     if (current != null) {
       val intent = number(bound["intentId"])!!
@@ -276,7 +277,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       val nextUrl = parse(next)
       val sameResource = oldUrl != null && nextUrl != null && oldUrl.path == nextUrl.path && (oldUrl.encodedQuery ?: "") == (nextUrl.encodedQuery ?: "") &&
           nextUrl.userInfo == null && nextUrl.encodedFragment == null
-      val routeChange = sameBinding && sameResource && route != null && number(route)!! > (previousRoute ?: 0.0)
+      val routeChange = sameBinding && sameResource && nextRoute != null && nextRoute > (previousRoute ?: 0.0)
       val same = sameBinding && (sameSource || routeChange)
       val newWindow = linear && timelineOriginMs != null && bound["sessionId"] == current["sessionId"] && bound["itemId"] == current["itemId"] &&
           number(bound["generation"])!! > number(current["generation"])!!
@@ -366,7 +367,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       val address = (plan?.get("url") as? String) ?: nextSource
       if (address.isNotEmpty()) {
         val url = parse(address)
-        if (url == null || !(url.scheme == "http" || url.scheme == "https" || allowedLocalSource(url))) { emit("error", "Invalid media address."); return }
+        if (url == null || !PorticoMpvSupport.allowedSource(context, url)) { emit("error", "Invalid media address."); return }
         val pendingStart = (next["pendingSeek"] as? Map<*, *>)?.get("positionSeconds")?.let { number(it) }
         load(url, if (plan != null && !routeResume) pendingStart else null)
         enginePlan = plan?.get("id") as? String
@@ -630,7 +631,6 @@ internal class PorticoPlaybackController(private val context: Context) {
     val item = itemInstanceId
     if (!TelevisionDisplay.isTelevision || listeningOwner != null || displayMatchedItem == item) return false
     val format = engine.videoFormat ?: return false
-    displayMatchedItem = item
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return false
     val display = displays.getDisplay(Display.DEFAULT_DISPLAY) ?: return false
     val transfer = format.colorInfo?.colorTransfer
@@ -643,6 +643,31 @@ internal class PorticoPlaybackController(private val context: Context) {
     val never = preference == DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER
     val fps = format.frameRate.takeIf { it.isFinite() && it >= 1f && it <= 240f }
     val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
+    if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && (target == null || !target.isValid) && !backgroundHold) {
+      // READY can arrive before React has mounted the surface. Keep the opening frame until
+      // there is somewhere to make the rate request, within the same bounded startup wait.
+      val wait = ++displayWait
+      val until = SystemClock.elapsedRealtime() + 10_000
+      displayHold = true
+      engine.playWhenReady = false
+      val poll = object : Runnable {
+        override fun run() {
+          if (invalidated || displayWait != wait || itemInstanceId != item || !displayHold) return
+          val surface = try { displaySurface?.invoke() } catch (_: Exception) { null }
+          if (surface?.isValid == true) {
+            displayHold = false
+            if (!matchDisplay(done)) done()
+          } else if (SystemClock.elapsedRealtime() >= until || backgroundHold) {
+            displayHold = false
+            displayMatchedItem = item
+            done()
+          } else main.postDelayed(this, 50)
+        }
+      }
+      main.postDelayed(poll, 50)
+      return true
+    }
+    displayMatchedItem = item
     val before = display.mode
     val voted = !never && fps != null && target != null && target.isValid && voteFrameRate(target, fps)
     val mayBreak = voted && preference != DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY
@@ -795,7 +820,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || displayHold || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || displayHold || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {

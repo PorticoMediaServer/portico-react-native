@@ -26,6 +26,9 @@ import java.io.File
 class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val main = Handler(Looper.getMainLooper())
   @Volatile private var invalidated = false
+  private val changed: (Map<String, Any?>) -> Unit = { entry ->
+    if (!invalidated) emit("PorticoDownloadChanged", Arguments.makeNativeMap(entry))
+  }
 
   override fun getName(): String = "PorticoDownloads"
 
@@ -37,8 +40,9 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     super.initialize()
     current = this
     PorticoDownloadCenter.post {
+      if (invalidated) return@post
       PorticoDownloadCenter.open(reactApplicationContext)
-      PorticoDownloadCenter.onChanged = { entry -> if (!invalidated) emit("PorticoDownloadChanged", Arguments.makeNativeMap(entry)) }
+      PorticoDownloadCenter.onChanged = changed
     }
   }
 
@@ -46,7 +50,9 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     invalidated = true
     if (current === this) current = null
     // Transfers belong to the process and go on; only the listener goes.
-    PorticoDownloadCenter.post { PorticoDownloadCenter.onChanged = null }
+    PorticoDownloadCenter.post {
+      if (PorticoDownloadCenter.onChanged === changed) PorticoDownloadCenter.onChanged = null
+    }
     super.invalidate()
   }
 
