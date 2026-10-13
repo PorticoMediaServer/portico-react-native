@@ -5,8 +5,8 @@ The React Native (react-native-tvos) client for Portico. It builds on:
 - `packages/client-core`: the headless services (sessions, content
   projections, detail, show workspace, search, saved, guide, playback).
 - `packages/design`: colour, spacing and icon tokens.
-- `Native/`: the AVPlayer, audio, keychain, networking and system modules, with
-  their JavaScript bindings in `src/bridge/`.
+- `Native/`: the AVPlayer and mpv player engines, audio, keychain, networking and system
+  modules, with their JavaScript bindings in `src/bridge/`.
 - `android/`: the same native modules for Android, in Kotlin, under the same
   names (Media3 for playback, the Keystore for records). Every screen is shared;
   only this layer differs.
@@ -66,6 +66,32 @@ crash at launch (`RCTEventEmitter.receiveEvent`), because the production bundle
 has nothing registered to receive old-style view events.
 `src/app/legacy-events.ts` now drops such events with a warning instead of
 crashing.
+
+## The mpv player engine (iPhone, iPad, Apple TV)
+
+The app has two player engines behind one contract (`Native/ENGINE-CONTRACT.md`): the system's
+AVPlayer and mpv. The Player setting is Automatic (the default), this device's player, or mpv.
+
+mpv comes from [MPVKit](https://github.com/mpvkit/MPVKit) (its LGPL product `MPVKit`: libmpv,
+FFmpeg, libass, libplacebo, MoltenVK, dav1d and their dependencies as prebuilt xcframeworks),
+pinned in both Xcode projects to the exact version `1.1.0-n9.0.2` (mpv 0.41). Nothing is checked
+in: Xcode fetches it.
+
+```bash
+cd ios && pod install      # as before
+xcodebuild -resolvePackageDependencies -workspace Portico.xcworkspace -scheme Portico   # fetches MPVKit (a large download, once)
+```
+
+Then build as usual. The same two commands apply in `tvos/`. Notes:
+
+- The engine's Swift files compile to a stand-in when the package is missing (`#if
+  canImport(Libmpv)`): the app still builds and simply has no mpv (no Player setting).
+- Run with **Metal API Validation off** in the scheme's Diagnostics while debugging HDR titles;
+  MoltenVK trips the validation layer there. Release builds are unaffected.
+- mpv draws through Metal, which the simulators support, but VideoToolbox decoding and HDR need
+  a device.
+- To move to a newer MPVKit, change `version` in the `XCRemoteSwiftPackageReference "MPVKit"`
+  entry of both `project.pbxproj` files. The engine needs mpv 0.38 or later.
 
 ## Android
 
