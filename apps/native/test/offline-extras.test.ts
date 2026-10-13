@@ -44,6 +44,24 @@ test('a chosen text track is a WebVTT file the engine reads; a styled one goes t
   assert.equal(offlineSubtitleCommand(styled, binding, 5, ['text'], defaultCaptionStyle).mode, 'off', 'an engine that cannot draw it shows nothing rather than something wrong');
 });
 
+test('every stored kind is offered to a player that draws it: DVB, a VobSub index, a styled track with its fonts', () => {
+  const rich: any = {backdropUrl: '', subtitles: [
+    {id: 'd1', language: 'de', title: 'DVB', default: false, forced: false, format: 'dvb', url: dir + 'sub-d1-1.dvb'},
+    {id: 'v1', language: 'en', title: 'DVD', default: false, forced: false, format: 'vobsub', url: dir + 'sub-v1-2.idx'},
+    {id: 'a1', language: 'ja', title: 'Styled', default: true, forced: false, format: 'ass', url: dir + 'sub-a1-1.ass', fonts: [{name: 'sub-a1-1.font0', url: dir + 'sub-a1-1.font0'}, {name: 'elsewhere', url: 'https://example.test/font.ttf'}]},
+  ]};
+  const drawn = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
+  assert.deepEqual(offlineSubtitleTracks(rich, ['text']), [], 'the platform player draws none of these');
+  const [dvb, vobsub, styled] = offlineSubtitleTracks(rich, drawn);
+  assert.deepEqual([dvb!.kind, vobsub!.kind, styled!.kind], ['dvb', 'vobsub', 'ass']);
+  assert.deepEqual(offlineSubtitleCommand(dvb, binding, 2, drawn, defaultCaptionStyle).render, {kind: 'dvb', url: dir + 'sub-d1-1.dvb'});
+  // The index is what the player opens; the pictures are the file beside it with the same name ending .sub.
+  assert.deepEqual(offlineSubtitleCommand(vobsub, binding, 3, drawn, defaultCaptionStyle).render, {kind: 'vobsub', url: dir + 'sub-v1-2.idx'});
+  // Fonts travel with the styled file, and only as files on this device.
+  assert.deepEqual(offlineSubtitleCommand(styled, binding, 4, drawn, defaultCaptionStyle).render, {kind: 'ass', url: dir + 'sub-a1-1.ass', fonts: [{name: 'sub-a1-1.font0', url: dir + 'sub-a1-1.font0'}]});
+  assert.equal(offlineSubtitleCommand(styled, binding, 5, drawn, defaultCaptionStyle).documentUrl, undefined);
+});
+
 test('chapters and skip markers come from the download itself', () => {
   assert.deepEqual(offlineChapters(extras), [{startSeconds: 0, title: 'One'}, {startSeconds: 300, title: 'Two'}]);
   const markers = offlineMarkers(extras, 'movie-1')!;

@@ -1,3 +1,4 @@
+import {storedSubtitle, subtitleExtraFiles, type StoredSubtitle} from './offline-subtitle-files';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {nativeRouteCrypto} from './server-connections';
 import {
@@ -86,14 +87,17 @@ export type OfflineDisplay = Readonly<{title: string; subtitle?: string; artwork
  * files are on this device. */
 export type OfflineExtras = Readonly<{
   bundle?: DownloadBundle;
-  subtitles: readonly Readonly<{id: string; language: string; title: string; default: boolean; forced: boolean; format: string; url: string}>[];
+  subtitles: readonly StoredSubtitle[];
   backdropUrl: string;
 }>;
 
 /** What is kept with a native entry besides its bytes. `claim` is the server's claim for the
  * download when that is no longer the entry's own id; `token` is the address it is fetched from;
- * `extras` are the files saved beside it; `bundle` is 2 once everything that travels with it is
- * here, 1 while some of it is still to come. */
+ * `extras` are the files saved beside it; `bundle` is `BUNDLE_COMPLETE` once everything that
+ * travels with it is here, 1 while some of it is still to come. */
+/** Raised when what is kept beside a download changes (3: a VobSub index is kept as `.idx`), so a
+ * download marked complete under an earlier rule is completed again by the next pass. */
+const BUNDLE_COMPLETE = 3;
 type Meta = {
   libraryId?: string; kind?: string; owner?: string; receipt?: DownloadReceipt; title?: DownloadTitle;
   onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number;
@@ -581,7 +585,7 @@ export class OfflineDownloads {
    * subtitles — and keeps it beside the file. What the server has none of is simply absent;
    * what could not be had yet is fetched on a later pass. */
   private async bundle(id: string, api: Api, service: DownloadsService, generation: number, address?: string) {
-    if (!native || this.bundling.has(id) || (this.metas.get(id)?.bundle ?? 0) >= 2) return;
+    if (!native || this.bundling.has(id) || (this.metas.get(id)?.bundle ?? 0) >= BUNDLE_COMPLETE) return;
     this.bundling.add(id);
     try {
       const claim = this.metas.get(id)?.claim ?? id;
@@ -593,7 +597,8 @@ export class OfflineDownloads {
       let complete = true;
       const files: [string, string][] = [
         ...described.artwork.map(a => [a.role, a.path] as [string, string]),
-        ...described.subtitles.flatMap(s => Object.entries(s.files).map(([form, file]) => [`sub-${s.id}-${s.revision}.${form}`, file.path] as [string, string])),
+        // Each track's files under one stem: the script with its fonts, a VobSub index with its pictures.
+        ...described.subtitles.flatMap(s => subtitleExtraFiles(s).map(([name, path]) => [name, path] as [string, string])),
       ];
       for (const [name, path] of files) {
         if (saved.has(name)) continue;
@@ -601,7 +606,7 @@ export class OfflineDownloads {
         if (this.generation !== generation) return;
         if (outcome === 'saved') saved.add(name); else if (outcome !== 'missing') complete = false;
       }
-      await this.patch(id, {title: described.title, kind: described.title.kind, extras: [...saved], bundle: complete ? 2 : 1});
+      await this.patch(id, {title: described.title, kind: described.title.kind, extras: [...saved], bundle: complete ? BUNDLE_COMPLETE : 1});
     } catch { /* completed on a later pass */ } finally { this.bundling.delete(id); }
   }
   /** Looks after downloads that need something only a reachable server can give: one that stopped
@@ -643,7 +648,7 @@ export class OfflineDownloads {
           if (artifact && (artifact.sha256 !== grant.artifact.sha256 || artifact.bytes !== grant.artifact.bytes)) return;
           await this.startTransfer(current, {...latest, token: grant.token}, grant, api);
         }).catch(() => {});
-      } else if (entry.state === 'ready' && (meta.bundle ?? 0) < 2 && entry.onServer) {
+      } else if (entry.state === 'ready' && (meta.bundle ?? 0) < BUNDLE_COMPLETE && entry.onServer) {
         if (now - (this.retried.get('bundle:' + entry.id) ?? 0) < 10 * 60 * 1000) continue;
         this.retried.set('bundle:' + entry.id, now);
         await this.bundle(entry.id, api, service, generation);
@@ -858,11 +863,9 @@ export class OfflineDownloads {
     const dir = this.dirs.get(entry.id) ?? '', saved = new Set(this.metas.get(entry.id)?.extras ?? []);
     let bundle: DownloadBundle | undefined;
     try { const raw = await native?.readExtra(entry.id, 'bundle.json'); bundle = raw ? (JSON.parse(raw) as DownloadBundle) : undefined; } catch { bundle = undefined; }
-    const subtitles = (bundle?.subtitles ?? []).flatMap(s => {
-      // The form closest to how the track was authored that is on this device; text last.
-      const form = ['ass', 'pgs', 'vobsub', 'vtt'].find(f => saved.has(`sub-${s.id}-${s.revision}.${f}`));
-      return form && dir ? [{id: s.id, language: s.language, title: s.title, default: s.default, forced: s.forced, format: form, url: `${dir}extras/sub-${s.id}-${s.revision}.${form}`}] : [];
-    });
+    // Each track in the form closest to how it was authored that is whole on this device (a
+    // VobSub track with both its files, a styled script with the fonts that came with it); text last.
+    const subtitles = (bundle?.subtitles ?? []).flatMap(s => { const stored = dir ? storedSubtitle(s, saved, dir + 'extras/') : undefined; return stored ? [stored] : []; });
     return Object.freeze({bundle, subtitles: Object.freeze(subtitles), backdropUrl: saved.has('backdrop') && dir ? dir + 'extras/backdrop' : ''});
   }
   private lastLocalWrite = new Map<string, number>();

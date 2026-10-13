@@ -21,8 +21,8 @@ export type PlayerActions = {
   canQueue?: () => boolean;
   /** Adds a title to the play queue: straight after what is playing (`next`), or at the end. Rejects with the server's error. */
   enqueue?: (itemId: string, next: boolean) => Promise<void>;
-  /** OS-07: play a download in Portico's player. Absent outside the signed-in shell (the launch
-   * flow's offline Downloads), where the system player plays it instead. */
+  /** OS-07: play a download in Portico's player. Present wherever the player is mounted: the
+   * signed-in shell and the launch flow's offline Downloads. */
   playLocal?: (entry: OfflineEntry) => Promise<void>;
 };
 

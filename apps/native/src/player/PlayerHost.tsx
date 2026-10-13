@@ -24,8 +24,13 @@ import {queueItemInput} from '../../../../packages/client-core/src/queue-control
  * Owns the player engine for the signed-in session and layers the player
  * presentations over the shell: full-screen when expanded, a handheld mini
  * bar or television pill when audio continues in the background.
+ *
+ * `signedOut`: the same player for the launch flow's Downloads, where nobody is signed in and no
+ * server is reachable. A download then plays exactly as it does in the shell (either engine, its
+ * own subtitle files, chapters and skip markers), and everything that needs a server is left out:
+ * nothing is received from other devices, cast or looked up.
  */
-export function PlayerHost({children, bottom, onOpen, onTogether, intents}: {children: React.ReactNode; bottom?: React.ReactNode; onOpen: (entry: ContentEntry) => void; onTogether: () => void; intents?: React.MutableRefObject<PlayerActions | null>}) {
+export function PlayerHost({children, bottom, onOpen, onTogether, intents, signedOut = false}: {children: React.ReactNode; bottom?: React.ReactNode; onOpen: (entry: ContentEntry) => void; onTogether: () => void; intents?: React.MutableRefObject<PlayerActions | null>; signedOut?: boolean}) {
   const engine = usePlayerEngine();
   const {isTV} = useTheme();
   const i18n = useI18n();
@@ -76,16 +81,16 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents}: {chi
             focus engine can never move onto cards the viewer can't see. They stay mounted. */}
         <View style={isTV && showFull ? hiddenUnderPlayer : fill}>{children}</View>
         <View onLayout={e => setBars(e.nativeEvent.layout.height)}>
-          <CastBar />
+          {signedOut ? null : <CastBar />}
           {showMini && !isTV ? <MiniBar engine={engine} /> : null}
           {bottom}
         </View>
         {showMini && isTV ? <NowPlayingPill engine={engine} /> : null}
         {showFull || holdingPip ? <VideoPlayer engine={engine} /> : null}
-        {isTV ? <ReceiverMode engine={engine} enabled={preferences.receiveFromDevices} /> : null}
+        {isTV && !signedOut ? <ReceiverMode engine={engine} enabled={preferences.receiveFromDevices} /> : null}
         {/* One toast host (CON-07), above the tab bar and mini player, and over the player. */}
         <ToastHost bottomOffset={showFull ? 0 : Math.max(0, bars - insets.bottom)} />
-        <EntryMenu entry={more?.entry ?? null} origin={more?.origin} engine={engine} onClose={() => setMore(null)} onOpen={onOpen} onTogether={onTogether} />
+        {signedOut ? null : <EntryMenu entry={more?.entry ?? null} origin={more?.origin} engine={engine} onClose={() => setMore(null)} onOpen={onOpen} onTogether={onTogether} />}
         <ConfirmSheet open={!!engine.dolbyPending} onDismiss={engine.dismissDolby} title={i18n.t('player.dolbyVisionWarning')} confirmLabel={i18n.t('player.playAnyway')} tone="default" onConfirm={() => engine.confirmDolby()} />
         {/* MU4 COMPAT-01: bitmap subtitles on a 4K/HDR source confirm once per play; dismissing keeps the current track. */}
         <ConfirmSheet open={!!engine.bitmapPending} onDismiss={engine.dismissBitmap} title={i18n.t('player.subtitles.burnWarning')} confirmLabel={i18n.t('action.continue')} tone="default" onConfirm={() => engine.confirmBitmap()} />

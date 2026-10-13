@@ -32,8 +32,8 @@ export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server 
   // A device store that can't be read says so, rather than showing an empty list forever.
   useEffect(() => { offlineDownloads.open().catch(() => setError(i18n.t('downloads.openFailed'))); }, [i18n]);
   const attempt = (work: Promise<unknown>) => { setError(''); work.catch(e => setError(say(e, 'downloads', 'action'))); };
-  // OS-07: in the signed-in shell a download plays in Portico's own player; from the launch flow
-  // (no player there) the system player plays it.
+  // OS-07: a download plays in Portico's own player, in the shell and from the launch flow alike
+  // (both mount it). The system player is only what is left where no player is mounted at all.
   const {playLocal} = usePlayerActions();
   const play = (entry: OfflineEntry) => (playLocal ? playLocal(entry) : offlineDownloads.play(entry));
   const press = (entry: OfflineEntry) => {
