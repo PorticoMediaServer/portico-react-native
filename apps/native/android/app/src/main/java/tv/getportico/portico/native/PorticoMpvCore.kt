@@ -90,11 +90,11 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   }
 
   override fun onLog(prefix: ByteArray, level: ByteArray, text: ByteArray) {
-    val line = "${String(prefix, Charsets.UTF_8)}: ${String(text, Charsets.UTF_8).trim()}".take(300)
-    // mpv's warnings and errors, where a developer looks for them (`adb logcat -s PorticoMpv`).
     // mpv only ever sees addresses on this device, but their path carries the playback's media
-    // grant, which is left out of the log.
-    android.util.Log.w("PorticoMpv", GRANT.replace(line, "/v1/media/-/"))
+    // grant, which is left out of what is kept and logged.
+    val line = GRANT.replace("${String(prefix, Charsets.UTF_8)}: ${String(text, Charsets.UTF_8).trim()}", "/v1/media/-/").take(300)
+    // mpv's warnings and errors, where a developer looks for them (`adb logcat -s PorticoMpv`).
+    android.util.Log.w("PorticoMpv", line)
     queue.post {
       logTail.addLast(line)
       while (logTail.size > 24) logTail.removeFirst()

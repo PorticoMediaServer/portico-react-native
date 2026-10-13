@@ -73,8 +73,10 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
 
   override fun initialize() {
     super.initialize()
+    // The libraries are loaded here, off the main thread; the engine itself lives on it.
+    val usable = PorticoMpvCore.available
     main.post {
-      if (invalidated || !PorticoMpvCore.available) return@post
+      if (invalidated || !usable) return@post
       PorticoAppVisibility.install(reactApplicationContext, reactApplicationContext.currentActivity)
       val made = PorticoMpvController(reactApplicationContext.applicationContext)
       made.onFact = { fact -> if (!invalidated) emit("PorticoMpvPlaybackFact", fact) }
