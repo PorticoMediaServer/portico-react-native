@@ -16,7 +16,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentStackParams} from '../app/routes';
-import {Artwork, Backdrop, Button, Card, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useTheme} from '../ui';
+import {Artwork, Backdrop, Button, Card, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useScreenTitle, useTheme} from '../ui';
 import {indexTitles} from '../bridge/NativeActivity';
 import {ArtworkPlacementContext} from '../ui/ArtworkPipeline';
 import {useInvoker} from '../app/playback-events';
@@ -39,6 +39,8 @@ import type {ShapeFamily} from '../../../../packages/client-core/src/presentatio
 export function HomeScreen() {
   const {state, refresh, more, saveLayout, resetLayout, loadLayout} = useHome();
   const i18n = useI18n();
+  // Home has no page header of its own to name it for a screen reader.
+  useScreenTitle(i18n.t('web.shell.home'));
   const failure = present(state.error, 'home', {retrying: state.retrying, i18n});
   // OS-02: Continue Watching and the watchlist become Spotlight results and titles Siri can play.
   useEffect(() => {

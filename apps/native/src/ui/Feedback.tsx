@@ -1,7 +1,8 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useContext, useEffect, useRef} from 'react';
 import {Animated, Easing, View, type StyleProp, type ViewStyle} from 'react-native';
 import {Button} from './Button';
 import {Icon, type IconName} from './Icon';
+import {ScreenSpeechContext} from './NavBar';
 import {Text} from './Text';
 import {uiI18n} from './i18n';
 import {alpha, spec, useSpecPlatform, useTheme} from './theme';
@@ -84,6 +85,11 @@ export function StateView({icon = 'info', title, message, action, onAction, seco
   const platform = useSpecPlatform();
   const v = spec.feedback.stateView;
   const circle = v.iconCircle[platform];
+  // A screen reader hears a state that replaces the content (an error, nothing here yet) once,
+  // when it appears. Loading is not announced: it would only be noise before the real answer.
+  const speak = useContext(ScreenSpeechContext);
+  const spoken = loading ? '' : message ? `${title}. ${message}` : title;
+  useEffect(() => { if (spoken) speak(spoken); }, [speak, spoken]);
   return (
     <View style={[{alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: v.gap[platform]}, style]}>
       {loading ? <Ring label={title} /> : <View style={{width: circle, height: circle, borderRadius: circle / 2, backgroundColor: colors.raisedHigh, alignItems: 'center', justifyContent: 'center'}}><Icon name={icon} size={v.icon[platform]} color={colors.textSecondary} /></View>}

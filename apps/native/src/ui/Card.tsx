@@ -5,6 +5,8 @@ import {FocusHalo} from './FocusHalo';
 import {Focusable, type FocusableProps} from './Focusable';
 import {Icon, type IconName} from './Icon';
 import {Text} from './Text';
+import {cardName} from './card-name';
+import {uiI18n} from './i18n';
 import {alpha, useTheme} from './theme';
 
 export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & {
@@ -38,7 +40,7 @@ export const Card = React.memo(function Card({title, subtitle, source, shape = '
   const {metrics, space, colors, isTV} = useTheme();
   const w = width ?? (shape === 'landscape' ? metrics.landscapeWidth : shape === 'poster' ? metrics.posterWidth : metrics.squareWidth);
   return (
-    <Focusable accessibilityRole="button" accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
+    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, watched, progress, badge})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
       {({focused, hovered}) => (
         <View>
           <FocusHalo active={focused} width={w} height={w / artworkRatio[shape]} radius={metrics.radius.card} />
@@ -115,7 +117,7 @@ export function BannerCard({title, subtitle, source, width, progress = 0, style,
   const {metrics, space, colors} = useTheme();
   const w = width ?? metrics.landscapeWidth * 1.4;
   return (
-    <Focusable accessibilityRole="button" accessibilityLabel={title} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
+    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, progress})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
       {({focused}) => (<>
       <FocusHalo active={focused} width={w} height={w / artworkRatio.landscape} radius={metrics.radius.card} />
       <View style={{borderRadius: metrics.radius.card, overflow: 'hidden'}}>

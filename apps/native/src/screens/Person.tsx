@@ -122,7 +122,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   const dates = born && died ? i18n.t('title.lifespan', {born, died}) : born ? i18n.t('title.born', {date: born}) : undefined;
   const knownFor = person && first.page && first.page.pageInfo.total > person.knownFor.length ? person.knownFor : [];
   const renderEntry = (entry: ContentEntry, w?: number, caption?: string) => (
-    <Card title={entry.title} subtitle={caption ?? captionFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} width={w} progress={progressFor(entry)} icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)} onPress={() => open(entry)} onLongPress={() => open(entry, 'more')} />
+    <Card title={entry.title} subtitle={caption ?? captionFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} width={w} progress={progressFor(entry)} watched={entry.watched === true} icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)} onPress={() => open(entry)} onLongPress={() => open(entry, 'more')} />
   );
   const roles = [
     {id: 'all', label: i18n.t('title.creditsAll')},

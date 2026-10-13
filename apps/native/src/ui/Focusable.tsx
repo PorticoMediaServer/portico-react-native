@@ -1,6 +1,7 @@
 import React, {forwardRef, useCallback, useImperativeHandle, useRef, useState} from 'react';
-import {Pressable, TVFocusGuideView, View, type PressableProps, type StyleProp, type ViewStyle} from 'react-native';
+import {Pressable, TVFocusGuideView, View, type AccessibilityActionEvent, type GestureResponderEvent, type PressableProps, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming, Easing, type SharedValue} from 'react-native-reanimated';
+import {uiI18n} from './i18n';
 import {useTheme} from './theme';
 
 export type FocusableState = {focused: boolean; hovered: boolean; pressed: boolean};
@@ -20,6 +21,11 @@ export type FocusableProps = Omit<PressableProps, 'children' | 'style'> & {
    * on TV, but ignores presses and looks unavailable. Use `disabled` only for what can't be used at all.
    */
   busy?: boolean;
+  /**
+   * What the long press does, in words ("More for Dune"). A control with a long-press action
+   * offers it to assistive technology as a named action too, so it never depends on holding.
+   */
+  longPressLabel?: string;
 };
 
 /** `node` is the native view, for a focus guide's `destinations`. */
@@ -40,7 +46,7 @@ export const PreferredFocusContext = React.createContext(false);
  * directly.
  */
 export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Focusable(
-  {children, style, radius = 8, scale, ring, disabled, busy = false, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onStateChange, onPress, onLongPress, ...rest},
+  {children, style, radius = 8, scale, ring, disabled, busy = false, longPressLabel, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onStateChange, onPress, onLongPress, ...rest},
   ref,
 ) {
   const {isTV, metrics, motion} = useTheme();
@@ -70,6 +76,16 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
     return {transform: [{scale: lift * pressed}]};
   });
   const showRing = ring ?? isTV;
+  // A long-press action is also a named accessibility action (VoiceOver's Actions rotor,
+  // TalkBack's actions menu, Switch Control), beside the ordinary activation.
+  const held = onLongPress && !busy && !disabled ? onLongPress : undefined;
+  const actions = held && !rest.accessibilityActions ? {
+    accessibilityActions: [{name: 'activate'}, {name: 'longpress', label: longPressLabel ?? uiI18n().t('title.more')}],
+    onAccessibilityAction: (event: AccessibilityActionEvent) => {
+      if (event.nativeEvent.actionName === 'longpress') held(event as unknown as GestureResponderEvent);
+      else if (event.nativeEvent.actionName === 'activate') onPress?.(event as unknown as GestureResponderEvent);
+    },
+  } : null;
   return (
     <AnimatedPressable
       ref={inner as any}
@@ -110,6 +126,7 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
         update({pressed: false});
         onPressOut?.(e);
       }}
+      {...actions}
       {...rest}
       style={[animated, style, disabled ? {opacity: 0.45} : busy ? {opacity: 0.6} : null]}>
       {typeof children === 'function' ? children(state) : children}

@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {announce} from './announce';
 import {Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, TVFocusGuideView, View, type StyleProp, type ViewStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
@@ -98,6 +99,8 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   const halfRef = useRef(half);
   halfRef.current = half;
   useEffect(() => { if (open) setExpanded(false); }, [open]);
+  // A screen reader hears what has opened: the sheet's title, once.
+  useEffect(() => { if (open) announce(title); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [open]);
   const kind = requestedKind ?? (primary || footer ? 'form' : 'picker');
   const dismissable = kind !== 'acknowledge';
   const dismiss = () => { if (dismissable) onClose(); };

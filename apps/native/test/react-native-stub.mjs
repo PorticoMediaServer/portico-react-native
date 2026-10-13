@@ -115,3 +115,13 @@ export const AppState = {
   currentState: 'active',
   addEventListener: () => ({remove: () => {}}),
 };
+
+/** What the app asked the screen reader to say, in order. */
+export const spoken = [];
+export const AccessibilityInfo = {
+  announceForAccessibility: text => { spoken.push(text); },
+  announceForAccessibilityWithOptions: text => { spoken.push(text); },
+  isScreenReaderEnabled: async () => false,
+  isReduceMotionEnabled: async () => false,
+  addEventListener: () => ({remove: () => {}}),
+};

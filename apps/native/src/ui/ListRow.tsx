@@ -5,6 +5,8 @@ import {Focusable, type FocusableHandle, type FocusableProps} from './Focusable'
 import {Icon, type IconName} from './Icon';
 import {Switch, SwitchVisual} from './Switch';
 import {Text} from './Text';
+import {cardName} from './card-name';
+import {uiI18n} from './i18n';
 import {alpha, spec, useSpecPlatform, useTheme, type SpecPlatform} from './theme';
 
 /** What the trailing edge promises (rowSpec.trailing, CON-11). */
@@ -122,7 +124,7 @@ export const ListRow = React.memo(function ListRow({title, subtitle, meta, ordin
     );
   }
   return (
-    <Focusable ref={focusRef} accessibilityRole="button" accessibilityLabel={title} accessibilityHint={subtitle} radius={metrics.radius.control} scale={isTV ? spec.focus.scale.row.tv : 1} style={style} {...rest}>
+    <Focusable ref={focusRef} accessibilityRole="button" accessibilityLabel={media ? cardName(title, {watched, progress}) : title} accessibilityHint={subtitle} accessibilityState={selected ? {selected: true} : undefined} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.control} scale={isTV ? spec.focus.scale.row.tv : 1} style={style} {...rest}>
       {({focused, hovered, pressed}) => body(focused || hovered || pressed)}
     </Focusable>
   );

@@ -1,7 +1,8 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {TVFocusGuideView, View} from 'react-native';
 import {CommonActions, useIsFocused, useNavigation} from '@react-navigation/native';
-import {Button, NavScope, StateView, useTheme} from '../ui';
+import {Button, NavScope, ScreenSpeechContext, ScreenTitleContext, StateView, useTheme} from '../ui';
+import {DestinationAnnouncer, announce} from '../ui/announce';
 import {useConnectionStatus} from '../app/connection-context';
 import {CONNECTION_EXEMPT_SCREENS, connectionView} from '../app/connection-status';
 import {useI18n} from '../app/i18n';
@@ -64,6 +65,22 @@ export function guarded<P extends object>(Screen: React.ComponentType<P>): (prop
     useEffect(() => {
       if (focused && status.generation !== mountedGeneration) setMountedGeneration(status.generation);
     }, [focused, status.generation, mountedGeneration]);
+    // A screen reader hears the name of the screen it has arrived at, once (the screen's header
+    // or title hero reports the name; a refresh or a covered screen says nothing).
+    const announcer = useRef<DestinationAnnouncer | null>(null);
+    announcer.current ??= new DestinationAnnouncer();
+    const named = useRef<string | undefined>(undefined);
+    const focusedNow = useRef(focused);
+    focusedNow.current = focused;
+    const routeKey = props.route.key;
+    const reportTitle = useCallback((title: string | undefined) => {
+      named.current = title;
+      announce(announcer.current!.next(routeKey, title, focusedNow.current));
+    }, [routeKey]);
+    useEffect(() => { announce(announcer.current!.next(routeKey, named.current, focused)); }, [routeKey, focused]);
+    // What the screen says about itself later (a new error, an empty state) is spoken only while
+    // it is the current screen; a screen kept alive behind another one stays silent.
+    const speak = useCallback((text: string) => { if (focusedNow.current) announce(text); }, []);
     const view = connectionView({name: props.route.name, status, mountedGeneration, focused});
     // While the status shows, it replaces the screen's content (which unmounts, so no card shows
     // its own error). Exempt screens (Settings, Servers, Account, About, Downloads, Gallery) keep
@@ -74,7 +91,7 @@ export function guarded<P extends object>(Screen: React.ComponentType<P>): (prop
       ) : (
         <Boundary key={mountedGeneration} resetKey={props.route.key} onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} onHome={() => navigation.dispatch(CommonActions.navigate({name: 'HomeRoot', params: {screen: 'Home', pop: true}}))}>
           {/* Each screen has its own navigation-bar scope (its scroll position and its title). */}
-          <NavScope><MemoScreen {...props} /></NavScope>
+          <ScreenTitleContext.Provider value={reportTitle}><ScreenSpeechContext.Provider value={speak}><NavScope><MemoScreen {...props} /></NavScope></ScreenSpeechContext.Provider></ScreenTitleContext.Provider>
         </Boundary>
       );
     // Television: a screen covered by a pushed one must leave the focus engine

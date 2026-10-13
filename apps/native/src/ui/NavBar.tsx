@@ -1,6 +1,7 @@
 import React, {createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
 import {View, type NativeScrollEvent, type NativeSyntheticEvent} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {announce} from './announce';
 import {Button} from './Button';
 import {uiI18n} from './i18n';
 import {Text} from './Text';
@@ -67,8 +68,27 @@ export function useScrolledPast(threshold: number): boolean {
   return useSyncExternalStore(subscribe, () => watcher.current?.isPast() ?? false);
 }
 
+/**
+ * How a screen tells the shell its name, so a screen reader hears where it has arrived (the
+ * shell's screen wrapper provides this; outside one, nothing is reported).
+ */
+export const ScreenTitleContext = createContext<((title: string | undefined) => void) | null>(null);
+
+/**
+ * Speaks a change on a screen (a new error, an empty state) to a screen reader. Inside a shell
+ * screen this speaks only while that screen is the current one; elsewhere it always speaks.
+ */
+export const ScreenSpeechContext = createContext<(text: string) => void>(announce);
+
+/** Names the screen for a screen reader. Screens with a page header or a title hero are named by those. */
+export function useScreenTitle(title: string | undefined): void {
+  const report = useContext(ScreenTitleContext);
+  useEffect(() => { report?.(title); }, [report, title]);
+}
+
 /** Names the pushed screen for its bar: the title and the way back. `after` is where the bar takes over. */
 export function useNavTitle(title: string | undefined, onBack: (() => void) | undefined, after = 56) {
+  useScreenTitle(title);
   const store = useContext(NavContext);
   const back = useRef(onBack);
   back.current = onBack;
