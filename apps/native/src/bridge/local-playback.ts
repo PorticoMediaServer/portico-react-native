@@ -1,15 +1,21 @@
 import type {PlaybackApi, PlaybackSession} from '../../../../packages/client-core/src/index';
+import type {OfflineExtras} from './offline-downloads';
 
 export type LocalMedia = Readonly<{
   /** The download entry, for the offline journal. */
   entryId: string;
   itemId: string;
+  /** Names this play in the offline journal: one id for as long as the file stays open. */
+  playId: string;
+  /** What came with the download: its description, chapters, skip markers and audio tracks, and
+   * its subtitle tracks as files on this device. */
+  extras?: OfflineExtras;
   /** `file://` URL of the downloaded file. */
   fileUrl: string;
   durationSeconds: number;
   startSeconds: number;
 }>;
-export type LocalProgress = Readonly<{entryId: string; itemId: string; positionSeconds: number; durationSeconds: number; state: 'playing' | 'paused' | 'ended'; ended: boolean}>;
+export type LocalProgress = Readonly<{entryId: string; itemId: string; playId: string; positionSeconds: number; durationSeconds: number; state: 'playing' | 'paused' | 'ended'; ended: boolean}>;
 
 export const LOCAL_SESSION_PREFIX = 'local:';
 export const isLocalSession = (id: string | undefined): boolean => !!id && id.startsWith(LOCAL_SESSION_PREFIX);
@@ -49,7 +55,7 @@ export class LocalPlayback {
         // (its file mapping is gone then, and the offline journal already holds its position).
         const media = local(id);
         if (!media) return Promise.resolve();
-        this.sink({entryId: media.entryId, itemId: media.itemId, positionSeconds: Math.max(0, payload.positionSeconds), durationSeconds: media.durationSeconds, state: payload.state, ended: payload.state === 'ended'});
+        this.sink({entryId: media.entryId, itemId: media.itemId, playId: media.playId, positionSeconds: Math.max(0, payload.positionSeconds), durationSeconds: media.durationSeconds, state: payload.state, ended: payload.state === 'ended'});
         return Promise.resolve();
       },
       stopPlayback: (id, signal) => {

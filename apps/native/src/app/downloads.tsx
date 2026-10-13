@@ -1,11 +1,11 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {AppState, View} from 'react-native';
-import {DownloadsService, downloadBytes, downloadReasonMessage, type DownloadOptionsView, type DownloadTarget, type DownloadsSnapshot, type DownloadRequestKind, type DownloadEpisodes} from '../../../../packages/client-core/src/index';
+import {DownloadsService, downloadBytes, downloadReasonMessage, type DownloadOptionsView, type DownloadQualityChoice, type DownloadTarget, type DownloadsSnapshot, type DownloadRequestKind, type DownloadEpisodes} from '../../../../packages/client-core/src/index';
 import {offlineDownloads, type OfflineDisplay, type OfflineSnapshot} from '../bridge/offline-downloads';
 import {Button, Divider, ListRow, Notice, Sheet, StateView, Surface, Text, useTheme} from '../ui';
 import {useSession} from './session';
 import {viewerKey} from './viewer-scope';
-import {useI18n, type MessageId} from './i18n';
+import {useI18n} from './i18n';
 import {say} from './errors';
 
 export type ContainerDownloadTarget = {containerId: string; containerKind: DownloadRequestKind};
@@ -27,11 +27,16 @@ export function DownloadsProvider({children, onViewDownloads}: {children: React.
     offlineDownloads.connect(api, service, {authority, accountId, profileId, serverId});
     // Follow the server's list only while the app is in front: that is when a finished
     // preparation can be brought to the device, and nothing is asked of the server otherwise.
-    const follow = () => (AppState.currentState === 'active' ? service.start() : service.stop());
+    // Coming to the front is also when a download that stopped by itself is looked at again.
+    const follow = () => { if (AppState.currentState === 'active') { service.start(); offlineDownloads.wake(); } else service.stop(); };
     follow();
     const listener = AppState.addEventListener('change', follow);
     return () => { listener.remove(); offlineDownloads.disconnect(); service.dispose(); };
   }, [service, api, authority, accountId, profileId, serverId]);
+  // A whole show or season asked for from this device is found again on the server after the
+  // app was closed, so the rest of it still arrives.
+  const deviceId = (session as {deviceId?: string} | undefined)?.deviceId;
+  useEffect(() => { if (deviceId) service?.followDevice(deviceId); }, [service, deviceId]);
   const [request, setRequest] = useState<DownloadRequest | null>(null);
   const ask = useCallback((r: DownloadRequest) => setRequest(r), []);
   const value = useMemo(() => ({service, ask}), [service, ask]);
@@ -53,8 +58,6 @@ export function useDownloads() {
 export const useDownloadRequest = () => useContext(Ctx).ask;
 export const useOffline = (): OfflineSnapshot => useSyncExternalStore(offlineDownloads.subscribe, offlineDownloads.getSnapshot);
 
-const fallback: readonly {quality: string; label: MessageId; help: MessageId}[] = [{quality: 'original', label: 'downloads.quality.original', help: 'downloads.quality.originalHelp'}, {quality: '1080p', label: 'downloads.quality.1080p', help: 'downloads.quality.smaller'}, {quality: '720p', label: 'downloads.quality.720p', help: 'downloads.quality.smallest'}];
-
 function DownloadSheet({request, service, onClose, onView}: {request: DownloadRequest | null; service: DownloadsService; onClose: () => void; onView: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
@@ -72,12 +75,17 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
   const [policy, setPolicy] = useState<DownloadEpisodes>('all');
   const [keepNext, setKeepNext] = useState(1);
   const itemId = request?.optionsFor ?? request?.target.mediaId;
+  // With no single title to read a menu for (a whole season), the server says which qualities it
+  // can hand over at all. Nothing is assumed here.
+  const [choices, setChoices] = useState<readonly DownloadQualityChoice[]>();
   useEffect(() => {
-    setView(undefined); setError(''); setBusy(''); setDone('');
+    setView(undefined); setChoices(undefined); setError(''); setBusy(''); setDone('');
     setPolicy('all'); setKeepNext(1);
-    if (!request || !itemId) return;
+    if (!request) return;
     const controller = new AbortController();
-    service.options(itemId, controller.signal).then(setView, e => { if (!controller.signal.aborted) setError(say(e, 'downloads', 'action')); });
+    const failed = (e: unknown) => { if (!controller.signal.aborted) setError(say(e, 'downloads', 'action')); };
+    if (itemId) service.options(itemId, controller.signal).then(setView, failed);
+    else service.qualities(controller.signal).then(setChoices, failed);
     return () => controller.abort();
   }, [service, request, itemId]);
   const choose = async (quality: string) => {
@@ -92,10 +100,13 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
         return;
       }
       const batch = await service.request(request.target, quality);
-      // What was asked for from this device comes to this device; a single title is
-      // remembered with its name and artwork, a whole season falls back to file names.
+      // What was asked for from this device comes to this device, under the title and artwork
+      // the server sends with it.
       await offlineDownloads.want(batch.items.map(p => p.itemId), request.display, service);
-      setDone(!batch.accepted ? (batch.rejected[0] ? downloadReasonMessage(batch.rejected[0].code) : 'Nothing could be added.') : batch.duplicate ? 'That is already in your downloads.' : batch.rejected.length ? `${batch.accepted} added. ${batch.rejected.length} could not be: ${downloadReasonMessage(batch.rejected[0].code)}` : 'It will download to this device as soon as the server has it ready.');
+      // Nothing new accepted and nothing refused means it was already there.
+      setDone(batch.rejected.length
+        ? (batch.accepted ? i18n.t('downloads.addedMixed', {accepted: batch.accepted, rejected: batch.rejected.length, reason: downloadReasonMessage(batch.rejected[0].code)}) : downloadReasonMessage(batch.rejected[0].code) || i18n.t('downloads.nothingAdded'))
+        : !batch.accepted || batch.duplicate ? (batch.items.length ? i18n.t('downloads.already') : i18n.t('downloads.nothingAdded')) : i18n.t('downloads.willArrive'));
     } catch (e) { setError(say(e, 'downloads', 'action')); } finally { setBusy(''); }
   };
   if (done) {
@@ -110,7 +121,7 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
     <Sheet open={request !== null} onClose={onClose} title={i18n.t('action.download')} subtitle={request?.title}>
       <View style={{gap: space.md}}>
         {error ? <Notice tone="error" message={error} /> : null}
-        {itemId && !view && !error ? <StateView loading title={i18n.t('downloads.checking')} /> : null}
+        {request && (itemId ? !view : !choices) && !error ? <StateView loading title={i18n.t('downloads.checking')} /> : null}
         {blocked ? <Notice tone="info" message={downloadReasonMessage(view.policy.reason) || i18n.t('downloads.offForProfile')} /> : null}
         {container && !(session as {deviceId?: string} | undefined)?.deviceId ? <Notice tone="info" message={i18n.t('downloads.noDevice')} /> : null}
         {container ? (
@@ -143,12 +154,12 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
             ))}
           </Surface>
         ) : null}
-        {request && !itemId ? (
+        {request && !itemId && choices ? (
           <Surface padded={false}>
-            {fallback.map((o, i) => (
+            {choices.map((o, i) => (
               <View key={o.quality}>
                 {i ? <Divider inset={space.md} /> : null}
-                <ListRow title={i18n.t(o.label)} subtitle={i18n.t(o.help)} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!!busy} onPress={() => void choose(o.quality)} />
+                <ListRow title={o.kind === 'source' ? i18n.t('downloads.quality.original') : o.label} subtitle={i18n.t(o.kind === 'source' ? 'downloads.quality.originalHelp' : 'downloads.quality.smaller')} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!!busy} onPress={() => void choose(o.quality)} />
               </View>
             ))}
           </Surface>
