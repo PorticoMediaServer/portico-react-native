@@ -9,6 +9,7 @@ test('the shared playback fixture preserves a nested file path without bypassing
   const session = await client.start({itemId: 'movie-1'}, {state: 'playing'}, 'fixture-route-0000000001');
   const parameters = {grant: 'grant-' + session.id, file: session.presentation.generation + '/master.m3u8'};
   assert.throws(() => encodedRoutePath('get_media_grant_file', parameters), /Invalid encoded route parameter/);
-  assert.equal(session.presentation.url, routePath('get_media_grant_file', parameters));
-  assert.equal(decodeURIComponent(session.presentation.url.split('/').at(-1)!), parameters.file);
+  // The server hands out the address with the file's own path segments, as the fixture does.
+  assert.equal(session.presentation.url, `/v1/media/${parameters.grant}/${parameters.file}`);
+  assert.equal(decodeURIComponent(routePath('get_media_grant_file', parameters)), session.presentation.url);
 });
