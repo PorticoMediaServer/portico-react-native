@@ -136,7 +136,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
     private static func prefixes(for path: String) -> [String] {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if parts.count >= 3, parts[0] == "v1", parts[1] == "media" {
-            return ["/v1/media/" + parts[2]]
+            // The media's own files, and the subtitle files and fonts the server keeps under the same grant.
+            return ["/v1/media/" + parts[2], "/v1/media/subtitles/" + parts[2]]
         }
         // A non-grant address grants only the source itself, never a whole server folder.
         return [path]

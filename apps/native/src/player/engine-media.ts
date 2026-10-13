@@ -17,7 +17,8 @@ export type SubtitleKind = 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb';
 const kinds: readonly SubtitleKind[] = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
 /** Richest first: when a track can be had several ways, the one that keeps most of it. */
 const preference: readonly SubtitleKind[] = ['ass', 'pgs', 'vobsub', 'dvb', 'text'];
-const originalPath = /^\/v1\/media\/[A-Za-z0-9_-]+\/subtitles\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts)?$/;
+/** A subtitle file's address as the server gives it (the shape `subtitles.ts` in the shared package accepts): the cue document, an original, or a styled track's font list. */
+const originalPath = /^\/v1\/media\/subtitles\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts)?$/;
 
 export type SubtitleDelivery = Readonly<{format: SubtitleKind; url?: string; fontsUrl?: string}>;
 export type SubtitleFonts = Readonly<{key: string; fonts: readonly Readonly<{name: string; url: string}>[]}>;

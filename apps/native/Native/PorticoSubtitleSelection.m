@@ -74,8 +74,9 @@ static BOOL PlainText(id value){
  }
  NSArray *mediaParts=media.path.pathComponents;
  NSString *grant=mediaParts.count>=4?mediaParts[3]:@"";
- NSString *expected=[NSString stringWithFormat:@"/v1/media/%@/subtitles/%@/%@",grant,command[@"resourceId"],command[@"resourceRevision"]];
- NSRegularExpression *route=[NSRegularExpression regularExpressionWithPattern:@"^/v1/media/[A-Za-z0-9_-]{1,128}/subtitles/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$" options:0 error:nil];
+ // Subtitle files have a place of their own beside the media: /v1/media/subtitles/<grant>/<resource>/<revision>.
+ NSString *expected=[NSString stringWithFormat:@"/v1/media/subtitles/%@/%@/%@",grant,command[@"resourceId"],command[@"resourceRevision"]];
+ NSRegularExpression *route=[NSRegularExpression regularExpressionWithPattern:@"^/v1/media/subtitles/[A-Za-z0-9_-]{1,128}/[A-Za-z0-9_-]{1,128}/[1-9][0-9]*$" options:0 error:nil];
  // The document travels the way the media does: the same scheme, host and port, under the media's
  // own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
  if(!url||!media||(![url.scheme isEqual:@"https"]&&![url.scheme isEqual:@"http"])||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){

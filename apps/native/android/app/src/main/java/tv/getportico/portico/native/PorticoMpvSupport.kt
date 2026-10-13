@@ -96,8 +96,9 @@ internal object PorticoMpvSupport {
 
   /**
    * An external subtitle or font file, or a resource an HLS playlist names, belongs to the
-   * playback when it is on the media's own origin and under the media's own grant
-   * (`/v1/media/<grant>/...`), with no credentials or fragment and a plain path. Any host is
+   * playback when it is on the media's own origin and under the media's own grant, beside the
+   * media itself (`/v1/media/<grant>/...`) or where the server keeps subtitle files and their
+   * fonts (`/v1/media/subtitles/<grant>/...`), with no credentials or fragment and a plain path. Any host is
    * accepted over HTTP or HTTPS: whether plain HTTP may be used at all is the app's network
    * policy, which the app's own HTTP client applies.
    */
@@ -110,7 +111,7 @@ internal object PorticoMpvSupport {
     if (parts.size < 3 || parts[0] != "v1" || parts[1] != "media") return false
     val path = url.path ?: return false
     if (path.contains('\\') || path.contains('%') || path.split('/').any { it == "." || it == ".." }) return false
-    return path.startsWith("/v1/media/${parts[2]}/")
+    return path.startsWith("/v1/media/${parts[2]}/") || path.startsWith("/v1/media/subtitles/${parts[2]}/")
   }
 
   private val PLAYLIST_URI = Regex("URI=\"([^\"]*)\"")
