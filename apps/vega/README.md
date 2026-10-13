@@ -162,7 +162,9 @@ Accessibility settings.
 - Text subtitles only; no switching between the audio tracks inside an original file.
 - No HDR and no surround output are claimed: the SDK does not say what the television shows or
   what the sound goes to. The server tone-maps and mixes down. "Turn off HDR" and "Don't pass
-  sound through" are therefore not offered in Settings.
+  sound through" are therefore not offered in Settings. Dolby audio stays listed as sound to
+  hand on to a receiver, never as sound the device decodes, whatever the device answers: its
+  "yes" does not tell the two apart, and a television that cannot decode it would be silent.
 - Files are played from their address only when the server is reached over HTTPS.
 
 Music and audiobooks use the same player. On Apple a native owner takes them over so that they

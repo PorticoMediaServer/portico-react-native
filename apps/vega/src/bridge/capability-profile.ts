@@ -37,7 +37,8 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  *   the "Turn off HDR" setting is not offered (`probedSettings`).
  * - **Two channels of sound** unless a receiver is reported, which this SDK never does: the
  *   server mixes surround down. Dolby audio is listed for handing on to a receiver and used only
- *   once a route is reported, so it is never used today.
+ *   once a route is reported, so it is never used today (and is never listed as decoded here,
+ *   whatever the device answers: a "yes" does not tell decoding from handing on).
  * - **Files from their address only over HTTPS.** The media element refuses an `http:` address as
  *   insecure (and a server on the home network is usually plain HTTP). Everything else goes
  *   through media source extensions, where the app fetches the bytes and hands them over
@@ -50,8 +51,12 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
   if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
   const secure = typeof origin === 'string' && origin.toLowerCase().startsWith('https:');
   const table = declared.engines.native, asked = probed?.engines.native;
+  // Dolby audio stays what the table says it is: sound handed on to a receiver, not sound this
+  // device is known to decode. The device's "yes" to it does not say which, and a television
+  // that cannot decode it would be given silence.
+  const handedOn = new Set((table.audioPassthrough ?? []).map(codec => codec.codec));
   const base: EngineCapabilities = asked
-    ? {name: table.name, evidence: 'probed', video: sdrOnly(asked.video), audio: asked.audio, audioPassthrough: table.audioPassthrough, transports: asked.transports}
+    ? {name: table.name, evidence: 'probed', video: sdrOnly(asked.video), audio: asked.audio?.filter(codec => !handedOn.has(codec.codec)), audioPassthrough: table.audioPassthrough, transports: asked.transports}
     : table;
   const native: EngineCapabilities = {
     ...base,
