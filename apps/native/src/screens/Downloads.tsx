@@ -3,7 +3,7 @@ import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {downloadBytes, type DownloadAction, type DownloadPreparation, type DownloadState} from '../../../../packages/client-core/src/index';
 import {useDownloads, useOffline} from '../app/downloads';
-import {offlineDownloads, offlineFailure, type OfflineEntry} from '../bridge/offline-downloads';
+import {groupOfflineEntries, offlineDownloads, offlineFailure, offlineWaiting, type OfflineEntry} from '../bridge/offline-downloads';
 import {Badge, Button, Divider, ListRow, Menu, Notice, Page, PageHeader, Section, StateView, Surface, Text, showToast, useTheme, type MenuItem} from '../ui';
 import {ToggleRow} from './SettingsPages';
 import {say} from '../app/errors';
@@ -19,13 +19,15 @@ const limits = [0, 5, 10, 25, 50, 100].map(gb => ({bytes: gb * 1073741824}));
 
 /**
  * What is kept on this device. It needs no server and no sign-in, so it is also what the app
- * offers when the server cannot be reached.
+ * offers when the server cannot be reached. Titles, their order and their artwork all come from
+ * what was saved with each download: an episode sits under its show, a song under its album.
  */
-export function DeviceDownloads({preparations = [], hideEmpty = false}: {preparations?: readonly DownloadPreparation[]; /** IOS-DL-01: the server doesn't offer downloads, so "Hold a title…" would be wrong. */ hideEmpty?: boolean}) {
+export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server doesn't offer downloads, so "Hold a title…" would be wrong. */ hideEmpty?: boolean}) {
   const offline = useOffline();
   const i18n = useI18n();
   const {space} = useTheme();
   const [chosen, setChosen] = useState<OfflineEntry>();
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState('');
   // A device store that can't be read says so, rather than showing an empty list forever.
   useEffect(() => { offlineDownloads.open().catch(() => setError(i18n.t('downloads.openFailed'))); }, [i18n]);
@@ -48,7 +50,7 @@ export function DeviceDownloads({preparations = [], hideEmpty = false}: {prepara
     if (!chosen) return;
     if (id === 'play') attempt(play(chosen));
     if (id === 'pause') attempt(offlineDownloads.pause(chosen));
-    if (id === 'resume') attempt(offlineDownloads.resume(chosen, preparations.find(p => p.id === chosen.id)));
+    if (id === 'resume') attempt(offlineDownloads.resume(chosen));
     if (id === 'remove') attempt(offlineDownloads.remove(chosen));
   };
   if (!offline.supported) return <StateView icon="download" title={i18n.t('downloads.unavailableOnDevice')} />;
@@ -56,31 +58,39 @@ export function DeviceDownloads({preparations = [], hideEmpty = false}: {prepara
     <View style={{gap: space.md}}>
       {error ? <Notice tone="warning" message={error} /> : null}
       {offline.ready && !offline.entries.length && !hideEmpty ? <StateView icon="download" title={i18n.t('downloads.emptyTitle')} message={i18n.t('downloads.emptyBody')} /> : null}
-      {offline.entries.length ? (
-        <Surface padded={false}>
-          {offline.entries.map((e, i) => {
-            const why = e.state === 'ready' ? offlineDownloads.playable(e) : e.state === 'failed' ? offlineFailure(e.error) : '';
-            const moving = e.state === 'downloading' || e.state === 'paused';
-            return (
-              <View key={e.id}>
-                {i ? <Divider inset={space.md} /> : null}
-                <ListRow
-                  source={e.artworkUrl ? {uri: e.artworkUrl} : undefined}
-                  icon={e.artworkUrl ? undefined : 'film'}
-                  title={e.title}
-                  subtitle={[e.subtitle, why || [e.quality === 'original' ? i18n.t('downloads.quality.original') : e.quality, e.bytes ? downloadBytes(e.bytes) : ''].filter(Boolean).join(' · ')].filter(Boolean).join('\n')}
-                  meta={e.state === 'downloading' ? i18n.t('downloads.percent', {percent: e.bytes ? Math.floor((e.bytesDone / e.bytes) * 100) : 0}) : e.state === 'paused' ? i18n.t('downloads.paused') : e.state === 'failed' ? i18n.t('downloads.stopped') : undefined}
-                  progress={moving && e.bytes ? e.bytesDone / e.bytes : 0}
-                  trailingIcon={e.state === 'ready' && !why ? 'play' : 'more'}
-                  onPress={() => press(e)}
-                  onLongPress={() => setChosen(e)}
-                />
-              </View>
-            );
-          })}
-        </Surface>
-      ) : null}
+      {groupOfflineEntries(offline.entries).map(group => (
+        <View key={group.key} style={{gap: space.xs}}>
+          {group.title ? <Text variant="label" tone="secondary">{[group.title, i18n.t('downloads.count', {count: group.entries.length})].join(' · ')}</Text> : null}
+          <Surface padded={false}>
+            {group.entries.map((e, i) => {
+              // One line says what stands between the viewer and the title, if anything does; a
+              // title that plays and has left the server says so without getting in the way.
+              const why = e.state === 'ready' ? offlineDownloads.playable(e) : e.state === 'failed' ? offlineFailure(e.error) : '';
+              const moving = e.state === 'downloading' || e.state === 'paused';
+              const facts = [e.quality === 'original' ? i18n.t('downloads.quality.original') : e.quality, e.bytes ? downloadBytes(e.bytes) : ''].filter(Boolean).join(' · ');
+              return (
+                <View key={e.id}>
+                  {i ? <Divider inset={space.md} /> : null}
+                  <ListRow
+                    source={e.artworkUrl ? {uri: e.artworkUrl} : undefined}
+                    icon={e.artworkUrl ? undefined : e.kind === 'song' || e.kind === 'audiobook_file' ? 'music' : 'film'}
+                    title={e.title || i18n.t('downloads.title')}
+                    subtitle={[group.title ? '' : e.subtitle, why || [facts, e.state === 'ready' ? offlineDownloads.note(e) : ''].filter(Boolean).join('\n')].filter(Boolean).join('\n')}
+                    meta={e.state === 'downloading' ? (e.waiting ? offlineWaiting(e.waiting) : i18n.t('downloads.percent', {percent: e.bytes ? Math.floor((e.bytesDone / e.bytes) * 100) : 0})) : e.state === 'paused' ? i18n.t('downloads.paused') : e.state === 'failed' ? i18n.t('downloads.stopped') : undefined}
+                    progress={moving && e.bytes ? e.bytesDone / e.bytes : 0}
+                    trailingIcon={e.state === 'ready' && !why ? 'play' : 'more'}
+                    onPress={() => press(e)}
+                    onLongPress={() => setChosen(e)}
+                  />
+                </View>
+              );
+            })}
+          </Surface>
+        </View>
+      ))}
       {offline.entries.length ? <Text variant="caption" tone="tertiary">{[i18n.t('downloads.used', {size: downloadBytes(offline.usedBytes)}), offline.freeBytes ? i18n.t('downloads.freeOnDevice', {size: downloadBytes(offline.freeBytes)}) : '', offline.pendingProgress ? i18n.t('downloads.progressPending') : ''].filter(Boolean).join(' · ')}</Text> : null}
+      {offline.otherBytes > 0 ? <Notice tone="info" message={i18n.t('downloads.othersOnDevice', {size: downloadBytes(offline.otherBytes)})} action={i18n.t('downloads.removeOthers')} onAction={() => setClearing(true)} /> : null}
+      <Menu open={clearing} onClose={() => setClearing(false)} title={i18n.t('confirm.removeOthers.title')} subtitle={i18n.t('confirm.removeOthers.body')} items={[{id: 'remove', label: i18n.t('downloads.removeOthers'), icon: 'trash', destructive: true}]} onSelect={() => attempt(offlineDownloads.removeOthers())} />
       <Menu open={!!chosen} onClose={() => setChosen(undefined)} title={chosen?.title} subtitle={chosen?.subtitle || undefined} items={items} onSelect={select} />
     </View>
   );
@@ -116,7 +126,7 @@ export function DownloadsScreen() {
           {offline.error ? <Notice tone="warning" message={offline.error} /> : null}
           {/* IOS-DL-01: one honest state when the server doesn't offer downloads; what's already here stays. */}
           {state.unavailable ? <Notice tone="info" message={i18n.t('downloads.notOffered')} /> : null}
-          <DeviceDownloads preparations={state.items} hideEmpty={!!state.unavailable} />
+          <DeviceDownloads hideEmpty={!!state.unavailable} />
         </View>
         {offline.supported && (pending.length || state.requests.length || state.error) ? (
           <Section title={i18n.t('downloads.onServer')}>
@@ -134,7 +144,7 @@ export function DownloadsScreen() {
                         <ListRow
                           icon="download"
                           title={tracked.title || i18n.t('downloads.requestsTitle')}
-                          subtitle={[label, r.failed ? i18n.t('downloads.requestFailed', {failed: r.failed}) : '', r.state === 'failed' && r.errorCode === 'selection_changed' ? i18n.t('downloads.requestChanged') : ''].filter(Boolean).join('\n')}
+                          subtitle={[label, r.failed ? i18n.t('downloads.requestFailed', {failed: r.failed}) : ''].filter(Boolean).join('\n')}
                           trailing={<Badge label={label} tone={r.state === 'complete' ? 'accent' : r.state === 'failed' ? 'amber' : 'neutral'} />}
                           progress={r.totalKnown && r.total ? r.ready / r.total : 0}
                         />
@@ -152,8 +162,8 @@ export function DownloadsScreen() {
                         {i ? <Divider inset={space.md} /> : null}
                         <ListRow
                           icon="download"
-                          title={offlineDownloads.display(p).title}
-                          subtitle={[[p.quality === 'original' ? i18n.t('downloads.quality.original') : p.quality, p.artifact.bytes ? (p.artifact.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(p.artifact.bytes)}) : downloadBytes(p.artifact.bytes)) : ''].filter(Boolean).join(' · '), reason].filter(Boolean).join('\n')}
+                          title={offlineDownloads.display(p).title || i18n.t('downloads.title')}
+                          subtitle={[offlineDownloads.display(p).subtitle, [p.quality === 'original' ? i18n.t('downloads.quality.original') : p.quality, p.artifact.bytes ? (p.artifact.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(p.artifact.bytes)}) : downloadBytes(p.artifact.bytes)) : ''].filter(Boolean).join(' · '), reason].filter(Boolean).join('\n')}
                           trailing={<Badge label={p.state === 'running' ? i18n.t('downloads.percent', {percent: Math.floor(p.progress.percent)}) : stateLabel(i18n, p.state)} tone={p.state === 'ready' ? 'accent' : p.state === 'failed' ? 'amber' : 'neutral'} />}
                           progress={p.state === 'running' || p.state === 'paused' ? p.progress.percent / 100 : 0}
                           disabled={state.busy.includes(p.id)}
@@ -183,7 +193,7 @@ export function DownloadsScreen() {
           </Section>
         ) : null}
       </Page>
-      <Menu open={!!chosen} onClose={() => setChosen(undefined)} title={chosen ? offlineDownloads.display(chosen).title : undefined} subtitle={chosen ? stateLabel(i18n, chosen.state) : undefined} items={items}
+      <Menu open={!!chosen} onClose={() => setChosen(undefined)} title={chosen ? offlineDownloads.display(chosen).title || i18n.t('downloads.title') : undefined} subtitle={chosen ? stateLabel(i18n, chosen.state) : undefined} items={items}
         onSelect={id => { if (!chosen) return; if (id === 'fetch') fetch(chosen); else void service?.act(chosen, id as DownloadAction); }} />
       <Menu open={picking} onClose={() => setPicking(false)} title={i18n.t('downloads.storageLimit')} items={limits.map(l => ({id: String(l.bytes), label: l.bytes ? i18n.bytes(l.bytes) : i18n.t('downloads.noLimit'), selected: l.bytes === offline.settings.limitBytes}))} onSelect={id => saveSetting({limitBytes: Number(id)})} />
     </View>

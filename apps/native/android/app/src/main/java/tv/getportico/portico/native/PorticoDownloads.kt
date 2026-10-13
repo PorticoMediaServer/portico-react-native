@@ -19,7 +19,7 @@ import com.facebook.react.bridge.ReadableMap
 import java.io.File
 
 /**
- * `NativeModules.PorticoDownloads`: the twelve methods and two events of the Apple module
+ * `NativeModules.PorticoDownloads`: the methods and two events of the Apple module
  * (`PorticoDownloadChanged`, `PorticoDownloadPlayback`). Phones and tablets only; a television has
  * no such module, and the app hides downloads there.
  */
@@ -78,6 +78,31 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
       "too_large" -> promise.reject("too_large", "This download's details are too large to keep.")
       else -> promise.reject("write_failed", "This download's details could not be saved.")
     }
+  }
+
+  @ReactMethod
+  fun setMetas(metas: ReadableMap?, promise: Promise) {
+    val value = metas?.toHashMap()
+    PorticoDownloadCenter.post {
+      when (if (value == null) "too_large" else PorticoDownloadCenter.setMetas(value)) {
+        null -> promise.resolve(null)
+        "too_large" -> promise.reject("too_large", "This download's details are too large to keep.")
+        else -> promise.reject("write_failed", "This download's details could not be saved.")
+      }
+    }
+  }
+
+  @ReactMethod
+  fun writeExtra(identifier: String?, name: String?, text: String?, promise: Promise) = PorticoDownloadCenter.post {
+    if (PorticoDownloadCenter.writeExtra(identifier, name, text)) promise.resolve(null) else promise.reject("write_failed", "This download's details could not be saved.")
+  }
+
+  @ReactMethod
+  fun readExtra(identifier: String?, name: String?, promise: Promise) = PorticoDownloadCenter.post { promise.resolve(PorticoDownloadCenter.readExtra(identifier, name)) }
+
+  @ReactMethod
+  fun fetchExtra(identifier: String?, name: String?, url: String?, promise: Promise) = PorticoDownloadCenter.post {
+    PorticoDownloadCenter.fetchExtra(identifier, name, url) { outcome -> promise.resolve(outcome) }
   }
 
   @ReactMethod
