@@ -150,7 +150,7 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
   // keeps for itself is "This device"; a device-scoped setting the server keeps is shared by this
   // profile's devices of the same kind, and says so.
   const here = row.kind === 'composite' && row.storage === 'device';
-  const subtitle = row.scope === 'device' ? [help, here ? i18n.t('settings.thisDevice') : word(isTV ? 'settings.scope.televisions' : 'settings.scope.handhelds', undefined, i18n)].filter(Boolean).join(' · ') : help;
+  const subtitle = row.scope === 'device' ? [help, here ? i18n.t('settings.thisDevice') : i18n.t(isTV ? 'settings.scope.allTVs' : 'settings.scope.allPhones')].filter(Boolean).join(' · ') : help;
   const focus = isTV && entry;
   if (row.kind === 'action') {
     if (row.id === 'resetRecommendations') return <ResetRecommendationsRow />;
