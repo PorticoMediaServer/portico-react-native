@@ -124,6 +124,10 @@ internal class PorticoMpvController(private val context: Context) {
   private var subtitleToken = 0L
   private var subtitleTokenCount = 0L
   private var subtitleTokenKey = ""
+  /** The open title is an HLS stream, which may open the resources its playlists name. */
+  private var referencesAllowed = false
+  /** The adding of a subtitle file that may open one companion file (a VobSub index and its `.sub`). */
+  private var referencesToken = 0L
 
   // The surface the picture is drawn on, lent by the view that shows the leased picture.
   private var surface: Surface? = null
@@ -138,6 +142,8 @@ internal class PorticoMpvController(private val context: Context) {
   private var frameRateVoted = false
   private var frameRateClear: Runnable? = null
   private var displayWait = 0
+  /** The first frame is ready but no view has lent its surface yet: readiness waits for it (television). */
+  private var pendingDisplayReady: (() -> Unit)? = null
 
   // Sound: audio focus is the app's to ask for, since mpv opens its own output.
   private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -152,7 +158,10 @@ internal class PorticoMpvController(private val context: Context) {
   private var outputChannels = 2
   private var watchingDevices = false
 
-  private class SeekFlight(val token: Long, val revision: Long, val target: Double, var awaitingRestart: Boolean)
+  private class SeekFlight(val token: Long, val revision: Long, val target: Double) {
+    var commandAccepted = false
+    var restartSeen = false
+  }
 
   private val visibility: (Boolean) -> Unit = { visible -> if (visible) enteredForeground() else enteredBackground() }
 
@@ -198,8 +207,12 @@ internal class PorticoMpvController(private val context: Context) {
     return mapOf("lease" to lease, "instanceId" to instanceId, "engine" to "mpv")
   }
 
-  fun release(value: String?) {
-    if (value == null || lease != value) return
+  /**
+   * Ends the lease. [completion] runs once mpv has closed the title and its sound, so another
+   * engine that starts next never overlaps it.
+   */
+  fun release(value: String?, completion: (() -> Unit)? = null) {
+    if (value == null || lease != value) { completion?.invoke(); return }
     unload()
     resetAudio()
     subtitleOverlay.invalidate()
@@ -222,6 +235,8 @@ internal class PorticoMpvController(private val context: Context) {
     attachmentListeners.toList().forEach { it() }
     releaseAudioFocus()
     scheduleTeardown()
+    val current = core
+    if (completion != null) { if (current != null) current.flush(completion) else completion() }
   }
 
   fun invalidate() {
@@ -453,6 +468,12 @@ internal class PorticoMpvController(private val context: Context) {
         // Decoding: MediaCodec for the codecs the chip has, mpv's own software decoders otherwise.
         "hwdec" to gpuDecoding(), "hwdec-codecs" to PorticoMpvDevice.hardwareDecoders.keys.joinToString(",").ifEmpty { "h264" },
         "tone-mapping" to "auto",
+        // A file may not send mpv to other network or file sources. HLS is allowed to, per
+        // load, once the relay has rewritten every address in its playlists to itself; and
+        // mpv's own network code may speak plain HTTP to the relay and nothing else.
+        "access-references" to "no",
+        "stream-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
+        "demuxer-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
         // Sound: decoded on the device and handed to the system as PCM, in as many channels as
         // the output takes. Nothing is passed through as a bitstream.
         "ao" to "audiotrack,opensles", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
@@ -479,17 +500,29 @@ internal class PorticoMpvController(private val context: Context) {
     core?.let { return it }
     outputChannels = PorticoMpvDevice.outputChannels(context)
     PorticoMpvFonts.select(context, null)
-    val made = PorticoMpvCore.create(mpvOptions()) ?: return null
+    var starting: PorticoMpvCore? = null
+    starting = PorticoMpvCore.start(mpvOptions(), OPTIONAL_OPTIONS) { failure -> starting?.let { coreStarted(it, failure) } }
+    val made = starting ?: return null
     made.onEvent = { epoch, event, next -> handle(epoch, event, next) }
     core = made
     directOutput = false
     made.configureOutput("gpu", gpuDecoding())
-    surface?.let { if (it.isValid) made.attachSurface(it, surfaceWidth, surfaceHeight) }
     if (!watchingDevices) {
       watchingDevices = true
       audioManager.registerAudioDeviceCallback(devicesChanged, main)
     }
     return made
+  }
+
+  /** mpv is ready, or could not start. Until it is ready it has no surface. */
+  private fun coreStarted(started: PorticoMpvCore, failure: String?) {
+    if (core !== started) return
+    if (failure != null) {
+      destroyCore()
+      if (fileRequested) publishFailure(PorticoMpvNative.ERROR_VO_INIT_FAILED, "mpv could not start: $failure", emptyList())
+      return
+    }
+    surface?.let { if (it.isValid) started.attachSurface(it, surfaceWidth, surfaceHeight) }
   }
 
   private fun destroyCore() {
@@ -534,6 +567,7 @@ internal class PorticoMpvController(private val context: Context) {
     loaded = false
     restarted = false
     displayHold = false
+    pendingDisplayReady = null
     startSeek = null
     seekInFlight = null
     audioTrackPending = null
@@ -546,6 +580,11 @@ internal class PorticoMpvController(private val context: Context) {
     fontFetcher.cancel()
     core?.setFastTicks(false)
     core?.stop()
+    if (referencesToken != 0L) {
+      referencesToken = 0
+      core?.set("access-references", "no")
+    }
+    referencesAllowed = false
     setVideoAspect(null)
     updateOutput()
     if (wasOpen) sessionPlayer.changed()
@@ -607,8 +646,16 @@ internal class PorticoMpvController(private val context: Context) {
         start = target
       }
     }
+    val options = HashMap<String, String>()
+    if (start != null && start > 0) options["start"] = PorticoMpvSupport.decimal(start)
+    val media = PorticoMpvSupport.parse(source)
+    referencesAllowed = media != null && media.scheme?.lowercase() != "file" && (media.path ?: "").lowercase().endsWith(".m3u8")
+    if (referencesAllowed) {
+      options["access-references"] = "yes"
+      options["demuxer-lavf-format"] = "hls"
+    }
     core.setAll(listOf("pause" to "yes", "sid" to "no", "aid" to "auto", "vid" to "auto", "sub-delay" to "0", "volume" to "100"))
-    core.load(address, start, epoch)
+    core.load(address, options, epoch)
   }
 
   // --- mpv events ------------------------------------------------------------------------
@@ -636,9 +683,9 @@ internal class PorticoMpvController(private val context: Context) {
         if (!restarted) {
           restarted = true
           firstFrame()
-        } else if (flight != null && flight.awaitingRestart) {
-          seekInFlight = null
-          completeSeek(flight.revision, flight.target, true)
+        } else if (flight != null) {
+          flight.restartSeen = true
+          finishRestartedSeek()
         }
       }
       is PorticoMpvEvent.EndFile -> {
@@ -647,6 +694,7 @@ internal class PorticoMpvController(private val context: Context) {
       }
       is PorticoMpvEvent.TracksChanged -> {
         tracks = event.tracks
+        removeStaleExternalSubtitles()
         if (loaded) {
           applyAudio()
           applySubtitles()
@@ -687,24 +735,27 @@ internal class PorticoMpvController(private val context: Context) {
         else -> {}
       }
       is PorticoMpvEvent.Reply -> {
+        if (event.token == referencesToken && event.token != 0L) closeReferences()
         val flight = seekInFlight
         if (flight != null && flight.token == event.token) {
           if (event.code < 0) {
             seekInFlight = null
             completeSeek(flight.revision, flight.target, false)
           } else {
-            flight.awaitingRestart = true
+            flight.commandAccepted = true
+            finishRestartedSeek()
           }
         } else if (event.token == subtitleToken && event.token != 0L && event.code < 0) {
           // The subtitle file could not be opened: fall back to the plain cue document.
-          subtitleToken = 0
           refusedSubtitleKeys.add(subtitleTokenKey)
-          engineSubtitleKey = null
-          externalSubtitleAddress = null
+          clearEngineSubtitle()
           applySubtitles()
         }
       }
       is PorticoMpvEvent.Tick -> {
+        // An end reached before the first frame was announced is announced now.
+        if (next.eofReached) reachedEnd()
+        finishRestartedSeek()
         applyPendingSeek()
         val position = currentPosition()
         // A paused picture reports once, not twice a second for as long as it stays paused.
@@ -830,9 +881,17 @@ internal class PorticoMpvController(private val context: Context) {
     seeking = true
     startSeek = null
     seekToken++
-    seekInFlight = SeekFlight(seekToken, revision, target, false)
+    seekInFlight = SeekFlight(seekToken, revision, target)
     core.set("pause", "yes")
     core.command(listOf("seek", PorticoMpvSupport.decimal(target), "absolute+exact"), seekToken)
+  }
+
+  /** A seek is done when mpv has both accepted it and shown the frame there, in whichever order they are reported. */
+  private fun finishRestartedSeek() {
+    val flight = seekInFlight ?: return
+    if (!flight.commandAccepted || !flight.restartSeen || snapshot.seeking) return
+    seekInFlight = null
+    completeSeek(flight.revision, flight.target, true)
   }
 
   private fun completeSeek(revision: Long, target: Double, finished: Boolean) {
@@ -1143,7 +1202,7 @@ internal class PorticoMpvController(private val context: Context) {
   val subtitleOverlayActive: Boolean get() = subtitleOverlay.overlayActive
 
   private fun clearEngineSubtitle() {
-    if (engineSubtitleKey == null) return
+    if (engineSubtitleKey == null && externalSubtitleAddress == null && subtitleToken == 0L) return
     engineSubtitleKey = null
     core?.set("sid", "no")
     removeExternalSubtitle()
@@ -1154,8 +1213,27 @@ internal class PorticoMpvController(private val context: Context) {
     externalSubtitleAddress = null
     subtitleToken = 0
     fontFetcher.cancel()
+    core?.set("sub-fonts-dir", "")
     for (track in PorticoMpvSupport.tracks(tracks, "sub")) {
       if (track["external-filename"] != address) continue
+      PorticoMpvSupport.trackId(track)?.let { core?.command(listOf("sub-remove", it.toString())) }
+    }
+  }
+
+  /** The one companion file has been opened (or the adding failed): files may name no others again. */
+  private fun closeReferences() {
+    if (referencesToken == 0L) return
+    referencesToken = 0
+    if (!referencesAllowed) core?.set("access-references", "no")
+  }
+
+  /**
+   * A subtitle file whose adding was already under way can arrive after its choice was replaced
+   * or turned off. Such late tracks are removed, so the current choice is never overridden.
+   */
+  private fun removeStaleExternalSubtitles() {
+    for (track in PorticoMpvSupport.tracks(tracks, "sub")) {
+      if (track["external"] != true || track["external-filename"] == externalSubtitleAddress) continue
       PorticoMpvSupport.trackId(track)?.let { core?.command(listOf("sub-remove", it.toString())) }
     }
   }
@@ -1188,10 +1266,16 @@ internal class PorticoMpvController(private val context: Context) {
       // Which mpv track that is can only be said once the file is open.
       if (!loaded) return
       val embedded = PorticoMpvSupport.map(render["embedded"])
-      val key = listOf(subtitles["resourceId"], subtitles["resourceRevision"], render["kind"], embedded?.get("streamIndex"), embedded?.get("ordinal"), embedded?.get("language"), render["url"])
+      val key = listOf(subtitles["resourceId"], subtitles["resourceRevision"], render["kind"], embedded?.get("streamIndex"), embedded?.get("ordinal"), embedded?.get("language"), render["url"], embedded?.get("title"), render["fonts"])
           .joinToString("|") { it?.toString() ?: "" }
       if (!refusedSubtitleKeys.contains(key)) {
         if (key == engineSubtitleKey) {
+          // The choice stands: make sure it is still the track mpv has selected.
+          val all = PorticoMpvSupport.tracks(tracks, "sub")
+          val address = externalSubtitleAddress
+          val track = embedded?.let { PorticoMpvSupport.embeddedSubtitle(it, (render["kind"] as? String) ?: "", all) }
+              ?: address?.let { all.firstOrNull { candidate -> candidate["external-filename"] == it } }?.let { PorticoMpvSupport.trackId(it) }
+          if (track != null && snapshot.sid != track.toString()) core?.set("sid", track.toString())
           core?.set("sub-delay", PorticoMpvSupport.decimal(offset))
           return
         }
@@ -1245,7 +1329,13 @@ internal class PorticoMpvController(private val context: Context) {
     val local = url.scheme?.lowercase() == "file"
     val target: String = if (local) {
       if (media.scheme?.lowercase() != "file" || !PorticoMpvSupport.allowedLocalSource(context, url)) return false
-      url.path ?: return false
+      val path = url.path ?: return false
+      // mpv opens a VobSub index's `.sub` file by itself: that file must be a download too.
+      if (kind == "vobsub") {
+        val companion = Uri.fromFile(java.io.File(path.substringBeforeLast('.') + ".sub"))
+        if (!PorticoMpvSupport.allowedLocalSource(context, companion)) return false
+      }
+      path
     } else {
       if (!PorticoMpvSupport.subtitleFileBelongs(url, media)) return false
       relay.localUrl(url) ?: return false
@@ -1256,15 +1346,27 @@ internal class PorticoMpvController(private val context: Context) {
     subtitleToken = token
     subtitleTokenKey = key
     val add = {
-      if (subtitleToken == token && externalSubtitleAddress == target) this.core?.command(listOf("sub-add", target, "select"), token)
+      if (subtitleToken == token && externalSubtitleAddress == target) {
+        // A VobSub index names its `.sub` file, which mpv opens by itself from beside the
+        // index: under the same grant through the relay, or the checked download. That one
+        // opening is allowed for as long as the adding takes.
+        if (kind == "vobsub" && !referencesAllowed) {
+          referencesToken = token
+          this.core?.set("access-references", "yes")
+        }
+        this.core?.command(listOf("sub-add", target, "select"), token)
+      }
     }
     // A styled file may name fonts that came attached to it: they are fetched first, so the
     // first line is already drawn in the right face.
     val fonts = (render["fonts"] as? List<*>)?.mapNotNull { PorticoMpvSupport.map(it) } ?: emptyList()
     if (kind == "ass" && !local && fonts.isNotEmpty()) {
       fontFetcher.fetch(fonts, media) { folder ->
-        if (folder != null) this.core?.set("sub-fonts-dir", folder.path)
-        add()
+        // A fetch that finishes late must not change the fonts of a newer choice.
+        if (subtitleToken == token && externalSubtitleAddress == target) {
+          if (folder != null) this.core?.set("sub-fonts-dir", folder.path)
+          add()
+        }
       }
     } else {
       add()
@@ -1382,7 +1484,12 @@ internal class PorticoMpvController(private val context: Context) {
     // A surface that arrives after the first frame still gets the display matched. One that
     // arrives while the display is being waited for (a television may replace the surface as
     // it switches) is told the rate again, so the display does not switch back.
-    if (restarted && fileRequested) {
+    val waiting = pendingDisplayReady
+    if (waiting != null) {
+      pendingDisplayReady = null
+      displayHold = false
+      matchDisplay(waiting)
+    } else if (restarted && fileRequested) {
       if (!displayHold) matchDisplay { applyIntent() }
       else frameRate()?.let { fps -> if (next.isValid) voteFrameRate(next, fps) }
     }
@@ -1433,6 +1540,23 @@ internal class PorticoMpvController(private val context: Context) {
   private fun matchDisplay(done: () -> Unit) {
     val target = surface
     val fps = frameRate()
+    if (Build.VERSION.SDK_INT >= 30 && PorticoMpvDevice.isTelevision && fps != null && (target == null || !target.isValid) && !backgroundHold) {
+      // Even a very fast load waits for its view before the television is asked to switch, so
+      // the title never starts and then loses its opening seconds to the switch.
+      displayHold = true
+      core?.set("pause", "yes")
+      pendingDisplayReady = done
+      val epoch = loadEpoch
+      main.postDelayed({
+        val waiting = pendingDisplayReady
+        if (loadEpoch == epoch && waiting != null) {
+          pendingDisplayReady = null
+          displayHold = false
+          waiting()
+        }
+      }, 10_000)
+      return
+    }
     if (Build.VERSION.SDK_INT < 30 || target == null || !target.isValid || fps == null) { done(); return }
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
@@ -1451,6 +1575,8 @@ internal class PorticoMpvController(private val context: Context) {
     val epoch = loadEpoch
     val wait = ++displayWait
     displayHold = true
+    // Nothing plays while the television may be switching.
+    core?.set("pause", "yes")
     var settled = false
     var listener: DisplayManager.DisplayListener? = null
     val settle = {
@@ -1627,5 +1753,18 @@ internal class PorticoMpvController(private val context: Context) {
      * HDR is always tone-mapped on the device.
      */
     const val HDR_DIRECT_OUTPUT = true
+
+    /**
+     * Options whose refusal does not stop mpv starting: how the picture is scaled and how text
+     * subtitles look, switches for parts this build may not have, and options that have had
+     * two names. Every other option is needed for the engine to behave as the contract says,
+     * and a refusal is reported with the option's name.
+     */
+    private val OPTIONAL_OPTIONS = setOf(
+        "load-scripts", "osc", "ytdl", "input-default-bindings", "input-vo-keyboard", "resume-playback", "save-position-on-quit",
+        "profile", "scale", "dscale", "cscale", "dither-depth", "deband", "correct-downscaling", "linear-downscaling", "sigmoid-upscaling",
+        "hdr-compute-peak", "tone-mapping", "sub-border-style", "sub-outline-size", "sub-border-size", "sub-shadow-offset", "sub-font",
+        "sub-font-size", "sub-margin-y", "sub-color", "sub-back-color", "sub-scale", "sub-use-margins", "sub-ass-force-margins", "user-agent",
+        "demuxer-max-bytes", "demuxer-max-back-bytes", "network-timeout", "hwdec-codecs", "audio-channels")
   }
 }

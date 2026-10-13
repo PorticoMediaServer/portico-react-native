@@ -125,8 +125,9 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
   @ReactMethod
   fun release(lease: String?, promise: Promise) {
     main.post {
-      if (!invalidated) controller?.release(lease)
-      promise.resolve(true)
+      // Resolved once mpv has closed the title, so the next engine never starts over its sound.
+      val engine = if (invalidated) null else controller
+      if (engine == null) promise.resolve(true) else engine.release(lease) { promise.resolve(true) }
     }
   }
 

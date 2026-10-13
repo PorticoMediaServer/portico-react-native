@@ -14,7 +14,6 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import okio.Buffer
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -52,9 +51,12 @@ internal object PorticoMpvSupport {
     else -> value
   }
 
+  /** The largest property document that is parsed. */
+  private const val MAXIMUM_JSON = 2 * 1024 * 1024
+
   /** A list property (`track-list`, `chapter-list`) as mpv prints it. Empty when it is not one. */
   fun jsonList(text: String?): List<Map<String, Any?>> {
-    if (text.isNullOrEmpty()) return emptyList()
+    if (text.isNullOrEmpty() || text.length > MAXIMUM_JSON) return emptyList()
     val array = try { JSONArray(text) } catch (_: Exception) { return emptyList() }
     val out = ArrayList<Map<String, Any?>>(array.length())
     for (i in 0 until array.length()) map(plain(array.opt(i)))?.let { out.add(it) }
@@ -63,7 +65,7 @@ internal object PorticoMpvSupport {
 
   /** A map property (`video-params`). Empty when it is not one. */
   fun jsonMap(text: String?): Map<String, Any?> {
-    if (text.isNullOrEmpty()) return emptyMap()
+    if (text.isNullOrEmpty() || text.length > MAXIMUM_JSON) return emptyMap()
     return try { map(plain(JSONObject(text))) ?: emptyMap() } catch (_: Exception) { emptyMap() }
   }
 
@@ -93,18 +95,65 @@ internal object PorticoMpvSupport {
   }
 
   /**
-   * An external subtitle or font file belongs to the playback when it is on the media's own
-   * origin and under the media's own grant (`/v1/media/<grant>/...`), with no credentials or
-   * fragment. Plain HTTP only to this device or the home network.
+   * An external subtitle or font file, or a resource an HLS playlist names, belongs to the
+   * playback when it is on the media's own origin and under the media's own grant
+   * (`/v1/media/<grant>/...`), with no credentials or fragment and a plain path. Any host is
+   * accepted over HTTP or HTTPS: whether plain HTTP may be used at all is the app's network
+   * policy, which the app's own HTTP client applies.
    */
   fun subtitleFileBelongs(url: Uri, media: Uri): Boolean {
     val scheme = url.scheme?.lowercase() ?: return false
-    if (!(scheme == "https" || (scheme == "http" && PorticoSubtitleSelection.privateHost(url.host)))) return false
+    if (scheme != "https" && scheme != "http") return false
     if (scheme != media.scheme?.lowercase() || url.host?.lowercase() != media.host?.lowercase() || url.port != media.port) return false
     if (url.userInfo != null || url.encodedFragment != null) return false
     val parts = media.pathSegments
     if (parts.size < 3 || parts[0] != "v1" || parts[1] != "media") return false
-    return (url.path ?: "").startsWith("/v1/media/${parts[2]}/")
+    val path = url.path ?: return false
+    if (path.contains('\\') || path.contains('%') || path.split('/').any { it == "." || it == ".." }) return false
+    return path.startsWith("/v1/media/${parts[2]}/")
+  }
+
+  private val PLAYLIST_URI = Regex("URI=\"([^\"]*)\"")
+
+  /**
+   * An HLS playlist with every address in it (variants, segments, keys, maps and renditions)
+   * rewritten to pass through the relay, so nothing it names is fetched by mpv itself, outside
+   * the system's TLS validation. [local] answers the relay's address for an upstream one, or
+   * null when it is out of scope. Null when the playlist is too large, is not a playlist, or
+   * names anything that cannot be rewritten: such a playlist is refused whole.
+   */
+  fun relayPlaylist(data: ByteArray, source: Uri, local: (Uri) -> String?): ByteArray? {
+    if (data.size > MAXIMUM_JSON) return null
+    val text = String(data, Charsets.UTF_8)
+    if (!text.startsWith("#EXTM3U")) return null
+    fun address(value: String): String? {
+      if (value.isEmpty() || value.toByteArray(Charsets.UTF_8).size > 8192 || value.contains("{$")) return null
+      val remote = PorticoMpvFontFetcher.resolve(value, source) ?: return null
+      if (!subtitleFileBelongs(remote, source)) return null
+      return local(remote)
+    }
+    val lines = ArrayList<String>()
+    for (line in text.split("\n")) {
+      val clean = line.trim()
+      if (clean.isEmpty()) { lines.add(""); continue }
+      if (!clean.startsWith("#")) {
+        lines.add(address(clean) ?: return null)
+        continue
+      }
+      // Variable substitution could build an address this check never sees.
+      if (clean.startsWith("#EXT-X-DEFINE:")) return null
+      val matches = PLAYLIST_URI.findAll(clean).toList()
+      // An unquoted or malformed URI attribute must never pass through untouched.
+      if (clean.split("URI=").size - 1 != matches.size) return null
+      var rewritten = clean
+      for (match in matches.asReversed()) {
+        val group = match.groups[1] ?: return null
+        val value = address(group.value) ?: return null
+        rewritten = rewritten.substring(0, group.range.first) + value + rewritten.substring(group.range.last + 1)
+      }
+      lines.add(rewritten)
+    }
+    return lines.joinToString("\n").toByteArray(Charsets.UTF_8)
   }
 
   // --- tracks -----------------------------------------------------------------------------
@@ -244,15 +293,17 @@ internal object PorticoMpvSupport {
 
 /**
  * Fetches the fonts attached to a styled subtitle file into a folder mpv can read them from.
- * Bounded in number, size and time; never follows a redirect; a font that cannot be fetched is
- * left out, and the subtitles are then drawn with the nearest system font.
+ * Bounded in number, total size and time; never follows a redirect; a font that cannot be
+ * fetched is left out, and the subtitles are then drawn with the nearest system font. Fonts are
+ * written to disk as they arrive, never held in memory, and a fetch that was cancelled can
+ * neither store a file nor finish a newer one.
  *
  * Main thread only.
  */
 internal class PorticoMpvFontFetcher(private val context: Context) {
   private val main = Handler(Looper.getMainLooper())
   private var calls = ArrayList<Call>()
-  private var generation = 0
+  @Volatile private var generation = 0
   var folder: File? = null
     private set
 
@@ -277,45 +328,63 @@ internal class PorticoMpvFontFetcher(private val context: Context) {
     if (!directory.mkdirs()) { completion(null); return }
     folder = directory
     val attempt = ++generation
+    // Every font of this fetch draws on one budget.
+    val received = java.util.concurrent.atomic.AtomicLong(0)
+    val started = java.util.concurrent.CopyOnWriteArrayList<Call>()
     var remaining = wanted.size
     var stored = 0
+    val done = { ok: Boolean ->
+      main.post {
+        if (attempt == generation) {
+          if (ok) stored++
+          remaining--
+          if (remaining == 0) completion(if (stored > 0) directory else null)
+        }
+      }
+      Unit
+    }
     for ((position, entry) in wanted.withIndex()) {
       val call = try { client.newCall(Request.Builder().url(entry.second.toString()).build()) } catch (_: Exception) { null }
       if (call == null) {
         remaining--
         continue
       }
-      calls.add(call)
+      started.add(call)
       call.enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) { done(false) }
 
         override fun onResponse(call: Call, response: Response) {
+          val partial = File(directory, "$position-${entry.first}.part")
           val ok = response.use { answer ->
             val source = answer.body?.source()
             if (answer.code != 200 || source == null || (answer.body?.contentLength() ?: 0) > MAXIMUM_BYTES) return@use false
             try {
-              val buffer = Buffer()
-              while (source.read(buffer, 65536) != -1L) if (buffer.size > MAXIMUM_BYTES) return@use false
-              if (buffer.size == 0L) return@use false
-              File(directory, "$position-${entry.first}").outputStream().use { buffer.writeTo(it) }
-              true
+              var size = 0L
+              partial.outputStream().use { out ->
+                val buffer = ByteArray(65536)
+                while (true) {
+                  val count = source.read(buffer)
+                  if (count < 0) break
+                  size += count
+                  // Over the budget, or cancelled: this font and the ones still arriving stop.
+                  if (received.addAndGet(count.toLong()) > MAXIMUM_BYTES || attempt != generation) {
+                    started.forEach { it.cancel() }
+                    return@use false
+                  }
+                  out.write(buffer, 0, count)
+                }
+              }
+              size > 0 && attempt == generation && partial.renameTo(File(directory, "$position-${entry.first}"))
             } catch (_: IOException) {
               false
             }
           }
+          if (!ok) try { partial.delete() } catch (_: Exception) {}
           done(ok)
-        }
-
-        private fun done(ok: Boolean) {
-          main.post {
-            if (attempt != generation) return@post
-            if (ok) stored++
-            remaining--
-            if (remaining == 0) completion(if (stored > 0) directory else null)
-          }
         }
       })
     }
+    calls = ArrayList(started)
     if (remaining == 0) completion(null)
   }
 
@@ -331,6 +400,7 @@ internal class PorticoMpvFontFetcher(private val context: Context) {
 
   companion object {
     private const val MAXIMUM_FONTS = 16
+    /** For all the fonts of one subtitle file together. */
     private const val MAXIMUM_BYTES = 24L * 1024 * 1024
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task, "portico-mpv-fonts").apply { isDaemon = true } }
 

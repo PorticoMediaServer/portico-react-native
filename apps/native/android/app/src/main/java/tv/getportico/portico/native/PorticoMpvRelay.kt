@@ -32,10 +32,15 @@ import okhttp3.Request
  * certificates the rest of the app trusts.
  *
  * The relay serves one playback at a time. It forwards a request only when its path lies under
- * the media grant of the source it was bound to (`/v1/media/<grant>/...`). That grant is the
- * capability the server issued for this playback, so another app on the device that does not
- * already hold it gets nothing here. Redirects are refused, as they are for the app's other
- * media fetches. Only GET and HEAD are served.
+ * the media grant of the source it was bound to (`/v1/media/<grant>/...`); a source that is not
+ * under a grant is served alone, never its folder. That grant is the capability the server
+ * issued for this playback, so another app on the device that does not already hold it gets
+ * nothing here. Redirects are refused, as they are for the app's other media fetches. Only GET
+ * and HEAD are served.
+ *
+ * An HLS playlist is not passed through as it is: every address in it is rewritten to come back
+ * through the relay, so a playlist can never send mpv to fetch something by itself, outside
+ * this validation. A playlist naming anything out of scope is refused whole.
  */
 internal class PorticoMpvRelay {
   /** What the last failed upstream request said, for the engine's error classification. */
@@ -50,6 +55,8 @@ internal class PorticoMpvRelay {
 
   private class Exchange(val socket: Socket) {
     @Volatile var call: Call? = null
+    /** The request head arrived in time. */
+    @Volatile var headRead = false
   }
 
   private val main = Handler(Looper.getMainLooper())
@@ -146,10 +153,8 @@ internal class PorticoMpvRelay {
   private fun prefixesFor(path: String): List<String> {
     val parts = path.split('/').filter { it.isNotEmpty() }
     if (parts.size >= 3 && parts[0] == "v1" && parts[1] == "media") return listOf("/v1/media/" + parts[2])
-    // Anything else is scoped to the folder the source is in.
-    val slash = path.lastIndexOf('/')
-    if (slash >= 0) return listOf(path.substring(0, slash).ifEmpty { "/" })
-    return listOf("/")
+    // A non-grant address grants only the source itself, never a whole server folder.
+    return listOf(path)
   }
 
   private fun local(remote: Uri, port: Int): String {
@@ -163,11 +168,16 @@ internal class PorticoMpvRelay {
     if (lowered.contains("%2e") || lowered.contains("%2f") || lowered.contains("%5c")) return false
     if (path.split('/').any { it == ".." || it == "." }) return false
     for (prefix in prefixes) {
-      if (prefix == "/") return true
-      if (path == prefix || path.startsWith("$prefix/")) return true
+      if (path == prefix) return true
+      if (prefix.startsWith("/v1/media/") && path.startsWith("$prefix/")) return true
     }
     return false
   }
+
+  /** [url], built from a request, is still on the bound origin and in scope. */
+  private fun inScopeLocked(url: Uri): Boolean =
+      origin != null && url.scheme?.lowercase() == originScheme && url.host?.lowercase() == originHost && url.port == originPort &&
+          url.userInfo == null && url.encodedFragment == null && allowedLocked(url.encodedPath ?: "")
 
   // --- listener ---------------------------------------------------------------------------
 
@@ -186,6 +196,8 @@ internal class PorticoMpvRelay {
       val socket = try { listener.accept() } catch (_: IOException) { break }
       val exchange = Exchange(socket)
       synchronized(lock) { exchanges.add(exchange) }
+      // A connection that sends no complete request is not kept.
+      timers.schedule({ if (!exchange.headRead) try { socket.close() } catch (_: IOException) {} }, HEAD_SECONDS, TimeUnit.SECONDS)
       try {
         workers.execute {
           try { serve(exchange) } catch (_: Exception) {} finally { end(exchange) }
@@ -245,21 +257,23 @@ internal class PorticoMpvRelay {
 
   private fun serve(exchange: Exchange) {
     val socket = exchange.socket
-    socket.soTimeout = 15_000
+    socket.soTimeout = (HEAD_SECONDS * 1000).toInt()
     val out = socket.getOutputStream()
     val head = readHead(socket) ?: return
+    exchange.headRead = true
     val lines = head.split("\r\n")
     val request = lines.first().split(' ').filter { it.isNotEmpty() }
     if (request.size != 3 || (request[0] != "GET" && request[0] != "HEAD")) { reply(out, 405); return }
     val target = request[1]
-    val base: String?
-    val permitted: Boolean
     val path = target.substringBefore('?')
-    synchronized(lock) {
-      base = origin
-      permitted = allowedLocked(path)
+    // The address is checked as asked for, and again as built: scheme, host, port and path.
+    val upstream = if (!target.startsWith("/") || target.toByteArray(Charsets.UTF_8).size > 8192) null else synchronized(lock) {
+      val base = origin
+      val built = if (base != null && allowedLocked(path)) try { Uri.parse(base + target) } catch (_: Exception) { null } else null
+      if (built != null && inScopeLocked(built)) built else null
     }
-    if (!target.startsWith("/") || target.toByteArray(Charsets.UTF_8).size > 8192 || base == null || !permitted) { reply(out, 404); return }
+    if (upstream == null) { reply(out, 404); return }
+    val playlistPath = (upstream.path ?: "").lowercase().endsWith(".m3u8")
     var range: String? = null
     for (line in lines.drop(1)) {
       val colon = line.indexOf(':')
@@ -270,9 +284,10 @@ internal class PorticoMpvRelay {
       }
     }
     val wire = try {
-      Request.Builder().url(base + target).method(request[0], null)
+      Request.Builder().url(upstream.toString()).method(request[0], null)
           .header("Accept-Encoding", "identity").header("Accept", "*/*")
-          .apply { if (range != null) header("Range", range) }
+          // A rewritten playlist has different byte offsets: it is always fetched whole.
+          .apply { if (range != null && !playlistPath) header("Range", range) }
           .build()
     } catch (_: IllegalArgumentException) {
       reply(out, 404)
@@ -298,6 +313,11 @@ internal class PorticoMpvRelay {
         return
       }
       if (status >= 400) record(status, false)
+      val type = (answer.header("Content-Type") ?: "").lowercase()
+      if ((status == 200 || status == 206) && request[0] != "HEAD" && (playlistPath || type.contains("mpegurl"))) {
+        servePlaylist(answer, upstream, out)
+        return
+      }
       val text = StringBuilder("HTTP/1.1 $status Relay\r\n")
       for (name in FORWARDED) {
         val value = answer.header(name) ?: continue
@@ -327,8 +347,49 @@ internal class PorticoMpvRelay {
     }
   }
 
+  /**
+   * An HLS playlist: read whole (bounded), every address in it rewritten to this relay, and
+   * answered as a complete document. Anything that cannot be rewritten refuses the playlist.
+   */
+  private fun servePlaylist(answer: okhttp3.Response, upstream: Uri, out: OutputStream) {
+    val refuse = {
+      record(502, false)
+      reply(out, 502)
+    }
+    val body = answer.body
+    if (body == null || body.contentLength() > MAXIMUM_PLAYLIST) { refuse(); return }
+    val data = try {
+      val buffer = ByteArrayOutputStream()
+      val chunk = ByteArray(16 * 1024)
+      val source = body.byteStream()
+      var over = false
+      while (true) {
+        val count = source.read(chunk)
+        if (count < 0) break
+        if (buffer.size() + count > MAXIMUM_PLAYLIST) { over = true; break }
+        buffer.write(chunk, 0, count)
+      }
+      if (over) null else buffer.toByteArray()
+    } catch (error: IOException) {
+      record(0, permanent(error))
+      try { reply(out, 502) } catch (_: IOException) {}
+      return
+    }
+    val rewritten = if (data == null) null else PorticoMpvSupport.relayPlaylist(data, upstream) { remote ->
+      synchronized(lock) { if (port != 0 && inScopeLocked(remote)) local(remote, port) else null }
+    }
+    if (rewritten == null) { refuse(); return }
+    out.write("HTTP/1.1 200 Relay\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: ${rewritten.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+    out.write(rewritten)
+    out.flush()
+  }
+
   companion object {
-    private const val MAXIMUM_EXCHANGES = 12
+    private const val MAXIMUM_EXCHANGES = 16
+    private const val MAXIMUM_PLAYLIST = 2 * 1024 * 1024
+    /** How long a connection has to send its request. */
+    private const val HEAD_SECONDS = 10L
+    private val timers = java.util.concurrent.ScheduledThreadPoolExecutor(1) { task -> Thread(task, "portico-mpv-relay-timer").apply { isDaemon = true } }.apply { removeOnCancelPolicy = true }
     private const val MAXIMUM_HEAD = 16 * 1024
     private val RANGE = Regex("^bytes=[0-9]*-[0-9]*$")
     private val FORWARDED = listOf("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified")

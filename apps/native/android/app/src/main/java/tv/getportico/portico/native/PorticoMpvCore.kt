@@ -59,6 +59,8 @@ internal sealed class PorticoMpvEvent {
 internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener {
   /** Called on the main thread. */
   var onEvent: ((Int, PorticoMpvEvent, PorticoMpvSnapshot) -> Unit)? = null
+  /** Called once on the main thread when mpv has started (null) or could not (why). */
+  private var onStarted: ((String?) -> Unit)? = null
   var version = ""
     private set
 
@@ -104,19 +106,23 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   // --- commands (any thread) --------------------------------------------------------------
 
   /**
-   * Replaces whatever is open with [url]. [startSeconds] is where the file opens, so nothing is
-   * decoded from the beginning only to be thrown away.
+   * Replaces whatever is open with [url]. [options] apply to this file only (where it opens, so
+   * nothing is decoded from the beginning only to be thrown away; whether it may open the
+   * resources it names).
    */
-  fun load(url: String, startSeconds: Double?, next: Int) {
+  fun load(url: String, options: Map<String, String>, next: Int) {
     queue.post {
+      // mpv did not start: the controller has been told why, and says so.
+      if (handle == 0L) return@post
       epoch = next
       started = false
       entry = 0
       logTail.clear()
-      // The start position is set as an option rather than passed with the command: the
-      // command's own way of taking per-file options differs between mpv versions.
-      setNow("start", if (startSeconds != null && startSeconds > 0) PorticoMpvSupport.decimal(startSeconds) else "none")
-      val code = run("loadfile", url, "replace")
+      val list = options.keys.sorted().joinToString(",") { "$it=${options[it]}" }
+      // The command took per-file options as its third argument until mpv 0.38 and as its
+      // fourth since. The form this mpv does not have is refused before anything is opened.
+      var code = if (list.isEmpty()) run("loadfile", url, "replace") else run("loadfile", url, "replace", "-1", list)
+      if (code < 0 && list.isNotEmpty()) code = run("loadfile", url, "replace", list)
       if (code < 0) {
         started = true
         deliver(PorticoMpvEvent.EndFile(PorticoMpvNative.END_ERROR, code, text(code), emptyList()))
@@ -160,6 +166,11 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     }
   }
 
+  /** Runs [done] on the main thread once every command asked for so far has been carried out. */
+  fun flush(done: () -> Unit) {
+    if (!queue.post { main.post(done) }) main.post(done)
+  }
+
   /** Whether the app wants [PorticoMpvEvent.FastTick] (it is drawing subtitles itself). */
   fun setFastTicks(wanted: Boolean) {
     queue.post {
@@ -177,6 +188,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   /** Ends mpv. Nothing is delivered afterwards. Call on the main thread. */
   fun destroy() {
     onEvent = null
+    onStarted = null
     queue.post {
       stopTickers()
       epoch = 0
@@ -405,26 +417,38 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     val available: Boolean by lazy { try { PorticoMpvNative.load() } catch (_: Throwable) { false } }
 
     /**
-     * Creates and initialises mpv. [options] are set before initialisation, in order; an option
-     * this build of mpv does not know is skipped. Null when mpv cannot start.
+     * Starts mpv on its own thread, so creating it never holds up the interface. [options] are
+     * set before initialisation, in order. An option this build of mpv refuses stops the start
+     * and is named, unless it is in [optional] (looks and performance, and options whose name
+     * has changed between mpv versions). [started] runs on the main thread with null when mpv
+     * is ready, or with why it is not. Null when this build has no mpv.
+     *
+     * Commands may be given at once: they wait their turn behind the start.
      */
-    fun create(options: List<Pair<String, String>>): PorticoMpvCore? {
+    fun start(options: List<Pair<String, String>>, optional: Set<String>, started: (String?) -> Unit): PorticoMpvCore? {
       if (!available) return null
       val core = PorticoMpvCore()
-      val handle = try { PorticoMpvNative.create(core) } catch (_: Throwable) { 0L }
-      if (handle == 0L) {
-        core.thread.quitSafely()
-        return null
+      core.onStarted = started
+      core.queue.post {
+        var failure: String? = null
+        val handle = try { PorticoMpvNative.create(core) } catch (_: Throwable) { 0L }
+        if (handle == 0L) {
+          failure = "mpv could not be created"
+        } else {
+          for ((name, value) in options) {
+            val code = PorticoMpvNative.setOption(handle, name, value.toByteArray(Charsets.UTF_8))
+            if (code < 0 && name !in optional) { failure = "option $name: ${core.text(code)}"; break }
+          }
+          if (failure == null && PorticoMpvNative.initialize(handle) < 0) failure = "mpv could not be initialised"
+          if (failure != null) PorticoMpvNative.destroy(handle)
+        }
+        if (failure == null) {
+          synchronized(core.lock) { core.handle = handle }
+          core.version = PorticoMpvNative.getString(handle, "mpv-version")?.let { String(it, Charsets.UTF_8) } ?: ""
+          for (name in OBSERVED) PorticoMpvNative.observe(handle, name)
+        }
+        core.main.post { core.onStarted?.invoke(failure) }
       }
-      for ((name, value) in options) PorticoMpvNative.setOption(handle, name, value.toByteArray(Charsets.UTF_8))
-      if (PorticoMpvNative.initialize(handle) < 0) {
-        PorticoMpvNative.destroy(handle)
-        core.thread.quitSafely()
-        return null
-      }
-      core.handle = handle
-      core.version = PorticoMpvNative.getString(handle, "mpv-version")?.let { String(it, Charsets.UTF_8) } ?: ""
-      for (name in OBSERVED) PorticoMpvNative.observe(handle, name)
       return core
     }
   }
