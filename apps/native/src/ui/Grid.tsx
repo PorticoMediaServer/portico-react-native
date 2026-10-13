@@ -3,6 +3,26 @@ import {useReportScroll} from './NavBar';
 import {FlatList, View, VirtualizedList, type FlatListProps, type RefreshControlProps, type StyleProp, type ViewStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from './theme';
+import {gridColumns} from './grid-columns';
+
+export {gridColumns};
+
+/**
+ * One row of cards, for a grid whose rows are the cells of the page's own list (so the list
+ * mounts only the rows near the viewport). Lays out exactly as a `Grid` row does.
+ */
+export function CardRow<T>({items, first = 0, columnWidth, gap, keyOf, renderItem, style}: {items: readonly T[]; /** Index of the row's first item in the whole list. */ first?: number; columnWidth: number; gap?: number; keyOf: (item: T) => string; renderItem: (item: T, columnWidth: number, index: number) => React.ReactElement; style?: StyleProp<ViewStyle>}) {
+  const {space} = useTheme();
+  return (
+    <View style={[{flexDirection: 'row', gap: gap ?? space.gutter, marginBottom: space.lg, paddingHorizontal: space.page}, style]}>
+      {items.map((item, i) => (
+        <View key={keyOf(item)} style={{width: columnWidth}}>
+          {renderItem(item, columnWidth, first + i)}
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export type GridProps<T> = Omit<FlatListProps<T>, 'numColumns' | 'renderItem' | 'data'> & {
   data: readonly T[];
@@ -30,8 +50,7 @@ export function Grid<T>({data, itemWidth, width, renderItem, gap, gutter = true,
   const padding = gutter ? space.page * 2 : 0;
   const fallback = window.width - (isTV ? metrics.railWidth : 0) - padding;
   const available = width ?? (measured > 0 ? measured - padding : fallback);
-  const columns = Math.max(1, Math.floor((available + spacing) / (itemWidth + spacing)));
-  const columnWidth = Math.floor((available - spacing * (columns - 1)) / columns);
+  const {columns, columnWidth} = gridColumns(available, itemWidth, spacing);
   const rows = useMemo(() => {
     const out: T[][] = [];
     for (let i = 0; i < data.length; i += columns) out.push(data.slice(i, i + columns));

@@ -10,7 +10,8 @@ import {captionFor, iconFor, progressFor, shapeFor, useArtwork, viewerScope} fro
 import {useOpenEntry} from '../app/open';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
-import {Button, ConfirmSheet, Card, Divider, Grid, ListRow, Notice, Page, PageHeader, Ring, Skeleton, StateView, Surface, Tabs, Text, WindowedGrid, useTheme, type GridWindow, type IconName} from '../ui';
+import {Button, CardRow, ConfirmSheet, Card, Divider, ListRow, Notice, PageHeader, PageList, Ring, Skeleton, StateView, Tabs, Text, WindowedGrid, alpha, gridColumns, useTheme, type GridWindow, type IconName} from '../ui';
+import {historyRows, type CardRowModel, type DayRowModel} from '../app/list-rows';
 import {say} from '../app/errors';
 import {RootHeaderActions} from './Home';
 import {useI18n} from '../app/i18n';
@@ -157,11 +158,12 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const pull = usePullToRefresh(refresh, {busy: isPersonal(tab) ? history.snapshot.loading : saved.snapshot.phase === 'loading'});
   // APL-SYS-08: the next page loads as the list nears its end; earlier pages stay.
   const pageable = saved.snapshot.projection?.sections.find(s => s.nextCursor);
-  const onScroll = useEndReached(() => {
+  const loadMore = () => {
     if (isPersonal(tab)) {
       if (!history.snapshot.loading && !history.snapshot.error && history.snapshot.nextCursor) history.next();
     } else if (pageable && saved.snapshot.phase === 'ready') saved.next(pageable.id);
-  });
+  };
+  const onScroll = useEndReached(loadMore);
 
   // A watchlist or favorites list can hold thousands of titles: it scrolls in the windowed grid,
   // which mounts only the cells on screen (O(visible)) and asks for the next page near its end.
@@ -180,6 +182,40 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     subscribePage: () => () => {},
     getPageVersion: () => `${media.length}:${saved.snapshot.phase}`,
   }), [media, pageable, saved]);
+  // Every other tab is one list that is itself the page's scroller, so only the rows near the
+  // viewport are mounted however many pages have been read: History (a heading per day over rows
+  // of cards), and the names under Playlists, Collections and Saved views.
+  const personalKey = JSON.stringify(history.snapshot.route);
+  const historyPage = useMemo(() => history.snapshot.entries.filter(hasMedia), [history.snapshot.entries]);
+  const historyEntries = useAppendedPages(personalKey, history.snapshot.cursor, historyPage, entryKey);
+  const resources = useAppendedPages(personalKey, history.snapshot.cursor, history.snapshot.resources, entryKey);
+  const cardWidth = useCallback((kinds: readonly ContentEntry['kind'][]) => {
+    const shape = dominantShape(kinds);
+    return shape === 'landscape' ? metrics.landscapeWidth : shape === 'square' ? metrics.squareWidth : metrics.posterWidth;
+  }, [metrics]);
+  const {rows, historyShown} = useMemo<{rows: SavedRow[]; historyShown: number}>(() => {
+    if (tab === 'history') {
+      const columns = new Map<string, number>();
+      const built = historyRows(historyEntries, iso => (iso ? dayLabel(iso, i18n) : i18n.t('saved.earlier')), day => {
+        const count = gridColumns(gridWidth, cardWidth(day.map(e => e.media.kind)), space.gutter).columns;
+        for (const entry of day) columns.set(entry.id, count);
+        return count;
+      });
+      return {rows: built.rows.map(row => (row.kind === 'cards' ? {...row, columns: columns.get(row.items[0]!.id) ?? 1} : row)), historyShown: built.shown};
+    }
+    if (tab === 'collections' || tab === 'views') return {rows: resources.map((resource, index) => ({kind: 'resource' as const, key: resource.id, resource, first: index === 0, last: index === resources.length - 1})), historyShown: 0};
+    if (tab === 'playlists') return {rows: savedEntries.filter(isPlaylistCard).map((card, index) => ({kind: 'playlist' as const, key: card.id, card, first: index === 0})), historyShown: 0};
+    return {rows: [], historyShown: 0};
+  }, [tab, historyEntries, resources, savedEntries, i18n, gridWidth, cardWidth, space.gutter]);
+  const renderHistory = useHistoryCard();
+  const renderRow = useCallback(({item: row}: {item: SavedRow}) => {
+    switch (row.kind) {
+      case 'day': return <Text variant="heading" style={{marginHorizontal: space.page, marginBottom: space.sm, marginTop: space.sm}}>{row.label}</Text>;
+      case 'cards': return <CardRow items={row.items} first={row.first} columnWidth={Math.max(1, Math.floor((gridWidth - space.gutter * (row.columns - 1)) / row.columns))} keyOf={entryKey} renderItem={renderHistory} />;
+      case 'playlist': return <PlaylistRow card={row.card} first={row.first} onOpen={() => navigation.push('Playlist', {playlistId: row.card.navigation.entityId, title: row.card.title})} />;
+      case 'resource': return <ResourceRow resource={row.resource} first={row.first} last={row.last} onOpen={() => navigation.push('SavedResource', {resourceId: row.resource.id, title: row.resource.name})} />;
+    }
+  }, [space, gridWidth, renderHistory, navigation]);
   const header = <PageHeader title={i18n.t('saved.title')} actions={<RootHeaderActions />} />;
   const tabRow = (
     <View>
@@ -217,57 +253,72 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     );
   }
 
+
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
-      <Page stickyHeaderIndices={isTV ? undefined : [1]} refreshControl={pull} onScroll={onScroll} scrollEventThrottle={100}>
-        {header}
-        {tabRow}
-        {sorts.length ? (
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingHorizontal: space.page, paddingVertical: space.md}}>
-            <Text variant="label" tone="tertiary" style={{marginRight: space.xs}}>{i18n.t('saved.sort')}</Text>
-            {sorts.map(s => {
-              const active = activeSort === s.id;
-              const direction = active ? activeDirection : undefined;
-              return (
-                <Button
-                  key={s.id}
-                  size="sm"
-                  variant="secondary"
-                  selected={active}
-                  label={sortLabel(i18n, s.labelKey)}
-                  trailingIcon={active ? (direction === 'desc' ? 'chevronDown' : 'chevronUp') : undefined}
-                  onPress={() => setSort(prev => ({...prev, [tab]: {sort: s.id, direction: active && direction === 'asc' ? 'desc' : 'asc'}}))}
-                />
-              );
-            })}
-          </View>
-        ) : (
-          <View style={{height: isTV ? space.xl : space.lg}} />
-        )}
-        {tab === 'collections' || tab === 'views' ? (
-          <ResourcesTab tab={tab} snapshot={history.snapshot} onRefresh={history.refresh} onOpen={r => navigation.push('SavedResource', {resourceId: r.id, title: r.name})} />
-        ) : tab === 'history' ? (
-          <HistoryTab snapshot={history.snapshot} width={gridWidth} onRefresh={history.refresh} onClear={history.clearHistory} />
-        ) : (
-          <SavedTabView tab={tab} snapshot={saved.snapshot} width={gridWidth} onRetry={saved.retry} onRefresh={saved.refresh} onOpenPlaylist={card => navigation.push('Playlist', {playlistId: card.navigation.entityId, title: card.title})} />
-        )}
-      </Page>
+      {/* Touch: the title and tabs stay put above the list, clear of the status bar (as on the grid tabs). */}
+      {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
+      <PageList
+        data={rows}
+        keyExtractor={rowKey}
+        renderItem={renderRow}
+        refreshControl={pull}
+        onScroll={onScroll}
+        scrollEventThrottle={100}
+        // A first page shorter than the screen never scrolls, so the list's own end is a second cue.
+        onEndReached={loadMore}
+        onEndReachedThreshold={1.5}
+        contentStyle={isTV ? undefined : {paddingTop: 0}}
+        ListHeaderComponent={
+          <>
+            {isTV ? header : null}
+            {isTV ? tabRow : null}
+            {sortRow}
+            {tab === 'collections' || tab === 'views' ? (
+              <ResourcesStatus tab={tab} snapshot={history.snapshot} count={resources.length} onRefresh={history.refresh} />
+            ) : tab === 'history' ? (
+              <HistoryStatus snapshot={history.snapshot} count={historyEntries.length} shown={historyShown} width={gridWidth} onRefresh={history.refresh} onClear={history.clearHistory} />
+            ) : (
+              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} onRetry={saved.retry} onRefresh={saved.refresh} />
+            )}
+          </>
+        }
+        ListFooterComponent={<MoreSpinner busy={isPersonal(tab) ? history.snapshot.loading && (historyEntries.length > 0 || resources.length > 0) : !!pageable && saved.snapshot.phase === 'loading' && savedEntries.length > 0} />}
+      />
     </View>
   );
 }
 
-function SavedTabView({tab, snapshot, width, onRetry, onRefresh, onOpenPlaylist}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; width: number; onRetry: () => void; onRefresh: () => void; onOpenPlaylist: (card: PlaylistCard) => void}) {
+/**
+ * One row of the list under a tab. History is headings and rows of cards; playlists, collections
+ * and saved views are one name per row.
+ */
+type SavedRow =
+  | DayRowModel
+  | (CardRowModel<HistoryEntry> & {columns: number})
+  | {kind: 'playlist'; key: string; card: PlaylistCard; first: boolean}
+  | {kind: 'resource'; key: string; resource: PersonalSavedSnapshot['resources'][number]; first: boolean; last: boolean};
+type HistoryEntry = PersonalResourceEntry & {media: ContentEntry};
+const rowKey = (row: SavedRow) => row.key;
+const hasMedia = (entry: PersonalResourceEntry): entry is HistoryEntry => !entry.hidden && !!entry.media;
+
+/** The width a card of this shape asks for; a mixed set reads as posters. */
+function dominantShape(kinds: readonly ContentEntry['kind'][]): 'poster' | 'landscape' | 'square' {
+  const shapes = new Set(kinds.map(kind => shapeFor(kind)));
+  const only = shapes.size === 1 ? shapeFor(kinds[0]!) : 'poster';
+  return only === 'landscape' || only === 'square' ? only : 'poster';
+}
+
+/** Errors, the first load and the empty state for Watchlist, Favorites and Playlists. */
+function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; onRetry: () => void; onRefresh: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
-  const sections = useMemo(() => snapshot.projection?.sections ?? [], [snapshot.projection]);
-  const page = useMemo(() => sections.flatMap(s => s.entries), [sections]);
-  const entries = useAppendedPages(JSON.stringify(snapshot.route), snapshot.pagination.cursor, page, entryKey);
-  const pageable = sections.find(s => s.nextCursor);
-  const loadingFresh = snapshot.phase === 'loading' && !sections.length;
-  const empty = snapshot.phase === 'ready' && !entries.length;
+  const loaded = !!snapshot.projection?.sections.length;
+  const loadingFresh = snapshot.phase === 'loading' && !loaded;
+  const empty = snapshot.phase === 'ready' && !count;
   return (
     <View>
-      {snapshot.phase === 'error' && !sections.length ? (
+      {snapshot.phase === 'error' && !loaded ? (
         <StateView icon="warning" title={i18n.t('saved.loadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRetry} />
       ) : snapshot.phase === 'error' ? (
         <Notice tone="error" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={onRetry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
@@ -276,50 +327,27 @@ function SavedTabView({tab, snapshot, width, onRetry, onRefresh, onOpenPlaylist}
       ) : null}
       {loadingFresh ? tab === 'playlists' ? <LoadingRows /> : <LoadingGrid width={width} /> : null}
       {empty ? <StateView icon={emptyCopy[tab].icon} title={snapshot.projection?.empty?.fallback ?? i18n.t(emptyCopy[tab].title)} message={i18n.t(emptyCopy[tab].message)} /> : null}
-      {tab === 'playlists' ? <PlaylistList entries={entries} onOpen={onOpenPlaylist} /> : <MediaGrid entries={entries.filter(isMedia)} width={width} />}
-      <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && entries.length > 0} />
     </View>
   );
 }
 
-function HistoryTab({snapshot, width, onRefresh, onClear}: {snapshot: PersonalSavedSnapshot; width: number; onRefresh: () => void; onClear: () => Promise<unknown>}) {
+/** Errors, the first load, the empty state and Clear history, above the days. */
+function HistoryStatus({snapshot, count, shown, width, onRefresh, onClear}: {snapshot: PersonalSavedSnapshot; count: number; shown: number; width: number; onRefresh: () => void; onClear: () => Promise<unknown>}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const [clearing, setClearing] = useState(false);
-  const all = useAppendedPages(JSON.stringify(snapshot.route), snapshot.cursor, snapshot.entries, entryKey);
-  const loadingFresh = snapshot.loading && !all.length;
-  const empty = !snapshot.loading && !snapshot.error && !all.length && snapshot.route !== null;
-  // APL-SAVED-01: one row per title (its latest position), grouped by day.
-  const days = useMemo(() => {
-    const seen = new Set<string>();
-    const out: {label: string; entries: PersonalResourceEntry[]}[] = [];
-    for (const entry of all) {
-      const id = entry.media?.id;
-      if (entry.hidden || !id || seen.has(id)) continue;
-      seen.add(id);
-      const label = entry.updatedAt ? dayLabel(entry.updatedAt, i18n) : i18n.t('saved.earlier');
-      const group = out[out.length - 1]?.label === label ? out[out.length - 1] : (out.push({label, entries: []}), out[out.length - 1]);
-      group.entries.push(entry);
-    }
-    return out;
-  }, [all, i18n]);
+  const loadingFresh = snapshot.loading && !count;
+  const empty = !snapshot.loading && !snapshot.error && !count && snapshot.route !== null;
   return (
     <View>
-      {snapshot.error && !all.length ? (
+      {snapshot.error && !count ? (
         <StateView icon="warning" title={i18n.t('saved.historyLoadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRefresh} />
       ) : snapshot.error ? (
         <Notice tone={snapshot.error.conflict ? 'warning' : 'error'} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.refresh')} onAction={onRefresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       ) : null}
       {loadingFresh ? <LoadingGrid width={width} /> : null}
       {empty ? <StateView icon={emptyCopy.history.icon} title={i18n.t(emptyCopy.history.title)} message={i18n.t(emptyCopy.history.message)} /> : null}
-      {days.length ? <View style={{paddingHorizontal: space.page, alignItems: 'flex-end'}}><Button variant="ghost" size="sm" icon="trash" label={i18n.t('web.saved.clearHistory')} onPress={() => setClearing(true)} /></View> : null}
-      {days.map(day => (
-        <View key={day.label} style={{marginBottom: space.lg}}>
-          <Text variant="heading" style={{marginHorizontal: space.page, marginBottom: space.sm}}>{day.label}</Text>
-          <HistoryGrid entries={day.entries} width={width} />
-        </View>
-      ))}
-      <MoreSpinner busy={snapshot.loading && all.length > 0} />
+      {shown ? <View style={{paddingHorizontal: space.page, alignItems: 'flex-end'}}><Button variant="ghost" size="sm" icon="trash" label={i18n.t('web.saved.clearHistory')} onPress={() => setClearing(true)} /></View> : null}
       <ConfirmSheet open={clearing} onDismiss={() => setClearing(false)} title={i18n.t('web.saved.clearHistoryTitle')} consequence={i18n.t('web.saved.clearHistoryBody')} confirmLabel={i18n.t('web.saved.clearHistoryAction')} onConfirm={onClear} />
     </View>
   );
@@ -341,38 +369,37 @@ const resourceCopy = {
   views: {icon: 'filter' as const, title: 'web.saved.empty.views' as MessageId, message: 'web.saved.empty.viewsBody' as MessageId},
 };
 
-/** The viewer's collections or saved views, as a list: each is a name, not a poster. */
-function ResourcesTab({tab, snapshot, onRefresh, onOpen}: {tab: 'collections' | 'views'; snapshot: PersonalSavedSnapshot; onRefresh: () => void; onOpen: (resource: PersonalSavedSnapshot['resources'][number]) => void}) {
+/** Errors, the first load and the empty state for the viewer's collections or saved views. */
+function ResourcesStatus({tab, snapshot, count, onRefresh}: {tab: 'collections' | 'views'; snapshot: PersonalSavedSnapshot; count: number; onRefresh: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const copy = resourceCopy[tab];
-  const rows = useAppendedPages(JSON.stringify(snapshot.route), snapshot.cursor, snapshot.resources, entryKey);
   return (
     <View>
-      {snapshot.error && !rows.length ? (
+      {snapshot.error && !count ? (
         <StateView icon="warning" title={i18n.t('saved.listLoadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRefresh} />
       ) : snapshot.error ? (
         <Notice tone="warning" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.refresh')} onAction={onRefresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       ) : null}
-      {snapshot.loading && !rows.length ? <StateView loading title={i18n.t('saved.loading')} /> : null}
-      {!snapshot.loading && !snapshot.error && !rows.length && snapshot.route !== null ? <StateView icon={copy.icon} title={i18n.t(copy.title)} message={i18n.t(copy.message)} /> : null}
-      {rows.length ? (
-        <View style={{paddingHorizontal: space.page}}>
-          <Surface padded={false}>
-            {rows.map((r, i) => (
-              <View key={r.id}>
-                {i ? <Divider inset={space.md} /> : null}
-                <ListRow icon={r.kind === 'view' ? 'filter' : 'collection'} title={r.name} subtitle={r.summary || (r.visibility === 'server' ? i18n.t('saved.sharedWithEveryone') : undefined)} meta={r.kind === 'view' ? undefined : i18n.t('count.items', {count: r.entryCount})} trailingIcon="forward" onPress={() => onOpen(r)} />
-              </View>
-            ))}
-          </Surface>
-        </View>
-      ) : null}
-      <MoreSpinner busy={snapshot.loading && rows.length > 0} />
+      {snapshot.loading && !count ? <StateView loading title={i18n.t('saved.loading')} /> : null}
+      {!snapshot.loading && !snapshot.error && !count && snapshot.route !== null ? <StateView icon={copy.icon} title={i18n.t(copy.title)} message={i18n.t(copy.message)} /> : null}
     </View>
   );
 }
 
+/** A collection or saved view: a name, not a poster. The rows read as one panel, each its own list cell. */
+function ResourceRow({resource, first, last, onOpen}: {resource: PersonalSavedSnapshot['resources'][number]; first: boolean; last: boolean; onOpen: () => void}) {
+  const {space, colors, metrics} = useTheme();
+  const i18n = useI18n();
+  const corner = metrics.radius.panel;
+  const edge = alpha(colors.lineSoft, 0.9);
+  return (
+    <View style={{marginHorizontal: space.page, backgroundColor: colors.raised, borderColor: edge, borderLeftWidth: 1, borderRightWidth: 1, borderTopWidth: first ? 1 : 0, borderBottomWidth: last ? 1 : 0, borderTopLeftRadius: first ? corner : 0, borderTopRightRadius: first ? corner : 0, borderBottomLeftRadius: last ? corner : 0, borderBottomRightRadius: last ? corner : 0}}>
+      {first ? null : <Divider inset={space.md} />}
+      <ListRow icon={resource.kind === 'view' ? 'filter' : 'collection'} title={resource.name} subtitle={resource.summary || (resource.visibility === 'server' ? i18n.t('saved.sharedWithEveryone') : undefined)} meta={resource.kind === 'view' ? undefined : i18n.t('count.items', {count: resource.entryCount})} trailingIcon="forward" onPress={onOpen} />
+    </View>
+  );
+}
 
 /** One media card; its shape follows the entry's kind. */
 function useMediaCard() {
@@ -388,6 +415,7 @@ function useMediaCard() {
         shape={shape}
         width={w}
         progress={progressFor(entry)}
+        watched={entry.watched === true}
         icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
         onPress={() => open(entry)}
         onLongPress={() => open(entry, 'more')}
@@ -396,101 +424,44 @@ function useMediaCard() {
   }, [artwork, open]);
 }
 
-/** Cards for media entries; shape follows each entry's kind. */
-function MediaGrid({entries, width}: {entries: readonly ContentEntry[]; width: number}) {
-  const {metrics} = useTheme();
-  const artwork = useArtwork();
-  const open = useOpenEntry();
-  if (!entries.length) return null;
-  const shapes = new Set(entries.map(e => shapeFor(e.kind)));
-  const dominant = shapes.size === 1 ? shapeFor(entries[0].kind) : 'poster';
-  const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
-  return (
-    <Grid
-      data={entries}
-      width={width}
-      itemWidth={itemWidth}
-      keyExtractor={e => e.id}
-      scrollEnabled={false}
-      renderItem={(entry, w) => {
-        const shape = shapeFor(entry.kind);
-        return (
-          <Card
-            title={entry.title}
-            subtitle={captionFor(entry)}
-            source={artwork(shape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl ?? entry.backdropUrl)}
-            shape={shape}
-            width={w}
-            progress={progressFor(entry)}
-            icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
-            onPress={() => open(entry)}
-            onLongPress={() => open(entry, 'more')}
-          />
-        );
-      }}
-    />
-  );
-}
-
 function relativeTime(i18n: I18n, iso?: string): string | undefined {
   if (!iso || !Number.isFinite(Date.parse(iso))) return undefined;
   return i18n.relativeTime(iso);
 }
 
-/** History cards carry the viewing position and when it was last touched. */
-function HistoryGrid({entries, width}: {entries: readonly PersonalResourceEntry[]; width: number}) {
-  const {metrics} = useTheme();
+/** A history card carries the viewing position and when it was last touched. */
+function useHistoryCard() {
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
-  const rows = useMemo(() => entries.filter((e): e is PersonalResourceEntry & {media: ContentEntry} => !e.hidden && !!e.media), [entries]);
-  if (!rows.length) return null;
-  const shapes = new Set(rows.map(e => shapeFor(e.media.kind)));
-  const dominant = shapes.size === 1 ? shapeFor(rows[0].media.kind) : 'poster';
-  const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
-  return (
-    <Grid
-      data={rows}
-      width={width}
-      itemWidth={itemWidth}
-      keyExtractor={e => e.id}
-      scrollEnabled={false}
-      renderItem={(row, w) => {
-        const entry = row.media;
-        const shape = shapeFor(entry.kind);
-        const progress = row.completed ? 0 : entry.duration && row.positionSeconds ? Math.min(1, row.positionSeconds / entry.duration) : progressFor(entry);
-        return (
-          <Card
-            title={entry.title}
-            subtitle={relativeTime(i18n, row.updatedAt) ?? captionFor(entry)}
-            source={artwork(shape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl ?? entry.backdropUrl)}
-            shape={shape}
-            width={w}
-            progress={progress}
-            badge={row.completed ? i18n.t('saved.watched') : undefined}
-            icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
-            onPress={() => open(entry)}
-            onLongPress={() => open(entry, 'more')}
-          />
-        );
-      }}
-    />
-  );
+  return useCallback((row: HistoryEntry, w: number) => {
+    const entry = row.media;
+    const shape = shapeFor(entry.kind);
+    const progress = row.completed ? 0 : entry.duration && row.positionSeconds ? Math.min(1, row.positionSeconds / entry.duration) : progressFor(entry);
+    return (
+      <Card
+        title={entry.title}
+        subtitle={relativeTime(i18n, row.updatedAt) ?? captionFor(entry)}
+        source={artwork(shape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl ?? entry.backdropUrl)}
+        shape={shape}
+        width={w}
+        progress={progress}
+        badge={row.completed ? i18n.t('saved.watched') : undefined}
+        icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
+        onPress={() => open(entry)}
+        onLongPress={() => open(entry, 'more')}
+      />
+    );
+  }, [i18n, artwork, open]);
 }
 
-function PlaylistList({entries, onOpen}: {entries: readonly SavedEntry[]; onOpen: (card: PlaylistCard) => void}) {
+function PlaylistRow({card, first, onOpen}: {card: PlaylistCard; first: boolean; onOpen: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
-  const cards = entries.filter(isPlaylistCard);
-  if (!cards.length) return null;
   return (
     <View style={{paddingHorizontal: space.page - space.sm}}>
-      {cards.map((card, index) => (
-        <View key={card.id}>
-          {index > 0 ? <Divider inset={space.sm} /> : null}
-          <ListRow title={card.title} subtitle={card.subtitle} meta={card.count !== undefined ? i18n.t('count.items', {count: card.count}) : undefined} icon="queue" trailingIcon="forward" onPress={() => onOpen(card)} />
-        </View>
-      ))}
+      {first ? null : <Divider inset={space.sm} />}
+      <ListRow title={card.title} subtitle={card.subtitle} meta={card.count !== undefined ? i18n.t('count.items', {count: card.count}) : undefined} icon="queue" trailingIcon="forward" onPress={onOpen} />
     </View>
   );
 }
