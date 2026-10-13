@@ -18,6 +18,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {ToastHost} from '../ui';
 import {CastBar} from './CastBar';
 import {offlineDownloads} from '../bridge/offline-downloads';
+import {queueItemInput} from '../../../../packages/client-core/src/queue-controller';
 
 /**
  * Owns the player engine for the signed-in session and layers the player
@@ -38,17 +39,25 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents}: {chi
   const skipForward = serverPrefs.value<number>('playback.skipForwardSeconds', 30);
   useEffect(() => setListeningSkipIntervals(skipBack, skipForward), [skipBack, skipForward]);
   const playOffline = engine.playOffline;
+  const service = engine.service;
   const actions = useMemo<PlayerActions>(
     () => ({
       play: engine.play,
       playSequence: engine.playSequence,
       tune: engine.tune,
       more: (entry, origin) => setMore({entry, origin}),
+      // The title page offers Play next and Add to queue exactly when a card's menu does.
+      canQueue: () => !!service.getQueueController(),
+      enqueue: async (itemId, next) => {
+        const queue = service.getQueueController();
+        if (!queue) throw new Error('There is no queue to add to.');
+        await queue.enqueue(queueItemInput(itemId), next);
+      },
       playLocal: async entry => {
         await playOffline(offlineDownloads.localMedia(entry), {title: entry.title, subtitle: entry.subtitle || undefined, artworkUrl: entry.artworkUrl || undefined, kind: entry.kind});
       },
     }),
-    [engine.play, engine.playSequence, engine.tune, playOffline],
+    [engine.play, engine.playSequence, engine.tune, playOffline, service],
   );
   if (intents) intents.current = actions;
   const showFull = engine.active && (engine.expanded || (!engine.isAudio && !engine.pipActive));

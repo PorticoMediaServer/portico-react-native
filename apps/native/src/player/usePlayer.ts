@@ -6,6 +6,7 @@ import {viewerScope} from '../app/content';
 import {SubtitleService, type SubtitleSnapshot} from '../../../../packages/client-core/src/subtitles';
 import {advancePendingChoice, takePendingTrackChoice, type PendingChoiceProgress} from '../../../../packages/client-core/src/pending-track-choice';
 import {takePendingVersion} from '../app/pending-version';
+import {pauseNextStart} from '../app/paused-load';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import type {GuideChannel} from '../../../../packages/client-core/src/channel-guide';
@@ -680,10 +681,16 @@ export function usePlayerEngine() {
     // answer is still kept when it arrives).
     return Promise.race([read, new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1500))]);
   }, [api]);
+  /** A start that was asked to begin paused: the pause waits for the load (`pauseNextStart`). */
+  const stopPausedStart = useRef(() => {});
+  useEffect(() => () => stopPausedStart.current(), [playback]);
   const play = useCallback(
-    (itemId: string, startSeconds: number, entry?: ContentEntry) => {
+    (itemId: string, startSeconds: number, entry?: ContentEntry, start?: Readonly<{/** Begin paused: the title is loaded and shows its frame, silent, until someone presses Play (a Watch Together room that is paused). */ paused?: boolean}>) => {
       const mine = ++intent.current;
       setDolbyPending(null);
+      // Armed before the load is asked for, so the first thing the engine hears of the title is "paused".
+      stopPausedStart.current();
+      stopPausedStart.current = start?.paused ? pauseNextStart(playback, itemId, playback.getSnapshot().intentId) : () => {};
       if (!mayCarryVideo(entry?.kind) || dolbyAcknowledged.current.has(itemId)) { startSingle(itemId, startSeconds, entry); return; }
       void checkDolbyFor(itemId).then(needs => {
         if (mine !== intent.current) return;
@@ -691,7 +698,7 @@ export function usePlayerEngine() {
         else setDolbyPending({intent: mine, kind: 'single', itemId, startSeconds, entry});
       });
     },
-    [startSingle, checkDolbyFor],
+    [startSingle, checkDolbyFor, playback],
   );
   /** OS-07: play a download in this player. What it shows comes from the download itself (no
    * library, so no quality ladder or audio choices), and its progress stays on the device. */
@@ -813,13 +820,16 @@ export function usePlayerEngine() {
     // position it was asked for, not at 0:00 (demo, 23 Sep).
     void playback.play(itemId, playback.recoveryTarget() ?? (state.positionSeconds || 0)).catch(() => {});
   }, [playback]);
+  /** Someone asked for the title to play: a start that was to begin paused no longer is. */
+  const cancelPausedStart = useCallback(() => { stopPausedStart.current(); stopPausedStart.current = () => {}; }, []);
   const toggle = useCallback(() => {
+    cancelPausedStart();
     const state = playback.getSnapshot();
     if (state.phase === 'error') retry();
     else if (groupControl.current?.toggle(state.intent === 'playing')) return;
     else if (state.intent === 'playing') playback.pause();
     else playback.resume();
-  }, [playback, retry]);
+  }, [playback, retry, cancelPausedStart]);
   const seekBy = useCallback((delta: number) => {
     const state = playback.getSnapshot();
     const target = Math.max(0, Math.min(state.duration || Infinity, (state.pendingSeek?.positionSeconds ?? state.positionSeconds) + delta));
@@ -940,6 +950,7 @@ export function usePlayerEngine() {
     selectAudioTrack,
     subtitleRendering,
     play,
+    cancelPausedStart,
     playOffline,
     playSequence,
     advance,

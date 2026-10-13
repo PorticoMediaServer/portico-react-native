@@ -94,6 +94,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   // CON-25: one shared model decides the hero actions. Primary Play/Resume with the
   // remaining time, quick Watchlist + Favorite toggles, everything else in More
   // grouped like the title ⋯ menu. Media information keeps its label.
+  const canQueue = player.canQueue?.() ?? false;
   const detail = useMemo(() => (data ? detailActions(data, {
     owner: viewerSession?.viewer.role === 'owner',
     // The shared rule still asks for a direct sign-in before it offers Edit. The server lets an
@@ -101,7 +102,9 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
     local: viewerSession?.viewer.role === 'owner',
     platform: isTV ? 'tv' : 'phone',
     group: together.inRoom && together.canQueue,
-  }) : undefined), [data, viewerSession, isTV, together.inRoom, together.canQueue]);
+    // A play queue to add to, by the rule the title's card menu uses.
+    queue: canQueue,
+  }) : undefined), [data, viewerSession, isTV, together.inRoom, together.canQueue, canQueue]);
   const menuItems: MenuItem[] = [];
   if (item && detail) {
     for (const group of detail.more) {
@@ -130,6 +133,12 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
       case 'start_over':
         if (restart?.playback) { invoker.remember(); player.play(restart.playback.itemId, 0, entryOf(item)); }
         break;
+      case 'playNext':
+      case 'addToQueue': {
+        const next = id === 'playNext', itemId = play?.playback?.itemId ?? item.id;
+        void player.enqueue?.(itemId, next).then(() => showToast({message: i18n.t(next ? 'entry.playingNext' : 'entry.addedToQueue'), icon: 'queue'}), e => showToast({message: say(e, 'playlist', 'action'), icon: 'warning'}));
+        break;
+      }
       case 'refreshMetadata':
         void api.request(refreshMetadataPath(item.kind, item.id) ?? '', 'POST', {}).then(() => showToast({message: i18n.t('entry.refreshQueued'), icon: 'check'}), () => showToast({message: i18n.t('entry.refreshFailed'), icon: 'warning'}));
         break;
