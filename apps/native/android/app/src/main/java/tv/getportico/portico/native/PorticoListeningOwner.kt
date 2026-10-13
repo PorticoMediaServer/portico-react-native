@@ -71,6 +71,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var audibleDuration = 0.0
   private var transitions = false
   private var intent = "paused"
+  private var pausedAt = 0.0
+  private var wasPlaying = false
   private var rate = 1.0
   private var seq = 0L
   private var audibleSeq = 0L
@@ -164,6 +166,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     this.origin = origin
     this.token = token
     journalKey = "listening-v1:$principal"
+    pausedAt = 0.0; wasPlaying = false
     this.session = session!!
     audible = null; end = null; queueHeader = null
     queue = if (queueId != null) hashMapOf("id" to queueId, "revision" to queueRevision) else null
@@ -305,6 +308,17 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   private fun apply() {
     val owner = activeOwner ?: return
+    val playing = allowed() && intent == "playing"
+    if (wasPlaying && !playing && pausedAt == 0.0) pausedAt = mono()
+    if (!wasPlaying && playing && pausedAt > 0) {
+      val elapsed = Math.max(0.0, mono() - pausedAt)
+      if (kind() == "audiobook_file" && elapsed >= 300 && nativeSeek == null && audible == null) {
+        val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
+        dropPrepared(null); nativeSeek = seekTo(Math.max(0.0, position - if (elapsed >= 3600) 30 else 15))
+      }
+      pausedAt = 0.0
+    }
+    wasPlaying = playing
     val state = engineState()
     val absolute = (state["media"] as? Map<*, *>)?.get("absolute") == true
     controller.listeningRoute(owner, routeReady, Math.max(0, routeRevision))
@@ -645,6 +659,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     transitionSequence = sequence + 1
     session = next; audible = null; seq = 0; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; notice = null
     prepared = null; committed = null; commitWanted = false; audioReady = false; renderFailures = 0; startPending = null; parkedCommit = null; replayTries = 0
+    pausedAt = 0.0; wasPlaying = false
     intent = if (next["state"] == "paused") "paused" else "playing"
     safetyPaused = false; audioAttempt = null; rendering = false; policyRateKey = null
     duration = PorticoAudioPlan.durationSeconds(decodePlan(presentation(next)))
@@ -825,7 +840,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (type == "seekApplied" && num(fact["seekRevision"]) == num(nativeSeek?.get("revision"))) { nativeSeek = null; reportNow = true; apply() }
     if (type == "seekFailed") { nativeSeek = null; safetyPaused = true; error = "That position isn’t available. Seek again or press Retry."; dropPrepared(null); apply() }
     if (type == "ended" && !ended && committed == null) { ended = true; reportNow = true; checkDeadlines() }
-    if (type == "error" && rendering && fact["networkError"] != true && ++renderFailures >= 2 && noRender != heard["id"]) {
+    if (type == "error" && rendering && fact["networkError"] != true && ++renderFailures >= 1 && noRender != heard["id"]) {
       // The plan's file keeps failing: play this session's ordinary stream from here, and say so quietly.
       val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
       noRender = heard["id"] as? String
@@ -868,8 +883,17 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     var resolved = action!!
     var amount = value
     if (resolved == "resume" && ended) { resolved = "retry"; amount = 0.0 }
-    if (resolved == "pause") { dropPrepared(null); intent = "paused"; patchWanted = true; reportNow = true; apply() }
-    if (resolved == "resume") { intent = "playing"; safetyPaused = false; timerStopped = false; error = null; patchWanted = true; reportNow = true; apply() }
+    if (resolved == "pause") { if (intent == "playing") pausedAt = mono(); dropPrepared(null); intent = "paused"; patchWanted = true; reportNow = true; apply() }
+    if (resolved == "resume") {
+      val elapsed = if (pausedAt > 0) Math.max(0.0, mono() - pausedAt) else 0.0
+      if (kind() == "audiobook_file" && elapsed >= 300 && nativeSeek == null) {
+        val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
+        dropPrepared(null)
+        nativeSeek = seekTo(Math.max(0.0, position - if (elapsed >= 3600) 30 else 15))
+      }
+      pausedAt = 0.0
+      intent = "playing"; safetyPaused = false; timerStopped = false; error = null; patchWanted = true; reportNow = true; apply() }
+    if (resolved == "seek") pausedAt = 0.0
     if (resolved == "seek" && committed != null) { promoteCommitted(); persist(); emit(); return !terminal }
     if (resolved == "seek" && audible == null) {
       val seconds = Math.max(0.0, if (duration > 0) Math.min(amount!!, duration) else amount!!)

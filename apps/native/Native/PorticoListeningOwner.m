@@ -9,6 +9,7 @@
 #import <math.h>
 #import <ImageIO/ImageIO.h>
 #import <mach/mach.h>
+#import <mach/mach_time.h>
 
 static BOOL Text(id v) { return [v isKindOfClass:NSString.class] && [v length]>0; }
 static BOOL WireID(id v) { return Text(v)&&[v length]<=128&&[v rangeOfString:@"^[A-Za-z0-9_-]+$" options:NSRegularExpressionSearch].location!=NSNotFound; }
@@ -16,6 +17,11 @@ static BOOL ListeningNumber(id value,double min,double max,BOOL integer) {return
 static BOOL ListeningBool(id value) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID();}
 static BOOL ListeningRate(id value) {return ListeningNumber(value,.5,2,NO)&&[@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]containsObject:value];}
 static double Mono(void) { return NSProcessInfo.processInfo.systemUptime; }
+static double PauseClock(void) {
+ static mach_timebase_info_data_t scale;static dispatch_once_t once;
+ dispatch_once(&once,^{mach_timebase_info(&scale);});
+ return (double)mach_continuous_time()*scale.numer/scale.denom/1e9;
+}
 static double Wall(void) { return NSDate.date.timeIntervalSince1970; }
 static NSString *NewID(void) { return NSUUID.UUID.UUIDString; }
 static NSError *ListeningError(NSString *message) { return [NSError errorWithDomain:@"PorticoListeningOwner" code:1 userInfo:@{NSLocalizedDescriptionKey:message}]; }
@@ -139,8 +145,8 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  // The session reported for now; while a committed edge drains, `_audible` is the one heard.
  NSDictionary *_session,*_audible,*_end,*_queueHeader;
  NSMutableDictionary *_queue;
- double _duration,_audibleDuration;
- BOOL _transitions;
+ double _duration,_audibleDuration,_pausedAt;
+ BOOL _transitions,_wasPlaying;
  NSString *_intent;double _rate;NSNumber *_preferredRate;
  long long _seq,_audibleSeq;
  double _leaseUntil,_nextReport,_reportEvery,_retryAt,_backoff,_audioCooldown;
@@ -197,7 +203,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(!ListeningNumber(context[@"lastSeq"],0,9007199254740991.0,YES)||!ListeningNumber(context[@"leaseMs"],0,120000,NO)||!ListeningNumber(context[@"durationSeconds"],0,1e9,NO)||![@[@"playing",@"paused"] containsObject:context[@"intent"]]||!ListeningBool(context[@"transitions"])){if(error)*error=ListeningError(@"Invalid listening handover.");return NO;}
  if(_owner)[self retire:_owner stop:NO];
  _owner=[owner copy];_origin=[origin copy];_token=[token copy];_journalKey=[@"listening-v1:" stringByAppendingString:principal];
- _session=[session copy];_audible=nil;_end=nil;_queueHeader=nil;
+ _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_end=nil;_queueHeader=nil;
  _queue=V1ID(queueId)?[@{@"id":queueId,@"revision":queueRevision} mutableCopy]:nil;
  _duration=[context[@"durationSeconds"] doubleValue];if(_duration<=0)_duration=[_render durationSeconds:session[@"presentation"]];
  _transitions=[context[@"transitions"] boolValue];_intent=context[@"intent"];_rate=1;_preferredRate=nil;
@@ -267,6 +273,17 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 - (void)apply {
  if(!_owner)return;
  if([self allowed]&&[_intent isEqual:@"playing"]){NSError *error=nil;[[AVAudioSession sharedInstance] setActive:YES error:&error];if(error){_safetyPaused=YES;_error=@"The system audio session could not resume. Press Play to retry.";}}
+ BOOL playing=[self allowed]&&[_intent isEqual:@"playing"];
+ if(_wasPlaying&&!playing&&_pausedAt==0)_pausedAt=PauseClock();
+ if(!_wasPlaying&&playing&&_pausedAt>0){
+  double elapsed=MAX(0,PauseClock()-_pausedAt);
+  if([[self kind] isEqual:@"audiobook_file"]&&elapsed>=300&&!_nativeSeek&&!_audible){
+   double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
+   [self dropPrepared:nil];_nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,position-(elapsed>=3600?30:15)))};
+  }
+  _pausedAt=0;
+ }
+ _wasPlaying=playing;
  NSDictionary *state=[self engineState];
  NSString *origin=[state[@"media"] isKindOfClass:NSDictionary.class]&&[state[@"media"][@"absolute"] boolValue]?@"":_origin;
  [_controller listeningRoute:_owner ready:_routeReady revision:MAX(0,_routeRevision)];
@@ -483,9 +500,9 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 - (void)moveTo:(NSDictionary *)session started:(double)started queue:(NSDictionary *)queue {
  NSString *previous=_audible[@"id"]?:_session[@"id"];
  if(previous||_transition){_transition=@{@"previousSessionId":_transition?_transition[@"previousSessionId"]:previous,@"queue":queue?:NSNull.null};_transitionSequence=_sequence+1;}
- _session=[session copy];_audible=nil;_seq=0;_leaseUntil=started+120;_nextReport=0;_reportNow=YES;_ended=NO;_endedReported=NO;_error=nil;_notice=nil;
+ _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_seq=0;_leaseUntil=started+120;_nextReport=0;_reportNow=YES;_ended=NO;_endedReported=NO;_error=nil;_notice=nil;
  _prepared=nil;_committed=nil;_commitWanted=NO;_audioReady=NO;_renderFailures=0;_startPending=nil;_parkedCommit=nil;_replayTries=0;
- _intent=[session[@"state"] isEqual:@"paused"]?@"paused":@"playing";_safetyPaused=NO;_audioAttempt=nil;_rendering=NO;_policyRateKey=nil;
+ _pausedAt=0;_wasPlaying=NO;_intent=[session[@"state"] isEqual:@"paused"]?@"paused":@"playing";_safetyPaused=NO;_audioAttempt=nil;_rendering=NO;_policyRateKey=nil;
  _duration=[_render durationSeconds:session[@"presentation"]];
  _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,[session[@"presentation"][@"startPositionMs"] doubleValue]/1000.0))};
  _lastFact=nil;_metadata=nil;[_metadataRequest cancel];_metadataRequest=nil;[self clearArtwork];
@@ -635,7 +652,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([type isEqual:@"seekApplied"]&&[fact[@"seekRevision"] isEqual:_nativeSeek[@"revision"]]){_nativeSeek=nil;_reportNow=YES;[self apply];}
  if([type isEqual:@"seekFailed"]){_nativeSeek=nil;_safetyPaused=YES;_error=@"That position isn’t available. Seek again or press Retry.";[self dropPrepared:nil];[self apply];}
  if([type isEqual:@"ended"]&&!_ended&&!_committed){_ended=YES;_reportNow=YES;[self checkDeadlines];}
- if([type isEqual:@"audioRenderFailed"]&&++_renderFailures>=2&&![_noRender isEqual:heard[@"id"]]){
+ if([type isEqual:@"audioRenderFailed"]&&++_renderFailures>=1&&![_noRender isEqual:heard[@"id"]]){
   // Rendering keeps failing: play this session's ordinary stream from here, and say so quietly.
   double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
   _noRender=heard[@"id"];_rendering=NO;[self dropPrepared:nil];[_controller resetListeningEngine:_owner];
@@ -661,8 +678,15 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([@[@"next",@"previous"] containsObject:action])return [self advance:action entry:nil owner:owner];
  [self checkDeadlines];[self beginControlGrace];[self resetInactivity];
  if([action isEqual:@"resume"]&&_ended){action=@"retry";value=@0;}
- if([action isEqual:@"pause"]){[self dropPrepared:nil];_intent=@"paused";_patchWanted=YES;_reportNow=YES;[self apply];}
- if([action isEqual:@"resume"]){_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_error=nil;_patchWanted=YES;_reportNow=YES;[self apply];}
+ if([action isEqual:@"pause"]){if([_intent isEqual:@"playing"])_pausedAt=PauseClock();[self dropPrepared:nil];_intent=@"paused";_patchWanted=YES;_reportNow=YES;[self apply];}
+ if([action isEqual:@"resume"]){
+  double elapsed=_pausedAt>0?MAX(0,PauseClock()-_pausedAt):0;
+  if([[self kind] isEqual:@"audiobook_file"]&&elapsed>=300&&!_nativeSeek){
+   double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
+   [self dropPrepared:nil];_nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,position-(elapsed>=3600?30:15)))};
+  }
+  _pausedAt=0;_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_error=nil;_patchWanted=YES;_reportNow=YES;[self apply];}
+ if([action isEqual:@"seek"])_pausedAt=0;
  if([action isEqual:@"seek"]&&_committed){[self promoteCommitted];[self persist];[self emit];return !_terminal;}
  if([action isEqual:@"seek"]&&!_audible){
   double seconds=MAX(0,_duration>0?MIN(value.doubleValue,_duration):value.doubleValue);

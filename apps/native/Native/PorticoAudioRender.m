@@ -254,10 +254,25 @@ static void AREvict(void){
 @end
 @implementation ARDecoder {
  ARBytes *_bytes;NSDictionary *_plan;AudioFileID _file;ExtAudioFileRef _ext;long long _first,_next;
+ AudioConverterRef _aac;SInt64 _packet;long long _packetFrames,_aacSkip;
+ void *_packetBuffer;AudioStreamPacketDescription *_packetDescriptions;UInt32 _packetCapacity;
 }
 static OSStatus ARRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
 // A converted stream of unknown length reads as very long; its real end reads as end of file.
 static SInt64 ARSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;long long size=d->_bytes.size;return size>0?size:(1LL<<40);}
+/** AAC packets are decoded without the file wrapper's inferred priming. The server's raw
+ * frame window applies equally to iTunSMPB, edit-list-only AAC and SBR output frames. */
+static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBufferList *data,AudioStreamPacketDescription **descriptions,void *client){
+ ARDecoder *d=(__bridge ARDecoder *)client;
+ UInt32 packets=MIN(*count,128),bytes=d->_packetCapacity;
+ OSStatus status=AudioFileReadPacketData(d->_file,false,&bytes,d->_packetDescriptions,d->_packet,&packets,d->_packetBuffer);
+ if(status!=noErr&&status!=kAudioFileEndOfFileError){*count=0;return status;}
+ d->_packet+=packets;*count=packets;
+ data->mNumberBuffers=1;data->mBuffers[0].mNumberChannels=0;data->mBuffers[0].mDataByteSize=bytes;data->mBuffers[0].mData=d->_packetBuffer;
+ if(descriptions)*descriptions=d->_packetDescriptions;
+ return noErr;
+}
+
 - (instancetype)initWithBytes:(ARBytes *)bytes plan:(NSDictionary *)plan {if((self=[super init])){_bytes=bytes;_plan=plan;}return self;}
 + (AudioFileTypeID)hint:(NSDictionary *)plan {
  NSString *c=plan[@"container"];
@@ -276,20 +291,66 @@ static SInt64 ARSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;lon
  _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:source.mSampleRate channels:channels];
  AudioStreamBasicDescription client=*_format.streamDescription;
  if(ExtAudioFileSetProperty(_ext,kExtAudioFileProperty_ClientDataFormat,sizeof(client),&client)!=noErr)return @"This audio couldn’t be converted for playback.";
+ if([_plan[@"codec"] isEqual:@"aac"]){
+  double rate=[_plan[@"sampleRate"] doubleValue];
+  _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:channels];client=*_format.streamDescription;
+  if(AudioConverterNew(&source,&client,&_aac)!=noErr)return @"This AAC configuration couldn’t be decoded.";
+  UInt32 prime=kConverterPrimeMethod_None;
+  if(AudioConverterSetProperty(_aac,kAudioConverterPrimeMethod,sizeof(prime),&prime)!=noErr)return @"This AAC decoder cannot expose its measured audio frames.";
+  UInt32 cookieSize=0;Boolean writable=false;
+  if(AudioFileGetPropertyInfo(_file,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0){
+   if(cookieSize>65536)return @"The AAC configuration exceeds its limit.";
+   void *cookie=malloc(cookieSize);if(!cookie)return @"The audio decoder is out of memory.";
+   OSStatus got=AudioFileGetProperty(_file,kAudioFilePropertyMagicCookieData,&cookieSize,cookie);
+   if(got==noErr)got=AudioConverterSetProperty(_aac,kAudioConverterDecompressionMagicCookie,cookieSize,cookie);free(cookie);
+   if(got!=noErr)return @"This AAC configuration couldn’t be read.";
+  }
+  UInt32 maxPacket=0,packetSize=sizeof(maxPacket);
+  if(AudioFileGetProperty(_file,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768)return @"The AAC packet size exceeds its limit.";
+  _packetCapacity=maxPacket*128;_packetBuffer=malloc(_packetCapacity);_packetDescriptions=calloc(128,sizeof(AudioStreamPacketDescription));
+  if(!_packetBuffer||!_packetDescriptions)return @"The audio decoder is out of memory.";
+  _packetFrames=llround(source.mFramesPerPacket*rate/source.mSampleRate);
+  if(_packetFrames<=0||_packetFrames>8192)return @"This AAC packet clock isn’t supported.";
+  _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
+  // Converted AAC carries its new encoder delay in the output container, independently of
+  // the original file's already-applied trim. Its presentation length remains the plan's.
+  if([_plan[@"mode"] isEqual:@"converted"]){
+   AudioFilePacketTableInfo table={0};UInt32 tableSize=sizeof(table);
+   if(AudioFileGetProperty(_file,kAudioFilePropertyPacketTableInfo,&tableSize,&table)!=noErr||table.mPrimingFrames<0)return @"The converted AAC priming isn’t available.";
+   _first=llround(table.mPrimingFrames*rate/source.mSampleRate);
+  }
+  return [self seek:0];
+ }
  // `trim` counts raw decoder output. Core Audio already drops a packet table's priming (AAC and
  // ALAC in MP4), so only the rest is skipped here, never twice (spec §18.1; the §18.8 fixtures).
  AudioFilePacketTableInfo table={0};UInt32 tableSize=sizeof(table);long long primed=0;
  if(AudioFileGetProperty(_file,kAudioFilePropertyPacketTableInfo,&tableSize,&table)==noErr){primed=MAX(0,table.mPrimingFrames);_remainder=table.mRemainderFrames;}
  _primed=primed;SInt64 length=0;UInt32 lengthSize=sizeof(length);if(ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileLengthFrames,&lengthSize,&length)==noErr)_fileFrames=length;
  long long start=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
- // When its own count is exactly the plan's, Core Audio has applied the whole trim itself (MP3's
- // LAME header, AAC's iTunSMPB and edit list, with its decoder's delay). Otherwise only the
- // packet table's priming is already gone.
- _first=_fileFrames==_total?0:MAX(0,start-primed);
+ // Never assume Apple's default AAC priming matches an encoder's edit list. Reconcile the
+ // packet table and length against the server's raw window. A contradictory decoder cannot
+ // recover already-discarded real samples: give this file to ordinary playback instead.
+ long long end=[_plan[@"trim"][@"endFrames"] longLongValue];
+ long long raw=start+_total+end;
+ if(fabs(source.mSampleRate-[_plan[@"sampleRate"] doubleValue])>.01)return @"The decoder's audio clock differs from the file's measured clock.";
+ if(_fileFrames==_total)_first=0;
+ else {
+  if(primed>start)return @"The decoder trimmed more audio than the file's measured priming.";
+  _first=start-primed;
+  if(_fileFrames>0&&(_first+_total>_fileFrames||_fileFrames>raw))return @"The decoder's audio length differs from the file's measured length.";
+ }
+
  return [self seek:0];
 }
 - (NSString *)seek:(long long)frame {
  frame=MAX(0,MIN(frame,_total));
+ if(_aac){
+  // Two complete packets warm the codec; discard their output plus the intra-packet offset.
+  // Packet lookup is constant time and AudioFile reads the container's existing byte index.
+  long long target=_first+frame;_packet=MAX(0,target/_packetFrames-2);_aacSkip=target-_packet*_packetFrames;
+  if(AudioConverterReset(_aac)!=noErr)return @"That AAC position couldn’t be reached.";
+  _next=frame;return nil;
+ }
  if(ExtAudioFileSeek(_ext,_first+frame)!=noErr)return @"That position couldn’t be reached in this audio.";
  _next=frame;return nil;
 }
@@ -298,12 +359,27 @@ static SInt64 ARSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;lon
  AVAudioFrameCount want=(AVAudioFrameCount)MIN((long long)frames,left);
  AVAudioPCMBuffer *buffer=[[AVAudioPCMBuffer alloc] initWithPCMFormat:_format frameCapacity:want];
  buffer.frameLength=want; // sizes the buffer list for the read
- UInt32 got=want;OSStatus status=ExtAudioFileRead(_ext,&got,buffer.mutableAudioBufferList);
+ UInt32 got=want;OSStatus status=noErr;
+ if(_aac){
+  do {
+   buffer.frameLength=want;got=want;
+   status=AudioConverterFillComplexBuffer(_aac,ARAACInput,(__bridge void *)self,&got,buffer.mutableAudioBufferList,NULL);
+   if(status!=noErr||got==0)break;
+   UInt32 drop=(UInt32)MIN(_aacSkip,got);_aacSkip-=drop;
+   if(drop)for(AVAudioChannelCount ch=0;ch<_format.channelCount;ch++)memmove(buffer.floatChannelData[ch],buffer.floatChannelData[ch]+drop,(got-drop)*sizeof(float));
+   got-=drop;
+  }while(got==0);
+ }else status=ExtAudioFileRead(_ext,&got,buffer.mutableAudioBufferList);
  if(status!=noErr){if(error)*error=_bytes.failure?:@"The audio stopped arriving.";return nil;}
  if(got==0){_total=_next;return nil;} // the file ends before its plan says: stop cleanly
  buffer.frameLength=got;_next+=got;return buffer;
 }
-- (void)close {if(_ext){ExtAudioFileDispose(_ext);_ext=NULL;}else if(_file){AudioFileClose(_file);}_file=NULL;}
+- (void)close {
+ if(_aac){AudioConverterDispose(_aac);_aac=NULL;}
+ if(_ext){ExtAudioFileDispose(_ext);_ext=NULL;}
+ if(_file){AudioFileClose(_file);_file=NULL;}
+ free(_packetBuffer);_packetBuffer=NULL;free(_packetDescriptions);_packetDescriptions=NULL;
+}
 - (void)dealloc {[self close];}
 @end
 
@@ -393,7 +469,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  id peak=album?(g[@"albumPeak"]?:g[@"trackPeak"]):g[@"trackPeak"];
  double linear=pow(10,([db doubleValue]+[settings[@"preampDb"] doubleValue])/20);
  if([peak isKindOfClass:NSNumber.class]&&[peak doubleValue]*linear>1)linear=1/[peak doubleValue];
- return linear;
+ return MAX(0,MIN(linear,[peak isKindOfClass:NSNumber.class]?32:1));
 }
 
 #pragma mark Decks

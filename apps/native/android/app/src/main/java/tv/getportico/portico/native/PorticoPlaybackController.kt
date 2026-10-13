@@ -375,13 +375,22 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   // --- the engine ------------------------------------------------------------------------
 
+  private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
+  private fun musicGain(engine: ExoPlayer, gain: Float) {
+    val processor = audioGains[engine]
+    if (processor != null) { processor.target = gain; engine.volume = 1f }
+    else engine.volume = gain.coerceIn(0f, 1f)
+  }
+
   private fun engine(): ExoPlayer {
     player?.let { return it }
     val http = OkHttpDataSource.Factory(mediaClient)
     val load = DefaultLoadControl.Builder()
     // A high-bitrate stream must not take memory the interface needs on a small device.
     if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
-    val made = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+    val gain = if (listeningOwner != null) PorticoAudioGain() else null
+    val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
+    val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
         .setLoadControl(load.build())
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
@@ -397,6 +406,7 @@ internal class PorticoPlaybackController(private val context: Context) {
         .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
         .build()
     made.addListener(listener)
+    if (gain != null) audioGains[made] = gain
     player = made
     return made
   }
@@ -428,7 +438,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val engine = player ?: return
     engine.playWhenReady = false
     engine.pauseAtEndOfMediaItems = false
-    engine.volume = 1f
+    musicGain(engine, 1f)
     engine.stop()
     engine.clearMediaItems()
     readyAnnounced = false
@@ -596,7 +606,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyRenderEdges(render: Map<String, Any?>?) {
     val engine = player ?: return
     if (render == null || engine.currentMediaItem == null) { if (nextToken != null) dropNext(); return }
-    if (incoming == null) engine.volume = PorticoAudioPlan.gain(planOf(render), settings())
+    if (incoming == null) musicGain(engine, PorticoAudioPlan.gain(planOf(render), settings()))
     val committed = render["committed"] as? Map<*, *>
     val wanted = committed ?: render["prepared"] as? Map<*, *>
     val token = wanted?.get("token") as? String
@@ -677,13 +687,15 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** The next track starts on a second player under the end of this one; when the fade is done it is the player. */
   private fun startCrossfade(seconds: Double) {
     val plan = nextPlan ?: return
-    val deck = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+    val gain = PorticoAudioGain()
+    val deck = ExoPlayer.Builder(context, PorticoAudioRenderers(context, gain).setEnableDecoderFallback(true))
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, OkHttpDataSource.Factory(mediaClient))))
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false)
         .setHandleAudioBecomingNoisy(false)
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
-    deck.volume = 0f
+    audioGains[deck] = gain
+    musicGain(deck, 0f)
     deck.addListener(incomingListener)
     deck.setMediaItem(MediaItem.fromUri(plan["url"] as String))
     deck.setPlaybackSpeed(player?.playbackParameters?.speed ?: 1f)
@@ -713,8 +725,8 @@ internal class PorticoPlaybackController(private val context: Context) {
       val t = if (fadeStartedAt == 0L) 0.0 else Math.min(1.0, (SystemClock.elapsedRealtime() - fadeStartedAt) / 1000.0 * rate / fadeSeconds)
       val outgoing = PorticoAudioPlan.gain(planOf(command?.get("audioRender")), settings())
       val arriving = PorticoAudioPlan.gain(nextPlan, settings())
-      old.volume = (outgoing * Math.cos(t * Math.PI / 2)).toFloat()
-      deck.volume = (arriving * Math.sin(t * Math.PI / 2)).toFloat()
+      musicGain(old, (outgoing * Math.cos(t * Math.PI / 2)).toFloat())
+      musicGain(deck, (arriving * Math.sin(t * Math.PI / 2)).toFloat())
       val over = t >= 1 || (fadeStartedAt != 0L && (heldAtEnd || old.playbackState == Player.STATE_ENDED))
       if (!over) { main.postDelayed(this, 40); return }
       // The new track is the player from here: position, facts and the next edge are its own.
@@ -723,7 +735,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       incoming = null
       old.removeListener(listener)
       old.release()
-      deck.volume = arriving
+      musicGain(deck, arriving)
       deck.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
       deck.trackSelectionParameters = deck.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
       deck.addListener(listener)

@@ -507,7 +507,8 @@ export class V1QueuePlayer implements QueueController {
       this.accept(created.queue, created.window);
       return;
     }
-    for (let i = 0; i < ids.length; i += SEGMENT_ITEMS) {
+    const starts:number[]=[];for(let i=0;i<ids.length;i+=SEGMENT_ITEMS)starts.push(i);if(next)starts.reverse();
+    for (const i of starts) {
       const r = await this.client.addSegment(this.header!.id, this.header!.revision, next ? 'next' : 'end', {source: {items: {ids: ids.slice(i, i + SEGMENT_ITEMS)}}});
       this.header = r.queue;
     }
@@ -655,7 +656,7 @@ export class V1QueuePlayer implements QueueController {
         const expiresAtMs = Date.parse(next.expiresAt);
         const durationSeconds = audio.durationFrames / audio.sampleRate;
         this.prepared = Object.freeze({token: next.token, queueId: header.id, itemId: next.itemId, expiresAtMs, durationSeconds});
-        this.playback.prepareAudio({token: next.token, expiresAtMs, audio});
+        this.playback.prepareAudio({token: next.token, expiresAtMs, itemId: next.itemId, audio});
       } catch { /* no edge for this track: it ends and advances as usual */ }
     })();
     return true;
@@ -724,7 +725,7 @@ export class V1QueuePlayer implements QueueController {
   audioRenderFailed(message: string) {
     const p = this.playback.getSnapshot();
     this.prepared = undefined; this.audioReadyToken = undefined;
-    this.playback.fail(p.intentId, message);
+    if(!this.playback.fallbackAudioRender())this.playback.fail(p.intentId, message);
   }
 }
 
