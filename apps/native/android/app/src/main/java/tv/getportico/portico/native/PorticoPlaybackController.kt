@@ -219,7 +219,14 @@ internal class PorticoPlaybackController(private val context: Context) {
     routeFailed = false
     routeEpoch++
     stopTicking()
+    val retiring = player
+    player = null
+    playerIsDeck = false
+    if (retiring != null) audioGains.remove(retiring)
+    // Views detach while the player is still valid. Media3 release waits for its playback
+    // thread to close the renderer and audio sink before the module resolves this release.
     attachmentListeners.toList().forEach { it() }
+    retiring?.let { it.removeListener(listener); it.release() }
   }
 
   fun invalidate() {
