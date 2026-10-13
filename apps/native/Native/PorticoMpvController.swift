@@ -920,7 +920,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         let current = Int(snapshot.aid)
         let observed = map.first { $0.value == current }?.key
         audioSequence += 1
-        emitAudio("audioObserved", ["audioSequence": audioSequence, "renditionId": observed ?? NSNull()])
+        let rendition: Any = observed.map { $0 as Any } ?? NSNull()
+        emitAudio("audioObserved", ["audioSequence": audioSequence, "renditionId": rendition])
         if let pending = audio["pending"] as? NSDictionary, let revision = PorticoMpvSupport.integer(pending["revision"]), revision == audioHandledRevision,
            let wanted = pending["renditionId"] as? String, wanted == observed {
             emitAudio("audioApplied", ["audioRevision": revision, "renditionId": wanted])
@@ -1071,6 +1072,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     }
 
     @objc private func captionStyleChanged() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.captionStyleChanged() }; return }
         core?.set("sub-scale", String(format: "%.2f", PorticoMpvSupport.captionScale()))
         NotificationCenter.default.post(name: .porticoMpvOverlayChanged, object: self)
     }
@@ -1238,6 +1240,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     }
 
     @objc private func audioInterrupted(_ note: Notification) {
+        // The audio session posts on whatever thread it likes; the engine's state is the main thread's.
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.audioInterrupted(note) }; return }
         guard lease != nil, fileRequested, let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
         // The system took the output away for a call or Siri; mpv opens it again.
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -1245,6 +1249,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     }
 
     @objc private func audioRouteChanged(_ note: Notification) {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.audioRouteChanged(note) }; return }
         guard lease != nil, fileRequested, let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt, let reason = AVAudioSession.RouteChangeReason(rawValue: raw),
               reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
         // Another output may take a different number of channels.
@@ -1255,6 +1260,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     }
 
     @objc private func audioServicesReset() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.audioServicesReset() }; return }
         guard lease != nil, fileRequested else { return }
         configureAudioSession()
         core?.command(["ao-reload"])
