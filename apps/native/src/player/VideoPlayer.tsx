@@ -29,6 +29,9 @@ import {scrubTarget, useSiriRemoteTouch} from '../bridge/NativeSiriRemote';
 import {activeI18n} from '../app/errors';
 import {GroupPill} from './GroupPill';
 import {endedCopy} from './ended-copy';
+import {cannotPlayReason} from './cannot-play';
+import {failureFor} from './failure-facts';
+import {word} from '../app/new-words';
 import {canStepChannel, channelStep, tunedChannel} from './channel-lineup';
 import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
@@ -156,10 +159,12 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
     });
     return () => sub.remove();
   }, [option, chrome, playing, isTV, isAudio, engine, setOption]);
+  // Set below, once the failure is known: media that can never be played is not started again.
+  const neverPlays = useRef(false);
   useTVEventHandler(event => {
     if (event.eventType === 'menu') return;
     if (event.eventType !== 'focus' && event.eventType !== 'blur') reveal();
-    if (event.eventType === 'playPause' && (event.eventKeyAction == null || event.eventKeyAction === 1)) engine.toggle();
+    if (event.eventType === 'playPause' && (event.eventKeyAction == null || event.eventKeyAction === 1) && !neverPlays.current) engine.toggle();
     if (timelineFocused && !option) {
       if (event.eventType === 'left') engine.seekBy(-skipBack);
       if (event.eventType === 'right') engine.seekBy(skipForward);
@@ -215,6 +220,14 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const queueConnecting = errored && !state.channel && !identity.offline && !connection.error && (!queue || queueState?.phase === 'loading');
   const [queueTimedOut, setQueueTimedOut] = useState(false);
   const waitingForQueue = queueConnecting && !queueTimedOut;
+  // A failure that trying again cannot mend (the title or its file is gone, this profile may not
+  // play it, this device cannot and the server has nothing else to offer) is said plainly, with
+  // no "Try again". Live channels and downloads keep their own messages.
+  const routePhase = api.getRouteSnapshot()?.phase;
+  const cannotPlay = errored && !waitingForQueue && !state.ended && !state.channel && !identity.offline && !needsQueueRecovery && state.cleanupPending === 0
+    ? cannotPlayReason({error: state.error, routeReady: routePhase === undefined || routePhase === 'ready', ...failureFor(state.intentId, state.itemId ?? identity.itemId)})
+    : null;
+  neverPlays.current = !!cannotPlay;
   const replayWhenReady = useRef<{itemId: string; position: number} | undefined>(undefined);
   useEffect(() => {
     if (!queueConnecting) return;
@@ -406,6 +419,14 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         // with only Close. No retry and no advance.
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
           <StateView icon="info" title={endedCopy(state.ended, i18n.t).title} message={endedCopy(state.ended, i18n.t).message} />
+          <View style={{flexDirection: 'row', gap: space.sm}}>
+            <Button variant="ghost" label={i18n.t('action.close')} hasTVPreferredFocus={isTV} onPress={engine.leave} />
+          </View>
+        </View>
+      ) : cannotPlay ? (
+        // Never playable: what is wrong, in one sentence, and the way out. Nothing to try again.
+        <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
+          <StateView icon="info" title={word('player.cannotPlay.title', undefined, i18n)} message={word(`player.cannotPlay.${cannotPlay}`, {title: identity.title || word('player.cannotPlay.thisTitle', undefined, i18n)}, i18n)} />
           <View style={{flexDirection: 'row', gap: space.sm}}>
             <Button variant="ghost" label={i18n.t('action.close')} hasTVPreferredFocus={isTV} onPress={engine.leave} />
           </View>
