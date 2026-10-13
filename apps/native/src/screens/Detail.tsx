@@ -93,7 +93,9 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   // grouped like the title ⋯ menu. Media information keeps its label.
   const detail = useMemo(() => (data ? detailActions(data, {
     owner: viewerSession?.viewer.role === 'owner',
-    local: viewerSession?.viewer.authority === 'local',
+    // The shared rule still asks for a direct sign-in before it offers Edit. The server lets an
+    // owner edit however they signed in, so an owner is always answered yes here.
+    local: viewerSession?.viewer.role === 'owner',
     platform: isTV ? 'tv' : 'phone',
   }) : undefined), [data, viewerSession, isTV]);
   const menuItems: MenuItem[] = [];

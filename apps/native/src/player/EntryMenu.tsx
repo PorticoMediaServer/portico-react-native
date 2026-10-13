@@ -46,7 +46,9 @@ export function EntryMenu({entry, origin, engine, onClose, onOpen, onTogether}: 
   // The detail service keeps the last title it read; only trust it for the entry on screen.
   const data = snapshot.data && entry && snapshot.data.scope.itemId === entry.id ? snapshot.data : undefined;
   const personal = data?.personal;
-  const canEdit = !isTV && session?.viewer.role === 'owner' && session.viewer.authority === 'local';
+  // Editing is the owner's, however they signed in: the server authorises a Portico Account
+  // owner exactly as it does a direct one.
+  const canEdit = !isTV && session?.viewer.role === 'owner';
   const downloadKind: DownloadRequestKind | undefined = containerKind === 'show' || containerKind === 'season' || containerKind === 'album' || containerKind === 'book' ? containerKind : undefined;
   const items = useMemo<MenuItem[]>(() => {
     if (!entry) return [];

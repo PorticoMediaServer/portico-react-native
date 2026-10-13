@@ -61,7 +61,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const player = usePlayerActions();
   const editor = useMetadataEditor();
   const {api, session} = useSession();
-  const canEdit = !isTV && session?.viewer.role === 'owner' && session.viewer.authority === 'local';
+  // Editing is the owner's, however they signed in (the server authorises both alike).
+  const canEdit = !isTV && session?.viewer.role === 'owner';
   const owner = session?.viewer.role === 'owner';
   const invoker = useInvoker();
   const listRef = useRef<EpisodeListHandle>(null);
