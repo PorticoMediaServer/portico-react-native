@@ -152,3 +152,19 @@ test('a credential-bearing event stream is refused before the SDK creates a requ
   await assert.rejects(openNetworkStream('private', events, {Authorization: 'Bearer secret'}), error => code(error) === 'transport_unavailable');
   assert.equal(FakeRequest.made.length, before);
 });
+
+test('cancelling before headers settles the opening and ignores the retired request', async () => {
+  const opening = openNetworkStream('opening', events, {});
+  const old = last();
+  const settled = opening.then(() => 'opened', error => code(error));
+  cancelNetworkStream('opening');
+  const result = await Promise.race([settled, new Promise(resolve => setTimeout(() => resolve('pending'), 30))]);
+  assert.equal(result, 'event_cancelled');
+  assert.equal(openStreamCount(), 0);
+  const replacement = openNetworkStream('opening', events, {});
+  old.begin();
+  assert.equal(openStreamCount(), 1);
+  last().begin();
+  await replacement;
+  cancelNetworkStream('opening');
+});

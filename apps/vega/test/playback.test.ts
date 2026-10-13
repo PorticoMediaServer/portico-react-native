@@ -304,3 +304,54 @@ test('subtitles: an address that is not the session\'s own is refused', async ()
   await until(() => of('subtitleStatus').length >= 1);
   assert.equal(of('subtitleStatus')[0].error, 'The subtitle address does not belong to this playback session.');
 });
+
+test('the element stays paused until JavaScript retires the seek command', async () => {
+  film();
+  await acquire();
+  await engine.command(command({pendingSeek: {revision: 1, positionSeconds: 62}}));
+  await until(() => of('seekApplied').length === 1);
+  assert.equal(player().paused, true, 'seekApplied does not retire the command');
+  assert.equal(of('firstFrame').length, 0);
+  await engine.command(command());
+  await until(() => of('firstFrame').length === 1);
+  assert.equal(player().paused, false);
+});
+
+test('an unsupported rate holds actual playback paused', async () => {
+  film();
+  await acquire();
+  await engine.command(command({rate: 1.5}));
+  await until(() => of('ready').length === 1);
+  assert.equal(player().paused, true);
+  assert.equal(of('firstFrame').length, 0);
+  await engine.command(command());
+  await until(() => of('firstFrame').length === 1);
+});
+
+test('stale intents and changed bindings under the same intent are refused atomically', async () => {
+  film();
+  await acquire();
+  await engine.command(command({paused: true, binding: binding({intentId: 2})}));
+  await until(() => of('ready').length === 1);
+  const current = player();
+  for (const change of [{intentId: 1}, {intentId: 2, generation: 2}, {intentId: 2, itemId: 'other'}]) {
+    await assert.rejects(engine.command(command({binding: binding(change)})), (e: any) => e.code === 'command_rejected' && e.message === 'Stale playback binding.');
+    assert.equal(player(), current);
+    assert.equal(player().paused, true);
+  }
+});
+
+test('invalid, conflicting and retired seeks keep the accepted state intact', async () => {
+  film();
+  await acquire();
+  for (const pendingSeek of [{revision: 1, positionSeconds: NaN}, {revision: 1, positionSeconds: -1}]) {
+    await assert.rejects(engine.command(command({pendingSeek})), (e: any) => e.message === 'Invalid seek command.');
+  }
+  await assert.rejects(engine.command(command({pendingSeek: {revision: 1.5, positionSeconds: 10}})), (e: any) => e.message === 'Invalid seek revision.');
+  await engine.command(command({paused: true, pendingSeek: {revision: 2, positionSeconds: 62}}));
+  await until(() => of('seekApplied').length === 1);
+  await assert.rejects(engine.command(command({pendingSeek: {revision: 1, positionSeconds: 62}})), (e: any) => e.message === 'Stale seek command.');
+  await assert.rejects(engine.command(command({pendingSeek: {revision: 2, positionSeconds: 63}})), (e: any) => e.message === 'Conflicting or retired seek command.');
+  await engine.command(command({paused: true}));
+  await assert.rejects(engine.command(command({pendingSeek: {revision: 2, positionSeconds: 62}})), (e: any) => e.message === 'Conflicting or retired seek command.');
+});

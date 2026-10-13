@@ -39,7 +39,7 @@ type StateCell = {kind: 'state'; value: unknown};
 type RefCell = {kind: 'ref'; ref: {current: unknown}};
 type MemoCell = {kind: 'memo'; deps: Deps; value: unknown};
 type EffectCell = {kind: 'effect'; deps: Deps; destroy: Destructor};
-type StoreCell = {kind: 'store'; unsubscribe: (() => void) | null};
+type StoreCell = {kind: 'store'; unsubscribe: (() => void) | null; subscribe?: (onChange: () => void) => () => void};
 type Cell = StateCell | RefCell | MemoCell | EffectCell | StoreCell;
 
 const sameDeps = (a: Deps, b: Deps) =>
@@ -116,7 +116,11 @@ class HookHost {
       getSnapshot: () => S,
     ) => {
       const cell = this.cell<StoreCell>(() => ({kind: 'store', unsubscribe: null}));
-      if (!cell.unsubscribe) cell.unsubscribe = subscribe(() => this.schedule());
+      if (cell.subscribe !== subscribe) {
+        cell.unsubscribe?.();
+        cell.subscribe = subscribe;
+        cell.unsubscribe = subscribe(() => this.schedule());
+      }
       return getSnapshot();
     },
   };

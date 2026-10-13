@@ -31,6 +31,7 @@ type Stream = {
   xhr: XMLHttpRequest;
   /** The response has begun and `open` has answered. */
   begun: boolean;
+  opening?: {reject(error: Error): void};
   /** Characters of the response text already cut into pieces. */
   seen: number;
   received: number;
@@ -76,6 +77,12 @@ function end(identifier: string, stream: Stream, problem?: Error): void {
   if (stream.ended) return;
   stream.ended = true;
   stream.problem = problem;
+  if (stream.opening) {
+    const opening = stream.opening; stream.opening = undefined;
+    release(identifier, stream);
+    opening.reject(problem ?? failure('event_transport', 'The event connection could not be opened.'));
+    return;
+  }
   // What was already received is not handed on after a failure: the reader starts again.
   if (problem) stream.pieces = [];
   try { stream.xhr.abort(); } catch { /* already finished */ }
@@ -104,13 +111,14 @@ export function openNetworkStream(identifier: string, url: string, headers: unkn
   if (streams.size >= MAX_STREAMS || streams.has(identifier)) return Promise.reject(failure('event_local', 'Too many event streams.'));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const stream: Stream = {xhr, begun: false, seen: 0, received: 0, pieces: [], ended: false, timers: []};
+    const stream: Stream = {xhr, begun: false, opening: {reject}, seen: 0, received: 0, pieces: [], ended: false, timers: []};
     streams.set(identifier, stream);
-    const refuse = (code: string, message: string) => { release(identifier, stream); stream.ended = true; reject(failure(code, message)); };
+    const refuse = (code: string, message: string) => end(identifier, stream, failure(code, message));
     const begin = () => {
       if (stream.begun || stream.ended || streams.get(identifier) !== stream) return;
       if (redirected(url, xhr.responseURL) || (xhr.status >= 300 && xhr.status <= 399)) { refuse('event_redirect', 'Event redirects are not allowed.'); return; }
       stream.begun = true;
+      stream.opening = undefined;
       stream.quiet = setTimeout(() => end(identifier, stream, failure('event_timeout', 'The event connection was interrupted.')), QUIET_MS);
       resolve({status: xhr.status, headers: parseHeaders(xhr.getAllResponseHeaders())});
     };
@@ -150,11 +158,13 @@ export function readNetworkStream(identifier: string): Promise<Piece> {
 export function cancelNetworkStream(identifier: string): void {
   const stream = streams.get(identifier);
   if (!stream) return;
-  const reading = stream.reading;
-  stream.reading = undefined;
+  const reading = stream.reading, opening = stream.opening;
+  stream.reading = undefined; stream.opening = undefined;
   stream.ended = true;
   release(identifier, stream);
-  reading?.reject(failure('event_cancelled', 'The event stream was cancelled.'));
+  const cancelled = failure('event_cancelled', 'The event stream was cancelled.');
+  opening?.reject(cancelled);
+  reading?.reject(cancelled);
 }
 
 /** How many streams are open (for tests). */

@@ -800,3 +800,75 @@ test('APP-02: a completed request from an old download sheet cannot enqueue for 
   assert.deepEqual(device.started, []);
   assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['item-held'], undefined);
 });
+
+test('an acknowledgement cannot erase a newer observation made in the same millisecond', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), observedAt = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), plays: {[owner]: {'play-one': {playId: 'play-one', itemId: 'item-1', positionSeconds: 10, observedAt}}}});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, bundle: 2}});
+  let answer!: (value: unknown) => void;
+  const held = new Promise(resolve => { answer = resolve; });
+  let posts = 0;
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', () => {
+    if (++posts === 1) return held;
+    throw new Error('offline again');
+  });
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  emit('PorticoDownloadPlayback', {id: 'prep-a', playId: 'play-one', positionSeconds: 20, durationSeconds: 100, ended: false});
+  await settle();
+  answer(APPLIED(s.sent('/v1/downloads/progress')[0]!.body));
+  await offlineDownloads.syncProgress();
+  assert.equal(s.sent('/v1/downloads/progress')[1]?.body.entries[0].positionMs, 20000);
+  assert.equal(JSON.parse(device.state).plays[owner]['play-one'].positionSeconds, 20);
+});
+
+test('a partial progress receipt settles only the observations it actually acknowledges', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A), observedAt = new Date().toISOString();
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), plays: {[owner]: {
+    first: {playId: 'first', itemId: 'item-1', positionSeconds: 10, observedAt},
+    second: {playId: 'second', itemId: 'item-2', positionSeconds: 20, observedAt},
+  }}});
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', body => {
+    const result = APPLIED(body);
+    return {...result, entries: [result.entries[0], {playId: 'second', itemId: 'item-2', outcome: 'unknown'}]};
+  });
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  assert.deepEqual(Object.keys(JSON.parse(device.state).plays[owner]), ['second']);
+  assert.equal(s.sent('/v1/downloads/progress').length, 1, 'an incomplete answer does not loop');
+});
+
+test('a replacement transfer grant is handed to the native downloader', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  device.seed({id: 'prep-a', itemId: 'item-1', quality: 'original', state: 'downloading', meta: {owner, token: 'old-token', bundle: 2,
+    receipt: receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'})}});
+  device.state = JSON.stringify({...JSON.parse(storedWithKeys()), renewed: {[owner]: Date.now()}});
+  const s = server().route('/v1/downloads/receipt-keys', KEYS);
+  offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+  assert.equal(device.started.length, 1);
+  assert.equal(device.started[0].url, 'http://server.test/v1/downloads/artifacts/tok_prep-a');
+  assert.equal(JSON.parse(device.started[0].meta).token, 'tok_prep-a');
+});
+
+test('a transfer grant renewal cannot patch an entry after its viewer changes', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  device.seed({id: 'prep-a', itemId: 'item-1', state: 'downloading', meta: {owner, token: 'old-token', bundle: 2}});
+  const service = downloadsService(), grant = service.grant;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  service.grant = async (p, renew) => { await held; return grant(p, renew); };
+  const s = server().route('/v1/downloads/receipt-keys', KEYS);
+  offlineDownloads.connect(s.api, service as unknown as DownloadsService, A);
+  await settle();
+  offlineDownloads.adopt(B);
+  release();
+  await settle();
+  assert.equal(device.metaOf('prep-a').token, 'old-token');
+  assert.deepEqual(device.started, []);
+});

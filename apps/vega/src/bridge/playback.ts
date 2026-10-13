@@ -77,6 +77,7 @@ const instanceId = uuid();
 let lease: string | undefined, owner: string | undefined;
 let commandRevision = 0, factSequence = 0;
 let accepted: Command | undefined;
+let lastSeek: PendingSeek | undefined;
 let engine: Engine | undefined;
 /** The place reached when the route to the server was put in doubt: the media is closed until the
  * route is ready again, and opens there. */
@@ -282,7 +283,7 @@ class Engine {
     applySubtitles(command.subtitles, this.source, error => this.publish('subtitleStatus', {error}));
     this.applyAudio(command.audio);
     const held = this.heldAway();
-    if (this.wantPaused || held) { if (!this.player.paused) this.player.pause(); }
+    if (this.wantPaused || held || command.rate !== 1 || !!pending || !!this.seek) { if (!this.player.paused) this.player.pause(); }
     else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail({uncertain: true}, 'play'));
   }
 
@@ -429,14 +430,15 @@ class Engine {
 
 function acquire(name: string): Promise<{lease: string; instanceId: string; engine: 'native'}> {
   if (typeof name !== 'string' || name.length < 1 || name.length > 128 || (lease && owner !== name)) return Promise.reject(failure('owner_busy', 'Another player owns playback.'));
-  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; kept = undefined; }
+  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; lastSeek = undefined; kept = undefined; }
   return Promise.resolve({lease, instanceId, engine: 'native'});
 }
 
 /** The Apple controller's checks, in its order and with its words. */
 function refusal(command: Command): string | null {
   const binding = command?.binding;
-  if (!binding || typeof binding !== 'object' || binding.lease !== lease || !lease) return 'Playback lease is no longer active.';
+  if (!binding || typeof binding !== 'object') return 'Invalid playback binding.';
+  if (binding.lease !== lease || !lease) return 'Playback lease is no longer active.';
   if (typeof command.paused !== 'boolean') return 'Invalid paused flag.';
   if (typeof command.source !== 'string' || typeof command.rate !== 'number' || !Number.isFinite(command.rate)) return 'Invalid playback command.';
   if (!whole(binding.intentId, 1) || !whole(binding.generation, 1)) return 'Invalid playback binding.';
@@ -447,7 +449,30 @@ function refusal(command: Command): string | null {
   if (command.timelineOriginMs !== undefined && command.timelineOriginMs !== null && !whole(command.timelineOriginMs, 1)) return 'Invalid channel clock.';
   if (command.connectionState !== undefined && (!['ready', 'verifying'].includes(command.connectionState) || !whole(command.routeRevision, 0))) return 'Invalid route transition.';
   if (accepted?.routeRevision !== undefined && (command.routeRevision === undefined || command.routeRevision < accepted.routeRevision)) return 'Stale route transition.';
+  if (accepted) {
+    const prior = accepted.binding;
+    if (binding.intentId < prior.intentId || (binding.intentId === prior.intentId && (!same(binding, prior) || !sameSource(command, accepted)))) return 'Stale playback binding.';
+  }
+  const pending = command.pendingSeek;
+  if (pending !== undefined && pending !== null) {
+    if (typeof pending !== 'object' || typeof pending.revision !== 'number' || !Number.isFinite(pending.revision) || pending.revision < 0 || typeof pending.positionSeconds !== 'number' || !Number.isFinite(pending.positionSeconds) || (command.timelineOriginMs == null && pending.positionSeconds < 0)) return 'Invalid seek command.';
+    if (!whole(pending.revision, 1)) return 'Invalid seek revision.';
+    if (accepted && same(binding, accepted.binding) && lastSeek) {
+      if (pending.revision < lastSeek.revision) return 'Stale seek command.';
+      if (pending.revision === lastSeek.revision && (!accepted.pendingSeek || pending.positionSeconds !== lastSeek.positionSeconds)) return 'Conflicting or retired seek command.';
+    }
+  }
   return null;
+}
+
+/** Only a newer verified route may move an unchanged binding to the same media path/query. */
+function sameSource(next: Command, previous: Command): boolean {
+  if (next.source === previous.source) return true;
+  if ((next.routeRevision ?? 0) <= (previous.routeRevision ?? 0)) return false;
+  try {
+    const a = new URL(next.source), b = new URL(previous.source);
+    return ['http:', 'https:'].includes(a.protocol) && ['http:', 'https:'].includes(b.protocol) && a.pathname === b.pathname && a.search === b.search;
+  } catch { return false; }
 }
 
 function command(value: Command): Promise<boolean> {
@@ -455,6 +480,8 @@ function command(value: Command): Promise<boolean> {
   trace(`command r${value?.commandRevision} paused=${value?.paused} seek=${JSON.stringify(value?.pendingSeek ?? null)} subtitles=${value?.subtitles?.mode ?? 'none'} audio=${value?.audio ? `${value.audio.renditions?.length} renditions, pending ${JSON.stringify(value.audio.pending)}` : 'none'}${problem ? ' refused: ' + problem : ''}`, !!problem);
   if (problem) return Promise.reject(failure('command_rejected', problem));
   if (value.commandRevision === commandRevision) return Promise.resolve(true);
+  if (!accepted || !same(accepted.binding, value.binding)) lastSeek = undefined;
+  if (value.pendingSeek) lastSeek = {...value.pendingSeek};
   commandRevision = value.commandRevision;
   accepted = value;
   if (kept && !same(kept.binding, value.binding)) kept = undefined;
@@ -487,6 +514,7 @@ function release(held: string): Promise<boolean> {
     lease = undefined;
     owner = undefined;
     accepted = undefined;
+    lastSeek = undefined;
     kept = undefined;
   }
   return Promise.resolve(true);
