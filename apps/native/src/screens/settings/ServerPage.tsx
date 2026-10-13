@@ -8,7 +8,9 @@ import {AlertsPanel, HealthPanel, JobsPanel, NowPlayingPanel, StatisticsPanel} f
 import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
 import {APIKeysPanel, AssistantsPanel, MemberTokensPanel, WebhooksPanel} from '../server/Integrations';
+import {MetadataSettingsPanel} from '../server/MetadataPanels';
 import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
+import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
@@ -17,7 +19,7 @@ import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, Reco
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
-const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity']);
+const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity', 'server.backgroundPause', 'server.ffmpegStatus']);
 
 /** The Server pages' `custom` rows (settings-structure.ts), drawn natively. The state-folder warning is part of the alerts. */
 function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
@@ -62,6 +64,15 @@ function ServerPanel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'server.feedback': return <FeedbackPanel />;
     case 'server.identity': return <IdentityRows />;
     case 'server.updates': return <UpdatesPanel />;
+    case 'server.metadataSettings': return <MetadataSettingsPanel />;
+    case 'server.resourceUsage': return <ResourceUsagePanel />;
+    case 'server.storageStatus': return <StorageStatusPanel />;
+    case 'server.downloadUsage': return <DownloadUsagePanel />;
+    case 'server.backgroundPause': return <BackgroundPauseRow />;
+    case 'server.ffmpegStatus': return <FFmpegStatusRow />;
+    case 'server.restart': return <RestartPanel />;
+    case 'server.setAsideTitles': return <SetAsideTitlesPanel />;
+    case 'server.clientReports': return <ClientReportsPanel />;
     default: return null;
   }
 }

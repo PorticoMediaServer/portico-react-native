@@ -113,7 +113,7 @@ export function useInlineForm(id: string, form: InlineState): {saving: boolean; 
 }
 
 /** A row whose value is typed: it shows the value and opens a sheet with the field. */
-export function TypedRow({title, help, value, shown, placeholder, numeric, multiline, mono, maxLength, onDone}: {title: string; help?: string; /** What the field starts with. */ value: string; /** What the row shows; defaults to the value. */ shown?: string; placeholder?: string; numeric?: boolean; multiline?: boolean; mono?: boolean; maxLength?: number; onDone: (text: string) => void}) {
+export function TypedRow({title, help, value, shown, placeholder, numeric, decimal, secure, multiline, mono, maxLength, onDone}: {title: string; help?: string; /** What the field starts with. */ value: string; /** What the row shows; defaults to the value. */ shown?: string; placeholder?: string; numeric?: boolean; /** A number that may have a fraction (gigabytes). */ decimal?: boolean; /** Something that is typed and never shown back in the row (a provider key). */ secure?: boolean; multiline?: boolean; mono?: boolean; maxLength?: number; onDone: (text: string) => void}) {
   const i18n = useI18n();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value);
@@ -123,7 +123,7 @@ export function TypedRow({title, help, value, shown, placeholder, numeric, multi
     <>
       <ListRow title={title} subtitle={multiline || mono ? [help, display].filter(Boolean).join('\n') || undefined : help} meta={multiline || mono ? undefined : display || placeholder} accessory="navigation" onPress={start} />
       <Sheet open={open} onClose={() => setOpen(false)} title={title} kind="form" primary={{label: i18n.t('action.done'), onPress: () => { onDone(text); setOpen(false); }}}>
-        <Field accessibilityLabel={title} hint={help} value={text} onChangeText={setText} placeholder={placeholder} keyboardType={numeric ? 'number-pad' : 'default'} multiline={multiline} maxLength={maxLength} autoCapitalize="none" autoCorrect={false} autoFocus />
+        <Field accessibilityLabel={title} hint={help} value={text} onChangeText={setText} placeholder={placeholder} keyboardType={numeric ? 'number-pad' : decimal ? 'decimal-pad' : 'default'} secure={secure} multiline={multiline} maxLength={maxLength} autoCapitalize="none" autoCorrect={false} autoFocus />
       </Sheet>
     </>
   );

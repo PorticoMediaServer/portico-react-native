@@ -212,3 +212,28 @@ export function recentProblems(alerts: readonly Alert[], jobs: readonly Job[], n
   ];
   return out.sort((a, b) => b.at - a.at).slice(0, limit);
 }
+
+// ── A title's files, and titles that are one ────────────────────────────────
+
+/** What an owner can do with one file of a title, in the order a menu lists it. */
+export type FileTool = 'split' | 'delete';
+
+/**
+ * The tools offered for one of a title's files. Splitting is offered only for the kinds the
+ * server can split (a film, a track, a book's file; never an episode, which is placed by show,
+ * season and number), only for a file that is on disk, and only while the title has another
+ * version to stay behind. Deleting the one file is always the owner's to ask for; the server's
+ * preview then says whether the library allows it.
+ */
+export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{available: boolean}>, files: number, splittable: readonly string[]): readonly FileTool[] {
+  return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), 'delete' as const];
+}
+
+const MERGE_GROUPS: Readonly<Record<string, 'movies' | 'shows' | 'episodes' | 'songs'>> = {movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs'};
+/** Where the other title of a merge is looked for: the search group of the same kind, or nothing for a kind that has none. */
+export const mergeSearchGroup = (kind: string): 'movies' | 'shows' | 'episodes' | 'songs' | undefined => MERGE_GROUPS[kind];
+
+/** Which of two titles goes into the other: `keep` stays, and the other's files and history join it. */
+export function mergeOrder<T extends {id: string}>(a: T, b: T, keep: string): Readonly<{from: T; into: T}> {
+  return keep === a.id ? {from: b, into: a} : {from: a, into: b};
+}

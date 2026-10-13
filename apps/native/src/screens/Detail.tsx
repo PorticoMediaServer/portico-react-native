@@ -27,6 +27,7 @@ import {factsLine, isActing, keyCrew, namesIn} from './title/facts';
 import {StatusBarScrim, TitleHero, type HeroAction} from './title/TitleHero';
 import {RateSheet} from './title/TitleSheets';
 import {TitleDetails} from './title/TitleDetails';
+import {useTitleTools} from './server/TitleTools';
 import {PlaybackChoices} from './title/PlaybackChoices';
 import {CollectionSheet, PlaylistSheet} from '../player/EntryMenu';
 import {RowGuide} from './title/RowGuide';
@@ -169,6 +170,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
       }
     }
   }
+  // The owner's tools for this title's files (split a version off, delete one, merge with another title); nothing for a member or on television.
+  const tools = useTitleTools(item && !item.song ? {id: item.id, title: item.title, kind: item.kind, libraryId: item.libraryId, year: item.year} : undefined, data?.files, () => void retry());
   // Every hook stays above the error return below (a loading→error change must not call fewer hooks).
   const credits = data?.metadata.credits ?? [];
   const cast = credits.filter(c => isActing(c.department));
@@ -275,7 +278,8 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
         {data?.extras?.map(extra => (
           <RowGuide key={extra.type}><Shelf title={extra.label} data={extra.items} itemWidth={metrics.landscapeWidth} keyExtractor={e => e.id} renderItem={({item: e}) => <Card title={e.title} subtitle={e.duration ? formatDuration(e.duration) : undefined} source={artwork(e.backdropUrl ?? e.posterUrl)} shape="landscape" width={metrics.landscapeWidth} onPress={e.playback ? () => player.play(e.playback!.itemId, 0, e) : undefined} />} /></RowGuide>
         ))}
-        {item && !item.song ? <TitleDetails rows={detailRows} files={data?.files} genres={genreLinks} /> : null}
+        {item && !item.song ? <TitleDetails rows={detailRows} files={data?.files} genres={genreLinks} fileAction={tools.fileAction} tools={tools.mergeRow} /> : null}
+        {tools.sheets}
       </Page>
       <StatusBarScrim onBack={() => navigation.goBack()} title={item?.title} />
       <Menu open={menu} onClose={() => setMenu(false)} title={item?.title} subtitle={factsLine(facts)} items={menuItems} onSelect={onMenu} />
