@@ -25,6 +25,10 @@ import {useSectionWindow} from '../app/section-window';
 import {Text} from '../ui';
 import {RowGuide} from './title/RowGuide';
 import {usePullToRefresh} from '../app/refresh';
+import {useLibrariesContext} from '../app/libraries-context';
+import {useGroupBrowse, useGroupPages, useGroupWindow} from '../app/group-browse';
+import {collectionScope, containerScope, namedGroupScope, type GroupScope} from '../app/group-scope';
+import {GroupBar, GroupResults} from './GroupBrowse';
 
 type Section = ContentSection;
 
@@ -86,6 +90,33 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // PERF-S03: the page's one list section (songs, chapters or parts) is windowed, any length.
   const trackSection = isMusicList ? songs : isBook ? (chapters?.entries.length ? chapters : files) : undefined;
   const trackList = useSectionWindow(trackSection && snapshot.route ? snapshot.route : null, trackSection);
+
+  // ── Sort and filter ───────────────────────────────────────────────────────
+  // The group this page shows, as the library's own browse knows it: an album's or an artist's
+  // songs, an author's books, a collection's titles, a book series. Each keeps its own order
+  // until the viewer chooses a sort or a filter. (A book's chapters and a disc are not lists the
+  // server sorts: they have no controls.)
+  const {items: libraries} = useLibrariesContext();
+  const groupLibrary = entity?.libraryId || libraryId;
+  const libraryKind = projection?.scope.libraryKind ?? libraries.find(l => l.id === groupLibrary)?.kind;
+  const groupId = entity?.id, groupTitle = entity?.title;
+  const scope = useMemo<GroupScope | undefined>(() => {
+    if (!groupId) return undefined;
+    switch (kind) {
+      case 'album': case 'artist': return containerScope(groupLibrary, 'songs', groupId);
+      case 'author': return containerScope(groupLibrary, 'books', groupId);
+      case 'collection': return collectionScope(groupLibrary, libraryKind, groupId);
+      case 'book_series': return groupTitle ? namedGroupScope(groupLibrary, 'books', {field: 'series', operator: 'in', value: [groupTitle]}) : undefined;
+      default: return undefined;
+    }
+  }, [kind, groupLibrary, libraryKind, groupId, groupTitle]);
+  const group = useGroupBrowse(scope);
+  // An album's or an artist's songs are already a windowed list: the sorted list takes its place.
+  // The other groups are sections of a page: their sorted titles are a grid in that page.
+  const sortsTracks = kind === 'album' || kind === 'artist';
+  const sorted = useGroupWindow(group, sortsTracks);
+  const sortedPages = useGroupPages(group, !sortsTracks);
+  const sortedList = sortsTracks && group.engaged ? sorted.list : null;
 
   // ── Playback ──────────────────────────────────────────────────────────────
   // On Playback v1 an album, artist, disc, collection or book plays as one server request from
@@ -173,6 +204,16 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
 
   const rowOptions = useMemo<TrackRowOptions | null>(() => {
     if (!trackList || !trackSection) return null;
+    if (sortedList) {
+      // The sorted songs play on in the order shown, from the song pressed (the loaded ones after it are the queue).
+      return {
+        art: kind === 'artist',
+        ordinal: kind === 'artist' ? undefined : e => e.trackNumber,
+        subtitle: kind === 'artist' ? e => e.album?.name : e => { const artist = songArtist(e); return artist && artist !== entity?.subtitle ? artist : undefined; },
+        onPlay: index => { const playable = residentFrom(sortedList, index).filter(e => e.playback); if (playable.length) { invoker.remember(); player.playSequence(playable, 0, 0); } },
+        onMore: more,
+      };
+    }
     if (trackSection === songs) {
       return {
         art: kind === 'artist',
@@ -188,7 +229,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     }
     return {ordinal: (_, i) => i + 1, highlightId: listening?.resume?.itemId, onPlay: index => playFrom(residentFrom(trackList, index), 0), onMore: more};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId]);
+  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId, sortedList]);
   // M26: the list heading only when the list has something to show (no empty sections).
   const heading = trackSection && trackSection.totalCount > 0 && (kind === 'artist' || isBook) ? (
     <Text variant="heading" lines={1} style={{paddingHorizontal: space.page, marginBottom: space.sm}}>{trackSection.heading.fallback}</Text>
@@ -247,11 +288,14 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
           </View>
         ) : null}
       {heading}
+      <GroupBar group={group} />
     </>
   );
+  const noMatch = <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />;
   const bottom = (
     <>
-        {rest.map((section, index) => {
+        {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
+        {!sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
           if (section.id === 'releases' && isArtist && releases) {
             return (
               <React.Fragment key="releases-split">
@@ -265,14 +309,14 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
           return <RowGuide key={section.id}><SectionView row={1 + index} section={section} libraryId={libraryId} onMore={section.nextCursor ? () => next(section.id) : undefined} /></RowGuide>;
         })}
         <TitleDetails rows={detailRows} />
-        {snapshot.phase === 'ready' && !sections.length ? <StateView icon={iconFor(kind)} title={i18n.t('title.nothingHere')} /> : null}
+        {snapshot.phase === 'ready' && !sections.length && !group.engaged ? <StateView icon={iconFor(kind)} title={i18n.t('title.nothingHere')} /> : null}
     </>
   );
 
   return (
     <View style={{flex: 1}}>
       {trackList && rowOptions && trackSection ? (
-        <TrackWindowList list={trackList} total={trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
+        <TrackWindowList list={sortedList ?? trackList} total={sortedList ? sorted.snapshot.total ?? 0 : trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
       ) : (
         <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
           {top}
