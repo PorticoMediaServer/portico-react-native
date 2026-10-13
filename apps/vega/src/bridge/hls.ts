@@ -1,5 +1,6 @@
 import {MediaSource, type SourceBuffer, type VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
+import {checkResponse, onCredentialExposure, originOf, requestCredentials} from './credential-boundary';
 import {isVideoCodec, liveStart, numberAt, parseMaster, parseMedia, segmentAtDate, segmentNumbered, type Playlist, type Rendition, type Segment} from './hls-playlist';
 
 export type {Rendition};
@@ -73,7 +74,12 @@ export class HlsSource {
   private samples: {bytes: number; ms: number; at: number}[] = [];
 
   /** `originMs`: the channel's origin (milliseconds since 1970) for a live channel; absent for a title. */
-  constructor(private readonly player: VideoPlayer, private readonly url: string, private readonly failed: (error: SourceError) => void, private readonly originMs?: number) {}
+  private readonly stopExposure: () => void;
+  constructor(private readonly player: VideoPlayer, private readonly url: string, private readonly failed: (error: SourceError) => void, private readonly originMs?: number) {
+    this.stopExposure = onCredentialExposure(({origin, origins = [origin]}) => {
+      if (!this.closed && origins.includes(originOf(this.url))) { this.close(); this.failed(new SourceError(false, 'media credential exposed')); }
+    });
+  }
 
   private get live(): boolean { return this.originMs !== undefined; }
 
@@ -130,17 +136,30 @@ export class HlsSource {
     return new Promise((resolve, reject) => {
       const attempt = (left: number) => {
         if (this.closed) { reject(new SourceError(false, 'closed')); return; }
+        try { if (originOf(url) !== originOf(this.url)) throw new Error('Media origin changed.'); requestCredentials(url, {}, null); } catch { reject(new SourceError(false, 'invalid media origin')); return; }
         const request = new XMLHttpRequest();
         this.requests.add(request);
         request.open('GET', url);
         request.responseType = type;
         request.timeout = 20000;
+        request.withCredentials = false;
+        request.setRequestHeader('Cache-Control', 'no-store');
+        const limit = type === 'text' ? 1048576 : 33554432;
         const sent = Date.now();
         let answered = 0;
-        request.onreadystatechange = () => { if (!answered && request.readyState >= 2) answered = Date.now(); };
+        const invalid = () => {
+          if (request.status === 0 && !request.responseURL) return false;
+          try { checkResponse(url, request.responseURL, request.status, true); } catch { this.requests.delete(request); request.abort(); reject(new SourceError(false, 'media redirect')); return true; }
+          const size = type === 'text' ? request.responseText?.length ?? 0 : (request.response as ArrayBuffer | null)?.byteLength ?? 0;
+          if (Number(request.getResponseHeader('Content-Length')) > limit || size > limit) { this.requests.delete(request); request.abort(); reject(new SourceError(false, 'media response too large')); return true; }
+          return false;
+        };
+        request.onreadystatechange = () => { if (request.readyState >= 2) { if (invalid()) return; if (!answered) answered = Date.now(); } };
+        request.onprogress = () => { invalid(); };
         const done = () => this.requests.delete(request);
         request.onload = () => {
           done();
+          if (invalid()) return;
           const status = request.status;
           if (status === 503 && left > 0) { setTimeout(() => attempt(left - 1), PREPARING_MS); return; }
           if (status < 200 || status >= 300) { reject(new SourceError(status === 0 || status === 408 || status === 429 || status >= 500, `status ${status}`, status >= 400 && status <= 599 ? status : 0)); return; }
@@ -551,6 +570,7 @@ export class HlsSource {
   }
 
   close(): void {
+    this.stopExposure();
     this.closed = true;
     this.generation++;
     this.arrival?.reject(new SourceError(false, 'closed'));

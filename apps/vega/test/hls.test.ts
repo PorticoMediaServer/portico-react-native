@@ -262,3 +262,22 @@ test('a closed stream fetches nothing more and reports nothing', async () => {
   assert.equal(server.log.length, asked);
   assert.deepEqual(failures, []);
 });
+
+test('HLS discards a followed cross-origin response before any media is appended', async () => {
+  const url = 'http://redirect-hls.test/v1/media/HLSREDIRECT/index.m3u8';
+  server.routes.set(url, {status: 200, from: 'http://capture.test/index.m3u8', text: '#EXTM3U\n#EXTINF:6,\nsecret.m4s\n'});
+  const {source, player, failures} = start(url);
+  await source.open(0);
+  assert.ok(failures.length > 0);
+  assert.equal(player.source, null);
+  assert.deepEqual(server.log, [url]);
+});
+
+test('a playlist cannot send its resource grant to another origin', async () => {
+  const url = 'http://playlist-hls.test/v1/media/HLSPLAYLIST/index.m3u8';
+  server.routes.set(url, '#EXTM3U\n#EXTINF:6,\nhttp://capture.test/v1/media/HLSPLAYLIST/s0.m4s\n#EXT-X-ENDLIST\n');
+  const {source, failures} = start(url);
+  await source.open(0);
+  assert.ok(failures.length > 0);
+  assert.deepEqual(server.log, [url]);
+});

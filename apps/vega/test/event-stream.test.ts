@@ -52,7 +52,7 @@ test('a stream opens with the headers it was given and is read a piece at a time
   const request = last();
   assert.equal(request.method, 'GET');
   assert.equal(request.withCredentials, false);
-  assert.deepEqual(request.headers, {Accept: 'text/event-stream', 'Last-Event-ID': '41'});
+  assert.deepEqual(request.headers, {Accept: 'text/event-stream', 'Last-Event-ID': '41', 'Cache-Control': 'no-store'});
   request.begin();
   const opened = await opening;
   assert.equal(opened.status, 200);
@@ -147,9 +147,21 @@ test('cancelling ends a waiting read, and at most four streams are open at once'
 });
 
 
-test('a credential-bearing event stream is refused before the SDK creates a request', async () => {
+test('an authenticated stream opens on its selected HTTP origin', async () => {
+  const opening = openNetworkStream('private', events, {Authorization: 'Bearer event-token'});
+  assert.equal(last().headers.Authorization, 'Bearer event-token');
+  last().begin();
+  assert.equal((await opening).status, 200);
+  cancelNetworkStream('private');
+});
+
+test('a cross-origin stream response retires the bearer before handing out headers', async () => {
+  const opening = openNetworkStream('private-moved', events, {Authorization: 'Bearer moved-event-token'});
+  last().begin(200, 'http://elsewhere.test/v1/events');
+  await assert.rejects(opening, error => code(error) === 'credential_exposed');
+  assert.equal(openStreamCount(), 0);
   const before = FakeRequest.made.length;
-  await assert.rejects(openNetworkStream('private', events, {Authorization: 'Bearer secret'}), error => code(error) === 'transport_unavailable');
+  await assert.rejects(openNetworkStream('again', events, {Authorization: 'Bearer moved-event-token'}));
   assert.equal(FakeRequest.made.length, before);
 });
 

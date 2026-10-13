@@ -10,6 +10,12 @@ import {resetWorld, world} from './stubs/w3cmedia.mjs';
 import {AppState} from './stubs/kepler.mjs';
 import {PorticoPlaybackModule as engine, playbackEvents} from '../src/bridge/playback.ts';
 import {subtitleDisplay} from '../src/bridge/subtitles.ts';
+import {requestCredentials, verifiedCredentialOrigin} from '../src/bridge/credential-boundary.ts';
+// The real shared route owner has verified these same-server routes before engine commands.
+for (const origin of ['http://server.test', 'http://other.test']) {
+  requestCredentials(origin + '/v1/networking/identity-proof', {}, JSON.stringify({baseUrl: origin, nonce: 'N'.repeat(43)}));
+  verifiedCredentialOrigin({kind: 'portico.route-proof', version: '1', baseUrl: origin, nonce: 'N'.repeat(43), fingerprint: 'test-server'});
+}
 
 const base = 'http://server.test/v1/media/GRANT/';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -239,15 +245,12 @@ test('a title that stops says why, in the contract\'s terms', async () => {
   assert.equal(of('error')[0].error, 'Invalid media address.');
 });
 
-test('a file from an HTTPS address is opened by the element itself', async () => {
+test('an opaque HTTPS direct file is declined so the server can deliver an observable remux', async () => {
   await acquire();
   await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', paused: true}));
-  await until(() => of('ready').length === 1);
-  assert.equal(player().src, 'https://server.test/v1/media/GRANT/file.mp4');
-  await until(() => of('progress').length === 1);
-  // Its buffer is said; its connection is fetched out of sight and is not.
-  assert.equal(typeof of('progress')[0].bufferedSeconds, 'number');
-  assert.equal(of('progress')[0].throughputKbps, undefined);
+  await until(() => of('error').length === 1);
+  assert.equal(of('error')[0].engineCode, 'source_not_supported');
+  assert.notEqual(player().src, 'https://server.test/v1/media/GRANT/file.mp4');
 });
 
 test('a live channel reports its place on the channel\'s timeline and nothing of the connection', async () => {
@@ -357,11 +360,12 @@ test('invalid, conflicting and retired seeks keep the accepted state intact', as
 });
 
 test('a seeked event at the wrong position reports failure and keeps the element paused', async () => {
+  film();
   await acquire();
-  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', paused: true}));
+  await engine.command(command({paused: true}));
   await until(() => of('ready').length === 1);
   world.seekClamp = 0;
-  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', pendingSeek: {revision: 1, positionSeconds: 62}}));
+  await engine.command(command({pendingSeek: {revision: 1, positionSeconds: 62}}));
   await until(() => of('seekApplied').length + of('seekFailed').length > 0);
   assert.equal(of('seekApplied').length, 0);
   assert.equal(of('seekFailed').length, 1);
@@ -369,14 +373,16 @@ test('a seeked event at the wrong position reports failure and keeps the element
 });
 
 test('a route that cannot restore the retained position never announces ready or starts over', async () => {
+  film();
+  for (const [url, answer] of [...server.routes]) server.routes.set(url.replace(base, 'http://other.test/v1/media/GRANT/'), answer);
   await acquire();
-  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4'}));
+  await engine.command(command());
   await until(() => of('firstFrame').length === 1);
   player().advance(130);
-  await engine.command(command({source: 'https://server.test/v1/media/GRANT/file.mp4', connectionState: 'verifying', routeRevision: 1}));
+  await engine.command(command({connectionState: 'verifying', routeRevision: 1}));
   facts = [];
   world.seekClamp = 0;
-  await engine.command(command({source: 'https://other.test/v1/media/GRANT/file.mp4', routeRevision: 2}));
+  await engine.command(command({source: 'http://other.test/v1/media/GRANT/index.m3u8', routeRevision: 2}));
   await until(() => of('ready').length + of('error').length > 0);
   assert.equal(of('ready').length, 0);
   assert.equal(of('firstFrame').length, 0);

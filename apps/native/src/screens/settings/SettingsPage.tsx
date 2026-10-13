@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
-import {View} from 'react-native';
+import {View, NativeModules} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsScopeLabel, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
@@ -340,7 +340,7 @@ function About({entry}: {entry?: boolean}) {
   };
   return (
     <>
-      <RowGroup footer={`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`}>
+      <RowGroup footer={[`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`, NativeModules.PorticoRuntime?.transportNotice?.(i18n.locale)].filter(Boolean).join('\n')}>
         <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
         <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
         <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />

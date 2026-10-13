@@ -39,17 +39,13 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  *   server mixes surround down. Dolby audio is listed for handing on to a receiver and used only
  *   once a route is reported, so it is never used today (and is never listed as decoded here,
  *   whatever the device answers: a "yes" does not tell decoding from handing on).
- * - **Files from their address only over HTTPS.** The media element refuses an `http:` address as
- *   insecure (and a server on the home network is usually plain HTTP). Everything else goes
- *   through media source extensions, where the app fetches the bytes and hands them over
- *   (`hls.ts`): that takes HLS in fragmented MP4 or MPEG-TS, so from an HTTP server both HLS
- *   transports are asked for and files are not played from their address. (The server converts
- *   into `hls_ts`, music included, and repackages into `hls_fmp4`.)
+ * - **Media passes through the app's HLS reader.** The platform media element does not expose
+ *   the final address of a directly opened file. HLS lets the app check every response and
+ *   contain grant exposure; the server can use a plain remux without converting the picture.
  */
 export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string | null = null, overrides: CapabilityOverrides = {}, probed: CapabilityDocument | null = null): CapabilityDocument {
   const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
   if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
-  const secure = typeof origin === 'string' && origin.toLowerCase().startsWith('https:');
   const table = declared.engines.native, asked = probed?.engines.native;
   // Dolby audio stays what the table says it is: sound handed on to a receiver, not sound this
   // device is known to decode. The device's "yes" to it does not say which, and a television
@@ -60,7 +56,7 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
     : table;
   const native: EngineCapabilities = {
     ...base,
-    transports: (base.transports ?? []).filter(transport => transport.transport !== 'direct' || secure),
+    transports: (base.transports ?? []).filter(transport => transport.transport !== 'direct'),
     subtitleRendering: ['text'],
     toneMapsHdr: false,
     embeddedAudioSwitching: false,
@@ -70,8 +66,8 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
   if (!capabilityDocumentProblem(stamped)) return stamped;
   // A document the server would refuse is never sent. What the device answered is the newest
   // part, so it is the part left out; the table alone is always a valid document.
-  const tabled = withViewerSettings({...declared, engines: {native: {...table, transports: (table.transports ?? []).filter(transport => transport.transport !== 'direct' || secure), subtitleRendering: ['text'], toneMapsHdr: false, embeddedAudioSwitching: false}}}, settings);
-  return capabilityDocumentProblem(tabled) ? withViewerSettings(declared, settings) : tabled;
+  const tabled = withViewerSettings({...declared, engines: {native: {...table, transports: (table.transports ?? []).filter(transport => transport.transport !== 'direct'), subtitleRendering: ['text'], toneMapsHdr: false, embeddedAudioSwitching: false}}}, settings);
+  return capabilityDocumentProblem(tabled) ? withViewerSettings({...declared, engines: {native: {...table, transports: (table.transports ?? []).filter(transport => transport.transport !== 'direct')}}}, settings) : tabled;
 }
 
 /** Whatever a decoder says of itself, no HDR is claimed here (see above). */
