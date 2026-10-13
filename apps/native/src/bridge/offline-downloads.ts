@@ -5,6 +5,7 @@ import {
   type DeferredProgressEntry, type DownloadBundle, type DownloadPreparation, type DownloadReceipt, type DownloadTitle, type ReceiptOutcome,
 } from '../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
+import {durationIntent} from '../../../../packages/client-core/src/wire-units';
 import type {MessageId} from '../../../../packages/i18n/src/index';
 import type {LocalMedia, LocalProgress} from './local-playback';
 
@@ -881,7 +882,7 @@ export class OfflineDownloads {
       const entries = Object.values(this.stored.plays[owner] ?? {}).slice(0, 100);
       if (!entries.length) return;
       try {
-        const receipt = parseDeferredProgressReceipt(await api.request<unknown>('/v1/downloads/progress', 'POST', {operationId: operationId(), entries}));
+        const receipt = parseDeferredProgressReceipt(await api.request<unknown>('/v1/downloads/progress', 'POST', {operationId: operationId(), entries: entries.map(e => durationIntent(e, {positionSeconds: 'positionMs'}))}));
         if (this.generation !== generation) return;
         // Anything the server answered about, accepted or not, is settled and must not be resent
         // (a play that has moved on since it was sent stays, to be sent again as it is now).

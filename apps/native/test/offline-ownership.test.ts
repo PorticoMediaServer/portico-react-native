@@ -27,7 +27,7 @@ const KEYS = () => ({keys: [{id: 'key-1', algorithm: 'ed25519', publicKey: b64ur
 /** Acknowledges every submitted observation, as an applied server write would. */
 const APPLIED = (body: any) => ({
   applied: body.entries.length, conflicts: 0,
-  entries: body.entries.map((e: any) => ({playId: e.playId, itemId: e.itemId, outcome: 'applied', positionSeconds: e.positionSeconds, watched: !!e.watched, observedAt: e.observedAt})),
+  entries: body.entries.map((e: any) => ({playId: e.playId, itemId: e.itemId, outcome: 'applied', positionMs: e.positionMs, watched: !!e.watched, observedAt: e.observedAt})),
 });
 
 const b64url = (bytes: Uint8Array) =>
@@ -436,7 +436,8 @@ test('APP-02: offline viewing is posted for its own viewer, not whoever connects
   const posted = s.sent('/v1/downloads/progress');
   assert.equal(posted.length, 1);
   assert.deepEqual(posted[0]!.body.entries.map((e: {itemId: string}) => e.itemId), ['item-1']);
-  assert.equal(posted[0]!.body.entries[0].positionSeconds, 120);
+  assert.equal(posted[0]!.body.entries[0].positionMs, 120_000, 'the server takes positions in whole milliseconds');
+  assert.equal('positionSeconds' in posted[0]!.body.entries[0], false);
   assert.ok(posted[0]!.body.entries[0].playId, 'every play is named by its own id');
   assert.equal('watched' in posted[0]!.body.entries[0], false, 'the device reports where the play stopped; the server decides if it counts');
 

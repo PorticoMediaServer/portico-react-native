@@ -68,6 +68,7 @@ export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server 
               const why = e.state === 'ready' ? offlineDownloads.playable(e) : e.state === 'failed' ? offlineFailure(e.error) : '';
               const moving = e.state === 'downloading' || e.state === 'paused';
               const facts = [e.quality === 'original' ? i18n.t('downloads.quality.original') : e.quality, e.bytes ? downloadBytes(e.bytes) : ''].filter(Boolean).join(' · ');
+              const note = e.state === 'ready' ? offlineDownloads.note(e) : '';
               return (
                 <View key={e.id}>
                   {i ? <Divider inset={space.md} /> : null}
@@ -75,7 +76,7 @@ export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server 
                     source={e.artworkUrl ? {uri: e.artworkUrl} : undefined}
                     icon={e.artworkUrl ? undefined : e.kind === 'song' || e.kind === 'audiobook_file' ? 'music' : 'film'}
                     title={e.title || i18n.t('downloads.title')}
-                    subtitle={[group.title ? '' : e.subtitle, why || [facts, e.state === 'ready' ? offlineDownloads.note(e) : ''].filter(Boolean).join('\n')].filter(Boolean).join('\n')}
+                    subtitle={[group.title ? '' : e.subtitle, why || [facts, note].filter(Boolean).join('\n')].filter(Boolean).join('\n')}
                     meta={e.state === 'downloading' ? (e.waiting ? offlineWaiting(e.waiting) : i18n.t('downloads.percent', {percent: e.bytes ? Math.floor((e.bytesDone / e.bytes) * 100) : 0})) : e.state === 'paused' ? i18n.t('downloads.paused') : e.state === 'failed' ? i18n.t('downloads.stopped') : undefined}
                     progress={moving && e.bytes ? e.bytesDone / e.bytes : 0}
                     trailingIcon={e.state === 'ready' && !why ? 'play' : 'more'}

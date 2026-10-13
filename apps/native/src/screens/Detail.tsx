@@ -113,7 +113,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
           if (isTV) continue;
           menuItems.push({id: 'download', label: i18n.t(action.label), icon: action.icon});
         }
-        else if ((action.id as string) === 'rate') menuItems.push({id: 'rate', label: personal?.rating != null ? i18n.t('title.rated', {stars: i18n.t('title.stars', {count: personal.rating})}) : i18n.t('entry.rate'), icon: personal?.rating != null ? 'starFilled' : 'star'});
+        else if ((action.id as string) === 'rate') menuItems.push({id: 'rate', label: personal?.rating != null ? i18n.t('title.rated', {stars: i18n.t('title.stars', {count: personal.rating / 2})}) : i18n.t('entry.rate'), icon: personal?.rating != null ? 'starFilled' : 'star'});
         else if (action.id === 'addToPlaylist') menuItems.push({id: 'playlist', label: i18n.t(action.label), icon: action.icon, section: ''});
         else if (action.id === 'addToCollection') menuItems.push({id: 'collection', label: i18n.t(action.label), icon: action.icon});
         else if (action.id === 'playFromStart') menuItems.push({id: 'start_over', label: i18n.t('title.playFromStart'), icon: 'restart'});
@@ -270,7 +270,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
       </Page>
       <StatusBarScrim onBack={() => navigation.goBack()} title={item?.title} />
       <Menu open={menu} onClose={() => setMenu(false)} title={item?.title} subtitle={factsLine(facts)} items={menuItems} onSelect={onMenu} />
-      {item ? <RateSheet open={sheet === 'rate'} title={item.title} value={personal?.rating} onRate={value => mutate({action: 'rating', value})} onClose={() => setSheet(null)} /> : null}
+      {item ? <RateSheet open={sheet === 'rate'} title={item.title} value={personal?.rating != null ? personal.rating / 2 : personal?.rating} onRate={stars => mutate({action: 'rating', value: stars == null ? null : Math.round(stars * 2)})} onClose={() => setSheet(null)} /> : null}
       {item ? <PlaylistSheet entry={sheet === 'playlist' ? itemEntry : null} onClose={() => setSheet(null)} /> : null}
       {item ? <CollectionSheet entry={sheet === 'collection' ? itemEntry : null} onClose={() => setSheet(null)} /> : null}
     </View>

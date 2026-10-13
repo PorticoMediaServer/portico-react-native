@@ -7,8 +7,8 @@ import {Button, ListRow, Sheet, useTheme} from '../../ui';
 import {factsLine} from './facts';
 
 /**
- * APL-DETAIL-01: "Rate…" asks for a value before anything is written. Whole stars on the
- * server's 0.5–5 scale, plus "Clear rating" when there is one. On TV the stars are one row:
+ * APL-DETAIL-01: "Rate…" asks for a value before anything is written. Whole stars (the caller
+ * keeps them as a whole number from 0 to 10, two to a star), plus "Clear rating" when there is one. On TV the stars are one row:
  * Left/Right moves, Select rates.
  */
 export function RateSheet({open, title, value, onRate, onClose}: {open: boolean; title: string; value: number | null | undefined; onRate: (value: number | null) => void; onClose: () => void}) {
