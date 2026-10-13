@@ -6,7 +6,7 @@ import {LocalPlayback, isLocalSession, type LocalMedia, type LocalProgress} from
 import {PlaybackQueue} from '../src/bridge/playback-paths.ts';
 
 const tick = () => new Promise(r => setImmediate(r));
-const media: LocalMedia = {entryId: 'dl1', itemId: 'movie1', fileUrl: 'file:///var/app/Library/Application%20Support/Downloads/dl1/movie.mp4', durationSeconds: 600, startSeconds: 42};
+const media: LocalMedia = {entryId: 'dl1', itemId: 'movie1', playId: 'play-1', fileUrl: 'file:///var/app/Library/Application%20Support/Downloads/dl1/movie.mp4', durationSeconds: 600, startSeconds: 42};
 
 function setup(journal?: {entries: unknown[]}) {
   const server: string[] = [];
@@ -61,6 +61,7 @@ test('progress goes to the offline journal, and leaving stops nothing on the ser
   const last = x.progress.at(-1)!;
   assert.equal(last.entryId, 'dl1');
   assert.equal(last.itemId, 'movie1');
+  assert.equal(last.playId, 'play-1', 'the play keeps the id its local session was made with');
   assert.equal(last.durationSeconds, 600);
   assert.equal(last.ended, false);
 });

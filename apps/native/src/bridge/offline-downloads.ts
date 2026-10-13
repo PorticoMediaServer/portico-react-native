@@ -545,8 +545,10 @@ export class OfflineDownloads {
     if (!native) throw new Error(serviceText('downloads.unavailableOnDevice'));
     const held = this.metas.get(target.id) ?? {};
     const claim = held.claim ?? target.id;
+    // A receipt that has run out, or soon will, is no better than none for a download that may
+    // finish with no connection.
     let receipt = held.receipt;
-    if (!receipt) receipt = await this.issueReceipt(api, claim).catch(() => undefined);
+    if (!receipt || Date.parse(receipt.claims.expiresAt) - Date.now() < 7 * 24 * 60 * 60 * 1000) receipt = await this.issueReceipt(api, claim).catch(() => undefined) ?? receipt;
     const grant = await service.grant({id: claim}, held.token);
     if (this.generation !== generation) throw new Error(serviceText('downloads.connectToStart'));
     const title = target.title ?? held.title;
@@ -709,6 +711,7 @@ export class OfflineDownloads {
       if (native && Object.keys(changes).length) await native.setMetas(changes).catch(() => {});
       for (const entry of unknown) void this.recover(entry, generation);
     }
+    if (this.generation !== generation) return;
     this.stored.renewed[owner] = Date.now();
     await this.persist();
     if (this.generation === generation) await this.verifyAll();

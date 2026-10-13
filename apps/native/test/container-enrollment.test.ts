@@ -6,11 +6,32 @@
  *
  * Drives the real `OfflineDownloads` against the native stub and a paging server.
  */
-import test from 'node:test';
+import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import {device, NativeModules} from './react-native-stub.mjs';
+import {device, emit, NativeModules} from './react-native-stub.mjs';
 import type {DownloadsService} from '../../../packages/client-core/src/index';
 import type * as OfflineModule from '../src/bridge/offline-downloads.ts';
+
+/** The native module's newer contract (batched meta writes, the files beside a download). The
+ * shared stub predates the rewrite, so the four methods are added here. */
+const nativeDownloads = NativeModules.PorticoDownloads as unknown as Record<string, any>;
+const extraStore = new Map<string, Map<string, string>>();
+const extra = (id: string): Map<string, string> => {
+  let files = extraStore.get(id);
+  if (!files) { files = new Map(); extraStore.set(id, files); }
+  return files;
+};
+nativeDownloads.setMetas = async (metas: Record<string, string>) => {
+  for (const [id, meta] of Object.entries(metas)) {
+    const entry = device.entries.get(id);
+    if (!entry) continue;
+    device.entries.set(id, {...entry, meta});
+    emit('PorticoDownloadChanged', {...device.entries.get(id)});
+  }
+};
+nativeDownloads.writeExtra = async (id: string, name: string, text: string) => { extra(id).set(name, text); };
+nativeDownloads.readExtra = async (id: string, name: string) => extra(id).get(name) ?? '';
+nativeDownloads.fetchExtra = async (id: string, name: string, url: string) => { extra(id).set(name, url); return 'saved'; };
 
 const VIEWER = {authority: 'local', accountId: 'account-a', profileId: 'profile-a', serverId: 'server-1'};
 const OWNER = JSON.stringify([VIEWER.authority, VIEWER.accountId, VIEWER.profileId, VIEWER.serverId]);
@@ -68,9 +89,16 @@ async function bridge(): Promise<typeof OfflineModule> {
   previous?.offlineDownloads.disconnect();
   previous?.offlineDownloads.dispose();
   device.reset();
+  extraStore.clear();
   previous = (await import('../src/bridge/offline-downloads.ts?v=' + Math.random())) as typeof OfflineModule;
   return previous;
 }
+/** `connect` starts a 60-second interval; nothing may be left running when a test ends. */
+afterEach(() => {
+  previous?.offlineDownloads.disconnect();
+  previous?.offlineDownloads.dispose();
+  previous = undefined;
+});
 const wanted = (): string[] => Object.keys((JSON.parse(device.state || '{}').wanted ?? {})[OWNER] ?? {});
 /** Waits until no page has been asked for and nothing has been saved for a few turns. */
 async function quiet(cursors: string[]) {
