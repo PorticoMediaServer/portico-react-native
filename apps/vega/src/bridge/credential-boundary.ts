@@ -10,6 +10,7 @@ const sessions = new Map<string, Map<string, Session>>();
 const listeners = new Set<(exposure: Exposure) => void>();
 const MAX_BINDINGS = 2048;
 const verified = new Map<string, string>();
+const verifiedAt = new Map<string, number>();
 const proofs = new Map<string, {nonce: string; at: number}>();
 const hash = (value: string) => Array.from(sha256(value), byte => byte.toString(16).padStart(2, '0')).join('');
 const secretNames = /^(accessToken|refreshToken|trustToken|profileProof|deviceCode|pairingToken)$/i;
@@ -34,7 +35,7 @@ export function jsonValue(body: string | null): unknown {
 }
 function bind(origin: string, token: string): void {
   const key = hash(token), existing = bindings.get(key);
-  if (existing && !existing.has(origin) && verified.get(origin) && [...existing].some(issuer => verified.get(issuer) === verified.get(origin))) existing.add(origin);
+  if (existing && !existing.has(origin) && Date.now() - (verifiedAt.get(origin) ?? 0) <= 120000 && verified.get(origin) && [...existing].some(issuer => verified.get(issuer) === verified.get(origin))) existing.add(origin);
   if (retired.has(key) || (existing && !existing.has(origin))) throw failure('credential_origin', 'The credential belongs to another connection.');
   if (!existing && bindings.size >= MAX_BINDINGS) throw failure('credential_limit', 'Too many credentials are held by this connection.');
   bindings.set(key, existing ?? new Set([origin]));
@@ -137,8 +138,11 @@ export function verifiedCredentialOrigin(value: unknown): void {
   const held = proofs.get(proof.baseUrl);
   if (!held || held.nonce !== proof.nonce || Date.now() - held.at > 120000) return;
   proofs.delete(proof.baseUrl);
-  if (verified.size >= 64 && !verified.has(proof.baseUrl)) verified.delete(verified.keys().next().value!);
+  if (verified.size >= 64 && !verified.has(proof.baseUrl)) {
+    const oldest = verified.keys().next().value!; verified.delete(oldest); verifiedAt.delete(oldest);
+  }
   verified.set(originOf(proof.baseUrl), proof.fingerprint);
+  verifiedAt.set(originOf(proof.baseUrl), Date.now());
 }
 
 /** Successful sign-out releases the retired family from the small containment inventory. */

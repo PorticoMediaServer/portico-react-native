@@ -269,7 +269,7 @@ test('HLS discards a followed cross-origin response before any media is appended
   const {source, player, failures} = start(url);
   await source.open(0);
   assert.ok(failures.length > 0);
-  assert.equal(player.source, undefined);
+  assert.equal(player.source, null);
   assert.deepEqual(server.log, [url]);
 });
 

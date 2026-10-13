@@ -119,3 +119,37 @@ test('an ordinary network failure does not sign the viewer out as an exposure', 
   await assert.rejects(request, e => code(e) === 'queue_transport');
   assert.equal(exposed, false); off();
 });
+
+test('identity proof public exception does not hide passwords, and media grants are retired on exposure', async () => {
+  let exposures = 0;
+  const off = onCredentialExposure(event => { if (event.origin === 'https://proof-secret.test') exposures++; });
+  const proof = send('https://proof-secret.test/v1/networking/identity-proof', 'POST', {}, JSON.stringify({baseUrl: 'https://proof-secret.test', nonce: 'N'.repeat(43), password: 'dummy'}));
+  last().respond(200, '{}', 'https://capture.test/proof');
+  await assert.rejects(proof, e => code(e) === 'credential_exposed'); assert.equal(exposures, 1); off();
+  const media = send('https://grant-secret.test/v1/media/SCOPEDGRANT/file');
+  last().respond(200, '{}', 'https://capture.test/file');
+  await assert.rejects(media, e => code(e) === 'credential_exposed');
+  const count = Request.made.length;
+  await assert.rejects(send('https://grant-secret.test/v1/media/SCOPEDGRANT/file'));
+  assert.equal(Request.made.length, count);
+});
+
+test('the real crypto bridge admits an alternate origin only after a valid nonce-bound signature', async () => {
+  const {ed25519} = await import('@noble/curves/ed25519');
+  const {base64Url, utf8} = await import('../src/bridge/encoding.ts');
+  const {PorticoNetwork} = await import('../src/bridge/network.ts');
+  const secret = new Uint8Array(32).fill(11), otherKey = new Uint8Array(32).fill(12);
+  const publicKey = base64Url(ed25519.getPublicKey(secret));
+  const nonce = 'S'.repeat(43);
+  for (const [origin, valid] of [['https://signed-old.test', true], ['http://signed-new.test:32500', false]] as const) {
+    requestCredentials(origin + '/v1/networking/identity-proof', {}, JSON.stringify({baseUrl: origin, nonce}));
+    const payload = utf8(JSON.stringify({kind: 'portico.route-proof', version: '1', baseUrl: origin, nonce, fingerprint: 'signed-server'}));
+    assert.equal(await PorticoNetwork.verify(publicKey, base64Url(ed25519.sign(payload, valid ? secret : otherKey)), base64Url(payload)), valid);
+    if (valid) rememberCredentials(origin, {accessToken: 'signed-route-token'});
+    else {
+      assert.throws(() => requestCredentials(origin + '/v1/me', {Authorization: 'Bearer signed-route-token'}, null));
+      assert.equal(await PorticoNetwork.verify(publicKey, base64Url(ed25519.sign(payload, secret)), base64Url(payload)), true);
+      assert.equal(requestCredentials(origin + '/v1/me', {Authorization: 'Bearer signed-route-token'}, null), true);
+    }
+  }
+});
