@@ -5,6 +5,12 @@
  * to a shared area in `en-US.ts` (and rename it) when both platforms use it.
  */
 export const webMessages = {
+  'web.setup.alreadyComplete': 'This server is already set up.',
+  'web.connectivity.httpOutsideHome': 'This connection uses HTTP outside your home networks.',
+  'web.connectivity.connectionLimit': 'Connection limit',
+  'web.connectivity.connectionLimitHelp': 'Use 0 for the default based on available memory. Restart the server after changing this number.',
+  'web.connectivity.advertiseUrl': 'External address',
+  'web.connectivity.advertiseUrlHelp': 'The HTTP or HTTPS address clients can use to reach this server. Use a hostname with no path.',
   'web.account.title.hosted': 'Portico Account',
   'web.account.title.local': 'Server account',
   'web.account.fallbackName': 'This server’s account',
@@ -568,7 +574,7 @@ export const webMessages = {
   'web.downloads.requestPreparing': 'Finding everything to download…',
   'web.downloads.requestProgress': '{ready} of {total} ready',
   'web.downloads.requestFailed': '{failed} couldn’t be prepared.',
-  'web.downloads.requestChanged': 'The library changed while preparing. Try again.',
+  'web.downloads.goneFromServer': 'This title is no longer on the server.',
   'web.downloads.requestsTitle': 'Whole shows and seasons',
   'web.downloads.noDevice': 'This browser session can’t start whole-show downloads. Download titles one at a time instead.',
   'web.person.lived': '{born} – {died}',
