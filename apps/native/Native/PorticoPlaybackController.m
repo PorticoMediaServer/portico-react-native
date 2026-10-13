@@ -602,8 +602,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
-- (void)stalled:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
-- (void)failedToEnd:(NSNotification *)note{if(note.object!=_player.currentItem)return;NSError *error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];[self publishFailure:error?:_player.currentItem.error];}
+- (void)stalled:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self stalled:note];});return;}if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
+- (void)failedToEnd:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self failedToEnd:note];});return;}if(note.object!=_player.currentItem)return;NSError *error=note.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];[self publishFailure:error?:_player.currentItem.error];}
 /** Video never configured the audio session, so on iOS the default category applied: the silent
  * switch muted a film, and nothing told the system this is long-form, multichannel content. */
 - (void)configureVideoAudioSession {
@@ -618,7 +618,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [audio setActive:YES error:nil];
  _videoSessionActive=YES;
 }
-- (void)ended:(NSNotification *)note{if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
+- (void)ended:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self ended:note];});return;}if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
 - (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"])[self addConnectionFacts:fact position:position];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
 /** What the player measured of the connection and how much it holds ahead of the picture, for
  * Automatic quality: the transfer rate of the stream's own downloads (a stream only; a file read
