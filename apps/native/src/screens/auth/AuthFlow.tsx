@@ -13,6 +13,7 @@ import {OfflineDownloadsScreen} from './OfflineDownloads';
 import {JoinServer} from '../Invitation';
 import {heldJoinLink, holdJoinLink, releaseJoinLink} from '../../app/join-link';
 import {signedOutInvitations} from '../../shell/link-intents';
+import {DeviceReset} from './DeviceReset';
 import {stepAfterEnding, type AuthStep} from '../../app/sign-in-ended';
 
 let remembered: Step = 'welcome';
@@ -88,6 +89,8 @@ export function AuthFlow({onSavedServer}: {/** APL-AUTH-01: return to the saved 
   // not. It is checked before the other steps so a failed resume cannot pull the
   // person back to sign-in while they are watching.
   if (step === 'offline') return <OfflineDownloadsScreen onBack={() => setStep('welcome')} />;
+  // A device that cannot read what it saved cannot keep a new sign-in either: that comes first.
+  if (session.deviceReset) return <DeviceReset />;
   if (session.direct.pending) return <DirectProfiles onCancel={session.direct.cancelPending} />;
   if (invitation && session.hosted) return <JoinServer link={invitation} onDone={() => { releaseJoinLink(); setJoining(false); }} />;
   // Justin: a Portico Account lands in the shell at once; its server opens there (or is chosen

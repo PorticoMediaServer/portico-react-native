@@ -1,12 +1,14 @@
 package tv.getportico.portico.native
 
 import android.content.pm.PackageManager
+import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableArray
 import java.io.File
 import java.security.SecureRandom
@@ -155,10 +157,41 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     if (identifier != null) PorticoTransport.cancel(identifier)
   }
 
+  /**
+   * Rejects `secure_records_key_lost` when the key that seals this device's records is gone while
+   * the records remain and the system cannot say so for certain (see [RecordKeyLostException]):
+   * nothing has been removed, and the app asks the person whether to start again. Every other
+   * failure stays `secure_storage`: not readable now.
+   */
   @ReactMethod
   fun prepareSecureRecords(promise: Promise) = storage.execute {
     try { promise.resolve(store.prepareSecureRecords()) }
+    catch (_: RecordKeyLostException) { promise.reject("secure_records_key_lost", "This device can no longer read its saved records.") }
     catch (_: Exception) { promise.reject("secure_storage", "Secure records could not be prepared.") }
+  }
+
+  /**
+   * The person confirmed starting again. Resolves true when the records were reset, false when
+   * the key answered after all and nothing was removed. Rejects, removing nothing, when the
+   * Keystore cannot be asked.
+   */
+  @ReactMethod
+  fun resetSecureRecords(promise: Promise) = storage.execute {
+    try { promise.resolve(store.resetAfterConfirmation()) }
+    catch (_: Exception) { promise.reject("secure_storage", "Secure records could not be reset.") }
+  }
+
+  /**
+   * Starts the app's JavaScript again, as a fresh launch would: after a reset nothing that was
+   * read from the old records may stay in memory. Resolves false where that is not possible, and
+   * the app then asks the person to close and reopen it.
+   */
+  @ReactMethod
+  fun restart(promise: Promise) {
+    val host = (reactApplicationContext.applicationContext as? ReactApplication)?.reactHost
+    if (host == null) { promise.resolve(false); return }
+    promise.resolve(true)
+    UiThreadUtil.runOnUiThread { host.reload("Portico restarted itself") }
   }
 
   // --- records ---------------------------------------------------------------------------

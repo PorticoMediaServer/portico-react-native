@@ -10,14 +10,16 @@ import {activeI18n} from './errors';
  */
 const awaiting = {
   // A device whose saved sign-in can no longer be read (the system lost the key that protects it).
+  'signIn.savedUnreadable': 'This device couldn’t read its saved sign-in. Sign in again.',
   'signIn.reset.title': 'This device can’t read its saved sign-in',
-  'signIn.reset.body': 'Reset this device, then sign in again. Your servers and your libraries are not affected.',
+  'signIn.reset.body': 'Reset this device to sign in again.',
   'signIn.reset.action': 'Reset this device',
   'signIn.reset.confirmTitle': 'Reset this device?',
-  'signIn.reset.consequence': 'Everyone signed in on this device is signed out, and its saved servers, profile PINs and settings are removed. Downloads on this device are removed too. Nothing on your server changes.',
-  'signIn.reset.confirm': 'Reset and sign in again',
-  'signIn.reset.failed': 'This device couldn’t be reset. Try again, or clear Portico’s storage in the device’s settings.',
-  'signIn.reset.done': 'This device was reset. Sign in to carry on.',
+  'signIn.reset.consequence': 'Everyone is signed out of Portico on this device, and the servers and settings it remembers are forgotten. Downloads stay. Nothing on your server changes.',
+  'signIn.reset.confirm': 'Reset',
+  'signIn.reset.failed': 'This device couldn’t be reset. Try again, or clear Portico’s storage in this device’s settings.',
+  'signIn.reset.working': 'Starting Portico again…',
+  'signIn.reset.reopen': 'Close Portico and open it again to finish.',
   // Media that can never be played, as opposed to a connection that may come back.
   'player.cannotPlay.title': 'This can’t be played',
   'player.cannotPlay.missing': 'The file for {title} is no longer on the server.',

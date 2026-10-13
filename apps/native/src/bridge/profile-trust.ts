@@ -7,8 +7,4 @@ export const nativeViewerStorage:SelectedViewerStorage={
 };
 export async function profileInstallation(required=false):Promise<string|undefined>{try{const id=await runtime.profileInstallation();if(typeof id!=='string'||!id||id.length>128)throw new Error('Invalid installation metadata.');return id;}catch(e){if(required)throw e;return undefined;}}
 
-/** Older native development clients have no preparation method; keep installation setup working. */
-export async function prepareSecureRecords(): Promise<boolean> {
- const prepare = runtime?.prepareSecureRecords;
- return typeof prepare === 'function' ? !!(await prepare.call(runtime)) : false;
-}
+export {prepareSecureRecords} from './secure-records';

@@ -11,6 +11,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -24,6 +25,15 @@ internal sealed interface RecordRead {
 }
 
 /**
+ * The key that seals the records is gone, or the system can no longer recover it, while records
+ * it sealed remain. On Android 12 and later a missing key is a definite answer and the store
+ * resets itself. Before that the same answer can also come from a Keystore service that is failing
+ * for a moment, so nothing is removed on its strength: launch preparation reports this state and
+ * the person decides whether to start again ([PorticoRecordStore.resetAfterConfirmation]).
+ */
+internal class RecordKeyLostException : IllegalStateException("The record key is lost.")
+
+/**
  * The app's secure records: the counterpart of the Apple modules' Keychain items
  * (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`).
  *
@@ -31,7 +41,8 @@ internal sealed interface RecordRead {
  * never leaves the Android Keystore. The record's service and account are bound into the seal, so
  * a file moved to another name does not open. A write lands by atomic rename and is read back
  * before it is reported as saved. Ambiguous read failures never repair a record; a confirmed
- * missing or permanently invalidated store key resets all records together.
+ * missing or permanently invalidated store key resets all records together. Where the system
+ * cannot say for certain that the key is gone, the reset waits for the person to ask for it.
  *
  * Every operation holds the store's lock, and [transaction] holds it across a read-modify-write,
  * the guarantee the Apple runtime gives by serialising on its class.
@@ -49,6 +60,32 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     if (!resetNotice.exists()) return false
     check(resetNotice.delete())
     true
+  }
+
+  /**
+   * The person asked to start again because this device cannot read its saved records. The key is
+   * looked at once more first: if it answers now, nothing is removed and this returns false.
+   * If it is still lost, the whole store is reset through the same fenced steps as an automatic
+   * recovery (marker, records, key, notice) and this returns true. Any other failure throws and
+   * removes nothing.
+   */
+  fun resetAfterConfirmation(): Boolean = synchronized(this) {
+    if (resetPending.exists()) { resetLostRecords(); keyChecked = true; return true }
+    if (!keyLost()) { keyChecked = true; return false }
+    resetLostRecords()
+    keyChecked = true
+    true
+  }
+
+  /**
+   * Whether records remain that the store's key can no longer open: the key is absent, the system
+   * cannot recover it, or it has been invalidated for good. A key that opens and seals is not
+   * lost. Anything else (a Keystore that will not answer) throws, and decides nothing.
+   */
+  private fun keyLost(): Boolean {
+    val existing = try { key(create = false) } catch (_: UnrecoverableKeyException) { return hasRecords() }
+    if (existing == null) return hasRecords()
+    return try { verifyKey(existing); false } catch (_: KeyPermanentlyInvalidatedException) { true }
   }
 
   fun <T> transaction(block: () -> T): T = synchronized(this) { block() }
@@ -139,9 +176,11 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     if (resetPending.exists()) { resetLostRecords(); keyChecked = true; return }
     if (keyChecked) return
     try {
-      val existing = key(create = false)
+      // A key entry the system cannot recover will not come back by waiting, but that answer is
+      // not certain either: it is reported, and only the person's confirmation resets the store.
+      val existing = try { key(create = false) } catch (e: UnrecoverableKeyException) { if (hasRecords()) throw RecordKeyLostException() else throw e }
       if (existing == null && hasRecords()) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) throw IllegalStateException("The record key cannot be verified.")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) throw RecordKeyLostException()
         resetLostRecords()
       } else if (existing != null) verifyKey(existing)
       keyChecked = true

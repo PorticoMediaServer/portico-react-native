@@ -19,6 +19,8 @@ import {installationPlatform} from '../bridge/device-platform';
 import {forgetNativeConnection, nativeConnectionEnvironment, nativeHostedSource, nativeNetworkFetch, onNetworkChange, restoreNativeConnection, trackNativeConnection} from '../bridge/server-connections';
 import {profileAPI} from '../bridge/profile-transport';
 import {nativeViewerStorage, prepareSecureRecords, profileInstallation} from '../bridge/profile-trust';
+import {isSecureRecordsLost, resetSecureRecords, restartApp} from '../bridge/secure-records';
+import {word} from './new-words';
 import {useHostedAccount} from '../bridge/useHostedAccount';
 import {useCredentialVerification} from '../bridge/useCredentialVerification';
 import {closeAttachedAccount, observeAttachedAccount} from '../bridge/attached-account-boundary';
@@ -41,13 +43,19 @@ export const viewer = new ViewerService();
  * the native bridge keeps), so the server binds the sign-in to it and later accepts its refresh.
  * Resume waits for this before renewing a saved sign-in. */
 let secureRecordsRecovered = false;
+/** This device can no longer read its saved records, and only the person can decide to reset it
+ * (see `bridge/secure-records.ts`). Set once, at launch; a reset starts the app again. */
+let secureRecordsLost = false;
 const installationReady: Promise<void> = (async () => {
   try {
     secureRecordsRecovered = await prepareSecureRecords();
     const [installationId, device] = await Promise.all([profileInstallation(), deviceIdentity()]);
     if (!validInstallationId(installationId)) return;
     setInstallationIdentity({installationId, name: device.deviceName, platform: installationPlatform, app: 'Portico', appVersion: device.appVersion});
-  } catch { /* sign-in still works; the session just can't be renewed */ }
+  } catch (e) {
+    // Otherwise sign-in still works; the session just can't be renewed.
+    secureRecordsLost = isSecureRecordsLost(e);
+  }
 })();
 
 /** Remembers a direct sign-in for the server switcher; a Portico sign-in to the same server forgets it. */
@@ -112,6 +120,14 @@ export type SessionValue = {
   signInNote?: string;
   /** Show the remembered sign-in again (from sign-in, after "Use another server or account"). */
   openSaved: () => void;
+  /**
+   * Present when this device can no longer read its saved sign-in (the system lost the key that
+   * protects it) and cannot repair that by itself. Sign-in cannot be kept in this state, so the
+   * sign-in screens show this instead: `reset` removes what the device had saved, after the
+   * person confirms, and `tryAgain` looks once more. Both start the app again; 'reopen' means it
+   * could not restart itself and the person has to close and open it.
+   */
+  deviceReset?: {reset: () => Promise<'restarting' | 'reopen'>; tryAgain: () => Promise<'restarting' | 'reopen'>};
   error: string;
   busy: boolean;
   clearError: () => void;
@@ -261,16 +277,29 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const signInNeeded = useRef<(reason: 'ended' | 'noAccess' | 'reset', record?: SelectedViewerRecord) => void>(() => {});
   const [signInHint, setSignInHint] = useState<SessionValue['signInHint']>();
   const [signInNote, setSignInNote] = useState<string>();
+  const [deviceUnreadable, setDeviceUnreadable] = useState(false);
   useEffect(() => {
     let active = true;
     void installationReady.then(() => {
-      if (active && secureRecordsRecovered) {
+      if (!active) return;
+      if (secureRecordsLost) setDeviceUnreadable(true);
+      if (secureRecordsRecovered) {
         secureRecordsRecovered = false;
         setSignInNote(activeI18n().t('web.hostedAccount.ended') + ' ' + activeI18n().t('web.hostedAccount.signInAgain'));
       }
     });
     return () => { active = false; };
   }, []);
+  // The person confirmed resetting a device that cannot read its saved records. The app then
+  // starts again from the top: nothing read from the old records may stay in memory, and the new
+  // launch finds either an empty store (sign in again) or, if the key answered after all, the
+  // sign-in that was there. Where the app cannot restart itself the person is asked to reopen it.
+  const resetDevice = useCallback(async (): Promise<'restarting' | 'reopen'> => {
+    await resetSecureRecords();
+    return (await restartApp()) ? 'restarting' : 'reopen';
+  }, []);
+  const recheckDevice = useCallback(async (): Promise<'restarting' | 'reopen'> => ((await restartApp()) ? 'restarting' : 'reopen'), []);
+  const deviceReset = useMemo(() => (deviceUnreadable ? {reset: resetDevice, tryAgain: recheckDevice} : undefined), [deviceUnreadable, resetDevice, recheckDevice]);
   const keepAlive = useCallback((local: HttpLocalApi, record: SelectedViewerRecord) => {
     refresher.current?.stop();
     refresher.current = new LocalSessionRefresher({
@@ -332,9 +361,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           setSavedState('checking');
         },
         // Only a failed read of the secure store lands here. Nothing is deleted: the record
-        // stays for the next launch, and signing in replaces it.
-        () => {
-          if (active) setError('Saved server credentials could not be read. Sign in again.');
+        // stays for the next launch, and signing in replaces it. When the device cannot read any
+        // of its records, the sign-in screens say that instead (and offer to reset it), so the
+        // answer to that question is waited for before anything is shown.
+        async () => {
+          await installationReady;
+          if (active && !secureRecordsLost) setError(word('signIn.savedUnreadable'));
         },
       )
       .finally(() => {
@@ -1128,6 +1160,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       clearSignInHint,
       signInNote: scope.phase === 'ready' ? undefined : signInNote,
       openSaved,
+      deviceReset,
       error,
       busy,
       clearError: () => setError(''),
@@ -1160,7 +1193,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       activationApproved,
       signOut,
     }),
-    [savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
+    [deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
