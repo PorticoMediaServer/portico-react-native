@@ -451,9 +451,9 @@ export function usePlayerEngine() {
   }), [path]);
 
   // The Player setting changed while a server title is playing. The server plans for the setting
-  // it holds, so once it has the new one the current queue entry is started again where it
-  // stands: Up Next, the position and a pause are kept. (A download has no plan: the coordinator
-  // has already moved it.)
+  // it holds, so once it has the new one the playing session is planned again in place: the same
+  // session on the same queue entry, with Up Next, the position, a pause and every choice kept.
+  // (A download has no plan: the coordinator has already moved it.)
   const settingSeen = useRef(engineSetting);
   useEffect(() => {
     if (settingSeen.current === engineSetting) return;
@@ -463,10 +463,9 @@ export function usePlayerEngine() {
     void engineSettingStore.whenSettled(4000, engineSetting).then(() => {
       const now = playback.getSnapshot();
       if (now.intentId !== intent || now.itemId !== itemId || now.session?.id !== session.id || !['starting', 'ready'].includes(now.phase) || engineInputs.current.setting !== engineSetting) return;
-      const queue = v1Queue();
-      if (queue) void replanEngine(playback, queue).catch(() => {});
+      void replanEngine(playback).catch(() => {});
     });
-  }, [engineSetting, playback, v1Queue, path]);
+  }, [engineSetting, playback, path]);
 
   // Subtitles: the native player draws the text; this side chooses what it draws. The selection
   // is bound to the exact session generation, so a stale choice can never reach a new stream.
