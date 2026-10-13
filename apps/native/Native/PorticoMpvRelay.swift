@@ -286,7 +286,8 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         wire.httpMethod = request[0]
         wire.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         wire.setValue("*/*", forHTTPHeaderField: "Accept")
-        if let range = range { wire.setValue(range, forHTTPHeaderField: "Range") }
+        // Rewritten manifests have different byte offsets; always fetch them in full.
+        if let range = range, url.pathExtension.lowercased() != "m3u8" { wire.setValue(range, forHTTPHeaderField: "Range") }
         let task = upstream().dataTask(with: wire)
         exchange.task = task
         byTask[task.taskIdentifier] = exchange
@@ -343,7 +344,7 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
         }
         if status >= 400 { record(status: status, urlErrorCode: nil) }
         let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
-        if status == 200, dataTask.originalRequest?.httpMethod != "HEAD",
+        if status == 200 || status == 206, dataTask.originalRequest?.httpMethod != "HEAD",
            http.url?.pathExtension.lowercased() == "m3u8" || type.contains("mpegurl") {
             guard http.expectedContentLength <= 2 * 1024 * 1024 else {
                 refusePlaylist(exchange)
