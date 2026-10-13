@@ -94,11 +94,12 @@ function useRepair(target: RepairTarget) {
 export function MetadataEditorSheet() {
   const editor = useMetadataEditor();
   const {isTV} = useTheme();
+  const i18n = useI18n();
   const request = editor?.request;
   if (isTV || !request) return null;
   const single = request.targets.length === 1;
   return (
-    <Sheet open onClose={editor!.close} placement="center" width={720} title={single ? `Edit ${request.titles[0] ?? 'metadata'}` : `Edit ${request.targets.length} items`} subtitle={single ? `${kindLabel[request.targets[0].kind]} metadata on this server` : 'Changes apply to every selected item.'} scroll={false}>
+    <Sheet open onClose={editor!.close} placement="center" width={720} title={single ? (request.titles[0] ? i18n.t('web.metadata.editTitle', {title: request.titles[0]}) : i18n.t('web.metadata.editFallbackTitle')) : i18n.t('web.metadata.editCount', {count: request.targets.length})} subtitle={single ? i18n.t('web.metadata.kindOnServer', {kind: request.targets[0].kind}) : i18n.t('web.metadata.bulkDescription')} scroll={false}>
       {single ? <SingleEditor key={request.targets[0].kind + request.targets[0].id} target={request.targets[0]} onSaved={request.onSaved} onClose={editor!.close} /> : <BulkEditor key={request.targets.map(t => t.id).join(',')} targets={request.targets} onSaved={request.onSaved} onClose={editor!.close} />}
     </Sheet>
   );
