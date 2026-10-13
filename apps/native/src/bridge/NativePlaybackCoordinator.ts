@@ -38,6 +38,8 @@ export class NativePlaybackCoordinator {
   private lease: NativeLease | null = null;
   private binding: NativeBinding | null = null;
   private acquiring = false;
+  private pendingAcquisition?: Promise<void>;
+  private releaseBarrier: Promise<unknown> = Promise.resolve();
   private commandRevision = 0;
   private factSequence = 0;
   private lastSemantic = '';
@@ -145,6 +147,10 @@ export class NativePlaybackCoordinator {
    */
   private switchEngine(engine: string, transport: NativePlaybackTransport) {
     if (this.lease) this.release();
+    // An earlier acquisition may still return a lease. Its stale path releases that lease
+    // before resolving, so wait for it as well as the current engine's release.
+    if (this.pendingAcquisition) this.releaseBarrier = Promise.all([this.releaseBarrier, this.pendingAcquisition]);
+    this.pendingAcquisition = undefined;
     this.unsubscribeFacts?.();
     this.transport = transport;
     this.engine = engine;
@@ -165,7 +171,9 @@ export class NativePlaybackCoordinator {
     if (lease) {
       const state = this.service.getSnapshot();
       this.service.engineLost(state.intentId);
-      void this.transport.release(lease.lease).catch(() => {});
+      this.releaseBarrier = this.transport.release(lease.lease);
+      // stop() has no next acquisition to observe a rejection.
+      void this.releaseBarrier.catch(() => {});
     }
   }
   private schedule = () => {
@@ -191,7 +199,7 @@ export class NativePlaybackCoordinator {
     }
     if (!this.lease) {
       if (state.phase === 'error'||!this.connected()) return;
-      if (!this.acquiring) void this.acquire();
+      if (!this.acquiring) this.pendingAcquisition = this.acquire();
       return;
     }
     const listening=state.nativeListening;
@@ -289,6 +297,8 @@ export class NativePlaybackCoordinator {
       }
     }, 5000);
     try {
+      await this.releaseBarrier;
+      if (expired || !this.active || life !== this.lifecycle || epoch !== this.engineEpoch) return;
       const lease = await transport.acquire(this.ownerId());
       if (
         expired ||

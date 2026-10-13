@@ -392,6 +392,11 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             ("hr-seek", "yes"),
             ("cache", "yes"), ("demuxer-max-bytes", small ? "48MiB" : "150MiB"), ("demuxer-max-back-bytes", small ? "8MiB" : "48MiB"),
             ("network-timeout", "30"),
+            // Direct files may not introduce other network or filesystem sources. HLS is
+            // enabled per load only after the relay has rewritten every manifest reference.
+            ("access-references", "no"),
+            ("stream-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
+            ("demuxer-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
             // Tracks are chosen by command, never by mpv's own preferences or by files nearby.
             ("sub-auto", "no"), ("audio-file-auto", "no"), ("sid", "no"), ("audio-display", "no"),
             // Text subtitles look the way the AVPlayer engine draws them: white on a soft black
@@ -445,6 +450,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         fontFetcher.cancel()
         core?.setFastTicks(false)
         core?.stop()
+        relay.unbind()
         setVideoAspect(nil)
         updateOutputRange()
     }
@@ -489,6 +495,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private func startLoad(_ address: String, epoch: Int) {
         guard let core = core else { return }
         var options: [String: String] = [:]
+        if let sourceURL = URL(string: source ?? ""), !sourceURL.isFileURL, sourceURL.pathExtension.lowercased() == "m3u8" {
+            options["access-references"] = "yes"
+            options["demuxer-lavf-format"] = "hls"
+        }
         // The position to start at is part of opening the file, so nothing is decoded from the
         // beginning only to be thrown away.
         if routeResume, !routeSuspended {
@@ -589,6 +599,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                 applySubtitles()
             }
         case .tick:
+            if next.eofReached { reachedEnd() }
             finishRestartedSeek()
             applyPendingSeek()
             let position = currentPosition()
@@ -1057,7 +1068,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let text = render["url"] as? String, text.utf8.count <= 8192, let media = URL(string: source ?? ""), let url = URL(string: text, relativeTo: media)?.absoluteURL else { return false }
         var address: String?
         if url.isFileURL {
-            if media.isFileURL, PorticoMpvSupport.allowedLocalSource(url) { address = url.path }
+            let companionAllowed = kind != "vobsub" || PorticoMpvSupport.allowedLocalSource(url.deletingPathExtension().appendingPathExtension("sub"))
+            if media.isFileURL, PorticoMpvSupport.allowedLocalSource(url), companionAllowed { address = url.path }
         } else if PorticoMpvSupport.subtitleFileBelongs(url, toMedia: media) {
             address = relay.localURL(for: url)?.absoluteString
         }

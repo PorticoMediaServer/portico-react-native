@@ -354,7 +354,7 @@ export function usePlayerEngine() {
     if (!session || !itemId || state.channel || engineInputs.current.audio || isLocalSession(session.id) || !planEngineOf(session) || !['starting', 'ready'].includes(state.phase)) return;
     void engineSettingStore.whenSettled(4000).then(() => {
       const now = playback.getSnapshot();
-      if (now.intentId !== intent || now.itemId !== itemId) return;
+      if (now.intentId !== intent || now.itemId !== itemId || engineInputs.current.setting !== engineSetting) return;
       void playback.play(itemId, now.pendingSeek?.positionSeconds ?? now.positionSeconds ?? 0, undefined, qualityNow.current === 'auto' ? undefined : qualityNow.current).catch(() => {});
     });
   }, [engineSetting, playback]);

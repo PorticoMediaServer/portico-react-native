@@ -68,6 +68,42 @@ enum PorticoMpvSupport {
         return path.hasPrefix("/v1/media/\(parts[2])/")
     }
 
+    /// HLS references (variants, segments, keys, maps and renditions) must pass through the
+    /// same relay as the manifest. Resolve relative references against the upstream URL first.
+    static func relayPlaylist(_ data: Data, source: URL, local: (URL) -> URL?) -> Data? {
+        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8),
+              text.hasPrefix("#EXTM3U"),
+              let uriPattern = try? NSRegularExpression(pattern: "URI=\"([^\"]*)\"") else { return nil }
+        func address(_ value: String) -> String? {
+            guard !value.isEmpty, value.utf8.count <= 8192, !value.contains("{$"),
+                  let remote = URL(string: value, relativeTo: source)?.absoluteURL,
+                  subtitleFileBelongs(remote, toMedia: source), let rewritten = local(remote) else { return nil }
+            return rewritten.absoluteString
+        }
+        var lines: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let clean = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if clean.isEmpty { lines.append(""); continue }
+            if !clean.hasPrefix("#") {
+                guard let rewritten = address(clean) else { return nil }
+                lines.append(rewritten)
+                continue
+            }
+            if clean.hasPrefix("#EXT-X-DEFINE:") { return nil }
+            let matches = uriPattern.matches(in: clean, range: NSRange(clean.startIndex..., in: clean))
+            // Unquoted or malformed URI attributes must never pass through untouched.
+            if clean.components(separatedBy: "URI=").count - 1 != matches.count { return nil }
+            var rewritten = clean
+            for match in matches.reversed() {
+                guard let valueRange = Range(match.range(at: 1), in: rewritten),
+                      let value = address(String(rewritten[valueRange])) else { return nil }
+                rewritten.replaceSubrange(valueRange, with: value)
+            }
+            lines.append(rewritten)
+        }
+        return lines.joined(separator: "\n").data(using: .utf8)
+    }
+
     // MARK: - Tracks
 
     static func tracks(_ all: [[String: Any]], type: String) -> [[String: Any]] {

@@ -59,6 +59,7 @@ final class PorticoMpvCore {
     // The C window pointer is unretained; keep its layer until asynchronous destruction ends.
     private let layer: CAMetalLayer
     private var initializationError: Int32 = -15
+    private var initializationDetail = "mpv could not start"
     private var epoch = 0
     /// mpv has announced the start of the file loaded for `epoch`.
     private var started = false
@@ -84,6 +85,10 @@ final class PorticoMpvCore {
         var code = mpv_set_option(created, "wid", MPV_FORMAT_INT64, &window)
         for (name, value) in options where code >= 0 {
             code = mpv_set_option_string(created, name, value)
+            // MPVKit compiles Lua out on Apple mobile platforms, so these switches may not
+            // exist. If they do exist in a build with scripting, explicitly disable them.
+            if code == -5, ["osc", "ytdl", "load-scripts"].contains(name) { code = 0 }
+            if code < 0 { initializationDetail = "Could not set mpv option " + name }
         }
         guard code >= 0 else {
             initializationError = code
@@ -126,7 +131,7 @@ final class PorticoMpvCore {
             let code = list.isEmpty ? self.run(["loadfile", url, "replace"]) : self.run(["loadfile", url, "replace", "-1", list])
             if code < 0 {
                 self.started = true
-                self.deliver(.endFile(reason: .error, code: code, message: PorticoMpvCore.text(code), log: []))
+                self.deliver(.endFile(reason: .error, code: code, message: PorticoMpvCore.text(code), log: self.handle == nil ? [self.initializationDetail] : []))
                 self.started = false
                 return
             }
@@ -185,7 +190,7 @@ final class PorticoMpvCore {
 
     /// Ends mpv. Nothing is delivered afterwards. The core stays alive until mpv has gone.
     func destroy() {
-        DispatchQueue.main.async { self.onEvent = nil }
+        if Thread.isMainThread { onEvent = nil } else { DispatchQueue.main.async { self.onEvent = nil } }
         queue.async {
             self.stopTickers()
             self.epoch = 0
