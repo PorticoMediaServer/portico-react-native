@@ -218,6 +218,11 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     }
   }
 
+  /** The same, after the commands already asked for (a file being closed, say) have run. */
+  fun configureOutputLater(output: String, decoding: String) {
+    queue.post { configureOutput(output, decoding) }
+  }
+
   /** Gives mpv [surface] and opens the video output on it. When this returns, mpv may draw on the surface. */
   fun attachSurface(surface: Surface, width: Int, height: Int) {
     synchronized(lock) {

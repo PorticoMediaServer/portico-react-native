@@ -1320,7 +1320,10 @@ internal class PorticoMpvController(private val context: Context) {
     if (wanted == directOutput) return
     directOutput = wanted
     outputChangedAt = SystemClock.elapsedRealtime()
-    core?.configureOutput(if (wanted) "mediacodec_embed" else "gpu", if (wanted) "mediacodec" else gpuDecoding())
+    // With a title open the change is made at once, in step with the surface. With none (the
+    // title was just closed) it waits its turn, and costs nothing.
+    if (fileRequested) core?.configureOutput(if (wanted) "mediacodec_embed" else "gpu", if (wanted) "mediacodec" else gpuDecoding())
+    else core?.configureOutputLater("gpu", gpuDecoding())
     overlayListeners.toList().forEach { it() }
     publishMediaInfo()
   }
