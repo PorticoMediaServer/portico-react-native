@@ -236,11 +236,21 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     return out
   }
 
-  /** What the receiver or television takes as a bitstream. */
+  /** The output a new playback would use: the first kind in [ROUTES] that is connected. */
+  private fun activeOutput(outputs: List<AudioDeviceInfo>): AudioDeviceInfo? =
+      ROUTES.firstNotNullOfOrNull { (types, _) -> outputs.firstOrNull { it.type in types } }
+
+  /**
+   * What the receiver or television takes as a bitstream. Only when the sound is going there:
+   * with headphones or a Bluetooth speaker connected the system plays through those, and a
+   * bitstream the receiver could have taken has nowhere to go.
+   */
   private fun passthrough(outputs: List<AudioDeviceInfo>): WritableArray {
     val found = LinkedHashMap<String, Pair<Int, Boolean>>()
+    val active = activeOutput(outputs)
     for (device in outputs) {
       if (device.type !in DIGITAL_OUTPUTS) continue
+      if (active != null && active.type !in DIGITAL_OUTPUTS) continue
       val channels = (device.channelCounts.maxOrNull() ?: 0)
       for (encoding in device.encodings) {
         val (codec, limit, atmos) = BITSTREAMS[encoding] ?: continue
@@ -259,9 +269,12 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
 
   /** The output a new playback would use, as one of the words the profile uses, and how many channels it carries. */
   private fun output(outputs: List<AudioDeviceInfo>): WritableMap {
-    val device = ROUTES.firstNotNullOfOrNull { (types, _) -> outputs.firstOrNull { it.type in types } }
+    val device = activeOutput(outputs)
     val route = device?.let { d -> ROUTES.first { d.type in it.first }.second } ?: if (outputs.isEmpty()) "" else "other"
-    val channels = (device ?: outputs.firstOrNull())?.channelCounts?.maxOrNull() ?: 0
+    val chosen = device ?: outputs.firstOrNull()
+    // A device that lists no channel counts takes any number of channels. That is eight on a
+    // digital output (a receiver or television) and two on anything else.
+    val channels = chosen?.channelCounts?.maxOrNull() ?: if (chosen != null && chosen.type in DIGITAL_OUTPUTS) 8 else 2
     return Arguments.createMap().apply {
       putInt("maxOutputChannels", channels.coerceIn(2, 16))
       putString("route", route)
