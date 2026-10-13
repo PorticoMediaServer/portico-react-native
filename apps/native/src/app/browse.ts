@@ -57,7 +57,7 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
     );
     return () => { cancelled = true; };
   }, [api, session?.sessionFamilyId, session?.viewer.profileId, libraryId, pivot, attempt]);
-  const capabilities = useMemo(() => state.capabilities && pivot ? scopeBrowseCapabilities(state.capabilities, pivot, surfaceId) : undefined, [state.capabilities, pivot, surfaceId]);
+  const capabilities = useMemo(() => state.capabilities && state.capabilities.library.id === libraryId && pivot ? scopeBrowseCapabilities(state.capabilities, pivot, surfaceId) : undefined, [state.capabilities, libraryId, pivot, surfaceId]);
   return {...state, capabilities};
 }
 

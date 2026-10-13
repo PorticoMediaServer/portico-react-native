@@ -4,9 +4,11 @@ import type {BrowseCapabilities, BrowseNode, BrowseSortSelection} from '../../..
 export function scopeBrowseCapabilities(capabilities: BrowseCapabilities, pivotId: string, surfaceId = 'library'): BrowseCapabilities {
   const pivot = capabilities.pivots.find(p => p.id === pivotId) ?? (capabilities.resolvedPivot?.id === pivotId ? capabilities.resolvedPivot : undefined);
   const surface = capabilities.surfaces?.find(s => s.id === surfaceId);
+  const surfaceSorts = capabilities.surfaces ? surface?.sorts ?? [] : undefined;
+  const surfaceFilters = capabilities.surfaces ? surface?.filters ?? [] : undefined;
   const allowed = (id: string, pivotIds: readonly string[] | undefined, surfaceIds: readonly string[] | undefined) => !!pivotIds?.includes(id) && (surfaceIds === undefined || surfaceIds.includes(id));
-  const sorts = capabilities.sorts.filter(s => allowed(s.id, pivot?.sorts, surface?.sorts));
-  const fields = capabilities.fields.filter(f => allowed(f.id, pivot?.filters, surface?.filters));
+  const sorts = capabilities.sorts.filter(s => allowed(s.id, pivot?.sorts, surfaceSorts));
+  const fields = capabilities.fields.filter(f => allowed(f.id, pivot?.filters, surfaceFilters));
   const supports = (node: BrowseNode): boolean => {
     if ('field' in node) return fields.some(f => f.id === node.field && f.operators.includes(node.operator));
     if ('not' in node) return supports(node.not);

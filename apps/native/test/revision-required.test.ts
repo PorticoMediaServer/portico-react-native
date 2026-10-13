@@ -141,3 +141,54 @@ test('other 428 reasons, stale revisions, authentication and interrupted writes 
   const offline = new Error('offline');
   await assert.rejects(revisionRequiredFetch(async () => { throw offline; })(origin + routePath('put_metadata_settings'), {method: 'PUT', body: '{}'}), e => e === offline);
 });
+
+test('a device beyond the first page is reread before trust is retried', async () => {
+  let writes = 0, reads = 0;
+  const send = revisionRequiredFetch(async (input, options = {}) => {
+    if (options.method !== 'GET') {
+      if (++writes === 1) return required();
+      assert.equal(JSON.parse(String(options.body)).expectedRevision, 8);
+      return json({saved: true});
+    }
+    const query = new URL(String(input)).searchParams;
+    assert.equal(query.get('limit'), '100');
+    reads++;
+    if (!query.has('cursor')) return json({items: [{id: 'other', revision: 1}], nextCursor: 'next-page'});
+    assert.equal(query.get('cursor'), 'next-page');
+    return json({items: [{id: 'device', revision: 8}]});
+  });
+  assert.equal((await send(origin + routePath('put_admin_access_device_trust', {id: 'device'}), {method: 'PUT', body: '{}'})).status, 200);
+  assert.equal(writes, 2); assert.equal(reads, 2);
+});
+
+test('device pagination cannot loop or borrow an unrelated revision', async () => {
+  let writes = 0, reads = 0;
+  const send = revisionRequiredFetch(async (_input, options = {}) => {
+    if (options.method !== 'GET') { writes++; return required(); }
+    reads++;
+    return json({revision: 88, items: [{id: 'other', revision: 9}], nextCursor: 'repeated'});
+  });
+  assert.equal((await send(origin + routePath('put_admin_access_device_trust', {id: 'device'}), {method: 'PUT', body: '{}'})).status, 428);
+  assert.equal(writes, 1); assert.equal(reads, 2);
+});
+
+test('delete and administrative playback commands read their actual resource before retrying', async () => {
+  for (const [method, path, readPath, revision] of [
+    ['DELETE', routePath('remove_library', {id: 'movies'}), routePath('get_admin_libraries_id_inventory_config', {id: 'movies'}), 3],
+    ['DELETE', routePath('delete_direct_member', {id: 'member'}), routePath('get_direct_member_deletion_preview', {id: 'member'}), 3],
+    ['POST', routePath('control_admin_session', {id: 'session'}), routePath('get_admin_session_controls', {id: 'session'}), '3'],
+    ['PUT', routePath('reorder_playlist_window', {id: 'playlist'}), routePath('get_playlist_order', {id: 'playlist'}), 3],
+    ['PATCH', routePath('change_connectivity_policy'), routePath('get_connectivity_policy'), 3],
+  ] as const) {
+    let count = 0;
+    const send = revisionRequiredFetch(async (input, options = {}) => {
+      count++;
+      if (count === 1) return required();
+      if (options.method === 'GET') { assert.equal(input, origin + readPath); return json({revision}); }
+      assert.equal(JSON.parse(String(options.body)).expectedRevision, revision);
+      return json({saved: true});
+    });
+    assert.equal((await send(origin + path, {method, body: '{}'})).status, 200);
+    assert.equal(count, 3);
+  }
+});

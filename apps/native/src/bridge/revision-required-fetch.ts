@@ -67,19 +67,32 @@ export function revisionRequiredFetch(fetcher: typeof fetch): typeof fetch {
         reread: async () => {
           const headers = new Headers(options.headers);
           for (const key of ['If-Match', 'Content-Type', 'Content-Length', 'Idempotency-Key']) headers.delete(key);
-          const raw = await readConsoleJson<unknown>(await fetcher(url.origin + readPath, {...options, method: 'GET', headers, body: undefined}), signal);
-          const data = object(raw) && object(raw.data) ? raw.data : object(raw) && object(raw.result) ? raw.result : raw;
-          const current = rule.item && object(data) && Array.isArray(data.items) ? data.items.find(v => object(v) && v.id === decodeURIComponent(parameters.id!)) : data;
+          let current: unknown, cursor = '';
+          const seen = new Set<string>();
+          // The device endpoint is paged. Keep the read bounded by both the caller's deadline
+          // and 32 pages; a missing device or an unusable cursor must never replay the write.
+          for (let page = 0; page < (rule.item ? 32 : 1); page++) {
+            const query = rule.item ? '?' + new URLSearchParams({limit: '100', ...(cursor ? {cursor} : {})}) : '';
+            const raw = await readConsoleJson<unknown>(await fetcher(url.origin + readPath + query, {...options, method: 'GET', headers, body: undefined}), signal);
+            const data = object(raw) && object(raw.data) ? raw.data : object(raw) && object(raw.result) ? raw.result : raw;
+            current = rule.item && object(data) && Array.isArray(data.items) ? data.items.find(v => object(v) && v.id === decodeURIComponent(parameters.id!)) : data;
+            if (current !== undefined || !rule.item || !object(data)) break;
+            if (typeof data.nextCursor !== 'string' || !data.nextCursor || data.nextCursor.length > 4096 || seen.has(data.nextCursor)) break;
+            cursor = data.nextCursor; seen.add(cursor);
+          }
           if (!object(current) || !revision(current.revision)) throw new Error('The current revision could not be read.');
           if (signal.aborted) throw new Error('Revision read cancelled.');
           if (rule.header) {
             const updated = new Headers(options.headers);
+            updated.delete('Content-Length');
             updated.set('If-Match', String(current.revision));
             next = {...options, headers: updated};
           } else {
             const body: unknown = typeof options.body === 'string' ? JSON.parse(options.body) : {};
             if (!object(body)) throw new Error('A revision-bearing object is required.');
-            next = {...options, body: JSON.stringify({...body, expectedRevision: current.revision})};
+            const updated = new Headers(options.headers);
+            updated.delete('Content-Length');
+            next = {...options, headers: updated, body: JSON.stringify({...body, expectedRevision: current.revision})};
           }
         },
       });

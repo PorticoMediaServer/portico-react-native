@@ -54,3 +54,8 @@ test('a still-supported seeded sort keeps its seed and adjusts an unsupported di
   const scoped = scopeBrowseCapabilities({...capabilities, sorts: capabilities.sorts.map(s => s.id === 'year' ? {...s, directions: ['desc'], defaultDirection: 'desc'} : s)}, 'albums');
   assert.deepEqual(offeredBrowseSort(scoped, {field: 'year', direction: 'asc', seed: 42}), {field: 'year', direction: 'desc', seed: 42});
 });
+
+test('a missing surface advertisement never borrows another surface options', () => {
+  const scoped = scopeBrowseCapabilities(capabilities, 'albums', 'container-titles');
+  assert.deepEqual(scoped.sorts, []); assert.deepEqual(scoped.fields, []); assert.deepEqual(scoped.quickFilters, []);
+});
