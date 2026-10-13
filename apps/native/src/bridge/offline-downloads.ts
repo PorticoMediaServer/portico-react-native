@@ -199,6 +199,7 @@ export class OfflineDownloads {
    * generation may finish, but may not write anything back. */
   private generation = 0;
   private opening?: Promise<void>;
+  private receiptSync?: {generation: number; owner: string; forced: boolean; task: Promise<void>};
   private progressSync?: {generation: number; task: Promise<void>};
   /** When each stopped download was last tried again by itself. */
   private retried = new Map<string, number>();
@@ -206,6 +207,7 @@ export class OfflineDownloads {
   private bundling = new Set<string>();
   /** The play under way for each entry (one id for as long as the file stays open). */
   private playing = new Map<string, string>();
+  private observationTimes = new Map<string, number>();
 
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -609,6 +611,9 @@ export class OfflineDownloads {
     const owner = this.ownerKey(), api = this.api, service = this.service;
     if (generation !== this.generation || !owner || !api || !service || !this.state.ready) return;
     void this.collect(generation);
+    void this.syncProgress(generation);
+    void this.continueNext(generation);
+    void this.renewReceipts(generation, api, owner, false);
     const now = Date.now();
     for (const entry of this.ownedEntries(owner)) {
       if (this.generation !== generation) return;
@@ -697,7 +702,19 @@ export class OfflineDownloads {
    * It runs once a day, not on every connection: a renewal rewrites each receipt on the
    * server and on this device. `force` is for the moment the server says downloads are off
    * for this profile, which is exactly when each copy must be asked about. */
-  private async renewReceipts(generation = this.generation, apiArg = this.api, ownerArg = this.ownerKey(), force = false) {
+  private renewReceipts(generation = this.generation, apiArg = this.api, ownerArg = this.ownerKey(), force = false): Promise<void> {
+    if (!apiArg || !ownerArg || generation !== this.generation) return Promise.resolve();
+    const flight = this.receiptSync;
+    if (flight?.generation === generation && flight.owner === ownerArg) {
+      if (force && !flight.forced) return flight.task.then(() => this.renewReceipts(generation, apiArg, ownerArg, true));
+      return flight.task;
+    }
+    const task = this.revalidateReceipts(generation, apiArg, ownerArg, force).catch(() => {});
+    this.receiptSync = {generation, owner: ownerArg, forced: force, task};
+    void task.finally(() => { if (this.receiptSync?.task === task) this.receiptSync = undefined; }).catch(() => {});
+    return task;
+  }
+  private async revalidateReceipts(generation: number, apiArg: Api, ownerArg: string, force: boolean) {
     const api = apiArg, owner = ownerArg;
     if (generation !== this.generation || !api || !owner) return;
     const mine = this.ownedEntries(owner);
@@ -872,7 +889,12 @@ export class OfflineDownloads {
     const finished = event.ended || (event.durationSeconds > 0 && position / event.durationSeconds >= FINISHED_AT);
     bucket(this.stored.resume, owner)[entry.itemId] = finished ? 0 : position;
     const plays = bucket(this.stored.plays, owner);
-    plays[playId] = {playId, itemId: entry.itemId, positionSeconds: position, ...(event.ended ? {ended: true} : {}), observedAt: new Date().toISOString()};
+    const clockKey = JSON.stringify([owner, entry.itemId]);
+    const pendingTimes = Object.values(plays).filter(p => p.itemId === entry.itemId).map(p => Date.parse(p.observedAt)).filter(Number.isFinite);
+    const observedAt = Math.max(Date.now(), Math.max(this.observationTimes.get(clockKey) ?? 0, ...pendingTimes) + 1);
+    this.observationTimes.set(clockKey, observedAt);
+    if (this.observationTimes.size > MAX_PLAYS) this.observationTimes.delete(this.observationTimes.keys().next().value!);
+    plays[playId] = {playId, itemId: entry.itemId, positionSeconds: position, ...(event.ended ? {ended: true} : {}), observedAt: new Date(observedAt).toISOString()};
     const ids = Object.keys(plays);
     // The journal is bounded. Past the bound the oldest plays are let go: their titles' resume
     // points are already kept above, and what is lost is only their place in the history.

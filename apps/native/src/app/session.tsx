@@ -410,7 +410,8 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const assertCandidate = () => { if (expectedGeneration !== generation.current) throw changedWhileSigningIn(url); };
       assertCandidate();
       const candidate = selectedViewerRecord(url, session);
-      const priorFamily = viewer.getSnapshot().session?.sessionFamilyId;
+      const priorSelection = viewer.getSnapshot();
+      const sameFamily = priorSelection.serverUrl === candidate.serverUrl && priorSelection.session?.sessionFamilyId === candidate.session.sessionFamilyId;
       const central = credentials?.getSnapshot().session;
       const oldServer = attachedServer;
       setError('');
@@ -476,7 +477,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           revoke: async record => {
             // A refreshed access token is the same sign-in. Retiring it would revoke the
             // selected family, and a failed restore must keep its established family usable.
-            if (record.serverUrl === candidate.serverUrl && record.session.sessionFamilyId === candidate.session.sessionFamilyId && (established || priorFamily === candidate.session.sessionFamilyId)) return;
+            if (record.serverUrl === candidate.serverUrl && record.session.sessionFamilyId === candidate.session.sessionFamilyId && sameFamily) return;
             try {
               await profileAPI(record.serverUrl, record.session.accessToken).logout();
             } finally {
@@ -486,10 +487,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           cleanupFailed: () => setError(activeI18n().t('signIn.unusedSession')),
         });
       } catch (e) {
-        setError(message(e));
+        if (expectedGeneration === generation.current) setError(message(e));
         throw e;
       } finally {
-        setBusy(false);
+        if (expectedGeneration === generation.current) setBusy(false);
       }
     },
     [attachedServer, bindAccountAttachment, commit, credentials, keepAlive, setAttachedServer],
@@ -616,7 +617,6 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     clearTimeout(resumeRetry.current);
     resumeWake = undefined;
     const record = recovery;
-    clearTimeout(resumeRetry.current);
     viewer.clear();
     setSavedState(undefined);
     setResumeFailure(undefined);
@@ -630,7 +630,6 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     generation.current++;
     clearTimeout(resumeRetry.current);
     resumeWake = undefined;
-    clearTimeout(resumeRetry.current);
     viewer.clear();
     setSavedState(undefined);
     setResumeFailure('offline');

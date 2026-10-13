@@ -13,7 +13,7 @@ for (const exit of ['signOut', 'useAnother', 'forgetSaved', 'signInAgain', 'unmo
     viewer.clear();
     auth.saved = selectedViewerRecord('http://server.test', session) as any;
     auth.chosen = session as any;
-    auth.writes = []; auth.revoked = [];
+    auth.writes = []; auth.revoked = []; auth.me = undefined;
     let resolve!: (value: any) => void;
     const held = new Promise(resolveTask => {resolve = resolveTask;});
     auth.restore = () => held;
@@ -35,7 +35,7 @@ test('a current saved-session restore is still verified, stored and published', 
   viewer.clear();
   auth.saved = selectedViewerRecord('http://server.test', session) as any;
   auth.chosen = session as any;
-  auth.revoked = [];
+  auth.revoked = []; auth.me = undefined;
   const refreshed = {...session, accessToken: 'current-access', tokenGeneration: '2'};
   auth.restore = async () => ({api: profileAPI('http://server.test', 'current-access'), session: refreshed});
   let current: any;
@@ -47,3 +47,26 @@ test('a current saved-session restore is still verified, stored and published', 
     assert.deepEqual(auth.revoked, [], 'a rotation within the established family is never a logout');
   } finally {await act(() => {current.signOut(); host.unmount();}); viewer.clear();}
 });
+
+for (const exit of ['signOut', 'useAnother'] as const) {
+  test(`verification answering after ${exit} cannot publish or restore a viewer`, async () => {
+    viewer.clear();
+    const original = selectedViewerRecord('http://server.test', session);
+    auth.saved = original as any; auth.chosen = session as any; auth.revoked = []; auth.writes = [];
+    let resolve!: (value: any) => void;
+    auth.me = () => new Promise(done => {resolve = done;});
+    auth.restore = async () => ({api: profileAPI('http://server.test', 'verified-late'), session: {...session, accessToken: 'verified-late', tokenGeneration: '2'}});
+    let current: any;
+    const host = createHookHost(() => {current = (SessionProvider({children: null}) as any).props.value;});
+    try {
+      await act(() => host.mount());
+      assert.equal(auth.writes.at(-1)?.session.accessToken, 'verified-late', 'the candidate reached durable verification');
+      await act(() => {if (exit === 'signOut') current.signOut(); else current.saved.useAnother();});
+      await act(() => resolve({viewer: session.viewer}));
+      assert.equal(viewer.getSnapshot().session, undefined);
+      if (exit === 'useAnother') assert.equal(auth.saved?.session.accessToken, original.session.accessToken);
+      else assert.equal(auth.saved, null);
+      assert.equal(auth.revoked.includes('verified-late'), false, 'the retained family was not revoked');
+    } finally {auth.me = undefined; await act(() => {current.signOut(); host.unmount();}); viewer.clear();}
+  });
+}
