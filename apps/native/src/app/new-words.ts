@@ -18,6 +18,11 @@ const awaiting = {
   'about.report.send': 'Send',
   'about.report.sent': 'The report was sent to the owner of {server}.',
   'about.report.failed': 'The report couldn’t be sent. Try again later.',
+  // The download menu, beside "Original", when the file is one this device cannot open by itself.
+  'downloads.quality.originalMayNotPlay': 'This device can’t open this kind of file, so the original may not play here. A smaller version will.',
+  // Signing out: the person may take their downloads off the device as they go.
+  'settings.signOutConfirm.removeDownloads': 'Remove my downloads from this device',
+  'settings.signOutConfirm.bodyRemoving': 'Your downloads are removed from this device. Anything you downloaded stays on your server.',
 } as const;
 
 export type NewWordId = keyof typeof awaiting;

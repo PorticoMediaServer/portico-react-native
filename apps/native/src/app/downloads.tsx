@@ -1,5 +1,5 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
-import {AppState, View} from 'react-native';
+import {AppState, Platform, View} from 'react-native';
 import {DownloadsService, downloadBytes, downloadReasonMessage, type DownloadOptionsView, type DownloadQualityChoice, type DownloadTarget, type DownloadsSnapshot, type DownloadRequestKind, type DownloadEpisodes} from '../../../../packages/client-core/src/index';
 import {offlineDownloads, type OfflineDisplay, type OfflineSnapshot} from '../bridge/offline-downloads';
 import {Button, Divider, ListRow, Notice, Sheet, StateView, Surface, Text, useTheme} from '../ui';
@@ -7,6 +7,10 @@ import {useSession} from './session';
 import {viewerKey} from './viewer-scope';
 import {useI18n} from './i18n';
 import {say} from './errors';
+import {mpvAvailable} from '../bridge/player-engines';
+import {word} from './new-words';
+import {originalMayNotPlay} from './original-opens';
+import {usePreferences} from './preferences';
 
 export type ContainerDownloadTarget = {containerId: string; containerKind: DownloadRequestKind};
 export type DownloadRequest = {target: DownloadTarget & Partial<ContainerDownloadTarget>; title: string; optionsFor?: string; display?: OfflineDisplay};
@@ -63,6 +67,9 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
   const i18n = useI18n();
   const {session} = useSession();
   const [view, setView] = useState<DownloadOptionsView>();
+  // A download plays from this device with nothing to convert it: an original this device cannot open says so.
+  const {preferences} = usePreferences();
+  const cannotOpen = !!view && originalMayNotPlay(view.source.container, {platform: Platform.OS === 'ios' ? 'apple' : 'android', mpv: mpvAvailable, player: preferences.playerEngine});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [done, setDone] = useState('');
@@ -149,7 +156,7 @@ function DownloadSheet({request, service, onClose, onView}: {request: DownloadRe
             {view.options.map((o, i) => (
               <View key={o.quality}>
                 {i ? <Divider inset={space.md} /> : null}
-                <ListRow title={o.label} subtitle={o.available ? `${o.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(o.estimatedBytes)}) : downloadBytes(o.estimatedBytes)}${o.requiresPreparation ? ` · ${i18n.t('downloads.serverPrepares')}` : ''}` : downloadReasonMessage(o.reason)} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!o.available || !!busy} onPress={() => void choose(o.quality)} />
+                <ListRow title={o.label} subtitle={o.available ? `${o.estimated ? i18n.t('downloads.aboutSize', {size: downloadBytes(o.estimatedBytes)}) : downloadBytes(o.estimatedBytes)}${o.requiresPreparation ? ` · ${i18n.t('downloads.serverPrepares')}` : ''}${o.kind === 'source' && cannotOpen ? `\n${word('downloads.quality.originalMayNotPlay', undefined, i18n)}` : ''}` : downloadReasonMessage(o.reason)} subtitleLines={o.kind === 'source' && cannotOpen ? 4 : undefined} meta={busy === o.quality ? i18n.t('downloads.adding') : undefined} disabled={!o.available || !!busy} onPress={() => void choose(o.quality)} />
               </View>
             ))}
           </Surface>
