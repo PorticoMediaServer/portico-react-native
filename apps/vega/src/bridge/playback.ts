@@ -1,24 +1,32 @@
 import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
-import {StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
+import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
 import {ModuleEvents, failure, withEvents} from './events';
-import {HlsSource} from './hls';
+import {HlsSource, type SourceError} from './hls';
 import {uuid} from './random';
 import {applySubtitles, clearSubtitles, subtitleDisplay, tickSubtitles, type SubtitleCommand} from './subtitles';
 import {TransportKeys} from './system-media';
 
 /**
  * `NativeModules.PorticoPlaybackModule` and the `PorticoPlayer` view, over the SDK's W3C media
- * element. The contract is the Apple controller's (`PorticoPlaybackController`): one engine,
- * leased to one owner; driven by commands that each carry the whole desired state and a rising
- * revision; reporting facts that carry the binding they belong to, a rising sequence and the
- * revision of the last command applied. Events: `PorticoPlaybackFact`,
- * `PorticoListeningSnapshot`, `PorticoPictureInPicture`.
+ * element. This is the app's one player engine, written to the engine contract every platform's
+ * engines keep (`apps/native/Native/ENGINE-CONTRACT.md`): one engine, leased to one owner; driven
+ * by commands that each carry the whole desired state and a rising revision; reporting facts that
+ * carry the binding they belong to, a rising sequence and the revision of the last command
+ * applied. Events: `PorticoPlaybackFact`, `PorticoListeningSnapshot`, `PorticoPictureInPicture`.
+ * What it does and does not do is said in the module's `features` (and, for the server, in the
+ * capability document, `capability-profile.ts`): the player screen hides the rest.
  *
  * What the media element cannot do (SDK 0.24): change speed (`supportedRates` is `[1]`), open an
  * `http:` address, or play HLS from an address. The server's HLS is played by `hls.ts`, which
- * fetches the segments itself; a file plays from its address when that is HTTPS.
+ * fetches the segments itself; a file plays from its address when that is HTTPS. There is no
+ * Picture in Picture and no AirPlay, and the engine draws plain-text subtitles only (the server
+ * burns styled and image subtitles into the picture for this device).
+ *
+ * Not done here, because the SDK offers no way to: asking the display to match a title's frame
+ * rate or dynamic range before it starts (the contract's display matching), and reading the
+ * viewer's system caption style.
  *
  * Music and audiobooks play here too. Apple hands them to a native owner (the `listening…`
  * methods) so that they go on while JavaScript sleeps; a Vega app's JavaScript runs while it
@@ -56,12 +64,25 @@ const RATE_UNAVAILABLE = 'This speed is unavailable for this media. Choose a sup
 const SEEK_UNAVAILABLE = 'That position is not available yet. Try seeking again.';
 const NETWORK_ERROR = 'The media connection was interrupted. Verifying another route.';
 const MEDIA_ERROR = 'This media could not be played. Check its format or try again.';
+const ADDRESS_ERROR = 'Invalid media address.';
+
+/**
+ * Why playback cannot continue, as the contract's error facts say it (section 5): the server's
+ * answer when it gave one, a connection that gave none, the engine refusing the media, or
+ * (`uncertain`) something that is not the media's fault.
+ */
+type Failure = Readonly<{network?: boolean; status?: number; engineCode?: 'decode_error' | 'source_not_supported'; uncertain?: boolean; message?: string}>;
 
 const instanceId = uuid();
 let lease: string | undefined, owner: string | undefined;
 let commandRevision = 0, factSequence = 0;
 let accepted: Command | undefined;
 let engine: Engine | undefined;
+/** The place reached when the route to the server was put in doubt: the media is closed until the
+ * route is ready again, and opens there. */
+let kept: {binding: Binding; position: number} | undefined;
+/** The app is not on screen. */
+let away = false;
 /** The surface the mounted `PorticoPlayer` view draws on. */
 let surface: string | null = null;
 /** The app's component, which the system addresses transport keys to. */
@@ -92,8 +113,19 @@ class Engine {
   private keyed = false;
   private described = false;
   private filled = false;
+  /** A picture was shown or time advanced: a failure after that is not an incompatibility. */
+  private played = false;
+  private lastProgress = '';
+  private lastPosition = NaN;
+  /** The viewer has been told the video was paused because the app left the screen. */
+  private toldAway = false;
 
-  constructor(readonly binding: Binding, readonly source: string, private start: number) {
+  /**
+   * `start`: where to open (the place reached on another route to the same item), or NaN for the
+   * beginning. `originMs`: the channel's origin for a live channel, where positions are seconds on
+   * the channel's timeline; undefined for a title.
+   */
+  constructor(readonly binding: Binding, readonly source: string, private start: number, private readonly originMs?: number) {
     void this.open();
   }
 
@@ -109,13 +141,13 @@ class Engine {
       await this.player.initialize();
     } catch (error) {
       trace(`player initialize failed: ${String((error as Error)?.message ?? error)}`, true);
-      this.fail(false, 'engine_error', 'initialize');
+      this.fail({uncertain: true}, 'initialize');
       return;
     }
     if (this.closed) { void this.player.deinitialize().catch(() => {}); return; }
     this.opened = true;
     this.on('loadedmetadata', () => { this.described = true; this.loaded(); });
-    this.on('playing', () => { this.waiting = false; if (!this.shown) { this.shown = true; this.publish('firstFrame'); } this.publish('rateStatus'); });
+    this.on('playing', () => { this.waiting = false; this.played = true; if (!this.shown) { this.shown = true; this.publish('firstFrame'); } this.publish('rateStatus'); });
     this.on('pause', () => this.publish('rateStatus'));
     // Running dry while playing is a stall; waiting for a seek or for the first picture is not.
     this.on('waiting', () => { this.waiting = true; if (this.shown && !this.seek) this.publish('stalled'); });
@@ -124,26 +156,64 @@ class Engine {
     this.on('error', () => {
       const code = Number((this.player.error as {code?: number} | null)?.code);
       // 2 is the network; 3 a decode failure; 4 a source the element will not take.
-      this.fail(code === 2, code === 3 ? 'decode_error' : code === 4 ? 'source_not_supported' : 'engine_error', `media error ${code}`);
+      this.fail(code === 2 ? {network: true} : code === 3 ? {engineCode: 'decode_error'} : code === 4 ? {engineCode: 'source_not_supported'} : {uncertain: true}, `media error ${code}`);
     });
     this.player.autoplay = false;
     this.attach();
     this.takeKeys();
+    if (!/^https?:\/\/[^/?#@\s]+([/?#]|$)/i.test(this.source)) {
+      this.fail({uncertain: true, message: ADDRESS_ERROR}, 'address');
+      return;
+    }
     if (/\.m3u8(\?|#|$)/i.test(this.source)) {
-      this.hls = new HlsSource(this.player, this.source, error => this.fail(error.network, 'engine_error', error.message));
+      this.hls = new HlsSource(this.player, this.source, error => this.failSource(error), this.originMs);
       // Filled from where playback will start, not from the beginning.
       const first = accepted && engine === this ? accepted.pendingSeek?.positionSeconds : undefined;
-      void this.hls.open(first ?? this.start).then(() => { this.filled = true; this.loaded(); });
-    } else if (/^https:/i.test(this.source)) {
+      void this.hls.open(first ?? (this.originMs === undefined && !Number.isFinite(this.start) ? 0 : this.start)).then(() => { this.filled = true; this.loaded(); });
+    } else if (/^https:/i.test(this.source) && this.originMs === undefined) {
       this.filled = true;
       this.player.src = this.source;
     } else {
-      // The element opens an address itself only over HTTPS (see `capability-profile.ts`).
-      this.fail(false, 'source_not_supported', 'insecure address');
+      // The element opens an address itself only over HTTPS (see `capability-profile.ts`), and a
+      // channel is always a stream: the server is told, and delivers the title another way.
+      this.fail({engineCode: 'source_not_supported'}, this.originMs === undefined ? 'insecure address' : 'channel is not a stream');
       return;
     }
-    this.ticker = setInterval(() => { if (this.ready && !this.over && !this.failed) this.publish('progress'); }, PROGRESS_MS);
-    this.captions = setInterval(() => { if (this.ready && engine === this) tickSubtitles(this.position()); }, SUBTITLE_MS);
+    this.ticker = setInterval(() => this.tick(), PROGRESS_MS);
+    this.captions = setInterval(() => { if (this.ready && engine === this) { const position = this.position(); if (Number.isFinite(position)) tickSubtitles(position); } }, SUBTITLE_MS);
+  }
+
+  /** Progress: twice a second while the position moves, and once when it stops. A paused or
+   * waiting picture is not reported again and again. */
+  private tick(): void {
+    if (!this.ready || this.over || this.failed) return;
+    const position = this.position(), paused = this.player.paused;
+    const moving = !paused && !this.waiting;
+    if (moving && Number.isFinite(position) && Number.isFinite(this.lastPosition) && position > this.lastPosition + 0.05) this.played = true;
+    this.lastPosition = position;
+    const signature = `${Number.isFinite(position) ? Math.floor(position * 2) : -1}/${paused}/${this.waiting}`;
+    if (!moving && signature === this.lastProgress) return;
+    this.lastProgress = signature;
+    this.publish('progress', this.connection());
+  }
+
+  /**
+   * What was measured of the connection and how much is held ahead of the picture, for Automatic
+   * quality and the session's timeline. For a title streamed from the server only, never a
+   * channel. The speed of the connection is known where the app fetches the stream itself; a file
+   * the media element opens from its address is fetched out of sight, so only its buffer is said.
+   */
+  private connection(): Readonly<Record<string, unknown>> {
+    if (this.originMs !== undefined) return {};
+    if (this.hls) {
+      const throughputKbps = this.hls.throughputKbps();
+      return {...(throughputKbps !== undefined ? {throughputKbps} : {}), bufferedSeconds: this.hls.bufferedSeconds()};
+    }
+    try {
+      const ranges = this.player.buffered, now = Number(this.player.currentTime);
+      for (let index = 0; index < ranges.length; index++) if (ranges.start(index) <= now + 0.1 && ranges.end(index) > now) return {bufferedSeconds: Math.max(0, ranges.end(index) - now)};
+    } catch { /* not readable yet */ }
+    return {};
   }
 
   /** The remote's transport keys and voice requests go to the shared player, not to the element. */
@@ -170,8 +240,16 @@ class Engine {
   private loaded(): void {
     if (this.closed || this.ready || this.failed || !this.described || !this.filled) return;
     this.ready = true;
-    // A source reopened under the same binding (another route to the same item) resumes where it was.
-    if (this.start > 0) { this.hls?.seek(this.start); try { this.player.currentTime = this.elementTime(this.start); } catch { /* starts from the beginning */ } }
+    if (this.originMs !== undefined) {
+      // A channel was filled from where it is to begin (the place kept, the place asked for, or
+      // where live viewing begins): the element is sent to that segment.
+      const begin = this.hls?.beginning() ?? NaN;
+      if (Number.isFinite(begin) && Math.abs(Number(this.player.currentTime) - begin) > 0.25) { try { this.player.currentTime = begin; } catch { /* plays from where the buffer starts */ } }
+    } else if (this.start > 0) {
+      // A source reopened under the same binding (another route to the same item) resumes where it was.
+      this.hls?.seek(this.start);
+      try { this.player.currentTime = this.elementTime(this.start); } catch { /* starts from the beginning */ }
+    }
     this.publish('ready');
     if (accepted && engine === this) this.apply(accepted);
     // Nothing sent the element anywhere: it plays from where the stream was filled.
@@ -187,16 +265,25 @@ class Engine {
       if (this.seek) clearTimeout(this.seek.timer);
       this.seek = {revision: pending.revision, timer: setTimeout(() => this.sought(false), SEEK_LIMIT_MS)};
       this.over = false;
-      const position = Math.max(0, pending.positionSeconds);
-      this.hls?.seek(position);
-      // The element says nothing when it is sent to where it already is.
-      if (Math.abs(Number(this.player.currentTime) - this.elementTime(position)) < 0.25) this.sought(true);
-      else { try { this.player.currentTime = this.elementTime(position); } catch { this.sought(false); } }
+      // A channel's timeline has no beginning at zero; a title's does.
+      const position = this.originMs === undefined ? Math.max(0, pending.positionSeconds) : pending.positionSeconds;
+      const go = (elementTime: number) => {
+        if (this.seek?.revision !== pending.revision || this.closed) return;
+        if (!Number.isFinite(elementTime)) { this.sought(false); return; }
+        // The element says nothing when it is sent to where it already is.
+        if (Math.abs(Number(this.player.currentTime) - elementTime) < 0.25) this.sought(true);
+        else { try { this.player.currentTime = elementTime; } catch { this.sought(false); } }
+      };
+      // A title's place in the element is known at once; a channel's once its segment is in hand.
+      const target = this.hls ? this.hls.seek(position) : position;
+      if (typeof target === 'number') go(target);
+      else target.then(go, () => { if (this.seek?.revision === pending.revision) this.sought(false); });
     }
-    applySubtitles(command.subtitles, error => this.publish('subtitleStatus', {error}));
+    applySubtitles(command.subtitles, this.source, error => this.publish('subtitleStatus', {error}));
     this.applyAudio(command.audio);
-    if (this.wantPaused) { if (!this.player.paused) this.player.pause(); }
-    else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail(false, 'engine_error', 'play'));
+    const held = this.heldAway();
+    if (this.wantPaused || held) { if (!this.player.paused) this.player.pause(); }
+    else if (this.player.paused && !this.over) void this.player.play().catch(() => this.fail({uncertain: true}, 'play'));
   }
 
   /**
@@ -233,6 +320,29 @@ class Engine {
     );
   }
 
+  /** Whether what is playing has a picture (music and audiobooks do not). */
+  private pictured(): boolean {
+    if (this.hls) return this.hls.hasPicture();
+    try { return Number((this.player as {videoWidth?: number}).videoWidth) > 0; } catch { return true; }
+  }
+
+  /**
+   * Leaving the app: a video cannot go on being drawn while the app is not on screen, so it stays
+   * paused until the app is back, whatever is wanted, and the engine says so once when the app
+   * wanted it playing: the shared player then shows Play, and one press continues. Music and
+   * audiobooks have no picture and play on.
+   */
+  private heldAway(): boolean {
+    if (!away || !this.pictured()) { this.toldAway = false; return false; }
+    if (!this.wantPaused && !this.toldAway) { this.toldAway = true; this.publish('systemPaused', {paused: true, reason: 'background'}); }
+    return true;
+  }
+
+  /** The app left the screen or came back: what is wanted is applied again in that light. */
+  refresh(): void {
+    if (this.ready && !this.closed && !this.failed && accepted && engine === this) this.apply(accepted);
+  }
+
   private sought(applied: boolean): void {
     const seek = this.seek;
     if (!seek || this.closed) return;
@@ -242,31 +352,58 @@ class Engine {
     this.publish(applied ? 'seekApplied' : 'seekFailed', {seekRevision: seek.revision, error: applied ? '' : SEEK_UNAVAILABLE});
   }
 
-  private fail(network: boolean, code: string, detail: string): void {
+  /**
+   * The media cannot continue. The fact says which of four things it was, in the contract's
+   * order: the server answered with a refusal (`httpStatus`, `deliveryError`, and `networkError`
+   * for an answer waiting may change); the connection gave no answer (`networkError`); the engine
+   * refused the media (`engineCode`); or something else that is not the media's fault
+   * (`uncertain`). The shared player decides what to do from these, never from the words.
+   */
+  private fail(failure: Failure, detail: string): void {
     if (this.closed || this.failed) return;
     this.failed = true;
     try { this.player.pause(); } catch { /* never started */ }
-    this.publish('error', {paused: true, networkError: network, engineCode: network ? '' : code, errorDetail: detail, error: network ? NETWORK_ERROR : MEDIA_ERROR});
+    const status = failure.status !== undefined && failure.status >= 400 && failure.status <= 599 ? failure.status : 0;
+    const network = status ? status === 408 || status === 429 || status >= 500 : failure.network === true;
+    const engineCode = status || network ? '' : failure.engineCode ?? '';
+    this.publish('error', {
+      paused: true, networkError: network, deliveryError: status > 0, httpStatus: status, hasPlayed: this.played, uncertain: !status && !network && !engineCode && failure.uncertain !== false,
+      engineCode, errorDetail: detail.slice(0, 200), error: failure.message ?? (network ? NETWORK_ERROR : MEDIA_ERROR),
+    });
+  }
+
+  /** The stream stopped (`hls.ts`): what the server answered, a lost connection, or bytes the
+   * media element would not take. */
+  private failSource(error: SourceError): void {
+    this.fail({
+      network: error.network, status: error.status,
+      ...(error.refused ? {engineCode: error.refused === 'decode' ? 'decode_error' as const : 'source_not_supported' as const} : {}),
+    }, error.message);
   }
 
   /** The element's clock for a position in the item (they differ for a stream: see `hls.ts`). */
   private elementTime(position: number): number { return this.hls ? this.hls.elementTime(position) : position; }
 
-  /** Where playback is in the item, in seconds. */
+  /** Where playback is: seconds into the item, or on the channel's timeline. NaN while a
+   * channel's place is not known yet. */
   position(): number {
-    if (!this.opened) return this.start;
+    if (!this.opened || (this.hls && !this.filled)) return Number.isFinite(this.start) ? this.start : this.originMs === undefined ? 0 : NaN;
     const position = this.hls ? this.hls.position() : Number(this.player.currentTime);
-    return Number.isFinite(position) ? position : 0;
+    return Number.isFinite(position) ? position : this.originMs === undefined ? 0 : NaN;
   }
 
   private publish(type: string, extra: Readonly<Record<string, unknown>> = {}): void {
     if (this.closed || engine !== this || !lease || !accepted) return;
     const paused = this.opened ? this.player.paused : true;
     const moving = this.ready && !paused && !this.waiting && !this.over && !this.failed;
-    if (type !== 'progress' || factSequence % 4 === 0) trace(`fact ${type} at ${this.position().toFixed(2)} paused=${paused} moving=${moving} seek=${!!this.seek} ${JSON.stringify(extra).slice(0, 160)}`);
+    const place = this.position();
+    // A channel's place is not known until its first segment has landed: nothing is said of it.
+    if (!Number.isFinite(place) && (type === 'progress' || type === 'ended')) return;
+    const position = Number.isFinite(place) ? place : 0;
+    if (type !== 'progress' || factSequence % 4 === 0) trace(`fact ${type} at ${position.toFixed(2)} paused=${paused} moving=${moving} seek=${!!this.seek} ${JSON.stringify(extra).slice(0, 160)}`);
     playbackEvents.emit('PorticoPlaybackFact', {
-      instanceId, type, intentId: this.binding.intentId, position: this.position(), paused: paused && !this.seek, error: '',
-      effectiveRate: moving ? 1 : 0, supportedRates: [1], rateReady: this.ready, rateWaiting: this.waiting && !paused,
+      instanceId, type, intentId: this.binding.intentId, position, paused: paused && !this.seek, error: '',
+      effectiveRate: moving ? 1 : 0, supportedRates: this.ready ? [1] : [], rateReady: this.ready, rateWaiting: this.waiting && !paused,
       rateError: this.ready && accepted.rate !== 1 ? RATE_UNAVAILABLE : '', monotonicSeconds: Date.now() / 1000,
       ...extra,
       itemInstanceId: this.id, binding: this.binding, factSequence: ++factSequence, lastCommandRevision: commandRevision,
@@ -290,10 +427,10 @@ class Engine {
   }
 }
 
-function acquire(name: string): Promise<{lease: string; instanceId: string}> {
+function acquire(name: string): Promise<{lease: string; instanceId: string; engine: 'native'}> {
   if (typeof name !== 'string' || name.length < 1 || name.length > 128 || (lease && owner !== name)) return Promise.reject(failure('owner_busy', 'Another player owns playback.'));
-  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; }
-  return Promise.resolve({lease, instanceId});
+  if (!lease) { owner = name; lease = uuid(); commandRevision = 0; factSequence = 0; accepted = undefined; kept = undefined; }
+  return Promise.resolve({lease, instanceId, engine: 'native'});
 }
 
 /** The Apple controller's checks, in its order and with its words. */
@@ -307,6 +444,7 @@ function refusal(command: Command): string | null {
   if (command.commandRevision < commandRevision) return 'Stale playback command.';
   if (command.commandRevision === commandRevision) return same(accepted, command) ? null : 'Conflicting playback command.';
   if (typeof binding.sessionId !== 'string' || typeof binding.itemId !== 'string') return 'Invalid playback binding.';
+  if (command.timelineOriginMs !== undefined && command.timelineOriginMs !== null && !whole(command.timelineOriginMs, 1)) return 'Invalid channel clock.';
   if (command.connectionState !== undefined && (!['ready', 'verifying'].includes(command.connectionState) || !whole(command.routeRevision, 0))) return 'Invalid route transition.';
   if (accepted?.routeRevision !== undefined && (command.routeRevision === undefined || command.routeRevision < accepted.routeRevision)) return 'Stale route transition.';
   return null;
@@ -319,11 +457,25 @@ function command(value: Command): Promise<boolean> {
   if (value.commandRevision === commandRevision) return Promise.resolve(true);
   commandRevision = value.commandRevision;
   accepted = value;
+  if (kept && !same(kept.binding, value.binding)) kept = undefined;
+  if (value.connectionState === 'verifying') {
+    // The route to the server is in doubt. The place reached is kept, the media is closed, and
+    // nothing is said until a command says the route is ready: the media then opens there.
+    if (engine && same(engine.binding, value.binding)) {
+      const position = engine.position();
+      if (Number.isFinite(position)) kept = {binding: value.binding, position};
+    }
+    engine?.close();
+    engine = undefined;
+    return Promise.resolve(true);
+  }
   if (!engine || !same(engine.binding, value.binding) || engine.source !== value.source) {
     // The same binding with another address is another route to the same item: it carries on.
-    const carried = engine && same(engine.binding, value.binding) ? engine.position() : 0;
+    const carried = engine && same(engine.binding, value.binding) ? engine.position() : kept ? kept.position : NaN;
+    kept = undefined;
     engine?.close();
-    engine = value.source ? new Engine(value.binding, value.source, carried) : undefined;
+    const origin = whole(value.timelineOriginMs, 1) ? value.timelineOriginMs : undefined;
+    engine = value.source ? new Engine(value.binding, value.source, carried, origin) : undefined;
   }
   engine?.apply(value);
   return Promise.resolve(true);
@@ -335,13 +487,46 @@ function release(held: string): Promise<boolean> {
     lease = undefined;
     owner = undefined;
     accepted = undefined;
+    kept = undefined;
   }
   return Promise.resolve(true);
 }
 
 const unavailable = () => Promise.reject(failure('listening_unavailable', 'This device has no separate listening owner.'));
 
+// Leaving the app and coming back (the contract's "System behaviour every engine keeps"). Only
+// the app going to the background counts: something of the system's drawn over it does not.
+try {
+  AppState.addEventListener('change', state => {
+    if (state !== 'background' && state !== 'active') return;
+    const now = state === 'background';
+    if (now === away) return;
+    away = now;
+    engine?.refresh();
+  });
+} catch { /* without the app's state a video simply plays on, as before */ }
+
+/**
+ * What this engine does and does not do, as every engine's module says it (the contract's
+ * constants). The player screen reads these: it offers Picture in Picture and AirPlay only where
+ * the engine in use has them, and asks the server to burn in any subtitle kind not listed.
+ * (`musicSessions` is about a separate listening owner, which this device does not have: music
+ * and audiobooks play here as ordinary sessions.)
+ */
+const features = Object.freeze({
+  pictureInPicture: false,
+  airPlayVideo: false,
+  liveChannels: true,
+  musicSessions: false,
+  audioTrackSwitching: false,
+  subtitleRendering: Object.freeze(['text']),
+  chapters: false,
+});
+
 export const PorticoPlaybackModule = withEvents({
+  engine: 'native',
+  available: true,
+  features,
   acquire,
   command,
   release,
@@ -379,19 +564,24 @@ export function PorticoPlayer({lease: _lease, pictureInPictureRequest: _request,
 }
 
 /**
- * The subtitle text, laid out as the Apple view lays it out: a band nine tenths of the picture
- * wide, text centered in white on a 70% black backing, sized to the picture (3.5% of its width,
- * between 12 and 40), a twelfth of the picture's height up from the bottom, or at the top when
- * the cue says so. (The Apple view measures the picture inside the view; here the view's own
- * size is used, which differs only for a picture narrower than the screen.)
+ * The subtitle text, laid out as the other engines lay it out: a band nine tenths of the picture
+ * wide, text centered, sized to the picture (3.5% of its width, between 12 and 40, times
+ * Portico's caption size), a twelfth of the picture's height up from the bottom, or at the top
+ * when the cue says so. Portico's caption background is a soft black box (the default), a solid
+ * one, or none, where the line gets an edge of its own to stay readable over a bright picture.
+ * (The other engines measure the picture inside the view; here the view's own size is used, which
+ * differs only for a picture narrower than the screen. They also follow the caption style set in
+ * the system's Accessibility settings, which this SDK does not tell an app.)
  */
 function SubtitleLabel({width, height}: {width: number; height: number}): React.ReactElement | null {
-  const cue = useSyncExternalStore(subtitleDisplay.subscribe, subtitleDisplay.current);
+  const {display: cue, style} = useSyncExternalStore(subtitleDisplay.subscribe, subtitleDisplay.current);
   if (!cue.text || !width || !height) return null;
-  const fontSize = Math.max(12, Math.min(40, width * 0.035));
+  const fontSize = Math.max(12, Math.min(40, width * 0.035)) * style.scale;
+  const box = style.background === 'none' ? 'transparent' : style.background === 'opaque' ? '#000000' : 'rgba(0,0,0,0.7)';
+  const edge = style.background === 'none' ? {textShadowColor: '#000000', textShadowRadius: Math.max(2, fontSize * 0.08), textShadowOffset: {width: 0, height: 0}} : null;
   return React.createElement(View, {
     pointerEvents: 'none',
     accessible: true,
-    style: [{position: 'absolute', left: width * 0.05, width: width * 0.9, maxHeight: height * 0.6, paddingVertical: 4, backgroundColor: 'rgba(0,0,0,0.7)'}, cue.top ? {top: 8} : {bottom: Math.max(8, height * 0.08)}],
-  }, React.createElement(Text, {style: {color: '#ffffff', textAlign: 'center', fontSize, lineHeight: Math.round(fontSize * 1.25), fontWeight: '500', fontStyle: cue.italic ? 'italic' : 'normal'}}, cue.text));
+    style: [{position: 'absolute', left: width * 0.05, width: width * 0.9, maxHeight: height * 0.6, paddingVertical: 4, backgroundColor: box}, cue.top ? {top: 8} : {bottom: Math.max(8, height * 0.08)}],
+  }, React.createElement(Text, {style: [{color: '#ffffff', textAlign: 'center', fontSize, lineHeight: Math.round(fontSize * 1.25), fontWeight: '500', fontStyle: cue.italic ? 'italic' : 'normal'}, edge]}, cue.text));
 }

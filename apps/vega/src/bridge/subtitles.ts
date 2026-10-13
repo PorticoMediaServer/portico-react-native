@@ -1,115 +1,141 @@
 /**
- * The subtitle track the shared player selects, as the Apple module shows it: the server's
- * subtitle document (cues in microseconds of the source's own time) is fetched once per resource,
- * and the cues that cover the current position are the text on screen. Nothing here is drawn by
- * the media element, so the text looks the same whatever is playing.
+ * The subtitle track the shared player selects, as the Apple and Android engines show it
+ * (ENGINE-CONTRACT.md §7): the server's cue document, under the playback session's own media
+ * grant, is fetched, checked again every 25 seconds (the answer is also the proof the session may
+ * still show it), and the cues that cover the current position are the text on screen.
+ * Authorisation lapses 40 seconds after the last good answer: a revoked session's subtitles go
+ * dark with its video. Nothing here is drawn by the media element, so the text looks the same
+ * whatever is playing.
  */
 import {trace} from '../debug';
+import {redirected} from './transport';
+import {BYTE_LIMIT, NOTHING, defaultCaptionStyle, displayAt, parseCueDocument, selectionOf, type CaptionStyle, type CueList, type Selection, type SubtitleCommand, type SubtitleDisplay} from './subtitle-cues';
 
-export type SubtitleCommand = Readonly<{
-  mode?: string;
-  revision?: number;
-  resourceId?: string;
-  resourceRevision?: number;
-  refreshRevision?: number;
-  offsetUs?: number;
-  documentUrl?: string;
-}>;
-export type SubtitleDisplay = Readonly<{text: string; italic: boolean; top: boolean}>;
-type Cue = {start: number; end: number; text: string; italic: boolean; top: boolean};
+export type {CaptionStyle, SubtitleCommand, SubtitleDisplay};
 
-const NOTHING: SubtitleDisplay = Object.freeze({text: '', italic: false, top: false});
-const BYTE_LIMIT = 8 * 1024 * 1024, CUE_LIMIT = 20000, DAY_US = 86400000000;
-// The Apple module's words.
+// The other engines' words: the shared player and its tests match on them.
 const UNAVAILABLE = 'Subtitles are unavailable or access was revoked.';
 const UNREADABLE = 'Subtitles could not be read. Check the server connection.';
+const INVALID = 'The server returned invalid subtitle timing or text.';
+const TOO_LARGE = 'Subtitle data exceeded the supported limit.';
+const RECHECK_MS = 25000, AUTHORIZED_MS = 40000, RETRY_MS = 5000;
 
-let display: SubtitleDisplay = NOTHING;
+type Shown = Readonly<{display: SubtitleDisplay; style: CaptionStyle}>;
+let shown: Shown = Object.freeze({display: NOTHING, style: defaultCaptionStyle});
 const listeners = new Set<() => void>();
-let resource = '', cues: Cue[] | null = null, offset = 0, request: XMLHttpRequest | undefined;
 
-function show(next: SubtitleDisplay): void {
-  if (next.text === display.text && next.italic === display.italic && next.top === display.top) return;
-  display = next.text ? next : NOTHING;
-  trace(`subtitle ${display.text ? JSON.stringify(display.text.slice(0, 60)) : 'cleared'}`);
+let selection: Selection | null = null;
+let cues: CueList | null = null;
+let etag = '';
+let authorizedUntil = 0, lastRequest = 0, generation = 0, positionUs = 0;
+let request: XMLHttpRequest | undefined;
+let timer: ReturnType<typeof setInterval> | undefined;
+let report: (error: string) => void = () => {};
+
+function show(display: SubtitleDisplay, style: CaptionStyle = shown.style): void {
+  const next = display.text ? display : NOTHING;
+  if (next.text === shown.display.text && next.italic === shown.display.italic && next.top === shown.display.top && style.scale === shown.style.scale && style.background === shown.style.background) return;
+  if (next.text !== shown.display.text) trace(`subtitle ${next.text ? JSON.stringify(next.text.slice(0, 60)) : 'cleared'}`);
+  shown = Object.freeze({display: next, style});
   for (const listener of [...listeners]) listener();
 }
 
+/** The line on screen and how to draw it, for the `PorticoPlayer` view. */
 export const subtitleDisplay = {
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
-  current: (): SubtitleDisplay => display,
+  current: (): Shown => shown,
 };
-
-const whole = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && Math.floor(value) === value && value >= 0 && value <= DAY_US;
-
-function parse(text: string): Cue[] | null {
-  let document: {version?: unknown; timeDomain?: unknown; cues?: unknown};
-  try { document = JSON.parse(text); } catch { return null; }
-  if (!document || document.version !== 1 || document.timeDomain !== 'source-relative' || !Array.isArray(document.cues) || document.cues.length > CUE_LIMIT) return null;
-  const found: Cue[] = [];
-  let previous = -1;
-  // Strict about the envelope, forgiving about cues: one bad cue costs only itself.
-  for (const cue of document.cues as {startUs?: unknown; endUs?: unknown; text?: unknown; italic?: unknown; top?: unknown}[]) {
-    const start = Number(cue?.startUs), end = Number(cue?.endUs);
-    if (!cue || !whole(start) || !whole(end) || end <= start || start < previous || typeof cue.text !== 'string' || !cue.text) continue;
-    previous = start;
-    found.push({start, end, text: cue.text, italic: cue.italic === true, top: cue.top === true});
-  }
-  return found;
-}
 
 /** Turns subtitles off. */
 export function clearSubtitles(): void {
-  request?.abort();
+  generation++;
+  try { request?.abort(); } catch { /* finished */ }
   request = undefined;
-  resource = '';
+  if (timer) clearInterval(timer);
+  timer = undefined;
+  selection = null;
   cues = null;
+  etag = '';
+  authorizedUntil = 0;
+  lastRequest = 0;
   show(NOTHING);
 }
 
 /**
- * Applies the player's subtitle choice. `status` is told once per load: an empty string when the
- * track is ready, or what went wrong.
+ * Applies the player's subtitle choice for the media at `source`. `status` is told when a track
+ * is taken up (an empty string) or cannot be (why).
  */
-export function applySubtitles(command: SubtitleCommand | null | undefined, status: (error: string) => void): void {
-  if (!command || command.mode !== 'track' || typeof command.documentUrl !== 'string') { clearSubtitles(); return; }
-  offset = typeof command.offsetUs === 'number' && Number.isFinite(command.offsetUs) ? command.offsetUs : 0;
-  const wanted = JSON.stringify([command.documentUrl, command.resourceId, command.resourceRevision, command.refreshRevision]);
-  if (wanted === resource) return;
-  clearSubtitles();
-  resource = wanted;
-  const fetching = new XMLHttpRequest();
-  request = fetching;
-  fetching.open('GET', command.documentUrl);
-  fetching.setRequestHeader('Accept', 'application/json');
-  fetching.timeout = 15000;
-  const mine = () => request === fetching && resource === wanted;
-  fetching.onload = () => {
-    if (!mine()) return;
-    request = undefined;
-    const body = String(fetching.responseText ?? '');
-    if (fetching.status !== 200 || body.length > BYTE_LIMIT) { status(UNAVAILABLE); return; }
-    const parsed = parse(body);
-    if (!parsed) { status(UNREADABLE); return; }
-    cues = parsed;
-    status('');
-  };
-  fetching.onerror = fetching.ontimeout = () => { if (mine()) { request = undefined; status(UNREADABLE); } };
-  fetching.send();
+export function applySubtitles(command: SubtitleCommand | null | undefined, source: string, status: (error: string) => void): void {
+  report = status;
+  if (!command || command.mode !== 'track') { if (selection || cues) clearSubtitles(); else show(NOTHING); return; }
+  const next = selectionOf(command, source);
+  if ('error' in next) { clearSubtitles(); status(next.error); return; }
+  const current = selection;
+  // An older choice for the same playback never replaces a newer one.
+  if (current && current.binding === next.binding && next.revision < current.revision) return;
+  const same = !!current && current.url === next.url && current.binding === next.binding;
+  const refresh = !same || current!.refreshRevision !== next.refreshRevision;
+  if (!same) clearSubtitles();
+  selection = next;
+  timer ??= setInterval(() => {
+    const now = Date.now();
+    if (now > authorizedUntil) show(NOTHING);
+    if (!request && now - lastRequest >= RECHECK_MS) fetchDocument();
+  }, 1000);
+  if (refresh) fetchDocument(); else tickSubtitles(positionUs / 1e6);
 }
 
-/** Shows the cues that cover `seconds`. */
+function fetchDocument(): void {
+  const wanted = selection;
+  if (!wanted || request) return;
+  lastRequest = Date.now();
+  const attempt = generation;
+  const fetching = new XMLHttpRequest();
+  request = fetching;
+  const mine = () => request === fetching && attempt === generation;
+  /** `transient`: the server could not be asked. A grant already held stays good until it lapses. */
+  const failed = (message: string, transient: boolean) => {
+    if (!mine()) return;
+    request = undefined;
+    if (transient) { lastRequest = Date.now() - (RECHECK_MS - RETRY_MS); tickSubtitles(positionUs / 1e6); report(message); return; }
+    cues = null; etag = ''; authorizedUntil = 0;
+    show(NOTHING);
+    report(message);
+  };
+  fetching.open('GET', wanted.url);
+  fetching.withCredentials = false;
+  fetching.setRequestHeader('Accept', 'application/json');
+  // The validator of the document already held, so "still authorised, unchanged" is one header.
+  if (etag && cues) fetching.setRequestHeader('If-None-Match', etag);
+  fetching.timeout = 20000;
+  fetching.onload = () => {
+    if (!mine()) return;
+    // A redirect is never followed to its end: the answer must come from the address asked.
+    if (redirected(wanted.url, fetching.responseURL)) { failed(UNAVAILABLE, false); return; }
+    const status = fetching.status;
+    if (status === 304 && etag && cues) { request = undefined; authorizedUntil = Date.now() + AUTHORIZED_MS; report(''); tickSubtitles(positionUs / 1e6); return; }
+    if (status >= 500 && status <= 599) { failed(UNREADABLE, true); return; }
+    const json = String(fetching.getResponseHeader('Content-Type') ?? '').split(';')[0].trim().toLowerCase() === 'application/json';
+    if (status !== 200 || !json) { failed(UNAVAILABLE, false); return; }
+    const body = String(fetching.responseText ?? '');
+    if (body.length > BYTE_LIMIT) { failed(TOO_LARGE, false); return; }
+    const parsed = parseCueDocument(body);
+    if (!parsed) { failed(INVALID, false); return; }
+    request = undefined;
+    const tag = fetching.getResponseHeader('ETag');
+    etag = tag && tag.length <= 256 ? tag : '';
+    cues = parsed;
+    authorizedUntil = Date.now() + AUTHORIZED_MS;
+    report('');
+    tickSubtitles(positionUs / 1e6);
+  };
+  fetching.onerror = fetching.ontimeout = () => failed(UNREADABLE, true);
+  try { fetching.send(); } catch { failed(UNREADABLE, true); }
+}
+
+/** Shows the cues that cover `seconds` of the media's own timeline. */
 export function tickSubtitles(seconds: number): void {
-  if (!cues) { show(NOTHING); return; }
-  const now = Math.round(seconds * 1e6) - offset;
-  // The last cue starting at or before now, then back over the ones still running.
-  let low = 0, high = cues.length;
-  while (low < high) { const middle = (low + high) >> 1; if (cues[middle].start <= now) low = middle + 1; else high = middle; }
-  const active: string[] = [];
-  let italic = false, top = false;
-  for (let index = low - 1; index >= 0 && index >= low - 12; index--) {
-    const cue = cues[index];
-    if (cue.end > now) { active.unshift(cue.text); italic ||= cue.italic; top ||= cue.top; }
-  }
-  show({text: active.join('\n'), italic, top});
+  positionUs = Math.round(seconds * 1e6);
+  if (!selection || !cues || Date.now() > authorizedUntil) { show(NOTHING, selection?.style ?? shown.style); return; }
+  show(displayAt(cues, positionUs, selection.offsetUs), selection.style);
 }

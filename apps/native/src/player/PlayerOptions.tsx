@@ -18,6 +18,7 @@ import {usePreferences} from '../app/preferences';
 import {useServerPreferences} from '../app/server-preferences';
 import {engineSettings} from './engine-choice';
 import {chapterAt} from './engine-media';
+import {playerSettingsSupport} from '../bridge/native-listening-kinds';
 
 export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info' | 'engine' | 'chapters' | 'version';
 
@@ -42,7 +43,9 @@ export const optionBoxes: {key: OptionKey; label: string; icon: IconName}[] = [
   {key: 'sleep', label: defaultI18n.t('player.opt.sleep'), icon: 'sleep'},
 ];
 /** The boxes for what is playing: music has no Speed (an audiobook keeps it). */
-export const optionBoxesFor = (music: boolean) => (music ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
+/** The option boxes for what is playing. Speed is left out for music, and on a device whose
+ * player has one speed only (`playerSettingsSupport`). */
+export const optionBoxesFor = (music: boolean) => (music || !playerSettingsSupport.playbackSpeed ? optionBoxes.filter(o => o.key !== 'speed') : optionBoxes);
 const titleIds = {audio: 'player.opt.audio', subtitles: 'player.opt.subtitles', quality: 'player.opt.quality', speed: 'player.opt.speed', sleep: 'player.opt.sleepTimer', menu: 'player.opt.menu', queue: 'player.queue', info: 'player.opt.info'} as const;
 const titles = {...Object.fromEntries(Object.entries(titleIds).map(([k, id]) => [k, defaultI18n.t(id)])), engine: defaultI18n.t('settings.row.player'), chapters: defaultI18n.t('player.opt.chapters'), version: defaultI18n.t('title.version')} as Record<OptionKey, string>;
 

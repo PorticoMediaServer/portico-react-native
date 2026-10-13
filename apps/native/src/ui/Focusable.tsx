@@ -47,6 +47,12 @@ export function useMenuKey(): void {
   });
 }
 
+/** Runs the focused control's long-press action, if it has one. For a platform whose remote has
+ * a Menu key that reaches the app some other way than `useMenuKey` hears it. */
+export function runFocusedMenu(): void {
+  focusedMenu?.run();
+}
+
 /**
  * TV: a container (a Shelf with `preferFocus`) can ask the control rendered inside it to claim
  * initial focus without the item renderer knowing. An explicit `hasTVPreferredFocus` wins.

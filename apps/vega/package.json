@@ -10,6 +10,8 @@
     "install:device": "node scripts/vega.mjs install",
     "launch": "node scripts/vega.mjs launch",
     "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --import ./test/register.mjs --test test/*.test.ts",
     "lint:strings": "node ../../packages/i18n/scripts/lint-strings.mjs src ./strings-baseline.json --all --strict && node ../../packages/i18n/scripts/lint-raw-errors.mjs src",
     "clean": "node scripts/vega.mjs clean"
   },
