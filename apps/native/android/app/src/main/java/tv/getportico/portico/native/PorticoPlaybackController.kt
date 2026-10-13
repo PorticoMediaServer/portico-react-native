@@ -409,19 +409,31 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   // --- the engine ------------------------------------------------------------------------
 
+  /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
+  private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
+  private fun musicGain(engine: ExoPlayer, gain: Float) {
+    val processor = audioGains[engine]
+    if (processor != null) { processor.target = gain; engine.volume = 1f }
+    else engine.volume = gain.coerceIn(0f, 1f)
+  }
+
   /**
    * One way to build a player, for the player itself and for the second one a music crossfade
    * starts under it (which then becomes the player): the same data source, the same memory limit
    * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
+   * A player built for listening has the gain stage and always decodes to plain sound; a player
+   * for a title with a picture keeps the ordinary output, passthrough included.
    */
-  private fun build(music: Boolean, ownsFocus: Boolean): ExoPlayer {
+  private fun build(music: Boolean, ownsFocus: Boolean, listening: Boolean = music): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
     val load = DefaultLoadControl.Builder()
     // A high-bitrate stream must not take memory the interface needs on a small device.
     if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
     // A transport stream is searched further for the time asked for, so a seek in one lands.
     val extractors = DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
-    val made = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+    val gain = if (listening) PorticoAudioGain() else null
+    val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
+    val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors))
         .setLoadControl(load.build())
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(if (music) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE).build(), ownsFocus)
@@ -440,12 +452,13 @@ internal class PorticoPlaybackController(private val context: Context) {
     // (matchDisplay): the player's own request is only ever for a switch nobody sees.
     if (TelevisionDisplay.isTelevision) made.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
     made.addAnalyticsListener(bandwidth)
+    if (gain != null) audioGains[made] = gain
     return made
   }
 
   private fun engine(): ExoPlayer {
     player?.let { return it }
-    val made = build(music = false, ownsFocus = true)
+    val made = build(music = false, ownsFocus = true, listening = listeningOwner != null)
     made.addListener(listener)
     player = made
     playerIsDeck = false
@@ -498,7 +511,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val engine = player ?: return
     engine.playWhenReady = false
     engine.pauseAtEndOfMediaItems = false
-    engine.volume = 1f
+    musicGain(engine, 1f)
     engine.stop()
     engine.clearMediaItems()
     readyAnnounced = false
@@ -840,7 +853,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyRenderEdges(render: Map<String, Any?>?) {
     val engine = player ?: return
     if (render == null || engine.currentMediaItem == null) { if (nextToken != null) dropNext(); return }
-    if (incoming == null) engine.volume = PorticoAudioPlan.gain(planOf(render), settings())
+    if (incoming == null) musicGain(engine, PorticoAudioPlan.gain(planOf(render), settings()))
     val committed = render["committed"] as? Map<*, *>
     val wanted = committed ?: render["prepared"] as? Map<*, *>
     val token = wanted?.get("token") as? String
@@ -924,7 +937,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     // Built like the player itself (the memory limit on a small device, the cap at the screen's
     // size): when the fade is done it is the player.
     val deck = build(music = true, ownsFocus = false)
-    deck.volume = 0f
+    musicGain(deck, 0f)
     deck.addListener(incomingListener)
     deck.setMediaItem(MediaItem.fromUri(plan["url"] as String))
     deck.setPlaybackSpeed(player?.playbackParameters?.speed ?: 1f)
@@ -954,8 +967,8 @@ internal class PorticoPlaybackController(private val context: Context) {
       val t = if (fadeStartedAt == 0L) 0.0 else Math.min(1.0, (SystemClock.elapsedRealtime() - fadeStartedAt) / 1000.0 * rate / fadeSeconds)
       val outgoing = PorticoAudioPlan.gain(planOf(command?.get("audioRender")), settings())
       val arriving = PorticoAudioPlan.gain(nextPlan, settings())
-      old.volume = (outgoing * Math.cos(t * Math.PI / 2)).toFloat()
-      deck.volume = (arriving * Math.sin(t * Math.PI / 2)).toFloat()
+      musicGain(old, (outgoing * Math.cos(t * Math.PI / 2)).toFloat())
+      musicGain(deck, (arriving * Math.sin(t * Math.PI / 2)).toFloat())
       val over = t >= 1 || (fadeStartedAt != 0L && (heldAtEnd || old.playbackState == Player.STATE_ENDED))
       if (!over) { main.postDelayed(this, 40); return }
       // The new track is the player from here: position, facts and the next edge are its own.
@@ -964,7 +977,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       incoming = null
       old.removeListener(listener)
       old.release()
-      deck.volume = arriving
+      musicGain(deck, arriving)
       deck.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
       deck.addListener(listener)
       player = deck
@@ -1014,7 +1027,13 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */
   fun listeningOwner(owner: String, state: Map<String, Any?>, origin: String, allowed: Boolean, seek: Map<String, Any?>?, render: Map<String, Any?>?) {
-    if (listeningOwner != owner) { player?.playWhenReady = false; incoming?.playWhenReady = false }
+    if (listeningOwner != owner) {
+      player?.playWhenReady = false; incoming?.playWhenReady = false
+      // A prior video player's sink cannot apply the listening PCM gain.
+      player?.takeIf { !audioGains.containsKey(it) }?.let { old ->
+        unload(); old.removeListener(listener); old.release(); player = null; source = null
+      }
+    }
     listeningOwner = owner
     listeningState = state
     listeningOrigin = origin
@@ -1037,6 +1056,11 @@ internal class PorticoPlaybackController(private val context: Context) {
     listeningRender = null
     // Retire the transport too: a command kept from before the pause must not restart the player.
     lease?.let { release(it) }
+    // A listening/crossfade sink must not become the next video's sink or buffer policy.
+    player?.let { old -> old.removeListener(listener); old.release(); audioGains.remove(old) }
+    player = null
+    playerIsDeck = false
+    attachmentListeners.toList().forEach { it() }
   }
 
   /** A clean engine under the same lease: a retry, or a committed track started as an ordinary one. */

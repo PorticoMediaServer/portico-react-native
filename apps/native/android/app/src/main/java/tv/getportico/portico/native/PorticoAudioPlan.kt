@@ -48,7 +48,7 @@ internal object PorticoAudioPlan {
     val id = plan["id"] as? String ?: return false
     if (id.isEmpty() || id.length > 256 || !integer(plan["channels"], 1.0, 32.0)) return false
     val trim = plan["trim"] as? Map<*, *> ?: return false
-    if (!integer(trim["startFrames"], 0.0, MAX_INTEGER)) return false
+    if (!integer(trim["startFrames"], 0.0, MAX_INTEGER) || !integer(trim["endFrames"], 0.0, MAX_INTEGER)) return false
     val url = try { Uri.parse(plan["url"] as String) } catch (_: Exception) { return false }
     if (url.scheme != "http" && url.scheme != "https") return false
     if (url.scheme != origin.scheme || url.host?.lowercase() != origin.host?.lowercase() || url.port != origin.port || url.userInfo != null) return false
@@ -74,7 +74,7 @@ internal object PorticoAudioPlan {
     return null
   }
 
-  /** `10^((dB + preamp)/20)`, limited so the peak stays at or under full scale. Never above 1 here: the player's volume cannot amplify. */
+  /** `10^((dB + preamp)/20)`, limited so the peak stays at or under full scale. Amplification is applied by the PCM processor, never by player volume. */
   fun gain(plan: Map<*, *>?, settings: Map<*, *>?): Float {
     val mode = settings?.get("normalization") as? String ?: "off"
     val gain = plan?.get("gain") as? Map<*, *>
@@ -84,7 +84,7 @@ internal object PorticoAudioPlan {
     val peak = number(if (album) (gain["albumPeak"] ?: gain["trackPeak"]) else gain["trackPeak"])
     var linear = Math.pow(10.0, (db + (number(settings?.get("preampDb")) ?: 0.0)) / 20)
     if (peak != null && peak * linear > 1) linear = 1 / peak
-    return linear.coerceIn(0.0, 1.0).toFloat()
+    return linear.coerceIn(0.0, if (peak == null) 1.0 else 32.0).toFloat()
   }
 
   fun durationSeconds(plan: Map<*, *>?): Double {

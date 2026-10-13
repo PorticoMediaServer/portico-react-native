@@ -5,7 +5,7 @@
 // lease, changes queue order, configures AVAudioSession or publishes Now Playing.
 @interface PorticoAudioRender : NSObject
 @property(nonatomic,copy) void (^onFact)(NSDictionary *fact);
-// Facade: version 2 plans decode on the device (the file engine), version 1 plans play PCM windows.
+// Version 2 plans decode on the device.
 @property(nonatomic,readonly) BOOL active;
 @property(nonatomic,readonly) double position;
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source binding:(NSDictionary *)binding;
