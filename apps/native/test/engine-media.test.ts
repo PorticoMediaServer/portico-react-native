@@ -2,7 +2,7 @@
  * reports about the file. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chaptersOf, deliveriesOf, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src/player/engine-media.ts';
+import {chapterAt, chaptersOf, deliveriesOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src/player/engine-media.ts';
 
 const all = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
 const absolute = (path: string) => 'https://portico.test' + path;
@@ -11,12 +11,41 @@ const plan = (selected: any, more: Record<string, unknown> = {}): any => ({versi
 const session = (mode: string, more: Record<string, unknown> = {}): any => ({id: 's', generation: 1, streamUrl: '/v1/media/g1/file', mode, duration: 10, resumeSeconds: 0, ...more});
 const base = '/v1/media/g1/subtitles/res-1/3';
 
-test('the engine the plan named is read from the session, and anything else is no name', () => {
-  assert.equal(planEngineOf(session('direct', {engine: 'mpv'})), 'mpv');
-  assert.equal(planEngineOf(session('hls', {engine: 'native'})), 'native');
-  assert.equal(planEngineOf(session('hls', {engine: 'vlc'})), undefined);
-  assert.equal(planEngineOf(session('hls')), undefined);
-  assert.equal(planEngineOf(undefined), undefined);
+const v1 = (more: Record<string, unknown> = {}): any => ({id: 's', revision: '1', kind: 'vod', role: 'local', state: 'playing', lease: {reportEveryMs: 10000}, presentation: {generation: 1, mode: 'direct', url: '/v1/media/g1/file', startPositionMs: 0, engine: 'native', subtitles: [], decision: {}, quality: {mode: 'original'}, ...more}});
+
+test('the engine the plan named is read from the server\'s account of the same presentation', () => {
+  assert.deepEqual(planEngineOf(session('direct'), v1({engine: 'mpv'})), {engine: 'mpv', stale: false});
+  assert.deepEqual(planEngineOf(session('hls'), v1()), {engine: 'native', stale: false});
+  assert.deepEqual(planEngineOf(session('hls'), v1({generation: 2, engine: 'mpv'})), {stale: true}, 'a re-plan the service has not been given yet');
+  assert.deepEqual(planEngineOf(session('hls'), undefined), {stale: false}, 'a download: no plan');
+  assert.deepEqual(planEngineOf(undefined, v1()), {stale: false});
+});
+
+test('a track the server hands to the engine is drawn from the original it lists, or from the file being played', () => {
+  const pgs = resource({id: 'res-1', format: 'pgs', origin: 'embedded'});
+  const listed = v1({mode: 'stream', engine: 'mpv', subtitle: {trackId: 'res-1', kind: 'pgs', delivery: 'device'}, subtitles: [{trackId: 'res-1', format: 'pgs', url: base + '/original.sup'}]});
+  assert.equal(requiredSubtitleRendering(plan(pgs, {renderer: 'client'}), listed), 'pgs');
+  assert.deepEqual(engineSubtitleRender(plan(pgs, {renderer: 'client'}), session('hls'), all, absolute, undefined, listed), {kind: 'pgs', url: 'https://portico.test' + base + '/original.sup'});
+  // The server turned its own copy off: the engine reads the track from the file it is playing.
+  const off = plan(null, {mode: 'off', resources: [pgs]});
+  const inFile = v1({engine: 'mpv', subtitle: {trackId: 'res-1', kind: 'pgs', delivery: 'device'}});
+  assert.deepEqual(deviceDrawnTrack(off, inFile)?.id, 'res-1');
+  assert.equal(requiredSubtitleRendering(off, inFile), 'pgs');
+  assert.deepEqual(engineSubtitleRender(off, session('direct'), all, absolute, undefined, inFile), {kind: 'pgs', embedded: {language: 'en', title: 'English'}});
+  assert.equal(engineSubtitleRender(off, session('direct'), ['text'], absolute, undefined, inFile), undefined, 'an engine that draws only text is never given it');
+  assert.equal(deviceDrawnTrack(off, v1({subtitle: {trackId: 'res-1', kind: 'text', delivery: 'sidecar'}})), undefined, 'plain cues are the app\'s to draw');
+  assert.equal(deviceDrawnTrack(off, v1({subtitle: {trackId: 'res-1', kind: 'pgs', delivery: 'burn'}})), undefined, 'burned in: nothing to draw');
+  // A styled original lists its fonts.
+  const styled = v1({mode: 'stream', engine: 'mpv', subtitle: {trackId: 'res-1', kind: 'ass', delivery: 'device'}, subtitles: [{trackId: 'res-1', format: 'ass', url: base + '/original.ass', fontsUrl: base + '/fonts'}]});
+  assert.equal(fontsUrlOf(off, styled), base + '/fonts');
+});
+
+test('chapters carry their pictures, and the chapter a position falls in is found', () => {
+  const chapters = chaptersOf([{startMs: 0, title: 'Opening', thumbnail: '/v1/items/a/chapters/0.jpg'}, {startMs: 600000, title: 'Two', thumbnail: 'https://elsewhere.test/x.jpg'}]);
+  assert.deepEqual(chapters, [{startSeconds: 0, title: 'Opening', thumbnail: '/v1/items/a/chapters/0.jpg'}, {startSeconds: 600, title: 'Two'}]);
+  assert.equal(chapterAt(chapters, 599)?.title, 'Opening');
+  assert.equal(chapterAt(chapters, 600)?.title, 'Two');
+  assert.equal(chapterAt([], 5), undefined);
 });
 
 test('deliveries are kept only as addresses under a media grant', () => {

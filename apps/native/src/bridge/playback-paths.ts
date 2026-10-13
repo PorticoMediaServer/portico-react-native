@@ -1,5 +1,4 @@
 import type {QueueController} from '../../../../packages/client-core/src/queue-controller';
-import type {V1PlaybackApi} from '../../../../packages/client-core/src/playback-v1/legacy-bridge';
 
 /**
  * The device's installed queue player (Playback Protocol v1). One is connected at a time: it
@@ -48,10 +47,11 @@ export class PlaybackQueue {
   }
 }
 
-/** Forwards the device's `session.updated` events to the v1 bridge, so a session the server ended
- * stops at once with its reason (`PlaybackSnapshot.ended`). Returns the unsubscribe. */
-export function forwardSessionEnds(events: Readonly<{on(type: string, listener: (event: Readonly<{resource?: Readonly<{kind: string; id: string}>; data?: unknown}>) => void): () => void}>, v1: Pick<V1PlaybackApi, 'sessionUpdated'>): () => void {
+/** Forwards the device's `session.updated` events to the playback path, so a session the server
+ * ended stops at once with its reason (`PlaybackSnapshot.ended`) and one it re-planned from
+ * elsewhere loads its new presentation. Returns the unsubscribe. */
+export function forwardSessionEnds(events: Readonly<{on(type: string, listener: (event: Readonly<{resource?: Readonly<{kind: string; id: string}>; revision?: string; data?: unknown}>) => void): () => void}>, path: Readonly<{sessionUpdated(sessionId: string, revision?: string, data?: unknown): void}>): () => void {
   return events.on('session.updated', event => {
-    if (event.resource?.kind === 'session' && event.resource.id) v1.sessionUpdated(event.resource.id, event.data);
+    if (event.resource?.kind === 'session' && event.resource.id) path.sessionUpdated(event.resource.id, event.revision, event.data);
   });
 }

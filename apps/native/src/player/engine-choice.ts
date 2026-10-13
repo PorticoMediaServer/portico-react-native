@@ -74,6 +74,17 @@ const appleFileContainers = new Set(['mp4', 'm4v', 'mov', 'm4a', 'm4b', 'mp3', '
 /** Containers Media3 opens as a file. */
 const androidFileContainers = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'ts', 'm2ts', 'mp3', 'm4a', 'm4b', 'aac', 'flac', 'ogg', 'opus', 'wav']);
 
+/** A container as the server names it ("matroska,webm", "mov,mp4,m4a,3gp,3g2,mj2", "mpegts"), as the extension it is known by here. */
+function containerName(value: string | undefined): string {
+  const names = (value ?? '').toLowerCase().split(',').map(n => n.trim()).filter(Boolean);
+  if (!names.length) return '';
+  if (names.some(n => n === 'matroska' || n === 'mkv')) return 'mkv';
+  if (names.includes('webm')) return 'webm';
+  if (names.some(n => n === 'mp4' || n === 'mov' || n === 'm4v')) return 'mp4';
+  if (names.some(n => n === 'mpegts' || n === 'ts')) return 'ts';
+  return names[0]!;
+}
+
 function extensionOf(address: string): string {
   const path = address.split(/[?#]/)[0] ?? '';
   const name = path.slice(path.lastIndexOf('/') + 1);
@@ -89,9 +100,9 @@ function extensionOf(address: string): string {
  * - A server stream with no engine named (`delivery`: "direct" or "hls"): it was planned for the
  *   native player, which therefore needs nothing.
  */
-export function localRuleFacts(source: Readonly<{address: string; local: boolean; platform: 'apple' | 'android'}>): Readonly<{nativeNeeds: NativeNeed; mpvCanPlay: boolean}> {
+export function localRuleFacts(source: Readonly<{address: string; local: boolean; platform: 'apple' | 'android'; /** The file's container when what came with it says (a download's own description). */ container?: string}>): Readonly<{nativeNeeds: NativeNeed; mpvCanPlay: boolean}> {
   if (!source.local) return {nativeNeeds: 'nothing', mpvCanPlay: true};
-  const container = extensionOf(source.address);
+  const container = containerName(source.container) || extensionOf(source.address);
   const opens = (source.platform === 'apple' ? appleFileContainers : androidFileContainers).has(container);
   return {nativeNeeds: opens || !container ? 'nothing' : 'video-conversion', mpvCanPlay: true};
 }

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {PlaybackService} from '../../../packages/client-core/src/index.ts';
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
 import {FakePlaybackServer, type FakeRequest} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
-import {V1PlaybackApi} from '../../../packages/client-core/src/playback-v1/legacy-bridge.ts';
+import {NativePlayback} from '../src/player/native-playback.ts';
 import {V1QueuePlayer} from '../../../packages/client-core/src/playback-v1/v1-queue-player.ts';
 import {stepQueue} from '../src/player/queue-step.ts';
 
@@ -73,8 +73,10 @@ test('Next is sent when the entry right after the current one is unavailable but
     return body && typeof body === 'object' ? {...response, body: {...body, ...('window' in body ? {window: withheld(body.window)} : {}), ...('items' in body ? {items: withheld(body.items)} : {})}} : response;
   }};
   let serial = 0;
-  const api = new V1PlaybackApi(http, {timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const path = new NativePlayback({http, timers: {setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}`});
+  const api = path.transport;
   const playback = new PlaybackService(api, () => `r${++serial}`, {queueRequired: true, deferRecovery: true});
+  path.bind(playback);
   const player = new V1QueuePlayer({http, api, playback, viewer: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile'}, key: () => `q${++serial}-key-000000`, pendingPollMs: 10});
   const stop = player.connect();
   try {
