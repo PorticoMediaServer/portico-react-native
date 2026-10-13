@@ -15,8 +15,9 @@ import {useSession} from '../../app/session';
 import {useOffline} from '../../app/downloads';
 import {friendlyHost} from '../../app/content';
 import {say} from '../../app/errors';
+import {reportProblem, sendReport, useLastCrash} from '../../app/client-report';
 import {deviceIdentity} from '../../bridge/setup-codes';
-import {ListRow, Menu, Notice, RowGroup, ToggleRow, isTV, useTheme, type MenuItem} from '../../ui';
+import {ConfirmSheet, ListRow, Menu, Notice, RowGroup, ToggleRow, isTV, showToast, useTheme, type MenuItem} from '../../ui';
 import {ChangePasswordSheet, DevicesSection, ProfileLimitsSheet, SignOutEverywhereSheet, TwoFactorSection} from '../Security';
 import {LocalProfilesSection, useDirectAccount} from '../Profiles';
 import {DeleteAccountSheet} from '../DeleteAccount';
@@ -26,6 +27,7 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
+import {word} from '../../app/new-words';
 import {mpvAvailable} from '../../bridge/player-engines';
 import {parseEngineSetting} from '../../player/engine-choice';
 
@@ -305,11 +307,30 @@ function About({entry}: {entry?: boolean}) {
   // The installed build's version (CFBundleShortVersionString), from the native runtime.
   const [version, setVersion] = useState<string>();
   useEffect(() => { void deviceIdentity().then(d => setVersion(d.appVersion), () => {}); }, []);
+  // A report of this app's own trouble, sent to the owner of this server when the person asks.
+  const {crash, recheck} = useLastCrash();
+  const [asking, setAsking] = useState(false);
+  const serverId = session.system?.id ?? session.session?.viewer.serverId ?? '';
+  const server = session.system?.name ?? i18n.t('servers.fallbackName');
+  const send = async () => {
+    await sendReport(session.api, serverId);
+    setAsking(false);
+    recheck();
+    showToast({message: word('about.report.sent', {server}, i18n), icon: 'check'});
+  };
   return (
-    <RowGroup footer={`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`}>
-      <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
-      <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
-      <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />
-    </RowGroup>
+    <>
+      <RowGroup footer={`${i18n.t('about.legal')} ${i18n.t('about.datasetCredit')}`}>
+        <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
+        <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
+        <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />
+      </RowGroup>
+      {serverId ? (
+        <RowGroup footer={crash ? word('about.report.afterCrash', undefined, i18n) : undefined}>
+          <ListRow icon="flag" title={word('about.report.title', undefined, i18n)} subtitle={word('about.report.help', {server}, i18n)} subtitleLines={3} accessory="navigation" onPress={() => setAsking(true)} />
+        </RowGroup>
+      ) : null}
+      <ConfirmSheet open={asking} onDismiss={() => setAsking(false)} tone="default" title={word('about.report.confirmTitle', {server}, i18n)} consequence={word('about.report.confirmBody', undefined, i18n)} confirmLabel={word('about.report.send', undefined, i18n)} onConfirm={send} describeError={reportProblem} />
+    </>
   );
 }
