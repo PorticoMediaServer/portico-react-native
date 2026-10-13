@@ -154,23 +154,35 @@ enum PorticoMpvSupport {
         return mapped
     }
 
-    /// The embedded subtitle track a `render` description names: by stream index, else by its
-    /// position among the file's own subtitle tracks, else by language (and title when several
-    /// share the language). Nil when nothing or more than one track fits.
-    static func embeddedSubtitle(_ render: NSDictionary, subtitles: [[String: Any]]) -> Int? {
+    /// The codecs FFmpeg reports for each subtitle kind of the capability document.
+    static let subtitleCodecs: [String: Set<String>] = [
+        "text": ["subrip", "srt", "webvtt", "mov_text", "text", "microdvd", "sami", "ttml"],
+        "ass": ["ass", "ssa"],
+        "pgs": ["hdmv_pgs_subtitle"],
+        "vobsub": ["dvd_subtitle"],
+        "dvb": ["dvb_subtitle", "dvb_teletext"],
+    ]
+
+    /// The track inside the media itself that an `embedded` description names: of the wanted
+    /// kind, by stream index, else by its position among the file's own subtitle tracks, else by
+    /// language (and title when several share the language). Nil when nothing, or more than one
+    /// track, fits.
+    static func embeddedSubtitle(_ embedded: NSDictionary, kind: String, subtitles: [[String: Any]]) -> Int? {
+        let codecs = subtitleCodecs[kind] ?? []
         let own = subtitles.filter { !(($0["external"] as? Bool) ?? false) }
-        if let index = integer(render["streamIndex"], minimum: 0) {
-            let found = own.filter { ($0["ff-index"] as? NSNumber)?.intValue == index }
+        let ofKind = own.filter { codecs.contains((($0["codec"] as? String) ?? "").lowercased()) }
+        if let index = integer(embedded["streamIndex"], minimum: 0) {
+            let found = ofKind.filter { ($0["ff-index"] as? NSNumber)?.intValue == index }
             if found.count == 1 { return trackId(found[0]) }
         }
-        if let ordinal = integer(render["ordinal"], minimum: 0), ordinal < own.count {
+        if let ordinal = integer(embedded["ordinal"], minimum: 0), ordinal < own.count, codecs.contains(((own[ordinal]["codec"] as? String) ?? "").lowercased()) {
             return trackId(own[ordinal])
         }
-        guard let language = (render["language"] as? String)?.lowercased(), !language.isEmpty, language.count <= 35 else { return nil }
+        guard let language = (embedded["language"] as? String)?.lowercased(), !language.isEmpty, language.count <= 35 else { return nil }
         let wanted = baseLanguage(language)
-        var matches = own.filter { baseLanguage((($0["lang"] as? String) ?? "").lowercased()) == wanted }
-        if matches.count > 1, let title = render["title"] as? String, !title.isEmpty {
-            let titled = matches.filter { (($0["title"] as? String) ?? "").localizedCaseInsensitiveContains(title) || title.localizedCaseInsensitiveContains(($0["title"] as? String) ?? "\u{0}") }
+        var matches = ofKind.filter { baseLanguage((($0["lang"] as? String) ?? "").lowercased()) == wanted }
+        if matches.count > 1, let title = embedded["title"] as? String, !title.isEmpty {
+            let titled = matches.filter { (($0["title"] as? String) ?? "").localizedCaseInsensitiveCompare(title) == .orderedSame }
             if titled.count == 1 { matches = titled }
         }
         return matches.count == 1 ? trackId(matches[0]) : nil
@@ -183,8 +195,8 @@ enum PorticoMpvSupport {
         return three[base] ?? base
     }
 
-    /// The subtitle formats mpv draws itself, by the names the capability document uses.
-    static let renderedSubtitleFormats: Set<String> = ["srt", "vtt", "ass", "ssa", "pgs", "sup", "vobsub", "idx", "dvb"]
+    /// The subtitle kinds mpv draws itself, by the names the capability document uses.
+    static let renderedSubtitleKinds: Set<String> = ["text", "ass", "pgs", "vobsub", "dvb"]
 
     // MARK: - Device
 
@@ -193,5 +205,67 @@ enum PorticoMpvSupport {
     static func captionScale() -> Double {
         let size = Double(MACaptionAppearanceGetRelativeCharacterSize(.user, nil))
         return size.isFinite && size > 0 ? min(3, max(0.5, size)) : 1
+    }
+}
+
+/// Fetches the fonts attached to a styled subtitle file into a folder mpv can read them from.
+/// Bounded in number, size and time; never follows a redirect; a font that cannot be fetched is
+/// left out, and the subtitles are then drawn with the nearest system font.
+final class PorticoMpvFontFetcher: NSObject, URLSessionTaskDelegate {
+    private static let maximumFonts = 16
+    private static let maximumBytes = 24 * 1024 * 1024
+    private var session: URLSession?
+    private(set) var folder: URL?
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+
+    /// `fonts` are `{name, url}` pairs on the media's own origin and under its grant. The
+    /// completion runs on the main queue with the folder, or nil when nothing was fetched.
+    func fetch(_ fonts: [NSDictionary], media: URL, completion: @escaping (URL?) -> Void) {
+        cancel()
+        var wanted: [(String, URL)] = []
+        for font in fonts.prefix(PorticoMpvFontFetcher.maximumFonts) {
+            guard let text = font["url"] as? String, text.utf8.count <= 2048, let url = URL(string: text, relativeTo: media)?.absoluteURL, PorticoMpvSupport.subtitleFileBelongs(url, toMedia: media) else { continue }
+            let raw = (font["name"] as? String) ?? "font"
+            let safe = String(raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-" || $0 == "_" }.prefix(80).map(Character.init))
+            wanted.append((safe.isEmpty ? "font" : safe, url))
+        }
+        guard !wanted.isEmpty else { completion(nil); return }
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent("portico-mpv-fonts", isDirectory: true).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch { completion(nil); return }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 20
+        let made = URLSession(configuration: configuration, delegate: self, delegateQueue: OperationQueue.main)
+        session = made
+        folder = directory
+        var remaining = wanted.count
+        var stored = 0
+        for (position, entry) in wanted.enumerated() {
+            let task = made.dataTask(with: entry.1) { [weak self] data, response, _ in
+                // Runs on the main queue (the session's delegate queue).
+                if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty, data.count <= PorticoMpvFontFetcher.maximumBytes,
+                   (try? data.write(to: directory.appendingPathComponent("\(position)-\(entry.0)"))) != nil {
+                    stored += 1
+                }
+                remaining -= 1
+                guard remaining == 0, let self = self, self.folder == directory else { return }
+                completion(stored > 0 ? directory : nil)
+            }
+            task.resume()
+        }
+    }
+
+    /// Stops any fetch and removes the folder.
+    func cancel() {
+        session?.invalidateAndCancel()
+        session = nil
+        if let folder = folder { try? FileManager.default.removeItem(at: folder) }
+        folder = nil
     }
 }

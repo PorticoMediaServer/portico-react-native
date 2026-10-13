@@ -98,6 +98,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private var audioTrackPending: (revision: Int, track: Int, streamIndex: Int)?
 
     private let subtitleOverlay = PorticoSubtitleSelection()
+    private let fontFetcher = PorticoMpvFontFetcher()
     private var engineSubtitleKey: String?
     private var refusedSubtitleKeys = Set<String>()
     private var externalSubtitleAddress: String?
@@ -434,6 +435,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         chapters = []
         videoParams = [:]
         if engineSubtitleKey != nil { engineSubtitleKey = nil; externalSubtitleAddress = nil }
+        subtitleToken = 0
+        fontFetcher.cancel()
         core?.setFastTicks(false)
         core?.stop()
         setVideoAspect(nil)
@@ -971,14 +974,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private func removeExternalSubtitle() {
         guard let address = externalSubtitleAddress else { return }
         externalSubtitleAddress = nil
+        subtitleToken = 0
+        fontFetcher.cancel()
         for track in PorticoMpvSupport.tracks(tracks, type: "sub") where (track["external-filename"] as? String) == address {
             if let id = PorticoMpvSupport.trackId(track) { core?.command(["sub-remove", String(id)]) }
         }
     }
 
     /// Draws the chosen track with mpv itself (styled text through libass, image subtitles as
-    /// images) when the command says where the track is; otherwise the app draws the server's
-    /// plain cue document over the picture, exactly as the AVPlayer engine does.
+    /// images) when the command says where the track is (`render`); otherwise the app draws the
+    /// server's plain cue document over the picture, exactly as the AVPlayer engine does.
     private func applySubtitles() {
         guard let subtitles = scoped(command?["subtitles"]), (subtitles["mode"] as? String) == "track" else {
             clearEngineSubtitle()
@@ -990,7 +995,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         if let render = subtitles["render"] as? NSDictionary {
             // Which mpv track that is can only be said once the file is open.
             guard loaded else { return }
-            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(render["streamIndex"] ?? "")|\(render["ordinal"] ?? "")|\(render["url"] ?? "")"
+            let embedded = render["embedded"] as? NSDictionary
+            let key = "\(subtitles["resourceId"] ?? "")|\(subtitles["resourceRevision"] ?? "")|\(render["kind"] ?? "")|\(embedded?["streamIndex"] ?? "")|\(embedded?["ordinal"] ?? "")|\(embedded?["language"] ?? "")|\(render["url"] ?? "")"
             if !refusedSubtitleKeys.contains(key) {
                 if key == engineSubtitleKey {
                     core?.set("sub-delay", String(format: "%.3f", offset))
@@ -1019,15 +1025,16 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         core?.setFastTicks(true)
     }
 
+    /// Starts mpv drawing the track `render` describes: the track inside the media itself when
+    /// the description names one and the media carries it, otherwise the original subtitle file
+    /// at `url`. False when neither can be done here.
     private func startEngineSubtitle(_ render: NSDictionary, key: String) -> Bool {
-        guard let core = core, let kind = render["kind"] as? String else { return false }
-        if let format = (render["format"] as? String)?.lowercased(), !PorticoMpvSupport.renderedSubtitleFormats.contains(format) { return false }
-        if kind == "embedded" {
-            guard let track = PorticoMpvSupport.embeddedSubtitle(render, subtitles: PorticoMpvSupport.tracks(tracks, type: "sub")) else { return false }
+        guard let core = core, let kind = render["kind"] as? String, PorticoMpvSupport.renderedSubtitleKinds.contains(kind) else { return false }
+        if let embedded = render["embedded"] as? NSDictionary, let track = PorticoMpvSupport.embeddedSubtitle(embedded, kind: kind, subtitles: PorticoMpvSupport.tracks(tracks, type: "sub")) {
             core.set("sid", String(track))
             return true
         }
-        guard kind == "external", let text = render["url"] as? String, text.utf8.count <= 8192, let url = URL(string: text), let media = URL(string: source ?? "") else { return false }
+        guard let text = render["url"] as? String, text.utf8.count <= 8192, let media = URL(string: source ?? ""), let url = URL(string: text, relativeTo: media)?.absoluteURL else { return false }
         var address: String?
         if url.isFileURL {
             if media.isFileURL, PorticoMpvSupport.allowedLocalSource(url) { address = url.path }
@@ -1037,9 +1044,23 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let target = address else { return false }
         externalSubtitleAddress = target
         subtitleTokenCount += 1
-        subtitleToken = 1_000_000_000 + subtitleTokenCount
+        let token = 1_000_000_000 + subtitleTokenCount
+        subtitleToken = token
         subtitleTokenKey = key
-        core.command(["sub-add", target, "select"], token: subtitleToken)
+        let add = { [weak self] in
+            guard let self = self, self.subtitleToken == token, self.externalSubtitleAddress == target else { return }
+            self.core?.command(["sub-add", target, "select"], token: token)
+        }
+        // A styled file may name fonts that came attached to it: they are fetched first, so the
+        // first line is already drawn in the right face.
+        if kind == "ass", !url.isFileURL, let fonts = render["fonts"] as? [NSDictionary], !fonts.isEmpty {
+            fontFetcher.fetch(fonts, media: media) { [weak self] folder in
+                if let folder = folder { self?.core?.set("sub-fonts-dir", folder.path) }
+                add()
+            }
+        } else {
+            add()
+        }
         return true
     }
 
