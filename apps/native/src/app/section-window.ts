@@ -44,4 +44,4 @@ export function useSectionWindow(route: ContentRoute | null, section: ContentSec
   useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idle);
   return list;
 }
-const idle = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});
+const idle = Object.freeze({generation: 0, total: undefined, totalIsLowerBound: false, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});

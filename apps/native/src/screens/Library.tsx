@@ -19,6 +19,7 @@ import {RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
 import {categoryDestination, genreFilter, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
 import {captionFor, formatClock} from '../app/content';
+import {browseCountLabel} from '../app/browse-count';
 import {usePlayerActions, usePlayingItemId} from '../app/player-actions';
 import type {BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {useBrowseCapabilities, useBrowseWindow, type Predicate} from '../app/browse';
@@ -178,7 +179,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     else refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scan.finished]);
-  const titleBlock = <PageHeader eyebrow={isTV && engine && browse.snapshot.total !== undefined ? [system?.name, i18n.t('lib.count', {count: browse.snapshot.total, pivot: capabilities?.resolvedPivot?.id ?? pivot ?? ''})].filter(Boolean).join(' · ') : system?.name} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
+  const titleBlock = <PageHeader eyebrow={isTV && engine && browse.snapshot.total !== undefined ? [system?.name, browseCountLabel(i18n.t, browse.snapshot.total, capabilities?.resolvedPivot?.id ?? pivot ?? '', browse.snapshot.totalIsLowerBound)].filter(Boolean).join(' · ') : system?.name} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
   const tabStrip = <Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={false} />;
   const header = (
     <>
@@ -213,7 +214,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           ) : (
             <>
               {header}
-              {published?.pivot === pivot ? <View style={{paddingHorizontal: space.page, paddingVertical: space.md}}><Button variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View> : capabilities ? <BrowseBar owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} onSaveView={opens ? undefined : saveView} /> : <View style={{height: space.lg}} />}
+              {published?.pivot === pivot ? <View style={{paddingHorizontal: space.page, paddingVertical: space.md}}><Button variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View> : capabilities ? <BrowseBar owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} onSaveView={opens ? undefined : saveView} /> : <View style={{height: space.lg}} />}
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
             </>
           ))}

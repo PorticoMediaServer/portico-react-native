@@ -100,4 +100,4 @@ export function useEpisodeWindow(where: EpisodeSelection | null, seed: EpisodeSe
   const snapshot = useSyncExternalStore(subscribe, () => list?.getSnapshot() ?? idle);
   return {list, snapshot};
 }
-const idle = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});
+const idle = Object.freeze({generation: 0, total: undefined, totalIsLowerBound: false, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});

@@ -20,6 +20,8 @@ export type BrowsePagesSnapshot = Readonly<{
   entries: readonly ContentEntry[];
   /** How many titles the query matches, once the server has said. */
   total?: number;
+  /** `total` is a lower bound (a broad filter the server counts only up to 10,000): "10,000+". */
+  totalIsLowerBound?: boolean;
   hasMore: boolean;
   loadingMore: boolean;
   error?: unknown;
@@ -85,7 +87,7 @@ export class BrowsePages {
       if (epoch !== this.epoch) return;
       const seen = new Set(this.snapshot.entries.map(entry => entry.id));
       this.cursor = page.pageInfo.nextCursor;
-      this.publish({entries: Object.freeze([...this.snapshot.entries, ...page.entries.filter(entry => !seen.has(entry.id))]), total: page.pageInfo.total, hasMore: page.pageInfo.hasMore && !!page.pageInfo.nextCursor, loadingMore: false});
+      this.publish({entries: Object.freeze([...this.snapshot.entries, ...page.entries.filter(entry => !seen.has(entry.id))]), total: page.pageInfo.total, totalIsLowerBound: page.pageInfo.totalIsLowerBound, hasMore: page.pageInfo.hasMore && !!page.pageInfo.nextCursor, loadingMore: false});
     } catch (error) {
       if (epoch !== this.epoch || work.signal.aborted) return;
       // The library changed under the list: read it again from its start, as long as it was.
@@ -122,19 +124,20 @@ export class BrowsePages {
     try {
       const entries: ContentEntry[] = [];
       const seen = new Set<string>();
-      let cursor = '', total = 0, hasMore = false;
+      let cursor = '', total = 0, totalIsLowerBound = false, hasMore = false;
       do {
         const page = await this.read(query, this.pageSize, cursor, work.signal);
         if (epoch !== this.epoch) return;
         for (const entry of page.entries) if (!seen.has(entry.id)) { seen.add(entry.id); entries.push(entry); }
         total = page.pageInfo.total;
+        totalIsLowerBound = page.pageInfo.totalIsLowerBound;
         cursor = page.pageInfo.nextCursor;
         hasMore = page.pageInfo.hasMore && !!cursor;
       } while (hasMore && entries.length < wanted);
       if (hold) await hold();
       if (epoch !== this.epoch || this.disposed) return;
       this.cursor = cursor;
-      this.publish({status: 'ready', entries: Object.freeze(entries), total, hasMore, loadingMore: false, error: undefined});
+      this.publish({status: 'ready', entries: Object.freeze(entries), total, totalIsLowerBound, hasMore, loadingMore: false, error: undefined});
     } catch (error) {
       if (epoch !== this.epoch || work.signal.aborted || this.disposed) return;
       // A quiet reread that fails leaves what is on screen as it is, and says nothing.

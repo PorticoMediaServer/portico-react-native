@@ -112,7 +112,7 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
 function sameVocabulary(a: BrowseCapabilities | undefined, b: BrowseCapabilities): boolean {
   return !!a && JSON.stringify(a) === JSON.stringify(b);
 }
-const idleSnapshot = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined, positionIndex: undefined, refreshing: false});
+const idleSnapshot = Object.freeze({generation: 0, total: undefined, totalIsLowerBound: false, status: 'idle' as const, error: undefined, positionIndex: undefined, refreshing: false});
 
 export function useFacets(libraryId: string | undefined) {
   const {api} = useSession();

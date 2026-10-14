@@ -9,6 +9,7 @@ import {useArtwork, viewerScope} from '../app/content';
 import {viewerKey} from '../app/viewer-scope';
 import {requestId} from '../app/detail';
 import {useI18n} from '../app/i18n';
+import {songCountLabel} from '../app/browse-count';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
 import {Card, Divider, ListRow, Notice, Skeleton, StateView, useTheme} from '../ui';
@@ -43,7 +44,7 @@ export function GenreCard({libraryId, entry, width, onPress}: {libraryId: string
     );
     return () => { live = false; };
   }, [api, libraryId, entry.title, key, cover]);
-  return <Card title={entry.title} subtitle={entry.count ? i18n.t('title.songCount', {count: entry.count}) : undefined} source={artwork(cover)} shape="square" width={width} icon={cover ? undefined : 'category'} onPress={onPress} />;
+  return <Card title={entry.title} subtitle={entry.count ? songCountLabel(i18n.t, entry.count, entry.countIsLowerBound) : undefined} source={artwork(cover)} shape="square" width={width} icon={cover ? undefined : 'category'} onPress={onPress} />;
 }
 
 /** The viewer's playlists, as on Saved. */

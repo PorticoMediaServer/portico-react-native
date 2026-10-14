@@ -6,6 +6,7 @@ import {activeRangePreset, browseValueLabel, fieldSelectionSummary, filterContro
 import {fieldLabel, predicateLabel, quickFilterLabel, useFacets, type Predicate} from '../app/browse';
 import {Button, Divider, Field, Focusable, ListRow, Menu, Notice, Sheet, Surface, Text, alpha, useTheme, type FocusableHandle, type MenuItem} from '../ui';
 import {say} from '../app/errors';
+import {browseCountLabel} from '../app/browse-count';
 import {useI18n, type I18n} from '../app/i18n';
 import {RowGuide} from './title/RowGuide';
 
@@ -20,7 +21,7 @@ import {RowGuide} from './title/RowGuide';
  * its values as a second level. On television that is a panel at the side, two short lists deep,
  * and nothing in it needs typing.
  */
-export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Television: just Sort and Filter as two buttons for the tabs' row; every filter is in the side panel. */ inline?: boolean; /** Drawn after the buttons in the inline form (Jump to). */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** Owners also get the availability filter. */ owner?: boolean}) {
+export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, totalIsLowerBound = false, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Television: just Sort and Filter as two buttons for the tabs' row; every filter is in the side panel. */ inline?: boolean; /** Drawn after the buttons in the inline form (Jump to). */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** `total` is a lower bound (a broad filter counted only up to 10,000): "10,000+". */ totalIsLowerBound?: boolean; /** Owners also get the availability filter. */ owner?: boolean}) {
   const {space, isTV} = useTheme();
   const i18n = useI18n();
   const model = useMemo(() => toolbarModel(capabilities, capabilities.library.kind, predicates, sort, {owner, textEntry: !isTV}), [capabilities, predicates, sort, owner, isTV]);
@@ -136,7 +137,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
         </ScrollView>
         </RowGuide>
       ) : null}
-      {typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={{paddingHorizontal: space.page}}>{i18n.t('lib.count', {count: total, pivot: pivotId})}</Text> : null}
+      {typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={{paddingHorizontal: space.page}}>{browseCountLabel(i18n.t, total, pivotId, totalIsLowerBound)}</Text> : null}
       <Sheet open={saving} onClose={() => setSaving(false)} title={i18n.t('lib.saveViewTitle')} subtitle={i18n.t('lib.saveViewSubtitle')} kind="form" cancelLabel={i18n.t('lib.cancel')}
         primary={{label: i18n.t('lib.save'), loading: saveBusy, disabled: !viewName.trim() || saveBusy, onPress: () => void saveView()}}>
         <View style={{gap: space.md}}>

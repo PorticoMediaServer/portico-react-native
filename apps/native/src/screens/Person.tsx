@@ -6,6 +6,7 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import {createWindowedCollection, type PageResult, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import {readPerson, type PersonCredit, type PersonPage, type PersonRole} from '../../../../packages/client-core/src/people';
 import {captionFor, iconFor, progressFor, shapeFor, useArtwork, viewerScope} from '../app/content';
+import {titleCountLabel} from '../app/browse-count';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
@@ -69,7 +70,7 @@ function creditSource(api: Parameters<typeof readPerson>[0], scope: Parameters<t
   };
 }
 
-const idleSnapshot = Object.freeze({generation: 0, total: undefined, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});
+const idleSnapshot = Object.freeze({generation: 0, total: undefined, totalIsLowerBound: false, status: 'idle' as const, error: undefined as unknown, positionIndex: undefined, refreshing: false});
 
 /**
  * A person on the shared hero (Spec — Title Pages §1): circular portrait, "known for" roles, life
@@ -169,7 +170,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
       <View style={{paddingHorizontal: space.page, gap: space.sm, marginBottom: space.md}}>
         <View style={{flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between'}}>
           <Text variant="heading">{i18n.t('title.credits')}</Text>
-          {sortedOn ? (sorted.snapshot.total !== undefined ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: sorted.snapshot.total})}</Text> : null) : first.page && first.page.pageInfo.total > 0 ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: first.page.pageInfo.total})}</Text> : null}
+          {sortedOn ? (sorted.snapshot.total !== undefined ? <Text variant="caption" tone="tertiary">{titleCountLabel(i18n.t, sorted.snapshot.total, sorted.snapshot.totalIsLowerBound)}</Text> : null) : first.page && first.page.pageInfo.total > 0 ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: first.page.pageInfo.total})}</Text> : null}
         </View>
         {sortedOn ? null : <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />}
       </View>
