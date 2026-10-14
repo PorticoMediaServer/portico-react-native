@@ -111,7 +111,8 @@ export function SearchScreen() {
 
   const onLayout = useCallback((e: LayoutChangeEvent) => setContentWidth(e.nativeEvent.layout.width), []);
 
-  const counts = useMemo(() => new Map(snapshot.groups.map(g => [g.id, g.totalCount] as const)), [snapshot.groups]);
+  // A total the server only estimated (several words over a large library) is not shown.
+  const counts = useMemo(() => new Map(snapshot.groups.flatMap(g => (g.totalCountExact ? [[g.id, g.totalCount] as const] : []))), [snapshot.groups]);
 
   const query = snapshot.query?.q ?? '';
   const hasQuery = text.trim().length > 0;
@@ -179,7 +180,7 @@ export function SearchScreen() {
             {isTV ? controls : null}
             <View style={{flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: space.page, marginBottom: space.md}}>
               <Text variant="heading" lines={1} style={{flex: 1}}>{i18n.t(searchGroupLabel(focused.id))}</Text>
-              <Text variant="caption" tone="tertiary">{total > shown ? i18n.t('web.search.someOf', {shown, total}) : i18n.t('web.search.results', {count: total})}</Text>
+              {focused.totalCountExact ? <Text variant="caption" tone="tertiary">{total > shown ? i18n.t('web.search.someOf', {shown, total}) : i18n.t('web.search.results', {count: total})}</Text> : null}
             </View>
           </>}
         />
@@ -360,7 +361,7 @@ function GroupShelf({section, onSeeAll, preferFocus}: {section: SearchGroupResul
       keyExtractor={e => e.id}
       renderItem={({item}) => renderCard(item)}
       onSeeAll={onSeeAll}
-      seeAllLabel={section.totalCount ? i18n.t('shelf.seeAllCount', {count: section.totalCount}) : i18n.t('shelf.seeAll')}
+      seeAllLabel={section.totalCount && section.totalCountExact ? i18n.t('shelf.seeAllCount', {count: section.totalCount}) : i18n.t('shelf.seeAll')}
       preferFocus={preferFocus}
     />
   );
