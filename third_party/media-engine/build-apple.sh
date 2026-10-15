@@ -42,6 +42,8 @@ NATIVE="$ME_ROOT/../../apps/native"
 command -v xcodebuild >/dev/null || me_die "Xcode is not installed (xcodebuild is missing)."
 XCODE_VERSION=$(xcodebuild -version 2>/dev/null | sed -n 's/^Xcode //p')
 [[ -n "$XCODE_VERSION" ]] || me_die "xcodebuild did not report a version. Run: sudo xcode-select -s /Applications/Xcode.app"
+# Xcode's developer folder: the compilers and SDKs live here, and it is mapped to a neutral name.
+DEVELOPER_DIR_PATH=$(xcode-select -p)
 XCODE_MIN=$(me_lock tool xcode minimum)
 python3 -I -c 'import sys; a=[int(x) for x in sys.argv[1].split(".")]; b=[int(x) for x in sys.argv[2].split(".")]; sys.exit(0 if a>=b else 1)' \
     "$XCODE_VERSION" "$XCODE_MIN" || me_die "Xcode $XCODE_VERSION is older than the required $XCODE_MIN."
@@ -109,7 +111,8 @@ set_target() {
     # Joined forms (--target=, -isysroot<dir>): OpenSSL's Configure would read a separate
     # argument as a target name. The SDK path has no spaces in a standard Xcode install.
     [[ "$SYSROOT" != *" "* ]] || me_die "The SDK path contains a space: $SYSROOT"
-    CFLAGS_T="--target=$TRIPLE -isysroot$SYSROOT -fPIC -fstack-protector-strong"
+    # No build-machine folders in the libraries (lib/common.sh, "Neutral paths").
+    CFLAGS_T="--target=$TRIPLE -isysroot$SYSROOT -fPIC -fstack-protector-strong $(me_path_map_cflags "$DEVELOPER_DIR_PATH")"
     # Room for the install names the frameworks get later; only libraries actually used are linked.
     LDFLAGS_T="--target=$TRIPLE -isysroot$SYSROOT -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     write_cross_file
@@ -161,6 +164,8 @@ meson_build() {
     meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
+    # mpv writes its configure command line and config folder into config.h.
+    [[ -f "$dir/config.h" ]] && me_neutralize "$DEVELOPER_DIR_PATH" "$dir/config.h"
     ninja -C "$dir" -j "$ME_JOBS"
     ninja -C "$dir" install
 }
@@ -193,8 +198,13 @@ build_openssl() {
     CC="$CC" ./Configure "$OSSL" --config="$ME_ROOT/apple/openssl-targets.conf" \
         --prefix="$PREFIX" --libdir=lib --openssldir=/dev/null/portico-no-openssl-dir \
         $(me_openssl_common_flags) $CFLAGS_T $LDFLAGS_T
-    make -j"$ME_JOBS" build_libs
-    make install_dev
+    # Engines and modules are not built (no-engine, no-module); their folders must not name the
+    # work directory either. The "compiler:" line OpenSSL_version() reports is made neutral.
+    local dirs=(ENGINESDIR=/dev/null/portico-no-engines MODULESDIR=/dev/null/portico-no-modules)
+    make "${dirs[@]}" crypto/buildinf.h
+    me_neutralize "$DEVELOPER_DIR_PATH" crypto/buildinf.h
+    make -j"$ME_JOBS" "${dirs[@]}" build_libs
+    make "${dirs[@]}" install_dev
 }
 
 build_fribidi() { meson_build fribidi $(me_fribidi_common_flags); }
@@ -224,6 +234,11 @@ build_lcms2() { meson_build lcms2 $(me_lcms2_common_flags); }
 build_libdovi() {
     cd "$ME_WORK/src/libdovi/dolby_vision"
     export CARGO_HOME="$ME_WORK/cargo-home"
+    # Source folders in panic messages: neutral names (flags separated by 0x1f).
+    local flags=() f
+    while read -r f; do flags+=("$f"); done < <(me_rust_remap_flags)
+    unset RUSTFLAGS
+    export CARGO_ENCODED_RUSTFLAGS="$(IFS=$'\x1f'; printf '%s' "${flags[*]}")"
     rustup target list --installed | grep -qx "$RUST" || rustup target add "$RUST"
     cargo cinstall --profile release-deploy --locked --offline --target "$RUST" --library-type cdylib \
         --prefix "$PREFIX" --libdir "$PREFIX/lib" --target-dir "$BUILD/libdovi" -j "$ME_JOBS"
@@ -285,6 +300,8 @@ build_ffmpeg() {
         $(me_ffmpeg_common_flags) \
         --enable-videotoolbox \
         ${asm[@]+"${asm[@]}"}
+    # av*_configuration() reports this command line: neutral folders only.
+    me_neutralize "$DEVELOPER_DIR_PATH" config.h
     make -j"$ME_JOBS"
     make install
     if [[ "$ARCH" == arm64 ]]; then
@@ -329,6 +346,7 @@ component_key() {
         echo "$previous"; echo "$XCODE_VERSION"
         python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["components"][sys.argv[2]], sort_keys=True))' "$ME_LOCK" "$name"
         declare -f "build_$name" set_target write_cross_file meson_build cmake_apple
+        declare -f me_path_forms me_path_map_pairs me_path_map_cflags me_rust_remap_flags me_neutralize
         declare -f me_ffmpeg_common_flags me_openssl_common_flags me_mpv_common_flags me_libplacebo_common_flags \
             me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags \
             me_dav1d_common_flags me_lcms2_common_flags
@@ -513,7 +531,8 @@ for slice in $SLICES; do
         done
         links=$(otool -L "$fw/$name")
         [[ "$links" != *"$ME_WORK"* ]] || me_die "$name still refers to the build directory: $links"
-        strip -x "$fw/$name"
+        # -S as well: the debug map's object-file paths (N_OSO) name the build folders.
+        strip -x -S "$fw/$name"
         if [[ "$stem" == mpv ]]; then
             mkdir -p "$fw/Headers" "$fw/Modules"
             cp "$ME_WORK/prefix/$PLATFORM/$slice-arm64/include/mpv/"*.h "$fw/Headers/"
@@ -555,5 +574,5 @@ done
 rm -rf "$ME_ROOT/apple/Frameworks"; mkdir -p "$ME_ROOT/apple/Frameworks"
 cp -R "$XC"/*.xcframework "$ME_ROOT/apple/Frameworks/"
 
-python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --write-manifest
+python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --write-manifest
 me_say "Done. Open the Xcode workspaces; the PorticoMediaEngine package now resolves from apple/Frameworks."

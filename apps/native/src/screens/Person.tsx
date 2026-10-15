@@ -138,9 +138,14 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   const died = person?.deathDate ? i18n.date(person.deathDate, 'long') : undefined;
   const dates = born && died ? i18n.t('title.lifespan', {born, died}) : born ? i18n.t('title.born', {date: born}) : undefined;
   const knownFor = person && first.page && first.page.pageInfo.total > person.knownFor.length ? person.knownFor : [];
-  const renderEntry = (entry: ContentEntry, w?: number, caption?: string) => (
+  // Stable renderers: each memoised row of the windowed grid redraws only when its own cards change.
+  const renderEntry = useCallback((entry: ContentEntry, w?: number, caption?: string) => (
     <Card title={entry.title} subtitle={caption ?? captionFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} width={w} progress={progressFor(entry)} watched={entry.watched === true} unavailable={entry.available === false} icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)} onPress={() => open(entry)} onLongPress={() => open(entry, 'more')} />
-  );
+  ), [artwork, open]);
+  const renderCredit = useCallback((item: PersonCredit | ContentEntry, w: number) => {
+    if (!('media' in item)) return renderEntry(item, w);
+    return renderEntry(item.media, w, item.creditKind === 'cast' ? (item.character ? i18n.t('title.creditAs', {character: item.character}) : item.role) : item.role || item.department);
+  }, [renderEntry, i18n]);
   const roles = [
     {id: 'all', label: i18n.t('title.creditsAll')},
     {id: 'cast', label: i18n.t('title.creditsCast')},
@@ -195,11 +200,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
           total={sortedOn ? sorted.snapshot.total : snapshot.total}
           itemWidth={metrics.posterWidth}
           aspect={aspect}
-          renderItem={(item, w) => {
-            if (!('media' in item)) return renderEntry(item, w);
-            const c = item;
-            return renderEntry(c.media, w, c.creditKind === 'cast' ? (c.character ? i18n.t('title.creditAs', {character: c.character}) : c.role) : c.role || c.department);
-          }}
+          renderItem={renderCredit}
           header={header}
           footer={footer}
           generation={snapshot.generation}

@@ -158,8 +158,8 @@ const asWindow = ({width, height, scale, fontScale}: Window): Window => ({width,
 
 /** The design canvas, in place of the window. */
 export function useWindowDimensions(): Window {
-  const window = Vega.useWindowDimensions();
-  return useMemo(() => asWindow(canvasFor(window)), [window.width, window.height, window.scale, window.fontScale]);
+  const {width, height, scale, fontScale} = Vega.useWindowDimensions();
+  return useMemo(() => asWindow(canvasFor({width, height, scale, fontScale})), [width, height, scale, fontScale]);
 }
 
 const sdkDimensions = Vega.Dimensions;

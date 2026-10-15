@@ -29,6 +29,9 @@ export type ContentStackParams = {
   Account: undefined;
   Servers: undefined;
   About: undefined;
+  /** Settings › About › Open-source licenses, and one component's licence (`id` from the generated list). */
+  Licences: undefined;
+  Licence: {id: string};
   Notifications: undefined;
   Downloads: undefined;
   /** `code`: a Watch Together invite code to join (portico://together/join/<c>). */

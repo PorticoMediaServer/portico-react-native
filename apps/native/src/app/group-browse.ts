@@ -46,9 +46,8 @@ export function useGroupBrowse(scope: GroupScope | undefined) {
   const sort = useMemo<BrowseSortSelection>(() => (!choice.sort && keepsOwn ? {field: groupOrderSort, direction: 'asc'} : offeredBrowseSort(capabilities, choice.sort)), [capabilities, choice.sort, keepsOwn]);
   /** The group's own order is the one in use: no sort chosen, and no filter or one the server keeps it under. */
   const ownSelected = !choice.sort && (!engaged || keepsOwn);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   // (The list store types its conditions as single ones; it sends whatever it is given under one conjunction, a saved view's whole expression included.)
-  const predicates = useMemo<readonly Predicate[]>(() => (scope ? (groupPredicates(scope, choice.predicates as readonly Predicate[]) as readonly Predicate[]) : []), [key, choice.predicates]);
+  const predicates = useMemo<readonly Predicate[]>(() => (scope ? (groupPredicates(scope, choice.predicates as readonly Predicate[]) as readonly Predicate[]) : []), [key, choice.predicates]); // eslint-disable-line react-hooks/exhaustive-deps -- `key` names everything groupPredicates reads from a scope, which arrives as a new object each render
   const change = useCallback((patch: Partial<GroupChoice>) => setHeld(current => ({key, choice: {...(current.key === key ? current.choice : recalled), ...patch}})), [key, recalled]);
   const setSort = useCallback((next: BrowseSortSelection | undefined) => {
     if (memoryId) memory.rememberSort(memoryId, groupMemoryTab, next ? {field: next.field, direction: next.direction} : undefined);

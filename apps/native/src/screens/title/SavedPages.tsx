@@ -9,13 +9,12 @@ import {say} from '../../app/errors';
 import {useI18n} from '../../app/i18n';
 import {useOpenEntry} from '../../app/open';
 import {useInvoker} from '../../app/playback-events';
-import {sequenceContainer} from '../../app/container-play';
+import {groupSequence, occurrenceSequence, savedSequence, sequenceContainer, type SequenceContainer} from '../../app/container-play';
 import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
-import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, dismissToast, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
+import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
-import {VIEW_PLAY_LIMIT} from '../../app/view-play';
-import {useGatherView, usePlaylist, useSavedResource} from './saved-hooks';
+import {usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
 import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
 import {useAppendedPages, useEndReached} from '../../app/paging';
@@ -26,19 +25,18 @@ import {GroupBar, GroupResults} from '../GroupBrowse';
 
 const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
 
-/** Plays a list from the start (or shuffled) and remembers the control for TV focus return. */
+/** Plays a list from its first entry and remembers the control for TV focus return. */
 function usePlayList() {
   const player = usePlayerActions();
   const invoker = useInvoker();
-  // `container`: on Playback v1 the playlist or collection plays as one server request (the
-  // server shuffles the whole set for Shuffle); the entries are what a failed v1 request plays.
-  // Without one (a saved view) Shuffle shuffles the loaded entries locally.
-  const play = useCallback((list: readonly ContentEntry[], shuffle = false, container?: {kind: string; id: string}) => {
+  // `container`: the playlist, the collection or saved view, or the sorted or filtered list, as
+  // one server request, however long (the server shuffles the whole of it for Shuffle). The
+  // entries are what the player shows while it starts.
+  const play = useCallback((list: readonly ContentEntry[], container: SequenceContainer | undefined) => {
     const playable = list.filter(e => e.playback);
     if (!playable.length) return;
     invoker.remember();
-    const resolved = sequenceContainer(container?.kind, container?.id, {shuffle});
-    player.playSequence(shuffle && !resolved ? shuffled(playable) : playable, 0, 0, resolved);
+    player.playSequence(playable, 0, 0, container);
   }, [player, invoker]);
   return {play, invoker};
 }
@@ -84,7 +82,11 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   // M26 item 5: playlists have no custom art — the hero shows a 2×2 mosaic of
   // the first 4 item posters or covers (nothing when no item has art).
   const mosaic = mosaicPaths({}, media);
-  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(media, true, {kind: 'playlist', id: playlistId})}] : [];
+  // Sorted or filtered, Play and Shuffle play that list (the server's query, however long);
+  // otherwise the playlist plays whole, in its own order.
+  const listed = group.engaged ? sorted.snapshot.entries : media;
+  const sequenceOf = (shuffle: boolean) => groupSequence(group, {shuffle}) ?? sequenceContainer('playlist', playlistId, {shuffle});
+  const secondary: HeroAction[] = listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(listed, sequenceOf(true))}] : [];
   // M32 (web parity): playlist management the server offers — windowed
   // reorder and remove — through the service's intents. A failure is
   // presented, never thrown at the page.
@@ -121,7 +123,15 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
     const index = ids.indexOf(occurrenceId);
     if (id === 'up') move(index, -1);
     else if (id === 'down') move(index, 1);
-    else if (id === 'remove') void change(() => mutate({action: 'remove', entryId: occurrenceId}));
+    else if (id === 'remove') {
+      const title = menuTitle;
+      void change(async () => {
+        const receipt = await mutate({action: 'remove', entryId: occurrenceId});
+        // The server's Undo puts this same entry back where it was, while it offers it.
+        const undoToken = receipt?.undoToken;
+        if (undoToken) showToast({message: i18n.t('saved.removal.fromPlaylist', {title: title ?? ''}), action: {label: i18n.t('action.undo'), onPress: () => void mutate({action: 'restore', undoToken}).catch(() => showToast({message: i18n.t('saved.removal.undoFailed', {title: title ?? ''}), icon: 'warning'}))}});
+      });
+    }
   };
   const menuEntry = rowMenu ? occurrences.find(o => o.id === rowMenu) : undefined;
   const menuTitle = menuEntry && !menuEntry.hidden ? menuEntry.media.title : undefined;
@@ -157,7 +167,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
           progress={progressFor(m)}
           watched={m.watched === true && m.kind !== 'song'}
           unavailable={m.available === false}
-          onPress={() => (m.playback ? play(media.slice(from.get(m) ?? 0), false, {kind: 'playlist', id: playlistId}) : open(m))}
+          onPress={() => (m.playback ? play(media.slice(from.get(m) ?? 0), occurrenceSequence(playlistId, occurrence.id)) : open(m))}
           onLongPress={() => (managed ? setRowMenu(occurrence.id) : open(m, 'more'))}
         />
       </View>
@@ -188,7 +198,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
               title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback}
               facts={[count !== undefined && count > 0 ? i18n.t('count.items', {count}) : undefined, length ? formatDuration(length) : undefined]}
               synopsis={playlist?.summary || undefined}
-              primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(media, false, {kind: 'playlist', id: playlistId})} : undefined}
+              primary={listed.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => play(listed, sequenceOf(false))} : undefined}
               secondary={secondary}
             />
             {snapshot.phase === 'error' && !sections.length ? (
@@ -204,7 +214,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
             {occurrences.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={group.engaged ? <GroupResults group={group} results={sorted} as="list" /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
+        ListFooterComponent={group.engaged ? <GroupResults group={group} results={sorted} as="list" playsList /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
       />
       <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
       {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
@@ -214,9 +224,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
 
 /**
  * A personal collection or saved view on the shared hero: "Collection · N items", Play and
- * Shuffle, then the titles as cards in their own shapes. A collection plays as one server
- * request. A saved view is a stored query the server cannot yet play by name, so Play and
- * Shuffle first read the rest of the view (`gatherView`) and then play all of it.
+ * Shuffle, then the titles as cards in their own shapes. Either plays whole as one server request
+ * by its id, in the order it is shown; sorted or filtered, the list shown plays.
  */
 export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParams, 'SavedResource'>}) {
   const {resourceId, title} = route.params;
@@ -251,28 +260,9 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const sorted = useGroupPages(group);
   const loadMore = () => { if (!group.engaged && !snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); };
   const onScroll = useEndReached(loadMore);
-  const gather = useGatherView(resourceId);
-  const gathering = useRef(false);
-  const start = async (shuffle: boolean) => {
-    if (!view) { play(media, shuffle, {kind: 'collection', id: resourceId}); return; }
-    // Everything is on screen already: nothing more to read.
-    if (!snapshot.nextCursor) { play(media, shuffle); return; }
-    if (gathering.current) return;
-    gathering.current = true;
-    showToast({message: i18n.t('saved.view.gathering')});
-    try {
-      const whole = await gather(media, snapshot.nextCursor);
-      play(whole.entries, shuffle);
-      if (whole.complete) dismissToast();
-      else showToast({message: i18n.t('saved.view.partial', {count: VIEW_PLAY_LIMIT})});
-    } catch (e) {
-      // Leaving the page cancels the read; anything else is said, and nothing half-known plays.
-      if ((e as {name?: string} | null)?.name !== 'AbortError') showToast({message: say(e, 'saved', 'load'), icon: 'warning'});
-    } finally {
-      gathering.current = false;
-    }
-  };
-  const secondary: HeroAction[] = media.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => void start(true)}] : [];
+  const listed = group.engaged ? sorted.snapshot.entries : media;
+  const start = (shuffle: boolean) => play(listed, groupSequence(group, {shuffle}) ?? savedSequence(resourceId, {shuffle}));
+  const secondary: HeroAction[] = listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => start(true)}] : [];
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
@@ -301,7 +291,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
               title={resource?.name ?? title}
               facts={[resource && resource.entryCount > 0 ? i18n.t('count.items', {count: resource.entryCount}) : undefined]}
               synopsis={resource?.summary || undefined}
-              primary={media.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => void start(false)} : undefined}
+              primary={listed.some(m => m.playback) ? {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => start(false)} : undefined}
               secondary={secondary}
             />
             {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('title.retry')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
@@ -335,13 +325,3 @@ function RowsSkeleton() {
   const {space} = useTheme();
   return <View style={{gap: space.sm, paddingHorizontal: space.page}}>{[0, 1, 2, 3].map(i => <Skeleton key={i} height={56} />)}</View>;
 }
-
-function shuffled<T>(items: readonly T[]): T[] {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j]!, out[i]!];
-  }
-  return out;
-}
-

@@ -63,7 +63,9 @@ export function useAccountDirectory({credentials, snapshot, origin, enabled, fet
     });
     // Returning to the foreground: the version check, only when it is due.
     const sub = AppState.addEventListener('change', state => { if (state === 'active') void watcher.current?.foreground().catch(() => {}); });
-    return () => { live = false; readEpoch.current++; sub.remove(); };
+    // The counter itself, not its value: leaving moves it on so a read still in flight is dropped.
+    const epoch = readEpoch;
+    return () => { live = false; epoch.current++; sub.remove(); };
   }, [owner, accountId, origin, listServers, fetcher]);
 
   /** Settings › Refresh Servers (and a chooser's Try again): one check now, then the list if it moved. */

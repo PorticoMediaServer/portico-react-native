@@ -11,6 +11,8 @@ import {groupRecordings, isExceptionBadge, dvrPaddings, dvrLimits} from './chann
 import {Badge, Button, ConfirmSheet, Divider, ListRow, Menu, Notice, Page, PageHeader, ProgressBar, Segmented, Sheet, StateView, Surface, Text, afterOverlaysClose, useEntryFocus, useTheme} from '../ui';
 import {closeLanguageMenu} from './settings/language-picker-handoff';
 
+const NO_RECORDINGS: readonly Recording[] = [];
+
 type View_ = 'upcoming' | 'recorded' | 'rules' | 'storage';
 
 /**
@@ -54,7 +56,7 @@ export function RecordingsScreen({eyebrow, picker}: {/** Channels (Spec §2.0): 
     }
   }, [dvr, view, cursor]);
   useEffect(() => { setPage(undefined); setStorage(undefined); load(); }, [load]);
-  const recordings = page?.recordings ?? [];
+  const recordings = page?.recordings ?? NO_RECORDINGS;
   const rules = page?.rules ?? [];
   const loaded = view === 'storage' ? !!storage : !!page;
   // FEAT-08: show rows group by seriesId and expand to episodes.

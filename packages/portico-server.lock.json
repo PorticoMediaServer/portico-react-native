@@ -1,0 +1,10 @@
+{
+  "repository": "PorticoMediaServer/portico-server",
+  "revision": "3f48f9b0e713c6867cd36f40ec7fd0d2d5f3a75e",
+  "packages": [
+    "packages/client-core",
+    "packages/contracts",
+    "packages/design",
+    "packages/i18n"
+  ]
+}

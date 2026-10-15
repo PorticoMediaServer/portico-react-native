@@ -1,4 +1,5 @@
 import {offeredBrowseSort} from '../app/browse-options';
+import {viewSequence, type SequenceContainer} from '../app/container-play';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {View, type RefreshControlProps} from 'react-native';
 import type {RouteProp} from '@react-navigation/native';
@@ -158,6 +159,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     } finally { service.dispose(); }
   }, [session.api, session.session, libraryId, pivot, predicates, engineSort]);
   const browse = useBrowseWindow({libraryId, pivot, predicates, sort: engineSort, published: published && published.pivot === pivot ? published : undefined, enabled: engine && !!capabilities});
+  // The same list as the server's query, for a song pressed to play the whole list on from there.
+  const listSequence = useMemo(() => viewSequence({libraryId, pivot, predicates, sort: engineSort, ...(published && published.pivot === pivot ? {query: published.query, sorts: published.sort} : {})}), [libraryId, pivot, predicates, engineSort, published]);
   const projection = snapshot.projection;
   const tabs = useMemo(() => libraryTabs(kind, tabOptions).map(item => ({id: item.id, label: i18n.t(item.label)})), [kind, tabOptions, i18n]);
   const sorts = projection?.sorts ?? [];
@@ -179,7 +182,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     else refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scan.finished]);
-  const titleBlock = <PageHeader eyebrow={isTV && engine && browse.snapshot.total !== undefined ? [system?.name, browseCountLabel(i18n.t, browse.snapshot.total, capabilities?.resolvedPivot?.id ?? pivot ?? '', browse.snapshot.totalIsLowerBound)].filter(Boolean).join(' · ') : system?.name} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
+  const countedEyebrow = isTV && engine && browse.snapshot.total !== undefined ? [system?.name, browseCountLabel(i18n.t, browse.snapshot.total, capabilities?.resolvedPivot?.id ?? pivot ?? '', browse.snapshot.totalIsLowerBound)].filter(Boolean).join(' · ') : system?.name;
+  const titleBlock = <PageHeader eyebrow={countedEyebrow} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
   const tabStrip = <Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={false} />;
   const header = (
     <>
@@ -195,6 +199,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     return (
       <View style={{flex: 1}}>
         <EngineResults
+          sequence={listSequence}
           libraryId={libraryId}
           libraryKind={library?.kind ?? ''}
           window={browse}
@@ -285,7 +290,7 @@ function LoadingGrid() {
 /** The space the phone's letter rail takes beside the grid. */
 const RAIL_WIDTH = 22;
 
-function EngineResults({window: {list, snapshot}, renderHeader, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false}: {/** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header, given the television Jump to control (or nothing) to place in its row. */ renderHeader: (jumpTo: React.ReactNode) => React.ReactElement; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
+function EngineResults({window: {list, snapshot}, renderHeader, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false, sequence}: {/** The list as the server's query: a pressed song plays it whole on from there. */ sequence?: SequenceContainer; /** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header, given the television Jump to control (or nothing) to place in its row. */ renderHeader: (jumpTo: React.ReactNode) => React.ReactElement; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
   const i18n = useI18n();
   const {space, isTV, metrics, window} = useTheme();
   const playing = usePlayingItemId();
@@ -300,13 +305,17 @@ function EngineResults({window: {list, snapshot}, renderHeader, sortField, libra
   const tracks = tab.shows === 'tracks';
   const groups = tab.shows === 'genres';
   // Songs are rows (cover, title, artist and album, length); a tap plays the song, a long press has the rest.
-  // A song plays on through the list in the order shown: the songs already loaded after it are the queue (bounded; nothing is fetched to build it).
+  // A song plays on through the list in the order shown: the whole list, from the server's query,
+  // starting at the one pressed. Without the query, the songs already loaded after it are the queue
+  // (bounded; nothing is fetched to build it).
   const playFrom = useCallback((index: number) => {
     if (!list) return;
+    const pressed = list.slotAt(index);
+    if (sequence && pressed.kind === 'item' && pressed.item.playback) { player.playSequence([pressed.item], 0, 0, sequence); return; }
     const queue: ContentEntry[] = [];
     for (let i = index; i < index + 200; i++) { const slot = list.slotAt(i); if (slot.kind !== 'item') break; if (slot.item.playback) queue.push(slot.item); }
     if (queue.length) player.playSequence(queue, 0, 0);
-  }, [list, player]);
+  }, [list, player, sequence]);
   const renderTrack = useCallback((entry: ContentEntry, _width: number, index: number) => (
     <ListRow title={entry.title} subtitle={[entry.artist?.name ?? captionFor(entry), entry.album?.name].filter(Boolean).join(' · ')} meta={entry.duration ? formatClock(entry.duration) : undefined} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape="square" selected={playing === entry.id} onPress={() => (entry.playback ? playFrom(index) : open(entry, 'open', libraryId))} onLongPress={() => open(entry, 'more', libraryId)} />
   ), [artwork, open, libraryId, playing, playFrom]);
