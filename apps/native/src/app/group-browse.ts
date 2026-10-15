@@ -1,11 +1,14 @@
 import {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
-import type {BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {acrossLibraries, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 import {useBrowseCapabilities, useBrowseWindow, type Predicate} from './browse';
 import {offeredBrowseSort} from './browse-options';
 import {BrowsePages, type BrowsePagesSnapshot} from './browse-pages';
 import {useFreshDocument} from './freshness';
-import {groupBrowsable, groupEngaged, groupKey, groupPredicates, noGroupChoice, type GroupChoice, type GroupScope} from './group-scope';
+import {groupBrowsable, groupEngaged, groupKey, groupKeepsOwnOrder, groupPredicates, noGroupChoice, type GroupChoice, type GroupPredicate, type GroupScope} from './group-scope';
+import {groupMemoryId, groupMemoryScope, groupMemoryTab, groupOrderSort, offersGroupOrder} from '../../../../packages/client-core/src/presentation/browse-groups';
+import {libraryMemoryFor} from './library-memory';
+import {viewerScope} from './viewer-scope';
 import {useSession} from './session';
 
 /**
@@ -15,28 +18,51 @@ import {useSession} from './session';
  * until the viewer chooses a sort or a filter; from then on what is listed is the server's answer
  * to the common browse route, within the group (`group-scope.ts`).
  *
- * The choices live with the screen: they start again for another group, and when the screen is
- * closed.
+ * The choices are remembered on the device for each group, as a library tab's are: a group reopens
+ * with the sort and filters it was left with (client-core `groupMemoryScope`).
  */
 export function useGroupBrowse(scope: GroupScope | undefined) {
   const key = groupKey(scope);
   const {capabilities: read} = useBrowseCapabilities(scope?.libraryId, scope?.pivot, 0, scope?.surface ?? 'library');
   const available = groupBrowsable(read, scope);
   const capabilities = available ? read : undefined;
-  const [held, setHeld] = useState<{key: string; choice: GroupChoice}>({key, choice: noGroupChoice});
-  // Another group begins in its own order, whatever was chosen for the one before.
-  const choice = held.key === key ? held.choice : noGroupChoice;
+  const {session, api} = useSession();
+  const viewer = viewerScope(session, api);
+  const memory = useMemo(() => libraryMemoryFor(groupMemoryScope(viewer)), [viewer]);
+  const memoryReady = useSyncExternalStore(memory.subscribe.bind(memory), () => memory.isReady);
+  const memoryId = scope ? groupMemoryId(scope.libraryId, scope.pivot, scope.base) : '';
+  // What this group was left with, until something is chosen here.
+  const recalled = useMemo<GroupChoice>(() => {
+    const left = memoryId ? memory.recall(memoryId)?.tabs[groupMemoryTab] : undefined;
+    return left ? {...(left.sort ? {sort: left.sort} : {}), predicates: (left.filters ?? []) as readonly GroupPredicate[]} : noGroupChoice;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memory, memoryId, memoryReady]);
+  const [held, setHeld] = useState<{key: string; choice: GroupChoice}>({key: '', choice: noGroupChoice});
+  const choice = held.key === key ? held.choice : recalled;
   const engaged = available && groupEngaged(choice);
-  /** The sort in force once engaged: the viewer's, else the server's own for the pivot. */
-  const sort = useMemo<BrowseSortSelection>(() => offeredBrowseSort(capabilities, choice.sort), [capabilities, choice.sort]);
+  // A group whose order the server keeps under a filter stays in it until a sort is chosen.
+  const keepsOwn = groupKeepsOwnOrder(scope) && offersGroupOrder(capabilities?.sorts);
+  /** The sort in force once engaged: the viewer's, else the group's own order or the server's own for the pivot. */
+  const sort = useMemo<BrowseSortSelection>(() => (!choice.sort && keepsOwn ? {field: groupOrderSort, direction: 'asc'} : offeredBrowseSort(capabilities, choice.sort)), [capabilities, choice.sort, keepsOwn]);
+  /** The group's own order is the one in use: no sort chosen, and no filter or one the server keeps it under. */
+  const ownSelected = !choice.sort && (!engaged || keepsOwn);
   // (The list store types its conditions as single ones; it sends whatever it is given under one conjunction, a saved view's whole expression included.)
   const predicates = useMemo<readonly Predicate[]>(() => (scope ? (groupPredicates(scope, choice.predicates as readonly Predicate[]) as readonly Predicate[]) : []), [key, choice.predicates]); // eslint-disable-line react-hooks/exhaustive-deps -- `key` names everything groupPredicates reads from a scope, which arrives as a new object each render
-  const change = useCallback((patch: Partial<GroupChoice>) => setHeld(current => ({key, choice: {...(current.key === key ? current.choice : noGroupChoice), ...patch}})), [key]);
-  const setSort = useCallback((next: BrowseSortSelection | undefined) => change({sort: next}), [change]);
-  const setPredicates = useCallback((next: readonly Predicate[]) => change({predicates: next}), [change]);
+  const change = useCallback((patch: Partial<GroupChoice>) => setHeld(current => ({key, choice: {...(current.key === key ? current.choice : recalled), ...patch}})), [key, recalled]);
+  const setSort = useCallback((next: BrowseSortSelection | undefined) => {
+    if (memoryId) memory.rememberSort(memoryId, groupMemoryTab, next ? {field: next.field, direction: next.direction} : undefined);
+    change({sort: next});
+  }, [change, memory, memoryId]);
+  const setPredicates = useCallback((next: readonly Predicate[]) => {
+    if (memoryId) memory.rememberFilters(memoryId, groupMemoryTab, next);
+    change({predicates: next});
+  }, [change, memory, memoryId]);
   /** Back to the group as it is by itself: no filters, its own order. */
-  const reset = useCallback(() => setHeld({key, choice: noGroupChoice}), [key]);
-  return useMemo(() => ({scope, capabilities, available, choice, engaged, sort, predicates, setSort, setPredicates, reset}), [scope, capabilities, available, choice, engaged, sort, predicates, setSort, setPredicates, reset]);
+  const reset = useCallback(() => {
+    if (memoryId) { memory.rememberSort(memoryId, groupMemoryTab, undefined); memory.rememberFilters(memoryId, groupMemoryTab, []); }
+    setHeld({key, choice: noGroupChoice});
+  }, [key, memory, memoryId]);
+  return useMemo(() => ({scope, capabilities, available, choice, engaged, ownSelected, sort, predicates, setSort, setPredicates, reset}), [scope, capabilities, available, choice, engaged, ownSelected, sort, predicates, setSort, setPredicates, reset]);
 }
 export type GroupBrowse = ReturnType<typeof useGroupBrowse>;
 
@@ -66,7 +92,7 @@ export function useGroupPages(group: GroupBrowse, enabled = true) {
   const {engaged, predicates, sort} = group;
   useEffect(() => { pages?.select(engaged && pivot ? {pivot, predicates, sort} : null); }, [pages, engaged, pivot, predicates, sort]);
   useFreshDocument(
-    useMemo(() => (pages && libraryId ? titlesWithPersonalState(libraryId) : []), [pages, libraryId]),
+    useMemo(() => (pages && libraryId ? titlesWithPersonalState(libraryId === acrossLibraries ? undefined : libraryId) : []), [pages, libraryId]),
     context => (pages ? pages.refresh(context.settle) : Promise.resolve()),
     () => pages?.getSnapshot().status === 'ready',
   );

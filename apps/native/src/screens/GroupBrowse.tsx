@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo} from 'react';
 import {View} from 'react-native';
 import type {ContentSection} from '../../../../packages/client-core/src/library-content';
 import type {GroupBrowse} from '../app/group-browse';
@@ -6,8 +6,7 @@ import type {useGroupPages} from '../app/group-browse';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {useSession} from '../app/session';
-import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Button, Menu, Notice, Ring, StateView, useTheme, type IconName} from '../ui';
+import {Button, Notice, Ring, StateView, useTheme} from '../ui';
 import {BrowseBar} from './BrowseFilters';
 import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
@@ -38,7 +37,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
       onChange={group.setPredicates}
       sort={group.sort}
       onSort={group.setSort}
-      ownOrder={{selected: !group.engaged, onSelect: () => group.setSort(undefined)}}
+      ownOrder={{selected: group.ownSelected, onSelect: () => group.setSort(undefined)}}
     />
   );
   return (
@@ -53,7 +52,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
  * in the library's shapes, and "Show more" for the next page. While a new sort or filter is on its
  * way the titles already there stay; nothing matching says so and offers the way back.
  */
-export function GroupResults({group, results, libraryId, row, as = 'grid', playsList = false}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; libraryId: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'; /** A pressed row plays the whole sorted or filtered list on from there (the server's query). */ playsList?: boolean}) {
+export function GroupResults({group, results, libraryId, row, as = 'grid', playsList = false}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; /** The library the titles are in; none for a list across libraries, whose titles each name theirs. */ libraryId?: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'; /** A pressed row plays the whole sorted or filtered list on from there (the server's query). */ playsList?: boolean}) {
   const i18n = useI18n();
   const {space} = useTheme();
   const {snapshot, pages} = results;
@@ -68,25 +67,6 @@ export function GroupResults({group, results, libraryId, row, as = 'grid', plays
       <RowGuide><SectionView section={section} row={row} hideTitle libraryId={libraryId} loadingMore={snapshot.loadingMore} onMore={snapshot.hasMore ? () => void pages?.more() : undefined} sequence={playsList ? groupSequence(group) : undefined} /></RowGuide>
       {/* A grid offers its own "Show more"; a list of rows gets the same button under it. */}
       {as === 'list' && snapshot.hasMore ? <View style={{alignItems: 'center', marginBottom: space.xl}}><Button variant="secondary" label={i18n.t('action.showMore')} loading={snapshot.loadingMore} onPress={() => void pages?.more()} /></View> : null}
-    </>
-  );
-}
-
-/**
- * A group whose titles are in more than one library (a person's, the profile's own lists) is
- * sorted and filtered one library at a time, because each library has its own filters. This is
- * the first control of the group's bar: it names that library and opens the others. With one
- * library there is nothing to choose and it is not drawn.
- */
-export function GroupLibraryPicker({libraries, selected, onSelect}: {libraries: readonly Readonly<{id: string; name: string; kind: string}>[]; selected: string | undefined; onSelect: (libraryId: string) => void}) {
-  const i18n = useI18n();
-  const [open, setOpen] = useState(false);
-  const current = libraries.find(library => library.id === selected) ?? libraries[0];
-  if (libraries.length < 2 || !current) return null;
-  return (
-    <>
-      <Button size="sm" variant="secondary" icon={(mediaFamilyIcon(current.kind) ?? 'film') as IconName} trailingIcon="chevronDown" label={current.name} accessibilityLabel={i18n.t('library.switchLabel', {title: current.name})} onPress={() => setOpen(true)} />
-      <Menu open={open} onClose={() => setOpen(false)} title={i18n.t('web.shell.library')} items={libraries.map(library => ({id: library.id, label: library.name, icon: (mediaFamilyIcon(library.kind) ?? 'film') as IconName, selected: library.id === current.id}))} onSelect={id => { setOpen(false); onSelect(id); }} />
     </>
   );
 }

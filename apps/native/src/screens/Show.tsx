@@ -32,7 +32,7 @@ import {SeasonSwitcher, type SeasonChoice} from './title/SeasonSwitcher';
 import {StatusBarScrim, TitleHero, type HeroAction} from './title/TitleHero';
 import {usePullToRefresh} from '../app/refresh';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
-import {containerScope} from '../app/group-scope';
+import {containerScope, episodeGroupScope} from '../app/group-scope';
 import {GroupBar} from './GroupBrowse';
 
 /** How many seasons the next-up rule may step forward before it settles (bounded work). */
@@ -137,11 +137,12 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const seasonTotal = episodes.total ?? seed?.total ?? 0;
   // ── Sort and filter ───────────────────────────────────────────────────────
   // The episodes on screen (a season's, or the whole show's when it is one list) keep their own
-  // order until the viewer chooses a sort or a filter; then the list is the library's own browse
-  // of those episodes, in the same list on screen. A group of episodes that is not a season (an
-  // arc, a range, a year) is not something the server can name there, so it has no controls.
+  // order until the viewer chooses a sort (a filter keeps it: the server's group order); then the
+  // list is the library's own browse of those episodes, in the same list on screen. A flat show's
+  // groups (its whole list, its specials, a range of a hundred) are named to the server as such.
   const groupOf = stable && data && !data.selected.group ? data.selected.seasonId ?? (flat ? data.show.id : undefined) : undefined;
-  const scope = useMemo(() => containerScope(libraryId, 'episodes', groupOf), [libraryId, groupOf]);
+  const episodeGroup = stable && data ? data.selected.group : undefined;
+  const scope = useMemo(() => (episodeGroup ? episodeGroupScope(libraryId, data?.show.id, episodeGroup) : containerScope(libraryId, 'episodes', groupOf)), [libraryId, groupOf, episodeGroup, data?.show.id]);
   const group = useGroupBrowse(scope);
   const sorted = useGroupWindow(group);
   const sortedOn = group.engaged && !!sorted.list;

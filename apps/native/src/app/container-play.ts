@@ -89,6 +89,8 @@ export function viewSequence(view: Readonly<{libraryId?: string; pivot?: string;
  */
 export function groupSequence(group: Readonly<{engaged: boolean; scope?: Readonly<{libraryId: string; pivot: string}>; predicates: readonly BrowseNode[]; sort: BrowseSortSelection}>, o: {shuffle?: boolean} = {}): SequenceContainer | undefined {
   if (!group.engaged || !group.scope) return undefined;
+  // A Home row is what Home shows now, which a queue cannot name: its titles play from the list on screen.
+  if (group.predicates.some(node => 'field' in node && node.field === 'homeRow')) return undefined;
   return viewSequence({libraryId: group.scope.libraryId, pivot: group.scope.pivot, predicates: group.predicates, sort: group.sort}, o);
 }
 

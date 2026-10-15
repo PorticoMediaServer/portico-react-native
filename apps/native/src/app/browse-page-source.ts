@@ -1,13 +1,13 @@
 import type {FetchPage} from '../../../../packages/client-core/src/collections/index';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
-import {parseBrowseResult, type BrowseNode, type BrowseRequestBody, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
-import {bucketIndexFor} from '../../../../packages/client-core/src/browse-buckets';
+import {browsePath, parseBrowseResult, type BrowseNode, type BrowseRequestBody, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {bucketIndexFor, titleBucketValue} from '../../../../packages/client-core/src/browse-buckets';
 
 export type Predicate = Extract<BrowseNode, {field: string}>;
 
 type BrowseApi = {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
 function sortValueFor(entry: ContentEntry, sortField: string): unknown {
-  if (sortField === 'title') return (entry as {title?: unknown}).title;
+  if (sortField === 'title') return titleBucketValue(entry);
   if (sortField === 'year') return (entry as {year?: unknown}).year;
   if (sortField === 'duration' || sortField === 'durationSeconds') return (entry as {duration?: unknown}).duration;
   if (['added', 'lastPlayed', 'addedAt', 'lastPlayedAt', 'dateAdded'].includes(sortField)) return (entry as {addedAt?: unknown}).addedAt;
@@ -24,7 +24,7 @@ export function browsePageSource(api: BrowseApi, input: {libraryId: string; pivo
   const firstEntries = new Map<number, ContentEntry>();
   const loadRange = async (start: number, count: number, signal: AbortSignal, rev: string | undefined) => {
     const body: BrowseRequestBody = {pivot: input.pivot, ...(input.sorts ? (input.query ? {query: input.query} : {}) : input.predicates.length ? {query: {all: input.predicates}} : {}), ...(input.sorts ? {sort: input.sorts} : input.sort ? {sort: [input.sort]} : {}), limit: count, range: {start, ...(rev ? {revision: rev} : {})}};
-    return parseBrowseResult(await api.request<unknown>(`/v1/libraries/${encodeURIComponent(input.libraryId)}/browse`, 'POST', body, signal));
+    return parseBrowseResult(await api.request<unknown>(browsePath(input.libraryId), 'POST', body, signal));
   };
   const toPage = (result: ReturnType<typeof parseBrowseResult>, start: number) => {
     if (result.entries.length) {

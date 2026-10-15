@@ -1,5 +1,5 @@
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
-import {parseBrowseResult, type BrowseNode, type BrowseRequestBody, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {browsePath, parseBrowseResult, type BrowseNode, type BrowseRequestBody, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 
 /**
  * A group's titles, sorted and filtered by the server, for a list that sits inside a page (under a
@@ -154,6 +154,6 @@ export class BrowsePages {
       limit,
       ...(cursor ? {cursor} : {}),
     };
-    return parseBrowseResult(await this.api.request<unknown>(`/v1/libraries/${encodeURIComponent(this.libraryId)}/browse`, 'POST', body, signal));
+    return parseBrowseResult(await this.api.request<unknown>(browsePath(this.libraryId), 'POST', body, signal));
   }
 }

@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {View, type LayoutChangeEvent} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -19,10 +19,9 @@ import {mosaicPaths} from './layout';
 import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
 import {useAppendedPages, useEndReached} from '../../app/paging';
 import {usePullToRefresh} from '../../app/refresh';
-import {useLibrariesContext} from '../../app/libraries-context';
 import {useGroupBrowse, useGroupPages} from '../../app/group-browse';
-import {groupLibraries, listScope, playlistPivot, savedViewScope} from '../../app/group-scope';
-import {GroupBar, GroupLibraryPicker, GroupResults} from '../GroupBrowse';
+import {acrossScope, savedViewScope} from '../../app/group-scope';
+import {GroupBar, GroupResults} from '../GroupBrowse';
 
 const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
 
@@ -68,15 +67,11 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const pull = usePullToRefresh(refresh, {busy: snapshot.phase === 'loading'});
   const onScroll = useEndReached(() => { if (pageable && snapshot.phase === 'ready') next(pageable.id); });
   // ── Sort and filter ───────────────────────────────────────────────────────
-  // A playlist keeps the order its owner gave it until the viewer chooses a sort or a filter;
-  // then its entries are listed by the library's own browse, one library at a time (the one that
-  // holds most of them, or another the viewer picks). Reordering and removing belong to the
-  // playlist's own order, so they are offered there and not in a sorted list.
-  const {items: allLibraries} = useLibrariesContext();
-  const candidates = useMemo(() => groupLibraries(allLibraries.filter(l => !!playlistPivot(l.kind)), media.map(m => m.libraryId)), [allLibraries, media]);
-  const [libraryChoice, setLibraryChoice] = useState<string>();
-  const library = candidates.find(l => l.id === libraryChoice) ?? candidates[0];
-  const groupScope = useMemo(() => (library ? listScope(library.id, playlistPivot(library.kind), playlistId) : undefined), [library, playlistId]);
+  // A playlist keeps the order its owner gave it until the viewer chooses a sort, and under a
+  // filter too (the server's group order); its entries are sorted and filtered across every
+  // library they come from, as one list. Reordering and removing belong to the playlist's own
+  // list, so they are offered there and not in a sorted one.
+  const groupScope = useMemo(() => acrossScope('list', playlistId), [playlistId]);
   const group = useGroupBrowse(groupScope);
   const sorted = useGroupPages(group);
   const count = playlist?.entryCount ?? sections[0]?.totalCount;
@@ -216,10 +211,10 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
             {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
             {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
             {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
-            {occurrences.length ? <GroupBar group={group} leading={<GroupLibraryPicker libraries={candidates} selected={library?.id} onSelect={setLibraryChoice} />} /> : null}
+            {occurrences.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={group.engaged && library ? <GroupResults group={group} results={sorted} libraryId={library.id} as="list" playsList /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
+        ListFooterComponent={group.engaged ? <GroupResults group={group} results={sorted} as="list" playsList /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
       />
       <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
       {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
@@ -256,9 +251,11 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const claim = useEntryFocus(media.some(m => m.playback));
   // ── Sort and filter ───────────────────────────────────────────────────────
   // A saved view is a stored browse of one library: it keeps the sort it was saved with until the
-  // viewer chooses another or adds a filter, which narrows the view and never widens it.
+  // viewer chooses another or adds a filter, which narrows the view and never widens it. A personal
+  // collection is sorted and filtered across every library its titles come from, as one list.
   const definition = view ? resource?.definition : undefined;
-  const groupScope = useMemo(() => savedViewScope(definition), [definition]);
+  const collection = resource?.kind === 'collection';
+  const groupScope = useMemo(() => (collection ? acrossScope('savedCollection', resourceId) : savedViewScope(definition)), [collection, resourceId, definition]);
   const group = useGroupBrowse(groupScope);
   const sorted = useGroupPages(group);
   const loadMore = () => { if (!group.engaged && !snapshot.loading && !snapshot.error && snapshot.nextCursor) next(); };
@@ -305,7 +302,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
             {media.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
+        ListFooterComponent={group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
     </View>
