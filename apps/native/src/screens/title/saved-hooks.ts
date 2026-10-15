@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useFreshDocument} from '../../app/freshness';
 import {titlesWithPersonalState} from '../../../../../packages/client-core/src/freshness-hub';
-import {PersonalSavedService, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
+import {PersonalSavedService, type PersonalSavedIntent, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
 import {SavedService, type SavedIntent, type SavedRoute, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {viewerScope} from '../../app/content';
 import {requestId} from '../../app/detail';
@@ -69,5 +69,7 @@ export function useSavedResource(resourceId: string) {
   const refresh = useCallback(() => void service.refresh().catch(() => {}), [service]);
   const next = useCallback(() => void service.next().catch(() => {}), [service]);
   const previous = useCallback(() => void service.previous().catch(() => {}), [service]);
-  return {snapshot, refresh, next, previous};
+  /** A change to the resource (a collection's order); resolves false with the reason in the snapshot. */
+  const mutate = useCallback((intent: PersonalSavedIntent) => service.mutate(intent), [service]);
+  return {snapshot, refresh, next, previous, mutate};
 }

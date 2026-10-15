@@ -39,7 +39,7 @@ export function useGroupBrowse(scope: GroupScope | undefined) {
   }, [memory, memoryId, memoryReady]);
   const [held, setHeld] = useState<{key: string; choice: GroupChoice}>({key: '', choice: noGroupChoice});
   const choice = held.key === key ? held.choice : recalled;
-  const engaged = available && groupEngaged(choice);
+  const engaged = available && (!!scope?.always || groupEngaged(choice));
   // A group whose order the server keeps under a filter stays in it until a sort is chosen.
   const keepsOwn = groupKeepsOwnOrder(scope) && offersGroupOrder(capabilities?.sorts);
   /** The sort in force once engaged: the viewer's, else the group's own order or the server's own for the pivot. */

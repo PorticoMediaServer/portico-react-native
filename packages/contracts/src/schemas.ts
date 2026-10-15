@@ -590,42 +590,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -675,6 +639,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -1403,42 +1378,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -1488,6 +1427,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -4923,42 +4873,6 @@ export const schemas = {
               "decoderConfig": {
                 "type": "string"
               },
-              "deepStart": {
-                "properties": {
-                  "bitDepth": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "channels": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "codec": {
-                    "type": "string"
-                  },
-                  "container": {
-                    "type": "string"
-                  },
-                  "sampleRate": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "url": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "url",
-                  "container",
-                  "codec",
-                  "sampleRate",
-                  "channels"
-                ],
-                "type": "object"
-              },
               "downmixed": {
                 "type": "boolean"
               },
@@ -5008,6 +4922,17 @@ export const schemas = {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "type": "integer"
+              },
+              "seekIndex": {
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
               },
               "trim": {
                 "properties": {
@@ -5677,42 +5602,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -5762,6 +5651,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -8414,42 +8314,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -8499,6 +8363,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -10795,6 +10670,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -10885,6 +10763,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -11060,6 +10944,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -11150,6 +11037,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -24044,13 +23937,19 @@ export const schemas = {
       },
       "name": {
         "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
       }
     },
     "required": [
       "id",
       "libraryId",
       "name",
-      "itemCount"
+      "itemCount",
+      "revision"
     ],
     "type": "object"
   },
@@ -45017,13 +44916,19 @@ export const schemas = {
             },
             "name": {
               "type": "string"
+            },
+            "revision": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
             }
           },
           "required": [
             "id",
             "libraryId",
             "name",
-            "itemCount"
+            "itemCount",
+            "revision"
           ],
           "type": "object"
         },
@@ -51703,6 +51608,42 @@ export const schemas = {
     "format": "binary",
     "type": "string"
   },
+  "GetMediaGrantAudioIndexRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetMediaGrantAudioIndexResponse": {
+    "properties": {
+      "frames": {
+        "items": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "offsets": {
+        "items": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "version": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "version",
+      "offsets",
+      "frames"
+    ],
+    "type": "object"
+  },
   "GetMediaGrantAudioRequest": {
     "properties": {},
     "required": [],
@@ -56278,42 +56219,6 @@ export const schemas = {
               "decoderConfig": {
                 "type": "string"
               },
-              "deepStart": {
-                "properties": {
-                  "bitDepth": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "channels": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "codec": {
-                    "type": "string"
-                  },
-                  "container": {
-                    "type": "string"
-                  },
-                  "sampleRate": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "url": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "url",
-                  "container",
-                  "codec",
-                  "sampleRate",
-                  "channels"
-                ],
-                "type": "object"
-              },
               "downmixed": {
                 "type": "boolean"
               },
@@ -56363,6 +56268,17 @@ export const schemas = {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "type": "integer"
+              },
+              "seekIndex": {
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
               },
               "trim": {
                 "properties": {
@@ -71104,42 +71020,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -71189,6 +71069,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -72379,13 +72270,19 @@ export const schemas = {
       },
       "name": {
         "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
       }
     },
     "required": [
       "id",
       "libraryId",
       "name",
-      "itemCount"
+      "itemCount",
+      "revision"
     ],
     "type": "object"
   },
@@ -73709,6 +73606,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -73799,6 +73699,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -81273,13 +81179,19 @@ export const schemas = {
           },
           "name": {
             "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "libraryId",
           "name",
-          "itemCount"
+          "itemCount",
+          "revision"
         ],
         "type": "object"
       },
@@ -85575,13 +85487,19 @@ export const schemas = {
       },
       "name": {
         "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
       }
     },
     "required": [
       "id",
       "libraryId",
       "name",
-      "itemCount"
+      "itemCount",
+      "revision"
     ],
     "type": "object"
   },
@@ -90003,6 +89921,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -90093,6 +90014,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -91818,42 +91745,6 @@ export const schemas = {
               "decoderConfig": {
                 "type": "string"
               },
-              "deepStart": {
-                "properties": {
-                  "bitDepth": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "channels": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "codec": {
-                    "type": "string"
-                  },
-                  "container": {
-                    "type": "string"
-                  },
-                  "sampleRate": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "url": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "url",
-                  "container",
-                  "codec",
-                  "sampleRate",
-                  "channels"
-                ],
-                "type": "object"
-              },
               "downmixed": {
                 "type": "boolean"
               },
@@ -91903,6 +91794,17 @@ export const schemas = {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "type": "integer"
+              },
+              "seekIndex": {
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
               },
               "trim": {
                 "properties": {
@@ -99246,6 +99148,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -99336,6 +99241,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -99511,6 +99422,9 @@ export const schemas = {
         },
         "type": "array"
       },
+      "afterEntryId": {
+        "type": "string"
+      },
       "authority": {
         "type": "string"
       },
@@ -99601,6 +99515,12 @@ export const schemas = {
           "presentation"
         ],
         "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "expectedRevision": {
         "maximum": 9007199254740991,
@@ -100494,42 +100414,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -100579,6 +100463,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {
@@ -101072,6 +100967,60 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "ReorderLibraryCollectionRequest": {
+    "properties": {
+      "afterItemId": {
+        "type": "string"
+      },
+      "expectedRevision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "itemIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "expectedRevision",
+      "itemIds"
+    ],
+    "type": "object"
+  },
+  "ReorderLibraryCollectionResponse": {
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "itemCount": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "libraryId": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "libraryId",
+      "name",
+      "itemCount",
+      "revision"
+    ],
+    "type": "object"
+  },
   "ReorderPlaylistWindowRequest": {
     "additionalProperties": false,
     "properties": {
@@ -101144,6 +101093,280 @@ export const schemas = {
       "playlistId",
       "revision",
       "deleted"
+    ],
+    "type": "object"
+  },
+  "ReorderSavedCollectionRequest": {
+    "properties": {
+      "accountId": {
+        "type": "string"
+      },
+      "addItemIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "afterEntryId": {
+        "type": "string"
+      },
+      "authority": {
+        "type": "string"
+      },
+      "definition": {
+        "properties": {
+          "libraryId": {
+            "type": "string"
+          },
+          "pivot": {
+            "type": "string"
+          },
+          "presentation": {
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": false,
+            "description": "A predicate or all/any/not group. The parser enforces the published depth and clause bounds.",
+            "nullable": true,
+            "properties": {
+              "all": {
+                "items": {
+                  "additionalProperties": {},
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 40,
+                "minItems": 1,
+                "type": "array"
+              },
+              "any": {
+                "items": {
+                  "additionalProperties": {},
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                },
+                "maxItems": 40,
+                "minItems": 1,
+                "type": "array"
+              },
+              "field": {
+                "type": "string"
+              },
+              "not": {
+                "additionalProperties": {},
+                "properties": {},
+                "required": [],
+                "type": "object"
+              },
+              "operator": {
+                "type": "string"
+              },
+              "value": {}
+            },
+            "required": [],
+            "type": "object"
+          },
+          "sort": {
+            "items": {
+              "properties": {
+                "direction": {
+                  "type": "string"
+                },
+                "field": {
+                  "type": "string"
+                },
+                "seed": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "field",
+                "direction"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "libraryId",
+          "pivot",
+          "query",
+          "sort",
+          "presentation"
+        ],
+        "type": "object"
+      },
+      "entryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "expectedRevision": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "operationId": {
+        "type": "string"
+      },
+      "profileId": {
+        "type": "string"
+      },
+      "removeEntryIds": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "role": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "undoToken": {
+        "type": "string"
+      },
+      "visibility": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "operationId",
+      "expectedRevision"
+    ],
+    "type": "object"
+  },
+  "ReorderSavedCollectionResponse": {
+    "properties": {
+      "current": {
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resourceId",
+          "revision",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "receipt": {
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "entries": {
+            "properties": {
+              "added": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "failed": {
+                "items": {
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "itemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "itemId",
+                    "code"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "removed": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "unchanged": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "added",
+              "removed",
+              "unchanged",
+              "failed"
+            ],
+            "type": "object"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "undoToken": {
+            "type": "string"
+          },
+          "undoUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId",
+          "resourceId",
+          "revision",
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "receiptLifetimeSeconds": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "serverId": {
+        "type": "string"
+      },
+      "viewerFence": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "serverId",
+      "viewerFence",
+      "receipt",
+      "receiptLifetimeSeconds"
     ],
     "type": "object"
   },
@@ -111459,42 +111682,6 @@ export const schemas = {
               "decoderConfig": {
                 "type": "string"
               },
-              "deepStart": {
-                "properties": {
-                  "bitDepth": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "channels": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "codec": {
-                    "type": "string"
-                  },
-                  "container": {
-                    "type": "string"
-                  },
-                  "sampleRate": {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                  },
-                  "url": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "url",
-                  "container",
-                  "codec",
-                  "sampleRate",
-                  "channels"
-                ],
-                "type": "object"
-              },
               "downmixed": {
                 "type": "boolean"
               },
@@ -111544,6 +111731,17 @@ export const schemas = {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
                 "type": "integer"
+              },
+              "seekIndex": {
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
               },
               "trim": {
                 "properties": {
@@ -112450,42 +112648,6 @@ export const schemas = {
                   "decoderConfig": {
                     "type": "string"
                   },
-                  "deepStart": {
-                    "properties": {
-                      "bitDepth": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "channels": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "codec": {
-                        "type": "string"
-                      },
-                      "container": {
-                        "type": "string"
-                      },
-                      "sampleRate": {
-                        "maximum": 9007199254740991,
-                        "minimum": -9007199254740991,
-                        "type": "integer"
-                      },
-                      "url": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "url",
-                      "container",
-                      "codec",
-                      "sampleRate",
-                      "channels"
-                    ],
-                    "type": "object"
-                  },
                   "downmixed": {
                     "type": "boolean"
                   },
@@ -112535,6 +112697,17 @@ export const schemas = {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
+                  },
+                  "seekIndex": {
+                    "properties": {
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "type": "object"
                   },
                   "trim": {
                     "properties": {

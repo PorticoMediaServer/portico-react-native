@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {View} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -30,6 +30,9 @@ import {useLibrariesContext} from '../app/libraries-context';
 import {useGroupBrowse, useGroupPages, useGroupWindow} from '../app/group-browse';
 import {collectionScope, containerScope, discScope, namedGroupScope, type GroupScope} from '../app/group-scope';
 import {GroupBar, GroupResults} from './GroupBrowse';
+import {ManualOrderRows} from './ManualOrder';
+import {moveRequest} from '../../../../packages/client-core/src/presentation/manual-order';
+import {moveCollectionTitle} from '../../../../packages/client-core/src/library-collection-order';
 
 type Section = ContentSection;
 
@@ -57,7 +60,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const player = usePlayerActions();
   const open = useOpenEntry();
   const invoker = useInvoker();
-  const {api} = useSession();
+  const {api, session: viewerSession} = useSession();
   const projection = snapshot.projection;
   const entity = projection?.entity;
   const listening = projection?.listening;
@@ -179,7 +182,21 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const finished = !!container.state?.watched;
   const failed = (e: unknown) => showToast({message: say(e, 'library', 'save'), icon: 'warning'});
   // One row on every title (Justin, 2 Oct 2026): Play · Shuffle (music) · My List (books) · Favorite · Finished (books) · ⋯.
+  // The owner arranges a library collection's own order here, on a phone or tablet, while it is
+  // shown in that order: a move sends the title and the one it now follows.
+  const [reordering, setReordering] = useState(false);
+  const role = viewerSession?.viewer.role;
+  const canReorder = !isTV && kind === 'collection' && (role === 'owner' || role === 'admin') && !!entity && group.engaged && !group.choice.sort && !group.choice.predicates.length && sortedPages.snapshot.entries.length > 1;
+  const arranging = reordering && canReorder;
+  const orderedTitles = useMemo(() => sortedPages.snapshot.entries.map(m => ({id: m.id, media: m})), [sortedPages.snapshot.entries]);
+  const moveTitle = async (from: number, to: number) => {
+    const request = moveRequest(orderedTitles.map(e => e.id), from, to);
+    if (!request || !entity) return;
+    await moveCollectionTitle(<T,>(path: string, method: 'GET' | 'PUT', body?: unknown) => api.request<T>(path, method, body), entity.id, request.entryId, request.afterEntryId);
+    await sortedPages.pages?.refresh().catch(() => {});
+  };
   const secondary: HeroAction[] = [
+    ...(canReorder ? [{icon: (arranging ? 'check' : 'list') as IconName, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
     ...(sortedFirst ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => playSorted(sortedFirst, true)}] : !isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
     ...(container.carries('watchlisted') && container.state ? [{icon: (listed ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(listed ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: listed, onPress: () => { void container.setFlag('watchlisted', !listed).catch(failed); }}] : []),
     ...(container.carries('favorite') && container.state ? [{icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => { void container.setFlag('favorite', !favorite).catch(failed); }}] : []),
@@ -305,7 +322,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const bottom = (
     <>
         {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
-        {!sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
+        {arranging ? <ManualOrderRows entries={orderedTitles} whole={!sortedPages.snapshot.hasMore} onMove={moveTitle} /> : !sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
           if (section.id === 'releases' && isArtist && releases) {
             return (
               <React.Fragment key="releases-split">

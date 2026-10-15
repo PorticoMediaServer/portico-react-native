@@ -22,6 +22,8 @@ import {usePullToRefresh} from '../../app/refresh';
 import {useGroupBrowse, useGroupPages} from '../../app/group-browse';
 import {acrossScope, savedViewScope} from '../../app/group-scope';
 import {GroupBar, GroupResults} from '../GroupBrowse';
+import {ManualOrderRows} from '../ManualOrder';
+import {moveRequest} from '../../../../../packages/client-core/src/presentation/manual-order';
 
 const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
 
@@ -235,7 +237,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const artwork = useArtwork();
   const open = useOpenEntry();
   const {play, invoker} = usePlayList();
-  const {snapshot, refresh, next} = useSavedResource(resourceId);
+  const {snapshot, refresh, next, mutate} = useSavedResource(resourceId);
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width), []);
   const gridWidth = (width || window.width - metrics.railWidth) - space.page * 2;
@@ -262,7 +264,21 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const onScroll = useEndReached(loadMore);
   const listed = group.engaged ? sorted.snapshot.entries : media;
   const start = (shuffle: boolean) => play(listed, groupSequence(group, {shuffle}) ?? savedSequence(resourceId, {shuffle}));
-  const secondary: HeroAction[] = listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => start(true)}] : [];
+  // A personal collection's own order, arranged here by its owner or an editor (phones and tablets;
+  // only while it is shown in that order). A move sends the entry and the one it now follows.
+  const orderedPage = useMemo(() => snapshot.entries.flatMap(e => (e.media ? [{id: e.id, media: e.media}] : [])), [snapshot.entries]);
+  const ordered = useAppendedPages(`${resourceId}:order`, snapshot.cursor, orderedPage, entryKey);
+  const [reordering, setReordering] = useState(false);
+  const canReorder = !isTV && collection && !!resource?.actions.includes('reorder') && !group.engaged && ordered.length > 1;
+  const arranging = reordering && canReorder;
+  const moveEntry = async (from: number, to: number) => {
+    const request = moveRequest(ordered.map(e => e.id), from, to);
+    if (request && !await mutate({action: 'reorder', entryIds: [request.entryId], afterEntryId: request.afterEntryId})) throw new Error('not moved');
+  };
+  const secondary: HeroAction[] = [
+    ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => start(true)}] : []),
+    ...(canReorder ? [{icon: arranging ? 'check' as const : 'list' as const, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
+  ];
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
@@ -272,7 +288,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
     <View style={{flex: 1}} onLayout={onLayout}>
       <PageList
         // While a sort or a filter is on, the sorted titles are listed under the header in place of the view's own.
-        data={group.engaged ? noRows : rows}
+        data={group.engaged || arranging ? noRows : rows}
         keyExtractor={rowKey}
         renderItem={renderRow}
         contentStyle={{paddingTop: 0}}
@@ -302,7 +318,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
             {media.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
+        ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
     </View>
@@ -314,6 +330,7 @@ const noRows: CardRowModel<ContentEntry>[] = [];
 const noOccurrences: PlaylistOccurrence[] = [];
 const occurrenceKey = (o: PlaylistOccurrence) => o.id;
 const mediaKey = (m: ContentEntry) => m.id;
+const entryKey = (e: {id: string}) => e.id;
 
 /** The next page on its way, under what is already listed. */
 function MoreSpinner({busy}: {busy: boolean}) {
