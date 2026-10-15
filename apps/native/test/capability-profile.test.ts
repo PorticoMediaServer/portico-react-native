@@ -31,7 +31,7 @@ test('the document says what kind of device this is, what its player plays and w
 
 test('audioDecode declares only the fixture-proven pairs; Ogg Opus is left to the server on Apple', () => {
   const pairs = appleAudioDecode.flatMap(d => d.containers.map(c => `${c}/${d.codec}`)).sort();
-  assert.deepEqual(pairs, ['flac/flac', 'mp3/mp3', 'mp4/aac', 'mp4/alac', 'wav/pcm']);
+  assert.deepEqual(pairs, ['adts/aac', 'flac/flac', 'mp3/mp3', 'mp4/aac', 'mp4/alac', 'wav/pcm']);
   assert.ok(appleAudioDecode.every(d => d.maxChannels === 2));
   assert.deepEqual(androidAudioDecodeFor({audioDecoders: [{codec: 'flac'}, {codec: 'opus'}]}).map(d => d.codec).sort(), ['flac', 'opus', 'pcm'], 'Android: only what the device has a decoder for (PCM needs none)');
 });

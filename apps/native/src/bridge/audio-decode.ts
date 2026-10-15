@@ -7,11 +7,13 @@ import type {AudioDecodeCapability} from '../../../../packages/client-core/src/p
  * the §18.8 fixtures proved on iOS and tvOS Core Audio (exact frames, lag 0, the albums joined to
  * 0 frames); anything else the server converts to FLAC. Ogg Opus is left out: Core Audio has no
  * Ogg parser, so the server converts it. Channels stop at 2: past that the server downmixes.
+ * AAC in ADTS is what the server converts to under a listening bitrate limit (B-10.11): Opus is
+ * not available here, so AAC is. ADTS states no priming; the plan's trim (`aac-priming`) does.
  */
 export const appleAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
   {codec: 'flac', containers: ['flac'], maxSampleRate: 96000, maxChannels: 2, maxBitDepth: 24, via: 'ExtAudioFile'},
   {codec: 'alac', containers: ['mp4'], maxSampleRate: 96000, maxChannels: 2, maxBitDepth: 24, via: 'ExtAudioFile'},
-  {codec: 'aac', containers: ['mp4'], maxSampleRate: 48000, maxChannels: 2, maxBitDepth: 16, via: 'ExtAudioFile'},
+  {codec: 'aac', containers: ['mp4', 'adts'], maxSampleRate: 48000, maxChannels: 2, maxBitDepth: 16, via: 'ExtAudioFile'},
   {codec: 'mp3', containers: ['mp3'], maxSampleRate: 48000, maxChannels: 2, maxBitDepth: 16, via: 'ExtAudioFile'},
   {codec: 'pcm', containers: ['wav'], maxSampleRate: 96000, maxChannels: 2, maxBitDepth: 24, via: 'ExtAudioFile'},
 ].map(c => Object.freeze(c)));
