@@ -31,7 +31,6 @@ class PorticoPackage : ReactPackage {
       if (TelevisionDisplay.isTelevision) listOf(PorticoTopShelf(reactContext)) else listOf(PorticoDownloads(reactContext))) + flavorModules(reactContext)
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = listOf(
-      PorticoSearchKeyboardManager(),
       PorticoPlayerManager(),
       PorticoMpvPlayerManager(),
       PorticoAudioRoutePickerManager(),

@@ -133,7 +133,9 @@ export function SearchScreen() {
   const controls = (
     <View style={{paddingHorizontal: space.page, gap: space.md, paddingTop: isTV ? space.lg : 0, paddingBottom: space.md, marginBottom: space.sm, backgroundColor: isTV ? undefined : colors.ink}}>
       {/* Justin: the platform's own keyboard, with dictation. On TV, selecting the field opens the
-          system's full-screen keyboard (Siri Remote dictation, iPhone keyboard continuity). */}
+          system's full-screen keyboard (Siri Remote dictation, iPhone keyboard continuity). This
+          field is the one search input on every device (B-19.19): the separate native search view
+          was never mounted and is retired. */}
       {<Field
         value={text}
         onChangeText={setText}
