@@ -3,7 +3,6 @@ import {Share, View} from 'react-native';
 import {apiScopes, createAccessToken, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listAccessTokens, listApiKeys, listMemberAccessTokens, listWebhookDeliveries, listWebhooks, revokeAccessToken, revokeApiKey, revokeMemberAccessToken, sendWebhookTest, updateWebhook, type ApiAccessOptions, type ApiCredential, type ApiCredentialPage, type ApiScope, type IssuedApiCredential, type IssuedWebhook, type NewApiCredential, type Webhook, type WebhookDelivery} from '../../../../../packages/client-core/src/api-access';
 import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
 import {EXPIRY_DAYS, assistantAddress, credentialFacts, credentialMember, credentialState, credentialWorks, deliveryProblem, deliveryProgress, expiryLabel, scopeTicked, webhookEventGroups, webhookEventLabel, webhookTrouble, type ExpiryDays} from '../../../../../packages/client-core/src/server-admin/api-words';
-import {QUIET_READ_EVERY_MS} from '../../../../../packages/client-core/src/server-admin/quiet-read';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
@@ -12,6 +11,12 @@ import {operationId, problem, useAction, usePagedList, useRead, type Read} from 
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, Text, ToggleRow, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 import {PickRow} from '../settings/ServerForms';
 import {credentialRequest, mergeDeliveries, webhookChange, webhookDraft, webhookDraftProblem, withEvents, type WebhookDraft} from './owner-rules';
+
+// Each list follows the server's hint for it: what another device or the server itself changes shows by itself.
+const API_KEY_MOVES = [dependsOn.list('apiKeys')];
+const MEMBER_TOKEN_MOVES = [dependsOn.list('memberTokens')];
+const OWN_TOKEN_MOVES = [dependsOn.list('accessTokens')];
+const WEBHOOK_MOVES = [dependsOn.list('webhooks')];
 
 // The owner turning members' tokens off, or changing the rate, is a change to the server's settings.
 const ACCESS_OPTION_MOVES = [dependsOn.settings('server')];
@@ -169,7 +174,7 @@ export function APIKeysPanel() {
   const t = useI18n().t;
   const {api} = useSession();
   const options = useApiAccessOptions();
-  const read = usePagedList(cursor => credentialPage(listApiKeys(api, cursor)), [api]);
+  const read = usePagedList(cursor => credentialPage(listApiKeys(api, cursor)), [api], {on: API_KEY_MOVES});
   return <CredentialList kind="key" title={t('web.access.apiKeys')} footer={`${t('server.access.keyLede')}\n\n${t('api.tokens.lifetime')}`} read={read} options={options.data} create={input => createApiKey(api, input)} revoke={id => revokeApiKey(api, id)} />;
 }
 
@@ -177,7 +182,7 @@ export function APIKeysPanel() {
 export function MemberTokensPanel() {
   const t = useI18n().t;
   const {api} = useSession();
-  const read = usePagedList(cursor => credentialPage(listMemberAccessTokens(api, {cursor})), [api]);
+  const read = usePagedList(cursor => credentialPage(listMemberAccessTokens(api, {cursor})), [api], {on: MEMBER_TOKEN_MOVES});
   return <CredentialList kind="token" title={t('api.tokens.memberTitle')} footer={t('api.tokens.memberLede')} read={read} revoke={id => revokeMemberAccessToken(api, id)} showMember />;
 }
 
@@ -191,7 +196,7 @@ export function AccessTokensPanel() {
   const {api} = useSession();
   const [open, setOpen] = useState(false);
   const options = useApiAccessOptions(open);
-  const read = usePagedList(cursor => credentialPage(listAccessTokens(api, cursor)), [api], {auto: open});
+  const read = usePagedList(cursor => credentialPage(listAccessTokens(api, cursor)), [api], {auto: open, on: OWN_TOKEN_MOVES});
   const limit = options.data ? `${t('api.credential.limitNote', {count: options.data.requestsPerMinute})} ` : '';
   return <CredentialList kind="token" footer={`${t('api.tokens.lede')}\n\n${limit}${t('api.tokens.lifetime')}`} read={read} options={options.data} create={input => createAccessToken(api, input)} revoke={id => revokeAccessToken(api, id)} expander={{title: t('api.tokens.title'), open, onToggle: () => setOpen(v => !v)}} />;
 }
@@ -208,7 +213,7 @@ export function WebhooksPanel() {
   const {space} = useTheme();
   const {api} = useSession();
   // Whether each one is arriving changes as the server delivers; nothing on the feed says so.
-  const read = useRead(() => listWebhooks(api), [api], {every: QUIET_READ_EVERY_MS});
+  const read = useRead(() => listWebhooks(api), [api], {on: WEBHOOK_MOVES});
   const action = useAction();
   const [menu, setMenu] = useState<Webhook>();
   const [editing, setEditing] = useState<{webhook?: Webhook}>();

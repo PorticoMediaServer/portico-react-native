@@ -109,7 +109,18 @@ export const keyUntouched: KeyEdit = {typed: '', remove: false};
 /** What a key edit sends: '' removes the owner's key, text replaces it, undefined leaves it. */
 export const keyChange = (edit: KeyEdit): string | undefined => (edit.remove ? '' : edit.typed.trim() ? edit.typed.trim() : undefined);
 
-export type MetadataDraft = Readonly<{limitBytes: number; includeAdult: boolean; tmdb: KeyEdit; tvdb: KeyEdit}>;
+/**
+ * `subtitles`: the OpenSubtitles key (like the other keys), the account name as typed (sent only
+ * when it differs from the document's) and a new password (sent only when typed).
+ */
+export type MetadataDraft = Readonly<{limitBytes: number; includeAdult: boolean; tmdb: KeyEdit; tvdb: KeyEdit; subtitles?: Readonly<{key: KeyEdit; username: string; password: string}>}>;
+
+/** The subtitle provider's changes in a draft, against the document it was edited from. */
+export function subtitleChanges(read: MetadataSettings, subtitles: MetadataDraft['subtitles']): Pick<MetadataSettingsChange, 'openSubtitlesApiKey' | 'openSubtitlesUsername' | 'openSubtitlesPassword'> {
+  if (!subtitles) return {};
+  const key = keyChange(subtitles.key), username = subtitles.username.trim();
+  return {...(key !== undefined ? {openSubtitlesApiKey: key} : {}), ...(username !== read.openSubtitlesUsername ? {openSubtitlesUsername: username} : {}), ...(subtitles.password ? {openSubtitlesPassword: subtitles.password} : {})};
+}
 
 /**
  * What saving the metadata settings sends against the document as the server has it now. `read`
@@ -122,7 +133,7 @@ export function metadataSave(read: MetadataSettings, draft: MetadataDraft, now: 
   if (limitMine && now.localArtworkLimitBytes !== read.localArtworkLimitBytes && now.localArtworkLimitBytes !== draft.limitBytes) return 'conflict';
   if (adultMine && now.includeAdult !== read.includeAdult && now.includeAdult !== draft.includeAdult) return 'conflict';
   const tmdb = keyChange(draft.tmdb), tvdb = keyChange(draft.tvdb);
-  return {expectedRevision: now.revision, localArtworkLimitBytes: limitMine ? draft.limitBytes : now.localArtworkLimitBytes, includeAdult: adultMine ? draft.includeAdult : now.includeAdult, ...(tmdb !== undefined ? {tmdbReadToken: tmdb} : {}), ...(tvdb !== undefined ? {tvdbProjectKey: tvdb} : {})};
+  return {expectedRevision: now.revision, localArtworkLimitBytes: limitMine ? draft.limitBytes : now.localArtworkLimitBytes, includeAdult: adultMine ? draft.includeAdult : now.includeAdult, ...(tmdb !== undefined ? {tmdbReadToken: tmdb} : {}), ...(tvdb !== undefined ? {tvdbProjectKey: tvdb} : {}), ...subtitleChanges(read, draft.subtitles)};
 }
 
 export type AttentionChoice = 'search' | 'id' | 'parent' | 'dismiss';

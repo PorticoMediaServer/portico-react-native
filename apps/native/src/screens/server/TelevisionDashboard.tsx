@@ -29,6 +29,28 @@ import {recentProblems, workInProgress} from './owner-rules';
  * quiet read says nothing, and rows keep their identity so focus stays where it is.
  */
 export function TelevisionDashboard({entry}: {/** The first row takes focus when the page opens. */ entry?: boolean}) {
+  const {session} = useSession();
+  // An administrator's Dashboard is who is watching what: the rest of it is the owner's to read.
+  return session?.viewer.role === 'owner' ? <OwnerTelevisionDashboard entry={entry} /> : <TelevisionWatchingNow entry={entry} />;
+}
+
+function TelevisionWatchingNow({entry}: {entry?: boolean}) {
+  const {api} = useSession();
+  const t = useI18n().t;
+  const events = useDeviceEvents();
+  const store = useMemo(() => new NowPlayingStore(new AdminSessionsClient(localV1Http(api))), [api]);
+  const playing = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  useEffect(() => driveNowPlaying(() => void store.refresh(), events ?? undefined, appEnvironment), [store, events]);
+  const sessions = playing.sessions;
+  return (
+    <RowGroup title={sessions.length ? `${t('web.nowPlaying.title')} · ${sessions.length}` : t('web.nowPlaying.title')}>
+      {sessions.map((x, n) => <ListRow key={x.id} readable hasTVPreferredFocus={entry && n === 0} icon="play" title={x.title || t('web.nowPlaying.untitled')} subtitle={sessionFacts(x, t)} subtitleLines={2} />)}
+      {!sessions.length ? <ListRow readable hasTVPreferredFocus={entry} icon="play" title={playing.updatedAt !== undefined ? t('web.nowPlaying.empty') : t('web.nowPlaying.title')} /> : null}
+    </RowGroup>
+  );
+}
+
+function OwnerTelevisionDashboard({entry}: {entry?: boolean}) {
   const {api, system} = useSession();
   const client = useConsole();
   const admin = useAdmin();

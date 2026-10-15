@@ -10,7 +10,7 @@ import {useI18n} from '../../app/i18n';
 import {findInPages, problem, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
 import {Field, ListRow, Menu, Notice, RowGroup, Sheet, ToggleRow, useTheme, type MenuItem} from '../../ui';
 import {PickRow, TypedRow, useInlineForm} from '../settings/ServerForms';
-import {attentionChoices, keyChange, keyUntouched, metadataSave, type AttentionChoice, type KeyEdit} from './owner-rules';
+import {attentionChoices, keyChange, keyUntouched, metadataSave, subtitleChanges, type AttentionChoice, type KeyEdit} from './owner-rules';
 
 type Api = ReturnType<typeof useSession>['api'];
 const requestOf = (api: Api) => <T,>(path: string, method?: string, body?: unknown) => api.request<T>(path, method, body);
@@ -32,17 +32,22 @@ export function MetadataSettingsPanel() {
   const [adult, setAdult] = useState(false);
   const [tmdb, setTmdb] = useState<KeyEdit>(keyUntouched);
   const [tvdb, setTvdb] = useState<KeyEdit>(keyUntouched);
-  const reset = (d: MetadataSettings) => { setLimit(artworkLimitText(d.localArtworkLimitBytes)); setAdult(d.includeAdult); setTmdb(keyUntouched); setTvdb(keyUntouched); };
+  // OpenSubtitles: a key like the others, and an account (a name shown back, a password never).
+  const [subtitleKey, setSubtitleKey] = useState<KeyEdit>(keyUntouched);
+  const [subtitleUser, setSubtitleUser] = useState('');
+  const [subtitlePassword, setSubtitlePassword] = useState('');
+  const reset = (d: MetadataSettings) => { setLimit(artworkLimitText(d.localArtworkLimitBytes)); setAdult(d.includeAdult); setTmdb(keyUntouched); setTvdb(keyUntouched); setSubtitleKey(keyUntouched); setSubtitleUser(d.openSubtitlesUsername); setSubtitlePassword(''); };
   useEffect(() => { if (doc) reset(doc); }, [doc]);
   const bytes = artworkLimitBytes(limit);
-  const dirty = !!doc && (bytes !== doc.localArtworkLimitBytes || adult !== doc.includeAdult || keyChange(tmdb) !== undefined || keyChange(tvdb) !== undefined);
+  const subtitles = {key: subtitleKey, username: subtitleUser, password: subtitlePassword};
+  const dirty = !!doc && (bytes !== doc.localArtworkLimitBytes || adult !== doc.includeAdult || keyChange(tmdb) !== undefined || keyChange(tvdb) !== undefined || Object.keys(subtitleChanges(doc, subtitles)).length > 0);
   const inline = useInlineForm('metadata-settings', {
     dirty,
     problem: bytes === undefined ? 'server.metadata.limitProblem' : undefined,
     discard: () => { if (doc) reset(doc); },
     save: async () => {
       if (!doc || bytes === undefined) return;
-      const draft = {limitBytes: bytes, includeAdult: adult, tmdb, tvdb};
+      const draft = {limitBytes: bytes, includeAdult: adult, tmdb, tvdb, subtitles};
       const first = metadataSave(doc, draft);
       if (first === 'conflict') return;
       try { await service.save(first); } catch (e) {
@@ -72,6 +77,13 @@ export function MetadataSettingsPanel() {
         {keyRows('tmdb', t('metadata.settings.tmdbToken'), doc.tmdbCredentialConfigured, tmdb, setTmdb)}
         {keyRows('tvdb', t('metadata.settings.tvdbKey'), doc.tvdbCredentialConfigured, tvdb, setTvdb)}
         <ToggleRow title={t('metadata.settings.includeAdult')} subtitle={t('server.metadata.adultHelp')} value={adult} onChange={setAdult} />
+      </RowGroup>
+      <RowGroup title={t('server.metadata.subtitles')} footer={t('server.metadata.subtitlesLede')}>
+        <TypedRow secure title={t('server.metadata.openSubtitlesKey')} help={subtitleKey.remove ? t('server.metadata.keyRemoving') : keyChange(subtitleKey) !== undefined ? t('settings.save.unsaved') : doc.openSubtitlesKeyConfigured ? t('server.metadata.openSubtitlesKeyOwn') : t('server.metadata.openSubtitlesKeyServer')} value={subtitleKey.typed} shown="" placeholder={doc.openSubtitlesKeyConfigured ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => setSubtitleKey({typed, remove: false})} />
+        {doc.openSubtitlesKeyConfigured ? <ListRow tone="action" title={subtitleKey.remove ? t('server.metadata.keyKeep') : t('server.metadata.openSubtitlesUseServer')} onPress={() => setSubtitleKey({typed: '', remove: !subtitleKey.remove})} /> : null}
+        <TypedRow title={t('server.metadata.openSubtitlesUser')} value={subtitleUser} shown={subtitleUser} maxLength={512} onDone={setSubtitleUser} />
+        {subtitleUser.trim() ? <TypedRow secure title={t('server.metadata.openSubtitlesPassword')} help={doc.openSubtitlesPasswordConfigured && !subtitlePassword && subtitleUser.trim() === doc.openSubtitlesUsername ? t('server.metadata.openSubtitlesPasswordSaved') : undefined} value={subtitlePassword} shown="" maxLength={512} onDone={setSubtitlePassword} /> : null}
+        {doc.openSubtitlesUsername ? <ListRow tone="action" title={t('server.metadata.openSubtitlesSignOut')} onPress={() => { setSubtitleUser(''); setSubtitlePassword(''); }} /> : null}
       </RowGroup>
       <RowGroup title={t('server.metadata.artwork')} footer={t('server.metadata.artworkHelp')}>
         <TypedRow decimal title={t('metadata.settings.artworkLimit')} help={bytes === undefined ? t('server.metadata.limitProblem') : t('server.metadata.artworkUsed', {used: i18n.bytes(doc.localArtworkUsedBytes), limit: i18n.bytes(doc.localArtworkLimitBytes)})} value={limit} shown={`${limit} ${t('settings.unit.gb')}`} onDone={setLimit} />
@@ -112,7 +124,8 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
   const {api} = useSession();
   const service = useMemo(() => (libraryId ? metadataAttentionService(requestOf(api), libraryId) : undefined), [api, libraryId]);
   const page = async (cursor: string) => { const out = await service!.list(cursor, ATTENTION_PAGE); return {items: [...out.entries], nextCursor: out.nextCursor ?? ''}; };
-  const read = usePagedList(page, [service], {auto: !!service});
+  // A match settling, or a scan, changes the list: the feed says so, and every page shown is read again.
+  const read = usePagedList(page, [service], {auto: !!service, on: ATTENTION_MOVES});
   const action = useAction();
   const [notice, setNotice] = useState('');
   const [menu, setMenu] = useState<AttentionEntry>();

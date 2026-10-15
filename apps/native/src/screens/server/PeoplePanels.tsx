@@ -14,6 +14,11 @@ import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, Text, Toggl
 import {InviteSheet} from '../InviteSheet';
 import {PickRow, TypedRow} from '../settings/ServerForms';
 import {ratingChoices, typedClock} from './owner-rules';
+import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
+
+const MEMBER_MOVES = [dependsOn.list('members')];
+const DEVICE_MOVES = [dependsOn.list('devices')];
+const INVITATION_MOVES = [dependsOn.list('invitations')];
 
 /** The platform words that mean a television, whichever client announced the device. */
 const televisionPlatforms = new Set(['tvos', 'androidtv', 'firetv', 'vega', 'roku', 'webos', 'tizen']);
@@ -25,15 +30,55 @@ const rows = <T,>(raw: unknown, each: (x: unknown) => T): T[] => {
   return list.map(each);
 };
 
-/** People › Accounts: everyone who can use this server. An account opens to its role, libraries, sign-in, limits and devices. */
+/**
+ * People › Accounts: everyone who can use this server. An account opens to its role, libraries,
+ * sign-in, limits and devices. An administrator sees the list the administrator tier may read,
+ * and changes only the limits of the members below them.
+ */
 export function AccountsPanel() {
+  const {session} = useSession();
+  return session?.viewer.role === 'owner' ? <OwnerAccounts /> : <AdministeredAccounts />;
+}
+
+/** An access record in the account shape the sheet draws (an administrator reads no other). */
+const administered = (a: AccessMember): DirectMember => ({id: a.accountId, username: a.username, primaryProfileId: a.profileId, role: a.role, revision: a.revision, disabled: a.disabled, allowedLibraries: [...a.allowedLibraries], ...(a.disabledAt ? {disabledAt: a.disabledAt} : {}), ...(a.disabledReason ? {disabledReason: a.disabledReason} : {})});
+
+function AdministeredAccounts() {
   const {api} = useSession();
   const i18n = useI18n();
   const t = i18n.t;
   const libraries = useLibrariesContext();
-  const read = useRead<{items: DirectMember[]}>(() => api.request('/v1/direct/members'), [api]);
+  const page = async (cursor: string) => { const raw = await api.request(accessListPath('members', cursor)); return {items: rows(raw, parseAccessMember), nextCursor: nextCursorOf(raw)}; };
+  const access = usePagedList(page, [api], {on: MEMBER_MOVES});
+  const [open, setOpen] = useState<string>();
+  const libName = (id: string) => libraries.items.find(l => l.id === id)?.name ?? t('server.people.libraryGone');
+  const selected = access.items?.find(a => a.accountId === open);
+  const readAccess = (id: string) => findInPages(page, a => a.accountId === id);
+  return (
+    <>
+      {access.error ? <Notice tone="error" message={access.error} action={t('action.tryAgain')} onAction={access.reload} /> : null}
+      <RowGroup title={t('web.people.accountsTitle')} footer={t('web.people.accountsLede')}>
+        {(access.items ?? []).map(m => {
+          const facts = [m.role === 'owner' || !m.allowedLibraries.length ? t('server.people.allLibraries') : m.allowedLibraries.map(libName).join(', '), m.limits.maxStreams ? t('server.people.streams', {count: m.limits.maxStreams}) : '', m.limits.maxContentRating ? t('server.people.upTo', {rating: m.limits.maxContentRating}) : ''];
+          const off = memberOffLine(m, t, iso => i18n.date(iso));
+          return <ListRow key={m.accountId} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.accountId)} />;
+        })}
+        {access.more ? <ListRow tone="action" title={t('server.showMore')} onPress={access.loadMore} /> : null}
+      </RowGroup>
+      <AccountSheet administered member={selected ? administered(selected) : undefined} access={selected} libraries={libraries.items} onClose={() => setOpen(undefined)} onChanged={access.reload}
+        readMember={async id => { const now = await readAccess(id); return now ? administered(now) : undefined; }} readAccess={readAccess} />
+    </>
+  );
+}
+
+function OwnerAccounts() {
+  const {api} = useSession();
+  const i18n = useI18n();
+  const t = i18n.t;
+  const libraries = useLibrariesContext();
+  const read = useRead<{items: DirectMember[]}>(() => api.request('/v1/direct/members'), [api], {on: MEMBER_MOVES});
   // Roles and limits come from the access list, joined by account.
-  const access = usePagedList(async cursor => { const raw = await api.request(accessListPath('members', cursor)); return {items: rows(raw, parseAccessMember), nextCursor: nextCursorOf(raw)}; }, [api]);
+  const access = usePagedList(async cursor => { const raw = await api.request(accessListPath('members', cursor)); return {items: rows(raw, parseAccessMember), nextCursor: nextCursorOf(raw)}; }, [api], {on: MEMBER_MOVES});
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string>();
   const members = read.data?.items ?? [];
@@ -87,13 +132,14 @@ function useRatingSystems(wanted: boolean): readonly RatingSystem[] {
 }
 
 /** One account: who it is, what it may do, when it may watch, and the devices signed in with it. */
-function AccountSheet({member, access, libraries, onClose, onChanged, readMember, readAccess}: {member?: DirectMember; access?: AccessMember; libraries: readonly {id: string; name: string}[]; onClose: () => void; onChanged: () => void; readMember: (id: string) => Promise<DirectMember | undefined>; readAccess: (id: string) => Promise<AccessMember | undefined>}) {
+function AccountSheet({member, access, libraries, onClose, onChanged, readMember, readAccess, administered: byAdministrator = false}: {member?: DirectMember; access?: AccessMember; libraries: readonly {id: string; name: string}[]; onClose: () => void; onChanged: () => void; readMember: (id: string) => Promise<DirectMember | undefined>; readAccess: (id: string) => Promise<AccessMember | undefined>; /** Opened by an administrator: limits and devices of the members below them; the rest is shown, not changed. */ administered?: boolean}) {
   const {api} = useSession();
   const t = useI18n().t;
   const {space} = useTheme();
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
-  const owner = member?.role === 'owner';
+  // An administrator manages strictly below themselves (members); an owner manages everyone but the owner.
+  const owner = member?.role === 'owner' || byAdministrator && member?.role !== 'member';
   const id = member?.id;
   const readLimits = async (account: string) => parseLimitsDocument(await api.request(`/v1/admin/access/members/${encodeURIComponent(account)}/limits`), account);
   const doc = useRead(async () => (id && !owner ? readLimits(id) : undefined), [api, id, owner]);
@@ -112,9 +158,9 @@ function AccountSheet({member, access, libraries, onClose, onChanged, readMember
     setRole(access?.role ?? member.role); setAll(!member.allowedLibraries.length); setChosen(member.allowedLibraries); setDisabled(member.disabled); setPassword(''); setDeleting(false); action.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member?.id, member?.revision, access?.revision]);
-  const memberDirty = !!member && (disabled !== member.disabled || !!password || JSON.stringify(all ? [] : chosen) !== JSON.stringify(member.allowedLibraries));
+  const memberDirty = !byAdministrator && !!member && (disabled !== member.disabled || !!password || JSON.stringify(all ? [] : chosen) !== JSON.stringify(member.allowedLibraries));
   const limitsDirty = !!base && !!limits && JSON.stringify(limits) !== JSON.stringify(base.limits);
-  const roleDirty = !!access && role !== access.role;
+  const roleDirty = !byAdministrator && !!access && role !== access.role;
   const weak = !!password && !passwordStrength(password).acceptable;
   // Each part is saved against what the server has now: when the account moved underneath (a limit
   // set elsewhere, a scan, the owner's other device), it is read again and sent again without a
@@ -144,17 +190,17 @@ function AccountSheet({member, access, libraries, onClose, onChanged, readMember
           {action.error ? <Notice tone="error" message={action.error} /> : null}
           {doc.error ? <Notice tone="error" message={doc.error} action={t('action.tryAgain')} onAction={doc.reload} /> : null}
           <RowGroup>
-            {owner || !access ? <ListRow title={t('web.access.roleLabel')} meta={tierLabels[member.role]} /> : <PickRow title={t('web.access.roleLabel')} value={role} options={[{id: 'member', label: t('web.access.roleMember')}, {id: 'admin', label: t('web.access.roleAdmin')}]} onChange={v => setRole(v as AccessTier)} />}
-            {!owner ? <ToggleRow title={t('web.people.disableAccount')} subtitle={t('web.people.disableAccountHelp')} value={disabled} onChange={setDisabled} /> : null}
+            {owner || byAdministrator || !access ? <ListRow title={t('web.access.roleLabel')} meta={tierLabels[member.role]} /> : <PickRow title={t('web.access.roleLabel')} value={role} options={[{id: 'member', label: t('web.access.roleMember')}, {id: 'admin', label: t('web.access.roleAdmin')}]} onChange={v => setRole(v as AccessTier)} />}
+            {!owner && !byAdministrator ? <ToggleRow title={t('web.people.disableAccount')} subtitle={t('web.people.disableAccountHelp')} value={disabled} onChange={setDisabled} /> : null}
           </RowGroup>
-          {!owner ? <LibraryChoice all={all} chosen={chosen} libraries={libraries} onChange={(a, c) => { setAll(a); setChosen(c); }} /> : null}
-          {!owner && !member.hostedAccountId ? <Field label={t('auth.newPassword')} hint={t('web.people.keepPasswordHelp')} secure value={password} onChangeText={setPassword} error={weak ? t('server.people.passwordWeak') : undefined} /> : null}
-          {!owner && member.hostedAccountId ? <Notice tone="info" message={t('web.people.hostedNote')} /> : null}
+          {!owner && !byAdministrator ? <LibraryChoice all={all} chosen={chosen} libraries={libraries} onChange={(a, c) => { setAll(a); setChosen(c); }} /> : null}
+          {!owner && !byAdministrator && !member.hostedAccountId ? <Field label={t('auth.newPassword')} hint={t('web.people.keepPasswordHelp')} secure value={password} onChangeText={setPassword} error={weak ? t('server.people.passwordWeak') : undefined} /> : null}
+          {!owner && !byAdministrator && member.hostedAccountId ? <Notice tone="info" message={t('web.people.hostedNote')} /> : null}
           {limits && !owner ? <LimitsRows limits={limits} onChange={setLimits} /> : null}
           {limits && !owner ? <ViewingHours limits={limits} onChange={setLimits} /> : null}
           <AccountDevices accountId={member.id} />
           {/* The last thing in the sheet, and never offered for the owner: the confirmation reads what goes before it asks. */}
-          {!owner ? <RowGroup footer={t('server.people.deleteHelp')}><ListRow tone="destructive" icon="trash" title={t('server.people.delete')} onPress={() => setDeleting(true)} /></RowGroup> : null}
+          {!owner && !byAdministrator ? <RowGroup footer={t('server.people.deleteHelp')}><ListRow tone="destructive" icon="trash" title={t('server.people.delete')} onPress={() => setDeleting(true)} /></RowGroup> : null}
           <DeleteMemberSheet member={deleting ? member : undefined} onClose={() => setDeleting(false)} onDeleted={() => { setDeleting(false); onChanged(); onClose(); }} />
         </View>
       ) : null}
@@ -284,7 +330,7 @@ function AccountDevices({accountId}: {accountId: string}) {
   const {api} = useSession();
   const t = useI18n().t;
   const page = async (cursor: string) => { const raw = await api.request(accessListPath('devices', cursor) + '&account=' + encodeURIComponent(accountId)); return {items: [...parseAccessDevicePage(raw).items], nextCursor: nextCursorOf(raw)}; };
-  const read = usePagedList(page, [api, accountId]);
+  const read = usePagedList(page, [api, accountId], {on: DEVICE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [menu, setMenu] = useState<AccessDevice>();
@@ -315,7 +361,7 @@ export function InvitationsPanel() {
   const {api} = useSession();
   const t = useI18n().t;
   const page = async (cursor: string) => { const raw = await api.request(accessListPath('invitations', cursor)); return {items: rows(raw, parseInvitation), nextCursor: nextCursorOf(raw)}; };
-  const read = usePagedList(page, [api]);
+  const read = usePagedList(page, [api], {on: INVITATION_MOVES});
   const [opIds] = useState(() => createOperationIds(operationId));
   const [inviting, setInviting] = useState(false);
   const [revoking, setRevoking] = useState<Invitation>();

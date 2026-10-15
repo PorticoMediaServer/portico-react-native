@@ -187,3 +187,63 @@ function MergeSheet({open, title, onClose, onMerged}: {open: boolean; title: Too
     </Sheet>
   );
 }
+
+/**
+ * Merging two of a page's own entries, for the kinds that have no page of their own to start
+ * from: an album's songs, a book's files, a title's extras. The owner picks the two that are one
+ * (as on the web, where two are selected and merged), then which stays; the other's files become
+ * its versions with everyone's history combined. Owners on phones and tablets only; offered only
+ * while the page shows two entries of one mergeable kind.
+ */
+export function useMergeTwo(entries: readonly Readonly<{id: string; kind: string; title: string; libraryId?: string; year?: number; subtitle?: string}>[], onMerged: () => void): {row?: React.ReactNode; sheet: React.ReactNode} {
+  const {session} = useSession();
+  const t = useI18n().t;
+  const [open, setOpen] = useState(false);
+  const owner = session?.viewer.role === 'owner' && !isTV;
+  const mergeable = entries.filter(e => MERGEABLE_KINDS.includes(e.kind));
+  const offered = owner && mergeable.some((a, i) => mergeable.some((b, j) => j > i && canMergeTitles(a, b)));
+  if (!offered) return {sheet: null};
+  return {
+    row: <RowGroup><ListRow tone="action" icon="link" title={t('web.selection.merge')} onPress={() => setOpen(true)} /></RowGroup>,
+    sheet: <MergeTwoSheet open={open} entries={mergeable} onClose={() => setOpen(false)} onMerged={() => { setOpen(false); onMerged(); }} />,
+  };
+}
+
+function MergeTwoSheet({open, entries, onClose, onMerged}: {open: boolean; entries: readonly Other[]; onClose: () => void; onMerged: () => void}) {
+  const {api} = useSession();
+  const t = useI18n().t;
+  const {space} = useTheme();
+  const pad = rowPaddingX(useSpecPlatform());
+  const action = useAction();
+  const [first, setFirst] = useState<Other>();
+  const [other, setOther] = useState<Other>();
+  const [keep, setKeep] = useState('');
+  useEffect(() => { if (open) { setFirst(undefined); setOther(undefined); setKeep(''); action.clear(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const choices = first ? entries.filter(e => canMergeTitles(first, e)) : entries;
+  const order = first && other ? mergeOrder<Other>(first, other, keep || first.id) : undefined;
+  const merge = () => void action.run(async () => { if (order) { await mergeTitles(api, order.from.id, order.into.id); onMerged(); } });
+  const back = other ? () => setOther(undefined) : first ? () => setFirst(undefined) : undefined;
+  return (
+    <Sheet open={open} onClose={onClose} kind="form" title={order ? t('web.merge.title') : t('web.selection.merge')} subtitle={first && !other ? named(first) : undefined}
+      primary={order ? {label: t('web.selection.merge'), loading: action.busy, onPress: merge} : undefined} leading={back ? {label: t('action.back'), onPress: back} : undefined}>
+      <View style={{gap: space.md}}>
+        {action.error ? <Notice tone="error" message={action.error} /> : null}
+        {!order ? (
+          <RowGroup title={first ? t('title.merge.find') : undefined}>
+            {choices.filter(e => e.id !== first?.id).map(e => <ListRow key={e.id} icon={e.kind === 'song' || e.kind === 'audiobook_file' ? 'music' : 'film'} title={named(e)} subtitle={e.subtitle} accessory="navigation" onPress={() => { if (first) { setOther(e); setKeep(first.id); } else setFirst(e); }} />)}
+            {first && choices.length < 2 ? <ListRow title={t('title.merge.none')} /> : null}
+          </RowGroup>
+        ) : (
+          <>
+            <RowGroup title={t('web.merge.keep')}>
+              {[first!, other!].map(x => <ListRow key={x.id} title={named(x)} subtitle={x.subtitle} selected={(keep || first!.id) === x.id} trailingIcon={(keep || first!.id) === x.id ? 'check' : undefined} accessibilityState={{selected: (keep || first!.id) === x.id}} onPress={() => setKeep(x.id)} />)}
+            </RowGroup>
+            <Text variant="body" tone="secondary" style={{paddingHorizontal: pad}}>{t('web.merge.body', {title: named(order.from)})}</Text>
+          </>
+        )}
+      </View>
+    </Sheet>
+  );
+}

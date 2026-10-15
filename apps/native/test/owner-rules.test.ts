@@ -4,7 +4,7 @@ import type {Webhook, WebhookDelivery} from '../../../packages/client-core/src/a
 import type {Alert, Job} from '../../../packages/client-core/src/console.ts';
 import type {MetadataSettings} from '../../../packages/client-core/src/metadata-settings.ts';
 import {SPLITTABLE_KINDS} from '../../../packages/client-core/src/title-identity.ts';
-import {attentionChoices, channelMapBatches, channelOverride, credentialRequest, fileTools, keyChange, mergeDeliveries, mergeOrder, mergeSearchGroup, metadataSave, parseChannelMapPage, ratingChoices, recentProblems, saveChannelMap, typedClock, unsavedChannelEdits, webhookChange, webhookDraft, webhookDraftProblem, withChoice, withEvents, workInProgress, type ChannelOverride} from '../src/screens/server/owner-rules.ts';
+import {attentionChoices, channelMapBatches, channelOverride, credentialRequest, fileTools, keyChange, mergeDeliveries, mergeOrder, mergeSearchGroup, metadataSave, parseChannelMapPage, subtitleChanges, ratingChoices, recentProblems, saveChannelMap, typedClock, unsavedChannelEdits, webhookChange, webhookDraft, webhookDraftProblem, withChoice, withEvents, workInProgress, type ChannelOverride} from '../src/screens/server/owner-rules.ts';
 
 // ── Keys and tokens ──
 
@@ -107,7 +107,17 @@ test('a time of day is read as people type it, and nothing else is', () => {
 
 // ── Metadata ──
 
-const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false};
+const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false, openSubtitlesKeyConfigured: false, openSubtitlesUsername: 'sam', openSubtitlesPasswordConfigured: true};
+
+test('the subtitle provider’s key and account are sent only as edited', () => {
+  const base = {limitBytes: settings.localArtworkLimitBytes, includeAdult: false, tmdb: {typed: '', remove: false}, tvdb: {typed: '', remove: false}};
+  // Untouched: nothing about the subtitle provider is sent.
+  assert.deepEqual(metadataSave(settings, {...base, subtitles: {key: {typed: '', remove: false}, username: 'sam', password: ''}}), {expectedRevision: 4, localArtworkLimitBytes: settings.localArtworkLimitBytes, includeAdult: false});
+  // A new key, another account with its password.
+  assert.deepEqual(metadataSave(settings, {...base, subtitles: {key: {typed: 'k1', remove: false}, username: ' alex ', password: 'pw'}}), {expectedRevision: 4, localArtworkLimitBytes: settings.localArtworkLimitBytes, includeAdult: false, openSubtitlesApiKey: 'k1', openSubtitlesUsername: 'alex', openSubtitlesPassword: 'pw'});
+  // Removing the account sends an empty name.
+  assert.deepEqual(subtitleChanges(settings, {key: {typed: '', remove: false}, username: '', password: ''}), {openSubtitlesUsername: ''});
+});
 
 test('a provider key is left alone, replaced or removed', () => {
   assert.equal(keyChange({typed: '', remove: false}), undefined);

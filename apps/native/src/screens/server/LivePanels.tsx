@@ -6,7 +6,7 @@ import {liveSourceChoicesService, parseTunerView, type LiveSourceChoicePage} fro
 import {readLibraryChannels, readLibraryTemplates, saveLibraryChannel, type LibraryChannel, type LibraryChannelTemplate} from '../../../../../packages/client-core/src/library-channels';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {importSkipped, liveSourceState} from '../../../../../packages/client-core/src/server-admin/live-words';
+import {importSkipped, liveSourceState, tunerUseLine} from '../../../../../packages/client-core/src/server-admin/live-words';
 import {canRefreshSource, guideOnlyPatch, normalizeHdHomerunLocator, regenerationBody} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {parseRecordingGrants, parseRecordingOwners, recordingAllowed, recordingOwnerKey, recordingOwnerLabel, recordingRulePayload, type RecordingAnchor, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
@@ -16,6 +16,13 @@ import {operationId, problem, saveRebased, sendFresh, useAction, useRead, useSer
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, ToggleRow, useTheme, type MenuItem} from '../../ui';
 import {PickRow, TypedRow, useInlineForm} from '../settings/ServerForms';
 import {channelOverride, parseChannelMapPage, saveChannelMap, unsavedChannelEdits, withChoice, type ChannelMapEntry, type ChannelOverride} from './owner-rules';
+import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
+
+const SOURCE_MOVES = [dependsOn.list('liveSources')];
+const RULE_MOVES = [dependsOn.list('recordingGroups')];
+const RECORDING_SPACE_MOVES = [dependsOn.list('recordingStorage')];
+const CHANNEL_MOVES = [dependsOn.list('libraryChannels')];
+const TUNER_MOVES = [dependsOn.list('tuners')];
 
 type LiveSource = {id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string; publishedAt: string; channels: number; programmes: number; /** What its last import left out, when anything was. */ diagnostics?: unknown};
 type SourceList = {sources: LiveSource[]; refresh: RefreshStatus[]};
@@ -49,7 +56,7 @@ function ImportSkippedNotice({name, diagnostics}: {name?: string; diagnostics: u
 export function LiveSourcesPanel() {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = useRead<SourceList>(() => api.request<SourceList>('/v1/admin/live-sources'), [api]);
+  const read = useRead<SourceList>(() => api.request<SourceList>('/v1/admin/live-sources'), [api], {on: SOURCE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [adding, setAdding] = useState(false);
@@ -191,8 +198,10 @@ function DiscoverSheet({open, onClose, onUse}: {open: boolean; onClose: () => vo
 }
 
 type FilterRule = {mode: 'include' | 'exclude'; values: string[]};
-type SourceSettings = {/** Empty: every group, and every channel, comes in. What is kept is the source's own key for each, never a viewer's channel id. */ enabledGroups?: readonly string[]; enabledChannels?: readonly string[]; kind: string; streamBufferSeconds: number | null; retryWindowSeconds: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string};
-type SourceDocument = {sourceId: string; sourceName: string; revision: number; settings: SourceSettings; effective: {streamBufferSeconds: number; retryWindowSeconds: number}; availableKinds: string[]};
+type SourceSettings = {/** Empty: every group, and every channel, comes in. What is kept is the source's own key for each, never a viewer's channel id. */ enabledGroups?: readonly string[]; enabledChannels?: readonly string[]; kind: string; streamBufferSeconds: number | null; retryWindowSeconds: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string; /** This source's own import limits, lower than the server's; null keeps the server's. */ importLimits?: ImportLimits | null};
+type ImportLimits = {bytes: number; channels: number; programmes: number};
+type SourceDocument = {sourceId: string; sourceName: string; revision: number; settings: SourceSettings; effective: {streamBufferSeconds: number; retryWindowSeconds: number; importLimits?: ImportLimits}; availableKinds: string[]};
+const MB = 1048576;
 const FILTERS = [{key: 'categories', label: 'server.live.filter.categories'}, {key: 'countries', label: 'server.live.filter.countries'}, {key: 'keywords', label: 'server.live.filter.keywords'}] as const;
 const KIND_LABEL: Record<string, 'server.live.kind.playlist' | 'server.live.kind.guide' | 'server.live.kind.tuner'> = {playlist: 'server.live.kind.playlist', 'xmltv-guide': 'server.live.kind.guide', hdhomerun: 'server.live.kind.tuner'};
 
@@ -267,6 +276,21 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
                 <TypedRow numeric title={t('web.liveSource.retryFor')} value={draft.retryWindowSeconds === null ? '' : String(draft.retryWindowSeconds)} shown={seconds(draft.retryWindowSeconds, doc.effective.retryWindowSeconds)} onDone={text => patch({retryWindowSeconds: text.trim() === '' ? null : Math.max(0, Number(text) || 0)})} />
               </RowGroup>
             ) : null}
+            {/* This source's own import limits: lower than the server's, never higher; an empty field is the server's. */}
+            <RowGroup title={t('server.liveSource.limits')} footer={t('server.liveSource.limitsHelp')}>
+              {(['channels', 'programmes', 'bytes'] as const).map(field => {
+                const own = draft.importLimits?.[field] ?? 0;
+                const scale = field === 'bytes' ? MB : 1;
+                const server = doc.effective.importLimits?.[field];
+                const title = field === 'channels' ? t('server.live.limitChannels') : field === 'programmes' ? t('server.live.limitProgrammes') : `${t('server.live.limitSize')} (${t('settings.unit.mb')})`;
+                const set = (text: string) => {
+                  const value = text.trim() === '' ? 0 : Math.max(0, Math.round((Number(text) || 0) * scale));
+                  const next = {...(draft.importLimits ?? {bytes: 0, channels: 0, programmes: 0}), [field]: value};
+                  patch({importLimits: next.bytes || next.channels || next.programmes ? next : null});
+                };
+                return <TypedRow key={field} numeric title={title} value={own ? String(Math.round(own / scale)) : ''} shown={own ? String(Math.round(own / scale)) : server ? t('server.liveSource.limitDefault', {value: Math.round(server / scale)}) : ''} onDone={set} />;
+              })}
+            </RowGroup>
           </>
         ) : null}
       </View>
@@ -426,7 +450,7 @@ export function TunersPanel() {
   const {api} = useSession();
   const serverId = useServerId();
   const t = useI18n().t;
-  const read = useRead(async () => { const raw = await api.request<{scope?: {serverId?: string}; result?: unknown}>('/v1/admin/dvr/tuners'); if (raw?.scope?.serverId !== serverId) throw Object.assign(new Error('invalid_response'), {code: 'invalid_response'}); return parseTunerView(raw.result); }, [api, serverId], {every: 60000});
+  const read = useRead(async () => { const raw = await api.request<{scope?: {serverId?: string}; result?: unknown}>('/v1/admin/dvr/tuners'); if (raw?.scope?.serverId !== serverId) throw Object.assign(new Error('invalid_response'), {code: 'invalid_response'}); return parseTunerView(raw.result); }, [api, serverId], {on: TUNER_MOVES});
   const view = read.data;
   const time = (iso: string) => new Date(iso).toLocaleString(undefined, {weekday: 'short', hour: 'numeric', minute: '2-digit'});
   return (
@@ -435,7 +459,7 @@ export function TunersPanel() {
       {view ? (
         <RowGroup title={t('web.dvrSettings.tuners')} footer={t('web.dvrSettings.tunersLede', {hours: view.upcomingWindowHours})}>
           {view.sources.map(src => <ListRow key={src.sourceId} icon="live" title={src.sourceName} subtitleLines={6} meta={src.conflicts ? t('server.live.clashes', {count: src.conflicts}) : t('server.live.inUse', {used: src.inUse, total: src.tunerCount})}
-            subtitle={src.active.length || src.upcoming.length ? [...src.active, ...src.upcoming.slice(0, 6)].map(a => `${a.state === 'recording' ? t('server.live.recordingNow') : time(a.startsAt)} · ${a.title}`).join('\n') : t('web.dvrSettings.nothingScheduled')} />)}
+            subtitle={src.active.length || src.upcoming.length ? [...src.active, ...src.upcoming.slice(0, 6)].map(a => tunerUseLine(t, a, time)).join('\n') : t('web.dvrSettings.nothingScheduled')} />)}
           {!view.sources.length ? <ListRow title={t('web.dvrSettings.noTuners')} /> : null}
         </RowGroup>
       ) : null}
@@ -466,7 +490,7 @@ export function RecordingRulesPanel() {
     } while (cursor);
     return {owners, grants};
   }, [admin]);
-  const read = useRead(() => admin.get<{items: Group[]}>('/v1/admin/dvr/recording-groups?limit=100'), [admin]);
+  const read = useRead(() => admin.get<{items: Group[]}>('/v1/admin/dvr/recording-groups?limit=100'), [admin], {on: RULE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [menu, setMenu] = useState<Group>();
@@ -533,7 +557,7 @@ function RecordingPermissions({owners, grants, onSaved}: {owners: readonly Recor
 export function RecordingStoragePanel() {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = useRead<{result?: RecordingStorage} & Partial<RecordingStorage>>(() => api.request('/v1/dvr/storage'), [api]);
+  const read = useRead<{result?: RecordingStorage} & Partial<RecordingStorage>>(() => api.request('/v1/dvr/storage'), [api], {on: RECORDING_SPACE_MOVES});
   const [opIds] = useState(() => createOperationIds(operationId));
   const data = (read.data?.result ?? read.data) as RecordingStorage | undefined;
   const [draft, setDraft] = useState<RecordingStorage['policy']>();
@@ -571,7 +595,7 @@ export function LibraryChannelsPanel() {
   const {api} = useSession();
   const serverId = useServerId();
   const t = useI18n().t;
-  const read = useRead<LibraryChannel[]>(() => readLibraryChannels(api, serverId), [api, serverId]);
+  const read = useRead<LibraryChannel[]>(() => readLibraryChannels(api, serverId), [api, serverId], {on: CHANNEL_MOVES});
   const templates = useRead<LibraryChannelTemplate[]>(() => readLibraryTemplates(api, serverId), [api, serverId]);
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
