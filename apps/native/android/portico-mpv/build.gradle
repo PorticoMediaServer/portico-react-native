@@ -47,7 +47,7 @@ def checkMediaEngine = tasks.register("checkMediaEngine") {
             throw new GradleException(
                 "The media engine (libmpv and its libraries) is not built in ${engineDir}.\n" +
                 "Missing: ${missing.take(6).join(', ')}${missing.size() > 6 ? ', ...' : ''}\n" +
-                "Build it once from the repository root (about an hour; Linux or macOS):\n" +
+                "Build it once from the repository root (about half an hour; Linux or macOS):\n" +
                 "    third_party/media-engine/build-android.sh\n" +
                 "or for one emulator architecture only:\n" +
                 "    third_party/media-engine/build-android.sh --abis x86_64   (and build with -PreactNativeArchitectures=x86_64)\n" +

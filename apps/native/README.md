@@ -112,15 +112,15 @@ bridge to it are their own Gradle module, `android/portico-mpv`.
 **Where libmpv comes from.** The same media engine as on Apple
 ([`third_party/media-engine`](../../third_party/media-engine/README.md)), built for the four
 architectures the app ships (`arm64-v8a armeabi-v7a x86 x86_64`) with the NDK the app uses.
-Each library is its own `.so` (libmpv.so, libavcodec.so, libssl.so, libass.so, ...; about
-29 MB per architecture before compression). `android/portico-mpv/build.gradle` packages them
+Each library is its own `.so` (libmpv.so, libavcodec.so, libssl.so, libass.so, ...; 21 to 35
+MB per architecture before compression, 29 MB for arm64). `android/portico-mpv/build.gradle` packages them
 from `third_party/media-engine/out/android`, with the engine's licence notices as
 `assets/media-engine/THIRD-PARTY-NOTICES.txt`, and stops with instructions when they are
 missing. The bridge (`portico-mpv/src/main/cpp/portico_mpv_jni.c`, compiled by the NDK
 through CMake) is ours; it compiles against the engine's own `mpv/client.h`.
 
 ```bash
-third_party/media-engine/build-android.sh   # from the repository root, once (about an hour)
+third_party/media-engine/build-android.sh   # from the repository root, once (about half an hour)
 cd apps/native/android
 ./gradlew :app:assembleGoogleDebug          # as before
 ```
