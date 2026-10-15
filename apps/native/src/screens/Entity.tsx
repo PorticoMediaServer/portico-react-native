@@ -9,7 +9,7 @@ import {say} from '../app/errors';
 import {useI18n, type I18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
 import {useInvoker} from '../app/playback-events';
-import {sequenceContainer} from '../app/container-play';
+import {groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import {announceMark, containerKindFor, useContainerState} from '../app/container-state';
 import {useSession} from '../app/session';
@@ -205,12 +205,12 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const rowOptions = useMemo<TrackRowOptions | null>(() => {
     if (!trackList || !trackSection) return null;
     if (sortedList) {
-      // The sorted songs play on in the order shown, from the song pressed (the loaded ones after it are the queue).
+      // The sorted songs play on in the order shown: the whole list, from the server's query, starting at the song pressed.
       return {
         art: kind === 'artist',
         ordinal: kind === 'artist' ? undefined : e => e.trackNumber,
         subtitle: kind === 'artist' ? e => e.album?.name : e => { const artist = songArtist(e); return artist && artist !== entity?.subtitle ? artist : undefined; },
-        onPlay: index => { const playable = residentFrom(sortedList, index).filter(e => e.playback); if (playable.length) { invoker.remember(); player.playSequence(playable, 0, 0); } },
+        onPlay: index => { const pressed = sortedList.itemAt(index); if (pressed?.playback) { invoker.remember(); player.playSequence([pressed], 0, 0, groupSequence(group)); } },
         onMore: more,
       };
     }
@@ -229,7 +229,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     }
     return {ordinal: (_, i) => i + 1, highlightId: listening?.resume?.itemId, onPlay: index => playFrom(residentFrom(trackList, index), 0), onMore: more};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId, sortedList]);
+  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId, sortedList, group]);
   // M26: the list heading only when the list has something to show (no empty sections).
   const heading = trackSection && trackSection.totalCount > 0 && (kind === 'artist' || isBook) ? (
     <Text variant="heading" lines={1} style={{paddingHorizontal: space.page, marginBottom: space.sm}}>{trackSection.heading.fallback}</Text>

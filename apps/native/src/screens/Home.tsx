@@ -7,6 +7,7 @@ import {continueTitle, homeHero, isContinueRow as isContinueRowId, type HomeHero
 import {useHome} from '../app/home';
 import {present} from '../app/errors';
 import {useSavedTitles} from '../app/saved-index';
+import type {SequenceContainer} from '../app/container-play';
 import {useI18n} from '../app/i18n';
 import {HomeCustomise} from './HomeCustomise';
 import {HomeEmpty} from './HomeEmpty';
@@ -277,7 +278,7 @@ export function sectionTitle(i18n: Pick<I18n, 't' | 'has'>, heading: ContentSect
   return heading.key.startsWith('home.row.') ? serverTextLabel(i18n, heading, heading.fallback) : heading.fallback;
 }
 
-export function SectionView({section, onSeeAll, onMore, hideTitle = false, libraryId, entryFocus = false, loadingMore = false, row, origin, alwaysSeeAll = false}: {/** See all even when the row shows everything it has (a saved view's page holds more). */ alwaysSeeAll?: boolean; /** Position on the screen, for artwork order. */ row?: number; /** X-12: the cards' place, for their long-press menu. */ origin?: EntryOrigin; /** The first card takes focus when the screen opens. */ entryFocus?: boolean; section: ContentSection; onSeeAll?: () => void; onMore?: () => void; hideTitle?: boolean; /** The library this section belongs to, for entries the server did not stamp (engine results). */ libraryId?: string; loadingMore?: boolean}) {
+export function SectionView({section, onSeeAll, onMore, hideTitle = false, libraryId, entryFocus = false, loadingMore = false, row, origin, alwaysSeeAll = false, sequence}: {/** The list as the server's query: a pressed row plays it whole on from there, not just what is loaded. */ sequence?: SequenceContainer; /** See all even when the row shows everything it has (a saved view's page holds more). */ alwaysSeeAll?: boolean; /** Position on the screen, for artwork order. */ row?: number; /** X-12: the cards' place, for their long-press menu. */ origin?: EntryOrigin; /** The first card takes focus when the screen opens. */ entryFocus?: boolean; section: ContentSection; onSeeAll?: () => void; onMore?: () => void; hideTitle?: boolean; /** The library this section belongs to, for entries the server did not stamp (engine results). */ libraryId?: string; loadingMore?: boolean}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const {width, renderCard, open, artwork} = useSectionCards(section.entries, libraryId, entryFocus, {row: row ?? 0, group: section.id}, origin);
@@ -294,7 +295,8 @@ export function SectionView({section, onSeeAll, onMore, hideTitle = false, libra
           // APL-AUDIO-03: a track plays (with the rest of the list queued after it); details stay one long-press away.
           <ListRow key={entry.id} title={entry.title} subtitle={captionFor(entry)} meta={lengthFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} progress={progressFor(entry)} watched={entry.watched} unavailable={entry.available === false}
             onPress={() => {
-              if ((entry.kind === 'song' || entry.kind === 'audiobook_file') && entry.playback) {
+              if (sequence && entry.playback) player.playSequence([entry], 0, 0, sequence);
+              else if ((entry.kind === 'song' || entry.kind === 'audiobook_file') && entry.playback) {
                 const playable = section.entries.filter(e => e.playback);
                 player.playSequence(playable, playable.indexOf(entry), 0);
               } else open(entry, 'open', libraryId);

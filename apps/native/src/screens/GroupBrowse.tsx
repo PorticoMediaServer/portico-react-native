@@ -11,6 +11,7 @@ import {Button, Menu, Notice, Ring, StateView, useTheme, type IconName} from '..
 import {BrowseBar} from './BrowseFilters';
 import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
+import {groupSequence} from '../app/container-play';
 
 /**
  * Sort and Filter for a group of a library's titles: the library's own controls (`BrowseBar`),
@@ -52,7 +53,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
  * in the library's shapes, and "Show more" for the next page. While a new sort or filter is on its
  * way the titles already there stay; nothing matching says so and offers the way back.
  */
-export function GroupResults({group, results, libraryId, row, as = 'grid'}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; libraryId: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'}) {
+export function GroupResults({group, results, libraryId, row, as = 'grid', playsList = false}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; libraryId: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'; /** A pressed row plays the whole sorted or filtered list on from there (the server's query). */ playsList?: boolean}) {
   const i18n = useI18n();
   const {space} = useTheme();
   const {snapshot, pages} = results;
@@ -64,7 +65,7 @@ export function GroupResults({group, results, libraryId, row, as = 'grid'}: {gro
   return (
     <>
       {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => void pages?.more()} style={{marginHorizontal: space.page, marginBottom: space.md}} /> : null}
-      <RowGuide><SectionView section={section} row={row} hideTitle libraryId={libraryId} loadingMore={snapshot.loadingMore} onMore={snapshot.hasMore ? () => void pages?.more() : undefined} /></RowGuide>
+      <RowGuide><SectionView section={section} row={row} hideTitle libraryId={libraryId} loadingMore={snapshot.loadingMore} onMore={snapshot.hasMore ? () => void pages?.more() : undefined} sequence={playsList ? groupSequence(group) : undefined} /></RowGuide>
       {/* A grid offers its own "Show more"; a list of rows gets the same button under it. */}
       {as === 'list' && snapshot.hasMore ? <View style={{alignItems: 'center', marginBottom: space.xl}}><Button variant="secondary" label={i18n.t('action.showMore')} loading={snapshot.loadingMore} onPress={() => void pages?.more()} /></View> : null}
     </>
