@@ -16,7 +16,7 @@ const server = path.resolve(process.env.PORTICO_SERVER_REPO ?? path.join(here, '
 const SHARED = {
   'packages/client-core': ['src', 'package.json', 'tsconfig.json'],
   'packages/contracts': ['src', 'package.json'],
-  'packages/design': ['src', 'package.json', 'COMPONENTS.md'],
+  'packages/design': ['src', 'package.json', 'COMPONENTS.md', 'LICENSE-LUCIDE'],
   'packages/i18n': ['src', 'scripts', 'baselines', 'package.json'],
 };
 const mode = process.argv[2];

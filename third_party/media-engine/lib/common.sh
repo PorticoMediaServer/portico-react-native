@@ -18,6 +18,101 @@ ME_LOGS="$ME_WORK/logs"
 me_say() { printf '\033[1m[media-engine]\033[0m %s\n' "$*" >&2; }
 me_die() { printf '\033[1;31m[media-engine] error:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# ---------------------------------------------------------------------------------------------
+# Neutral paths. A release library must not carry the build machine's folders (the work
+# directory, the person's home folder, where the toolchain is installed): they say nothing useful
+# to anyone else and make two builds of the same sources differ. Three things put them there:
+#
+#   1. File names the compiler writes into the code (__FILE__ in asserts, debug info). Every C,
+#      C++ and Objective-C compile gets -ffile-prefix-map, -fdebug-prefix-map and
+#      -fmacro-prefix-map (me_path_map_cflags); Rust gets --remap-path-prefix (me_rust_remap_flags).
+#   2. Configuration strings a library reports about itself (FFmpeg's av*_configuration(), mpv's
+#      "Configuration:" line and config folder, OpenSSL's "compiler:" line and module folders).
+#      These are rewritten in the generated header before anything is compiled (me_neutralize).
+#   3. Run paths: there are none on Android; build-apple.sh deletes every LC_RPATH.
+#
+# verify.py fails a build in which any library still contains the work directory, the home
+# folder, or a /home/ or /Users/ path.
+ME_NEUTRAL_WORK=/portico-media-engine
+ME_NEUTRAL_TOOLCHAIN=/toolchain
+
+# A folder as the compiler may see it: as given, and with symbolic links resolved.
+me_path_forms() {
+    local real
+    printf '%s\n' "$1"
+    real=$(cd "$1" 2>/dev/null && pwd -P) || return 0
+    [[ "$real" == "$1" ]] || printf '%s\n' "$real"
+}
+
+# "from=to" pairs for the compilers: the work directory and the toolchain folder (the NDK, or
+# Xcode's developer folder). They never contain each other, so the order does not matter.
+me_path_map_pairs() {  # <toolchain dir>
+    local form
+    mkdir -p "$ME_WORK"
+    while read -r form; do printf '%s=%s\n' "$form" "$ME_NEUTRAL_WORK"; done < <(me_path_forms "$ME_WORK")
+    [[ -n "${1:-}" ]] && while read -r form; do printf '%s=%s\n' "$form" "$ME_NEUTRAL_TOOLCHAIN"; done < <(me_path_forms "$1")
+    return 0
+}
+
+me_path_map_cflags() {  # <toolchain dir> -> flags for every C/C++/Objective-C compile
+    local pair out=""
+    while read -r pair; do
+        # The flags travel through word-split variables (CFLAGS, configure lines): a folder with a
+        # space cannot be named this way. verify.py then reports any such path that is left.
+        [[ "$pair" == *[[:space:]]* ]] && { me_say "Not mapping a folder with a space in its name: ${pair%%=*}"; continue; }
+        out+="-ffile-prefix-map=$pair -fdebug-prefix-map=$pair -fmacro-prefix-map=$pair "
+    done < <(me_path_map_pairs "$1")
+    printf '%s' "${out% }"
+}
+
+# rustc applies the last matching remapping, so the work directory (which may sit inside the home
+# folder) comes after the home folder's cargo and rustup directories.
+me_rust_remap_flags() {  # -> one flag per line
+    local home="${HOME:-}" form
+    [[ -n "$home" ]] && printf '%s\n' "--remap-path-prefix=$home/.cargo=/cargo" "--remap-path-prefix=$home/.rustup=/rustup"
+    while read -r form; do printf '%s\n' "--remap-path-prefix=$form=$ME_NEUTRAL_WORK"; done < <(me_path_forms "$ME_WORK")
+}
+
+# Rewrites generated files (configuration headers) so they name neutral folders instead of this
+# machine's: the work directory, the recipe folder, the toolchain folder, then the home folder.
+me_neutralize() {  # <toolchain dir> <file>...
+    local toolchain="$1"; shift
+    python3 -I - "$ME_WORK" "$ME_ROOT" "$toolchain" "${HOME:-}" "$ME_NEUTRAL_WORK" "$ME_NEUTRAL_TOOLCHAIN" "$@" <<'EOF'
+import os, sys
+work, root, toolchain, home, neutral_work, neutral_toolchain, *files = sys.argv[1:]
+pairs = []
+def add(path, to):
+    if not path:
+        return
+    for form in {path, os.path.realpath(path)}:
+        pairs.append((form.rstrip("/"), to))
+add(work, neutral_work)
+add(root, "/portico-media-engine-recipe")
+add(toolchain, neutral_toolchain)
+add(home, "~")
+pairs.sort(key=lambda p: len(p[0]), reverse=True)  # the longest (most specific) folder first
+import re
+def neutral(text):
+    for old, new in pairs:
+        if old:
+            text = text.replace(old, new)
+    return text
+def char_array(match):
+    # OpenSSL's buildinf.h spells its "compiler:" line as an array of single characters.
+    chars = re.findall(r"'(\\.|[^\\'])'", match.group(2))
+    flags = "".join(c[1] if c.startswith("\\") else c for c in chars if c != "\\0")
+    body = "".join(("\n    " if i % 16 == 0 else "") + "'" + ("\\" + c if c in "\\'" else c) + "'," for i, c in enumerate(neutral(flags)))
+    return match.group(1) + body + "\n'\\0'\n" + match.group(3)
+for name in files:
+    with open(name, encoding="utf-8", errors="surrogateescape") as f:
+        text = f.read()
+    text = re.sub(r"(compiler_flags\[\] = \{)(.*?)(\};)", char_array, text, flags=re.S)
+    text = neutral(text)
+    with open(name, "w", encoding="utf-8", errors="surrogateescape") as f:
+        f.write(text)
+EOF
+}
+
 # Free space check: the builds are large; stop early rather than half way through.
 me_check_disk() {
     local need_gb="${1:-20}" free_kb

@@ -1,8 +1,14 @@
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {View, TVFocusGuideView} from 'react-native';
 import {useI18n} from '../app/i18n';
+import {useOffline} from '../app/downloads';
+import {nextDownloadedEpisode} from '../app/offline-next';
+import {usePlayerActions} from '../app/player-actions';
+import {useServerPreferences} from '../app/server-preferences';
+import type {OfflineEntry} from '../bridge/offline-downloads';
 import {Button, Text, alpha, showToast, useTheme} from '../ui';
 import type {PlayerEngine} from './usePlayer';
+
 
 const noSubscribe = () => () => {};
 const noSnapshot = () => null;
@@ -12,6 +18,11 @@ const noSnapshot = () => null;
  * the viewer or the countdown decides; the server's post-play policy provides
  * the countdown, autoplay and passout check. Three states: Up Next, Still
  * watching?, and Finished (replay or leave).
+ *
+ * A download plays with no server queue: when a downloaded episode ends, Up Next is the next
+ * downloaded episode of the same show (`nextDownloadedEpisode`), counted down under the viewer's
+ * own Autoplay and countdown settings (as last read from the server), so a series watched offline
+ * carries on.
  */
 export function PostPlay({engine}: {engine: PlayerEngine}) {
   const {colors, space, metrics, isTV} = useTheme();
@@ -27,6 +38,38 @@ export function PostPlay({engine}: {engine: PlayerEngine}) {
   const counting = !!held?.nextAvailable && autoplay && !passoutDue;
   const advance = useRef(engine.advance);
   advance.current = engine.advance;
+  // Offline: the download playing now (held while it plays, so a download removed once watched
+  // still names its place in the show), and the next downloaded episode after it.
+  const offline = useOffline();
+  const {playLocal} = usePlayerActions();
+  const serverPreferences = useServerPreferences();
+  const offlineAutoplay = serverPreferences.value<boolean>('playback.autoplayNext', true);
+  const offlineCountdown = Math.max(0, serverPreferences.value<number>('playback.upNextCountdownSeconds', 10));
+  const offlineItem = engine.identity.offline ? engine.identity.itemId ?? engine.state.itemId : undefined;
+  const playingDownload = useRef<OfflineEntry | undefined>(undefined);
+  const found = offlineItem ? offline.entries.find(e => e.itemId === offlineItem && e.state === 'ready') : undefined;
+  if (!offlineItem) playingDownload.current = undefined;
+  else if (found) playingDownload.current = found;
+  const ended = engine.state.phase === 'ended';
+  const offlineNext = ended && offlineItem && playingDownload.current?.itemId === offlineItem ? nextDownloadedEpisode(offline.entries, playingDownload.current) : undefined;
+  const [offlineCancelled, setOfflineCancelled] = useState<string>();
+  const offlineCounting = !!offlineNext && offlineAutoplay && offlineCancelled !== offlineItem;
+  const playDownload = useRef<(entry: OfflineEntry) => void>(() => {});
+  playDownload.current = entry => { if (playLocal) void playLocal(entry).catch(() => showToast({message: i18n.t('player.post.advanceFailed'), icon: 'warning'})); };
+  useEffect(() => {
+    if (!offlineCounting || !offlineNext) return;
+    setRemaining(offlineCountdown);
+    const started = Date.now();
+    const id = setInterval(() => {
+      const left = offlineCountdown - Math.floor((Date.now() - started) / 1000);
+      setRemaining(Math.max(0, left));
+      if (left <= 0) {
+        clearInterval(id);
+        playDownload.current(offlineNext);
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [offlineCounting, offlineNext, offlineCountdown]);
   useEffect(() => {
     setRemaining(countdownSeconds);
     if (!counting) return;
@@ -45,6 +88,8 @@ export function PostPlay({engine}: {engine: PlayerEngine}) {
   // TV-PLAYER-01: seeking a finished item back to 0 left the native item at its end, so the
   // Finished card came straight back. Replay starts the same item again from the beginning.
   const replay = () => {
+    // A download plays again from its own file.
+    if (engine.identity.offline && playingDownload.current) { playDownload.current(playingDownload.current); return; }
     queue?.releaseCompletion();
     const {itemId, title, posterUrl, backdropUrl, kind, libraryId} = engine.identity;
     const id = itemId ?? engine.state.itemId;
@@ -62,6 +107,22 @@ export function PostPlay({engine}: {engine: PlayerEngine}) {
       </TVFocusGuideView>
     </View>
   );
+  if (offlineNext) {
+    return card(
+      i18n.t('player.post.upNext'),
+      <View style={{gap: 4}}>
+        <Text variant={isTV ? 'heading' : 'subheading'} lines={2}>{offlineNext.title}</Text>
+        {offlineNext.subtitle ? <Text variant="caption" tone="secondary" lines={1}>{offlineNext.subtitle}</Text> : null}
+        <Text variant="caption" tone="secondary">{offlineCounting ? i18n.t('player.post.playingIn', {seconds: remaining}) : i18n.t('player.post.ready')}</Text>
+      </View>,
+      <>
+        <Button variant="primary" icon="play" label={i18n.t('player.post.playNow')} hasTVPreferredFocus onPress={() => playDownload.current(offlineNext)} />
+        {offlineCounting ? <Button variant="outline" label={i18n.t('player.post.cancel')} onPress={() => setOfflineCancelled(offlineItem)} /> : null}
+        <Button variant="ghost" icon="refresh" label={i18n.t('player.post.replay')} onPress={replay} />
+        <Button variant="ghost" label={i18n.t('player.post.close')} onPress={engine.leave} />
+      </>,
+    );
+  }
   if (held?.nextAvailable && next) {
     const go = () => { engine.advance(passoutDue ? 'still-watching' : 'manual').catch(() => showToast({message: i18n.t('player.post.advanceFailed'), icon: 'warning'})); };
     return card(

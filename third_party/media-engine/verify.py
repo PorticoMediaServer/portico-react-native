@@ -22,6 +22,9 @@ What it checks, for every library of every architecture:
     are present.
   * The dependency graph matches the recorded manifest (manifest/<platform>.json).
   * The notices and the corresponding source bundle exist.
+  * No library carries the build machine's folders: the work directory, the home folder, or any
+    /home/ or /Users/ path (file names in asserts, configuration strings, run paths). MoltenVK,
+    Khronos's own build, is checked only for this machine's folders.
 
 Exit status 0 when everything passes, 1 otherwise. --write-manifest also writes
 out/<platform>/manifest.json (sizes and SHA-256 of every file). --update-expected rewrites
@@ -34,6 +37,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import plistlib
 import re
@@ -381,6 +385,38 @@ OWN_SYMBOLS = {
 }
 
 
+def path_needles(work: pathlib.Path) -> tuple:
+    """(this machine's folders, any machine's) as byte strings a release library must not contain."""
+    mine = set()
+    for folder in (work, HERE):
+        for form in {str(folder), os.path.realpath(folder)}:
+            if len(form) > 1:
+                mine.add(form.rstrip("/").encode())
+    home = os.environ.get("HOME", "").rstrip("/")
+    if len(home) > 1:
+        mine.add((home + "/").encode())
+    return sorted(mine), [b"/home/", b"/Users/"]
+
+
+def _string_around(blob: bytes, at: int) -> str:
+    start = at
+    while start > 0 and 32 <= blob[start - 1] < 127:
+        start -= 1
+    end = at
+    while end < len(blob) and 32 <= blob[end] < 127:
+        end += 1
+    text = blob[start:end].decode("ascii", "replace")
+    return text if len(text) <= 160 else text[:157] + "..."
+
+
+def check_paths(r: Report, where: str, name: str, blob: bytes, needles: tuple, prebuilt: bool = False):
+    mine, anyone = needles
+    for needle in mine + ([] if prebuilt else anyone):
+        at = blob.find(needle)
+        r.check(at < 0, f"{where}: {name} contains the build folder path {needle.decode(errors='replace')!r} "
+                        f"(in {_string_around(blob, at)!r})" if at >= 0 else "")
+
+
 def check_own_symbols(r: Report, where: str, stem: str, symbols: list):
     defined = {s for s, d in symbols if d}
     for other, pattern in OWN_SYMBOLS.items():
@@ -398,6 +434,7 @@ def verify_android(args, r: Report) -> dict:
     root = args.out / "android"
     expected = set(LIBRARIES) | set(ANDROID_ONLY)
     abis = args.abis.split() if args.abis else sorted(p.name for p in (root / "lib").iterdir() if p.is_dir())
+    needles = path_needles(args.work)
     r.check(bool(abis), f"no ABIs were built under {root / 'lib'}")
     inventory = {}
     for abi in abis:
@@ -424,6 +461,7 @@ def verify_android(args, r: Report) -> dict:
             r.check(all(a >= 16384 for a in elf.load_aligns), f"{where}: {f} is not 16 KB aligned (LOAD alignments {[hex(a) for a in elf.load_aligns]})")
             r.check(not elf.has_symtab, f"{where}: {f} is not stripped")
             check_forbidden(r, where, f, elf.needed, elf.symbols, blob)
+            check_paths(r, where, f, blob, needles)
             if stem in OWN_SYMBOLS:
                 check_own_symbols(r, where, stem, elf.symbols)
             inv[f] = {"needs": ours, "system": system, "size": path.stat().st_size,
@@ -450,6 +488,7 @@ def verify_apple(args, r: Report) -> dict:
     targets = json.loads((HERE / "sources.lock.json").read_text())["tools"]["apple-deployment"]
     # Architectures each slice must have at least (MoltenVK's own frameworks carry more: arm64e
     # on tvOS devices, x86_64 in the tvOS simulator, which Rust and so libdovi do not support).
+    needles = path_needles(args.work)
     wanted_slices = {"ios": {"arm64"}, "ios-simulator": {"arm64", "x86_64"}, "tvos": {"arm64"}, "tvos-simulator": {"arm64"}}
     inventory = {}
     for xc in sorted(root.glob("*.xcframework")):
@@ -480,6 +519,7 @@ def verify_apple(args, r: Report) -> dict:
                     f"{where}: {name} needs OS {plist.get('MinimumOSVersion')}, the app supports {minimum}")
             r.check((fw / "PrivacyInfo.xcprivacy").is_file(), f"{where}: {name} has no privacy manifest")
             blob = binary.read_bytes()
+            check_paths(r, where, name, blob, needles, prebuilt=name in APPLE_ONLY)
             for sl in macho_slices(binary):
                 w = f"{where}/{sl.arch}"
                 r.check(sl.id == f"@rpath/{name}.framework/{name}", f"{w}: {name} install name is {sl.id!r}")
@@ -567,6 +607,9 @@ def main() -> int:
     parser.add_argument("platform", choices=["android", "apple"])
     parser.add_argument("--out", type=pathlib.Path, default=HERE / "out")
     parser.add_argument("--abis", default="")
+    parser.add_argument("--work", type=pathlib.Path,
+                        default=pathlib.Path(os.environ.get("MEDIA_ENGINE_WORK_DIR") or HERE / "work"),
+                        help="the build's work directory, which no library may name (default: MEDIA_ENGINE_WORK_DIR or ./work)")
     parser.add_argument("--ndk", default="", help=argparse.SUPPRESS)  # accepted for symmetry; not needed
     parser.add_argument("--write-manifest", action="store_true")
     parser.add_argument("--update-expected", action="store_true")

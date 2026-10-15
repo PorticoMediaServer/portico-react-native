@@ -19,6 +19,7 @@
     "node_modules",
     "ios/Pods",
     "tvos/Pods",
-    "test"
+    "test",
+    "scripts"
   ]
 }
