@@ -84,6 +84,11 @@
             android:name=".native.PorticoDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Carries unfinished downloads on when the app's process is gone (JobScheduler). -->
+        <service
+            android:name=".native.PorticoDownloadJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
             android:name=".native.PorticoOfflinePlayerActivity"
             android:exported="false"
