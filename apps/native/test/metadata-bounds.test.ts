@@ -7,6 +7,7 @@ const load = () => screenModule(new URL('../src/screens/MetadataEditor.tsx', imp
   react: {default: {}, useEffect: () => {}, useMemo: (f: () => unknown) => f(), useState: (v: unknown) => [v, () => {}]},
   'react-native': {},
   '../../../../packages/client-core/src/metadata-repair': {},
+  '../../../../packages/client-core/src/screen-metadata': {orderTakesOffset: () => false, readTmdbOrder: (order: string) => ({base: order, offset: 0}), tmdbAbsoluteOrder: (order: string) => order},
   '../../../../packages/client-core/src/metadata-bulk': {bulkTargetLimit: 200, validateBulkReceipt: () => {throw new Error('unused');}},
   '../../../../packages/client-core/src/bulk-jobs': {groupMetadataTargets: () => [], runBulkRequests: async () => ({ok: 0, failed: [], jobs: 0})},
   '../app/content': {}, '../app/metadata-editor': {}, '../app/session': {}, '../app/i18n': {},
