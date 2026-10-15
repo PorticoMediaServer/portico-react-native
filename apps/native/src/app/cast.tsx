@@ -1,6 +1,6 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
-import {CastController, type CastMetadata, type CastSnapshot, type CastTransport} from '../../../../packages/client-core/src/cast/index';
+import {CastController, type CastChoices, type CastMetadata, type CastSnapshot, type CastTransport} from '../../../../packages/client-core/src/cast/index';
 import {castTransport} from '../bridge/cast';
 import {castControllerStorage, castControllerStorageReady} from '../bridge/cast-controller-storage';
 import {castOffered} from './cast-offered';
@@ -17,7 +17,7 @@ import {hasRealOrigin, useSession} from './session';
 type Value = {
   controller: CastController | null;
   /** Open the device chooser and, once a device connects, pair it and start `itemId` there. */
-  cast: (itemId: string, meta: CastMetadata, startSeconds: number, onStarted?: () => void) => void;
+  cast: (itemId: string, meta: CastMetadata, startSeconds: number, onStarted?: () => void, choices?: CastChoices) => void;
 };
 const Ctx = createContext<Value>({controller: null, cast: () => {}});
 
@@ -72,7 +72,7 @@ export function CastProvider({children}: {children: React.ReactNode}) {
     const sub = emitter.addListener('PorticoCastSession', (event: {state: string; deviceName: string}) => { if (event.state === 'started') void castControllerStorageReady.then(() => adopt(event.deviceName)); });
     return () => { live = false; sub.remove(); };
   }, [controller, api]);
-  const cast = useCallback((itemId: string, meta: CastMetadata, startSeconds: number, onStarted?: () => void) => {
+  const cast = useCallback((itemId: string, meta: CastMetadata, startSeconds: number, onStarted?: () => void, choices?: CastChoices) => {
     if (!controller || !native || !emitter) return;
     controller.connecting(meta.title);
     starting.current = true;
@@ -85,7 +85,7 @@ export function CastProvider({children}: {children: React.ReactNode}) {
       clearTimeout(giveUp);
       sub.remove();
       if (event.state !== 'started') { starting.current = false; controller.cancelConnecting(); return; }
-      void controller.start(transportFor(event.deviceName), itemId, meta, startSeconds).then(ok => { if (ok) onStarted?.(); }).finally(() => { starting.current = false; });
+      void controller.start(transportFor(event.deviceName), itemId, meta, startSeconds, choices).then(ok => { if (ok) onStarted?.(); }).finally(() => { starting.current = false; });
     });
     native.choose();
   }, [controller]);
