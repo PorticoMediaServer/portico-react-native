@@ -79,17 +79,16 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
   if (!snapshot) return null;
   const profiles = snapshot.profiles;
   const current = session?.viewer.profileId;
-  const work = async (profile: ManagedProfile, run: () => Promise<unknown>) => {
+  const work = async (profile: ManagedProfile, run: () => Promise<unknown>): Promise<boolean> => {
     setBusy(profile.id); setProblem('');
-    try { await run(); await loadAvatars(); } catch (e) { setProblem(say(e, 'profiles', 'save')); } finally { setBusy(''); }
+    try { await run(); await loadAvatars(); return true; } catch (e) { setProblem(say(e, 'profiles', 'save')); return false; } finally { setBusy(''); }
   };
   const choosePicture = async (profile: ManagedProfile) => {
     const picked = await picker?.pick().catch(() => null);
     if (picked) await work(profile, () => identity.uploadAvatar(profile.id, bytesOf(picked.base64), picked.contentType));
   };
   const has = (id: string) => avatars.some(a => a.profileId === id);
-  // CON-12: one shared model decides the profile menu order. Forget remembered
-  // devices and Forgot PIN have no handler here, so they are hidden.
+  // CON-12: one shared model decides the profile menu order. Forgot PIN has no handler here, so it is hidden.
   const items: MenuItem[] = chosen ? (() => {
     const model = profileActions(
       {hasPicture: has(chosen.id), pinRequired: chosen.pinRequired, primary: chosen.primary},
@@ -97,7 +96,7 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
     );
     const out: MenuItem[] = [];
     for (const action of model) {
-      if (action.id === 'forgetDevices' || action.id === 'forgotPin') continue;
+      if (action.id === 'forgotPin' || action.id === 'forgetDevices' && !client) continue;
       if (action.id === 'picture' && !picker) continue;
       if (action.id === 'delete' && chosen.id === current) continue;
       if (action.id === 'changePin') out.push({id: 'pin', label: i18n.t(chosen.pinRequired ? 'profile.changePin' : 'profile.setPin'), icon: 'lock'});
@@ -115,6 +114,8 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
     else if (id === 'pin') setSheet({kind: 'pin', profile: p});
     else if (id === 'removePin') setSheet({kind: 'removePin', profile: p});
     else if (id === 'limits') onLimits(p);
+    // The devices that remember this profile ask for its PIN again; nothing else changes.
+    else if (id === 'forgetDevices' && client) void work(p, () => client.forgetTrust(p.id)).then(ok => { if (ok) showToast({message: i18n.t('profile.devicesForgotten', {name: p.name}), icon: 'check'}); });
     else if (id === 'delete' && client) {
       void client.previewDelete(p).then(preview => setSheet({kind: 'delete', profile: p, playlists: preview.playlists, revision: preview.revision}), e => setProblem(say(e, 'profiles', 'load')));
     }
