@@ -889,7 +889,29 @@ export function usePlayerEngine() {
   }, [playback]);
   // Chapters: the server's for the title (with their pictures), else what the engine found in the
   // file, else what a download brought with it.
-  const serverChapters = useMemo(() => chaptersOf(options?.chapters), [options]);
+  // A chapter's picture is the server's chapter image (`thumbnailUrl` of the session's chapter
+  // list), matched to the title's chapters by start; a chapter without one has none.
+  const chapterSession = serverVideo && playbackState.session && !isLocalSession(playbackState.session.id) && !playbackState.channel ? playbackState.session.id : undefined;
+  const [chapterImages, setChapterImages] = useState<{session: string; images: ReadonlyMap<number, string>}>();
+  useEffect(() => {
+    if (!chapterSession || !(options?.chapters?.length)) return;
+    let live = true;
+    void api.request<unknown>(`/v1/playback/sessions/${encodeURIComponent(chapterSession)}/chapters?limit=100`, 'GET').then(raw => {
+      const list = (raw as {chapters?: unknown} | null)?.chapters;
+      const images = new Map<number, string>();
+      for (const entry of Array.isArray(list) ? list.slice(0, 100) : []) {
+        const c = entry as {startSeconds?: unknown; thumbnailUrl?: unknown} | null;
+        if (typeof c?.startSeconds === 'number' && typeof c.thumbnailUrl === 'string' && /^\/v1\/items\/[^?#]+\/chapters\/[^?#]+\/image$/.test(c.thumbnailUrl) && c.thumbnailUrl.length <= 1024) images.set(Math.round(c.startSeconds * 10), c.thumbnailUrl);
+      }
+      if (live) setChapterImages({session: chapterSession, images});
+    }, () => {});
+    return () => { live = false; };
+  }, [api, chapterSession, options?.chapters?.length]);
+  const serverChapters = useMemo(() => {
+    const listed = chaptersOf(options?.chapters);
+    const images = chapterImages && chapterImages.session === chapterSession ? chapterImages.images : undefined;
+    return images?.size ? listed.map(c => { const image = images.get(Math.round(c.startSeconds * 10)); return image && !c.thumbnail ? {...c, thumbnail: image} : c; }) : listed;
+  }, [options, chapterImages, chapterSession]);
   const downloadChapters = useMemo(() => (localSession ? offlineChapters(offlineExtras) : []), [localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemChapters = serverChapters.length ? serverChapters : engineMedia && engineMedia.intentId === playbackState.intentId && engineMedia.chapters.length ? engineMedia.chapters : localSession ? downloadChapters : identity.itemId && identity.itemId === playbackState.itemId ? chaptersRef.current.get(identity.itemId) ?? [] : [];
   // A download's skip markers (the server's come with the session's offer).

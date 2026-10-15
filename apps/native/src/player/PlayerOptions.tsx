@@ -14,6 +14,7 @@ import {PlaybackApiError} from '../../../../packages/client-core/src/playback-v1
 import {qualityOptionSelected, type QualityInForce, type QualityOption} from '../../../../packages/client-core/src/playback-v1/quality';
 import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
 import {subtitleReason} from '../../../../packages/client-core/src/subtitles';
+import {useArtwork} from '../app/content';
 import {formatClock} from '../app/content';
 import {usePreferences} from '../app/preferences';
 import {useServerPreferences} from '../app/server-preferences';
@@ -138,6 +139,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
   const {state} = engine;
   const {space, isTV} = useTheme();
   const i18n = useI18n();
+  const artwork = useArtwork();
   const device = usePreferences();
   const back = fromMenu && option !== 'menu' ? <ListRow icon="back" title={i18n.t('player.opt.menu')} onPress={() => onPick('menu')} /> : null;
   // TV: a panel whose content has nothing to choose (loading, one track, info) still needs a focus stop inside its trapped guide.
@@ -171,7 +173,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
   } else if (option === 'chapters') {
     const current = chapterAt(engine.chapters, state.pendingSeek?.positionSeconds ?? state.positionSeconds);
     body = engine.chapters.map((chapter, index) => (
-      <ListRow key={`${index}:${chapter.startSeconds}`} ordinal={index + 1} title={chapterTitle(chapter, engine.chapters, i18n)} meta={formatClock(chapter.startSeconds)} selected={chapter === current} hasTVPreferredFocus={chapter === current || (!current && index === 0)} onPress={() => { engine.seekTo(chapter.startSeconds); onClose(); }} />
+      <ListRow key={`${index}:${chapter.startSeconds}`} {...(chapter.thumbnail ? {source: artwork(chapter.thumbnail), shape: 'landscape' as const} : {ordinal: index + 1})} title={chapterTitle(chapter, engine.chapters, i18n)} meta={formatClock(chapter.startSeconds)} selected={chapter === current} hasTVPreferredFocus={chapter === current || (!current && index === 0)} onPress={() => { engine.seekTo(chapter.startSeconds); onClose(); }} />
     ));
   } else if (option === 'version') {
     body = engine.versions.list.map(version => {
