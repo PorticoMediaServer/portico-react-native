@@ -472,7 +472,6 @@ export function usePlayerEngine() {
   // is bound to the exact session generation, so a stale choice can never reach a new stream.
   const subtitleScope = !isAudio && playbackState.session && !isLocalSession(playbackState.session.id) && playbackState.itemId && !playbackState.channel && !['error', 'ended', 'idle'].includes(playbackState.phase) ? playbackState.session : undefined;
   const subtitleService = useMemo(() => subtitleScope && playbackState.itemId ? new SubtitleService(api, {itemId: playbackState.itemId, sessionId: subtitleScope.id, generation: subtitleScope.generation}, operationId, {
-    positionUs: () => String(Math.max(0, Math.round((playback.getSnapshot().pendingSeek?.positionSeconds ?? playback.getSnapshot().positionSeconds) * 1e6))),
     install: presentation => playback.getSnapshot().intentId === playbackState.intentId && playback.installSubtitlePresentation(presentation),
   }) : null, [api, playback, playbackState.itemId, playbackState.intentId, subtitleScope?.id, subtitleScope?.generation]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -486,15 +485,23 @@ export function usePlayerEngine() {
    * server decides how the track reaches the screen from what this device's engines draw: plain
    * cues beside the stream, the original file for an engine that draws it itself (moving the
    * title to that engine when the Player setting allows), or, failing both, in the picture. The
-   * session, the queue and the position are kept. Without a server queue (never the case for a
-   * title started here) the selection route is used as before.
+   * session, the queue and the position are kept, and the server remembers the choice for the
+   * show. A timing correction (`offsetUs`) travels with the track. It is the only way a choice is
+   * made: a session that refuses is the answer, and the subtitles stay as they were. A session
+   * that moved on since (another change landed first) is read again and asked once more.
    */
-  const chooseSubtitleTrack = useCallback(async (resource: SubtitleResource | null): Promise<void> => {
-    const queue = v1Queue(), session = playback.getSnapshot().session;
-    if (!queue || !session || queue.currentSession()?.id !== session.id) { await subtitleService?.choose(resource); return; }
-    await queue.setSubtitleTrack(resource ? resource.id : null);
+  const chooseSubtitleTrack = useCallback(async (resource: SubtitleResource | null, offsetUs?: string): Promise<void> => {
+    if (!playback.changesInPlace()) throw new Error('Subtitles cannot be changed on this playback.');
+    const offset = Number(offsetUs ?? resource?.offsetUs ?? 0);
+    const change = resource ? {subtitleTrackId: resource.id, subtitleOffsetMs: Number.isFinite(offset) ? Math.max(-600000, Math.min(600000, Math.round(offset / 1000))) : 0} : {subtitleTrackId: null};
+    try { await playback.changePlayback(change); }
+    catch (error) {
+      if ((error as {status?: unknown} | null)?.status !== 409) throw error;
+      await subtitleService?.refresh();
+      await playback.changePlayback(change);
+    }
     void subtitleService?.refresh();
-  }, [v1Queue, playback, subtitleService]);
+  }, [playback, subtitleService]);
   // Pick before play: the title page's audio and subtitle choice, applied by the shared rule
   // (client-core `pending-track-choice`): audio first, then subtitles on the session left standing.
   const pendingChoice = useRef<PendingChoiceProgress>({});
@@ -923,7 +930,7 @@ export function usePlayerEngine() {
       service: subtitleService, snapshot: subtitles,
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
-      /** Choose a track, or turn subtitles off (`null`): a change to the playing session. */
+      /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */
       offline: localSession ? {tracks: offlineTracks, selectedId: offlineTrack?.id ?? null, choose: chooseOfflineSubtitle} : null,

@@ -13,6 +13,7 @@ import {playbackInfoRows, qualityNetworkFooter} from '../../../../packages/clien
 import {PlaybackApiError} from '../../../../packages/client-core/src/playback-v1/http';
 import {qualityOptionSelected, type QualityInForce, type QualityOption} from '../../../../packages/client-core/src/playback-v1/quality';
 import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
+import {subtitleReason} from '../../../../packages/client-core/src/subtitles';
 import {formatClock} from '../app/content';
 import {usePreferences} from '../app/preferences';
 import {useServerPreferences} from '../app/server-preferences';
@@ -386,7 +387,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
         );
       })}
       {addable.map(d => (
-        <ListRow key={d.id} title={d.title || d.language} subtitle={`${d.language.toUpperCase()} · ${origin(d.origin)}`} meta={d.enabled ? i18n.t('player.opt.add') : i18n.t('player.opt.unavailable')} disabled={!d.enabled || snapshot.busy} onPress={() => { void service.import(d).catch(() => {}); onClose(); }} />
+        <ListRow key={d.id} title={d.title || d.language} subtitle={`${d.language.toUpperCase()} · ${origin(d.origin)}`} meta={d.enabled ? i18n.t('player.opt.add') : i18n.t('player.opt.unavailable')} disabled={!d.enabled || snapshot.busy} onPress={() => { const found = plan.resources.find(r => r.discoveryId === d.id && r.sourceId === d.sourceId); if (found) choose(found); else showToast({message: subtitleReason(d.reason, i18n.t), icon: 'warning'}); onClose(); }} />
       ))}
       {!plan.resources.length && !addable.length ? <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text> : null}
       {provider?.enabled ? (
@@ -397,7 +398,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
         ) :  <ListRow icon="search" title={i18n.t('player.opt.findSubtitles')} onPress={() => { setSearching(true); void service.search(language).catch(() => {}); }} />
       ) : null}
       {plan.selected ? (
-        <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void service.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
+        <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
       ) : null}
       {/* The look of the line this device draws (a burned-in track is part of the picture). */}
       {!off && plan.renderer !== 'burn_in' ? <CaptionStyleRows /> : null}

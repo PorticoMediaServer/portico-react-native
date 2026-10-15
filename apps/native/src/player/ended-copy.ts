@@ -16,6 +16,10 @@ export function endedCopy(ended: Readonly<{reason: string; message?: string}>, t
       short: t('web.player.ownerStopped.short'),
     };
   }
+  if (ended.reason === 'tuner_reserved') {
+    // A recording took this channel's tuner (the owner's "Stop watching" setting).
+    return {title: t('live.handover.stoppedTitle'), message: t('live.handover.stopped'), short: t('live.handover.stoppedTitle')};
+  }
   const text = sessionEndMessage(ended);
   return {title: t('error.title.load', {subject: 'playback'}), message: text, short: text};
 }

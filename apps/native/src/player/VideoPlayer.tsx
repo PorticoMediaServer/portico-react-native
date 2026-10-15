@@ -17,7 +17,7 @@ import {useI18n} from '../app/i18n';
 import {say} from '../app/errors';
 import {useSystemMedia, systemPosterPath, type SystemMediaCommand} from '../bridge/NativeSystemMedia';
 import {useArtwork} from '../app/content';
-import {Artwork, Button, Icon, StateView, Text, showToast, useTheme, type FocusableHandle} from '../ui';
+import {Artwork, Button, Icon, StateView, Text, alpha, showToast, useTheme, type FocusableHandle} from '../ui';
 import {Timeline} from './Timeline';
 import {PostPlay} from './PostPlay';
 import {SkipPrompt, usePlayerMarkers, type SkipMode} from './SkipPrompt';
@@ -38,6 +38,7 @@ import {useDVRClient} from '../app/dvr';
 import {defaultRecordingOptions} from '../../../../packages/client-core/src/dvr';
 import {channelTimeline} from '../../../../packages/client-core/src/playback/channel-timeline';
 import {formatBehindSec, isBehindLive, programmeRangeLabel} from '../../../../packages/client-core/src/presentation/index';
+import {TUNER_RESERVED, tunerHandover, tunerHandoverLines} from '../../../../packages/client-core/src/live-handover';
 
 
 /**
@@ -118,6 +119,14 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
     } catch { return i18n.time(ms); }
   };
   const liveBehindSec = state.linear ? channelTimeline(state.linear, state.positionSeconds).behind : 0;
+  // B-11.27: a recording is taking this channel's tuner (the owner's "Stop watching" setting): the
+  // time it goes, then a countdown; at the moment the shared service stops the channel itself.
+  const tunerDeadline = state.linear?.media.reservationRequiredAtMs;
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => { if (tunerDeadline === undefined) return; setClock(Date.now()); const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, [tunerDeadline]);
+  const handover = state.phase !== 'error' ? tunerHandover(tunerDeadline, clock) : undefined;
+  const handoverLines = handover ? tunerHandoverLines(handover, i18n.t, ms => i18n.time(ms)) : undefined;
+  const tunerReserved = state.ended?.reason === TUNER_RESERVED;
   const liveProgrammeLabel = state.linear?.programme ? programmeRangeLabel(state.linear.programme.startMs, state.linear.programme.endMs, (ms, meridiem) => (meridiem ? i18n.time(ms) : timeBare(ms))) : undefined;
   const liveBehindLabel = isBehindLive(liveBehindSec) ? i18n.t('player.live.behindLive', {duration: formatBehindSec(liveBehindSec)}) : undefined;
   const inactivity = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -419,7 +428,24 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         // command waiting on an entry still being snapshotted: quiet, then explained after 10 s.
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center'}]}><QueuePreparing /></View>
       ) : (busy && !errored) || waitingForQueue ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center'}]}><StateView loading title={state.recovering ? i18n.t('player.reconnecting') : waitingForQueue ? i18n.t('player.gettingReady') : ''} /></View> : null}
-      {errored && !waitingForQueue && state.ended ? (
+      {handoverLines ? (
+        // Above the picture, never taking focus: the remote keeps working until the stop.
+        <View pointerEvents="none" accessibilityLiveRegion={handover?.kind === 'countdown' ? 'assertive' : 'polite'} style={{position: 'absolute', top: topInset + (isTV ? 120 : 72), left: side, right: side, alignItems: 'center'}}>
+          <View style={{maxWidth: isTV ? 900 : 520, paddingHorizontal: space.lg, paddingVertical: space.md, borderRadius: metrics.radius.panel, backgroundColor: alpha(colors.material, 0.95), borderWidth: 1, borderColor: alpha(colors.lineStrong, 0.5), alignItems: 'center', gap: space.xs}}>
+            <Text variant={isTV ? 'subheading' : 'body'} style={{textAlign: 'center'}}>{handoverLines[0]}</Text>
+            <Text variant="caption" tone="secondary" style={{textAlign: 'center'}}>{handoverLines[1]}</Text>
+          </View>
+        </View>
+      ) : null}
+      {errored && !waitingForQueue && tunerReserved ? (
+        // A recording took the tuner: said once, with only Close. Nothing retries.
+        <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
+          <StateView icon="info" title={i18n.t('live.handover.stoppedTitle')} message={i18n.t('live.handover.stopped')} />
+          <View style={{flexDirection: 'row', gap: space.sm}}>
+            <Button variant="ghost" label={i18n.t('action.close')} hasTVPreferredFocus={isTV} onPress={engine.leave} />
+          </View>
+        </View>
+      ) : errored && !waitingForQueue && state.ended ? (
         // The server ended this session (the owner stopped it): say why, in the same message slot,
         // with only Close. No retry and no advance.
         <View style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', padding: space.xl}]}>
