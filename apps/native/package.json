@@ -6,6 +6,7 @@
     "start": "react-native start --port 19424",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "lint:hooks": "eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src App.tsx ../vega/src",
     "test": "node --experimental-strip-types --import ./test/register.mjs --test test/*.test.ts",
     "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
     "lint:strings": "node ../../packages/i18n/scripts/lint-strings.mjs src ../../packages/i18n/baselines/apple.json --all && node ../../packages/i18n/scripts/lint-raw-errors.mjs src && node ../../packages/i18n/scripts/lint-glossary.mjs"

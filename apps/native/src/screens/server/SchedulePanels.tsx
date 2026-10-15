@@ -1,7 +1,8 @@
 import React, {useState} from 'react';
 import {View} from 'react-native';
 import type {Schedule} from '../../../../../packages/client-core/src/console';
-import {jobLabel, when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {jobName} from '../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {TASK_LABELS, clockMinutes, clockText} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {scheduledJobs, type MaintenanceDocument, type MaintenanceSettings, type MaintenanceWindow} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useI18n} from '../../app/i18n';
@@ -10,8 +11,8 @@ import {Field, ListRow, Notice, RowGroup, Sheet, ToggleRow, useTheme} from '../.
 import {FormLoadNotice, PickRow, TypedRow, useServerForm} from '../settings/ServerForms';
 
 function useTaskLabel() {
-  const t = useI18n().t;
-  return (task: string) => (TASK_LABELS[task] ? t(TASK_LABELS[task]!) : jobLabel(task));
+  const i18n = useI18n();
+  return (task: string) => (TASK_LABELS[task] ? i18n.t(TASK_LABELS[task]!) : jobName(i18n.t, i18n.has, task));
 }
 
 /** Schedule › Maintenance windows: when the server does its heavier background work and what runs in each. Saved with the page. */
@@ -66,7 +67,7 @@ export function ScheduledJobsPanel() {
 /** An extra schedule: edited in a sheet, since it is a separate record with its own revision. */
 function ScheduleRow({schedule, onSaved}: {schedule: Schedule; onSaved: () => void}) {
   const client = useConsole();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const {space} = useTheme();
   const action = useAction();
   const [draft, setDraft] = useState<Schedule>();
@@ -76,8 +77,8 @@ function ScheduleRow({schedule, onSaved}: {schedule: Schedule; onSaved: () => vo
   const next = draft ? {...draft, startMinute: clockMinutes(start), windowMinutes: Math.min(1440, Math.max(15, Number(length) || 15))} : undefined;
   return (
     <>
-      <ListRow title={jobLabel(schedule.kind)} subtitle={[schedule.resource, schedule.enabled ? t('server.schedule.daily', {time: clockText(schedule.startMinute)}) : t('server.schedule.off'), schedule.lastSlot ? t('settings.server.jobs.last', {when: schedule.lastSlot}) : ''].filter(Boolean).join(' · ')} accessory="navigation" onPress={open} />
-      <Sheet open={!!draft} onClose={() => setDraft(undefined)} kind="form" title={jobLabel(schedule.kind)} subtitle={schedule.timezone}
+      <ListRow title={jobName(t, has, schedule.kind)} subtitle={[schedule.resource, schedule.enabled ? t('server.schedule.daily', {time: clockText(schedule.startMinute)}) : t('server.schedule.off'), schedule.lastSlot ? t('settings.server.jobs.last', {when: schedule.lastSlot}) : ''].filter(Boolean).join(' · ')} accessory="navigation" onPress={open} />
+      <Sheet open={!!draft} onClose={() => setDraft(undefined)} kind="form" title={jobName(t, has, schedule.kind)} subtitle={schedule.timezone}
         primary={{label: t('action.save'), loading: action.busy, disabled: !next || JSON.stringify(next) === JSON.stringify(schedule), onPress: () => { if (next) void action.run(() => client.saveSchedule(next, schedule.revision)).then(ok => { if (ok) { setDraft(undefined); onSaved(); } }); }}}>
         {draft ? (
           <View style={{gap: space.md}}>

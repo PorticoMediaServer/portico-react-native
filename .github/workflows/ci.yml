@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The release workflow runs this whole suite on the commit it builds.
+  workflow_call:
 
 permissions:
   contents: read
@@ -19,11 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {path: portico-react-native}
-      # The shared packages here must match portico-server's, their source of truth.
+      # The shared packages here must match portico-server's, their source of truth, at the exact
+      # commit they were copied from (packages/portico-server.lock.json), never a moving branch.
+      - id: server
+        run: echo "revision=$(node scripts/shared-packages.mjs --revision)" >> "$GITHUB_OUTPUT"
+        working-directory: portico-react-native
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {repository: PorticoMediaServer/portico-server, path: portico-server}
+        with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version: 24, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
+        with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
@@ -32,10 +38,32 @@ jobs:
         working-directory: portico-react-native/apps/native
       - run: npm run typecheck:test
         working-directory: portico-react-native/apps/native
+      - run: npm run lint:hooks
+        working-directory: portico-react-native/apps/native
       - run: npm run lint:strings
         working-directory: portico-react-native/apps/native
       - run: npm test
         working-directory: portico-react-native/apps/native
+
+  # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
+  # not have; type checks, tests and strings need only its npm packages.
+  vega:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/vega/package-lock.json}
+      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: apps/vega
+      - run: npm run typecheck
+        working-directory: apps/vega
+      - run: npm run typecheck:test
+        working-directory: apps/vega
+      - run: npm run lint:strings
+        working-directory: apps/vega
+      - run: npm test
+        working-directory: apps/vega
 
   android:
     runs-on: ubuntu-24.04
@@ -43,8 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version: 24, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - uses: actions/setup-java@v4
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with: {distribution: temurin, java-version: '17'}
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/native

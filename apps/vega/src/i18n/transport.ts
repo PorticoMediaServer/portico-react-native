@@ -1,10 +1,8 @@
-import {formatMessage} from '../../../../packages/i18n/src/index';
+import {createI18n, resolveRegion} from '../../../../packages/i18n/src/index';
 
-// Kept here until the canonical package owner adds these messages; package copies are read-only.
-const messages = {
-  'vega.connection.redirectLimit': 'This device can check redirects only after a request has been sent.',
-  'vega.connection.credentialExposed': 'This connection sent your sign-in details to another address, so you have been signed out.',
-} as const;
-export function transportMessage(id: keyof typeof messages, locale = 'en-US'): string {
-  return formatMessage(messages[id], {}, {locale});
+type TransportNotice = 'vega.connection.redirectLimit' | 'vega.connection.credentialExposed';
+
+/** The transport's two notices from the shared catalogue, in the viewer's language. */
+export function transportMessage(id: TransportNotice, locale = 'en-US'): string {
+  return createI18n(resolveRegion({locale}, {locales: [locale]})).t(id);
 }
