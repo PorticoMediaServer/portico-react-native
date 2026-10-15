@@ -475,10 +475,14 @@ internal class PorticoMpvController(private val context: Context) {
         "tone-mapping" to "auto",
         // A file may not send mpv to other network or file sources. HLS is allowed to, per
         // load, once the relay has rewritten every address in its playlists to itself; and
-        // mpv's own network code may speak plain HTTP to the relay and nothing else.
+        // mpv's own network code may speak plain HTTP to the relay and nothing else. The
+        // server's certificate is checked by the relay (OkHttp, the app's own trust); should
+        // mpv ever be given an HTTPS address itself, it verifies it and refuses rather than
+        // trusting it unchecked (mpv's default is not to verify).
         "access-references" to "no",
         "stream-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
         "demuxer-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
+        "tls-verify" to "yes",
         // Sound: decoded on the device and handed to the system as PCM, in as many channels as
         // the output takes. Nothing is passed through as a bitstream.
         "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
