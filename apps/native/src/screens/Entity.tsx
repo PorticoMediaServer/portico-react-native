@@ -142,6 +142,9 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     player.playSequence(playable, 0, 0);
   };
   const everything = useMemo(() => sections.flatMap(s => s.entries).filter(e => e.playback && e.kind !== 'chapter'), [sections]);
+  // Sorted or filtered, the hero's Play and Shuffle play that list (the server's query, however long).
+  const sortedFirst = group.engaged && !isBook ? (sortsTracks ? sortedList?.itemAt(0) : sortedPages.snapshot.entries.find(e => e.playback)) : undefined;
+  const playSorted = (first: ContentEntry, shuffle: boolean) => { if (!first.playback) return; invoker.remember(); player.playSequence([first], 0, 0, groupSequence(group, {shuffle})); };
   const queue = songs?.entries ?? files?.entries ?? everything;
   const resumeChapter = isBook && listening?.resume && !listening.resumeUnavailable ? chapterAt(chapters?.entries ?? [], listening.resume.itemId, listening.resume.positionSeconds) : undefined;
   const claim = useEntryFocus(!!entity);
@@ -157,6 +160,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   } else if (isBook && chapters?.entries.some(e => e.playback)) {
     const first = chapters.entries.find(e => e.playback)!;
     primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playChapter(first)};
+  } else if (sortedFirst) {
+    primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playSorted(sortedFirst, false)};
   } else if (queue.some(e => e.playback)) {
     primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playFrom(queue, 0)};
   }
@@ -172,7 +177,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const failed = (e: unknown) => showToast({message: say(e, 'library', 'save'), icon: 'warning'});
   // One row on every title (Justin, 2 Oct 2026): Play · Shuffle (music) · My List (books) · Favorite · Finished (books) · ⋯.
   const secondary: HeroAction[] = [
-    ...(!isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
+    ...(sortedFirst ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => playSorted(sortedFirst, true)}] : !isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
     ...(container.carries('watchlisted') && container.state ? [{icon: (listed ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(listed ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: listed, onPress: () => { void container.setFlag('watchlisted', !listed).catch(failed); }}] : []),
     ...(container.carries('favorite') && container.state ? [{icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => { void container.setFlag('favorite', !favorite).catch(failed); }}] : []),
     ...(isBook && container.state ? [{icon: (finished ? 'watched' : 'check') as IconName, label: i18n.t(finished ? 'title.markNotFinished' : 'title.markFinished'), iconOnly: true, selected: finished, onPress: () => {
