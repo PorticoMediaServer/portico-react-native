@@ -21,6 +21,10 @@ import {usePullToRefresh} from '../app/refresh';
 import {useAppendedPages, useEndReached} from '../app/paging';
 import type {I18n, MessageId} from '../app/i18n';
 import {RowGuide} from './title/RowGuide';
+import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
+import {acrossScope} from '../app/group-scope';
+import {GroupBar} from './GroupBrowse';
+import type {AcrossGroup} from '../../../../packages/client-core/src/presentation/browse-groups';
 
 const listDependencies = Object.freeze([...titlesWithPersonalState()]);
 
@@ -148,7 +152,14 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     if (initial) setTab(initial);
   }, [initial]);
 
-  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(sort[tab] ?? {})}), [tab, sort]);
+  // The library's whole Sort and Filter on My List, Favorites and History, across every library as
+  // one list. Each list shows its own order (the history by day) until a sort or filter is chosen.
+  const across: AcrossGroup | undefined = tab === 'watchlist' ? 'watchlist' : tab === 'favorites' ? 'favorites' : tab === 'history' ? 'history' : undefined;
+  const groupScope = useMemo(() => (across ? acrossScope(across) : undefined), [across]);
+  const group = useGroupBrowse(groupScope);
+  const sortedWindow = useGroupWindow(group);
+  const sortedOn = group.engaged && !!sortedWindow.list;
+  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(across ? {} : sort[tab] ?? {})}), [tab, sort, across]);
   const saved = useSavedService(savedRoute);
   const personalRoute = useMemo<SavedRoute | null>(() => (isPersonal(tab) ? {view: tab} : null), [tab]);
   const history = usePersonalService(personalRoute);
@@ -156,7 +167,8 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const projection = saved.snapshot.projection;
   // APL-SAVED-01: no sort chips over an empty list.
   const hasEntries = !!projection?.sections.some(section => section.entries.length);
-  const sorts = !isPersonal(tab) && tab !== 'playlists' && hasEntries ? projection?.sorts ?? [] : [];
+  // Playlists keep the one sort the server gives the list of them; the other lists have the library's.
+  const sorts = !isPersonal(tab) && tab !== 'playlists' && !across && hasEntries ? projection?.sorts ?? [] : [];
   const activeSort = sort[tab]?.sort ?? projection?.query.sort ?? sorts[0]?.id;
   const activeDirection = sort[tab]?.direction ?? (projection?.query.direction as 'asc' | 'desc' | undefined);
 
@@ -230,7 +242,7 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
       <RowGuide><Tabs items={tabs} selected={tab} onSelect={id => setTab(id as SavedTab)} /></RowGuide>
     </View>
   );
-  const sortRow = sorts.length ? (
+  const sortRow = groupScope && (hasEntries || tab === 'history' && historyEntries.length > 0 || group.engaged) ? <GroupBar group={group} /> : sorts.length ? (
     <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingHorizontal: space.page, paddingVertical: space.md}}>
       <Text variant="label" tone="tertiary" style={{marginRight: space.xs}}>{i18n.t('saved.sort')}</Text>
       {sorts.map(s => {
@@ -244,6 +256,18 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
       })}
     </View>
   ) : <View style={{height: isTV ? space.xl : space.lg}} />;
+  if (sortedOn && sortedWindow.list) {
+    const empty = sortedWindow.snapshot.total === 0 && sortedWindow.snapshot.status === 'ready';
+    return (
+      <View style={{flex: 1}} onLayout={onLayout}>
+        {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
+        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
+          renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}</>}
+          footer={empty ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
+            : sortedWindow.snapshot.status === 'error' && !sortedWindow.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sortedWindow.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedWindow.list?.retry()} /> : null} />
+      </View>
+    );
+  }
   if (mediaTab && media.length) {
     const shapes = new Set(media.slice(0, 60).map(e => shapeFor(e.kind)));
     const dominant = shapes.size === 1 ? shapeFor(media[0]!.kind) : 'poster';

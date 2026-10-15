@@ -27,7 +27,7 @@ import {RowGuide} from './title/RowGuide';
 import {usePullToRefresh} from '../app/refresh';
 import {useLibrariesContext} from '../app/libraries-context';
 import {useGroupBrowse, useGroupPages, useGroupWindow} from '../app/group-browse';
-import {collectionScope, containerScope, namedGroupScope, type GroupScope} from '../app/group-scope';
+import {collectionScope, containerScope, discScope, namedGroupScope, type GroupScope} from '../app/group-scope';
 import {GroupBar, GroupResults} from './GroupBrowse';
 
 type Section = ContentSection;
@@ -94,8 +94,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // ── Sort and filter ───────────────────────────────────────────────────────
   // The group this page shows, as the library's own browse knows it: an album's or an artist's
   // songs, an author's books, a collection's titles, a book series. Each keeps its own order
-  // until the viewer chooses a sort or a filter. (A book's chapters and a disc are not lists the
-  // server sorts: they have no controls.)
+  // until the viewer chooses a sort or a filter, and under a filter too where the server keeps it.
+  // (A book's chapters are not a list the server sorts: they have no controls.)
   const {items: libraries} = useLibrariesContext();
   const groupLibrary = entity?.libraryId || libraryId;
   const libraryKind = projection?.scope.libraryKind ?? libraries.find(l => l.id === groupLibrary)?.kind;
@@ -104,6 +104,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     if (!groupId) return undefined;
     switch (kind) {
       case 'album': case 'artist': return containerScope(groupLibrary, 'songs', groupId);
+      case 'disc': return discScope(groupLibrary, groupId);
+      case 'book': return containerScope(groupLibrary, 'parts', groupId);
       case 'author': return containerScope(groupLibrary, 'books', groupId);
       case 'collection': return collectionScope(groupLibrary, libraryKind, groupId);
       case 'book_series': return groupTitle ? namedGroupScope(groupLibrary, 'books', {field: 'series', operator: 'in', value: [groupTitle]}) : undefined;
@@ -113,7 +115,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const group = useGroupBrowse(scope);
   // An album's or an artist's songs are already a windowed list: the sorted list takes its place.
   // The other groups are sections of a page: their sorted titles are a grid in that page.
-  const sortsTracks = kind === 'album' || kind === 'artist';
+  const sortsTracks = kind === 'album' || kind === 'artist' || kind === 'disc';
   const sorted = useGroupWindow(group, sortsTracks);
   const sortedPages = useGroupPages(group, !sortsTracks);
   const sortedList = sortsTracks && group.engaged ? sorted.list : null;

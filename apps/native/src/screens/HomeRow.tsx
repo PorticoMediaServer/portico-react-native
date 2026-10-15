@@ -16,6 +16,9 @@ import {withoutNotInterested} from '../app/not-interested';
 import {useTurnedDown} from '../app/not-interested-hook';
 import {Notice, Page, PageHeader, Skeleton, StateView, WindowedGrid, useTheme} from '../ui';
 import {useSectionCards} from './Home';
+import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
+import {acrossScope} from '../app/group-scope';
+import {GroupBar} from './GroupBrowse';
 
 const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
 
@@ -24,6 +27,9 @@ const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersona
  * you rows as a paged grid from the row's own endpoint (`HomeRowPager`: the whole row; a stale
  * cursor starts again from the first page). The cards are recommendations: their long-press menu
  * offers Not interested, and a title turned down leaves the grid.
+ *
+ * The library's Sort and Filter apply to the row's titles across libraries (`homeRow`): the row's
+ * own order stands until a sort is chosen, and stays the order under a filter.
  */
 export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'HomeRow'>}) {
   const {rowId, title} = route.params;
@@ -50,11 +56,17 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
     subscribePage: (_page, listener) => pager.subscribe(listener),
     getPageVersion: () => `${state.entries.length}:${state.restarts}:${entries.length}`,
   }), [pager, entries, state.phase, state.nextCursor, state.entries.length, state.restarts]);
-  const header = <PageHeader title={name} onBack={() => navigation.goBack()} />;
+  const groupScope = useMemo(() => acrossScope('homeRow', rowId), [rowId]);
+  const group = useGroupBrowse(groupScope);
+  const sorted = useGroupWindow(group);
+  const sortedOn = group.engaged && !!sorted.list;
+  const header = <><PageHeader title={name} onBack={() => navigation.goBack()} />{entries.length || group.engaged ? <GroupBar group={group} /> : null}</>;
   const notice = state.error && row ? <Notice tone="warning" message={say(state.error, 'home', 'load')} action={i18n.t('action.tryAgain')} onAction={() => void (state.phase === 'error' ? pager.load() : pager.more())} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
   return (
     <View style={{flex: 1}}>
-      {row ? <WindowedGrid list={grid} total={entries.length + (state.nextCursor ? 60 : 0)} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={<>{header}{notice}</>} footer={state.phase === 'loading' && state.restarts ? <View style={{paddingHorizontal: space.page}}><Skeleton width={metrics.posterWidth} height={metrics.posterWidth * 1.5} /></View> : null} generation={state.restarts} /> : <Page>
+      {row && sortedOn ? <WindowedGrid<ContentEntry> list={sorted.list as unknown as GridWindow<ContentEntry>} total={sorted.snapshot.total} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={header}
+        footer={sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} /> : null} />
+      : row ? <WindowedGrid list={grid} total={entries.length + (state.nextCursor ? 60 : 0)} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={<>{header}{notice}</>} footer={state.phase === 'loading' && state.restarts ? <View style={{paddingHorizontal: space.page}}><Skeleton width={metrics.posterWidth} height={metrics.posterWidth * 1.5} /></View> : null} generation={state.restarts} /> : <Page>
         {header}
         {state.phase === 'loading' && !state.entries.length ? (
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.page}}>{Array.from({length: 6}).map((_, i) => <Skeleton key={i} width={metrics.posterWidth} height={metrics.posterWidth * 1.5} />)}</View>

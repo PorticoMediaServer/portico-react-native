@@ -49,6 +49,12 @@ export const episodeGroupScope = (libraryId: string, showId: string | undefined,
 /** Groups whose own order the server keeps under a filter (groupOrder): a collection's, a container's, a playlist's, a row's, a show's groups, the history's. */
 export const groupKeepsOwnOrder = (scope: GroupScope | undefined): boolean => !!scope && ['collection-titles', 'container-titles', 'list-titles', 'row-titles', 'episode-group', 'history'].includes(scope.surface);
 
+/** One disc of an album ("<album id>:disc:<n>", as the server names a disc page): the album's songs on that disc. */
+export function discScope(libraryId: string, discId: string | undefined): GroupScope | undefined {
+  const match = discId ? /^(.+):disc:(\d+)$/.exec(discId) : null;
+  return libraryId && match ? {libraryId, pivot: 'songs', surface: 'container-titles', base: [{field: 'memberOf', operator: 'equals', value: match[1]!}, {field: 'discNumber', operator: 'equals', value: Number(match[2])}]} : undefined;
+}
+
 /** The titles a person is credited on, within one library. */
 export const personScope = (libraryId: string, libraryKind: string | undefined, personId: string): GroupScope | undefined => {
   const pivot = titlePivot(libraryKind);
@@ -113,15 +119,3 @@ export function groupKey(scope: GroupScope | undefined): string {
 export type GroupChoice = Readonly<{sort?: BrowseSortSelection; predicates: readonly GroupPredicate[]}>;
 export const noGroupChoice: GroupChoice = Object.freeze({predicates: Object.freeze([])});
 export const groupEngaged = (choice: GroupChoice): boolean => !!choice.sort || choice.predicates.length > 0;
-
-/**
- * The libraries a cross-library group is sorted and filtered in, the one holding most of its
- * titles first: those among `libraries` that hold any of `held` (the library of each title the
- * screen has read so far), or all of `libraries` when the screen has read none yet.
- */
-export function groupLibraries<L extends Readonly<{id: string}>>(libraries: readonly L[], held: readonly (string | undefined)[]): readonly L[] {
-  const counts = new Map<string, number>();
-  for (const id of held) if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
-  const holding = libraries.filter(library => counts.has(library.id));
-  return holding.length ? [...holding].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0)) : libraries;
-}

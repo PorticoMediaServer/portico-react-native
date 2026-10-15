@@ -1,7 +1,7 @@
 /** A group of a library's titles as something the common browse route can sort and filter. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {groupLibraries, playlistPivot, savedViewScope, collectionScope, containerScope, groupBrowsable, groupEngaged, groupKey, groupPredicates, listScope, namedGroupScope, noGroupChoice, personScope, titlePivot} from '../src/app/group-scope.ts';
+import {playlistPivot, savedViewScope, collectionScope, containerScope, groupBrowsable, groupEngaged, groupKey, groupPredicates, listScope, namedGroupScope, noGroupChoice, personScope, titlePivot} from '../src/app/group-scope.ts';
 
 const field = (id: string, operators: string[]) => ({id, labelKey: 'browse.field.' + id, type: 'string', operators, controlHint: 'text', complexity: 'standard', cost: 'indexed', applicableKinds: ['movie']});
 const sort = (id: string) => ({id, labelKey: 'sort.' + id, directions: ['asc', 'desc'], defaultDirection: 'asc', expensive: false, applicableKinds: ['movie']});
@@ -62,14 +62,6 @@ test('another group is another identity', () => {
   assert.equal(groupKey(undefined), '');
 });
 
-test('a group with titles in several libraries is sorted in the one that holds most of them first', () => {
-  const libraries = [{id: 'films'}, {id: 'shows'}, {id: 'anime'}];
-  assert.deepEqual(groupLibraries(libraries, ['shows', 'films', 'shows', undefined]).map(l => l.id), ['shows', 'films']);
-  // Nothing read yet: every library that could hold its titles, in the app's own order.
-  assert.deepEqual(groupLibraries(libraries, []).map(l => l.id), ['films', 'shows', 'anime']);
-  assert.deepEqual(groupLibraries(libraries, ['music']).map(l => l.id), ['films', 'shows', 'anime']);
-});
-
 test('a saved view is browsed as it was saved, and narrowed, never widened', () => {
   const query = {all: [{field: 'genre', operator: 'contains-any', value: ['Drama']}, {not: {field: 'playState', operator: 'equals', value: 'watched'}}]} as never;
   const scope = savedViewScope({libraryId: 'lib', pivot: 'movies', query})!;
@@ -84,4 +76,17 @@ test('a saved view is browsed as it was saved, and narrowed, never widened', () 
 
 test('a playlist is browsed as the things it holds', () => {
   assert.deepEqual(['movie', 'tv', 'anime', 'music', 'audiobook'].map(playlistPivot), ['movies', 'episodes', 'episodes', 'songs', undefined]);
+});
+
+test('lists that span libraries are one scope across them; flat-show groups and discs are named to the server', async () => {
+  const {acrossScope, episodeGroupScope, discScope, groupKeepsOwnOrder} = await import('../src/app/group-scope.ts');
+  assert.deepEqual(acrossScope('watchlist'), {libraryId: '*', pivot: 'titles', surface: 'watchlist', base: [{field: 'watchlisted', operator: 'equals', value: true}]});
+  assert.deepEqual(acrossScope('list', 'p1'), {libraryId: '*', pivot: 'items', surface: 'list-titles', base: [{field: 'list', operator: 'equals', value: 'p1'}]});
+  assert.equal(acrossScope('crew', 'x').surface, 'crew-titles');
+  assert.deepEqual(episodeGroupScope('tv', 's1', 'range:100'), {libraryId: 'tv', pivot: 'episodes', surface: 'episode-group', base: [{field: 'episodeGroup', operator: 'equals', value: 's1/range:100'}]});
+  assert.equal(episodeGroupScope('tv', undefined, 'all'), undefined);
+  assert.deepEqual(discScope('m', 'alb:disc:2')?.base, [{field: 'memberOf', operator: 'equals', value: 'alb'}, {field: 'discNumber', operator: 'equals', value: 2}]);
+  assert.equal(discScope('m', 'alb'), undefined);
+  assert.equal(groupKeepsOwnOrder(acrossScope('list', 'p1')), true);
+  assert.equal(groupKeepsOwnOrder(acrossScope('watchlist')), false);
 });

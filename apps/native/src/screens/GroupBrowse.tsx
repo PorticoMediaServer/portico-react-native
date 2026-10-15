@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo} from 'react';
 import {View} from 'react-native';
 import type {ContentSection} from '../../../../packages/client-core/src/library-content';
 import type {GroupBrowse} from '../app/group-browse';
@@ -6,8 +6,7 @@ import type {useGroupPages} from '../app/group-browse';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {useSession} from '../app/session';
-import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Button, Menu, Notice, Ring, StateView, useTheme, type IconName} from '../ui';
+import {Button, Notice, Ring, StateView, useTheme} from '../ui';
 import {BrowseBar} from './BrowseFilters';
 import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
@@ -67,25 +66,6 @@ export function GroupResults({group, results, libraryId, row, as = 'grid'}: {gro
       <RowGuide><SectionView section={section} row={row} hideTitle libraryId={libraryId} loadingMore={snapshot.loadingMore} onMore={snapshot.hasMore ? () => void pages?.more() : undefined} /></RowGuide>
       {/* A grid offers its own "Show more"; a list of rows gets the same button under it. */}
       {as === 'list' && snapshot.hasMore ? <View style={{alignItems: 'center', marginBottom: space.xl}}><Button variant="secondary" label={i18n.t('action.showMore')} loading={snapshot.loadingMore} onPress={() => void pages?.more()} /></View> : null}
-    </>
-  );
-}
-
-/**
- * A group whose titles are in more than one library (a person's, the profile's own lists) is
- * sorted and filtered one library at a time, because each library has its own filters. This is
- * the first control of the group's bar: it names that library and opens the others. With one
- * library there is nothing to choose and it is not drawn.
- */
-export function GroupLibraryPicker({libraries, selected, onSelect}: {libraries: readonly Readonly<{id: string; name: string; kind: string}>[]; selected: string | undefined; onSelect: (libraryId: string) => void}) {
-  const i18n = useI18n();
-  const [open, setOpen] = useState(false);
-  const current = libraries.find(library => library.id === selected) ?? libraries[0];
-  if (libraries.length < 2 || !current) return null;
-  return (
-    <>
-      <Button size="sm" variant="secondary" icon={(mediaFamilyIcon(current.kind) ?? 'film') as IconName} trailingIcon="chevronDown" label={current.name} accessibilityLabel={i18n.t('library.switchLabel', {title: current.name})} onPress={() => setOpen(true)} />
-      <Menu open={open} onClose={() => setOpen(false)} title={i18n.t('web.shell.library')} items={libraries.map(library => ({id: library.id, label: library.name, icon: (mediaFamilyIcon(library.kind) ?? 'film') as IconName, selected: library.id === current.id}))} onSelect={id => { setOpen(false); onSelect(id); }} />
     </>
   );
 }
