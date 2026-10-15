@@ -175,8 +175,9 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         // The HEVC decoder shows a Dolby Vision title's HDR10 layer; a title with no such layer
         // (profile 5) would come out in the wrong colours, so it is not offered to this engine.
         putArray("dolbyVisionProfiles", Arguments.fromList(listOf(7, 8)))
-        // This build of libmpv has no deinterlacing filter: interlaced video is shown as the
-        // chip's decoder returns it.
+        // The engine does not ask mpv to deinterlace (the media engine has the filters, but
+        // software deinterlacing on a television's processor is untested): interlaced video is
+        // shown as the chip's decoder returns it.
         putBoolean("softwareDeinterlace", false)
       })
     } catch (e: Exception) {

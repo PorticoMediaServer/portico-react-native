@@ -418,9 +418,13 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             ("network-timeout", "30"),
             // Direct files may not introduce other network or filesystem sources. HLS is
             // enabled per load only after the relay has rewritten every manifest reference.
+            // The server's certificate is checked by the relay (URLSession, the app's own
+            // trust); should mpv ever be given an HTTPS address itself, it verifies it and
+            // refuses rather than trusting it unchecked (mpv's default is not to verify).
             ("access-references", "no"),
             ("stream-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
             ("demuxer-lavf-o", "protocol_whitelist=%20%file,http,tcp,crypto"),
+            ("tls-verify", "yes"),
             // Tracks are chosen by command, never by mpv's own preferences or by files nearby.
             ("sub-auto", "no"), ("audio-file-auto", "no"), ("sid", "no"), ("audio-display", "no"),
             // Text subtitles look the way the AVPlayer engine draws them: white on a soft black

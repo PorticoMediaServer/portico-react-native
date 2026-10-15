@@ -1,0 +1,193 @@
+diff --git a/meson.build b/meson.build
+index fb10be5..1b96a6c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1318,6 +1318,18 @@ if features['vulkan'] and features['android']
+     sources += files('video/out/vulkan/context_android.c')
+ endif
+ 
++moltenvk = get_option('moltenvk').require(
++    features['vulkan'] and darwin and not features['cocoa'],
++    error_message: 'the MoltenVK context needs vulkan on iOS or tvOS',
++)
++features += {'moltenvk': moltenvk.allowed() and
++             cc.has_header_symbol('vulkan/vulkan_metal.h', 'vkCreateMetalSurfaceEXT',
++                                  prefix: '#include <vulkan/vulkan_core.h>',
++                                  dependencies: vulkan, required: moltenvk)}
++if features['moltenvk']
++    sources += files('video/out/vulkan/context_moltenvk.m')
++endif
++
+ if features['vulkan'] and features['wayland']
+     sources += files('video/out/vulkan/context_wayland.c')
+ endif
+@@ -1545,8 +1557,12 @@ endif
+ if macos_sdk_version != '0.0'
+     message('Detected macOS SDK: ' + macos_sdk_version)
+     add_languages('objc', native: false)
+-    objc_link_flags = ['-isysroot', macos_sdk_path, '-L/usr/lib', '-L/usr/local/lib']
+-    add_project_link_arguments(objc_link_flags, language: ['c', 'objc'])
++    # When cross-compiling (iOS, tvOS) the cross file supplies the SDK; the build machine's
++    # library folders must not be searched.
++    if not meson.is_cross_build()
++        objc_link_flags = ['-isysroot', macos_sdk_path, '-L/usr/lib', '-L/usr/local/lib']
++        add_project_link_arguments(objc_link_flags, language: ['c', 'objc'])
++    endif
+ endif
+ 
+ swift = get_option('swift-build').require(
+diff --git a/meson.options b/meson.options
+index 52782f7..b544a34 100644
+--- a/meson.options
++++ b/meson.options
+@@ -103,6 +103,7 @@ option('gl-dxinterop-d3d9', type: 'feature', value: 'auto', description: 'OpenGL
+ option('ios-gl', type: 'feature', value: 'auto', description: 'iOS OpenGL ES interop support')
+ option('videotoolbox-gl', type: 'feature', value: 'auto', description: 'Videotoolbox with OpenGL')
+ option('videotoolbox-pl', type: 'feature', value: 'auto', description: 'Videotoolbox with libplacebo')
++option('moltenvk', type: 'feature', value: 'auto', description: 'Vulkan on MoltenVK into an embedder-owned CAMetalLayer (iOS, tvOS)')
+ 
+ # macOS features
+ option('macos-10-15-4-features', type: 'feature', value: 'auto', description: 'macOS 10.15.4 SDK Features')
+diff --git a/video/out/gpu/context.c b/video/out/gpu/context.c
+index 60c0641..c705a98 100644
+--- a/video/out/gpu/context.c
++++ b/video/out/gpu/context.c
+@@ -50,6 +50,7 @@ extern const struct ra_ctx_fns ra_ctx_vulkan_xlib;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_android;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_display;
+ extern const struct ra_ctx_fns ra_ctx_vulkan_mac;
++extern const struct ra_ctx_fns ra_ctx_vulkan_moltenvk;
+ 
+ /* Direct3D 11 */
+ extern const struct ra_ctx_fns ra_ctx_d3d11;
+@@ -96,6 +97,9 @@ static const struct ra_ctx_fns *const contexts[] = {
+ #if HAVE_COCOA && HAVE_SWIFT
+     &ra_ctx_vulkan_mac,
+ #endif
++#if HAVE_MOLTENVK
++    &ra_ctx_vulkan_moltenvk,
++#endif
+ #endif
+ 
+ // OpenGL contexts:
+diff --git a/video/out/vulkan/common.h b/video/out/vulkan/common.h
+index e75cb22..276dfd2 100644
+--- a/video/out/vulkan/common.h
++++ b/video/out/vulkan/common.h
+@@ -22,7 +22,7 @@
+ #if HAVE_WIN32_DESKTOP
+ #define VK_USE_PLATFORM_WIN32_KHR
+ #endif
+-#if HAVE_COCOA
++#if HAVE_COCOA || HAVE_MOLTENVK
+ #define VK_USE_PLATFORM_METAL_EXT
+ #endif
+ 
+diff --git a/video/out/vulkan/context_moltenvk.m b/video/out/vulkan/context_moltenvk.m
+new file mode 100644
+index 0000000..e531167
+--- /dev/null
++++ b/video/out/vulkan/context_moltenvk.m
+@@ -0,0 +1,102 @@
++/*
++ * This file is part of mpv.
++ *
++ * mpv is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * mpv is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * Vulkan (through MoltenVK) on a CAMetalLayer that the embedding application owns, for iOS and
++ * tvOS, where mpv has no window of its own. The application passes the layer's address as "wid"
++ * and sets the layer's drawableSize; mpv renders at that size.
++ */
++
++#import <QuartzCore/CAMetalLayer.h>
++
++#include "common.h"
++#include "context.h"
++#include "utils.h"
++
++struct priv {
++    struct mpvk_ctx vk;
++    CAMetalLayer *layer;
++};
++
++static void moltenvk_uninit(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    ra_vk_ctx_uninit(ctx);
++    mpvk_uninit(&p->vk);
++}
++
++static bool moltenvk_init(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
++    struct mpvk_ctx *vk = &p->vk;
++    int msgl = ctx->opts.probing ? MSGL_V : MSGL_ERR;
++
++    int64_t wid = ctx->vo->opts->WinID;
++    if (wid == 0 || wid == -1) {
++        MP_MSG(ctx, msgl, "No CAMetalLayer was given (set wid to its address)\n");
++        goto fail;
++    }
++    p->layer = (__bridge CAMetalLayer *)(void *)(intptr_t)wid;
++
++    if (!mpvk_init(vk, ctx, VK_EXT_METAL_SURFACE_EXTENSION_NAME))
++        goto fail;
++
++    VkMetalSurfaceCreateInfoEXT info = {
++        .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
++        .pLayer = p->layer,
++    };
++    VkResult res = vkCreateMetalSurfaceEXT(vk->vkinst->instance, &info, NULL, &vk->surface);
++    if (res != VK_SUCCESS) {
++        MP_MSG(ctx, msgl, "Could not create a Metal surface (VkResult %d)\n", (int)res);
++        goto fail;
++    }
++
++    struct ra_ctx_params params = {0};
++    if (!ra_vk_ctx_init(ctx, vk, params, VK_PRESENT_MODE_FIFO_KHR))
++        goto fail;
++
++    return true;
++
++fail:
++    moltenvk_uninit(ctx);
++    return false;
++}
++
++static bool moltenvk_reconfig(struct ra_ctx *ctx)
++{
++    struct priv *p = ctx->priv;
++    CGSize size = p->layer.drawableSize;
++    if (size.width < 1 || size.height < 1)
++        return false;
++    ra_vk_ctx_resize(ctx, (int)size.width, (int)size.height);
++    return true;
++}
++
++static int moltenvk_control(struct ra_ctx *ctx, int *events, int request, void *arg)
++{
++    return VO_NOTIMPL;
++}
++
++const struct ra_ctx_fns ra_ctx_vulkan_moltenvk = {
++    .type           = "vulkan",
++    .name           = "moltenvk",
++    .description    = "iOS/tvOS Vulkan on MoltenVK",
++    .reconfig       = moltenvk_reconfig,
++    .control        = moltenvk_control,
++    .init           = moltenvk_init,
++    .uninit         = moltenvk_uninit,
++};
