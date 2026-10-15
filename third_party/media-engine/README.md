@@ -35,7 +35,7 @@ must carry. FFmpeg is the **same version the Portico server pins**, so both ends
 | FriBidi | 1.0.17 | LGPL-2.1-or-later | Right-to-left text for libass. |
 | libunibreak | 8.0 | Zlib | Unicode line breaking for libass (CJK text without spaces wraps correctly). |
 | dav1d | 1.5.4 | BSD-2-Clause | AV1 software decoding. |
-| libplacebo | 7.360.1 | LGPL-2.1-or-later | mpv's renderer (mandatory since mpv 0.35): scaling, colour, HDR tone mapping. |
+| libplacebo | 7.360.1 | LGPL-2.1-or-later | mpv's renderer (a required dependency of mpv 0.41): scaling, colour, HDR tone mapping. |
 | Little CMS | 2.19.1 | MIT | Colour management (ICC) for libplacebo and mpv. |
 | libdovi | 3.4.0 | MIT | Dolby Vision metadata for libplacebo (`vo=gpu-next`). Rust, built with cargo-c. |
 | uchardet | 0.0.8 | LGPL-2.1-or-later (tri-licence) | Detects the character set of subtitles that are not UTF-8. |
