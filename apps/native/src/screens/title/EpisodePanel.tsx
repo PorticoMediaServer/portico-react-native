@@ -108,6 +108,9 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
   };
   const directors = namesIn(credits, ['directing', 'director', 'direction']);
   const writers = namesIn(credits, ['writing', 'writer', 'writers']);
+  // The director and writers as people (B-18.30): one card each, opening their page where the server knows who they are.
+  const crewDepartments = ['directing', 'director', 'direction', 'writing', 'writer', 'writers'];
+  const crew = [...new Map(credits.filter(c => crewDepartments.includes(c.department.toLowerCase())).map(c => [c.personId ?? c.name, c])).values()];
   const previous = index !== undefined && index > 0 ? neighbour(index - 1) : undefined;
   const next = index !== undefined && (total === undefined || index + 1 < total) ? neighbour(index + 1) : undefined;
   // The panel is a trailing side sheet on TV and iPad (640 / 440 wide) and a half-height sheet on iPhone.
@@ -171,6 +174,16 @@ export function EpisodePanel({open, libraryId, entry, index, total, neighbour, s
           <View style={[pad, {gap: space.xxs}]}>
             {directors.length ? <Text variant="caption" tone="secondary">{i18n.t('title.directedBy', {names: i18n.list(directors)})}</Text> : null}
             {writers.length ? <Text variant="caption" tone="secondary">{i18n.t('title.writtenBy', {names: i18n.list(writers)})}</Text> : null}
+          </View>
+        ) : null}
+        {crew.some(c => c.personId) ? (
+          <View style={{gap: space.sm}}>
+            <Text variant="subheading" style={pad}>{i18n.t('title.crew')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: space.md, gap: space.md, paddingVertical: isTV ? space.md : 0}} style={isTV ? {marginVertical: -space.md} : undefined}>
+              {crew.map(c => (
+                <PersonCard key={c.id} name={c.name} subtitle={c.role || c.department} width={isTV ? 120 : 72} source={artwork(c.portraitUrl)} onPress={c.personId ? () => { onClose(); onPerson(c.personId!, c.name); } : undefined} />
+              ))}
+            </ScrollView>
           </View>
         ) : null}
         {cast.length ? (
