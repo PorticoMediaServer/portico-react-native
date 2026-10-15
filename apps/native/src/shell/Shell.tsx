@@ -27,6 +27,7 @@ import {DetailScreen} from '../screens/Detail';
 import {EntityScreen} from '../screens/Entity';
 import {ShowScreen} from '../screens/Show';
 import {AboutScreen, AccountScreen, SettingsPageScreen, SettingsScreen} from '../screens/Settings';
+import {LicenceScreen, LicencesScreen} from '../screens/Licences';
 import {ServersScreen} from '../screens/SettingsPages';
 import {NotificationsScreen} from '../screens/Notifications';
 import {DownloadsScreen} from '../screens/Downloads';
@@ -102,7 +103,7 @@ function TVMenuGate({gate}: {gate: ExitGate}) {
 // Each destination renders inside its own boundary so one screen's failure
 // never takes the tab bar, rail or stack with it.
 const screens = {
-  Home: guarded(HomeScreen), HomeRow: guarded(HomeRowScreen), Library: guarded(LibraryScreen), Entity: guarded(EntityScreen), Detail: guarded(DetailScreen), Show: guarded(ShowScreen), Search: guarded(SearchScreen), Person: guarded(PersonScreen), Saved: guarded(SavedScreen), Channels: guarded(ChannelsScreen), Settings: guarded(SettingsScreen), SettingsPage: guarded(SettingsPageScreen), Account: guarded(AccountScreen), Servers: guarded(ServersScreen), About: guarded(AboutScreen), Notifications: guarded(NotificationsScreen), Downloads: guarded(DownloadsScreen), Together: guarded(TogetherScreen), Playlist: guarded(PlaylistScreen), SavedResource: guarded(SavedResourceScreen), Gallery: guarded(Gallery), Invitation: guarded(InvitationScreen), Recordings: guarded(RecordingsScreen),
+  Home: guarded(HomeScreen), HomeRow: guarded(HomeRowScreen), Library: guarded(LibraryScreen), Entity: guarded(EntityScreen), Detail: guarded(DetailScreen), Show: guarded(ShowScreen), Search: guarded(SearchScreen), Person: guarded(PersonScreen), Saved: guarded(SavedScreen), Channels: guarded(ChannelsScreen), Settings: guarded(SettingsScreen), SettingsPage: guarded(SettingsPageScreen), Account: guarded(AccountScreen), Servers: guarded(ServersScreen), About: guarded(AboutScreen), Licences: guarded(LicencesScreen), Licence: guarded(LicenceScreen), Notifications: guarded(NotificationsScreen), Downloads: guarded(DownloadsScreen), Together: guarded(TogetherScreen), Playlist: guarded(PlaylistScreen), SavedResource: guarded(SavedResourceScreen), Gallery: guarded(Gallery), Invitation: guarded(InvitationScreen), Recordings: guarded(RecordingsScreen),
 } as const;
 
 /*

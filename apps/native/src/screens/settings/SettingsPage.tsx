@@ -331,6 +331,7 @@ function DownloadsStorage() {
 function About({entry}: {entry?: boolean}) {
   const session = useSession();
   const i18n = useI18n();
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const none = i18n.t('about.notAvailable');
   // The installed build's version (CFBundleShortVersionString), from the native runtime.
   const [version, setVersion] = useState<string>();
@@ -352,6 +353,9 @@ function About({entry}: {entry?: boolean}) {
         <ListRow readable hasTVPreferredFocus={isTV && entry} title={i18n.t('about.appVersion')} meta={version ?? none} />
         <ListRow readable title={i18n.t('about.server')} meta={session.system?.name ?? none} />
         <ListRow readable title={i18n.t('about.serverVersion')} meta={session.system?.version ?? none} />
+      </RowGroup>
+      <RowGroup>
+        <ListRow title={i18n.t('licenses.title')} subtitle={i18n.t('licenses.rowHelp')} subtitleLines={2} accessory="navigation" onPress={() => navigation.push('Licences')} />
       </RowGroup>
       {serverId ? (
         <RowGroup footer={crash ? i18n.t('about.report.afterCrash') : undefined}>
