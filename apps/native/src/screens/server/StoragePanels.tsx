@@ -17,6 +17,12 @@ import {useI18n} from '../../app/i18n';
 import {operationId, problem, useAction, useAdmin, usePagedList, useRead, useServerId, useService} from '../../app/server-console';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, ProgressBar, RowGroup, Sheet, ToggleRow, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 import {TypedRow, useServerForm} from '../settings/ServerForms';
+import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
+
+// A title goes missing or comes back with the library's content.
+const MISSING_MOVES = [dependsOn.content()];
+// A backup is made, restored and pruned as a task: its progress is on the feed.
+const BACKUP_MOVES = [dependsOn.event('operation.updated')];
 
 const dateTime = (iso: string) => (iso ? new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : '—');
 
@@ -91,7 +97,7 @@ export function BackupsPanel() {
   const t = useI18n().t;
   const {space} = useTheme();
   const platform = useSpecPlatform();
-  const read = useRead(() => getBackups(api, serverId), [api, serverId]);
+  const read = useRead(() => getBackups(api, serverId), [api, serverId], {on: BACKUP_MOVES});
   const [opIds] = useState(() => createOperationIds(operationId));
   const doc = read.data;
   const [message, setMessage] = useState<{tone: 'error' | 'success'; text: string}>();
@@ -176,7 +182,7 @@ export function MissingTitlesPanel() {
   const t = i18n.t;
   // Every page says how many titles are missing in all; that number is what the owner types to remove them.
   const [total, setTotal] = useState(0);
-  const read = usePagedList(async cursor => { const page = await listMissingTitles(api, {cursor: cursor || undefined, limit: 100}); setTotal(page.total); return {items: [...page.items], nextCursor: page.nextCursor ?? ''}; }, [api]);
+  const read = usePagedList(async cursor => { const page = await listMissingTitles(api, {cursor: cursor || undefined, limit: 100}); setTotal(page.total); return {items: [...page.items], nextCursor: page.nextCursor ?? ''}; }, [api], {on: MISSING_MOVES});
   const [asking, setAsking] = useState(false);
   const [removed, setRemoved] = useState<number>();
   const when = (iso: string) => (iso ? i18n.dateTime(iso) : '—');

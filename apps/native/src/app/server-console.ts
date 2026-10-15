@@ -165,19 +165,39 @@ export const withCursor = (path: string, cursor: string) => (cursor ? `${path}${
 
 /**
  * A list read one server page at a time, growing as "Show more" is pressed: every row stays
- * reachable and nothing asks for the whole list at once.
+ * reachable and nothing asks for the whole list at once. With `on`, it is kept current quietly:
+ * when the feed says the list moved, every page shown so far is read again in one go, so the rows
+ * the owner opened stay open and nothing collapses back to the first page.
  */
-export function usePagedList<T>(fetch: (cursor: string) => Promise<{items: T[]; nextCursor: string}>, deps: readonly unknown[], options: {/** False: nothing is read until it turns true (a list behind a row that opens it). */ auto?: boolean} = {}): {items?: T[]; error?: string; loading: boolean; more: boolean; loadMore: () => void; reload: () => void} {
-  const [extra, setExtra] = useState<{items: T[]; nextCursor: string}>();
+export function usePagedList<T>(fetch: (cursor: string) => Promise<{items: T[]; nextCursor: string}>, deps: readonly unknown[], options: {/** False: nothing is read until it turns true (a list behind a row that opens it). */ auto?: boolean; /** Read again, quietly, when any of these moves on the event feed. */ on?: readonly FreshnessDependency[]} = {}): {items?: T[]; error?: string; loading: boolean; more: boolean; loadMore: () => void; reload: () => void} {
+  const [extra, setExtra] = useState<{items: T[]; nextCursor: string; pages: number}>();
   const [loadingMore, setLoadingMore] = useState(false);
-  const first = useRead(() => fetch(''), deps, options);
-  useEffect(() => { setExtra(undefined); }, [first.data]);
-  const next = extra ? extra.nextCursor : first.data?.nextCursor ?? '';
+  // How many pages are shown: what a quiet read reads again (bounded by what the owner asked for).
+  const shownPages = useRef(1);
+  shownPages.current = 1 + (extra?.pages ?? 0);
+  const first = useRead(async () => {
+    const head = await fetch('');
+    const want = shownPages.current;
+    if (want <= 1 || !head.nextCursor) return {head, rest: undefined};
+    const items: T[] = [];
+    const followed = new Set<string>();
+    let cursor = head.nextCursor, pages = 0;
+    while (pages < want - 1 && cursor && !followed.has(cursor)) {
+      followed.add(cursor);
+      const page = await fetch(cursor);
+      items.push(...page.items);
+      cursor = page.nextCursor;
+      pages++;
+    }
+    return {head, rest: {items, nextCursor: cursor, pages}};
+  }, deps, options);
+  useEffect(() => { setExtra(first.data?.rest); }, [first.data]);
+  const next = extra ? extra.nextCursor : first.data?.head.nextCursor ?? '';
   const loadMore = useCallback(() => {
     if (!next || loadingMore) return;
     setLoadingMore(true);
-    fetch(next).then(page => setExtra(e => ({items: [...(e?.items ?? []), ...page.items], nextCursor: page.nextCursor})), () => {}).finally(() => setLoadingMore(false));
+    fetch(next).then(page => setExtra(e => ({items: [...(e?.items ?? []), ...page.items], nextCursor: page.nextCursor, pages: (e?.pages ?? 0) + 1})), () => {}).finally(() => setLoadingMore(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [next, loadingMore, ...deps]);
-  return {items: first.data ? [...first.data.items, ...(extra?.items ?? [])] : undefined, error: first.error, loading: first.loading || loadingMore, more: !!next, loadMore, reload: first.reload};
+  return {items: first.data ? [...first.data.head.items, ...(extra?.items ?? [])] : undefined, error: first.error, loading: first.loading || loadingMore, more: !!next, loadMore, reload: first.reload};
 }

@@ -14,7 +14,9 @@ import {fixStatePermissions} from '../../../../../packages/client-core/src/backu
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {alertLabel, duration, jobLabel, jobStateLabel, sentence, when} from '../../../../../packages/client-core/src/server-admin/console-words';
 import {healthFacts, loadValue, measuredLoadTiles} from '../../../../../packages/client-core/src/server-admin/dashboard';
-import {STOP_MESSAGE_MAX, driveNowPlaying, sessionFacts, sessionViewer, stopMessage} from '../../../../../packages/client-core/src/server-admin/now-playing';
+import {REMOTE_SKIP_MS, STOP_MESSAGE_MAX, clampToLength, driveNowPlaying, offersScrubber, playedFraction, positionClock, sendSeekTo, sendTransport, sessionFacts, sessionViewer, stopMessage, transportOffers, type TransportCommand} from '../../../../../packages/client-core/src/server-admin/now-playing';
+import {playbackControlsService} from '../../../../../packages/client-core/src/playback-controls';
+import {Timeline} from '../../player/Timeline';
 import type {ContentStackParams} from '../../app/routes';
 import {useSession} from '../../app/session';
 import {routeForLinkedTitle} from '../../app/open';
@@ -23,7 +25,14 @@ import {useDeviceEvents} from '../../app/device-events';
 import {appEnvironment, operationId, problem, TASK_EVENTS, useAction, useConsole, useRead, useServerId} from '../../app/server-console';
 import {Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, Text, isTV, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 
-/** Dashboard › Watching now, on phones and tablets: who is playing what, with Stop playback and an optional message. Television shows the same list without the actions (`TelevisionDashboard`). */
+const transportIcons: Record<TransportCommand, MenuItem['icon']> = {pause: 'pause', resume: 'play', back: 'back', forward: 'forward', startOver: 'restart'};
+
+/**
+ * Dashboard › Watching now, on phones and tablets: who is playing what and how far through. A
+ * row's menu pauses or resumes it, moves it back or forward, starts it over, moves it to a point
+ * on a position bar, opens the title, and stops it (with an optional message). Television shows
+ * the same list without the actions (`TelevisionDashboard`).
+ */
 export function NowPlayingPanel() {
   const {api} = useSession();
   const i18n = useI18n();
@@ -39,16 +48,59 @@ export function NowPlayingPanel() {
   const [message, setMessage] = useState('');
   const loaded = snap.updatedAt !== undefined;
   const items = snap.sessions;
+  const {colors} = useTheme();
+  // Transport is not a change to the server's settings: it has its own small state, and the list follows it by the feed.
+  const controls = useMemo(() => playbackControlsService(<T,>(path: string, method?: string, body?: unknown) => api.request<T>(path, method, body)), [api]);
+  const transport = useAction();
+  const send = (x: AdminSession, command: TransportCommand | {to: number}) => void transport.run(async () => {
+    try { await (typeof command === 'object' ? sendSeekTo(controls, x.id, command.to) : sendTransport(controls, x.id, command)); }
+    finally { void store.refresh(); }
+  });
+  const [moving, setMoving] = useState<AdminSession>();
+  const [target, setTarget] = useState(0);
+  const seconds = REMOTE_SKIP_MS / 1000;
+  const words: Record<TransportCommand, string> = {pause: t('action.pause'), resume: t('entry.resume'), back: t('player.skipBackSeconds', {seconds}), forward: t('player.skipForwardSeconds', {seconds}), startOver: t('action.startOver')};
+  const menuItems = (x: AdminSession): MenuItem[] => [
+    ...transportOffers(x).map(command => ({id: command, label: words[command], icon: transportIcons[command], disabled: transport.busy})),
+    ...(offersScrubber(x) ? [{id: 'move', label: t('web.nowPlaying.moveTo'), icon: 'clock', disabled: transport.busy} as MenuItem] : []),
+    ...(x.itemId ? [{id: 'open', label: t('action.details'), icon: 'info'} as MenuItem] : []),
+    {id: 'stop', label: t('web.nowPlaying.stop'), icon: 'stop', destructive: true} as MenuItem,
+  ];
   return (
     <>
       {snap.error && !loaded ? <Notice tone="error" message={problem(snap.error)} action={t('action.tryAgain')} onAction={() => void store.refresh()} /> : null}
+      {transport.error ? <Notice tone="error" message={transport.error} /> : null}
       <RowGroup title={items.length ? `${t('web.nowPlaying.title')} · ${items.length}` : t('web.nowPlaying.title')}>
         {loaded && !items.length ? <ListRow readable icon="play" title={t('web.nowPlaying.empty')} /> : null}
-        {items.map(x => <ListRow key={x.id} title={x.title || t('web.nowPlaying.untitled')} subtitle={sessionFacts(x, t)} accessory="menu" onPress={() => setMenu(x)} />)}
+        {items.map(x => {
+          const played = playedFraction(x);
+          return (
+            <View key={x.id}>
+              <ListRow title={x.title || t('web.nowPlaying.untitled')} subtitle={sessionFacts(x, t)} accessory="menu" onPress={() => { transport.clear(); setMenu(x); }} />
+              {played !== undefined ? <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{height: 2, marginTop: -2, width: `${played * 100}%`, backgroundColor: colors.accent, opacity: 0.7}} /> : null}
+            </View>
+          );
+        })}
       </RowGroup>
       <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.title || t('web.nowPlaying.untitled')}
-        items={[...(menu?.itemId ? [{id: 'open', label: t('web.nowPlaying.open'), icon: 'info'} as MenuItem] : []), {id: 'stop', label: t('web.nowPlaying.stop'), icon: 'stop', destructive: true} as MenuItem]}
-        onSelect={id => { const x = menu; if (!x) return; if (id === 'open' && x.itemId) void routeForLinkedTitle(api, x.itemId).then(route => { if (route) (navigation.push as (name: string, params?: object) => void)(route.name, route.params); }); if (id === 'stop') { setMessage(''); action.clear(); setStop(x); } }} />
+        items={menu ? menuItems(menu) : []}
+        onSelect={id => {
+          const x = menu; if (!x) return;
+          setMenu(undefined);
+          if (id === 'open' && x.itemId) void routeForLinkedTitle(api, x.itemId).then(route => { if (route) (navigation.push as (name: string, params?: object) => void)(route.name, route.params); });
+          else if (id === 'stop') { setMessage(''); action.clear(); setStop(x); }
+          else if (id === 'move') { setTarget(x.positionMs); setMoving(x); }
+          else send(x, id as TransportCommand);
+        }} />
+      <Sheet open={!!moving} onClose={() => setMoving(undefined)} kind="form" title={t('web.nowPlaying.moveTitle', {title: moving?.title || t('web.nowPlaying.untitled')})} subtitle={moving ? t('web.nowPlaying.moveBody', {viewer: sessionViewer(moving, t)}) : undefined}
+        primary={{label: t('web.nowPlaying.moveConfirm'), loading: transport.busy, onPress: () => { const x = moving; if (x) { setMoving(undefined); send(x, {to: target}); } }}}>
+        {moving?.durationMs ? (
+          <View style={{gap: 8}}>
+            <Timeline position={target / 1000} duration={moving.durationMs / 1000} onSeek={secondsAt => setTarget(clampToLength(secondsAt * 1000, moving.durationMs))} />
+            <Text variant="caption" tone="secondary">{t('player.clockOf', {position: positionClock(target), duration: positionClock(moving.durationMs)})}</Text>
+          </View>
+        ) : null}
+      </Sheet>
       <Sheet open={!!stop} onClose={() => setStop(undefined)} kind="form" title={t('web.nowPlaying.stopTitle', {title: stop?.title || t('web.nowPlaying.untitled')})} subtitle={stop ? t('web.nowPlaying.stopBody', {viewer: sessionViewer(stop, t)}) : undefined}
         primary={{label: t('web.nowPlaying.stopConfirm'), tone: 'destructive', loading: action.busy, onPress: () => { if (stop) void action.run(() => store.terminate(stop.id, stopMessage(message))).then(ok => { if (ok) setStop(undefined); }); }}}>
         <Field label={t('web.nowPlaying.messageLabel')} hint={t('web.nowPlaying.messageHelp')} placeholder={t('web.nowPlaying.messagePlaceholder')} value={message} onChangeText={setMessage} maxLength={STOP_MESSAGE_MAX} multiline error={action.error || undefined} />
@@ -69,6 +121,17 @@ export function StatePermissionsNotice({alert, onChanged}: {alert: Alert; onChan
   // One id for the fix: a retry of the same repair replays its receipt.
   const fix = () => void action.run(() => fixStatePermissions(api, serverId, operationId())).then(ok => { if (ok) { setFixed(true); void client.acknowledge(alert).catch(() => {}); onChanged?.(); } });
   return <Notice tone={fixed ? 'success' : 'warning'} title={t('web.maintenance.permissionsTitle')} message={action.error || (fixed ? t('web.maintenance.permissionsFixed') : t('web.maintenance.permissionsBody'))} action={fixed ? undefined : t('web.maintenance.fixPermissions')} onAction={fixed ? undefined : fix} />;
+}
+
+/**
+ * Troubleshooting › the state folder: the server's warning that it cannot write its own folder,
+ * with the owner's fix, as on the web. Nothing while there is no such warning.
+ */
+export function StateFolderPanel() {
+  const client = useConsole();
+  const read = useRead<Alert[]>(() => client.alerts(), [client]);
+  const alert = read.data?.find(a => a.status !== 'resolved' && isStatePermissionsAlert(a));
+  return alert ? <StatePermissionsNotice alert={alert} onChanged={read.reload} /> : null;
 }
 
 /** Dashboard › Needs attention: what the server is warning about, each with Acknowledge. */

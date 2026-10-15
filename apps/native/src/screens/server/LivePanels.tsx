@@ -16,6 +16,13 @@ import {operationId, problem, saveRebased, sendFresh, useAction, useRead, useSer
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, ToggleRow, useTheme, type MenuItem} from '../../ui';
 import {PickRow, TypedRow, useInlineForm} from '../settings/ServerForms';
 import {channelOverride, parseChannelMapPage, saveChannelMap, unsavedChannelEdits, withChoice, type ChannelMapEntry, type ChannelOverride} from './owner-rules';
+import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
+
+const SOURCE_MOVES = [dependsOn.list('liveSources')];
+const RULE_MOVES = [dependsOn.list('recordingGroups')];
+const RECORDING_SPACE_MOVES = [dependsOn.list('recordingStorage')];
+const CHANNEL_MOVES = [dependsOn.list('libraryChannels')];
+const TUNER_MOVES = [dependsOn.list('tuners')];
 
 type LiveSource = {id: string; name: string; revision: number; state: string; tunerCount: number; tunerCountMode: string; publishedAt: string; channels: number; programmes: number; /** What its last import left out, when anything was. */ diagnostics?: unknown};
 type SourceList = {sources: LiveSource[]; refresh: RefreshStatus[]};
@@ -49,7 +56,7 @@ function ImportSkippedNotice({name, diagnostics}: {name?: string; diagnostics: u
 export function LiveSourcesPanel() {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = useRead<SourceList>(() => api.request<SourceList>('/v1/admin/live-sources'), [api]);
+  const read = useRead<SourceList>(() => api.request<SourceList>('/v1/admin/live-sources'), [api], {on: SOURCE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [adding, setAdding] = useState(false);
@@ -426,7 +433,7 @@ export function TunersPanel() {
   const {api} = useSession();
   const serverId = useServerId();
   const t = useI18n().t;
-  const read = useRead(async () => { const raw = await api.request<{scope?: {serverId?: string}; result?: unknown}>('/v1/admin/dvr/tuners'); if (raw?.scope?.serverId !== serverId) throw Object.assign(new Error('invalid_response'), {code: 'invalid_response'}); return parseTunerView(raw.result); }, [api, serverId], {every: 60000});
+  const read = useRead(async () => { const raw = await api.request<{scope?: {serverId?: string}; result?: unknown}>('/v1/admin/dvr/tuners'); if (raw?.scope?.serverId !== serverId) throw Object.assign(new Error('invalid_response'), {code: 'invalid_response'}); return parseTunerView(raw.result); }, [api, serverId], {on: TUNER_MOVES});
   const view = read.data;
   const time = (iso: string) => new Date(iso).toLocaleString(undefined, {weekday: 'short', hour: 'numeric', minute: '2-digit'});
   return (
@@ -466,7 +473,7 @@ export function RecordingRulesPanel() {
     } while (cursor);
     return {owners, grants};
   }, [admin]);
-  const read = useRead(() => admin.get<{items: Group[]}>('/v1/admin/dvr/recording-groups?limit=100'), [admin]);
+  const read = useRead(() => admin.get<{items: Group[]}>('/v1/admin/dvr/recording-groups?limit=100'), [admin], {on: RULE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [menu, setMenu] = useState<Group>();
@@ -533,7 +540,7 @@ function RecordingPermissions({owners, grants, onSaved}: {owners: readonly Recor
 export function RecordingStoragePanel() {
   const {api} = useSession();
   const t = useI18n().t;
-  const read = useRead<{result?: RecordingStorage} & Partial<RecordingStorage>>(() => api.request('/v1/dvr/storage'), [api]);
+  const read = useRead<{result?: RecordingStorage} & Partial<RecordingStorage>>(() => api.request('/v1/dvr/storage'), [api], {on: RECORDING_SPACE_MOVES});
   const [opIds] = useState(() => createOperationIds(operationId));
   const data = (read.data?.result ?? read.data) as RecordingStorage | undefined;
   const [draft, setDraft] = useState<RecordingStorage['policy']>();
@@ -571,7 +578,7 @@ export function LibraryChannelsPanel() {
   const {api} = useSession();
   const serverId = useServerId();
   const t = useI18n().t;
-  const read = useRead<LibraryChannel[]>(() => readLibraryChannels(api, serverId), [api, serverId]);
+  const read = useRead<LibraryChannel[]>(() => readLibraryChannels(api, serverId), [api, serverId], {on: CHANNEL_MOVES});
   const templates = useRead<LibraryChannelTemplate[]>(() => readLibraryTemplates(api, serverId), [api, serverId]);
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
