@@ -7,7 +7,8 @@ import {useArtwork, viewerScope} from '../app/content';
 import {useMetadataEditor} from '../app/metadata-editor';
 import {useSession} from '../app/session';
 import {useI18n, type I18n, type MessageId} from '../app/i18n';
-import {Artwork, Button, Field, Notice, Sheet, Tabs, Text, useTheme} from '../ui';
+import {Artwork, Button, Field, Menu, Notice, Sheet, Tabs, Text, useTheme} from '../ui';
+import {orderTakesOffset, readTmdbOrder, tmdbAbsoluteOrder} from '../../../../packages/client-core/src/screen-metadata';
 import {say} from '../app/errors';
 
 /**
@@ -345,22 +346,49 @@ function MatchingTab({data, busy, run}: {data: RepairData; busy: boolean; run: (
   const identityLocked = data.snapshot.relationshipLocks.identity ?? identity?.locked ?? false;
   const isScreen = identity?.engine === 'screen';
   const providerName = (p: string) => ({tmdb: 'TMDB', tvdb: 'TheTVDB', musicbrainz: 'MusicBrainz', anilist: 'AniList'} as Record<string, string>)[p] ?? p;
+  // Which episode order each match would use, and the number added to each file's episode number (as on the web).
+  const [orders, setOrders] = useState<Record<string, {order: string; offset: number}>>({});
+  const [offsetText, setOffsetText] = useState<Record<string, string>>({});
+  const [picking, setPicking] = useState<{key: string; offered: readonly {id: string; name: string}[]; chosen: string; pick: (id: string) => void}>();
+  const stored = readTmdbOrder(identity?.order ?? '');
+  const storedName = data.candidates.flatMap(c => c.orders ?? []).find(o => o.id === stored.base)?.name ?? '';
+  const orderLine = storedName ? (stored.offset ? i18n.t('web.metadata.orderWithOffset', {order: storedName, offset: stored.offset}) : storedName) : '';
   return (
     <>
       <Text variant="heading">{i18n.t('web.metadata.currentMatch')}</Text>
-      {identity ? <Text variant="body" tone="secondary">{providerName(identity.provider)} {identity.type ? `${identity.type} ` : ''}{identity.id || i18n.t('web.metadata.notMatched')} · {i18n.t(matchingStatusKey(identity.status))}</Text> : <Text variant="body" tone="secondary">{i18n.t('web.metadata.noIdentityFor', {kind: data.target.kind})}</Text>}
+      {identity ? <Text variant="body" tone="secondary">{providerName(identity.provider)} {identity.type ? `${identity.type} ` : ''}{identity.id || i18n.t('web.metadata.notMatched')}{orderLine ? ` · ${orderLine}` : ''} · {i18n.t(matchingStatusKey(identity.status))}</Text> : <Text variant="body" tone="secondary">{i18n.t('web.metadata.noIdentityFor', {kind: data.target.kind})}</Text>}
       {identity ? <Button size="sm" variant="ghost" icon={identityLocked ? 'lock' : 'shield'} label={i18n.t(identityLocked ? 'web.metadata.identityLocked' : 'web.metadata.identityUnlocked')} disabled={busy} onPress={() => void run({action: 'relationship_lock', role: 'identity', locked: !identityLocked, confirm: true})} style={{alignSelf: 'flex-start'}} /> : null}
       <Field label={i18n.t('web.metadata.searchProvider')} placeholder={i18n.t(isScreen ? 'web.metadata.searchProviderHelp' : 'web.metadata.searchProviderHelpAuto')} value={query} onChangeText={setQuery} onSubmitEditing={() => void run(matchingSearchCommand(identity, query))} returnKeyType="search" editable={!busy && isScreen} trailing={<Button size="sm" variant="secondary" icon="search" accessibilityLabel={i18n.t('web.search.title')} disabled={busy || !identity} onPress={() => void run(matchingSearchCommand(identity, query))} />} />
       <Button size="sm" variant="ghost" icon="refresh" label={i18n.t('action.tryAgain')} disabled={busy || !identity} onPress={() => void run({action: 'retry'})} style={{alignSelf: 'flex-start'}} />
       {data.candidates.map(c => {
         const current = identity?.id === c.id && identity.provider === c.provider;
+        const key = `${c.provider}:${c.id}`;
+        const offered = c.orders ?? [];
+        // The order a match starts with: the one it already has when it is the current match, otherwise the provider's first.
+        const chosen = orders[key] ?? (current && offered.some(o => o.id === stored.base) ? {order: stored.base, offset: stored.offset} : {order: offered[0]?.id ?? '', offset: 0});
+        const takesOffset = c.provider === 'tmdb' && orderTakesOffset(chosen.order);
+        const order = chosen.order ? (takesOffset ? tmdbAbsoluteOrder(chosen.order, chosen.offset) : chosen.order) : '';
+        const set = (next: Partial<{order: string; offset: number}>) => setOrders(prev => ({...prev, [key]: {...chosen, ...next}}));
+        const identify = () => void run({action: 'identify', provider: c.provider, candidateId: c.id, ...(order ? {order} : {}), confirm: true});
         return (
-          <View key={`${c.provider}:${c.id}`} style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
-            <View style={{flex: 1, minWidth: 0}}><Text variant="bodyStrong" lines={1}>{c.title || c.id}</Text><Text variant="caption" tone="tertiary" lines={2}>{[providerName(c.provider), c.subtitle].filter(Boolean).join(' · ')}</Text></View>
-            {current ? <Text variant="caption" tone="accent">{i18n.t('profile.current')}</Text> : <Button size="sm" variant="secondary" label={i18n.t('web.metadata.useOne')} disabled={busy} onPress={() => void run({action: 'identify', provider: c.provider, candidateId: c.id, ...(c.orders?.[0] ? {order: c.orders[0].id} : {}), confirm: true})} />}
+          <View key={key} style={{gap: space.xs}}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
+              <View style={{flex: 1, minWidth: 0}}><Text variant="bodyStrong" lines={1}>{c.title || c.id}</Text><Text variant="caption" tone="tertiary" lines={2}>{[providerName(c.provider), c.subtitle].filter(Boolean).join(' · ')}</Text></View>
+              {current
+                ? (order && order !== identity?.order && offered.length ? <Button size="sm" variant="secondary" label={i18n.t('web.metadata.useOrder')} disabled={busy} onPress={identify} /> : <Text variant="caption" tone="accent">{i18n.t('profile.current')}</Text>)
+                : <Button size="sm" variant="secondary" label={i18n.t('web.metadata.useOne')} disabled={busy} onPress={identify} />}
+            </View>
+            {/* Which episode order the match uses, and what is added to each file's own number when the files are numbered straight through. */}
+            {offered.length > 1 ? <Button size="sm" variant="ghost" icon="list" label={`${i18n.t('web.metadata.episodeOrder')}: ${offered.find(o => o.id === chosen.order)?.name ?? chosen.order}`} disabled={busy} onPress={() => setPicking({key, offered, chosen: chosen.order, pick: id => set({order: id})})} style={{alignSelf: 'flex-start'}} />
+              : offered.length ? <Text variant="caption" tone="tertiary">{i18n.t('web.metadata.orders', {names: offered[0]!.name})}</Text> : null}
+            {takesOffset ? <Field label={i18n.t('web.metadata.numberOffset')} hint={i18n.t('web.metadata.numberOffsetHelp')} keyboardType="numbers-and-punctuation" value={offsetText[key] ?? String(chosen.offset)} editable={!busy}
+              onChangeText={text => { setOffsetText(prev => ({...prev, [key]: text})); const n = Math.trunc(Number(text)); if (text.trim() !== '' && Number.isSafeInteger(n) && Math.abs(n) <= 1000000) set({offset: n}); }} /> : null}
           </View>
         );
       })}
+      <Menu open={!!picking} onClose={() => setPicking(undefined)} title={i18n.t('web.metadata.episodeOrder')}
+        items={(picking?.offered ?? []).map(o => ({id: o.id, label: o.name, selected: o.id === picking?.chosen}))}
+        onSelect={id => { picking?.pick(id); setPicking(undefined); }} />
       {!data.candidates.length ? <Text variant="body" tone="secondary">{i18n.t(isScreen ? 'web.metadata.noCandidatesMatch' : 'web.metadata.noCandidatesMatchAuto')}</Text> : null}
     </>
   );
