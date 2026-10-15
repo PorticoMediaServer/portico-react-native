@@ -198,7 +198,10 @@ export function usePlayerEngine() {
   // for the title in hand. Everything is read through refs: the coordinator asks on every change
   // of the playback snapshot, before it takes a lease, so a title never starts on one engine only
   // to be moved to the other.
-  const engineSetting = parseEngineSetting(usePreferences().preferences.playerEngine);
+  const devicePreferences = usePreferences();
+  const engineSetting = parseEngineSetting(devicePreferences.preferences.playerEngine);
+  // Image subtitles show only their forced lines when the viewer asks (mpv, `sub-forced-events-only`).
+  const forcedOnly = devicePreferences.preferences.subtitleForcedOnly;
   const engineInputs = useRef<{setting: typeof engineSetting; audio: boolean; rendering?: string; container?: string}>({setting: engineSetting, audio: isAudio});
   engineInputs.current.setting = engineSetting;
   engineInputs.current.audio = isAudio;
@@ -563,8 +566,8 @@ export function usePlayerEngine() {
     const documentUrl = selected ? plan.documentUrl : undefined;
     if (!documentUrl && !render) return {binding, mode: 'off', revision: plan.revision};
     const track = selected ?? deviceTrack?.resource;
-    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), style: captions};
-  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision]);
+    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly ? {forcedOnly: true} : {}), style: captions};
+  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly]);
   // A chosen track the device is to draw in a kind only mpv draws moves the title to mpv (and
   // back when the choice changes). The server's plan names mpv for such a track already; this
   // holds for a download, and for the moment before a plan arrives.
@@ -952,6 +955,8 @@ export function usePlayerEngine() {
       service: subtitleService, snapshot: subtitles,
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
+      /** Image subtitles drawn here by mpv: show only their forced lines (kept by this device). Null when that does not apply. */
+      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: (on: boolean) => devicePreferences.update({subtitleForcedOnly: on})} : null,
       /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */

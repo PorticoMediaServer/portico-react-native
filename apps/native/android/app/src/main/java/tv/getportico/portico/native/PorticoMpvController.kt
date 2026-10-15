@@ -1278,6 +1278,8 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applySubtitles() {
     val subtitles = scoped(command?.get("subtitles"))
     applyCaptionStyle(subtitles?.get("style") as? Map<*, *>)
+    // "Forced only": image subtitles show just their forced lines (foreign dialogue, signs).
+    core?.set("sub-forced-events-only", if (subtitles?.get("forcedOnly") == true) "yes" else "no")
     if (subtitles == null || subtitles["mode"] != "track") {
       clearEngineSubtitle()
       overlayOff()

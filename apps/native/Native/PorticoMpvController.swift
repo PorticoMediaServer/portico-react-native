@@ -1094,6 +1094,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
 
     private func applySubtitles() {
         applyCaptionStyle(scoped(command?["subtitles"])?["style"] as? NSDictionary)
+        // "Forced only": image subtitles show just their forced lines (foreign dialogue, signs).
+        core?.set("sub-forced-events-only", (scoped(command?["subtitles"])?["forcedOnly"] as? Bool) == true ? "yes" : "no")
         guard let subtitles = scoped(command?["subtitles"]), (subtitles["mode"] as? String) == "track" else {
             clearEngineSubtitle()
             subtitleOverlay.apply(nil, item: nil, source: source)

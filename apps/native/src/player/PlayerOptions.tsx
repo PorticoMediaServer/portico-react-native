@@ -6,7 +6,7 @@ import {useSession} from '../app/session';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {defaultI18n} from '../../../../packages/i18n/src/index';
-import {Button, ListRow, Notice, Sheet, StateView, Text, alpha, showToast, useTheme, type IconName} from '../ui';
+import {Button, ListRow, Notice, Sheet, StateView, Text, ToggleRow, alpha, showToast, useTheme, type IconName} from '../ui';
 import type {PlayerEngine} from './usePlayer';
 import {bitmapWarningNeeded, isBitmapResource, ownerPlaybackSwitches, textTrackForLanguage, trackName} from '../../../../packages/client-core/src/presentation/index';
 import {playbackInfoRows, qualityNetworkFooter} from '../../../../packages/client-core/src/presentation/index';
@@ -403,6 +403,8 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
         <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
       ) : null}
       {/* The look of the line this device draws (a burned-in track is part of the picture). */}
+      {/* Image subtitles mixing forced and ordinary lines: only the forced ones (foreign dialogue, signs), as on the web. */}
+      {!off && engine.subtitles.forcedOnly ? <ToggleRow title={i18n.t('player.subtitles.forcedOnly')} subtitle={i18n.t('player.subtitles.forcedOnlyHelp')} value={engine.subtitles.forcedOnly.on} onChange={on => engine.subtitles.forcedOnly?.set(on)} /> : null}
       {!off && plan.renderer !== 'burn_in' ? <CaptionStyleRows /> : null}
       {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'playback')} /> : null}
     </>
