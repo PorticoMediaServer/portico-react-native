@@ -174,7 +174,7 @@ export function SearchScreen() {
           total={focusedItems.length + (focused.nextCursor ? 60 : 0)}
           itemWidth={cardWidthFor(focused, metrics, isTV)}
           aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5}
-          renderItem={(entry, w) => renderResult(entry, w)}
+          renderItem={renderResult}
           refreshControl={pull}
           header={<>
             {isTV ? controls : null}
