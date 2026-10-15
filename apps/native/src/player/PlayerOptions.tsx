@@ -19,8 +19,10 @@ import {formatClock} from '../app/content';
 import {usePreferences} from '../app/preferences';
 import {useServerPreferences} from '../app/server-preferences';
 import {engineSettings} from './engine-choice';
+import {engineSettingStore} from './engine-setting-store';
 import {chapterAt} from './engine-media';
 import {playerSettingsSupport} from '../bridge/native-listening-kinds';
+import {usePlaybackChoice} from './playback-choice';
 
 export type OptionKey = 'audio' | 'subtitles' | 'quality' | 'speed' | 'sleep' | 'menu' | 'queue' | 'info' | 'engine' | 'chapters' | 'version';
 
@@ -141,6 +143,8 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
   const i18n = useI18n();
   const artwork = useArtwork();
   const device = usePreferences();
+  // A player chosen here is for this playback; Settings keeps the one every playback starts with.
+  const playerInForce = useSyncExternalStore(engineSettingStore.subscribe, engineSettingStore.get);
   const back = fromMenu && option !== 'menu' ? <ListRow icon="back" title={i18n.t('player.opt.menu')} onPress={() => onPick('menu')} /> : null;
   // TV: a panel whose content has nothing to choose (loading, one track, info) still needs a focus stop inside its trapped guide.
   const closeRow = isTV ? <ListRow icon="close" title={i18n.t('player.opt.close')} hasTVPreferredFocus={!back} onPress={onClose} /> : null;
@@ -162,13 +166,13 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
         {hasChapters ? <ListRow icon="queue" title={i18n.t('player.opt.chapters')} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" hasTVPreferredFocus={first('chapters')} onPress={() => onPick('chapters')} /> : null}
         {hasVersions ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.list.find(v => v.id === engine.versions.playingId)?.label} trailingIcon="forward" hasTVPreferredFocus={first('version')} onPress={() => onPick('version')} /> : null}
         {/* Which player plays this title: changing it moves the title across where it stands. */}
-        {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${device.preferences.playerEngine}`)} trailingIcon="forward" hasTVPreferredFocus={first('engine')} onPress={() => onPick('engine')} /> : null}
+        {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${playerInForce}`)} trailingIcon="forward" hasTVPreferredFocus={first('engine')} onPress={() => onPick('engine')} /> : null}
         {!rows.length ? closeRow : null}
       </>
     );
   } else if (option === 'engine') {
     body = engineSettings.map(value => (
-      <ListRow key={value} title={i18n.t(`settings.player.${value}`)} selected={device.preferences.playerEngine === value} hasTVPreferredFocus={device.preferences.playerEngine === value} onPress={() => { device.update({playerEngine: value}); onClose(); }} />
+      <ListRow key={value} title={i18n.t(`settings.player.${value}`)} selected={playerInForce === value} hasTVPreferredFocus={playerInForce === value} onPress={() => { engineSettingStore.setSession(value === device.preferences.playerEngine ? null : value); onClose(); }} />
     ));
   } else if (option === 'chapters') {
     const current = chapterAt(engine.chapters, state.pendingSeek?.positionSeconds ?? state.positionSeconds);
@@ -274,23 +278,22 @@ const captionSizes = ['small', 'medium', 'large', 'extra-large'] as const;
 const captionBackgrounds = ['translucent', 'opaque', 'none'] as const;
 
 /**
- * How the subtitles this device draws look: the profile's size and background, the same two
- * settings the web's Settings page has. Each press moves to the next choice, and the line on
- * screen follows at once. They are kept with the profile, so every device draws alike. Absent
- * when the server cannot be asked (a download played with no connection keeps the last look).
+ * How the subtitles this device draws look. They start as the profile's size and background (the
+ * same two settings the Settings page has); a change made here is for this playback only, and
+ * the next one starts from the Settings again. Each press moves to the next choice, and the line
+ * on screen follows at once.
  */
-function CaptionStyleRows() {
+function CaptionStyleRows({run}: {run: number}) {
   const i18n = useI18n();
   const prefs = useServerPreferences();
-  const has = (key: string) => !!prefs.snapshot?.registry.fields.some(f => f.key === key);
-  const size = prefs.value<string>('playback.subtitleSize', 'medium');
-  const background = prefs.value<string>('playback.subtitleBackground', 'translucent');
+  const has = (key: string) => !prefs.snapshot || !!prefs.snapshot.registry.fields.some(f => f.key === key);
+  const [size, setSize] = usePlaybackChoice('subtitleSize', run, prefs.value<string>('playback.subtitleSize', 'medium'));
+  const [background, setBackground] = usePlaybackChoice('subtitleBackground', run, prefs.value<string>('playback.subtitleBackground', 'translucent'));
   const next = <T extends string>(all: readonly T[], current: string): T => all[(Math.max(0, all.indexOf(current as T)) + 1) % all.length]!;
-  const save = (key: string, value: string) => { prefs.set({[key]: value}).catch(() => showToast({message: i18n.t('player.subtitles.changeFailed'), icon: 'warning'})); };
   return (
     <>
-      {has('playback.subtitleSize') ? <ListRow title={i18n.t('settings.row.subtitleSize')} meta={i18n.t(`settings.subtitleSize.${captionSizes.find(v => v === size) ?? 'medium'}`)} accessory="value" disabled={prefs.saving} onPress={() => save('playback.subtitleSize', next(captionSizes, size))} /> : null}
-      {has('playback.subtitleBackground') ? <ListRow title={i18n.t('settings.row.subtitleBackground')} meta={i18n.t(`settings.subtitleBackground.${captionBackgrounds.find(v => v === background) ?? 'translucent'}`)} accessory="value" disabled={prefs.saving} onPress={() => save('playback.subtitleBackground', next(captionBackgrounds, background))} /> : null}
+      {has('playback.subtitleSize') ? <ListRow title={i18n.t('settings.row.subtitleSize')} meta={i18n.t(`settings.subtitleSize.${captionSizes.find(v => v === size) ?? 'medium'}`)} accessory="value" onPress={() => setSize(next(captionSizes, size))} /> : null}
+      {has('playback.subtitleBackground') ? <ListRow title={i18n.t('settings.row.subtitleBackground')} meta={i18n.t(`settings.subtitleBackground.${captionBackgrounds.find(v => v === background) ?? 'translucent'}`)} accessory="value" onPress={() => setBackground(next(captionBackgrounds, background))} /> : null}
     </>
   );
 }
@@ -310,7 +313,7 @@ function OfflineSubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngi
         return <ListRow key={track.id} title={trackName({language: track.language, title: track.title}, i18n.locale) || track.title || track.language} subtitle={track.forced ? i18n.t('player.opt.forced') : undefined} selected={selected} hasTVPreferredFocus={selected} onPress={() => { offline.choose(track.id); onClose(); }} />;
       })}
       {!offline.tracks.length ? <><Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text>{closeRow}</> : null}
-      {offline.selectedId !== null ? <CaptionStyleRows /> : null}
+      {offline.selectedId !== null ? <CaptionStyleRows run={engine.state.playbackRun} /> : null}
     </>
   );
 }
@@ -405,7 +408,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
       {/* The look of the line this device draws (a burned-in track is part of the picture). */}
       {/* Image subtitles mixing forced and ordinary lines: only the forced ones (foreign dialogue, signs), as on the web. */}
       {!off && engine.subtitles.forcedOnly ? <ToggleRow title={i18n.t('player.subtitles.forcedOnly')} subtitle={i18n.t('player.subtitles.forcedOnlyHelp')} value={engine.subtitles.forcedOnly.on} onChange={on => engine.subtitles.forcedOnly?.set(on)} /> : null}
-      {!off && plan.renderer !== 'burn_in' ? <CaptionStyleRows /> : null}
+      {!off && plan.renderer !== 'burn_in' ? <CaptionStyleRows run={engine.state.playbackRun} /> : null}
       {snapshot.error ? <Notice tone="warning" message={say(snapshot.error, 'playback')} /> : null}
     </>
   );

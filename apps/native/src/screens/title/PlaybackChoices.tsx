@@ -9,7 +9,7 @@ import {peekPendingVersion, setPendingVersion} from '../../app/pending-version';
 import {viewerScope} from '../../app/content';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
-import {Button, Menu, showToast, useTheme, type MenuItem} from '../../ui';
+import {Button, Menu, useTheme, type MenuItem} from '../../ui';
 import {useLanguageName} from './language';
 
 /**
@@ -50,15 +50,14 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
   const data = snapshot.data && snapshot.data.scope.itemId === itemId ? snapshot.data : null;
   // The title's versions, and the one a start that names nothing would play. An older server, or
   // a read that fails, simply offers no version to choose.
-  const [options, setOptions] = useState<{itemId: string; versions: readonly MediaVersion[]; preferred?: string; lastUsed: boolean}>();
+  const [options, setOptions] = useState<{itemId: string; versions: readonly MediaVersion[]; preferred?: string}>();
   const optionsClient = useMemo(() => new PlaybackOptionsClient(localV1Http(api)), [api]);
-  const [optionsRead, setOptionsRead] = useState(0);
   useEffect(() => {
     let live = true;
     setOptions(undefined);
-    void optionsClient.options(itemId).then(o => { if (live) setOptions({itemId, versions: o.versions, preferred: o.preferred?.versionId, lastUsed: o.preferred?.reason === 'last_used'}); }, () => {});
+    void optionsClient.options(itemId).then(o => { if (live) setOptions({itemId, versions: o.versions, preferred: o.preferred?.versionId}); }, () => {});
     return () => { live = false; };
-  }, [optionsClient, itemId, optionsRead]);
+  }, [optionsClient, itemId]);
   const currentOptions = options?.itemId === itemId ? options : undefined;
   const versionList = currentOptions && currentOptions.versions.length > 1 ? currentOptions.versions : [];
   const playing = versionList.length ? version || options?.preferred || versionList[0]!.id : '';
@@ -93,11 +92,7 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
     {id: '', label: i18n.t('title.subtitlesAutomatic'), selected: subtitle === ''},
     {id: 'off', label: i18n.t('title.subtitlesOff'), selected: subtitle === 'off'},
     ...subtitleChoices.map(x => ({...x, selected: subtitle === x.id})),
-    ...(currentOptions?.lastUsed ? [{id: 'forget', label: i18n.t('title.forgetLastChoice')}] : []),
   ];
-  const forget = () => {
-    void optionsClient.forgetTrackMemory(itemId).then(() => { showToast({message: i18n.t('title.forgotLastChoice')}); setOptionsRead(n => n + 1); }, () => showToast({message: i18n.t('title.forgetLastChoiceFailed'), icon: 'warning'}));
-  };
   // Named as the player's own Version menu names them: the server's label, the edition, the picture's height and the container.
   const versionLabel = (x: MediaVersion) => [x.label, x.edition && x.edition !== x.label ? x.edition : '', x.video[0]?.height ? i18n.t('quality.height', {height: x.video[0].height}) : '', x.container?.toUpperCase() ?? ''].filter(Boolean).join(' · ');
   // Two copies that read the same are told apart by their place in the list (best first).
@@ -114,7 +109,7 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
       {subtitleChoices.length ? <Button variant="secondary" size={size} icon="subtitles" trailingIcon="chevronUpDown" label={subtitleValue} accessibilityLabel={`${i18n.t('title.subtitles')}: ${subtitleValue}`} onPress={() => setOpen('subtitles')} /> : null}
       <Menu open={open === 'version'} onClose={() => setOpen(null)} title={i18n.t('title.version')} items={versions} onSelect={id => { setVersion(id); setAudio(undefined); setSubtitle(''); }} />
       <Menu open={open === 'audio'} onClose={() => setOpen(null)} title={i18n.t('title.audio')} items={audios} onSelect={id => setAudio(Number(id))} />
-      <Menu open={open === 'subtitles'} onClose={() => setOpen(null)} title={i18n.t('title.subtitles')} items={subtitles} onSelect={id => { if (id === 'forget') forget(); else setSubtitle(id); }} />
+      <Menu open={open === 'subtitles'} onClose={() => setOpen(null)} title={i18n.t('title.subtitles')} items={subtitles} onSelect={id => setSubtitle(id)} />
     </View>
   );
 }

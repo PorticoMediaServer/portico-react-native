@@ -8,6 +8,8 @@ import {advancePendingChoice, takePendingTrackChoice, type PendingChoiceProgress
 import {takePendingVersion} from '../app/pending-version';
 import {pauseNextStart} from '../app/paused-load';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {playerSessionChoices} from '../../../../packages/client-core/src/player-session-choices';
+import {usePlaybackChoice} from './playback-choice';
 import {AppState, NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import type {GuideChannel} from '../../../../packages/client-core/src/channel-guide';
 import {channelTuned, type Lineup} from './channel-lineup';
@@ -177,18 +179,20 @@ export function usePlayerEngine() {
   const speed = useMemo(() => speedFor(playback), [playback]);
   const speedState = useSyncExternalStore(speed.subscribe, speed.getSnapshot);
   useEffect(() => speed.invalidate(playbackState.intentId), [speed, playbackState.intentId]);
-  // The profile's default speed for video and for audiobooks is where each title starts; a song
-  // always plays at the speed it was recorded. Settings offered these and nothing applied them.
+  // The profile's default speed for video and for audiobooks is where a playback starts; a speed
+  // chosen in the player holds through the queue (the next episode or chapter file) and goes when
+  // the viewer starts something new. A song always plays at the speed it was recorded.
   const speedPreferences = useServerPreferences();
   const videoSpeed = speedPreferences.value<number>('playback.defaultSpeed', 1);
   const audiobookSpeed = speedPreferences.value<number>('audiobooks.defaultSpeed', 1);
   const speedItem = playbackState.channel ? undefined : playbackState.itemId;
   const speedKind = identity.itemId === speedItem ? identity.kind : undefined;
+  const run = playbackState.playbackRun;
   useEffect(() => {
     if (!speedItem || !speedKind) return;
     // A device whose player has one speed plays at it, whatever the profile prefers elsewhere.
-    speed.prefer(speedKind === 'song' || !playerSettingsSupport.playbackSpeed ? 1 : speedKind === 'audiobook_file' ? audiobookSpeed : videoSpeed);
-  }, [speed, speedItem, speedKind, videoSpeed, audiobookSpeed]);
+    speed.prefer(speedKind === 'song' || !playerSettingsSupport.playbackSpeed ? 1 : speedKind === 'audiobook_file' ? playerSessionChoices.get('speed:audiobook', run, audiobookSpeed) : playerSessionChoices.get('speed:video', run, videoSpeed));
+  }, [speed, speedItem, speedKind, videoSpeed, audiobookSpeed, run]);
   useEffect(() => {
     if (playbackState.nativeListening) speed.reconcileNative(playbackState.nativeListening);
   }, [speed, playbackState.nativeListening]);
@@ -199,9 +203,11 @@ export function usePlayerEngine() {
   // of the playback snapshot, before it takes a lease, so a title never starts on one engine only
   // to be moved to the other.
   const devicePreferences = usePreferences();
-  const engineSetting = parseEngineSetting(devicePreferences.preferences.playerEngine);
-  // Image subtitles show only their forced lines when the viewer asks (mpv, `sub-forced-events-only`).
-  const forcedOnly = devicePreferences.preferences.subtitleForcedOnly;
+  // The Settings' player, or one chosen in the player for this playback (engine-setting-store).
+  const engineSetting = parseEngineSetting(useSyncExternalStore(engineSettingStore.subscribe, engineSettingStore.get));
+  // Image subtitles show only their forced lines when the viewer asks (mpv, `sub-forced-events-only`):
+  // a choice for this playback, off when a new one starts.
+  const [forcedOnly, setForcedOnly] = usePlaybackChoice('forcedOnly', run, false);
   const engineInputs = useRef<{setting: typeof engineSetting; audio: boolean; rendering?: string; container?: string}>({setting: engineSetting, audio: isAudio});
   engineInputs.current.setting = engineSetting;
   engineInputs.current.audio = isAudio;
@@ -530,7 +536,9 @@ export function usePlayerEngine() {
   const deviceTrack = useMemo(() => (presentation ? deviceDrawnTrack(subtitlePlan, v1Session) : undefined), [presentation, subtitlePlan, v1Session]);
   // Portico's caption style (the profile's size and background), applied by every engine on top
   // of the system's own caption settings.
-  const captionSize = speedPreferences.value<string>('playback.subtitleSize', 'medium'), captionBackground = speedPreferences.value<string>('playback.subtitleBackground', 'translucent');
+  // The profile's caption look, unless changed in the player for this playback (PlayerOptions).
+  const [captionSize] = usePlaybackChoice('subtitleSize', run, speedPreferences.value<string>('playback.subtitleSize', 'medium'));
+  const [captionBackground] = usePlaybackChoice('subtitleBackground', run, speedPreferences.value<string>('playback.subtitleBackground', 'translucent'));
   const captions = useMemo(() => captionStyle(captionSize, captionBackground), [captionSize, captionBackground]);
   // A styled track's attached fonts: the list is read once per track, for the engine to fetch.
   const subtitleFontsUrl = engineKind === 'mpv' && !subtitles.suppressed ? fontsUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
@@ -939,7 +947,10 @@ export function usePlayerEngine() {
   const collapse = useCallback(() => setExpanded(false), []);
   const expand = useCallback(() => setExpanded(true), []);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);
-  const setRate = useCallback((rate: number) => speed.select(rate), [speed]);
+  const setRate = useCallback((rate: number) => {
+    if (speedKind && speedKind !== 'song') playerSessionChoices.set(speedKind === 'audiobook_file' ? 'speed:audiobook' : 'speed:video', run, rate);
+    speed.select(rate);
+  }, [speed, speedKind, run]);
   return {
     service: playback,
     state: playbackState,
@@ -956,8 +967,8 @@ export function usePlayerEngine() {
       service: subtitleService, snapshot: subtitles,
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
-      /** Image subtitles drawn here by mpv: show only their forced lines (kept by this device). Null when that does not apply. */
-      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: (on: boolean) => devicePreferences.update({subtitleForcedOnly: on})} : null,
+      /** Image subtitles drawn here by mpv: show only their forced lines (for this playback). Null when that does not apply. */
+      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: setForcedOnly} : null,
       /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */

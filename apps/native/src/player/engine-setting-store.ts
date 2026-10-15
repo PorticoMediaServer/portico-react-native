@@ -12,8 +12,12 @@ export type ProbedDevice = Readonly<{audioPassthrough: boolean; hdr: boolean}>;
  * The viewer's playback settings that this device keeps and the server plans from, where code
  * outside React can read them: the Player setting (`engineSetting`) and the three overrides. The
  * capability publisher sends them with the device's capability document and sends it again when
- * one changes. The preferences provider is the only writer.
+ * one changes. The preferences provider writes the Settings value; a player chosen inside the
+ * player (`setSession`) stands in for it during that playback only, and is dropped before the
+ * next playback starts.
  */
+let device: EngineSetting = defaultEngineSetting;
+let session: EngineSetting | null = null;
 let current: EngineSetting = defaultEngineSetting;
 let overrides: PlaybackOverrides = noOverrides;
 let probed: ProbedDevice | null = null;
@@ -32,13 +36,27 @@ function changed(): void {
   listeners.forEach(listener => listener());
 }
 
+function sync(): void {
+  const next = session ?? device;
+  if (next === current) return;
+  current = next;
+  changed();
+}
+
 export const engineSettingStore = Object.freeze({
+  /** The setting in force: the one chosen in the player for this playback, else the Settings'. */
   get: (): EngineSetting => current,
+  /** The Settings' value (the preferences provider). */
   set(value: EngineSetting): void {
-    if (value === current) return;
-    current = value;
-    changed();
+    device = value;
+    sync();
   },
+  /** A player chosen in the player, for this playback; null goes back to the Settings. */
+  setSession(value: EngineSetting | null): void {
+    session = value;
+    sync();
+  },
+  hasSession: (): boolean => session !== null,
   overrides: (): PlaybackOverrides => overrides,
   setOverrides(value: Partial<PlaybackOverrides>): void {
     const next = {forceStereo: value.forceStereo === true, disablePassthrough: value.disablePassthrough === true, disableHdr: value.disableHdr === true};
