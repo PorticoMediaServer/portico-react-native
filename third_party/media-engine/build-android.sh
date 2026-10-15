@@ -71,7 +71,9 @@ set_abi() {
     # 16 KB pages (Google Play requires it for 64-bit; harmless on 32-bit), only the libraries
     # actually used are recorded as dependencies, and a build id for crash symbolication.
     LDFLAGS_ABI="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -Wl,--as-needed -Wl,--build-id=sha1 -Wl,-z,relro -Wl,-z,now"
-    CFLAGS_ABI="-fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2"
+    # No build-machine folders in the libraries (lib/common.sh, "Neutral paths").
+    PATH_MAP="$(me_path_map_cflags "$NDK")"
+    CFLAGS_ABI="-fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 $PATH_MAP"
     [[ "$ABI" == armeabi-v7a ]] && CFLAGS_ABI="$CFLAGS_ABI -mfpu=neon -mthumb"
     ASM_OK=1
     # 32-bit x86 assembly in these projects is not position-independent; Android refuses text
@@ -134,6 +136,8 @@ meson_build() {
     meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
+    # mpv writes its configure command line and config folder into config.h.
+    [[ -f "$dir/config.h" ]] && me_neutralize "$NDK" "$dir/config.h"
     ninja -C "$dir" -j "$ME_JOBS"
     ninja -C "$dir" install
 }
@@ -151,8 +155,13 @@ build_openssl() {
         --openssldir=/dev/null/portico-no-openssl-dir \
         $(me_openssl_common_flags) $( (( ASM_OK )) || echo no-asm ) \
         $CFLAGS_ABI $LDFLAGS_ABI
-    PATH="$TC/bin:$PATH" make -j"$ME_JOBS" build_libs
-    PATH="$TC/bin:$PATH" make install_dev
+    # Engines and modules are not built (no-engine, no-module); their folders must not name the
+    # work directory either. The "compiler:" line OpenSSL_version() reports is made neutral.
+    local dirs=(ENGINESDIR=/dev/null/portico-no-engines MODULESDIR=/dev/null/portico-no-modules)
+    PATH="$TC/bin:$PATH" make "${dirs[@]}" crypto/buildinf.h
+    me_neutralize "$NDK" crypto/buildinf.h
+    PATH="$TC/bin:$PATH" make -j"$ME_JOBS" "${dirs[@]}" build_libs
+    PATH="$TC/bin:$PATH" make "${dirs[@]}" install_dev
 }
 
 build_libiconv() {
@@ -207,7 +216,12 @@ build_libdovi() {
     export "CARGO_TARGET_${upper}_LINKER=$CC"
     export "CC_${RUST//-/_}=$CC" "AR_${RUST//-/_}=$AR"
     export CARGO_HOME="$ME_WORK/cargo-home"
-    export RUSTFLAGS="$(for f in $LDFLAGS_ABI; do printf -- '-C link-arg=%s ' "$f"; done)"
+    # Flags separated by 0x1f, so a folder with a space in its name stays one argument.
+    local flags=() f
+    for f in $LDFLAGS_ABI; do flags+=("-Clink-arg=$f"); done
+    while read -r f; do flags+=("$f"); done < <(me_rust_remap_flags)
+    unset RUSTFLAGS
+    export CARGO_ENCODED_RUSTFLAGS="$(IFS=$'\x1f'; printf '%s' "${flags[*]}")"
     rustup target list --installed | grep -qx "$RUST" || rustup target add "$RUST"
     cargo cinstall --profile release-deploy --locked --offline --target "$RUST" --library-type cdylib \
         --prefix "$PREFIX" --libdir "$PREFIX/lib" --target-dir "$BUILD/libdovi" -j "$ME_JOBS"
@@ -221,6 +235,7 @@ build_uchardet() {
         -DANDROID_ABI="$ABI" -DANDROID_PLATFORM="android-$API" -DANDROID_STL=c++_shared \
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_C_FLAGS="$PATH_MAP" -DCMAKE_CXX_FLAGS="$PATH_MAP" \
         -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS_ABI" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_BINARY=OFF -DBUILD_STATIC=OFF -DBUILD_SHARED_LIBS=ON
     cmake --build "$dir" -j "$ME_JOBS"
@@ -249,6 +264,8 @@ build_ffmpeg() {
         $(me_ffmpeg_common_flags) \
         --enable-jni --enable-mediacodec \
         ${asm[@]+"${asm[@]}"}
+    # av*_configuration() reports this command line: neutral folders only.
+    me_neutralize "$NDK" config.h
     make -j"$ME_JOBS"
     make install
     mkdir -p "$META"
@@ -287,6 +304,7 @@ component_key() {
         echo "$previous"
         python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["components"][sys.argv[2]], sort_keys=True))' "$ME_LOCK" "$name"
         declare -f "build_$name" set_abi write_cross_file meson_build
+        declare -f me_path_forms me_path_map_pairs me_path_map_cflags me_rust_remap_flags me_neutralize
         declare -f me_ffmpeg_common_flags me_openssl_common_flags me_mpv_common_flags me_libplacebo_common_flags \
             me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags \
             me_dav1d_common_flags me_lcms2_common_flags
@@ -347,5 +365,5 @@ done
 
 me_write_build_info "$PLATFORM" "$ME_OUT/$PLATFORM/build-info.json"
 "$ME_ROOT/collect-notices.sh" "$PLATFORM"
-python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --ndk "$NDK" --abis "$ABIS" --write-manifest
+python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --ndk "$NDK" --abis "$ABIS" --write-manifest
 me_say "Done: $ME_OUT/$PLATFORM"
