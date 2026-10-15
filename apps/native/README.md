@@ -72,26 +72,35 @@ crashing.
 The app has two player engines behind one contract (`Native/ENGINE-CONTRACT.md`): the system's
 AVPlayer and mpv. The Player setting is Automatic (the default), this device's player, or mpv.
 
-mpv comes from [MPVKit](https://github.com/mpvkit/MPVKit) (its LGPL product `MPVKit`: libmpv,
-FFmpeg, libass, libplacebo, MoltenVK, dav1d and their dependencies as prebuilt xcframeworks),
-pinned in both Xcode projects to the exact version `1.1.0-n9.0.2` (mpv 0.41). Nothing is checked
-in: Xcode fetches it.
+mpv and everything it uses (FFmpeg 8.1.2, the server's version, under LGPL 2.1; OpenSSL;
+libass, FreeType, HarfBuzz, FriBidi, libunibreak; dav1d; libplacebo, Little CMS, libdovi;
+uchardet; MoltenVK) is Portico's own build from pinned sources: the media engine in
+[`third_party/media-engine`](../../third_party/media-engine/README.md). Each library is its own
+dynamic framework, combined into an `.xcframework`; a local Swift package
+(`third_party/media-engine/apple/Package.swift`, product `PorticoMediaEngine`) wraps them, and
+both Xcode projects depend on it. Nothing is downloaded by Xcode and nothing built is checked in,
+so **build the engine once before opening the projects**, like `pod install`:
 
 ```bash
-cd ios && pod install      # as before
-xcodebuild -resolvePackageDependencies -workspace Portico.xcworkspace -scheme Portico   # fetches MPVKit (a large download, once)
+third_party/media-engine/build-apple.sh     # from the repository root; about an hour the first time
+cd apps/native/ios && pod install            # as before (and in tvos/)
 ```
 
-Then build as usual. The same two commands apply in `tvos/`. Notes:
+Then build as usual. Notes:
 
-- The engine's Swift files compile to a stand-in when the package is missing (`#if
-  canImport(Libmpv)`): the app still builds and simply has no mpv (no Player setting).
+- Until `build-apple.sh` has run, Xcode cannot resolve the `PorticoMediaEngine` package (its
+  frameworks are missing) and says so. The engine's Swift files compile to a stand-in when the
+  `Libmpv` module is missing (`#if canImport(Libmpv)`), so removing the package from a project
+  still builds an app without mpv (no Player setting).
+- Simulators: iOS simulator frameworks are built for arm64 and x86_64; tvOS simulator ones for
+  arm64 only (Rust, which libdovi is written in, has no x86_64 tvOS simulator target), so the
+  Apple TV simulator needs an Apple-silicon Mac.
 - Run with **Metal API Validation off** in the scheme's Diagnostics while debugging HDR titles;
   MoltenVK trips the validation layer there. Release builds are unaffected.
-- mpv draws through Metal, which the simulators support, but VideoToolbox decoding and HDR need
-  a device.
-- To move to a newer MPVKit, change `version` in the `XCRemoteSwiftPackageReference "MPVKit"`
-  entry of both `project.pbxproj` files. The engine needs mpv 0.38 or later.
+- mpv draws through Metal (Vulkan on MoltenVK), which the simulators support, but VideoToolbox
+  decoding and HDR need a device.
+- To change a version, see "Updating a component" in the media engine's README; the engine needs
+  mpv 0.38 or later.
 
 ## The mpv player engine (Android, Android TV, Fire TV)
 
@@ -100,46 +109,44 @@ mpv, with the same Player setting. The Kotlin is in
 `android/app/src/main/java/tv/getportico/portico/native/PorticoMpv*.kt`; libmpv and the small JNI
 bridge to it are their own Gradle module, `android/portico-mpv`.
 
-**What is fetched.** One `libmpv.so` per architecture from the media-kit project's published
-Android builds, [libmpv-android-video-build](https://github.com/media-kit/libmpv-android-video-build)
-release `v1.1.11`, flavour `full`. That is the LGPL flavour: FFmpeg 6.0 configured
-`--disable-gpl --enable-version3` with every decoder and demuxer, linked into libmpv; mpv (a
-revision of October 2023, between 0.36 and 0.37) built `-Dgpl=false`; libass 0.17.1; dav1d;
-mbedTLS. The four archives (about 8 MB each) are pinned by SHA-256 in
-`android/portico-mpv/build.gradle`; the build's `fetchLibmpv` task downloads them once into
-`android/portico-mpv/build/libmpv/`, checks them, and takes `libmpv.so` out of each. Nothing is
-checked in, and nothing else from the archives is used. The bridge
-(`portico-mpv/src/main/cpp/portico_mpv_jni.c`, compiled by the NDK through CMake) is ours; it
-includes mpv's `client.h`, which is under the ISC licence and is checked in beside it.
+**Where libmpv comes from.** The same media engine as on Apple
+([`third_party/media-engine`](../../third_party/media-engine/README.md)), built for the four
+architectures the app ships (`arm64-v8a armeabi-v7a x86 x86_64`) with the NDK the app uses.
+Each library is its own `.so` (libmpv.so, libavcodec.so, libssl.so, libass.so, ...; about
+29 MB per architecture before compression). `android/portico-mpv/build.gradle` packages them
+from `third_party/media-engine/out/android`, with the engine's licence notices as
+`assets/media-engine/THIRD-PARTY-NOTICES.txt`, and stops with instructions when they are
+missing. The bridge (`portico-mpv/src/main/cpp/portico_mpv_jni.c`, compiled by the NDK
+through CMake) is ours; it compiles against the engine's own `mpv/client.h`.
 
 ```bash
-cd android
-./gradlew :portico-mpv:fetchLibmpv        # the download and the checksum check, on their own
-./gradlew :app:assembleGoogleDebug        # as before; fetches libmpv first when it is missing
+third_party/media-engine/build-android.sh   # from the repository root, once (about an hour)
+cd apps/native/android
+./gradlew :app:assembleGoogleDebug          # as before
 ```
 
 Notes:
 
-- **No network at build time, or another libmpv**: pass `-PporticoLibmpvDir=/path`, a folder
-  holding `<abi>/libmpv.so` for every architecture being built. Nothing is fetched then. The
-  library must be an LGPL build (no GPL parts) to ship in this app. To build one, use the scripts
-  in the repository above (`buildscripts/bundle_full.sh`), or mpv-android's with FFmpeg's
-  `--enable-gpl` removed and mpv's `-Dgpl=false` added.
-- **Architectures.** libmpv is fetched for the architectures in `reactNativeArchitectures`
-  (`gradle.properties`, or `-PreactNativeArchitectures=arm64-v8a` for one). One APK still carries
-  all of them. `-PporticoAbiSplits=true` also writes one APK per architecture beside it; an app
-  bundle is split by the store without that.
+- **One emulator architecture**: `build-android.sh --abis x86_64` and build the app with
+  `-PreactNativeArchitectures=x86_64`.
+- **A build elsewhere**: `-PporticoLibmpvDir=/path/to/out/android` (the folder holding
+  `lib/<abi>/*.so`, `include/mpv/` and `notices/`).
+- **Architectures.** One APK still carries all of them. `-PporticoAbiSplits=true` also writes
+  one APK per architecture beside it; an app bundle is split by the store without that.
 - **A build without mpv.** If `libmpv.so` or the bridge cannot be loaded on a device, the module
   reports `available: false`, the Player setting is not offered and everything plays in Media3.
-- **To move to another libmpv release**, change `mpvRelease` and the four checksums in
-  `android/portico-mpv/build.gradle`. The engine uses only long-standing parts of mpv's client
-  interface (it sets the start position as an option rather than through `loadfile`, whose
-  arguments changed in mpv 0.38), so newer builds work unchanged; a build with FFmpeg as separate
-  shared libraries also needs those libraries packaged.
-- **What this build of libmpv lacks**, and the engine therefore declares it does not do: bitstream
-  passthrough (no S/PDIF muxer in its FFmpeg), deinterlacing in software (no deinterlacing
-  filter), and Dolby Vision profile 5 colours (no libplacebo). See the engine's capability
-  profile in `src/bridge/mpv-profile.ts`.
+- **libc++.** libplacebo and uchardet use the NDK's `libc++_shared.so`, which React Native
+  already packages in the app; the engine does not ship its own copy.
+- **What the engine does not do on Android**, and therefore declares it does not do: bitstream
+  passthrough (sound is decoded to PCM; FFmpeg has no muxers), deinterlacing (the engine does
+  not ask for it; the build has FFmpeg's bwdif and yadif filters, so it could), and Dolby
+  Vision profile 5 colours (mpv draws with `vo=gpu`; libplacebo's Dolby Vision reshaping is
+  used only by `vo=gpu-next`). See the engine's capability profile in
+  `src/bridge/mpv-profile.ts`.
+- **Network.** mpv only ever reads `http://127.0.0.1:<port>/...` from the in-app relay
+  (`PorticoMpvRelay`), which fetches from the server with OkHttp, so the server's certificate is
+  checked exactly as for the rest of the app. mpv's own protocols are limited to plain HTTP and
+  files, and it is set to verify certificates should it ever be given an HTTPS address.
 
 ## Android
 
