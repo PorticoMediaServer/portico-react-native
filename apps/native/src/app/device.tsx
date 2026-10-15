@@ -27,6 +27,7 @@ export function DeviceApprovalCover() {
   // Every sign-in is a device on its server, however the viewer proved who they are: the record
   // lives on the server alone, and a Portico Account sign-in never asks Hosted Services about it.
   const family = session?.sessionFamilyId ?? '';
+  const serverId = session?.viewer.serverId, profileId = session?.viewer.profileId;
   const announce = useCallback(async () => {
     if (!family || !identity) { setPending(false); return; }
     const installationId = await profileInstallation().catch(() => undefined);
@@ -37,8 +38,8 @@ export function DeviceApprovalCover() {
     const outcome = await announceDevice(identity, {installationId, name: device.deviceName, platform: devicePlatform, app: 'Portico', appVersion: device.appVersion || version}, family);
     setChecking(false); setPending(outcome === 'pending');
     // The home-screen shelf is tied to an approved device, so it is supplied once this one is known.
-    if (isTV && outcome === 'bound' && api && session) void refreshTopShelf(api, installationId, `${session.viewer.serverId}/${session.viewer.profileId}`);
-  }, [identity, family, isTV, api, session?.viewer.serverId, session?.viewer.profileId]);
+    if (isTV && outcome === 'bound' && api && serverId && profileId) void refreshTopShelf(api, installationId, `${serverId}/${profileId}`);
+  }, [identity, family, isTV, api, serverId, profileId]);
   useEffect(() => { void announce(); }, [announce]);
   // Signed out: the shelf must not go on showing this profile's titles.
   useEffect(() => { if (isTV && !session) clearTopShelf(); }, [isTV, session]);

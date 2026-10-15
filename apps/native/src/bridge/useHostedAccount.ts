@@ -45,7 +45,7 @@ export function useHostedAccount(hostedUrl: string, mode: 'local' | 'hosted', di
       );
       setAttachedServer(credentialState.context?.server);
     } else if (credentialState.phase === 'signedOut') setHosted(undefined);
-  }, [credentials, credentialState.session?.accessToken, mode]);
+  }, [credentials, credentialState.session, credentialState.context?.profileId, credentialState.context?.server, credentialState.phase, mode]);
   // A sign-in is a 90-day window renewed by use of the account service, which a client in daily
   // use against its own server may never need. Renew it about monthly, some minutes after
   // launch at a random moment, so it is never part of a burst.

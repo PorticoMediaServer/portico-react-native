@@ -29,9 +29,8 @@ export function useGroupBrowse(scope: GroupScope | undefined) {
   const engaged = available && groupEngaged(choice);
   /** The sort in force once engaged: the viewer's, else the server's own for the pivot. */
   const sort = useMemo<BrowseSortSelection>(() => offeredBrowseSort(capabilities, choice.sort), [capabilities, choice.sort]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   // (The list store types its conditions as single ones; it sends whatever it is given under one conjunction, a saved view's whole expression included.)
-  const predicates = useMemo<readonly Predicate[]>(() => (scope ? (groupPredicates(scope, choice.predicates as readonly Predicate[]) as readonly Predicate[]) : []), [key, choice.predicates]);
+  const predicates = useMemo<readonly Predicate[]>(() => (scope ? (groupPredicates(scope, choice.predicates as readonly Predicate[]) as readonly Predicate[]) : []), [key, choice.predicates]); // eslint-disable-line react-hooks/exhaustive-deps -- `key` names everything groupPredicates reads from a scope, which arrives as a new object each render
   const change = useCallback((patch: Partial<GroupChoice>) => setHeld(current => ({key, choice: {...(current.key === key ? current.choice : noGroupChoice), ...patch}})), [key]);
   const setSort = useCallback((next: BrowseSortSelection | undefined) => change({sort: next}), [change]);
   const setPredicates = useCallback((next: readonly Predicate[]) => change({predicates: next}), [change]);
