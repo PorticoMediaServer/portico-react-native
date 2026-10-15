@@ -1,10 +1,9 @@
-import {routePath} from '../../../../packages/contracts/src/routes';
 import {scopeBrowseCapabilities} from './browse-options';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Platform} from 'react-native';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import type {ContentEntry, ContentSeeAll} from '../../../../packages/client-core/src/library-content';
-import {parseBrowseCapabilities, parseBrowseFacets, type BrowseCapabilities, type BrowseFacetValue, type BrowseNode, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {acrossLibraries, browseCapabilitiesPath, browseFacetsPath, parseBrowseCapabilities, parseBrowseFacets, type BrowseCapabilities, type BrowseFacetValue, type BrowseNode, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {browsePageSource} from './browse-page-source.ts';
 import type {Predicate as PagePredicate} from './browse-page-source.ts';
 import {useSession} from './session';
@@ -44,7 +43,7 @@ export function useBrowseCapabilities(libraryId: string | undefined, pivot: stri
     if (held) setState({capabilities: held});
     let read = capabilityReads.get(key);
     if (!read) {
-      const started = api.request<unknown>(routePath('get_libraries_id_browse_capabilities', {id: libraryId}) + `?pivot=${encodeURIComponent(pivot)}`, 'GET').then(parseBrowseCapabilities);
+      const started = api.request<unknown>(browseCapabilitiesPath(libraryId, pivot), 'GET').then(parseBrowseCapabilities);
       read = started;
       capabilityReads.set(key, started);
       started.then(c => { if (!sameVocabulary(capabilityCache.get(key), c)) capabilityCache.set(key, c); }, () => {}).finally(() => { if (capabilityReads.get(key) === started) capabilityReads.delete(key); });
@@ -100,7 +99,7 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
   const latestFetch = useRef(fetchFor);
   latestFetch.current = fetchFor;
   const markCurrent = useFreshDocument(
-    useMemo(() => (list && libraryId ? titlesWithPersonalState(libraryId) : []), [list, libraryId]),
+    useMemo(() => (list && libraryId ? titlesWithPersonalState(libraryId === acrossLibraries ? undefined : libraryId) : []), [list, libraryId]),
     context => (list ? list.revalidate({fetchPage: latestFetch.current(), hold: context.settle}) : Promise.resolve()),
     () => list?.getSnapshot().total !== undefined,
   );
@@ -120,7 +119,7 @@ export function useFacets(libraryId: string | undefined) {
     if (!libraryId) return [];
     const params = new URLSearchParams({field, limit: '100'});
     if (q) params.set('q', q);
-    const raw = await api.request<unknown>(routePath('get_library_facets', {id: libraryId}) + `?${params}`, 'GET');
+    const raw = await api.request<unknown>(`${browseFacetsPath(libraryId)}?${params}`, 'GET');
     return parseBrowseFacets(raw, field).values;
   }, [api, libraryId]);
 }

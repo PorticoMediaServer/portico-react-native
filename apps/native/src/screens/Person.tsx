@@ -15,10 +15,9 @@ import {useSession} from '../app/session';
 import {Card, Notice, Page, Ring, Segmented, Shelf, Skeleton, StateView, Text, WindowedGrid, useTheme} from '../ui';
 import {StatusBarScrim, TitleHero} from './title/TitleHero';
 import {usePullToRefresh} from '../app/refresh';
-import {useLibrariesContext} from '../app/libraries-context';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
-import {groupLibraries, personScope} from '../app/group-scope';
-import {GroupBar, GroupLibraryPicker} from './GroupBrowse';
+import {acrossScope} from '../app/group-scope';
+import {GroupBar} from './GroupBrowse';
 import type {GridWindow} from '../ui/Grid';
 
 /** Credits per windowed page (the person's first page seeds page 0). */
@@ -79,12 +78,10 @@ const idleSnapshot = Object.freeze({generation: 0, total: undefined, totalIsLowe
  * credits are a windowed grid that is itself the page scroller (the hero, "known for" and the
  * role filter are its header), so at most ~300 cards mount at any depth, whatever the filmography.
  *
- * Sort and Filter are the library's own, applied to this person's titles in one library at a
- * time (each library has its own filters): the one that holds most of their credits, or another
- * the viewer picks. Until a sort or a filter is chosen the page is the credits list as above.
- * Once one is, the grid is the library's browse of the person's titles in the same scroller. A
- * role (Cast, Crew) is a property of a credit, which that browse cannot ask for, so the role
- * filter is put away while a sort or a filter is on rather than pretending to apply.
+ * Sort and Filter are the library's own, applied to this person's titles across every library
+ * as one list, under All, Cast or Crew. Until a sort or a filter is chosen the page is the credits
+ * list as above; once one is, the grid is the server's sorted and filtered list in the same
+ * scroller.
  */
 export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Person'>}) {
   const {personId, name} = route.params;
@@ -108,12 +105,9 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   }, [api, scope, personId, role]);
   const seed: Seed | undefined = first.page ? {credits: first.page.credits, nextCursor: first.page.pageInfo.nextCursor, total: first.page.pageInfo.total} : undefined;
   // ── Sort and filter ───────────────────────────────────────────────────────
-  const {items: allLibraries} = useLibrariesContext();
-  const creditLibraries = first.page?.credits;
-  const candidates = useMemo(() => groupLibraries(allLibraries.filter(l => l.kind === 'movie' || l.kind === 'tv' || l.kind === 'anime'), (creditLibraries ?? []).map(c => c.media.libraryId)), [allLibraries, creditLibraries]);
-  const [libraryChoice, setLibraryChoice] = React.useState<string>();
-  const library = candidates.find(l => l.id === libraryChoice) ?? candidates[0];
-  const groupScope = useMemo(() => (library ? personScope(library.id, library.kind, personId) : undefined), [library, personId]);
+  // The person's titles across every library they are in, as one list; Cast and Crew are the
+  // server's own cast and crew conditions, so each role keeps the toolbar.
+  const groupScope = useMemo(() => acrossScope(role === 'all' ? 'person' : role, personId), [role, personId]);
   const group = useGroupBrowse(groupScope);
   const sorted = useGroupWindow(group);
   const sortedOn = group.engaged && !!sorted.list;
@@ -172,9 +166,9 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
           <Text variant="heading">{i18n.t('title.credits')}</Text>
           {sortedOn ? (sorted.snapshot.total !== undefined ? <Text variant="caption" tone="tertiary">{titleCountLabel(i18n.t, sorted.snapshot.total, sorted.snapshot.totalIsLowerBound)}</Text> : null) : first.page && first.page.pageInfo.total > 0 ? <Text variant="caption" tone="tertiary">{i18n.t('count.titles', {count: first.page.pageInfo.total})}</Text> : null}
         </View>
-        {sortedOn ? null : <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />}
+        <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />
       </View>
-      <GroupBar group={group} leading={<GroupLibraryPicker libraries={candidates} selected={library?.id} onSelect={setLibraryChoice} />} />
+      <GroupBar group={group} />
       {first.phase === 'error' && person ? <Notice tone="error" message={first.error ?? ''} action={i18n.t('title.retry')} onAction={reload} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
     </>
   );

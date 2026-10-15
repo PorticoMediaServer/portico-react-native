@@ -1,4 +1,5 @@
-import type {BrowseCapabilities, BrowseNode, BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {acrossLibraries, type BrowseCapabilities, type BrowseNode, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {acrossCondition, acrossPivot, episodeGroupCondition, type AcrossGroup} from '../../../../packages/client-core/src/presentation/browse-groups';
 
 /**
  * A group of a library's titles (a collection, an album's or an artist's songs, a season's
@@ -13,7 +14,7 @@ import type {BrowseCapabilities, BrowseNode, BrowseSortSelection} from '../../..
  * No React and no native code: tested under Node.
  */
 export type GroupPredicate = Extract<BrowseNode, {field: string}>;
-export type GroupSurface = 'collection-titles' | 'container-titles' | 'person-titles' | 'list-titles' | 'group-titles' | 'saved-view';
+export type GroupSurface = 'collection-titles' | 'container-titles' | 'person-titles' | 'cast-titles' | 'crew-titles' | 'list-titles' | 'saved-collection-titles' | 'episode-group' | 'row-titles' | 'watchlist' | 'favorites' | 'history' | 'group-titles' | 'saved-view';
 /** `base` is one condition for most groups; a saved view's is the whole expression it was saved with. */
 export type GroupScope = Readonly<{libraryId: string; pivot: string; surface: GroupSurface; base: readonly BrowseNode[]}>;
 
@@ -36,6 +37,18 @@ export const collectionScope = (libraryId: string, libraryKind: string | undefin
 /** What belongs to a title that holds others: a show's or a season's episodes, an album's or an artist's songs, an author's books. */
 export const containerScope = (libraryId: string, pivot: string, containerId: string | undefined): GroupScope | undefined =>
   (libraryId && containerId ? {libraryId, pivot, surface: 'container-titles', base: [{field: 'memberOf', operator: 'equals', value: containerId}]} : undefined);
+/**
+ * A group that spans the viewer's libraries (a person's titles, a playlist, a personal collection,
+ * a Home row, My List, Favorites, the history), sorted and filtered across them as one list.
+ */
+export const acrossScope = (group: AcrossGroup, value?: string): GroupScope => ({libraryId: acrossLibraries, pivot: acrossPivot(group), surface: acrossSurfaces[group], base: [acrossCondition(group, value)]});
+const acrossSurfaces: Readonly<Record<AcrossGroup, GroupSurface>> = {person: 'person-titles', cast: 'cast-titles', crew: 'crew-titles', list: 'list-titles', savedCollection: 'saved-collection-titles', homeRow: 'row-titles', watchlist: 'watchlist', favorites: 'favorites', history: 'history'};
+/** One of a flat show's groups of episodes (its whole list, its specials, a range of a hundred). */
+export const episodeGroupScope = (libraryId: string, showId: string | undefined, group: string | undefined): GroupScope | undefined =>
+  (libraryId && showId && group ? {libraryId, pivot: 'episodes', surface: 'episode-group', base: [episodeGroupCondition(showId, group)]} : undefined);
+/** Groups whose own order the server keeps under a filter (groupOrder): a collection's, a container's, a playlist's, a row's, a show's groups, the history's. */
+export const groupKeepsOwnOrder = (scope: GroupScope | undefined): boolean => !!scope && ['collection-titles', 'container-titles', 'list-titles', 'row-titles', 'episode-group', 'history'].includes(scope.surface);
+
 /** The titles a person is credited on, within one library. */
 export const personScope = (libraryId: string, libraryKind: string | undefined, personId: string): GroupScope | undefined => {
   const pivot = titlePivot(libraryKind);

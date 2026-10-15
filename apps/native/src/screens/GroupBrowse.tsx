@@ -37,7 +37,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
       onChange={group.setPredicates}
       sort={group.sort}
       onSort={group.setSort}
-      ownOrder={{selected: !group.engaged, onSelect: () => group.setSort(undefined)}}
+      ownOrder={{selected: group.ownSelected, onSelect: () => group.setSort(undefined)}}
     />
   );
   return (
@@ -52,7 +52,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
  * in the library's shapes, and "Show more" for the next page. While a new sort or filter is on its
  * way the titles already there stay; nothing matching says so and offers the way back.
  */
-export function GroupResults({group, results, libraryId, row, as = 'grid'}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; libraryId: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'}) {
+export function GroupResults({group, results, libraryId, row, as = 'grid'}: {group: GroupBrowse; results: ReturnType<typeof useGroupPages>; /** The library the titles are in; none for a list across libraries, whose titles each name theirs. */ libraryId?: string; /** Position on the screen, for artwork order. */ row?: number; /** Rows, for a list of things that are played in turn (a playlist's songs); cards otherwise. */ as?: 'grid' | 'list'}) {
   const i18n = useI18n();
   const {space} = useTheme();
   const {snapshot, pages} = results;
