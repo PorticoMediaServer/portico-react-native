@@ -74,7 +74,7 @@ test('a sorted or filtered list plays as the same query the list is read with', 
 
 test('a group plays its query only while the viewer has sorted or filtered it', () => {
   const scope = {libraryId: 'lib', pivot: 'episodes'};
-  const predicates = [{field: 'memberOf', operator: 'equals', value: 's1'}];
+  const predicates = [{field: 'memberOf', operator: 'equals', value: 's1'}] as const;
   const sort = {field: 'title', direction: 'asc'} as const;
   assert.equal(groupSequence({engaged: false, scope, predicates, sort}), undefined);
   assert.deepEqual(groupSequence({engaged: true, scope, predicates, sort}, {shuffle: true}), {kind: 'query', query: {libraryId: 'lib', pivot: 'episodes', query: {all: predicates}, sort: [sort]}, shuffle: true});
