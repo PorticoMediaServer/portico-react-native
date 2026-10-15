@@ -82,7 +82,7 @@ their pinned versions into `work/tools`, and the four Android Rust targets with 
 add`.
 
 ```bash
-third_party/media-engine/build-android.sh                 # all four ABIs, ~1 hour at -j8, ~8 GB of work files
+third_party/media-engine/build-android.sh                 # all four ABIs: ~30 min the first time on 12 cores, ~3 GB of work files
 third_party/media-engine/build-android.sh --abis x86_64   # one emulator architecture
 MEDIA_ENGINE_JOBS=4 MEDIA_ENGINE_WORK_DIR=/big/disk/work third_party/media-engine/build-android.sh
 ```

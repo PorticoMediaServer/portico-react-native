@@ -108,6 +108,16 @@ int main(int argc, char **argv)
             break;
         }
     }
+    /* Log lines can arrive just after the end of the file: print those too. */
+    for (;;) {
+        mpv_event *event = mpv_wait_event(mpv, 0.5);
+        if (event->event_id == MPV_EVENT_NONE)
+            break;
+        if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
+            mpv_event_log_message *log = event->data;
+            printf("log %s %s: %s", log->level, log->prefix, log->text);
+        }
+    }
     mpv_terminate_destroy(mpv);
     return status;
 }
