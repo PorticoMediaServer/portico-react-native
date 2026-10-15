@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -50,7 +50,7 @@
 		A6B000000000000000000106 /* PorticoMpvPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000206 /* PorticoMpvPlayerView.swift */; };
 		A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000207 /* PorticoMpvRelay.swift */; };
 		A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000208 /* PorticoMpvSupport.swift */; };
-		A6B0000000000000000003A2 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* MPVKit */; };
+		A6B0000000000000000003A2 /* PorticoMediaEngine in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* PorticoMediaEngine */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -117,7 +117,7 @@
 				A59F00000000000000000001 /* AVKit.framework in Frameworks */,
 				A5A000000000000000000001 /* ImageIO.framework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */,
-				A6B0000000000000000003A2 /* MPVKit in Frameworks */,
+				A6B0000000000000000003A2 /* PorticoMediaEngine in Frameworks */,
 				A58600000000000000000001 /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -240,7 +240,7 @@
 			);
 			name = Portico;
 			packageProductDependencies = (
-				A6B0000000000000000003A1 /* MPVKit */,
+				A6B0000000000000000003A1 /* PorticoMediaEngine */,
 			);
 			productName = Portico;
 			productReference = 13B07F961A680F5B00A75B9A /* Portico.app */;
@@ -269,7 +269,7 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */,
+				A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -644,22 +644,18 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
-			requirement = {
-				kind = exactVersion;
-				version = "1.1.0-n9.0.2";
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../../third_party/media-engine/apple;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A6B0000000000000000003A1 /* MPVKit */ = {
+		A6B0000000000000000003A1 /* PorticoMediaEngine */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A6B0000000000000000003A0 /* XCRemoteSwiftPackageReference "MPVKit" */;
-			productName = MPVKit;
+			package = A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */;
+			productName = PorticoMediaEngine;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

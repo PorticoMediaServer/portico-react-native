@@ -93,8 +93,8 @@ final class PorticoMpvCore {
         var code = mpv_set_option(created, "wid", MPV_FORMAT_INT64, &window)
         for (name, value) in options where code >= 0 {
             code = mpv_set_option_string(created, name, value)
-            // MPVKit compiles Lua out on Apple mobile platforms, so these switches may not
-            // exist. If they do exist in a build with scripting, explicitly disable them.
+            // The media engine is built without Lua, so these switches may not exist. If a
+            // build with scripting has them, they are explicitly disabled.
             if code == -5, ["osc", "ytdl", "load-scripts"].contains(name) { code = 0 }
             if code < 0 { initializationDetail = "Could not set mpv option " + name }
         }
