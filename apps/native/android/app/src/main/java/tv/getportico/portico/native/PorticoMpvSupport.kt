@@ -437,6 +437,49 @@ internal class PorticoMpvFontFetcher(private val context: Context) {
     if (remaining == 0) completion(null)
   }
 
+  /**
+   * A download's styled track: its attached fonts are files beside the download (`file:` URLs
+   * inside Downloads). mpv reads every file of the folder it is given as a font, so they are
+   * copied, alone, into a fresh folder of their own, on the same budget as a fetch; the
+   * download's folder itself is never handed over. [completion] runs on the main thread with the
+   * folder, or null when no font could be copied.
+   */
+  fun gather(fonts: List<Map<String, Any?>>, completion: (File?) -> Unit) {
+    cancel()
+    val wanted = ArrayList<Pair<String, File>>()
+    for (font in fonts.take(MAXIMUM_FONTS)) {
+      val text = font["url"] as? String ?: continue
+      if (text.toByteArray(Charsets.UTF_8).size > 2048) continue
+      val url = try { Uri.parse(text) } catch (_: Exception) { null } ?: continue
+      if (!PorticoMpvSupport.allowedLocalSource(context, url)) continue
+      val path = url.path ?: continue
+      val raw = (font["name"] as? String) ?: "font"
+      val safe = raw.filter { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }.take(80)
+      wanted.add(Pair(safe.ifEmpty { "font" }, File(path)))
+    }
+    if (wanted.isEmpty()) { completion(null); return }
+    val directory = File(File(context.cacheDir, "portico-mpv-fonts"), UUID.randomUUID().toString())
+    if (!directory.mkdirs()) { completion(null); return }
+    folder = directory
+    val attempt = ++generation
+    io.execute {
+      var total = 0L
+      var stored = 0
+      for ((position, entry) in wanted.withIndex()) {
+        if (attempt != generation) break
+        try {
+          val size = entry.second.length()
+          if (size <= 0 || total + size > MAXIMUM_BYTES) continue
+          entry.second.inputStream().use { input -> File(directory, "$position-${entry.first}").outputStream().use { input.copyTo(it) } }
+          total += size
+          stored++
+        } catch (_: IOException) {
+        }
+      }
+      main.post { if (attempt == generation) completion(if (stored > 0) directory else null) }
+    }
+  }
+
   /** Stops any fetch and removes the folder. */
   fun cancel() {
     generation++

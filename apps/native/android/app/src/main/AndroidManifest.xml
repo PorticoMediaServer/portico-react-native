@@ -31,7 +31,10 @@
       <!-- Portico Account origin; empty means production (the JavaScript default). -->
       <meta-data android:name="PorticoHostedURL" android:value="${porticoHostedUrl}" />
 
-      <activity
+      <!-- The window is drawn edge to edge (React Native's edgeToEdgeEnabled), so it is never resized
+         for the keyboard; adjustResize stays because without it Android before 11 sends no keyboard
+         insets to an edge-to-edge window. Forms pad themselves by the keyboard (ui/theme.ts). -->
+    <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
         android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|fontScale"
@@ -84,6 +87,11 @@
             android:name=".native.PorticoDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Carries unfinished downloads on when the app's process is gone (JobScheduler). -->
+        <service
+            android:name=".native.PorticoDownloadJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <activity
             android:name=".native.PorticoOfflinePlayerActivity"
             android:exported="false"

@@ -68,7 +68,11 @@ export function DestinationSheet({open, onClose, engine}: {open: boolean; onClos
     // MU4 CAST-03: remember the display facts for the controller sheet and bar thumbnail.
     const meta = {title: engine.identity.title, subtitle: engine.identity.subtitle, seriesTitle: engine.identity.seriesTitle, kind: engine.identity.kind};
     noteCastMeta(itemId, {...meta, ...(engine.identity.posterUrl ? {artworkPath: engine.identity.posterUrl} : {})});
-    cast.cast(itemId, meta, s.pendingSeek?.positionSeconds ?? s.positionSeconds, () => engine.leave());
+    // The subtitle on screen (or Off) goes with the title; the receiver draws text only, so the
+    // server burns a styled or image track in for it, as from the web.
+    const plan = engine.subtitles.snapshot.plan, shown = engine.subtitles.shownId;
+    const subtitleTrackId = plan ? (shown ?? null) : undefined;
+    cast.cast(itemId, meta, s.pendingSeek?.positionSeconds ?? s.positionSeconds, () => engine.leave(), subtitleTrackId === undefined ? undefined : {subtitleTrackId});
   };
   // A title already playing on another device (`done`) is controlled from the bar above the tab
   // bar and is not this sheet's business: closing never cancels it, and the sheet shows the list.

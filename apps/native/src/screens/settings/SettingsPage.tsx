@@ -27,6 +27,9 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {AccessTokensPanel} from '../server/Integrations';
+
+/** Android's runtime: the Layout setting this process started with, and the way to change it (B-19.10). */
+const layoutRuntime = NativeModules.PorticoRuntime as undefined | {layout?: unknown; setLayout?: (choice: string) => Promise<void>};
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {mpvAvailable} from '../../bridge/player-engines';
 import {parseEngineSetting} from '../../player/engine-choice';
@@ -75,6 +78,8 @@ export function useSettingsStructure(): SettingsStructure {
         ...(probed ? {hdr: probed.hdr} : {}),
         // A member makes personal access tokens for their own scripts; the owner makes API keys on the Server pages.
         accessTokens: signedIn && !manages,
+        // Android lays itself out for a television or for touch as the person says (B-19.10).
+        layoutChoice: typeof layoutRuntime?.layout === 'string',
       },
     };
     return settingsStructure(context);
@@ -182,12 +187,15 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
     // The device's own values, kept in this installation's store.
     value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices
       // The player and the playback fixes: kept by this device, and sent to the server with what this device can play.
+      : row.id === 'layout' ? (typeof layoutRuntime?.layout === 'string' ? layoutRuntime.layout : undefined)
       : row.id === 'playerEngine' ? device.preferences.playerEngine : row.id === 'forceStereo' ? device.preferences.forceStereo : row.id === 'disablePassthrough' ? device.preferences.disablePassthrough : row.id === 'disableHdr' ? device.preferences.disableHdr : undefined;
     write = next => {
       if (row.id === 'reduceMotion') device.update({reduceMotion: next === true});
       else if (row.id === 'textSize') device.update({textSize: next === 'large' ? 'large' : 'standard'});
       else if (row.id === 'receiveFromDevices') device.update({receiveFromDevices: next === true});
       else if (row.id === 'playerEngine') device.update({playerEngine: parseEngineSetting(next)});
+      // The layout is chosen before anything is drawn: the app starts again with it.
+      else if (row.id === 'layout' && next !== layoutRuntime?.layout && layoutRuntime?.setLayout) { showToast({message: i18n.t('settings.layout.restart')}); void layoutRuntime.setLayout(String(next)).catch(() => showToast({message: i18n.t('settings.layout.restart'), icon: 'warning'})); }
       else if (row.id === 'forceStereo') device.update({forceStereo: next === true});
       else if (row.id === 'disablePassthrough') device.update({disablePassthrough: next === true});
       else if (row.id === 'disableHdr') device.update({disableHdr: next === true});

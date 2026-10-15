@@ -250,6 +250,8 @@ final class PorticoMpvFontFetcher: NSObject, URLSessionDownloadDelegate {
     private var received: [Int: Int64] = [:]
     private var stored = 0
     private var completion: ((URL?) -> Void)?
+    /// Counts gathers (and cancels), so a copy that finishes after a newer choice is dropped.
+    private var gathering = 0
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
@@ -320,7 +322,49 @@ final class PorticoMpvFontFetcher: NSObject, URLSessionDownloadDelegate {
         done?(stored > 0 ? folder : nil)
     }
 
+    /// A download's styled track: its attached fonts are files beside the download (`file:` URLs
+    /// inside Downloads). mpv reads every file of the folder it is given as a font, so they are
+    /// copied, alone, into a fresh folder of their own, on the same budget as a fetch; the
+    /// download's folder itself is never handed over. Runs on the main queue; `completion` runs
+    /// there with the folder, or nil when no font could be copied.
+    func gather(_ fonts: [NSDictionary], completion: @escaping (URL?) -> Void) {
+        cancel()
+        var wanted: [(String, URL)] = []
+        for font in fonts.prefix(PorticoMpvFontFetcher.maximumFonts) {
+            guard let text = font["url"] as? String, text.utf8.count <= 2048, let url = URL(string: text), url.isFileURL, PorticoMpvSupport.allowedLocalSource(url) else { continue }
+            let raw = (font["name"] as? String) ?? "font"
+            let safe = String(raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-" || $0 == "_" }.prefix(80).map(Character.init))
+            wanted.append((safe.isEmpty ? "font" : safe, url))
+        }
+        guard !wanted.isEmpty else { completion(nil); return }
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent("portico-mpv-fonts", isDirectory: true).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) } catch { completion(nil); return }
+        folder = directory
+        gathering += 1
+        let attempt = gathering
+        self.completion = completion
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var total: Int64 = 0
+            var copied = 0
+            for (position, entry) in wanted.enumerated() {
+                guard let size = (try? FileManager.default.attributesOfItem(atPath: entry.1.path))?[.size] as? NSNumber, size.int64Value > 0, total + size.int64Value <= PorticoMpvFontFetcher.maximumBytes else { continue }
+                do {
+                    try FileManager.default.copyItem(at: entry.1, to: directory.appendingPathComponent("\(position)-\(entry.0)"))
+                    total += size.int64Value
+                    copied += 1
+                } catch { }
+            }
+            DispatchQueue.main.async {
+                guard let self = self, self.gathering == attempt, self.folder == directory else { return }
+                let done = self.completion
+                self.completion = nil
+                done?(copied > 0 ? directory : nil)
+            }
+        }
+    }
+
     func cancel() {
+        gathering += 1
         completion = nil
         session?.invalidateAndCancel()
         session = nil

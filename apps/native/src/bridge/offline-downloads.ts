@@ -1,4 +1,5 @@
 import {storedSubtitle, subtitleExtraFiles, type StoredSubtitle} from './offline-subtitle-files';
+import {receiptTime, serverReceiptFloor} from './receipt-clock';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {nativeRouteCrypto} from './server-connections';
 import {
@@ -117,6 +118,8 @@ type Stored = {
   nextAfter: Owned<{quality: string; libraryId?: string; kind?: string}>;
   /** When each viewer's receipts were last renewed. */
   renewed: Record<string, number>;
+  /** B-14.21: the receipt clock's floor (receipt-clock.ts): never earlier than the latest time trusted. */
+  clockFloor: number;
 };
 
 const native = NativeModules.PorticoDownloads as undefined | {
@@ -139,7 +142,7 @@ const operationId = () => 'op_' + random();
 export const offlineOwnerKey = (viewer: Viewer) =>
   JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId, viewer.serverId]);
 
-const emptyStored = (): Stored => ({version: 3, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, nextAfter: {}, renewed: {}});
+const emptyStored = (): Stored => ({version: 3, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
 
 /** Reads the bookkeeping document. One written by an earlier layout keeps its settings and the
  * server's keys; the rest of it was shaped for a different contract and is not carried over. */
@@ -154,6 +157,7 @@ function readStored(parsed: any): Stored {
   out.wanted = parsed.wanted ?? {};
   out.nextAfter = parsed.nextAfter ?? {};
   out.renewed = parsed.renewed ?? {};
+  out.clockFloor = typeof parsed.clockFloor === 'number' && Number.isFinite(parsed.clockFloor) ? parsed.clockFloor : 0;
   return out;
 }
 
@@ -562,7 +566,7 @@ export class OfflineDownloads {
     // A receipt that has run out, or soon will, is no better than none for a download that may
     // finish with no connection.
     let receipt = held.receipt;
-    if (!receipt || Date.parse(receipt.claims.expiresAt) - Date.now() < 7 * 24 * 60 * 60 * 1000) receipt = await this.issueReceipt(api, claim).catch(() => undefined) ?? receipt;
+    if (!receipt || Date.parse(receipt.claims.expiresAt) - this.receiptNow() < 7 * 24 * 60 * 60 * 1000) receipt = await this.issueReceipt(api, claim).catch(() => undefined) ?? receipt;
     const grant = await service.grant({id: claim}, held.token);
     if (this.generation !== generation) throw new Error(serviceText('downloads.connectToStart'));
     const title = target.title ?? held.title;
@@ -686,7 +690,21 @@ export class OfflineDownloads {
 
   private async issueReceipt(api: Api, claim: string): Promise<DownloadReceipt | undefined> {
     const outcomes = parseReceiptOutcomes(await api.request<unknown>('/v1/downloads/receipts', 'POST', {operationId: operationId(), preparationIds: [claim]}));
-    return outcomes.find(o => o.preparationId === claim && o.receipt)?.receipt ?? undefined;
+    const receipt = outcomes.find(o => o.preparationId === claim && o.receipt)?.receipt ?? undefined;
+    if (receipt) this.trustServerTime([receipt.claims.issuedAt]);
+    return receipt;
+  }
+  /** The time a receipt's expiry is judged by (B-14.21, receipt-clock.ts): never earlier than the
+   * latest time this device has trusted. The floor is written when it moves by more than a minute. */
+  private receiptNow(): number {
+    const {nowMs, floorMs} = receiptTime({floorMs: this.stored.clockFloor}, Date.now());
+    if (floorMs - this.stored.clockFloor > 60_000) { this.stored.clockFloor = floorMs; void this.persist(); }
+    return nowMs;
+  }
+  /** The server answered with receipts: its time is the trusted one. */
+  private trustServerTime(issuedAt: readonly string[]) {
+    const floor = serverReceiptFloor({floorMs: this.stored.clockFloor}, issuedAt);
+    if (floor !== this.stored.clockFloor) { this.stored.clockFloor = floor; void this.persist(); }
   }
   private async obtainReceipt(id: string, generation = this.generation) {
     if (generation !== this.generation || !native || !this.api || this.receiving.has(id)) return;
@@ -726,7 +744,7 @@ export class OfflineDownloads {
     // A finished download with no receipt yet (it could not be had when the transfer began).
     for (const e of mine) if (e.state === 'ready' && !e.receipt) void this.obtainReceipt(e.id, generation);
     const held = mine.filter(e => e.receipt);
-    const soon = held.some(e => Date.parse(e.receipt!.claims.expiresAt) - Date.now() < 7 * 24 * 60 * 60 * 1000);
+    const now = this.receiptNow(), soon = held.some(e => Date.parse(e.receipt!.claims.expiresAt) - now < 7 * 24 * 60 * 60 * 1000);
     if (!force && !soon && Date.now() - (this.stored.renewed[owner] ?? 0) < RENEW_EVERY_MS) return;
     // The server renews at most 100 receipts per request, so a large library of downloads is
     // renewed in batches, and each batch is written to the device once.
@@ -741,6 +759,7 @@ export class OfflineDownloads {
       for (const o of outcomes) {
         const entry = batch.find(e => e.receipt!.receiptId === o.receiptId); if (!entry) continue;
         if (o.outcome === 'renewed' && o.receipt) {
+          this.trustServerTime([o.receipt.claims.issuedAt]);
           const next: Meta = {...(this.metas.get(entry.id) ?? {}), receipt: o.receipt, owner: offlineOwnerKey(o.receipt.claims.viewer), ...(o.titleOnServer === null ? {} : {onServer: o.titleOnServer})};
           this.metas.set(entry.id, next);
           changes[entry.id] = JSON.stringify(next);
@@ -826,7 +845,8 @@ export class OfflineDownloads {
     if (!viewer) return serviceText('downloads.offline.signIn');
     if (entry.state !== 'ready') return serviceText('downloads.offline.notFinished');
     if (!entry.receipt || !this.verified.has(signedIdentity(entry.receipt))) return serviceText('downloads.offline.needsSetup');
-    if (!receiptUsable(entry.receipt.claims, viewer, new Date())) return serviceText(Date.parse(entry.receipt.claims.expiresAt) <= Date.now() ? 'downloads.offline.needsCheckIn' : 'downloads.offline.otherProfile');
+    const now = this.receiptNow();
+    if (!receiptUsable(entry.receipt.claims, viewer, new Date(now))) return serviceText(Date.parse(entry.receipt.claims.expiresAt) <= now ? 'downloads.offline.needsCheckIn' : 'downloads.offline.otherProfile');
     return '';
   }
   /** A line to show under a download that plays but has something worth saying about it. */

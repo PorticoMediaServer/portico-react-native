@@ -23,7 +23,8 @@ export const inputFocusOnDemand: boolean = Platform.OS === 'android';
  * How a scrolling form makes room for the keyboard. An iPhone or iPad pads by the keyboard's
  * height; an Apple TV's keyboard is its own full screen, so nothing moves. Android draws edge to
  * edge on phones and televisions alike, where the window is not resized for the keyboard, so
- * both pad.
+ * both pad. (The manifest's adjustResize is what lets Android 10 and earlier report the keyboard to
+ * an edge-to-edge window at all; it resizes nothing.)
  */
 export const keyboardAvoidance: 'padding' | undefined = Platform.OS === 'ios' && isTV ? undefined : 'padding';
 

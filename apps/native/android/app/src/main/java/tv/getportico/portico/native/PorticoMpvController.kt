@@ -1278,6 +1278,8 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applySubtitles() {
     val subtitles = scoped(command?.get("subtitles"))
     applyCaptionStyle(subtitles?.get("style") as? Map<*, *>)
+    // "Forced only": image subtitles show just their forced lines (foreign dialogue, signs).
+    core?.set("sub-forced-events-only", if (subtitles?.get("forcedOnly") == true) "yes" else "no")
     if (subtitles == null || subtitles["mode"] != "track") {
       clearEngineSubtitle()
       overlayOff()
@@ -1384,15 +1386,17 @@ internal class PorticoMpvController(private val context: Context) {
     }
     // A styled file may name fonts that came attached to it: they are fetched first, so the
     // first line is already drawn in the right face.
+    // A download's script has them as files beside it: they are gathered into a folder of their own.
     val fonts = (render["fonts"] as? List<*>)?.mapNotNull { PorticoMpvSupport.map(it) } ?: emptyList()
-    if (kind == "ass" && !local && fonts.isNotEmpty()) {
-      fontFetcher.fetch(fonts, media) { folder ->
+    if (kind == "ass" && fonts.isNotEmpty()) {
+      val ready = { folder: java.io.File? ->
         // A fetch that finishes late must not change the fonts of a newer choice.
         if (subtitleToken == token && externalSubtitleAddress == target) {
           if (folder != null) this.core?.set("sub-fonts-dir", folder.path)
           add()
         }
       }
+      if (local) fontFetcher.gather(fonts, ready) else fontFetcher.fetch(fonts, media, ready)
     } else {
       add()
     }

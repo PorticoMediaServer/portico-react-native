@@ -317,7 +317,9 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
   _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
   // Converted AAC carries its new encoder delay in the output container, independently of
   // the original file's already-applied trim. Its presentation length remains the plan's.
-  if([_plan[@"mode"] isEqual:@"converted"]){
+  // ADTS (the server's AAC target under a bitrate limit, B-10.11) has no packet table: its
+  // priming is the plan's trim (`aac-priming`, the converting encoder's own delay), kept above.
+  if([_plan[@"mode"] isEqual:@"converted"]&&![_plan[@"container"] isEqual:@"adts"]){
    AudioFilePacketTableInfo table={0};UInt32 tableSize=sizeof(table);
    if(AudioFileGetProperty(_file,kAudioFilePropertyPacketTableInfo,&tableSize,&table)!=noErr||table.mPrimingFrames<0)return @"The converted AAC priming isn’t available.";
    _first=llround(table.mPrimingFrames*rate/source.mSampleRate);

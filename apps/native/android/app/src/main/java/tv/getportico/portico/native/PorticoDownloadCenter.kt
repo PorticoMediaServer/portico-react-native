@@ -4,6 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -51,6 +56,12 @@ import tv.getportico.portico.R
  * or `ready`. `waiting` says why a download that should be moving is not: `network` or `wifi`.
  * `intent` is `hold` once the person has paused it, and `run` otherwise: an entry that is paused
  * or failed with `run` stopped by itself and is started again by the app when it can be.
+ *
+ * When the process is gone with transfers unfinished (the system ended it, the person swiped the
+ * app away, the service's allowance ran out), a platform job (`PorticoDownloadJob`, JobScheduler)
+ * owned by the installation brings the process back once a network it may use is there and
+ * carries them on from their bytes, under the addresses they had, with the app closed (B-14.20).
+ * An address that has run out cannot be renewed without the app: that download waits for it.
  *
  * This knows nothing about accounts, receipts or what may be played; that is decided in JavaScript
  * from the server's signed receipt.
@@ -206,6 +217,7 @@ internal object PorticoDownloadCenter {
     if (!cellular && onCellular()) { hold(id, transfer, "wifi"); return }
     running = active.size
     PorticoDownloadService.keepAlive(app)
+    PorticoDownloadJob.schedule(app, cellular)
     directory(id).mkdirs()
     // Cancellation closes the HTTP call asynchronously. The next attempt must wait for that
     // worker to close its file before inspecting, truncating or appending the partial file.
@@ -234,6 +246,7 @@ internal object PorticoDownloadCenter {
     save()
     changed(id, true)
     release()
+    PorticoDownloadJob.schedule(app, cellular)
   }
 
   /** Stops a transfer for good until somebody starts it again. `intent` records who stopped it. */
@@ -254,8 +267,36 @@ internal object PorticoDownloadCenter {
   /** The person paused it: it stays paused until they continue it. */
   fun pause(id: String?) { suspend(id ?: return, active[id], "hold") }
 
-  /** The system is ending the service that keeps transfers alive: they stop, and the app starts them again when it is next in front. */
-  fun interruptAll() { for ((id, transfer) in active.toList()) suspend(id, transfer, "run") }
+  /** The system is ending the service (or the job) that keeps transfers alive: they stop, keeping their bytes, and the job or the app starts them again. */
+  fun interruptAll() {
+    for ((id, transfer) in active.toList()) suspend(id, transfer, "run")
+    if (unfinished()) PorticoDownloadJob.schedule(app, cellular)
+  }
+
+  /** Downloads that stopped by themselves and still have an address to continue from. */
+  private fun unfinished(): Boolean = entries.values.any { resumable(it) }
+  private fun resumable(entry: Map<String, Any?>): Boolean =
+      entry["grantUrl"] is String && entry["intent"] != "hold" && (entry["state"] == "paused" || entry["state"] == "downloading" || (entry["state"] == "failed" && entry["error"] == "network"))
+
+  /** Runs on the bookkeeping thread when the last transfer in flight has stopped (the job's cue to finish). */
+  var onIdle: (() -> Unit)? = null
+
+  /**
+   * The job's work: every download that stopped by itself is carried on from its bytes under the
+   * address it had. False when there is nothing to carry on (the job then ends and is cancelled).
+   */
+  fun resumeUnfinished(): Boolean {
+    if (!cellular && onCellular()) return unfinished()
+    for ((id, entry) in entries.toList()) {
+      val url = entry["grantUrl"] as? String ?: continue
+      if (active[id] == null && resumable(entry)) { entry["error"] = ""; begin(id, url, entry) }
+    }
+    if (active.isEmpty() && !unfinished()) PorticoDownloadJob.cancel(app)
+    return active.isNotEmpty()
+  }
+
+  /** Whether downloads still wait to be carried on (the job asks to run again when they do). */
+  fun hasUnfinished(): Boolean = unfinished()
 
   fun remove(id: String?): Boolean {
     if (!safeIdentifier(id)) return false
@@ -543,7 +584,14 @@ internal object PorticoDownloadCenter {
   @Volatile var running = 0
     private set
 
-  private fun release() { running = active.size; if (active.isEmpty()) PorticoDownloadService.done(app) }
+  private fun release() {
+    running = active.size
+    if (active.isEmpty()) {
+      PorticoDownloadService.done(app)
+      if (!unfinished()) PorticoDownloadJob.cancel(app)
+      onIdle?.invoke()
+    }
+  }
 
   private fun sha256(file: File, transfer: Transfer): String = try {
     val digest = MessageDigest.getInstance("SHA-256")
@@ -626,6 +674,83 @@ class PorticoDownloadService : Service() {
       Handler(Looper.getMainLooper()).postDelayed({
         if (PorticoDownloadCenter.running == 0) try { context.stopService(Intent(context, PorticoDownloadService::class.java)) } catch (_: Exception) {}
       }, 1500)
+    }
+  }
+}
+
+/**
+ * Carries unfinished downloads on while the app's process is gone (B-14.20). JobScheduler belongs
+ * to the system, so the job outlives the process: when a network the download may use is there
+ * (any network with "use mobile data" on, otherwise one that is not metered), the system starts
+ * the process for it, the manifest is read, and each download that stopped by itself continues
+ * from its bytes. The job ends when nothing is moving; it asks to run again when downloads are
+ * still waiting, and when the system stops it they stop cleanly and wait for the next run.
+ */
+class PorticoDownloadJob : JobService() {
+  @Volatile private var params: JobParameters? = null
+
+  override fun onStartJob(params: JobParameters?): Boolean {
+    this.params = params
+    running = true
+    PorticoDownloadCenter.open(applicationContext)
+    PorticoDownloadCenter.post {
+      PorticoDownloadCenter.onIdle = { finish() }
+      if (!PorticoDownloadCenter.resumeUnfinished()) finish()
+    }
+    return true
+  }
+
+  override fun onStopJob(params: JobParameters?): Boolean {
+    this.params = null
+    running = false
+    PorticoDownloadCenter.post {
+      PorticoDownloadCenter.onIdle = null
+      PorticoDownloadCenter.interruptAll()
+    }
+    return true
+  }
+
+  /** On the bookkeeping thread: nothing is moving any more. */
+  private fun finish() {
+    val current = params ?: return
+    params = null
+    running = false
+    scheduledCellular = null
+    PorticoDownloadCenter.onIdle = null
+    try { jobFinished(current, PorticoDownloadCenter.hasUnfinished()) } catch (_: Exception) {}
+  }
+
+  companion object {
+    private const val JOB = 4102
+
+    /** Whether the job is running now: scheduling it again would stop it. */
+    @Volatile private var running = false
+    /** The network the scheduled job waits for, so a change of "use mobile data" schedules it again. */
+    @Volatile private var scheduledCellular: Boolean? = null
+
+    /**
+     * Asks the system to carry unfinished downloads on if the process goes. One job: left alone
+     * while it is running or already waiting for the same kind of network (scheduling the same job
+     * again would stop a running one).
+     */
+    fun schedule(context: Context, cellular: Boolean) {
+      try {
+        val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+        if (running || (scheduler.getPendingJob(JOB) != null && scheduledCellular == cellular)) return
+        scheduledCellular = cellular
+        val job = JobInfo.Builder(JOB, ComponentName(context, PorticoDownloadJob::class.java))
+            .setRequiredNetworkType(if (cellular) JobInfo.NETWORK_TYPE_ANY else JobInfo.NETWORK_TYPE_UNMETERED)
+            .setBackoffCriteria(30_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
+            .setPersisted(false)
+            .build()
+        scheduler.schedule(job)
+      } catch (_: Exception) {}
+    }
+
+    fun cancel(context: Context) {
+      if (running) return
+      scheduledCellular = null
+      try { (context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler).cancel(JOB) } catch (_: Exception) {}
     }
   }
 }

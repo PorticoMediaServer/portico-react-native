@@ -198,7 +198,10 @@ export function usePlayerEngine() {
   // for the title in hand. Everything is read through refs: the coordinator asks on every change
   // of the playback snapshot, before it takes a lease, so a title never starts on one engine only
   // to be moved to the other.
-  const engineSetting = parseEngineSetting(usePreferences().preferences.playerEngine);
+  const devicePreferences = usePreferences();
+  const engineSetting = parseEngineSetting(devicePreferences.preferences.playerEngine);
+  // Image subtitles show only their forced lines when the viewer asks (mpv, `sub-forced-events-only`).
+  const forcedOnly = devicePreferences.preferences.subtitleForcedOnly;
   const engineInputs = useRef<{setting: typeof engineSetting; audio: boolean; rendering?: string; container?: string}>({setting: engineSetting, audio: isAudio});
   engineInputs.current.setting = engineSetting;
   engineInputs.current.audio = isAudio;
@@ -472,7 +475,6 @@ export function usePlayerEngine() {
   // is bound to the exact session generation, so a stale choice can never reach a new stream.
   const subtitleScope = !isAudio && playbackState.session && !isLocalSession(playbackState.session.id) && playbackState.itemId && !playbackState.channel && !['error', 'ended', 'idle'].includes(playbackState.phase) ? playbackState.session : undefined;
   const subtitleService = useMemo(() => subtitleScope && playbackState.itemId ? new SubtitleService(api, {itemId: playbackState.itemId, sessionId: subtitleScope.id, generation: subtitleScope.generation}, operationId, {
-    positionUs: () => String(Math.max(0, Math.round((playback.getSnapshot().pendingSeek?.positionSeconds ?? playback.getSnapshot().positionSeconds) * 1e6))),
     install: presentation => playback.getSnapshot().intentId === playbackState.intentId && playback.installSubtitlePresentation(presentation),
   }) : null, [api, playback, playbackState.itemId, playbackState.intentId, subtitleScope?.id, subtitleScope?.generation]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -486,15 +488,23 @@ export function usePlayerEngine() {
    * server decides how the track reaches the screen from what this device's engines draw: plain
    * cues beside the stream, the original file for an engine that draws it itself (moving the
    * title to that engine when the Player setting allows), or, failing both, in the picture. The
-   * session, the queue and the position are kept. Without a server queue (never the case for a
-   * title started here) the selection route is used as before.
+   * session, the queue and the position are kept, and the server remembers the choice for the
+   * show. A timing correction (`offsetUs`) travels with the track. It is the only way a choice is
+   * made: a session that refuses is the answer, and the subtitles stay as they were. A session
+   * that moved on since (another change landed first) is read again and asked once more.
    */
-  const chooseSubtitleTrack = useCallback(async (resource: SubtitleResource | null): Promise<void> => {
-    const queue = v1Queue(), session = playback.getSnapshot().session;
-    if (!queue || !session || queue.currentSession()?.id !== session.id) { await subtitleService?.choose(resource); return; }
-    await queue.setSubtitleTrack(resource ? resource.id : null);
+  const chooseSubtitleTrack = useCallback(async (resource: SubtitleResource | null, offsetUs?: string): Promise<void> => {
+    if (!playback.changesInPlace()) throw new Error('Subtitles cannot be changed on this playback.');
+    const offset = Number(offsetUs ?? resource?.offsetUs ?? 0);
+    const change = resource ? {subtitleTrackId: resource.id, subtitleOffsetMs: Number.isFinite(offset) ? Math.max(-600000, Math.min(600000, Math.round(offset / 1000))) : 0} : {subtitleTrackId: null};
+    try { await playback.changePlayback(change); }
+    catch (error) {
+      if ((error as {status?: unknown} | null)?.status !== 409) throw error;
+      await subtitleService?.refresh();
+      await playback.changePlayback(change);
+    }
     void subtitleService?.refresh();
-  }, [v1Queue, playback, subtitleService]);
+  }, [playback, subtitleService]);
   // Pick before play: the title page's audio and subtitle choice, applied by the shared rule
   // (client-core `pending-track-choice`): audio first, then subtitles on the session left standing.
   const pendingChoice = useRef<PendingChoiceProgress>({});
@@ -556,8 +566,8 @@ export function usePlayerEngine() {
     const documentUrl = selected ? plan.documentUrl : undefined;
     if (!documentUrl && !render) return {binding, mode: 'off', revision: plan.revision};
     const track = selected ?? deviceTrack?.resource;
-    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), style: captions};
-  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision]);
+    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly ? {forcedOnly: true} : {}), style: captions};
+  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly]);
   // A chosen track the device is to draw in a kind only mpv draws moves the title to mpv (and
   // back when the choice changes). The server's plan names mpv for such a track already; this
   // holds for a download, and for the moment before a plan arrives.
@@ -882,7 +892,29 @@ export function usePlayerEngine() {
   }, [playback]);
   // Chapters: the server's for the title (with their pictures), else what the engine found in the
   // file, else what a download brought with it.
-  const serverChapters = useMemo(() => chaptersOf(options?.chapters), [options]);
+  // A chapter's picture is the server's chapter image (`thumbnailUrl` of the session's chapter
+  // list), matched to the title's chapters by start; a chapter without one has none.
+  const chapterSession = serverVideo && playbackState.session && !isLocalSession(playbackState.session.id) && !playbackState.channel ? playbackState.session.id : undefined;
+  const [chapterImages, setChapterImages] = useState<{session: string; images: ReadonlyMap<number, string>}>();
+  useEffect(() => {
+    if (!chapterSession || !(options?.chapters?.length)) return;
+    let live = true;
+    void api.request<unknown>(`/v1/playback/sessions/${encodeURIComponent(chapterSession)}/chapters?limit=100`, 'GET').then(raw => {
+      const list = (raw as {chapters?: unknown} | null)?.chapters;
+      const images = new Map<number, string>();
+      for (const entry of Array.isArray(list) ? list.slice(0, 100) : []) {
+        const c = entry as {startSeconds?: unknown; thumbnailUrl?: unknown} | null;
+        if (typeof c?.startSeconds === 'number' && typeof c.thumbnailUrl === 'string' && /^\/v1\/items\/[^?#]+\/chapters\/[^?#]+\/image$/.test(c.thumbnailUrl) && c.thumbnailUrl.length <= 1024) images.set(Math.round(c.startSeconds * 10), c.thumbnailUrl);
+      }
+      if (live) setChapterImages({session: chapterSession, images});
+    }, () => {});
+    return () => { live = false; };
+  }, [api, chapterSession, options?.chapters?.length]);
+  const serverChapters = useMemo(() => {
+    const listed = chaptersOf(options?.chapters);
+    const images = chapterImages && chapterImages.session === chapterSession ? chapterImages.images : undefined;
+    return images?.size ? listed.map(c => { const image = images.get(Math.round(c.startSeconds * 10)); return image && !c.thumbnail ? {...c, thumbnail: image} : c; }) : listed;
+  }, [options, chapterImages, chapterSession]);
   const downloadChapters = useMemo(() => (localSession ? offlineChapters(offlineExtras) : []), [localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const itemChapters = serverChapters.length ? serverChapters : engineMedia && engineMedia.intentId === playbackState.intentId && engineMedia.chapters.length ? engineMedia.chapters : localSession ? downloadChapters : identity.itemId && identity.itemId === playbackState.itemId ? chaptersRef.current.get(identity.itemId) ?? [] : [];
   // A download's skip markers (the server's come with the session's offer).
@@ -924,7 +956,9 @@ export function usePlayerEngine() {
       service: subtitleService, snapshot: subtitles,
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
-      /** Choose a track, or turn subtitles off (`null`): a change to the playing session. */
+      /** Image subtitles drawn here by mpv: show only their forced lines (kept by this device). Null when that does not apply. */
+      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: (on: boolean) => devicePreferences.update({subtitleForcedOnly: on})} : null,
+      /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */
       offline: localSession ? {tracks: offlineTracks, selectedId: offlineTrack?.id ?? null, choose: chooseOfflineSubtitle} : null,
