@@ -12,7 +12,8 @@ import type {TelemetryPoint, TelemetryWindow} from '../../../../../packages/clie
 import {isStatePermissionsAlert} from '../../../../../packages/client-core/src/administration';
 import {fixStatePermissions} from '../../../../../packages/client-core/src/backups';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
-import {alertLabel, duration, jobLabel, jobStateLabel, sentence, when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {duration, sentence, when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {alertName, jobName, jobStateName} from '../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {healthFacts, loadValue, measuredLoadTiles} from '../../../../../packages/client-core/src/server-admin/dashboard';
 import {STOP_MESSAGE_MAX, driveNowPlaying, sessionFacts, sessionViewer, stopMessage} from '../../../../../packages/client-core/src/server-admin/now-playing';
 import type {ContentStackParams} from '../../app/routes';
@@ -74,7 +75,7 @@ export function StatePermissionsNotice({alert, onChanged}: {alert: Alert; onChan
 /** Dashboard › Needs attention: what the server is warning about, each with Acknowledge. */
 export function AlertsPanel() {
   const client = useConsole();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const {space} = useTheme();
   const read = useRead<Alert[]>(() => client.alerts(), [client], {every: 60000});
   const action = useAction();
@@ -85,7 +86,7 @@ export function AlertsPanel() {
   return (
     <View style={{gap: space.sm}}>
       {open.map(a => isStatePermissionsAlert(a) ? <StatePermissionsNotice key={a.id} alert={a} onChanged={read.reload} /> : (
-        <Notice key={a.id} tone={a.severity === 'critical' ? 'error' : 'warning'} title={alertLabel(a)}
+        <Notice key={a.id} tone={a.severity === 'critical' ? 'error' : 'warning'} title={alertName(t, has, a.code)}
           message={[a.occurrences > 1 ? t('server.alert.seen', {count: a.occurrences, when: when(a.lastAt)}) : t('server.alert.firstSeen', {when: when(a.firstAt)}), a.status === 'acknowledged' ? t('server.alert.acknowledged') : ''].filter(Boolean).join(' · ')}
           action={a.status === 'open' ? t('web.overview.acknowledge') : undefined} onAction={a.status === 'open' ? () => void action.run(() => client.acknowledge(a)).then(ok => { if (ok) read.reload(); }) : undefined} />
       ))}
@@ -143,7 +144,7 @@ export function HealthPanel() {
 /** Dashboard › Tasks: background work (scans, analysis and the rest) and what can be done about each. */
 export function JobsPanel() {
   const client = useConsole();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const read = useRead(() => client.jobs(''), [client], {every: 20000, on: TASK_EVENTS});
   const action = useAction();
   const [menu, setMenu] = useState<Job>();
@@ -155,13 +156,13 @@ export function JobsPanel() {
       <RowGroup title={t('web.activity.tasks')} footer={read.data?.nextCursor ? t('server.tasks.latestOnly') : undefined}>
         {read.data && !items.length ? <ListRow readable icon="check" title={t('web.activity.noTasks')} subtitle={t('web.activity.noTasksBody')} /> : null}
         {items.map(job => (
-          <ListRow key={job.id} title={jobLabel(job.kind)} meta={jobStateLabel[job.state]}
+          <ListRow key={job.id} title={jobName(t, has, job.kind)} meta={jobStateName(t, has, job.state)}
             subtitle={[job.resource, job.processed != null ? job.processed.toLocaleString() : undefined, when(job.createdAt), job.errorCode ? t('web.console.jobFailed') : undefined].filter(Boolean).join(' · ')}
             {...(job.actions.length ? {accessory: 'menu' as const, onPress: () => setMenu(job)} : {readable: true})} />
         ))}
       </RowGroup>
       {action.error ? <Notice tone="error" message={action.error} /> : null}
-      <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu ? jobLabel(menu.kind) : undefined} subtitle={menu ? sentence(menu.phase || menu.state) : undefined}
+      <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu ? jobName(t, has, menu.kind) : undefined} subtitle={menu ? sentence(menu.phase || menu.state) : undefined}
         items={(menu?.actions ?? []).map<MenuItem>(a => ({id: a, label: labels[a], destructive: a === 'cancel'}))}
         onSelect={id => { const job = menu; if (job) void action.run(() => client.jobCommand(job, id as Job['actions'][number])).then(ok => { if (ok) read.reload(); }); }} />
     </>

@@ -179,7 +179,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     else refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scan.finished]);
-  const titleBlock = <PageHeader eyebrow={isTV && engine && browse.snapshot.total !== undefined ? [system?.name, browseCountLabel(i18n.t, browse.snapshot.total, capabilities?.resolvedPivot?.id ?? pivot ?? '', browse.snapshot.totalIsLowerBound)].filter(Boolean).join(' · ') : system?.name} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
+  const countedEyebrow = isTV && engine && browse.snapshot.total !== undefined ? [system?.name, browseCountLabel(i18n.t, browse.snapshot.total, capabilities?.resolvedPivot?.id ?? pivot ?? '', browse.snapshot.totalIsLowerBound)].filter(Boolean).join(' · ') : system?.name;
+  const titleBlock = <PageHeader eyebrow={countedEyebrow} title={library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle')} subtitle={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} onTitlePress={!isTV && libraries.length > 1 ? setSwitcher : undefined} actions={<RootHeaderActions />} />;
   const tabStrip = <Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={false} />;
   const header = (
     <>
