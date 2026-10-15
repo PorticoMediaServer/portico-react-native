@@ -18,6 +18,7 @@ import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
 import tv.getportico.portico.BuildConfig
+import tv.getportico.portico.TelevisionDisplay
 
 /**
  * `NativeModules.PorticoRuntime`: request identifiers, the bounded control transport, and the
@@ -37,7 +38,9 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     val values = HashMap<String, Any>()
     values["launchId"] = launchId
     values["pictureInPictureSupported"] = android.os.Build.VERSION.SDK_INT >= 26 && reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-    values["television"] = BuildConfig.FLAVOR == "firetv" || reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    // The layout this process was started with (the Layout setting, or what the device says).
+    values["television"] = TelevisionDisplay.isTelevision
+    values["layout"] = TelevisionDisplay.choice(reactApplicationContext)
     hostedUrl()?.let { values["hostedUrl"] = it }
     if (BuildConfig.DEBUG) testLogin()?.let { values["testLogin"] = it }
     return values
@@ -72,6 +75,29 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     PorticoTransport.cancelOwnedBy(this)
     PorticoEventStream.cancelOwnedBy(this)
     super.invalidate()
+  }
+
+  /**
+   * Saves the Layout setting (`automatic`, `television` or `touch`) and starts the app again: the
+   * layout and the design-space density are chosen before anything is drawn (B-19.10).
+   */
+  @ReactMethod
+  fun setLayout(choice: String, promise: Promise) {
+    if (choice != "automatic" && choice != "television" && choice != "touch") { promise.reject("invalid_request", "Unknown layout."); return }
+    val context = reactApplicationContext
+    if (!context.getSharedPreferences(TelevisionDisplay.PREFERENCES, android.content.Context.MODE_PRIVATE).edit().putString("layout", choice).commit()) {
+      promise.reject("storage_unavailable", "The layout couldn't be saved.")
+      return
+    }
+    promise.resolve(null)
+    UiThreadUtil.runOnUiThread {
+      val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+      if (launch != null) {
+        launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        context.startActivity(launch)
+      }
+      android.os.Process.killProcess(android.os.Process.myPid())
+    }
   }
 
   @ReactMethod

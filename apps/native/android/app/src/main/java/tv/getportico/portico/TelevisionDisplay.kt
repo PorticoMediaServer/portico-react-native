@@ -23,9 +23,28 @@ import com.facebook.react.uimanager.DisplayMetricsHolder
  * 1080p panel that is one pixel, exactly as on an Apple TV HD.
  *
  * Phones and tablets are untouched.
+ *
+ * Which this device is (B-19.10): the person's Layout setting when they made one (`television`
+ * or `touch`, kept in [PREFERENCES] so it is known before anything is drawn); otherwise a Fire TV
+ * build, a device with the Leanback feature or in television mode, or a box with no touchscreen at
+ * all (and not a computer) is a television. Changing the setting restarts the app.
  */
 internal object TelevisionDisplay {
   private const val DESIGN_WIDTH = 1920f
+  const val PREFERENCES = "portico.layout"
+
+  /** The Layout setting: `automatic` (the default), `television` or `touch`. */
+  fun choice(context: Context): String =
+      context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString("layout", null)?.takeIf { it == "television" || it == "touch" } ?: "automatic"
+
+  /** What the device itself says, with no setting: a television, or not. */
+  fun detected(context: Context): Boolean {
+    val packages = context.packageManager
+    return BuildConfig.FLAVOR == "firetv" || packages.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+        (context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+        // A box with no touchscreen cannot use a touch layout; a computer has a pointer instead.
+        (!packages.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN) && !packages.hasSystemFeature("android.hardware.type.pc"))
+  }
 
   /** The design-space density, measured once when the application starts; null on a phone or tablet. */
   private var densityDpi: Int? = null
@@ -37,7 +56,11 @@ internal object TelevisionDisplay {
   private fun measure(base: Context) {
     if (measured) return
     measured = true
-    val television = BuildConfig.FLAVOR == "firetv" || base.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || (base.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager)?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    val television = when (choice(base)) {
+      "television" -> true
+      "touch" -> false
+      else -> detected(base)
+    }
     if (!television) return
     val display = (base.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.getDisplay(Display.DEFAULT_DISPLAY) ?: return
     val real = DisplayMetrics()
