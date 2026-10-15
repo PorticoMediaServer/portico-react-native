@@ -4,7 +4,8 @@ import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/l
 import type {Alert, Measurement} from '../../../../../packages/client-core/src/console';
 import {parseStorageReport} from '../../../../../packages/client-core/src/administration';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
-import {alertLabel, duration, jobLabel, jobStateLabel, when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {duration, when} from '../../../../../packages/client-core/src/server-admin/console-words';
+import {alertName, jobName, jobStateName} from '../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {healthFacts} from '../../../../../packages/client-core/src/server-admin/dashboard';
 import {driveNowPlaying, sessionFacts} from '../../../../../packages/client-core/src/server-admin/now-playing';
 import {useDeviceEvents} from '../../app/device-events';
@@ -85,7 +86,7 @@ function OwnerTelevisionDashboard({entry}: {entry?: boolean}) {
         {watching && !sessions.length ? <ListRow readable icon="play" title={t('web.nowPlaying.empty')} /> : null}
       </RowGroup>
       <RowGroup title={t('web.activity.tasks')}>
-        {work.map(job => <ListRow key={job.id} readable icon="jobs" title={jobLabel(job.kind)} meta={jobStateLabel[job.state]} subtitle={[job.resource, job.processed != null ? i18n.number(job.processed) : undefined, when(job.createdAt)].filter(Boolean).join(' · ')} />)}
+        {work.map(job => <ListRow key={job.id} readable icon="jobs" title={jobName(t, i18n.has, job.kind)} meta={jobStateName(t, i18n.has, job.state)} subtitle={[job.resource, job.processed != null ? i18n.number(job.processed) : undefined, when(job.createdAt)].filter(Boolean).join(' · ')} />)}
         {jobs.data && !work.length ? <ListRow readable icon="check" title={t('web.activity.noTasks')} /> : null}
       </RowGroup>
       <RowGroup title={t('settings.server.diskUsage')}>
@@ -95,8 +96,8 @@ function OwnerTelevisionDashboard({entry}: {entry?: boolean}) {
       </RowGroup>
       <RowGroup title={t('settings.server.alerts')}>
         {problems.map(problem => problem.kind === 'alert'
-          ? <ListRow key={problem.id} readable icon={problem.alert.severity === 'critical' ? 'error' : 'warning'} title={alertLabel(problem.alert)} subtitle={[problem.alert.occurrences > 1 ? t('server.alert.seen', {count: problem.alert.occurrences, when: when(problem.alert.lastAt)}) : t('server.alert.firstSeen', {when: when(problem.alert.firstAt)}), problem.alert.status === 'acknowledged' ? t('server.alert.acknowledged') : ''].filter(Boolean).join(' · ')} />
-          : <ListRow key={problem.id} readable icon="warning" title={jobLabel(problem.job.kind)} meta={jobStateLabel[problem.job.state]} subtitle={[problem.job.resource, when(problem.job.updatedAt)].filter(Boolean).join(' · ')} />)}
+          ? <ListRow key={problem.id} readable icon={problem.alert.severity === 'critical' ? 'error' : 'warning'} title={alertName(t, i18n.has, problem.alert.code)} subtitle={[problem.alert.occurrences > 1 ? t('server.alert.seen', {count: problem.alert.occurrences, when: when(problem.alert.lastAt)}) : t('server.alert.firstSeen', {when: when(problem.alert.firstAt)}), problem.alert.status === 'acknowledged' ? t('server.alert.acknowledged') : ''].filter(Boolean).join(' · ')} />
+          : <ListRow key={problem.id} readable icon="warning" title={jobName(t, i18n.has, problem.job.kind)} meta={jobStateName(t, i18n.has, problem.job.state)} subtitle={[problem.job.resource, when(problem.job.updatedAt)].filter(Boolean).join(' · ')} />)}
         {alerts.data && !problems.length ? <ListRow readable icon="check" title={t('web.overview.noAlerts')} /> : null}
       </RowGroup>
     </>

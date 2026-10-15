@@ -74,6 +74,12 @@ def stageMediaEngine = tasks.register("stageMediaEngine", Sync) {
     }
 }
 
+// No folder of the build machine in the bridge library (see app/build.gradle): the checkout and
+// the engine's folder get neutral names. A folder with a space is left as it is.
+def mpvPathFlags = [(rootProject.file("../../..")): "/portico", (engineDir): "/portico-media-engine"].collectMany { folder, neutral ->
+    [folder.absolutePath, folder.canonicalPath].unique().findAll { !(it =~ /\s/) }.collect { "-ffile-prefix-map=${it}=${neutral}".toString() }
+}
+
 android {
     namespace "tv.getportico.portico.mpv"
     compileSdk rootProject.ext.compileSdkVersion
@@ -89,7 +95,7 @@ android {
                 arguments "-DPORTICO_LIBMPV_DIR=${engineDir.absolutePath}",
                           "-DANDROID_STL=none",
                           "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
-                cFlags "-Wall", "-Wextra", "-Werror"
+                cFlags("-Wall", "-Wextra", "-Werror", *mpvPathFlags)
             }
         }
     }

@@ -9,7 +9,7 @@ import {say} from '../app/errors';
 import {useI18n, type I18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
 import {useInvoker} from '../app/playback-events';
-import {sequenceContainer} from '../app/container-play';
+import {groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import {announceMark, containerKindFor, useContainerState} from '../app/container-state';
 import {useSession} from '../app/session';
@@ -143,6 +143,9 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     player.playSequence(playable, 0, 0);
   };
   const everything = useMemo(() => sections.flatMap(s => s.entries).filter(e => e.playback && e.kind !== 'chapter'), [sections]);
+  // Sorted or filtered, the hero's Play and Shuffle play that list (the server's query, however long).
+  const sortedFirst = group.engaged && !isBook ? (sortsTracks ? sortedList?.itemAt(0) : sortedPages.snapshot.entries.find(e => e.playback)) : undefined;
+  const playSorted = (first: ContentEntry, shuffle: boolean) => { if (!first.playback) return; invoker.remember(); player.playSequence([first], 0, 0, groupSequence(group, {shuffle})); };
   const queue = songs?.entries ?? files?.entries ?? everything;
   const resumeChapter = isBook && listening?.resume && !listening.resumeUnavailable ? chapterAt(chapters?.entries ?? [], listening.resume.itemId, listening.resume.positionSeconds) : undefined;
   const claim = useEntryFocus(!!entity);
@@ -158,6 +161,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   } else if (isBook && chapters?.entries.some(e => e.playback)) {
     const first = chapters.entries.find(e => e.playback)!;
     primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playChapter(first)};
+  } else if (sortedFirst) {
+    primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playSorted(sortedFirst, false)};
   } else if (queue.some(e => e.playback)) {
     primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playFrom(queue, 0)};
   }
@@ -173,7 +178,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const failed = (e: unknown) => showToast({message: say(e, 'library', 'save'), icon: 'warning'});
   // One row on every title (Justin, 2 Oct 2026): Play · Shuffle (music) · My List (books) · Favorite · Finished (books) · ⋯.
   const secondary: HeroAction[] = [
-    ...(!isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
+    ...(sortedFirst ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => playSorted(sortedFirst, true)}] : !isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
     ...(container.carries('watchlisted') && container.state ? [{icon: (listed ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(listed ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: listed, onPress: () => { void container.setFlag('watchlisted', !listed).catch(failed); }}] : []),
     ...(container.carries('favorite') && container.state ? [{icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => { void container.setFlag('favorite', !favorite).catch(failed); }}] : []),
     ...(isBook && container.state ? [{icon: (finished ? 'watched' : 'check') as IconName, label: i18n.t(finished ? 'title.markNotFinished' : 'title.markFinished'), iconOnly: true, selected: finished, onPress: () => {
@@ -206,12 +211,12 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const rowOptions = useMemo<TrackRowOptions | null>(() => {
     if (!trackList || !trackSection) return null;
     if (sortedList) {
-      // The sorted songs play on in the order shown, from the song pressed (the loaded ones after it are the queue).
+      // The sorted songs play on in the order shown: the whole list, from the server's query, starting at the song pressed.
       return {
         art: kind === 'artist',
         ordinal: kind === 'artist' ? undefined : e => e.trackNumber,
         subtitle: kind === 'artist' ? e => e.album?.name : e => { const artist = songArtist(e); return artist && artist !== entity?.subtitle ? artist : undefined; },
-        onPlay: index => { const playable = residentFrom(sortedList, index).filter(e => e.playback); if (playable.length) { invoker.remember(); player.playSequence(playable, 0, 0); } },
+        onPlay: index => { const pressed = sortedList.itemAt(index); if (pressed?.playback) { invoker.remember(); player.playSequence([pressed], 0, 0, groupSequence(group)); } },
         onMore: more,
       };
     }
@@ -230,7 +235,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     }
     return {ordinal: (_, i) => i + 1, highlightId: listening?.resume?.itemId, onPlay: index => playFrom(residentFrom(trackList, index), 0), onMore: more};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId, sortedList]);
+  }, [trackList, trackSection, kind, entity?.subtitle, resumeChapter?.id, listening?.resume?.itemId, sortedList, group]);
   // M26: the list heading only when the list has something to show (no empty sections).
   const heading = trackSection && trackSection.totalCount > 0 && (kind === 'artist' || isBook) ? (
     <Text variant="heading" lines={1} style={{paddingHorizontal: space.page, marginBottom: space.sm}}>{trackSection.heading.fallback}</Text>

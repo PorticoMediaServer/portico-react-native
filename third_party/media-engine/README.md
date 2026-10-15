@@ -169,8 +169,23 @@ and OpenSSL are not inside libmpv); every dependency is one of ours or an allowe
 library; Android: plain SONAMEs, 16 KB alignment, stripped; Apple: `@rpath` install names,
 minimum OS, Info.plist, privacy manifest, module map; the decoders, demuxers, parsers,
 protocols, filters and hardware decoders the app relies on are present; the dependency graph
-matches `manifest/<platform>.json`; the notices and source bundle exist. `--update-expected`
-re-records the manifest after an intended change.
+matches `manifest/<platform>.json`; the notices and source bundle exist; no library contains
+the work directory, the home folder or any `/home/` or `/Users/` path (Khronos's MoltenVK is
+checked for this machine's folders only). `--update-expected` re-records the manifest after an
+intended change; `--work` names the work directory when it is not the default.
+
+## Neutral build paths
+
+The libraries carry no folder of the machine that built them, wherever the work directory is.
+Every C, C++ and Objective-C compile gets `-ffile-prefix-map`, `-fdebug-prefix-map` and
+`-fmacro-prefix-map` from the work directory to `/portico-media-engine` and from the toolchain
+(the NDK, or Xcode's developer folder) to `/toolchain`, so file names in asserts and debug
+information are neutral; libdovi's Rust code gets `--remap-path-prefix` the same way. The
+configuration strings the libraries report about themselves (FFmpeg's `av*_configuration()`,
+mpv's configure line and config folder, OpenSSL's `compiler:` line and module folders) are
+rewritten in their generated headers before compiling. Android libraries have no run paths;
+Apple frameworks have every `LC_RPATH` removed and are stripped of their debug map. `verify.py`
+fails a build if any path is left.
 
 ## Releasing: notices and corresponding source
 

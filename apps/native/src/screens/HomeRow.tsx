@@ -18,6 +18,7 @@ import {Notice, Page, PageHeader, Skeleton, StateView, WindowedGrid, useTheme} f
 import {useSectionCards} from './Home';
 
 const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
+const NO_ENTRIES: readonly ContentEntry[] = [];
 
 /**
  * A Home row's See all (Recommendations P7): Recommended, Trending now or one of the Picks for
@@ -39,7 +40,7 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
   const turnedDown = useTurnedDown();
   const row = state.row;
   const name = row ? serverTextLabel(i18n, row.titleText, row.title) : title ?? '';
-  const entries = state.phase === 'loading' && state.restarts ? [] : withoutNotInterested({id: rowId, entries: state.entries}, turnedDown, true).entries;
+  const entries = useMemo(() => (state.phase === 'loading' && state.restarts ? NO_ENTRIES : withoutNotInterested({id: rowId, entries: state.entries}, turnedDown, true).entries), [state.phase, state.restarts, state.entries, rowId, turnedDown]);
   const {width, renderCard, shape} = useSectionCards(entries.slice(0, 1), row?.libraryId, true, {row: 1, group: rowId}, 'recommendation');
   // The pager owns cursor order; WindowedGrid mounts only viewport cells and asks for the next
   // cursor when its virtual placeholder range comes into view.

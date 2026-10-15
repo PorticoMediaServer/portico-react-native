@@ -36,6 +36,6 @@ export function useNativeAudioSelection(service:PlaybackService,api:HttpLocalApi
       service.audioUnavailable(intent,messages[reason??'']??'Audio selection is unavailable for this stream.');
     }
     void read();return()=>{active=false;if(timer)clearTimeout(timer);offers.dispose();};
-  },[api,serverId,viewerId,service,libraryId,state.intentId,state.session?.id,state.session?.generation,retryRevision]);
+  },[api,serverId,viewerId,service,libraryId,state.intentId,state.session?.id,state.session?.generation,retryRevision,planned]);
   return {coordinator,command,canRetry:readState.canRetry,loading:readState.loading,retry:()=>setRetryRevision(x=>x+1)};
 }
