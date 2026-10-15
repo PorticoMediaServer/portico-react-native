@@ -4,14 +4,14 @@ import {settingsRowId, type SettingsCustomId, type SettingsPage as StructurePage
 import {useI18n} from '../../app/i18n';
 import {RefreshScope, RefreshScopeContext} from '../../app/server-console';
 import {ListRow, RowGroup, Segmented, isTV, useTheme} from '../../ui';
-import {AlertsPanel, HealthPanel, JobsPanel, NowPlayingPanel, StatisticsPanel} from '../server/Dashboard';
+import {AlertsPanel, HealthPanel, JobsPanel, NowPlayingPanel, StateFolderPanel, StatisticsPanel} from '../server/Dashboard';
 import {TelevisionDashboard} from '../server/TelevisionDashboard';
 import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
 import {APIKeysPanel, AssistantsPanel, MemberTokensPanel, WebhooksPanel} from '../server/Integrations';
 import {MetadataSettingsPanel} from '../server/MetadataPanels';
 import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
-import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
+import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, PlaybackProblemsPanel, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
@@ -74,6 +74,8 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.restart': return <RestartPanel />;
     case 'server.setAsideTitles': return <SetAsideTitlesPanel />;
     case 'server.clientReports': return <ClientReportsPanel />;
+    case 'server.playbackProblems': return <PlaybackProblemsPanel />;
+    case 'server.stateFolder': return <StateFolderPanel />;
     default: return null;
   }
 }

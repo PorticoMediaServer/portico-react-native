@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {View, NativeModules} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsScopeLabel, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
+import {compositePatch, localeChoices, preferenceValueLabel, readComposite, settingsRowId, settingsScopeLabel, settingsStructure, type SettingsCustomId, type SettingsPage as StructurePage, type SettingsRow as StructureRow, type SettingsSection, type SettingsStructure} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import type {PreferencePatch, PreferenceValue} from '../../../../../packages/client-core/src/preferences';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
@@ -26,7 +26,6 @@ import {LinkTVSheet} from '../LinkTV';
 import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
-import {nativeSettingsStructure} from './native-structure';
 import {AccessTokensPanel} from '../server/Integrations';
 import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {mpvAvailable} from '../../bridge/player-engines';
@@ -46,6 +45,8 @@ export function useSettingsStructure(): SettingsStructure {
   const member = !!account.snapshot?.account.hostedAccountId;
   const canManage = !!account.snapshot?.canManage;
   const manages = session.session?.viewer.role === 'owner';
+  // An administrator sees the Server sections the server lets that tier use (who is watching, people below them, logs).
+  const administers = session.session?.viewer.role === 'admin';
   // What the last capability probe found of this device: a receiver to pass sound through to,
   // and whether it shows or decodes HDR at all. The rows that turn those off appear with them.
   const probed = useSyncExternalStore(engineSettingStore.subscribeProbed, engineSettingStore.probed);
@@ -55,6 +56,8 @@ export function useSettingsStructure(): SettingsStructure {
     const context = {
       // The Server heading is the owner's, as on the web: every page on iPhone, iPad and Android phones and tablets, the read-only Dashboard on television.
       owner: manages,
+      administrator: administers,
+      platform: isTV ? 'tv' as const : 'phone' as const,
       capabilities: {
         ...(preferenceKeys ? {preferenceKeys} : {}),
         localAccount: account.local,
@@ -74,10 +77,8 @@ export function useSettingsStructure(): SettingsStructure {
         accessTokens: signedIn && !manages,
       },
     };
-    // Card size, Show backdrops and the caption style are honoured on this device, and phones and tablets
-    // carry the owner's administration pages: both are added to the shared structure (`native-structure.ts`).
-    return nativeSettingsStructure(context, isTV, preferenceKeys);
-  }, [preferenceKeys, account.local, member, canManage, manages, signedIn, session.hosted, offline.supported, probed]);
+    return settingsStructure(context);
+  }, [preferenceKeys, account.local, member, canManage, manages, administers, signedIn, session.hosted, offline.supported, probed]);
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
