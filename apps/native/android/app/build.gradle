@@ -11,6 +11,22 @@ react {
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// The app's own C++ (React Native's app modules and the libraries' generated code) names source
+// files in its asserts. Those names are mapped to neutral ones, so a release library carries no
+// folder of the machine that built it: the checkout, node_modules (also through a link) and
+// Gradle's cache, where React Native's headers are unpacked. A folder with a space cannot be
+// passed this way (CMake splits the flags at spaces) and is left as it is.
+def neutralPathFlags = { Map<File, String> folders ->
+    folders.collectMany { folder, neutral ->
+        [folder.absolutePath, folder.canonicalPath].unique().findAll { !(it =~ /\s/) }.collect { "-ffile-prefix-map=${it}=${neutral}".toString() }
+    }
+}
+def appPathFlags = neutralPathFlags([
+    (rootProject.file("../../..")): "/portico",
+    (rootProject.file("../node_modules")): "/portico/apps/native/node_modules",
+    (gradle.gradleUserHomeDir): "/gradle",
+])
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -28,6 +44,12 @@ android {
             porticoHostedUrl        : (project.findProperty("porticoHostedUrl") ?: ""),
             porticoCastApplicationId: (project.findProperty("porticoCastApplicationId") ?: ""),
         ]
+        externalNativeBuild {
+            cmake {
+                cFlags(*appPathFlags)
+                cppFlags(*appPathFlags)
+            }
+        }
     }
     buildFeatures { buildConfig true }
 
