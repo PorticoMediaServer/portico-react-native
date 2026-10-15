@@ -1178,13 +1178,15 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             self.core?.command(["sub-add", target, "select"], token: token)
         }
         // A styled file may name fonts that came attached to it: they are fetched first, so the
-        // first line is already drawn in the right face.
-        if kind == "ass", !url.isFileURL, let fonts = render["fonts"] as? [NSDictionary], !fonts.isEmpty {
-            fontFetcher.fetch(fonts, media: media) { [weak self] folder in
+        // first line is already drawn in the right face. A download's script has them as files
+        // beside it: they are gathered into a folder of their own.
+        if kind == "ass", let fonts = render["fonts"] as? [NSDictionary], !fonts.isEmpty {
+            let ready: (URL?) -> Void = { [weak self] folder in
                 guard let self = self, self.subtitleToken == token, self.externalSubtitleAddress == target else { return }
                 if let folder = folder { self.core?.set("sub-fonts-dir", folder.path) }
                 add()
             }
+            if url.isFileURL { fontFetcher.gather(fonts, completion: ready) } else { fontFetcher.fetch(fonts, media: media, completion: ready) }
         } else {
             add()
         }
