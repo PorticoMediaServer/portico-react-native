@@ -100,7 +100,10 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   halfRef.current = half;
   useEffect(() => { if (open) setExpanded(false); }, [open]);
   // A screen reader hears what has opened: the sheet's title, once.
-  useEffect(() => { if (open) announce(title); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [open]);
+  // Read when it opens; a title that changes while it is open is not announced again.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  useEffect(() => { if (open) announce(titleRef.current); }, [open]);
   const kind = requestedKind ?? (primary || footer ? 'form' : 'picker');
   const dismissable = kind !== 'acknowledge';
   const dismiss = () => { if (dismissable) onClose(); };

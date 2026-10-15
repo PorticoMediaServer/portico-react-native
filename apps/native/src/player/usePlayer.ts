@@ -902,7 +902,8 @@ export function usePlayerEngine() {
     }, () => {});
     return () => { live = false; };
   }, [api, serverId, trickplayItem, trickplayLibrary]);
-  const trickplay = useMemo(() => (trickplayView ? preferredTrickplaySet(trickplayView, offersData?.current?.sourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offersData?.current?.sourceId]);
+  const offeredSourceId = offersData?.current?.sourceId;
+  const trickplay = useMemo(() => (trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId]);
   const collapse = useCallback(() => setExpanded(false), []);
   const expand = useCallback(() => setExpanded(true), []);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);
