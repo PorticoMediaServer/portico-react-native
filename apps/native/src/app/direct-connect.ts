@@ -1,5 +1,6 @@
 import {connectPairedServer, inspectDirectServer, type ConnectionEnvironment} from '../../../../packages/client-core/src/server-connections';
-import type {HttpLocalApi} from '../../../../packages/client-core/src/index';
+import {HttpLocalApi, type SystemInfo} from '../../../../packages/client-core/src/index';
+import {routePath} from '../../../../packages/contracts/src/routes';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
 import {DEFAULT_SERVER_PORT, firstAnswering, serverAddress, serverAddressCandidates} from '../../../../packages/client-core/src/server-address';
 import {activeI18n, present, ShownError} from './errors';
@@ -52,6 +53,29 @@ export async function findDirectServer(typed: string, env: ConnectionEnvironment
   return {address: found.origin, identity: found.value};
 }
 
+/** How long the first-run question is given at each address. */
+const SETUP_ASK_MS = 6000;
+
+/**
+ * Whether the server behind a typed address says nobody has set it up yet, asked once the person
+ * has finished typing it, before anything is sent to it: the likely addresses in sign-in order,
+ * and the first that answers decides. Only an offer hangs on it (first run from a phone or
+ * tablet), so any failure to find out means no.
+ */
+export async function addressNeedsSetup(typed: string, fetcher: typeof fetch, signal: AbortSignal): Promise<boolean> {
+  let candidates: readonly string[];
+  try { candidates = serverAddressCandidates(typed); } catch { return false; }
+  try {
+    const found = await firstAnswering(candidates, async origin => {
+      const wait = within(SETUP_ASK_MS, signal);
+      try { return await new HttpLocalApi(origin, '', fetcher).request<SystemInfo>(routePath('get_system'), 'GET', undefined, wait.signal); } finally { wait.done(); }
+    }, signal);
+    return found.value?.setupRequired === true;
+  } catch {
+    return false;
+  }
+}
+
 /** What was typed, as the name to call the server by before it has said its own. */
 export function typedHost(typed: string): string {
   return typed.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '') || activeI18n().t('servers.fallbackName');
@@ -84,12 +108,14 @@ export type DirectConnectRequest = {
   signal: AbortSignal;
   /** False when a newer address or sign-in attempt superseded this one. */
   isCurrent: () => boolean;
+  /** A server nobody has set up is handed back (with what it says about itself) instead of refused: first run from a phone or tablet. */
+  allowSetup?: boolean;
 };
 
 /** Inspect, pair and check the server at `origin`. The route connection belongs
  * to the returned API; on failure it is disposed (a failed attempt keeps
  * nothing probing in the background). */
-export async function connectDirectServer(request: DirectConnectRequest): Promise<{api: HttpLocalApi; pin: ServerPin; address: string}> {
+export async function connectDirectServer(request: DirectConnectRequest): Promise<{api: HttpLocalApi; pin: ServerPin; address: string; setup?: SystemInfo}> {
   const changed = () => changedWhileSigningIn(request.origin);
   let identity = request.pin;
   let address = request.pin ? request.address ?? serverAddress(request.origin) : '';
@@ -108,10 +134,10 @@ export async function connectDirectServer(request: DirectConnectRequest): Promis
     connected = await connectPairedServer(address, identity, request.env, request.signal);
     const info = await connected.api.system();
     if (!request.isCurrent()) throw changed();
-    if (info.setupRequired) throw new ShownError(activeI18n().t('web.signIn.error.notSetUp'));
+    if (info.setupRequired && !request.allowSetup) throw new ShownError(activeI18n().t('setup.app.notSetUp'));
     const api = connected.api;
     connected = undefined;
-    return {api, pin: identity, address};
+    return {api, pin: identity, address, ...(info.setupRequired ? {setup: info} : {})};
   } finally {
     if (connected) connected.connection.dispose();
   }

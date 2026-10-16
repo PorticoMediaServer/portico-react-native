@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {connectDirectServer, findDirectServer, serverAddress} from '../src/app/direct-connect.ts';
+import {addressNeedsSetup, connectDirectServer, findDirectServer, serverAddress} from '../src/app/direct-connect.ts';
 import {ShownError} from '../src/app/errors.ts';
 import {RouteError, routeBase64, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 import {RouteConnection} from '../../../packages/client-core/src/route-connection.ts';
@@ -195,6 +195,30 @@ test('a server that needs setup disposes its connection and says so', async () =
     );
   });
   assert.equal(disposes, 1);
+});
+
+test('first run from a phone: a server that needs setup is handed back, connected, with what it says', async () => {
+  const {env} = scripted({system: () => ({status: 200, body: {name: 'Den', setupRequired: true, hostedConfigured: true}})});
+  const disposes = await countDisposals(async () => {
+    const found = await connectDirectServer({origin: ORIGIN, env, signal: new AbortController().signal, isCurrent: () => true, allowSetup: true});
+    assert.equal(found.pin.serverId, SERVER_ID);
+    assert.equal(found.setup?.name, 'Den');
+    assert.equal(found.setup?.hostedConfigured, true);
+    found.api.getRouteConnection()?.dispose();
+  });
+  assert.equal(disposes, 1, 'the connection is the caller\'s');
+  const ready = await connectDirectServer({origin: ORIGIN, env: scripted().env, signal: new AbortController().signal, isCurrent: () => true, allowSetup: true});
+  assert.equal(ready.setup, undefined, 'a server already set up is not offered for setup');
+  ready.api.getRouteConnection()?.dispose();
+});
+
+test('the first-run offer asks the typed address, and any failure offers nothing', async () => {
+  const needs = scripted({system: () => ({status: 200, body: {name: 'Den', setupRequired: true}})});
+  assert.equal(await addressNeedsSetup('127.0.0.1:19631', needs.env.fetcher!, new AbortController().signal), true);
+  assert.ok(needs.calls.every(c => c.url === ORIGIN + '/v1/system' && c.method === 'GET'), 'only the public system document is read');
+  assert.equal(await addressNeedsSetup('127.0.0.1:19631', scripted().env.fetcher!, new AbortController().signal), false);
+  assert.equal(await addressNeedsSetup('127.0.0.1:19631', scripted({system: () => ({status: 500, body: {}})}).env.fetcher!, new AbortController().signal), false);
+  assert.equal(await addressNeedsSetup('not an address at all', scripted().env.fetcher!, new AbortController().signal), false);
 });
 
 test('a non-reachability refusal from the probe is not rewritten', async () => {

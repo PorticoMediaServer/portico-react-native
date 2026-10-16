@@ -77,6 +77,9 @@ export const hostedUrl: string = (NativeModules.PorticoRuntime?.hostedUrl as str
 export type DirectPending = {api: HttpLocalApi; snapshot?: DirectSnapshot; accountGrant: boolean; accountSession?: LocalSession; /** A Portico Account member: routes are found through the account (Spec — Hosted at Scale). */ hosted?: RememberedServer['hosted']};
 /** How opening a server with the Portico Account ended. */
 export type PorticoOutcome = 'done' | 'refused' | 'unreachable' | 'failed';
+/** A server nobody has set up, held open for first-run setup from a phone or tablet: what it says about itself, and the pinned connection to it. */
+export type DirectSetup = {api: HttpLocalApi; name: string; hostedConfigured: boolean};
+
 /** C45: a direct sign-in waiting on one more step: a two-step code, or a new password the server requires. */
 export type DirectStep = 'challenge' | 'password-change' | 'device-pending';
 
@@ -163,6 +166,14 @@ export type SessionValue = {
     retrySignIn: () => Promise<void>;
     /** Abandon the pending step (the connection and any account session are released). */
     cancelStep: () => void;
+    /** First run from a phone or tablet: the server at `origin` that nobody has set up, connected and pinned. */
+    setup?: DirectSetup;
+    /** Connect to the server at `origin` to set it up (handhelds); false when it turned out to be set up already. */
+    beginSetup: () => Promise<boolean>;
+    /** Leave first-run setup (the connection is released). */
+    cancelSetup: () => void;
+    /** Setup created the owner: sign in with the session it issued. */
+    finishSetup: (session: LocalSession) => Promise<void>;
     chooseProfile: (profileId: string, pin?: string) => Promise<void>;
     cancelPending: () => void;
     openProfileChooser: () => void;
@@ -277,6 +288,15 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const [directOrigin, setDirectOrigin] = useState('');
   const [pin, setPin] = useState<ServerPin>();
   const [pending, setPending] = useState<DirectPending>();
+  // First run from a phone or tablet: the server being set up, held open until setup ends.
+  const [setupTarget, setSetupTarget] = useState<DirectSetup>();
+  const setupRef = useRef<DirectSetup | undefined>(undefined);
+  const holdSetup = useCallback((next: DirectSetup | undefined, release = true) => {
+    const old = setupRef.current;
+    if (old && old !== next && release) { try { old.api.getRouteConnection()?.dispose(); } catch { /* already gone */ } }
+    setupRef.current = next;
+    setSetupTarget(next);
+  }, []);
   const commit = useMemo(() => new ViewerSelectionCommit(nativeViewerStorage), []);
   /** Keeps the published viewer's 15-minute access token alive (session-refresh.ts). */
   const refresher = useRef<LocalSessionRefresher | undefined>(undefined);
@@ -798,7 +818,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         connected = await connectPairedServer(pinnedAddress(directOrigin), identity, nativeConnectionEnvironment, new AbortController().signal);
         const local = connected.api;
         const info = await local.system();
-        if (info.setupRequired) throw new ShownError(activeI18n().t('web.signIn.error.notSetUp'));
+        if (info.setupRequired) {
+          // A phone or tablet sets it up here; a television says where it can be set up.
+          if (Platform.isTV) throw new ShownError(activeI18n().t('setup.app.notSetUp'));
+          if (gen !== generation.current) return;
+          holdSetup({api: local, name: info.name, hostedConfigured: info.hostedConfigured});
+          offered = true;
+          return;
+        }
         const result = await directSignIn(local, username, password);
         // The server accepted the credentials: remember the address and username (not the password)
         // so a sign-in that ends later reopens with both filled in.
@@ -822,7 +849,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         setBusy(false);
       }
     },
-    [busy, pin, directOrigin, settleDirect],
+    [busy, pin, directOrigin, settleDirect, holdSetup],
   );
 
   /** C45: the code for a two-step sign-in (authenticator or recovery code). */
@@ -905,6 +932,29 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     return api;
   }, [pin, directOrigin]);
 
+  /** First run from a phone or tablet: connect to the server at the typed address and hold it for setup. */
+  const beginSetup = useCallback(async () => {
+    if (busy) return false;
+    setBusy(true);
+    setError('');
+    const gen = pin ? generation.current : ++generation.current;
+    try {
+      const found = await connectDirectServer({origin: directOrigin, pin, address: pin ? pinnedAddress(directOrigin) : undefined, env: nativeConnectionEnvironment, signal: new AbortController().signal, isCurrent: () => gen === generation.current, allowSetup: true});
+      answered.current = {typed: directOrigin, address: found.address};
+      setPin(found.pin);
+      // Set up in the meantime (from a browser, say): there is nothing to do here but sign in.
+      if (!found.setup) { found.api.getRouteConnection()?.dispose(); return false; }
+      holdSetup({api: found.api, name: found.setup.name, hostedConfigured: found.setup.hostedConfigured});
+      return true;
+    } catch (e) {
+      setError(message(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, pin, directOrigin, holdSetup]);
+
   const acceptQuickConnect = useCallback(async (local: HttpLocalApi, issued: LocalSession) => {
     const gen = ++generation.current;
     setBusy(true);
@@ -919,6 +969,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       setBusy(false);
     }
   }, [acceptDirect]);
+
+  /** Setup created the owner: the session it issued is this device's sign-in, on the connection setup used. */
+  const finishSetup = useCallback(async (issued: LocalSession) => {
+    const target = setupRef.current;
+    if (!target) return;
+    await acceptQuickConnect(target.api, issued);
+    holdSetup(undefined, false);
+  }, [acceptQuickConnect, holdSetup]);
 
   const chooseProfile = useCallback(
     async (profileId: string, profilePin?: string) => {
@@ -1273,6 +1331,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         setOrigin: value => {
           setDirectOrigin(value);
           setPin(undefined);
+          holdSetup(undefined);
           ++generation.current;
         },
         pin,
@@ -1286,6 +1345,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         completeChallenge,
         changeRequiredPassword: changeRequired,
         cancelStep: () => releaseStep(true),
+        setup: setupTarget,
+        beginSetup,
+        cancelSetup: () => holdSetup(undefined),
+        finishSetup,
         retrySignIn,
         chooseProfile,
         cancelPending,
@@ -1295,7 +1358,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       activationApproved,
       signOut,
     }),
-    [hoursRefused, retryRenewal, deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
+    [hoursRefused, retryRenewal, deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, setupTarget, beginSetup, holdSetup, finishSetup, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
