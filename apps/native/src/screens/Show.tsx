@@ -15,6 +15,7 @@ import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
 import {EPISODE_PAGE, useEpisodeWindow, type EpisodeSelection, type EpisodeSeed} from '../app/episodes';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
 import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
@@ -54,6 +55,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const {libraryId, showId, seasonId, episodeId, title} = route.params;
   const target = useMemo<ShowWorkspaceRoute>(() => ({libraryId, ...(showId ? {showId} : {}), ...(seasonId ? {seasonId} : {}), ...(episodeId ? {episodeId} : {})}), [libraryId, showId, seasonId, episodeId]);
   const {snapshot, selectSeason, selectGroup, retry} = useShowWorkspace(target);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', retry);
   // P4/P7: the show's own recommendation rows (More like the show, From its creator…), named by
   // titleText; their cards offer Not interested.
   const recommendations = useShowRecommendations(snapshot.data?.show.id ?? showId);
@@ -348,7 +351,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   // "6 of 10 watched" beside the switcher, from the season's own counts (the viewer's visible episodes).
   const progress = seasonProgress(seasonState.state?.watchedCount, seasonState.state?.unwatchedCount);
   const rowGeometry = useEpisodeRowGeometry();
-  const notices = snapshot.phase === 'refresh-required' ? (
+  const notices = changedStuck ? (
     <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'show', 'load')} action={i18n.t('action.refresh')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
   ) : null;
   const switcher = data ? (

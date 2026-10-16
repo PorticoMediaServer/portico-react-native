@@ -10,7 +10,7 @@ import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
 import {APIKeysPanel, AssistantsPanel, MemberTokensPanel, WebhooksPanel} from '../server/Integrations';
 import {MetadataSettingsPanel} from '../server/MetadataPanels';
-import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
+import {AccountDevices, AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
 import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, PlaybackProblemsPanel, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
@@ -38,6 +38,7 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.channels': return <LibraryChannelsPanel />;
     case 'server.accounts': return <AccountsPanel />;
     case 'server.invitations': return <InvitationsPanel />;
+    case 'server.devices': return <AccountDevices />;
     case 'server.apiKeys': return <APIKeysPanel />;
     case 'server.memberTokens': return <MemberTokensPanel />;
     case 'server.webhooks': return <WebhooksPanel />;

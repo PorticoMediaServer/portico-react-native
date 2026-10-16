@@ -3,7 +3,8 @@ import {Share, View} from 'react-native';
 import {logCategories, logLevels, parseLogPage, type EvidenceRecord, type FeedbackReport, type FeedbackStatus, type LogCategory, type LogLevel, type LogSettings, type SupportExport} from '../../../../../packages/client-core/src/admin/index';
 import {CAPABILITY_BEHIND_PRESENCE, CAPABILITY_ROWS, capabilityReasonId, parseCapabilities, type ServerCapability} from '../../../../../packages/client-core/src/server-admin/capabilities';
 import {sentence, when} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {broadcastBody, broadcastProblem, feedbackCategoryLabel, feedbackStatusLabel, utf8Length} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {broadcastBody, broadcastProblem, utf8Length} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {feedbackCategoryName, feedbackStatusName} from '../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {setDetailWindow, type LogsDraft} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
@@ -148,7 +149,7 @@ const STATUSES: readonly FeedbackStatus[] = ['open', 'in-progress', 'resolved', 
 /** Troubleshooting › Viewer feedback: problems viewers reported from their apps, each answered in a sheet; and a message to everyone. */
 export function FeedbackPanel() {
   const client = useConsole();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const read = useRead(() => client.reports(true), [client]);
   const [selected, setSelected] = useState<FeedbackReport>();
   const [broadcast, setBroadcast] = useState(false);
@@ -158,7 +159,7 @@ export function FeedbackPanel() {
       {read.error && !read.data ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       <RowGroup title={t('settings.server.feedback')} footer={t('web.console.nav.feedbackLede')}>
         {read.data && !items.length ? <ListRow icon="mail" title={t('web.feedback.inboxEmpty')} subtitle={t('web.feedback.inboxEmptyBody')} /> : null}
-        {items.map(r => <ListRow key={r.id} icon="mail" title={r.message.split('\n')[0] ?? ''} meta={feedbackStatusLabel[r.status]} subtitle={t('web.feedback.rowSubtitle', {category: feedbackCategoryLabel(r.category), when: when(r.createdAt), about: r.itemId ? 'yes' : 'no'})} accessory="navigation" onPress={() => setSelected(r)} />)}
+        {items.map(r => <ListRow key={r.id} icon="mail" title={r.message.split('\n')[0] ?? ''} meta={feedbackStatusName(t, has, r.status)} subtitle={t('web.feedback.rowSubtitle', {category: feedbackCategoryName(t, has, r.category), when: when(r.createdAt), about: r.itemId ? 'yes' : 'no'})} accessory="navigation" onPress={() => setSelected(r)} />)}
         <ListRow tone="action" icon="mail" title={t('server.messageEveryone')} onPress={() => setBroadcast(true)} />
       </RowGroup>
       <TriageSheet report={selected} onClose={() => setSelected(undefined)} onChanged={() => { setSelected(undefined); read.reload(); }} />
@@ -169,7 +170,7 @@ export function FeedbackPanel() {
 
 function TriageSheet({report, onClose, onChanged}: {report?: FeedbackReport; onClose: () => void; onChanged: () => void}) {
   const client = useConsole();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const {space} = useTheme();
   const action = useAction();
   const [status, setStatus] = useState<FeedbackStatus>('in-progress');
@@ -179,15 +180,15 @@ function TriageSheet({report, onClose, onChanged}: {report?: FeedbackReport; onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.id]);
   return (
-    <Sheet open={!!report} onClose={onClose} kind="form" title={report ? feedbackCategoryLabel(report.category) : undefined} subtitle={report ? t('web.feedback.reportedMeta', {when: when(report.createdAt), status: feedbackStatusLabel[report.status]}) : undefined}
+    <Sheet open={!!report} onClose={onClose} kind="form" title={report ? feedbackCategoryName(t, has, report.category) : undefined} subtitle={report ? t('web.feedback.reportedMeta', {when: when(report.createdAt), status: feedbackStatusName(t, has, report.status)}) : undefined}
       primary={{label: t('web.feedback.updateReport'), loading: action.busy, onPress: () => { if (report) void action.run(() => client.triage(report.id, report.revision, status, reply)).then(ok => { if (ok) onChanged(); }); }}}>
       {report ? (
         <View style={{gap: space.md}}>
           <Text variant="body">{report.message}</Text>
           {report.diagnostic ? <Text variant="caption" tone="tertiary">{t('server.feedback.sentFrom', {platform: sentence(report.diagnostic.platform), state: report.diagnostic.state, online: report.diagnostic.online ? 'yes' : 'no'})}</Text> : null}
-          <RowGroup><ListRow title={t('web.feedback.status')} meta={feedbackStatusLabel[status]} accessory="value" onPress={() => setPicking(true)} /></RowGroup>
+          <RowGroup><ListRow title={t('web.feedback.status')} meta={feedbackStatusName(t, has, status)} accessory="value" onPress={() => setPicking(true)} /></RowGroup>
           <Field label={t('web.feedback.replyLabel')} hint={t('web.feedback.replyHelp')} value={reply} onChangeText={setReply} maxLength={2000} multiline error={action.error || undefined} />
-          <Menu open={picking} onClose={() => setPicking(false)} title={t('web.feedback.status')} items={STATUSES.map(v => ({id: v, label: feedbackStatusLabel[v], selected: v === status}))} onSelect={id => setStatus(id as FeedbackStatus)} />
+          <Menu open={picking} onClose={() => setPicking(false)} title={t('web.feedback.status')} items={STATUSES.map(v => ({id: v, label: feedbackStatusName(t, has, v), selected: v === status}))} onSelect={id => setStatus(id as FeedbackStatus)} />
         </View>
       ) : null}
     </Sheet>
