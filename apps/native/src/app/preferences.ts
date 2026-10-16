@@ -29,11 +29,9 @@ export type Preferences = {
    * at the size it will have, before the server has answered. The server's values are the setting. */
   cardScale: number;
   showBackdrops: boolean;
-  /** Image subtitles (PGS, VobSub) show only their forced lines (foreign dialogue, signs). Kept by this device, as on the web. */
-  subtitleForcedOnly: boolean;
 };
 
-const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false, cardScale: 1, showBackdrops: true, subtitleForcedOnly: false};
+const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false, cardScale: 1, showBackdrops: true};
 const key = 'preferences:v1';
 const store = new NativeQueueStore();
 
@@ -54,7 +52,6 @@ function parse(raw: unknown): Preferences {
     disableHdr: r.disableHdr === true,
     cardScale: r.cardScale === 0.82 || r.cardScale === 1.25 ? r.cardScale : 1,
     showBackdrops: r.showBackdrops !== false,
-    subtitleForcedOnly: r.subtitleForcedOnly === true,
   };
 }
 

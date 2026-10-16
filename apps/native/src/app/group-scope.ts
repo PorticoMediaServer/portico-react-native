@@ -16,7 +16,9 @@ import {acrossCondition, acrossPivot, episodeGroupCondition, type AcrossGroup} f
 export type GroupPredicate = Extract<BrowseNode, {field: string}>;
 export type GroupSurface = 'collection-titles' | 'container-titles' | 'person-titles' | 'cast-titles' | 'crew-titles' | 'list-titles' | 'saved-collection-titles' | 'episode-group' | 'row-titles' | 'watchlist' | 'favorites' | 'history' | 'group-titles' | 'saved-view';
 /** `base` is one condition for most groups; a saved view's is the whole expression it was saved with. */
-export type GroupScope = Readonly<{libraryId: string; pivot: string; surface: GroupSurface; base: readonly BrowseNode[]}>;
+export type GroupScope = Readonly<{libraryId: string; pivot: string; surface: GroupSurface; base: readonly BrowseNode[];
+  /** The page lists the group through the browse engine from the start (in its own order), not only once a sort or filter is chosen. */
+  always?: boolean}>;
 
 /** The pivot a library's titles are browsed as, by its kind: what a collection, a person's page or a list holds of it. */
 export function titlePivot(libraryKind: string | undefined): string | undefined {
@@ -32,7 +34,8 @@ export function titlePivot(libraryKind: string | undefined): string | undefined 
 /** A collection's titles in its library. */
 export const collectionScope = (libraryId: string, libraryKind: string | undefined, collectionId: string): GroupScope | undefined => {
   const pivot = titlePivot(libraryKind);
-  return pivot && libraryId && collectionId ? {libraryId, pivot, surface: 'collection-titles', base: [{field: 'collection', operator: 'equals', value: collectionId}]} : undefined;
+  // A collection's own order is the owner's (or a box set's): the page lists it in that order from the start.
+  return pivot && libraryId && collectionId ? {libraryId, pivot, surface: 'collection-titles', base: [{field: 'collection', operator: 'equals', value: collectionId}], always: true} : undefined;
 };
 /** What belongs to a title that holds others: a show's or a season's episodes, an album's or an artist's songs, an author's books. */
 export const containerScope = (libraryId: string, pivot: string, containerId: string | undefined): GroupScope | undefined =>
@@ -46,8 +49,8 @@ const acrossSurfaces: Readonly<Record<AcrossGroup, GroupSurface>> = {person: 'pe
 /** One of a flat show's groups of episodes (its whole list, its specials, a range of a hundred). */
 export const episodeGroupScope = (libraryId: string, showId: string | undefined, group: string | undefined): GroupScope | undefined =>
   (libraryId && showId && group ? {libraryId, pivot: 'episodes', surface: 'episode-group', base: [episodeGroupCondition(showId, group)]} : undefined);
-/** Groups whose own order the server keeps under a filter (groupOrder): a collection's, a container's, a playlist's, a row's, a show's groups, the history's. */
-export const groupKeepsOwnOrder = (scope: GroupScope | undefined): boolean => !!scope && ['collection-titles', 'container-titles', 'list-titles', 'row-titles', 'episode-group', 'history'].includes(scope.surface);
+/** Groups whose own order the server keeps under a filter (groupOrder): a collection's (a library's or a personal one), a container's, a playlist's, a row's, a show's groups, the history's. */
+export const groupKeepsOwnOrder = (scope: GroupScope | undefined): boolean => !!scope && ['collection-titles', 'container-titles', 'list-titles', 'saved-collection-titles', 'row-titles', 'episode-group', 'history'].includes(scope.surface);
 
 /** One disc of an album ("<album id>:disc:<n>", as the server names a disc page): the album's songs on that disc. */
 export function discScope(libraryId: string, discId: string | undefined): GroupScope | undefined {

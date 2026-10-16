@@ -14,7 +14,7 @@ test('each kind of library has the pivot its titles are browsed as', () => {
 });
 
 test('a scope names the group by one condition, and nothing without a library, a pivot and an id', () => {
-  assert.deepEqual(collectionScope('lib', 'movie', 'c1'), {libraryId: 'lib', pivot: 'movies', surface: 'collection-titles', base: [{field: 'collection', operator: 'equals', value: 'c1'}]});
+  assert.deepEqual(collectionScope('lib', 'movie', 'c1'), {libraryId: 'lib', pivot: 'movies', surface: 'collection-titles', base: [{field: 'collection', operator: 'equals', value: 'c1'}], always: true}, 'a collection lists in its own order from the start');
   assert.deepEqual(containerScope('lib', 'episodes', 'season1'), {libraryId: 'lib', pivot: 'episodes', surface: 'container-titles', base: [{field: 'memberOf', operator: 'equals', value: 'season1'}]});
   assert.deepEqual(personScope('lib', 'tv', 'p1')?.base, [{field: 'person', operator: 'equals', value: 'p1'}]);
   assert.deepEqual(listScope('lib', 'songs', 'pl1')?.surface, 'list-titles');

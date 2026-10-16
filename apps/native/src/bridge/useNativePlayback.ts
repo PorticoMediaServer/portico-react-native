@@ -23,6 +23,7 @@ import {LocalPlayback, type LocalMedia} from './local-playback';
 import {offlineDownloads} from './offline-downloads';
 import {keepCapabilitiesPublished} from './capability-publisher';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
+import {engineSettingStore} from '../player/engine-setting-store';
 
 /**
  * The player's playback stack (Playback Protocol v1): one `PlaybackService` per viewer, the
@@ -55,6 +56,13 @@ export function useNativePlayback(
               deferRecovery: true,
               queueRequired: true,
               diagnostics: __DEV__,
+              // A player chosen inside the player was for the playback before: the server plans
+              // the new one from the Settings' player again.
+              beforeFreshPlayback: () => {
+                if (!engineSettingStore.hasSession()) return Promise.resolve();
+                engineSettingStore.setSession(null);
+                return engineSettingStore.whenCurrentSettled(4000);
+              },
               channels: new V1ChannelControl({http: localV1Http(api), key: () => NativeModules.PorticoRuntime.playbackRequestId()}),
               journal: {
                 load: async () => JSON.parse(await NativeModules.PorticoRuntime.loadJournal(key)),
