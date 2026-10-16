@@ -117,7 +117,7 @@ type IdProvider = (typeof ID_PROVIDERS)[number];
  * why, the closest matches, and what the owner can do: use a match, search by hand, give the
  * title's ID at a provider, or dismiss it. The server says which of those a title allows.
  */
-export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}: {/** Absent: closed. */ libraryId?: string; onClose: () => void; /** Open a title's own page (the sheets close first). */ onOpenTitle: (target: {kind: 'show' | 'item'; id: string; libraryId: string}) => void; onChanged?: () => void}) {
+export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}: {/** Absent: closed. */ libraryId?: string; onClose: () => void; /** Open a title's own page (the sheets close first). */ onOpenTitle: (target: {kind: 'show' | 'item' | 'album' | 'book'; id: string; libraryId: string; title?: string}) => void; onChanged?: () => void}) {
   const i18n = useI18n();
   const t = i18n.t;
   const {space} = useTheme();
@@ -147,12 +147,13 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
       await sendFresh(entry, e => service.act({kind: e.kind, entityId: e.entityId, expectedRevision: e.revision, ...command}), () => findInPages(page, e => e.entityId === entry.entityId && e.kind === entry.kind));
     }).then(ok => { if (ok) setNotice(done); read.reload(); onChanged?.(); return ok; });
   };
-  const labels: Readonly<Record<AttentionChoice, {label: string; icon: MenuItem['icon']}>> = {search: {label: t('server.attention.search'), icon: 'search'}, id: {label: t('server.attention.enterId'), icon: 'link'}, parent: {label: t('server.attention.openShow'), icon: 'tv'}, dismiss: {label: t('metadata.attention.dismiss'), icon: 'close'}};
+  const labels: Readonly<Record<AttentionChoice, {label: string; icon: MenuItem['icon']}>> = {search: {label: t('server.attention.search'), icon: 'search'}, id: {label: t('server.attention.enterId'), icon: 'link'}, parent: {label: t('server.attention.openShow'), icon: 'tv'}, retry: {label: t('server.attention.lookUpAgain'), icon: 'refresh'}, dismiss: {label: t('metadata.attention.dismiss'), icon: 'close'}};
   const choose = (entry: AttentionEntry, id: AttentionChoice) => {
     action.clear();
     if (id === 'search') setSearching(entry);
     else if (id === 'id') setIdentifying(entry);
     else if (id === 'parent') onOpenTitle({kind: 'show', id: entry.parentId, libraryId: entry.libraryId});
+    else if (id === 'retry') void send(entry, {action: 'retry'}, t('server.attention.lookingUp'));
     else void send(entry, {action: 'dismiss'}, t('server.attention.dismissed'));
   };
   return (
@@ -166,7 +167,7 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
           const more = attentionChoices(entry);
           return (
             <RowGroup key={`${entry.kind}:${entry.entityId}`}>
-              <ListRow icon={entry.kind === 'show' ? 'tv' : 'film'} title={entry.title || t('server.attention.untitled')} subtitle={attentionReason(t, has, entry.reason)} subtitleLines={3} accessory="navigation" onPress={() => onOpenTitle({kind: entry.kind, id: entry.entityId, libraryId: entry.libraryId})} />
+              <ListRow icon={attentionIcon(entry)} title={entry.title || t('server.attention.untitled')} subtitle={attentionReason(t, has, entry.reason, entry.kind)} subtitleLines={3} accessory="navigation" onPress={() => onOpenTitle(attentionTarget(entry))} />
               {offered.map(candidate => <ListRow key={candidate.key} title={candidateLine(candidate)} subtitle={candidateFacts(t, has, candidate).join(' · ') || undefined} meta={t('web.liveSource.useThis')} accessibilityLabel={t('server.attention.useNamed', {title: candidate.title})} disabled={action.busy}
                 onPress={() => void send(entry, {action: 'accept', candidateKey: candidate.key, ...(candidate.orders[0] ? {order: candidate.orders[0].id} : {})}, t('server.attention.matched', {title: candidate.title}))} />)}
               {more.length ? <ListRow tone="action" title={offered.length ? t('server.attention.somethingElse') : t('server.attention.choose')} accessibilityLabel={t('server.attention.actions', {title: entry.title})} onPress={() => setMenu(entry)} /> : null}
@@ -186,6 +187,17 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
 }
 
 /** Search by hand: the words to look for; the matches arrive in the list a moment later. */
+/** Where an entry's own page is: an album or book is settled on its page, a track on its album's. */
+function attentionTarget(entry: AttentionEntry): {kind: 'show' | 'item' | 'album' | 'book'; id: string; libraryId: string; title?: string} {
+  if (entry.kind === 'song' && entry.parentId) return {kind: 'album', id: entry.parentId, libraryId: entry.libraryId};
+  if (entry.kind === 'album' || entry.kind === 'book') return {kind: entry.kind, id: entry.entityId, libraryId: entry.libraryId, title: entry.title};
+  return {kind: entry.kind === 'show' ? 'show' : 'item', id: entry.entityId, libraryId: entry.libraryId};
+}
+
+function attentionIcon(entry: AttentionEntry): 'tv' | 'music' | 'book' | 'film' {
+  return entry.kind === 'show' ? 'tv' : entry.kind === 'album' || entry.kind === 'song' ? 'music' : entry.kind === 'book' ? 'book' : 'film';
+}
+
 function SearchSheet({entry, busy, error, onClose, onSearch}: {entry?: AttentionEntry; busy: boolean; error: string; onClose: () => void; onSearch: (query: string) => void}) {
   const t = useI18n().t;
   const {space} = useTheme();

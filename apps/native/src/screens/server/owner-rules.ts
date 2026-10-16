@@ -136,10 +136,10 @@ export function metadataSave(read: MetadataSettings, draft: MetadataDraft, now: 
   return {expectedRevision: now.revision, localArtworkLimitBytes: limitMine ? draft.limitBytes : now.localArtworkLimitBytes, includeAdult: adultMine ? draft.includeAdult : now.includeAdult, ...(tmdb !== undefined ? {tmdbReadToken: tmdb} : {}), ...(tvdb !== undefined ? {tvdbProjectKey: tvdb} : {}), ...subtitleChanges(read, draft.subtitles)};
 }
 
-export type AttentionChoice = 'search' | 'id' | 'parent' | 'dismiss';
+export type AttentionChoice = 'search' | 'id' | 'parent' | 'retry' | 'dismiss';
 /** What the owner can do with a title that needs attention besides using a suggested match: only what the server named for it, in the order shown. */
 export function attentionChoices(entry: Pick<AttentionEntry, 'actions' | 'parentId'>): readonly AttentionChoice[] {
-  return (['search', 'id', 'parent', 'dismiss'] as const).filter(choice => attentionOffers(entry, choice) && (choice !== 'parent' || !!entry.parentId));
+  return (['search', 'id', 'parent', 'retry', 'dismiss'] as const).filter(choice => attentionOffers(entry, choice) && (choice !== 'parent' || !!entry.parentId));
 }
 
 // ── Live TV ─────────────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ export function recentProblems(alerts: readonly Alert[], jobs: readonly Job[], n
 // ── A title's files, and titles that are one ────────────────────────────────
 
 /** What an owner can do with one file of a title, in the order a menu lists it. */
-export type FileTool = 'split' | 'delete';
+export type FileTool = 'split' | 'splitFolder' | 'delete';
 
 /**
  * The tools offered for one of a title's files. Splitting is offered only for the kinds the
@@ -246,8 +246,8 @@ export type FileTool = 'split' | 'delete';
  * version to stay behind. Deleting the one file is always the owner's to ask for; the server's
  * preview then says whether the library allows it.
  */
-export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{available: boolean}>, files: number, splittable: readonly string[]): readonly FileTool[] {
-  return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), 'delete' as const];
+export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{available: boolean}>, files: number, splittable: readonly string[], folderSplittable: readonly string[] = []): readonly FileTool[] {
+  return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), ...(folderSplittable.includes(title.kind) && file.available ? ['splitFolder' as const] : []), 'delete' as const];
 }
 
 type MergeGroup = 'movies' | 'shows' | 'episodes' | 'songs' | 'albums' | 'artists' | 'books';

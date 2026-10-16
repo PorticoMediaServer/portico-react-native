@@ -30,7 +30,8 @@ const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, {month:
 const dateTime = (iso: string) => new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'});
 
 /** A title to open from a list inside a sheet: its own page, once the sheets have closed. */
-type TitleTarget = {kind: 'show' | 'item'; id: string; libraryId: string};
+/** A title's page: a show, a playable item, or an album or book (music and audiobooks). */
+type TitleTarget = {kind: 'show' | 'item' | 'album' | 'book'; id: string; libraryId: string; title?: string};
 
 /** Libraries: the list in the owner's order, and one library's folders, scans, metadata source, titles that need a match, and removal. */
 export function LibrariesPanel() {
@@ -54,7 +55,7 @@ export function LibrariesPanel() {
   const openTitle = (target: TitleTarget) => {
     setOpen(undefined);
     // The sheets close from the inside out, and the title's page is pushed once they are gone: a page under a closing sheet is not shown.
-    requestAnimationFrame(() => afterOverlaysClose(() => (target.kind === 'show' ? navigation.push('Show', {libraryId: target.libraryId, showId: target.id}) : navigation.push('Detail', {libraryId: target.libraryId, itemId: target.id}))));
+    requestAnimationFrame(() => afterOverlaysClose(() => (target.kind === 'show' ? navigation.push('Show', {libraryId: target.libraryId, showId: target.id}) : target.kind === 'album' || target.kind === 'book' ? navigation.push('Entity', {libraryId: target.libraryId, view: target.kind, entityId: target.id, title: target.title ?? ''}) : navigation.push('Detail', {libraryId: target.libraryId, itemId: target.id}))));
   };
   const move = (index: number, by: -1 | 1) => {
     const ids = libraries.map(l => l.id);
