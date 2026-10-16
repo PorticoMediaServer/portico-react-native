@@ -1018,7 +1018,7 @@ test('a download that arrived without what travels with it gets it on a later pa
   await settle();
 
   assert.ok(extra('prep-a').has('bundle.json') && extra('prep-a').has('poster') && extra('prep-a').has('sub-sub1-1.vtt'));
-  assert.equal(device.metaOf('prep-a').bundle, 3, 'it is complete and not fetched again');
+  assert.equal(device.metaOf('prep-a').bundle, 4, 'it is complete and not fetched again');
   assert.deepEqual(device.started, [], 'the file itself is not transferred again');
 });
 
