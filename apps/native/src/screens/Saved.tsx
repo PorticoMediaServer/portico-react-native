@@ -15,6 +15,7 @@ import {useSession} from '../app/session';
 import {Button, CardRow, ConfirmSheet, Card, Divider, ListRow, Notice, PageHeader, PageList, Ring, Skeleton, StateView, Tabs, Text, WindowedGrid, alpha, gridColumns, useTheme, type GridWindow, type IconName} from '../ui';
 import {historyRows, type CardRowModel, type DayRowModel} from '../app/list-rows';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {RootHeaderActions} from './Home';
 import {useI18n} from '../app/i18n';
 import {usePullToRefresh} from '../app/refresh';
@@ -173,6 +174,8 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const activeDirection = sort[tab]?.direction ?? (projection?.query.direction as 'asc' | 'desc' | undefined);
 
   const refresh = isPersonal(tab) ? history.refresh : saved.refresh;
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const savedStuck = useQuietRefresh(!isPersonal(tab) && saved.snapshot.phase === 'refresh-required', saved.refresh);
   // APL-SYS-07: pull to refresh (touch) and a quiet refresh after a long absence.
   const pull = usePullToRefresh(refresh, {busy: isPersonal(tab) ? history.snapshot.loading : saved.snapshot.phase === 'loading'});
   // APL-SYS-08: the next page loads as the list nears its end; earlier pages stay.
@@ -273,7 +276,7 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     const dominant = shapes.size === 1 ? shapeFor(media[0]!.kind) : 'poster';
     const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
     const notice = saved.snapshot.phase === 'error' ? <Notice tone="error" message={say(saved.snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={saved.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      : saved.snapshot.phase === 'refresh-required' ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
+      : savedStuck ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {/* Touch: the title and tabs stay put above the grid, clear of the status bar. */}
@@ -310,7 +313,7 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
             ) : tab === 'history' ? (
               <HistoryStatus snapshot={history.snapshot} count={historyEntries.length} shown={historyShown} width={gridWidth} onRefresh={history.refresh} onClear={history.clearHistory} />
             ) : (
-              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} onRetry={saved.retry} onRefresh={saved.refresh} />
+              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} changedStuck={savedStuck} onRetry={saved.retry} onRefresh={saved.refresh} />
             )}
           </>
         }
@@ -341,7 +344,7 @@ function dominantShape(kinds: readonly ContentEntry['kind'][]): 'poster' | 'land
 }
 
 /** Errors, the first load and the empty state for Watchlist, Favorites and Playlists. */
-function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; onRetry: () => void; onRefresh: () => void}) {
+function SavedStatus({tab, snapshot, count, width, changedStuck, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; /** The list changed under the screen and quiet re-reads have not brought it back. */ changedStuck: boolean; onRetry: () => void; onRefresh: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const loaded = !!snapshot.projection?.sections.length;
@@ -353,7 +356,7 @@ function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Ex
         <StateView icon="warning" title={i18n.t('saved.loadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRetry} />
       ) : snapshot.phase === 'error' ? (
         <Notice tone="error" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={onRetry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      ) : snapshot.phase === 'refresh-required' ? (
+      ) : changedStuck ? (
         <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={onRefresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       ) : null}
       {loadingFresh ? tab === 'playlists' ? <LoadingRows /> : <LoadingGrid width={width} /> : null}

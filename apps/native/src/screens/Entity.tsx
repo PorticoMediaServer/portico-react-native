@@ -6,6 +6,7 @@ import type {ContentEntry, ContentRoute, ContentSection} from '../../../../packa
 import {formatDuration, iconFor, lengthFor, shapeFor, useArtwork, useContent} from '../app/content';
 import {usePlayingItemId} from '../app/player-actions';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n, type I18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
 import {useInvoker} from '../app/playback-events';
@@ -52,6 +53,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const {libraryId, view, entityId, title} = route.params;
   const content = useMemo<ContentRoute>(() => ({libraryId, view, entityId}), [libraryId, view, entityId]);
   const {snapshot, retry, refresh, next} = useContent(content);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const {space, isTV} = useTheme();
   const i18n = useI18n();
@@ -277,7 +280,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
         />
         {snapshot.phase === 'error' && !sections.length ? (
           <StateView icon="warning" title={i18n.t('error.title.load', {subject: 'library'})} message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
-        ) : snapshot.phase === 'refresh-required' ? (
+        ) : changedStuck ? (
           <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'library', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
         ) : null}
 

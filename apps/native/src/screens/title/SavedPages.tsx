@@ -6,6 +6,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {PlaylistOccurrence, SavedEntry} from '../../../../../packages/client-core/src/saved';
 import {captionFor, formatDuration, iconFor, progressFor, shapeFor, useArtwork} from '../../app/content';
 import {say} from '../../app/errors';
+import {useQuietRefresh} from '../../app/quiet-refresh';
 import {useI18n} from '../../app/i18n';
 import {useOpenEntry} from '../../app/open';
 import {useInvoker} from '../../app/playback-events';
@@ -58,6 +59,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const open = useOpenEntry();
   const {play, invoker} = usePlayList();
   const {snapshot, refresh, retry, next, mutate, loadOrder} = usePlaylist(playlistId);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
   const playlist = snapshot.playlist;
   const sections = useMemo(() => snapshot.projection?.sections ?? [], [snapshot.projection]);
   const page = useMemo(() => sections.flatMap(s => s.entries).filter(isOccurrence), [sections]);
@@ -207,7 +210,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
               <StateView icon="error" title={i18n.t('error.title.load', {subject: 'playlist'})} message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
             ) : snapshot.phase === 'error' ? (
               <Notice tone="error" message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('title.retry')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-            ) : snapshot.phase === 'refresh-required' ? (
+            ) : changedStuck ? (
               <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'playlist', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
             ) : null}
             {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
