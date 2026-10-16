@@ -1,5 +1,6 @@
 import {announcePinsChanged} from '../../app/pins';
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
+import type {ViewToken, VirtualizedList} from 'react-native';
 import {View, type LayoutChangeEvent} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -14,16 +15,17 @@ import {useInvoker} from '../../app/playback-events';
 import {groupSequence, occurrenceSequence, savedSequence, sequenceContainer, type SequenceContainer} from '../../app/container-play';
 import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
-import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem} from '../../ui';
+import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, PageRows, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem, type WindowedGridHandle} from '../../ui';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
 import {usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
 import {StatusBarScrim, TitleHero, type HeroAction} from './TitleHero';
 import {useAppendedPages, useEndReached} from '../../app/paging';
 import {usePullToRefresh} from '../../app/refresh';
-import {useGroupBrowse, useGroupPages} from '../../app/group-browse';
+import {useGroupBrowse, useGroupPages, useGroupWindow} from '../../app/group-browse';
 import {acrossScope, savedViewScope} from '../../app/group-scope';
-import {GroupBar, GroupResults} from '../GroupBrowse';
+import {GroupBar, GroupResults, LETTER_RAIL_WIDTH, useGroupLetters} from '../GroupBrowse';
+import {TrackRow, residentFrom, useTrackRowHeight, type TrackRowOptions} from './TrackWindow';
 import {ManualOrderRows} from '../ManualOrder';
 import {moveRequest} from '../../../../../packages/client-core/src/presentation/manual-order';
 
@@ -79,7 +81,22 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   // list, so they are offered there and not in a sorted one.
   const groupScope = useMemo(() => acrossScope('list', playlistId), [playlistId]);
   const group = useGroupBrowse(groupScope);
-  const sorted = useGroupPages(group);
+  // Sorted or filtered, the entries are a windowed list in the page's own scroller (only the rows
+  // near the viewport are read and kept), so a long playlist sorted by title has a letter rail.
+  const sorted = useGroupWindow(group);
+  const sortedList = group.engaged ? sorted.list : null;
+  const letters = useGroupLetters(sortedList, sortedList ? sorted.snapshot : undefined, group.sort.field);
+  const rail = !!sortedList && letters.shown;
+  const rowHeight = useTrackRowHeight();
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const scroller = useRef<VirtualizedList<PlaylistOccurrence | number>>(null);
+  // The rail's jump: the windowed rows all have one height, so a row is found by its offset.
+  useImperativeHandle(letters.grid, (): WindowedGridHandle => ({
+    scrollToIndex: index => {
+      sortedList?.ensureRange(index, index + 12);
+      scroller.current?.scrollToOffset({offset: headerHeight + index * rowHeight, animated: false});
+    },
+  }), [sortedList, headerHeight, rowHeight]);
   const count = playlist?.entryCount ?? sections[0]?.totalCount;
   // Total length only when the whole playlist is on screen; a page's sum would be wrong.
   const length = whole ? media.reduce((n, m) => n + (m.duration ?? 0), 0) : 0;
@@ -90,7 +107,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const mosaic = mosaicPaths({}, media);
   // Sorted or filtered, Play and Shuffle play that list (the server's query, however long);
   // otherwise the playlist plays whole, in its own order.
-  const listed = group.engaged ? sorted.snapshot.entries : media;
+  const listed = group.engaged ? (sortedList ? residentFrom(sortedList, 0, 50) : []) : media;
   const sequenceOf = (shuffle: boolean) => groupSequence(group, {shuffle}) ?? sequenceContainer('playlist', playlistId, {shuffle});
   // M32 (web parity): playlist management the server offers — windowed
   // reorder and remove — through the service's intents. A failure is
@@ -149,6 +166,30 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   // Where each visible title sits among the playable ones, so a press plays the playlist from there.
   const from = useMemo(() => new Map(media.map((m, i) => [m, i])), [media]);
   const loadMore = () => { if (!group.engaged && pageable && snapshot.phase === 'ready') next(pageable.id); };
+  // A pressed sorted row plays the whole sorted or filtered list on from there (the server's query).
+  const sortedRows = useMemo<TrackRowOptions>(() => ({
+    art: true,
+    subtitle: captionFor,
+    onPlay: index => { const pressed = sortedList?.itemAt(index); if (!pressed) return; if (pressed.playback) play([pressed], groupSequence(group)); else open(pressed); },
+    onMore: entry => open(entry, 'more'),
+  }), [sortedList, group, play, open]);
+  const renderRow = ({item, index}: {item: PlaylistOccurrence | number; index: number}) =>
+    typeof item === 'number' ? (sortedList ? <TrackRow list={sortedList} index={item} height={rowHeight} row={sortedRows} /> : null) : renderOccurrence({item, index});
+  const sortedFooter = !sortedList ? null
+    : sorted.snapshot.status === 'error' && !sorted.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sorted.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedList.retry()} />
+    : sorted.snapshot.total === 0 && sorted.snapshot.status === 'ready' ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
+    : sorted.snapshot.total === undefined ? <MoreSpinner busy />
+    : null;
+  // The window reads the pages of the rows in view (and its first page as soon as it is engaged).
+  const sortedRef = useRef(sortedList);
+  sortedRef.current = sortedList;
+  const onViewable = useRef(({viewableItems}: {viewableItems: ViewToken[]}) => {
+    const indices = viewableItems.map(v => v.index).filter((i): i is number => i !== null);
+    if (indices.length) sortedRef.current?.ensureRange(Math.min(...indices), Math.max(...indices));
+  }).current;
+  useEffect(() => { sortedList?.ensureRange(0, 12); }, [sortedList]);
+  // Sorted, the rows are the window's positions; otherwise the playlist's own entries as read so far.
+  const rowCount = sortedList ? sorted.snapshot.total ?? 0 : group.engaged ? 0 : occurrences.length;
   // The entries are the cells of the page's own list: only the rows near the viewport are
   // mounted, however long the playlist is and however much of it has been read.
   const renderOccurrence = ({item: occurrence, index}: {item: PlaylistOccurrence; index: number}) => {
@@ -185,13 +226,21 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   };
   return (
     <View style={{flex: 1}}>
-      <PageList
-        // While a sort or a filter is on, the sorted entries are listed under the header in place of the playlist's own rows.
-        data={group.engaged ? noOccurrences : occurrences}
-        keyExtractor={occurrenceKey}
-        renderItem={renderOccurrence}
+      <View style={{flex: 1, paddingRight: rail && !isTV ? LETTER_RAIL_WIDTH : 0}}>
+      <PageRows<PlaylistOccurrence | number>
+        listRef={scroller}
+        // While a sort or a filter is on, the sorted entries are listed under the header in place of the
+        // playlist's own rows, in the same scroller: the header (and television focus in it) stays.
+        data={occurrences}
+        getItemCount={() => rowCount}
+        getItem={(_, index) => (sortedList ? index : occurrences[index]!)}
+        keyExtractor={item => (typeof item === 'number' ? `sorted:${item}` : occurrenceKey(item))}
+        renderItem={renderRow}
+        getItemLayout={sortedList ? (_, index) => ({length: rowHeight, offset: headerHeight + rowHeight * index, index}) : undefined}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={viewability}
         // Rows read the playlist's permissions and the playable order.
-        extraData={`${managed}:${media.length}`}
+        extraData={`${managed}:${media.length}:${sortedList ? sorted.snapshot.generation : 'own'}`}
         contentStyle={{paddingTop: 0}}
         refreshControl={pull}
         onScroll={onScroll}
@@ -199,7 +248,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
         onEndReached={loadMore}
         onEndReachedThreshold={1.5}
         ListHeaderComponent={
-          <>
+          <View onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}>
             <TitleHero
               ref={invoker.ref}
               loading={!playlist && snapshot.phase === 'loading'}
@@ -222,10 +271,13 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
             {snapshot.phase === 'ready' && !occurrences.length ? <StateView icon="queue" title={i18n.t('title.playlistEmpty')} message={i18n.t(isTV ? 'title.playlistEmptyBodyTV' : 'title.playlistEmptyBody')} /> : null}
             {problem ? <Notice tone="error" message={problem} action={i18n.t('action.dismiss')} onAction={() => setProblem(null)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
             {occurrences.length ? <GroupBar group={group} /> : null}
-          </>
+            {rail && isTV ? letters.rail : null}
+          </View>
         }
-        ListFooterComponent={group.engaged ? <GroupResults group={group} results={sorted} as="list" playsList /> : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
+        ListFooterComponent={group.engaged ? sortedFooter : <MoreSpinner busy={!!pageable && snapshot.phase === 'loading' && occurrences.length > 0} />}
       />
+      {rail && !isTV ? letters.rail : null}
+      </View>
       <StatusBarScrim onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} title={playlist?.name ?? title ?? snapshot.projection?.heading.fallback} />
       {rowMenu && menuFor(rowMenu).length ? <Menu open onClose={() => setRowMenu(null)} title={menuTitle} items={menuFor(rowMenu)} onSelect={id => onRowMenu(rowMenu, id)} /> : null}
     </View>
@@ -363,7 +415,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
 
 const rowKey = (row: CardRowModel<ContentEntry>) => row.key;
 const noRows: CardRowModel<ContentEntry>[] = [];
-const noOccurrences: PlaylistOccurrence[] = [];
+const viewability = {itemVisiblePercentThreshold: 1};
 const occurrenceKey = (o: PlaylistOccurrence) => o.id;
 const mediaKey = (m: ContentEntry) => m.id;
 const entryKey = (e: {id: string}) => e.id;

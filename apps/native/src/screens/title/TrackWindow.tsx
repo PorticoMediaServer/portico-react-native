@@ -29,8 +29,7 @@ export type TrackRowOptions = Readonly<{
 export function TrackWindowList({list, total, row, header, footer, refreshControl}: {list: WindowedCollection<ContentEntry> | null; total: number; row: TrackRowOptions; header: React.ReactElement; footer?: React.ReactElement | null; refreshControl?: React.ReactElement<RefreshControlProps>}) {
   const {space, isTV} = useTheme();
   const insets = useSafeAreaInsets();
-  const platform = useSpecPlatform();
-  const height = spec.row.minHeight.media[platform] + 1;
+  const height = useTrackRowHeight();
   const [headerHeight, setHeaderHeight] = React.useState(0);
   // Television: VirtualizedList wraps its ScrollView in a style-less focus guide, which shrink-wraps,
   // so `flex: 1` collapses the list to one point and the page draws nothing (as `PageList` and
@@ -74,7 +73,13 @@ export function TrackWindowList({list, total, row, header, footer, refreshContro
   return <View style={{flex: 1}} onLayout={e => setSlot(e.nativeEvent.layout.height)}>{slot ? scroller : null}</View>;
 }
 
-const TrackRow = React.memo(function TrackRow({list, index, height, row}: {list: WindowedCollection<ContentEntry>; index: number; height: number; row: TrackRowOptions}) {
+/** The one height every windowed row has (a row and its divider), so any row can be reached by offset. */
+export function useTrackRowHeight(): number {
+  return spec.row.minHeight.media[useSpecPlatform()] + 1;
+}
+
+/** One row of a windowed list: its entry when its page is here, a placeholder of the same height until then. */
+export const TrackRow = React.memo(function TrackRow({list, index, height, row}: {list: WindowedCollection<ContentEntry>; index: number; height: number; row: TrackRowOptions}) {
   const {space} = useTheme();
   const artwork = useArtwork();
   const entry = useSlot(list, index);
