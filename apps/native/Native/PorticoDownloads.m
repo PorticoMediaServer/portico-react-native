@@ -19,9 +19,10 @@
 // by itself, and a task that is cancelled leaves resume data that a new task continues from.
 // Both need the address to still be good, which is why the app keeps one address per download
 // alive (the server extends it on request) instead of taking a new one for every attempt. The
-// resume data is used whenever the download is still of the same file at the same address. When
-// the address had to change, the system cannot be re-pointed at the new one and the transfer
-// begins again; that is the one case in which bytes already fetched are fetched twice.
+// resume data is used whenever the download is still of the same file. When the address had to
+// change, the address inside the resume data is changed to the new one
+// (`PorticoDownloadRetargetResume`); only resume data in a form that cannot be changed, or that
+// the system refuses, makes the transfer begin again.
 //
 // Each entry says what it is doing in three fields. `state` is `downloading`, `paused`, `failed`
 // or `ready`. `waiting` says why a download that should be moving is not: `wifi` or `network`.
@@ -192,6 +193,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   if (!entry) return @{@"id": identifier, @"state": @"removed"};
   entry[@"dir"] = [self directoryFor:identifier].absoluteString;
   [entry removeObjectForKey:@"grantUrl"];
+  [entry removeObjectForKey:@"retargeted"];
   return entry;
 }
 - (BOOL)saveManifest {
@@ -359,7 +361,11 @@ static NSString *PorticoSafeFileName(NSString *value) {
     if (resume.length) {
       [[NSFileManager defaultManager] createDirectoryAtURL:[self directoryFor:identifier] withIntermediateDirectories:YES attributes:nil error:nil];
       [resume writeToURL:[self resumeURLFor:identifier] options:NSDataWritingAtomic error:nil];
+    } else if ([entry[@"retargeted"] boolValue] && error.code != NSURLErrorCancelled) {
+      // Moved resume data that failed without leaving new data is not tried again.
+      [[NSFileManager defaultManager] removeItemAtURL:[self resumeURLFor:identifier] error:nil];
     }
+    [entry removeObjectForKey:@"retargeted"];
     BOOL cancelled = error.code == NSURLErrorCancelled;
     entry[@"state"] = cancelled ? @"paused" : @"failed";
     entry[@"waiting"] = @"";
@@ -436,15 +442,28 @@ RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)
     // by requestFor:, so only reuse data created under the current preference.
     BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
     BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
+    [entry removeObjectForKey:@"retargeted"];
     if (resume.length > 0 && !sameGrant) {
-      [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
-      resume = nil;
+      // The same file under a new address: the resume data is pointed at the new address, so
+      // the bytes already fetched are kept (N12). Anything else begins again.
+      NSData *moved = sameFile && samePolicy ? PorticoDownloadRetargetResume(resume, url) : nil;
+      if (moved.length && [moved writeToURL:resumeURL options:NSDataWritingAtomic error:nil]) {
+        resume = moved;
+        entry[@"retargeted"] = @YES;
+      } else {
+        [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
+        resume = nil;
+      }
     }
     if (!resume.length) entry[@"bytesDone"] = @0;
     entry[@"grantUrl"] = address;
     entry[@"cellularAllowed"] = @(self->_cellular);
-    NSURLSessionDownloadTask *task = resume.length ? [[self session] downloadTaskWithResumeData:resume]
-                                                   : [[self session] downloadTaskWithRequest:[self requestFor:url]];
+    NSURLSessionDownloadTask *task = resume.length ? [[self session] downloadTaskWithResumeData:resume] : nil;
+    // Resume data the system will not take (a moved one included) is let go: the transfer begins again.
+    if (!task) {
+      if (resume.length) { [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil]; entry[@"bytesDone"] = @0; [entry removeObjectForKey:@"retargeted"]; }
+      task = [[self session] downloadTaskWithRequest:[self requestFor:url]];
+    }
     // Serial publication fences every callback from the previous attempt,
     // including a late cancellation that carries the previous grant’s resume data.
     [self->_activeTasks[identifier] cancel];
