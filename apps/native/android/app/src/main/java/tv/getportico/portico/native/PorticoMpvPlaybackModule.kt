@@ -62,8 +62,8 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
           // re-homes the Media3 picture) does not carry it, and there is no AirPlay on Android.
           "pictureInPicture" to false,
           "airPlayVideo" to false,
-          // Channels are positioned by wall-clock dates this engine does not expose.
-          "liveChannels" to false,
+          // Channels are placed by the clock epochs the server publishes (PorticoMpvLinearClock).
+          "liveChannels" to PorticoMpvController.LIVE_CHANNELS,
           // Music and audiobooks stay with the native listening owner.
           "musicSessions" to false,
           // A direct-played file's audio and subtitle tracks are switched in the engine.
@@ -180,6 +180,7 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         // software deinterlacing on a television's processor is untested): interlaced video is
         // shown as the chip's decoder returns it.
         putBoolean("softwareDeinterlace", false)
+        putBoolean("liveChannels", PorticoMpvController.LIVE_CHANNELS)
       })
     } catch (e: Exception) {
       promise.reject("capabilities", "This device's mpv capabilities could not be read.", e)

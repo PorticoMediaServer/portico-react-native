@@ -799,6 +799,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -1591,6 +1619,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -5086,6 +5142,34 @@ export const schemas = {
           },
           "linear": {
             "properties": {
+              "clocks": {
+                "items": {
+                  "properties": {
+                    "endMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "offsetMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "startMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "startMs",
+                    "endMs",
+                    "offsetMs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "confirmedPositionMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -5819,6 +5903,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -8535,6 +8647,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -25485,6 +25625,9 @@ export const schemas = {
                   "evidence": {
                     "type": "string"
                   },
+                  "liveChannels": {
+                    "type": "boolean"
+                  },
                   "name": {
                     "type": "string"
                   },
@@ -25753,6 +25896,9 @@ export const schemas = {
                   },
                   "evidence": {
                     "type": "string"
+                  },
+                  "liveChannels": {
+                    "type": "boolean"
                   },
                   "name": {
                     "type": "string"
@@ -56518,6 +56664,34 @@ export const schemas = {
           },
           "linear": {
             "properties": {
+              "clocks": {
+                "items": {
+                  "properties": {
+                    "endMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "offsetMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "startMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "startMs",
+                    "endMs",
+                    "offsetMs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "confirmedPositionMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -71327,6 +71501,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -92052,6 +92254,34 @@ export const schemas = {
           },
           "linear": {
             "properties": {
+              "clocks": {
+                "items": {
+                  "properties": {
+                    "endMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "offsetMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "startMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "startMs",
+                    "endMs",
+                    "offsetMs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "confirmedPositionMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -95528,6 +95758,9 @@ export const schemas = {
               "evidence": {
                 "type": "string"
               },
+              "liveChannels": {
+                "type": "boolean"
+              },
               "name": {
                 "type": "string"
               },
@@ -95796,6 +96029,9 @@ export const schemas = {
               },
               "evidence": {
                 "type": "string"
+              },
+              "liveChannels": {
+                "type": "boolean"
               },
               "name": {
                 "type": "string"
@@ -100803,6 +101039,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -112071,6 +112335,34 @@ export const schemas = {
           },
           "linear": {
             "properties": {
+              "clocks": {
+                "items": {
+                  "properties": {
+                    "endMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "offsetMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "startMs": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "startMs",
+                    "endMs",
+                    "offsetMs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "confirmedPositionMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -113041,6 +113333,34 @@ export const schemas = {
               },
               "linear": {
                 "properties": {
+                  "clocks": {
+                    "items": {
+                      "properties": {
+                        "endMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "offsetMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "startMs": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMs",
+                        "endMs",
+                        "offsetMs"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "confirmedPositionMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,

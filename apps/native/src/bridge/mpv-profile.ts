@@ -46,6 +46,8 @@ export type MpvDeviceFacts = Readonly<{
   dolbyVisionProfiles?: readonly number[];
   /** False when this build of mpv cannot deinterlace. Absent: it can. */
   softwareDeinterlace?: boolean;
+  /** This build's mpv plays live channels (placed by the server's clock epochs). Absent: it does not. */
+  liveChannels?: boolean;
 }>;
 
 export type SubtitleRenderingKind = 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb';
@@ -62,6 +64,7 @@ export type EngineCapabilities = Readonly<{
   subtitleRendering: readonly SubtitleRenderingKind[];
   toneMapsHdr: boolean;
   embeddedAudioSwitching: boolean;
+  liveChannels?: boolean;
 }>;
 
 /** How much software decoding the device can keep up with. */
@@ -214,6 +217,7 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     subtitleRendering: Object.freeze(['text', 'ass', 'pgs', 'vobsub', 'dvb'] as const),
     toneMapsHdr: true,
     embeddedAudioSwitching: true,
+    ...(facts?.liveChannels === true ? {liveChannels: true} : {}),
   });
 }
 

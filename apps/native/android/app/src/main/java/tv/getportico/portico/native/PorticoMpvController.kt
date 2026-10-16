@@ -93,6 +93,11 @@ internal class PorticoMpvController(private val context: Context) {
   private var routeFailed = false
   private var routeEpoch = 0
   private var routePosition = 0.0
+  // A channel: its clock (media time to channel position), and the seek that already reopened
+  // the playlist at its target once (mpv cannot seek a live playlist beyond what it holds).
+  private var linear: PorticoMpvLinearClock? = null
+  private var linearReloaded = -1L
+  private var linearOpenedAt = false
 
   private var core: PorticoMpvCore? = null
   private val relay = PorticoMpvRelay()
@@ -277,8 +282,9 @@ internal class PorticoMpvController(private val context: Context) {
     val clock = command["timelineOriginMs"]
     if (clock != null) {
       if (PorticoMpvSupport.integer(clock) == null) return "Invalid channel clock."
-      return "This player does not play live channels."
-    }
+      if (!LIVE_CHANNELS) return "This player does not play live channels."
+      if (PorticoMpvLinearClock.parse(command["linearClock"]) == null) return "Invalid channel clock."
+    } else if (command["linearClock"] != null) return "Invalid channel clock."
     val route = command["routeRevision"]
     val connection = command["connectionState"]
     if (connection != null) {
@@ -368,6 +374,7 @@ internal class PorticoMpvController(private val context: Context) {
       }
     }
     command = next
+    linear = if (next["timelineOriginMs"] != null) PorticoMpvLinearClock.parse(next["linearClock"]) else null
     val wasPaused = desiredPaused
     desiredPaused = PorticoMpvSupport.boolean(next["paused"]) ?: true
     // Play, pressed again after another app had taken the sound, asks for it back.
@@ -404,7 +411,8 @@ internal class PorticoMpvController(private val context: Context) {
           return
         }
         itemInstanceId = UUID.randomUUID().toString()
-        beginLoad(url)
+        linearReloaded = -1
+        beginLoad(url, linearStart())
         if (routeResume) {
           val epoch = routeEpoch
           val load = loadEpoch
@@ -583,7 +591,26 @@ internal class PorticoMpvController(private val context: Context) {
     if (wasOpen) sessionPlayer.changed()
   }
 
-  private fun beginLoad(url: Uri) {
+  /**
+   * Where a channel opens: the position being restored, or the seek in hand; null for the
+   * server's own start (near the live edge). mpv cannot seek a live playlist outside what it has
+   * read, so the playlist itself is asked to start there.
+   */
+  private fun linearStart(): Double? {
+    if (linear == null) return null
+    if (routeResume && !routeSuspended) return routePosition
+    val pending = pendingSeekCommand()
+    val revision = PorticoMpvSupport.integer(pending?.get("revision"))
+    val target = PorticoMpvSupport.number(pending?.get("positionSeconds"))
+    return if (revision != null && target != null && revision > seekRevision && target >= 0) target else null
+  }
+
+  private fun beginLoad(original: Uri, linearAt: Double? = null) {
+    // The playlist starting at a channel position: the server serves it from the segment
+    // holding that position (?at=milliseconds from the channel's origin).
+    linearOpenedAt = linear != null && linearAt != null && linearAt.isFinite() && linearAt >= 0
+    val url = if (linearOpenedAt)
+      original.buildUpon().clearQuery().appendQueryParameter("at", Math.floor(linearAt!! * 1000).toLong().toString()).build() else original
     loadEpoch++
     val epoch = loadEpoch
     fileRequested = true
@@ -640,7 +667,20 @@ internal class PorticoMpvController(private val context: Context) {
       }
     }
     val options = HashMap<String, String>()
-    if (start != null && start > 0) options["start"] = PorticoMpvSupport.decimal(start)
+    if (linear != null) {
+      // A channel is placed by its clock: media time stays the stream's own (so the server's
+      // clock epochs apply), what has been read stays seekable, and a playlist reopened at a
+      // position is read from its first segment. The position itself is then reached by seek.
+      options["rebase-start-time"] = "no"
+      options["demuxer-seekable-cache"] = "yes"
+      if (linearOpenedAt) options["demuxer-lavf-o"] = "protocol_whitelist=%20%file,http,tcp,crypto,live_start_index=0"
+      if (startSeek != null) {
+        // The seek is made once the picture is up (applyPendingSeek), on the clock.
+        seeking = false
+        seekRevision = startSeek!!.first - 1
+        startSeek = null
+      }
+    } else if (start != null && start > 0) options["start"] = PorticoMpvSupport.decimal(start)
     val media = PorticoMpvSupport.parse(source)
     referencesAllowed = media != null && media.scheme?.lowercase() != "file" && (media.path ?: "").lowercase().endsWith(".m3u8")
     if (referencesAllowed) {
@@ -736,7 +776,7 @@ internal class PorticoMpvController(private val context: Context) {
         if (flight != null && flight.token == event.token) {
           if (event.code < 0) {
             seekInFlight = null
-            completeSeek(flight.revision, flight.target, false)
+            if (!reopenLinearAt(flight.revision, flight.target)) completeSeek(flight.revision, flight.target, false)
           } else {
             flight.commandAccepted = true
             finishRestartedSeek()
@@ -789,7 +829,9 @@ internal class PorticoMpvController(private val context: Context) {
     if (routeResume) {
       routeSeeking = false
       val actual = currentPosition()
-      if (!actual.isFinite() || Math.abs(actual - routePosition) > 0.5) {
+      // A channel reopens at the segment holding the position: within one segment of it.
+      val tolerance = if (linear != null) 8.0 else 0.5
+      if (!actual.isFinite() || Math.abs(actual - routePosition) > tolerance) {
         routeResume = false
         routeFailed = true
         routeEpoch++
@@ -844,8 +886,9 @@ internal class PorticoMpvController(private val context: Context) {
   }
 
   private fun currentPosition(): Double {
-    if (!fileRequested) return lastPosition
-    return if (snapshot.timePos.isFinite()) snapshot.timePos else lastPosition
+    val media = if (!fileRequested || !snapshot.timePos.isFinite()) lastPosition else snapshot.timePos
+    val clock = linear ?: return media
+    return clock.position(media)
   }
 
   private fun applyIntent() {
@@ -879,7 +922,38 @@ internal class PorticoMpvController(private val context: Context) {
     seekToken++
     seekInFlight = SeekFlight(seekToken, revision, target)
     core.set("pause", "yes")
-    core.command(listOf("seek", PorticoMpvSupport.decimal(target), "absolute+exact"), seekToken)
+    // A channel position is sought as the media time its clock maps it to.
+    val media = linear?.media(target, snapshot.timePos) ?: target
+    core.command(listOf("seek", PorticoMpvSupport.decimal(media), "absolute+exact"), seekToken)
+    if (linear != null) {
+      // Outside what mpv holds of a live playlist the seek is accepted and then quietly not
+      // made: no new frame comes. That is a refusal too.
+      val flight = seekInFlight
+      main.postDelayed({
+        if (!invalidated && seekInFlight === flight && flight != null && !flight.restartSeen) {
+          seekInFlight = null
+          if (!reopenLinearAt(flight.revision, flight.target)) completeSeek(flight.revision, flight.target, false)
+        }
+      }, 3_000)
+    }
+  }
+
+  /**
+   * mpv holds only what it has read of a live playlist. A channel seek it refuses is made again
+   * once, on the playlist reopened at the target; a second refusal is a failed seek.
+   */
+  private fun reopenLinearAt(revision: Long, target: Double): Boolean {
+    if (linear == null || linearReloaded == revision || source.isNullOrEmpty()) return false
+    val url = PorticoMpvSupport.parse(source) ?: return false
+    linearReloaded = revision
+    seekInFlight = null
+    seekRevision = revision - 1
+    seeking = true
+    subtitleOverlay.invalidate()
+    resetAudio()
+    unload()
+    beginLoad(url, target)
+    return true
   }
 
   /** A seek is done when mpv has both accepted it and shown the frame there, in whichever order they are reported. */
@@ -1784,6 +1858,13 @@ internal class PorticoMpvController(private val context: Context) {
      * HDR is always tone-mapped on the device.
      */
     const val HDR_DIRECT_OUTPUT = true
+
+    /**
+     * Whether this engine plays live channels. The code is complete but has not yet been played
+     * on a device: until it has, channels stay with the Media3 engine (the capability document
+     * and the engine's features both read this).
+     */
+    const val LIVE_CHANNELS = false
 
     /**
      * Options whose refusal does not stop mpv starting: how the picture is scaled and how text

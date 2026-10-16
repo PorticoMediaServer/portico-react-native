@@ -49,6 +49,7 @@ function documentEngine(engine: EngineCapabilities): DocumentEngine {
     video: engine.video.map(v => ({...v})), audio: engine.audio.map(a => ({...a})), audioPassthrough: [],
     transports: engine.transports.map(t => ({...t})), subtitleRendering: [...engine.subtitleRendering],
     toneMapsHdr: engine.toneMapsHdr, embeddedAudioSwitching: engine.embeddedAudioSwitching,
+    ...(engine.liveChannels ? {liveChannels: true} : {}),
   };
 }
 
