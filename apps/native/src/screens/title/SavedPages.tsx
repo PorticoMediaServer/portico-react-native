@@ -237,7 +237,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const artwork = useArtwork();
   const open = useOpenEntry();
   const {play, invoker} = usePlayList();
-  const {snapshot, refresh, next, mutate} = useSavedResource(resourceId);
+  const {snapshot, refresh, next, mutate, outcome} = useSavedResource(resourceId);
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width), []);
   const gridWidth = (width || window.width - metrics.railWidth) - space.page * 2;
@@ -279,10 +279,30 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
     ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => start(true)}] : []),
     ...(canReorder ? [{icon: arranging ? 'check' as const : 'list' as const, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
   ];
+  // Removing a title from a personal collection (its owner or an editor), with the server's Undo:
+  // the same entry goes back in the same place while the server offers it.
+  const editable = collection && !!resource?.actions.includes('entries');
+  const entryOf = useMemo(() => new Map(ordered.map(e => [e.media.id, e.id])), [ordered]);
+  const [entryMenu, setEntryMenu] = useState<ContentEntry | null>(null);
+  const removeEntry = async (entryId: string, title: string) => {
+    if (!await mutate({action: 'entries', removeEntryIds: [entryId]})) {
+      showToast({message: say(outcome().error ?? 'stale', 'saved', 'save'), icon: 'warning'});
+      return;
+    }
+    const undo = outcome().undo;
+    if (undo) showToast({message: i18n.t('saved.removal.fromCollection', {title}), action: {label: i18n.t('action.undo'), onPress: () => void mutate({action: 'entries', undoToken: undo.token}).then(ok => { if (!ok) showToast({message: i18n.t('saved.removal.undoFailed', {title}), icon: 'warning'}); })}});
+  };
+  const entryItems: MenuItem[] = [{id: 'open', label: i18n.t('web.saved.goToItem')}, {id: 'remove', label: i18n.t('web.saved.removeFromCollection'), destructive: true, section: ''}];
+  const onEntryMenu = (m: ContentEntry, id: string) => {
+    setEntryMenu(null);
+    const entryId = entryOf.get(m.id);
+    if (id === 'open') open(m);
+    else if (id === 'remove' && entryId) void removeEntry(entryId, m.title);
+  };
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
-  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => (editable && entryOf.has(m.id) ? setEntryMenu(m) : open(m, 'more'))} />, [artwork, open, editable, entryOf]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
@@ -291,6 +311,8 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
         data={group.engaged || arranging ? noRows : rows}
         keyExtractor={rowKey}
         renderItem={renderRow}
+        // Cards read whether their titles can be removed here.
+        extraData={editable}
         contentStyle={{paddingTop: 0}}
         refreshControl={pull}
         onScroll={onScroll}
@@ -321,6 +343,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
         ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
+      {entryMenu ? <Menu open onClose={() => setEntryMenu(null)} title={entryMenu.title} items={entryItems} onSelect={id => onEntryMenu(entryMenu, id)} /> : null}
     </View>
   );
 }
