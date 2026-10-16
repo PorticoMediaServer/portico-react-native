@@ -31,6 +31,7 @@ import type {OfflineDisplay} from '../bridge/offline-downloads';
 import {dolbyVisionWarningNeeded, mayCarryVideo} from './dolby-vision';
 import {stepQueue} from './queue-step';
 import {sourceFactsOf, type SourceFacts} from '../../../../packages/client-core/src/presentation/index';
+import {forcedChoiceOf, parseSubtitleLines} from '../../../../packages/client-core/src/subtitle-originals';
 import {audioTrackLabel, type PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
 import {PlaybackOptionsClient} from '../../../../packages/client-core/src/playback-v1/options';
@@ -46,7 +47,7 @@ import {showToast} from '../ui';
 import {chooseEngine, localRuleFacts, parseEngineSetting, type EngineKind} from './engine-choice';
 import {engineSettingStore} from './engine-setting-store';
 import {replanEngine} from './engine-replan';
-import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering, type EngineMedia, type SubtitleFonts, type SubtitleKind} from './engine-media';
+import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, linesUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering, type EngineMedia, type SubtitleFonts, type SubtitleKind} from './engine-media';
 import {automaticSteps} from './native-playback';
 import {noteEngineFact} from './failure-facts';
 import {captionStyle} from './caption-style';
@@ -570,6 +571,17 @@ export function usePlayerEngine() {
     void api.request<unknown>(subtitleFontsUrl, 'GET').then(settle, () => settle(null));
     return () => { live = false; };
   }, [api, subtitleFontsUrl]);
+  // "Forced only" means something only for an image track that marks some lines forced and not
+  // others (as the web decides from the lines it decodes): the server counts them, once per track.
+  const subtitleLinesUrl = engineKind === 'mpv' && !subtitles.suppressed ? linesUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
+  const [subtitleLines, setSubtitleLines] = useState<{key: string; mixed: boolean} | null>(null);
+  useEffect(() => {
+    if (!subtitleLinesUrl) { setSubtitleLines(null); return; }
+    let live = true;
+    void api.request<unknown>(subtitleLinesUrl, 'GET').then(raw => { if (live) setSubtitleLines({key: subtitleLinesUrl, mixed: forcedChoiceOf(parseSubtitleLines(raw))}); }, () => {});
+    return () => { live = false; };
+  }, [api, subtitleLinesUrl]);
+  const forcedChoice = !!subtitleLinesUrl && subtitleLines?.key === subtitleLinesUrl && subtitleLines.mixed;
   // A download's own subtitle tracks (files on this device), chosen here and nowhere else.
   const [offlineExtras, setOfflineExtras] = useState<LocalMedia['extras']>();
   const localSession = isLocalSession(playbackState.session?.id) ? playbackState.session : undefined;
@@ -594,8 +606,8 @@ export function usePlayerEngine() {
     const documentUrl = selected ? plan.documentUrl : undefined;
     if (!documentUrl && !render) return {binding, mode: 'off', revision: plan.revision};
     const track = selected ?? deviceTrack?.resource;
-    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly ? {forcedOnly: true} : {}), style: captions};
-  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly]);
+    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly && forcedChoice ? {forcedOnly: true} : {}), style: captions};
+  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly, forcedChoice]);
   // A chosen track the device is to draw in a kind only mpv draws moves the title to mpv (and
   // back when the choice changes). The server's plan names mpv for such a track already; this
   // holds for a download, and for the moment before a plan arrives.
@@ -989,7 +1001,7 @@ export function usePlayerEngine() {
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
       /** Image subtitles drawn here by mpv: show only their forced lines (for this playback). Null when that does not apply. */
-      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: setForcedOnly} : null,
+      forcedOnly: forcedChoice && subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: setForcedOnly} : null,
       /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */

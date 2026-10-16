@@ -5,6 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from './theme';
 import {gridColumns} from './grid-columns';
 import {Arriving, useArrivals} from './Arriving';
+import {WindowArrivals} from './arrivals';
 
 export {gridColumns};
 
@@ -144,6 +145,12 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
   const [rowHeight, setRowHeight] = useState(0);
   const [headerHeight, setHeaderHeight] = useState(0);
   const listRef = React.useRef<VirtualizedList<number>>(null);
+  // A card a quiet re-read put where another was fades in; one scrolled to does not (`WindowArrivals`).
+  // Another list (a new generation, or another store) starts again before any row of it is drawn.
+  const arrivals = React.useRef<{tracker: WindowArrivals; list: GridWindow<T>; generation: number} | null>(null);
+  if (!arrivals.current) arrivals.current = {tracker: new WindowArrivals(), list, generation};
+  else if (arrivals.current.list !== list || arrivals.current.generation !== generation) { arrivals.current.tracker.reset(); arrivals.current.list = list; arrivals.current.generation = generation; }
+  const tracker = arrivals.current.tracker;
   const spacing = gap ?? space.gutter;
   const fallback = window.width - (isTV ? metrics.railWidth : 0);
   const available = (measured > 0 ? measured : fallback) - space.page * 2;
@@ -178,8 +185,8 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
   const measureRow = useCallback((height: number) => setRowHeight(h => (Math.abs(h - height) > 0.5 ? height : h)), []);
   React.useEffect(() => { setRowHeight(0); }, [columnWidth]);
   const renderRow = useCallback(({index: row}: {index: number}) => (
-    <GridRow list={list} row={row} columns={columns} columnWidth={columnWidth} aspect={aspect} spacing={spacing} total={total} renderItem={renderItem} onMeasure={row === 0 ? measureRow : undefined} />
-  ), [list, columns, columnWidth, aspect, spacing, total, renderItem, measureRow]);
+    <GridRow list={list} row={row} columns={columns} columnWidth={columnWidth} aspect={aspect} spacing={spacing} total={total} renderItem={renderItem} arrivals={tracker} onMeasure={row === 0 ? measureRow : undefined} />
+  ), [list, columns, columnWidth, aspect, spacing, total, renderItem, tracker, measureRow]);
   // tvOS: VirtualizedList wraps its ScrollView in a style-less focus guide that shrink-wraps, so
   // the list takes its slot's measured height instead of `flex: 1` (see PageList).
   const [slot, setSlot] = useState(0);
@@ -218,7 +225,7 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
 }
 export const WindowedGrid = React.forwardRef(WindowedGridInner) as <T>(props: WindowedGridProps<T> & {ref?: React.Ref<WindowedGridHandle>}) => React.ReactElement;
 
-function GridRowInner<T>({list, row, columns, columnWidth, aspect, spacing, total, renderItem, onMeasure}: {list: GridWindow<T>; row: number; columns: number; columnWidth: number; aspect: number; spacing: number; total: number | undefined; renderItem: (item: T, columnWidth: number, index: number) => React.ReactElement; onMeasure?: (height: number) => void}) {
+function GridRowInner<T>({list, row, columns, columnWidth, aspect, spacing, total, renderItem, arrivals, onMeasure}: {list: GridWindow<T>; row: number; columns: number; columnWidth: number; aspect: number; spacing: number; total: number | undefined; renderItem: (item: T, columnWidth: number, index: number) => React.ReactElement; arrivals: WindowArrivals; onMeasure?: (height: number) => void}) {
   const {space, colors, metrics} = useTheme();
   const first = row * columns;
   const last = total === undefined ? first + columns - 1 : Math.min(first + columns, total) - 1;
@@ -238,7 +245,7 @@ function GridRowInner<T>({list, row, columns, columnWidth, aspect, spacing, tota
     if (slot.kind !== 'item') loaded = false;
     cells.push(
       <View key={slot.key} style={{width: columnWidth}}>
-        {slot.kind === 'item' ? renderItem(slot.item, columnWidth, index) : <View style={{width: columnWidth, height: columnWidth * aspect, borderRadius: metrics.radius.card, backgroundColor: colors.raised}} />}
+        {slot.kind === 'item' ? <Arriving on={arrivals.drawn(index, slot.key, Date.now())}>{renderItem(slot.item, columnWidth, index)}</Arriving> : <View style={{width: columnWidth, height: columnWidth * aspect, borderRadius: metrics.radius.card, backgroundColor: colors.raised}} />}
       </View>,
     );
   }

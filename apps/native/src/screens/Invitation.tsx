@@ -7,7 +7,7 @@ import {useI18n} from '../app/i18n';
 import {useSession} from '../app/session';
 import {heldJoinLink, releaseJoinLink, type JoinLink} from '../app/join-link';
 import {nativeConnectionEnvironment} from '../bridge/server-connections';
-import {Button, StateView, showToast, useTheme} from '../ui';
+import {Button, StateView, Text, showToast, useTheme} from '../ui';
 import {AuthFrame} from './auth/AuthFrame';
 import {DirectProfiles} from './auth/DirectProfiles';
 
@@ -35,14 +35,21 @@ export function JoinServer({link, onDone}: {link?: JoinLink; onDone: () => void}
   const [serverName, setServerName] = useState<string>();
   const [error, setError] = useState('');
   const [joined, setJoined] = useState(false);
+  // An invitation made for one Portico Account (the preview says so, never which) cannot be taken
+  // with a username and password, so the browser's join page is not offered for it.
+  const [forAccount, setForAccount] = useState(false);
   useEffect(() => {
     if (!link) return;
     let live = true;
     void (async () => {
       const identity = await inspectDirectServer(link.server, nativeConnectionEnvironment, new AbortController().signal);
       const {api, connection} = await connectPairedServer(link.server, identity, nativeConnectionEnvironment, new AbortController().signal);
-      try { return (await api.system()).name; } finally { connection.dispose(); }
-    })().then(name => { if (live) setServerName(name); }, () => {});
+      try {
+        const name = (await api.system()).name;
+        const preview = await api.request<{forPorticoAccount?: boolean}>('/v1/access/invitations/preview', 'POST', {code: link.code}).catch(() => null);
+        return {name, forAccount: preview?.forPorticoAccount === true};
+      } finally { connection.dispose(); }
+    })().then(found => { if (live) { setServerName(found.name); setForAccount(found.forAccount); } }, () => {});
     return () => { live = false; };
   }, [link]);
   // The server answered with its profiles (more than one, or a PIN): its own chooser, here.
@@ -82,7 +89,8 @@ export function JoinServer({link, onDone}: {link?: JoinLink; onDone: () => void}
         ) : (
           <StateView icon="account" title={i18n.t('invitation.signInTitle')} message={i18n.t('invitation.signInBody')} />
         )}
-        {!isTV ? <Button variant="ghost" label={i18n.t('web.directJoin.withPassword')} fullWidth onPress={inBrowser} /> : null}
+        {forAccount ? <Text variant="caption" tone="secondary" style={{textAlign: isTV ? 'center' : 'left'}}>{i18n.t('web.directJoin.forAccount')}</Text> : null}
+        {!isTV && !forAccount ? <Button variant="ghost" label={i18n.t('web.directJoin.withPassword')} fullWidth onPress={inBrowser} /> : null}
       </View>
     </AuthFrame>
   );

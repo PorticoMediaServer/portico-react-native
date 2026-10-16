@@ -8,7 +8,7 @@ import {useI18n} from '../app/i18n';
 import {defaultI18n} from '../../../../packages/i18n/src/index';
 import {Button, ListRow, Notice, Sheet, StateView, Text, ToggleRow, alpha, showToast, useTheme, type IconName} from '../ui';
 import type {PlayerEngine} from './usePlayer';
-import {bitmapWarningNeeded, isBitmapResource, ownerPlaybackSwitches, textTrackForLanguage, trackName} from '../../../../packages/client-core/src/presentation/index';
+import {bitmapWarningNeeded, isBitmapResource, mediaVersionNames, ownerPlaybackSwitches, subtitleTrackNames, textTrackForLanguage} from '../../../../packages/client-core/src/presentation/index';
 import {playbackInfoRows, qualityNetworkFooter} from '../../../../packages/client-core/src/presentation/index';
 import {connectionTooSlow} from '../../../../packages/client-core/src/playback-v1/quality';
 import {qualityOptionSelected, type QualityInForce, type QualityOption} from '../../../../packages/client-core/src/playback-v1/quality';
@@ -164,7 +164,7 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
         {onReport ? <ListRow icon="flag" title={i18n.t('player.reportProblem')} hasTVPreferredFocus={first('report')} onPress={() => { onClose(); onReport(); }} /> : null}
         {/* The title's chapters, and its other versions (an edition, another copy), when it has them. */}
         {hasChapters ? <ListRow icon="queue" title={i18n.t('player.opt.chapters')} meta={chapterTitle(chapterAt(engine.chapters, state.positionSeconds), engine.chapters, i18n)} trailingIcon="forward" hasTVPreferredFocus={first('chapters')} onPress={() => onPick('chapters')} /> : null}
-        {hasVersions ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.list.find(v => v.id === engine.versions.playingId)?.label} trailingIcon="forward" hasTVPreferredFocus={first('version')} onPress={() => onPick('version')} /> : null}
+        {hasVersions ? <ListRow icon="quality" title={i18n.t('title.version')} meta={engine.versions.playingId ? mediaVersionNames(engine.versions.list, i18n.t).get(engine.versions.playingId) : undefined} trailingIcon="forward" hasTVPreferredFocus={first('version')} onPress={() => onPick('version')} /> : null}
         {/* Which player plays this title: changing it moves the title across where it stands. */}
         {engine.engineSelectable ? <ListRow icon="settings" title={i18n.t('settings.row.player')} meta={i18n.t(`settings.player.${playerInForce}`)} trailingIcon="forward" hasTVPreferredFocus={first('engine')} onPress={() => onPick('engine')} /> : null}
         {!rows.length ? closeRow : null}
@@ -180,10 +180,11 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
       <ListRow key={`${index}:${chapter.startSeconds}`} {...(chapter.thumbnail ? {source: artwork(chapter.thumbnail), shape: 'landscape' as const} : {ordinal: index + 1})} title={chapterTitle(chapter, engine.chapters, i18n)} meta={formatClock(chapter.startSeconds)} selected={chapter === current} hasTVPreferredFocus={chapter === current || (!current && index === 0)} onPress={() => { engine.seekTo(chapter.startSeconds); onClose(); }} />
     ));
   } else if (option === 'version') {
+    // Every version reads differently (the shared rule): two copies alike are told apart by bit rate, size or number.
+    const names = mediaVersionNames(engine.versions.list, i18n.t);
     body = engine.versions.list.map(version => {
       const current = version.id === engine.versions.playingId;
-      const video = version.video[0];
-      return <ListRow key={version.id} title={version.label || version.edition || i18n.t('title.version')} subtitle={[version.edition && version.edition !== version.label ? version.edition : '', video?.height ? i18n.t('quality.height', {height: video.height}) : '', version.container?.toUpperCase() ?? ''].filter(Boolean).join(' · ')} selected={current} hasTVPreferredFocus={current}
+      return <ListRow key={version.id} title={names.get(version.id) ?? i18n.t('title.version')} selected={current} hasTVPreferredFocus={current}
         onPress={() => { if (!current) engine.versions.choose(version.id).catch(() => showToast({message: i18n.t('player.opt.versionChangeFailed'), icon: 'warning'})); onClose(); }} />;
     });
   } else if (option === 'speed') {
@@ -303,12 +304,14 @@ function OfflineSubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngi
   const offline = engine.subtitles.offline;
   if (!offline) return null;
   const off = offline.selectedId === null;
+  // Every track reads differently (the shared rule): "Forced" and "SDH" are in the name, and two alike gain their format or a number.
+  const names = subtitleTrackNames(offline.tracks, i18n.t, i18n.locale);
   return (
     <>
       <ListRow title={i18n.t('player.opt.off')} selected={off} hasTVPreferredFocus={off} onPress={() => { offline.choose(null); onClose(); }} />
       {offline.tracks.map(track => {
         const selected = track.id === offline.selectedId;
-        return <ListRow key={track.id} title={trackName({language: track.language, title: track.title}, i18n.locale) || track.title || track.language} subtitle={track.forced ? i18n.t('player.opt.forced') : undefined} selected={selected} hasTVPreferredFocus={selected} onPress={() => { offline.choose(track.id); onClose(); }} />;
+        return <ListRow key={track.id} title={names.get(track.id) ?? track.language} selected={selected} hasTVPreferredFocus={selected} onPress={() => { offline.choose(track.id); onClose(); }} />;
       })}
       {!offline.tracks.length ? <><Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text>{closeRow}</> : null}
       {offline.selectedId !== null ? <CaptionStyleRows run={engine.state.playbackRun} /> : null}
@@ -335,6 +338,8 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
   // The track on screen is the selection's, or one the engine reads from the file it is playing.
   const shownId = engine.subtitles.shownId;
   const off = shownId === null;
+  // Every track reads differently, as on the web (the shared rule): two unnamed English files gain their format, then a number.
+  const names = subtitleTrackNames(plan.resources, i18n.t, i18n.locale);
   const choose = (resource: (typeof plan.resources)[number] | null) => { engine.subtitles.choose(resource).catch(() => showToast({message: i18n.t('player.subtitles.changeFailed'), icon: 'warning'})); };
   const addable = plan.discovered.filter(d => !plan.resources.some(r => r.discoveryId === d.id && r.enabled));
   const provider = snapshot.catalog?.provider;
@@ -385,7 +390,7 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
       {plan.resources.map(r => {
         const selected = shownId === r.id;
         return (
-          <ListRow key={r.id} title={trackName(r, i18n.locale) || r.title || r.language} subtitle={[r.forced ? i18n.t('player.opt.forced') : '', origin(r.origin, r.provider), r.enabled && isBitmapResource(r) && !ownerBlocks(r) ? (drawn(r) ? drawnNote : bitmapNote) : ''].filter(Boolean).join(' · ')}
+          <ListRow key={r.id} title={names.get(r.id) ?? r.language} subtitle={[origin(r.origin, r.provider), r.enabled && isBitmapResource(r) && !ownerBlocks(r) ? (drawn(r) ? drawnNote : bitmapNote) : ''].filter(Boolean).join(' · ')}
             selected={selected} hasTVPreferredFocus={selected} disabled={!r.enabled || ownerBlocks(r)} meta={!r.enabled ? i18n.t('player.opt.unavailable') : ownerBlocks(r) ? i18n.t('player.ownerOff') : undefined} onPress={() => chooseResource(r)} />
         );
       })}

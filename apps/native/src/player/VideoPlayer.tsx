@@ -38,7 +38,7 @@ import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
 import {defaultRecordingOptions} from '../../../../packages/client-core/src/dvr';
 import {channelTimeline} from '../../../../packages/client-core/src/playback/channel-timeline';
-import {formatBehindSec, isBehindLive, programmeRangeLabel} from '../../../../packages/client-core/src/presentation/index';
+import {formatBehindSec, isBehindLive, programmeRangeLabel, subtitleTrackNames} from '../../../../packages/client-core/src/presentation/index';
 import {TUNER_RESERVED, tunerHandover, tunerHandoverLines} from '../../../../packages/client-core/src/live-handover';
 
 
@@ -343,15 +343,16 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       }
       case 'subtitles': {
         const offline = engine.subtitles.offline;
-        if (offline) { const track = offline.tracks.find(t => t.id === offline.selectedId); return track ? track.language || track.title : i18n.t('player.opt.off'); }
+        // Named as the menu names it (the shared rule), not by its language code.
+        if (offline) return offline.selectedId !== null ? subtitleTrackNames(offline.tracks, i18n.t, i18n.locale).get(offline.selectedId) ?? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
         const plan = engine.subtitles.snapshot.plan;
-        const shown = engine.subtitles.shownId ? plan?.resources.find(r => r.id === engine.subtitles.shownId) : undefined;
-        return shown ? shown.language || shown.title : engine.subtitles.shownId ? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
+        const shownId = engine.subtitles.shownId;
+        return shownId ? (plan ? subtitleTrackNames(plan.resources, i18n.t, i18n.locale).get(shownId) : undefined) ?? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
       }
       case 'quality':
         return qualityInForceLabel(engine.quality.inForce, i18n.t);
       case 'sleep':
-        return state.listeningDeadlines?.sleepAtMs ? 'On' : 'Off';
+        return i18n.t(state.listeningDeadlines?.sleepAtMs ? 'player.opt.on' : 'player.opt.off');
       default:
         return '';
     }

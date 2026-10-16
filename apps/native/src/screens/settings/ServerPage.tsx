@@ -10,13 +10,13 @@ import {LibrariesPanel} from '../server/LibrariesPanel';
 import {LibraryChannelsPanel, LiveSourcesPanel, RecordingRulesPanel, RecordingStoragePanel, TunersPanel} from '../server/LivePanels';
 import {APIKeysPanel, AssistantsPanel, MemberTokensPanel, WebhooksPanel} from '../server/Integrations';
 import {MetadataSettingsPanel} from '../server/MetadataPanels';
-import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
+import {AccountDevices, AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
 import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, PlaybackProblemsPanel, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
 import {BackupsPanel, DiskUsagePanel, MissingTitlesPanel, RemoteSourcesPanel, RetentionRows} from '../server/StoragePanels';
-import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SupportExportPanel} from '../server/Troubleshooting';
+import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SkippedPartsPanel, SupportExportPanel} from '../server/Troubleshooting';
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
@@ -38,6 +38,7 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.channels': return <LibraryChannelsPanel />;
     case 'server.accounts': return <AccountsPanel />;
     case 'server.invitations': return <InvitationsPanel />;
+    case 'server.devices': return <AccountDevices />;
     case 'server.apiKeys': return <APIKeysPanel />;
     case 'server.memberTokens': return <MemberTokensPanel />;
     case 'server.webhooks': return <WebhooksPanel />;
@@ -61,6 +62,7 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.logs': return <MessageLogPanel />;
     case 'server.records': return <RecordsPanel />;
     case 'server.capabilities': return <CapabilitiesPanel />;
+    case 'server.skippedParts': return <SkippedPartsPanel />;
     case 'server.supportExport': return <SupportExportPanel />;
     case 'server.feedback': return <FeedbackPanel />;
     case 'server.identity': return <IdentityRows />;

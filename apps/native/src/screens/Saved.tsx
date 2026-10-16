@@ -15,6 +15,7 @@ import {useSession} from '../app/session';
 import {Button, CardRow, ConfirmSheet, Card, Divider, ListRow, Notice, PageHeader, PageList, Ring, Skeleton, StateView, Tabs, Text, WindowedGrid, alpha, gridColumns, useTheme, type GridWindow, type IconName} from '../ui';
 import {historyRows, type CardRowModel, type DayRowModel} from '../app/list-rows';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {RootHeaderActions} from './Home';
 import {useI18n} from '../app/i18n';
 import {usePullToRefresh} from '../app/refresh';
@@ -173,6 +174,8 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const activeDirection = sort[tab]?.direction ?? (projection?.query.direction as 'asc' | 'desc' | undefined);
 
   const refresh = isPersonal(tab) ? history.refresh : saved.refresh;
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const savedStuck = useQuietRefresh(!isPersonal(tab) && saved.snapshot.phase === 'refresh-required', saved.refresh);
   // APL-SYS-07: pull to refresh (touch) and a quiet refresh after a long absence.
   const pull = usePullToRefresh(refresh, {busy: isPersonal(tab) ? history.snapshot.loading : saved.snapshot.phase === 'loading'});
   // APL-SYS-08: the next page loads as the list nears its end; earlier pages stay.
@@ -257,11 +260,13 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     </View>
   ) : <View style={{height: isTV ? space.xl : space.lg}} />;
   if (sortedOn && sortedWindow.list) {
+    // Cards keep their kind's shape when sorted, as in the list's own order: square albums, posters for films and shows.
+    const sortedShape = dominantShape(loadedKinds(sortedWindow.list as unknown as GridWindow<ContentEntry>, sortedWindow.snapshot.total));
     const empty = sortedWindow.snapshot.total === 0 && sortedWindow.snapshot.status === 'ready';
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
+        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={shapeWidth(sortedShape, metrics)} aspect={shapeAspect(sortedShape)}
           renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}</>}
           footer={empty ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
             : sortedWindow.snapshot.status === 'error' && !sortedWindow.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sortedWindow.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedWindow.list?.retry()} /> : null} />
@@ -269,16 +274,15 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     );
   }
   if (mediaTab && media.length) {
-    const shapes = new Set(media.slice(0, 60).map(e => shapeFor(e.kind)));
-    const dominant = shapes.size === 1 ? shapeFor(media[0]!.kind) : 'poster';
-    const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
+    const dominant = dominantShape(media.slice(0, 60).map(e => e.kind));
+    const itemWidth = shapeWidth(dominant, metrics);
     const notice = saved.snapshot.phase === 'error' ? <Notice tone="error" message={say(saved.snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={saved.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      : saved.snapshot.phase === 'refresh-required' ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
+      : savedStuck ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {/* Touch: the title and tabs stay put above the grid, clear of the status bar. */}
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={dominant === 'landscape' ? 9 / 16 : dominant === 'square' ? 1 : 1.5}
+        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={shapeAspect(dominant)}
           renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}{notice}</>} />
       </View>
     );
@@ -310,7 +314,7 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
             ) : tab === 'history' ? (
               <HistoryStatus snapshot={history.snapshot} count={historyEntries.length} shown={historyShown} width={gridWidth} onRefresh={history.refresh} onClear={history.clearHistory} />
             ) : (
-              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} onRetry={saved.retry} onRefresh={saved.refresh} />
+              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} changedStuck={savedStuck} onRetry={saved.retry} onRefresh={saved.refresh} />
             )}
           </>
         }
@@ -333,15 +337,30 @@ type HistoryEntry = PersonalResourceEntry & {media: ContentEntry};
 const rowKey = (row: SavedRow) => row.key;
 const hasMedia = (entry: PersonalResourceEntry): entry is HistoryEntry => !entry.hidden && !!entry.media;
 
-/** The width a card of this shape asks for; a mixed set reads as posters. */
-function dominantShape(kinds: readonly ContentEntry['kind'][]): 'poster' | 'landscape' | 'square' {
+type GridShape = 'poster' | 'landscape' | 'square';
+const shapeWidth = (shape: GridShape, metrics: {posterWidth: number; landscapeWidth: number; squareWidth: number}) => (shape === 'landscape' ? metrics.landscapeWidth : shape === 'square' ? metrics.squareWidth : metrics.posterWidth);
+const shapeAspect = (shape: GridShape) => (shape === 'landscape' ? 9 / 16 : shape === 'square' ? 1 : 1.5);
+
+/** The kinds of the first titles a sorted list has read (up to 60), for the grid's card shape. */
+function loadedKinds(list: GridWindow<ContentEntry>, total: number | undefined): ContentEntry['kind'][] {
+  const kinds: ContentEntry['kind'][] = [];
+  for (let i = 0; i < Math.min(60, total ?? 60); i++) {
+    const slot = list.slotAt(i);
+    if (slot.kind === 'item') kinds.push(slot.item.kind);
+  }
+  return kinds;
+}
+
+/** The width a card of this shape asks for; a mixed set (or none read yet) reads as posters. */
+function dominantShape(kinds: readonly ContentEntry['kind'][]): GridShape {
+  if (!kinds.length) return 'poster';
   const shapes = new Set(kinds.map(kind => shapeFor(kind)));
   const only = shapes.size === 1 ? shapeFor(kinds[0]!) : 'poster';
   return only === 'landscape' || only === 'square' ? only : 'poster';
 }
 
 /** Errors, the first load and the empty state for Watchlist, Favorites and Playlists. */
-function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; onRetry: () => void; onRefresh: () => void}) {
+function SavedStatus({tab, snapshot, count, width, changedStuck, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; /** The list changed under the screen and quiet re-reads have not brought it back. */ changedStuck: boolean; onRetry: () => void; onRefresh: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const loaded = !!snapshot.projection?.sections.length;
@@ -353,7 +372,7 @@ function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Ex
         <StateView icon="warning" title={i18n.t('saved.loadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRetry} />
       ) : snapshot.phase === 'error' ? (
         <Notice tone="error" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={onRetry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      ) : snapshot.phase === 'refresh-required' ? (
+      ) : changedStuck ? (
         <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={onRefresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       ) : null}
       {loadingFresh ? tab === 'playlists' ? <LoadingRows /> : <LoadingGrid width={width} /> : null}

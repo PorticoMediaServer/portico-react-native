@@ -50,8 +50,8 @@ function receipt(opts: {id: string; viewer: Viewer; itemId: string; preparationI
 
 /* ------------------------------------------------------------------------- *
  * The native module's newer contract: batched meta writes and the files that
- * travel beside a download. The shared stub predates the rewrite, so the four
- * methods (and the change event `start` emits) are added here.
+ * travel beside a download. The shared stub predates the rewrite, so these
+ * methods (and the change events `start` and `setMeta` emit) are added here.
  * ------------------------------------------------------------------------- */
 const nativeDownloads = NativeModules.PorticoDownloads as unknown as Record<string, any>;
 
@@ -85,6 +85,13 @@ nativeDownloads.setMetas = async (metas: Record<string, string>) => {
     device.entries.set(id, {...entry, meta});
     emit('PorticoDownloadChanged', {...device.entries.get(id)});
   }
+};
+// As on both platforms, one entry's details being written is announced like any other change.
+nativeDownloads.setMeta = async (id: string, meta: string) => {
+  const entry = device.entries.get(id);
+  if (!entry) throw Object.assign(new Error('This download no longer exists.'), {code: 'not_found'});
+  device.entries.set(id, {...entry, meta});
+  emit('PorticoDownloadChanged', {...device.entries.get(id)});
 };
 nativeDownloads.writeExtra = async (id: string, name: string, text: string) => { extra(id).set(name, text); };
 nativeDownloads.readExtra = async (id: string, name: string) => extra(id).get(name) ?? '';
@@ -947,4 +954,127 @@ test('successive observations of one title have an order the server can distingu
   await offlineDownloads.syncProgress();
   assert.equal(serverPosition, 20000);
   assert.equal(JSON.parse(device.state).resume[owner]['item-1'], 20);
+});
+
+/* ------------------------------------------------------------------------- *
+ * Looking after downloads while online (`tend`), and a receipt the server no
+ * longer knows (`recover`).
+ * ------------------------------------------------------------------------- */
+
+const renewing = (r: ReturnType<typeof receipt>) => () => ({results: [{receiptId: r.receiptId, outcome: 'renewed', receipt: r, code: ''}]});
+
+test('a transfer that stopped by itself starts again; one the person paused, or that cannot mend, does not', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  const rA = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
+  device.seed({id: 'prep-a', itemId: 'item-1', state: 'failed', error: 'network', meta: {owner, receipt: rA}});
+  device.seed({id: 'prep-b', itemId: 'item-2', state: 'paused', intent: 'hold', meta: {owner}});
+  device.seed({id: 'prep-c', itemId: 'item-3', state: 'failed', error: 'checksum', meta: {owner}});
+  device.seed({id: 'prep-d', itemId: 'item-4', state: 'paused', meta: {owner}});
+  const service = downloadsService();
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', renewing(rA))
+    .route('/v1/downloads/receipts', (body: any) => ({results: [{preparationId: body.preparationIds[0], outcome: 'refused', code: 'not_ready', receipt: null}]}));
+
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
+  await settle();
+
+  assert.deepEqual(device.started.map(r => r.id).sort(), ['prep-a', 'prep-d']);
+  assert.equal(JSON.parse(device.started.find(r => r.id === 'prep-a')!.meta).token, 'tok_prep-a', 'it continues with a fresh address');
+});
+
+test('a transfer the server can no longer hand over is not asked for again for a quarter of an hour', async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.parse('2026-10-13T12:00:00Z')});
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  const rA = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
+  device.seed({id: 'prep-a', itemId: 'item-1', state: 'failed', error: 'grant_expired', meta: {owner, receipt: rA}});
+  const service = downloadsService();
+  let grants = 0;
+  service.grant = async () => { grants++; throw Object.assign(new Error('gone'), {status: 410}); };
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', renewing(rA));
+
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
+  await settle();
+  assert.equal(grants, 1);
+  t.mock.timers.tick(60 * 1000);
+  offlineDownloads.wake();
+  await settle();
+  assert.equal(grants, 1, 'not every half minute');
+  t.mock.timers.tick(15 * 60 * 1000);
+  offlineDownloads.wake();
+  await settle();
+  assert.equal(grants, 2, 'asked again later');
+  assert.deepEqual(device.removed, [], 'the bytes already here are kept');
+});
+
+test('a download that arrived without what travels with it gets it on a later pass', async () => {
+  const {offlineDownloads} = await bridge();
+  const owner = ownerKeyOf(A);
+  const rA = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, receipt: rA, onServer: true, bundle: 1}});
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', renewing(rA));
+
+  offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
+  await settle();
+
+  assert.ok(extra('prep-a').has('bundle.json') && extra('prep-a').has('poster') && extra('prep-a').has('sub-sub1-1.vtt'));
+  assert.equal(device.metaOf('prep-a').bundle, 3, 'it is complete and not fetched again');
+  assert.deepEqual(device.started, [], 'the file itself is not transferred again');
+});
+
+/** A device holding prep-a for item-1 whose receipt the server has forgotten, with the claim gone too. */
+function forgotten(fresh: ReturnType<typeof preparation> | undefined) {
+  const owner = ownerKeyOf(A);
+  const rA = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
+  device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, receipt: rA, onServer: true, bundle: 3}});
+  const issued = receipt({id: 'r-fresh', viewer: A, itemId: 'item-1', preparationId: 'prep-fresh'});
+  const service = downloadsService();
+  service.nextBatch = {...service.nextBatch, items: fresh ? [fresh] : []};
+  const s = server().route('/v1/downloads/receipt-keys', KEYS)
+    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'refused', code: 'unknown_receipt'}]}))
+    .route('/v1/downloads/receipts', (body: any) => ({results: [body.preparationIds[0] === 'prep-fresh'
+      ? {preparationId: 'prep-fresh', outcome: 'issued', code: '', receipt: issued, titleOnServer: true}
+      : {preparationId: body.preparationIds[0], outcome: 'refused', code: 'unknown_preparation', receipt: null}]}));
+  return {service, s};
+}
+
+test('a forgotten receipt is replaced by a fresh claim for the very file this device holds', async () => {
+  const {offlineDownloads} = await bridge();
+  const {service, s} = forgotten(preparation('prep-fresh', 'item-1'));
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
+  await settle();
+
+  assert.deepEqual(service.requested.map(r => r.quality), [''], 'the same title is asked for again');
+  const meta = device.metaOf('prep-a');
+  assert.equal(meta.receipt.receiptId, 'r-fresh');
+  assert.equal(meta.claim, 'prep-fresh', 'later renewals use the new claim');
+  assert.notEqual(meta.changed, true);
+  assert.deepEqual(device.started, [], 'nothing is transferred again');
+  assert.deepEqual(device.removed, []);
+});
+
+test('a forgotten receipt whose fresh claim names a different file keeps this copy and says the server’s changed', async () => {
+  const {offlineDownloads} = await bridge();
+  const fresh = {...preparation('prep-fresh', 'item-1'), artifact: {...preparation('prep-fresh', 'item-1').artifact, sha256: 'b'.repeat(64)}};
+  const {service, s} = forgotten(fresh);
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
+  await settle();
+
+  const meta = device.metaOf('prep-a');
+  assert.equal(meta.changed, true);
+  assert.equal(meta.receipt.receiptId, 'r-a', 'the copy keeps the receipt it has until it runs out');
+  assert.equal(s.sent('/v1/downloads/receipts').filter(c => c.body.preparationIds[0] === 'prep-fresh').length, 0, 'no receipt for another file');
+  assert.equal(offlineDownloads.getSnapshot().entries[0]!.changedOnServer, true);
+  assert.deepEqual(device.removed, []);
+});
+
+test('a forgotten receipt whose title is still being prepared is left for the next renewal', async () => {
+  const {offlineDownloads} = await bridge();
+  const {service, s} = forgotten({...preparation('prep-fresh', 'item-1'), state: 'preparing'});
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
+  await settle();
+
+  assert.equal(device.metaOf('prep-a').receipt.receiptId, 'r-a');
+  assert.notEqual(device.metaOf('prep-a').changed, true);
+  assert.deepEqual(device.removed, []);
 });

@@ -71,5 +71,7 @@ export function useSavedResource(resourceId: string) {
   const previous = useCallback(() => void service.previous().catch(() => {}), [service]);
   /** A change to the resource (a collection's order); resolves false with the reason in the snapshot. */
   const mutate = useCallback((intent: PersonalSavedIntent) => service.mutate(intent), [service]);
-  return {snapshot, refresh, next, previous, mutate};
+  /** What the last change left: the Undo a removal offers, or why it was refused. */
+  const outcome = useCallback(() => { const now = service.getSnapshot(); return {undo: now.result?.undo, error: now.mutationError}; }, [service]);
+  return {snapshot, refresh, next, previous, mutate, outcome};
 }

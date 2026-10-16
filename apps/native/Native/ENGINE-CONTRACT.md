@@ -259,7 +259,7 @@ Two ways to draw a track:
    (`.vtt`) inside the app's Downloads folder, checked like the source: the engine reads it once
    and draws its cues the same way, with no re-check. Otherwise the
    address must be on the media's own origin, under the media's grant
-   (`/v1/media/<grant>/subtitles/<resourceId>/<resourceRevision>`), `https` or `http` as the media is,
+   (`/v1/media/subtitles/<grant>/<resourceId>/<resourceRevision>`), `https` or `http` as the media is,
    with no credentials, query or fragment; otherwise `subtitleStatus`: `The subtitle
    address does not belong to this playback session.` The document is re-checked every 25 seconds
    with its ETag and blanked after 40 seconds without a good answer. A subtitle file or font is
@@ -335,7 +335,17 @@ maxFrameRate, tenBit}}` (each hardware decoder's own limits), `hdrOutputRanges: 
 
 ## 10. What mpv does not do
 
-No Picture in Picture, no AirPlay video, no live channels, no music sessions, no bitstream
-passthrough (sound is decoded to PCM), no HDR output on a television (HDR is tone-mapped on the
-device there; an iPhone or iPad with an HDR screen shows HDR). Each is declared in `features` or
-in the capability profile, and the player hides what does not apply.
+Everywhere: no Picture in Picture, no AirPlay video, no live channels, no music sessions, no
+bitstream passthrough (sound is decoded to PCM in as many channels as the output takes), and
+Dolby Vision is never output as Dolby Vision. The engine is Portico's own build
+(`third_party/media-engine/`), the same recipe on both platforms.
+
+- **Apple.** No HDR output on a television: HDR is tone-mapped on the device there (an iPhone or
+  iPad with an HDR screen shows HDR).
+- **Android, Android TV and Fire TV.** An HDR10 or HLG title on a screen that shows it is shown in
+  HDR (direct output), except while mpv draws the subtitles itself (ASS, PGS, VobSub, DVB): the
+  title is then tone-mapped to standard range on the device. Dolby Vision profiles 7 and 8 play
+  their HDR10 layer; profile 5 is not offered. No deinterlacing of interlaced video.
+
+Each is declared in `features` or in the capability profile (Android's per-engine display ranges
+come from `facts()`), and the player hides what does not apply.

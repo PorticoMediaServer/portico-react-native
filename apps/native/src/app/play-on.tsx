@@ -7,7 +7,7 @@ import {NativeQueueStore} from '../bridge/queue-storage';
 import {profileInstallation} from '../bridge/profile-trust';
 import {deviceIdentity} from '../bridge/setup-codes';
 import {deviceModelName} from '../bridge/device-platform';
-import {committedHandoffId, readSentPlayback, type SentPlayback} from './play-on-memory';
+import {readSentPlayback, type SentPlayback} from './play-on-memory';
 import {hasRealOrigin, useSession} from './session';
 import {viewerKey} from './viewer-scope';
 
@@ -64,32 +64,29 @@ export function PlayOnProvider({children}: {children: React.ReactNode}) {
   const viewer = hasRealOrigin(api) ? viewerKey(session, api) : '';
   const [sent, setSent] = useState<SentPlayback>();
   const title = useRef<string | undefined>(undefined);
+  const reconnecting = useRef<string | undefined>(undefined);
   const controller = useMemo(() => {
     if (!viewer) return null;
     let id = 'apple-controller';
     let name = deviceModelName;
     void profileInstallation().then(v => { if (v) id = v; }, () => {});
     void deviceIdentity().then(d => { name = d.deviceName; }, () => {});
-    let made: HandoffController | undefined;
-    const remember = (handoffId: string) => {
-      const record: SentPlayback = {viewer, handoffId, device: made?.getSnapshot().target?.displayName ?? '', ...(title.current ? {title: title.current} : {}), at: Date.now()};
-      setSent(record);
-      void store.change(KEY, () => ({record, value: undefined})).catch(() => {});
-    };
-    made = new HandoffController({
-      // The same transport, watched for the one answer that says a handoff was committed: the
-      // controller does not say which handoff it was, and that is what a later launch asks for.
-      api: {
-        request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
-          const answer = await api.request<T>(path, method, body, signal);
-          const committed = committedHandoffId(path, method ?? 'GET', answer);
-          if (committed) remember(committed);
-          return answer;
-        },
-        requestRaw: (path, method, options) => api.requestRaw(path, method, options),
-      },
+    const made = new HandoffController({
+      api,
       device: {get deviceId() { return id; }, get displayName() { return name; }},
       requestId: () => 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2),
+    });
+    // A handoff this device has just committed is kept, so a later launch can pick its controls
+    // back up. One the controller reconnected to (`reconnecting`) is already kept as it was.
+    let known: string | undefined;
+    made.subscribe(() => {
+      const now = made.getSnapshot();
+      if (now.phase !== 'done' || !now.handoffId || now.handoffId === known) return;
+      known = now.handoffId;
+      if (now.handoffId === reconnecting.current) return;
+      const record: SentPlayback = {viewer, handoffId: now.handoffId, device: now.target?.displayName ?? '', ...(title.current ? {title: title.current} : {}), at: Date.now()};
+      setSent(record);
+      void store.change(KEY, () => ({record, value: undefined})).catch(() => {});
     });
     return made;
     // The viewer key stays the same when the sign-in is renewed; the API object is the session's own.
@@ -105,6 +102,7 @@ export function PlayOnProvider({children}: {children: React.ReactNode}) {
     let live = true;
     void store.change<SentPlayback | undefined>(KEY, raw => ({record: raw, value: readSentPlayback(raw, viewer, Date.now())})).then(async saved => {
       if (!live || !saved || controller.getSnapshot().phase !== 'idle') return;
+      reconnecting.current = saved.handoffId;
       const playing = await controller.reconnect(saved.handoffId);
       if (!live) return;
       if (playing) setSent(saved);

@@ -76,6 +76,8 @@ class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context
     val body = Arguments.createMap()
     body.putString("state", state)
     body.putString("deviceName", session?.castDevice?.friendlyName ?: "")
+    // The SDK's own id for the television: two with one name keep separate pairing proofs.
+    body.putString("deviceId", session?.castDevice?.deviceId ?: "")
     body.putString("error", if (failed) "cast_failed" else "")
     emit("PorticoCastSession", body)
   }
@@ -117,7 +119,7 @@ class PorticoCast(context: ReactApplicationContext) : PorticoEventModule(context
       val session = context()?.sessionManager?.currentCastSession
       if (session == null || !session.isConnected) { promise.resolve(null); return@post }
       attach(session)
-      promise.resolve(Arguments.createMap().apply { putString("deviceName", session.castDevice?.friendlyName ?: "") })
+      promise.resolve(Arguments.createMap().apply { putString("deviceName", session.castDevice?.friendlyName ?: ""); putString("deviceId", session.castDevice?.deviceId ?: "") })
     }
   }
 

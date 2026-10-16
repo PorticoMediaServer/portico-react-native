@@ -79,6 +79,9 @@ jobs:
       - name: Assemble the debug builds (phones and televisions, Fire OS)
         run: ./gradlew --no-daemon assembleDebug
         working-directory: apps/native/android
+      - name: Kotlin unit tests (JVM, no device)
+        run: ./gradlew --no-daemon :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest
+        working-directory: apps/native/android
 
   apple-contracts:
     runs-on: macos-15

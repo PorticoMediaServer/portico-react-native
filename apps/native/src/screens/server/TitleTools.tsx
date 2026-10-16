@@ -6,8 +6,9 @@ import {deletionAllowed, versionDeletionService, type VersionDeletePreview} from
 import type {TitleFile} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {SearchService, type SearchSnapshot} from '../../../../../packages/client-core/src/search';
-import {MERGEABLE_KINDS, SPLITTABLE_KINDS, canMergeTitles, findLibraryFile, mergeTitles, separateLibraryFile} from '../../../../../packages/client-core/src/title-identity';
-import {viewerScope} from '../../app/content';
+import {CONTAINER_MERGE_KINDS, MERGEABLE_KINDS, SPLITTABLE_KINDS, canMergeTitles, findLibraryFile, mergeExplanation, mergeTitles, separateLibraryFile} from '../../../../../packages/client-core/src/title-identity';
+import type {ContentView} from '../../../../../packages/client-core/src/library-content';
+import {iconFor, viewerScope} from '../../app/content';
 import {useI18n} from '../../app/i18n';
 import type {ContentStackParams} from '../../app/routes';
 import {useSession} from '../../app/session';
@@ -36,12 +37,12 @@ export function useTitleTools(title: ToolTitle | undefined, files: readonly Titl
   const owner = session?.viewer.role === 'owner' && !isTV;
   if (!owner || !title) return {sheets: null};
   // The title that remains, or the new one, takes this page's place: the page it came from no longer says what is true.
-  const open = (id: string) => { if (options.inPlace) return; requestAnimationFrame(() => afterOverlaysClose(() => (title.kind === 'show' ? navigation.replace('Show', {libraryId: title.libraryId, showId: id}) : navigation.replace('Detail', {libraryId: title.libraryId, itemId: id})))); };
+  const open = (id: string) => { if (options.inPlace) return; requestAnimationFrame(() => afterOverlaysClose(() => (title.kind === 'show' ? navigation.replace('Show', {libraryId: title.libraryId, showId: id}) : CONTAINER_MERGE_KINDS.includes(title.kind) ? navigation.replace('Entity', {libraryId: title.libraryId, view: title.kind as ContentView, entityId: id}) : navigation.replace('Detail', {libraryId: title.libraryId, itemId: id})))); };
   const labels: Readonly<Record<'split' | 'delete', MenuItem>> = {split: {id: 'split', label: t('title.split.action'), icon: 'link'}, delete: {id: 'delete', label: t('title.deleteVersion.action'), icon: 'trash', destructive: true}};
   const canMerge = MERGEABLE_KINDS.includes(title.kind) && !!mergeSearchGroup(title.kind);
   return {
     fileAction: (file, summary) => setMenu({file, summary}),
-    mergeRow: canMerge ? <RowGroup><ListRow tone="action" icon="link" title={t('web.selection.merge')} onPress={() => setMerging(true)} /></RowGroup> : undefined,
+    mergeRow: canMerge ? <RowGroup><ListRow tone="action" icon="link" title={t('title.merge.action')} onPress={() => setMerging(true)} /></RowGroup> : undefined,
     sheets: (
       <>
         <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.summary} subtitle={menu?.file.path}
@@ -154,33 +155,33 @@ function MergeSheet({open, title, onClose, onMerged}: {open: boolean; title: Too
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, group, other, query, service, title.libraryId]);
-  // A show is named by its own id, as its page is; the rest by the entry's.
+  // A show, album, book or artist is named by its own id, as its page is; the rest by the entry's.
   const found = (snapshot.groups.find(g => g.id === group)?.items ?? []).flatMap((result): Other[] => {
     if (result.kind === 'person' || result.kind === 'channel') return [];
     const entry = result as ContentEntry;
-    const candidate: Other = {id: entry.kind === 'show' ? entry.navigation?.entityId ?? entry.id : entry.id, kind: entry.kind, title: entry.title, libraryId: entry.libraryId, year: entry.year, subtitle: entry.subtitle};
+    const candidate: Other = {id: entry.kind === 'show' || CONTAINER_MERGE_KINDS.includes(entry.kind) ? entry.navigation?.entityId ?? entry.id : entry.id, kind: entry.kind, title: entry.title, libraryId: entry.libraryId, year: entry.year, subtitle: entry.subtitle};
     return canMergeTitles(title, candidate) ? [candidate] : [];
   });
   const order = other ? mergeOrder<Other>(title, other, keep) : undefined;
   const merge = () => void action.run(async () => { if (order) onMerged(await mergeTitles(api, order.from.id, order.into.id)); });
   return (
-    <Sheet open={open} onClose={onClose} kind="form" title={other ? t('web.merge.title') : t('web.selection.merge')} subtitle={other ? undefined : named(title)}
+    <Sheet open={open} onClose={onClose} kind="form" title={other ? t('web.merge.title') : t('title.merge.action')} subtitle={other ? undefined : named(title)}
       primary={other ? {label: t('web.selection.merge'), loading: action.busy, onPress: merge} : undefined} leading={other ? {label: t('action.back'), onPress: () => setOther(undefined)} : undefined}>
       <View style={{gap: space.md}}>
         {action.error ? <Notice tone="error" message={action.error} /> : null}
         {!other ? (
           <>
-            <Field label={t('server.attention.searchFor')} value={query} onChangeText={setQuery} maxLength={200} autoCorrect={false} autoFocus returnKeyType="search" />
+            <Field label={t('title.merge.find')} value={query} onChangeText={setQuery} maxLength={200} autoCorrect={false} autoFocus returnKeyType="search" />
             {snapshot.phase === 'error' && snapshot.error ? <Notice tone="error" message={problem(snapshot.error)} action={t('action.tryAgain')} onAction={() => void service.retry().catch(() => {})} /> : null}
-            {found.length ? <RowGroup>{found.map(entry => <ListRow key={entry.id} icon={entry.kind === 'show' ? 'tv' : entry.kind === 'song' ? 'music' : 'film'} title={named(entry)} subtitle={entry.subtitle} accessory="navigation" onPress={() => { setOther(entry); setKeep(title.id); }} />)}</RowGroup> : null}
-            {snapshot.phase === 'ready' && !found.length ? <RowGroup><ListRow title={t('server.live.noMatches')} /></RowGroup> : null}
+            {found.length ? <RowGroup>{found.map(entry => <ListRow key={entry.id} icon={iconFor(entry.kind as ContentEntry['kind'])} title={named(entry)} subtitle={entry.subtitle} accessory="navigation" onPress={() => { setOther(entry); setKeep(title.id); }} />)}</RowGroup> : null}
+            {snapshot.phase === 'ready' && !found.length ? <RowGroup><ListRow title={t('title.merge.none')} /></RowGroup> : null}
           </>
         ) : (
           <>
             <RowGroup title={t('web.merge.keep')}>
               {[title, other].map(x => <ListRow key={x.id} title={named(x)} selected={keep === x.id} trailingIcon={keep === x.id ? 'check' : undefined} accessibilityState={{selected: keep === x.id}} onPress={() => setKeep(x.id)} />)}
             </RowGroup>
-            <Text variant="body" tone="secondary" style={{paddingHorizontal: pad}}>{t('web.merge.body', {title: named(order!.from)})}</Text>
+            <Text variant="body" tone="secondary" style={{paddingHorizontal: pad}}>{t(mergeExplanation(title.kind), {title: named(order!.from)})}</Text>
           </>
         )}
       </View>
@@ -204,7 +205,7 @@ export function useMergeTwo(entries: readonly Readonly<{id: string; kind: string
   const offered = owner && mergeable.some((a, i) => mergeable.some((b, j) => j > i && canMergeTitles(a, b)));
   if (!offered) return {sheet: null};
   return {
-    row: <RowGroup><ListRow tone="action" icon="link" title={t('web.selection.merge')} onPress={() => setOpen(true)} /></RowGroup>,
+    row: <RowGroup><ListRow tone="action" icon="link" title={t('title.merge.action')} onPress={() => setOpen(true)} /></RowGroup>,
     sheet: <MergeTwoSheet open={open} entries={mergeable} onClose={() => setOpen(false)} onMerged={() => { setOpen(false); onMerged(); }} />,
   };
 }
@@ -226,7 +227,7 @@ function MergeTwoSheet({open, entries, onClose, onMerged}: {open: boolean; entri
   const merge = () => void action.run(async () => { if (order) { await mergeTitles(api, order.from.id, order.into.id); onMerged(); } });
   const back = other ? () => setOther(undefined) : first ? () => setFirst(undefined) : undefined;
   return (
-    <Sheet open={open} onClose={onClose} kind="form" title={order ? t('web.merge.title') : t('web.selection.merge')} subtitle={first && !other ? named(first) : undefined}
+    <Sheet open={open} onClose={onClose} kind="form" title={order ? t('web.merge.title') : t('title.merge.action')} subtitle={first && !other ? named(first) : undefined}
       primary={order ? {label: t('web.selection.merge'), loading: action.busy, onPress: merge} : undefined} leading={back ? {label: t('action.back'), onPress: back} : undefined}>
       <View style={{gap: space.md}}>
         {action.error ? <Notice tone="error" message={action.error} /> : null}
