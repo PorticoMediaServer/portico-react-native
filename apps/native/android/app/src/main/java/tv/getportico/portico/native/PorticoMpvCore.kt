@@ -213,7 +213,8 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   private var decoding = "no"
 
   /**
-   * Which video output draws the picture, and which hardware decoding goes with it. Applied at
+   * Which video output draws the picture ("gpu", "gpu-next" or "mediacodec_embed"), and which
+   * hardware decoding goes with it. Applied at
    * once when a surface is attached, and remembered for the next surface otherwise: a video
    * output is never opened without a surface to draw on.
    */
@@ -227,7 +228,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       // Each step leaves a picture that can be drawn. Towards the decoder drawing straight onto
       // the surface, the decoder is switched first (its frames suit both outputs); away from it,
       // the output first (mpv's own output takes the frames the decoder was already making).
-      if (output == "gpu") {
+      if (output != "mediacodec_embed") {
         PorticoMpvNative.setProperty(current, "vo", output.toByteArray())
         PorticoMpvNative.setProperty(current, "hwdec", decoding.toByteArray())
       } else {

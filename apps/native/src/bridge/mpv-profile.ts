@@ -19,10 +19,9 @@ import type {ClientAudioCodec, ClientTransport, ClientVideoCodec, DynamicRange, 
  * engine. Sound is decoded on the device to PCM in as many channels as the output takes; nothing
  * is passed through as a bitstream, and object audio (Atmos, DTS:X) plays as its channel bed.
  *
- * Android differs in three ways, each reported by its module and none assumed here:
- * - Dolby Vision profile 5 is not offered (its colours need mpv's gpu-next renderer; the Android
- *   engine draws with vo=gpu); profiles 7 and 8 play as their HDR10 layer.
- * - Interlaced video is not offered: the Android engine does not ask mpv to deinterlace.
+ * Android differs in two ways, each reported by its module and none assumed here:
+ * - Dolby Vision profiles 7 and 8 play as their HDR10 layer; profile 5 (no such layer) is drawn
+ *   by mpv's gpu-next renderer, which reshapes it.
  * - An HDR title on an HDR screen is shown in HDR (the decoder draws straight onto the surface),
  *   unless the chosen subtitles are ones mpv must draw, when it is tone-mapped like any other.
  */
