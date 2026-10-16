@@ -269,6 +269,53 @@ internal object PorticoMpvFonts {
   fun select(context: Context, language: String?) {
     val base = PorticoMpvSupport.baseLanguage((language ?: "").lowercase())
     val wanted = (if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else SCRIPTS[base]?.let { scriptFont(it) }) ?: ordinary() ?: return
+    link(context, wanted)
+  }
+
+  /** By the script the letters are written in (`scriptOf`), for the text's own face. */
+  private val BY_SCRIPT: Map<Character.UnicodeScript, Script> = mapOf(
+      Character.UnicodeScript.ARABIC to ARABIC, Character.UnicodeScript.HEBREW to HEBREW, Character.UnicodeScript.THAI to THAI,
+      Character.UnicodeScript.DEVANAGARI to DEVANAGARI, Character.UnicodeScript.BENGALI to BENGALI, Character.UnicodeScript.TAMIL to TAMIL,
+      Character.UnicodeScript.TELUGU to TELUGU, Character.UnicodeScript.KANNADA to KANNADA, Character.UnicodeScript.MALAYALAM to MALAYALAM,
+      Character.UnicodeScript.GUJARATI to GUJARATI, Character.UnicodeScript.GURMUKHI to GURMUKHI, Character.UnicodeScript.SINHALA to Script("Sinhala"),
+      Character.UnicodeScript.KHMER to Script("Khmer"), Character.UnicodeScript.LAO to Script("Lao"), Character.UnicodeScript.MYANMAR to Script("Myanmar"),
+      Character.UnicodeScript.ARMENIAN to Script("Armenian"), Character.UnicodeScript.GEORGIAN to Script("Georgian"), Character.UnicodeScript.ETHIOPIC to Script("Ethiopic"))
+  private val EAST_ASIAN_SCRIPTS = setOf(Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA, Character.UnicodeScript.HANGUL, Character.UnicodeScript.BOPOMOFO)
+  private val PLAIN_SCRIPTS = setOf(Character.UnicodeScript.LATIN, Character.UnicodeScript.GREEK, Character.UnicodeScript.CYRILLIC, Character.UnicodeScript.COMMON, Character.UnicodeScript.INHERITED, Character.UnicodeScript.UNKNOWN)
+
+  /**
+   * The script most of the letters in [text] are written in, when it is one the ordinary face
+   * does not draw (Latin, Greek and Cyrillic are the ordinary face's); null otherwise. East Asian
+   * scripts count as one (their face draws all of them, and Latin too).
+   */
+  fun scriptOf(text: String): Character.UnicodeScript? {
+    val counts = HashMap<Character.UnicodeScript, Int>()
+    var i = 0
+    while (i < text.length && i < 2000) {
+      val cp = text.codePointAt(i)
+      i += Character.charCount(cp)
+      val script = try { Character.UnicodeScript.of(cp) } catch (_: IllegalArgumentException) { continue }
+      if (script in PLAIN_SCRIPTS) continue
+      val key = if (script in EAST_ASIAN_SCRIPTS) Character.UnicodeScript.HAN else script
+      counts[key] = (counts[key] ?: 0) + 1
+    }
+    return counts.maxByOrNull { it.value }?.key
+  }
+
+  /**
+   * Points the default font at the face for the script [text] is written in, when the language
+   * tag chose another (an untagged or mistagged track, or a line in a second script). True when
+   * the face changed: the track must be opened again to use it.
+   */
+  fun selectFor(context: Context, text: String): Boolean {
+    val script = scriptOf(text) ?: return false
+    val wanted = (if (script == Character.UnicodeScript.HAN) systemFont(EAST_ASIAN) else BY_SCRIPT[script]?.let { scriptFont(it) }) ?: return false
+    if (linked == wanted.path) return false
+    link(context, wanted)
+    return linked == wanted.path
+  }
+
+  private fun link(context: Context, wanted: File) {
     if (linked == wanted.path) return
     val directory = configDirectory(context)
     val link = File(directory, "subfont.ttf")

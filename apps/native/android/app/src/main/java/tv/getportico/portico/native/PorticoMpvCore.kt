@@ -39,6 +39,8 @@ internal sealed class PorticoMpvEvent {
   class EndFile(val reason: Int, val code: Int, val message: String, val log: List<String>) : PorticoMpvEvent()
   class TracksChanged(val tracks: List<Map<String, Any?>>) : PorticoMpvEvent()
   class VideoParams(val params: Map<String, Any?>) : PorticoMpvEvent()
+  /** The subtitle line on screen now, as plain text ("" between lines). */
+  class SubtitleText(val text: String) : PorticoMpvEvent()
   /** An observed property other than the two above changed; the snapshot has the new value. */
   class Changed(val name: String) : PorticoMpvEvent()
   /** An asynchronous command finished. `code` is 0 or a negative mpv error. */
@@ -416,6 +418,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     when (name) {
       "track-list" -> deliver(PorticoMpvEvent.TracksChanged(PorticoMpvSupport.jsonList(string("track-list"))))
       "video-params" -> deliver(PorticoMpvEvent.VideoParams(PorticoMpvSupport.jsonMap(string("video-params"))))
+      "sub-text" -> deliver(PorticoMpvEvent.SubtitleText(string("sub-text") ?: ""))
       else -> deliver(PorticoMpvEvent.Changed(name))
     }
   }
@@ -423,7 +426,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
   companion object {
     private val EMPTY = PorticoMpvSnapshot()
     private val GRANT = Regex("/v1/media/(?:subtitles/)?[A-Za-z0-9_-]+/")
-    private val OBSERVED = listOf("pause", "paused-for-cache", "core-idle", "eof-reached", "seeking", "speed", "duration", "aid", "sid", "vid", "track-list", "video-params", "hwdec-current")
+    private val OBSERVED = listOf("pause", "paused-for-cache", "core-idle", "eof-reached", "seeking", "speed", "duration", "aid", "sid", "vid", "track-list", "video-params", "hwdec-current", "sub-text")
 
     /** The libraries are in this build and load on this device. */
     val available: Boolean by lazy { try { PorticoMpvNative.load() } catch (_: Throwable) { false } }

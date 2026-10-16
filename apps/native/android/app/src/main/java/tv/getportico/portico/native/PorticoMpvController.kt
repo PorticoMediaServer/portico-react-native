@@ -717,6 +717,7 @@ internal class PorticoMpvController(private val context: Context) {
           publishMediaInfo()
         }
       }
+      is PorticoMpvEvent.SubtitleText -> fontForText(event.text)
       is PorticoMpvEvent.Changed -> when (event.name) {
         "paused-for-cache" -> {
           if (next.pausedForCache && !before.pausedForCache && hasPlayed && !next.eofReached) emit("stalled", null)
@@ -1336,6 +1337,31 @@ internal class PorticoMpvController(private val context: Context) {
     }
     subtitleOverlay.apply(subtitles, source)
     core?.setFastTicks(true)
+  }
+
+  /** The track whose lines were already looked at for their script (one look per choice). */
+  private var fontCheckedKey: String? = null
+  private var fontCheckedLines = 0
+
+  /**
+   * N16: the face mpv draws a track with is chosen by its language tag. A track with no tag, the
+   * wrong one, or lines in another script would show empty boxes, since the media engine's
+   * libass has no system font lookup to fall back on. So the first lines of the track are read:
+   * when they are written in a script the chosen face does not draw, the face for that script is
+   * linked instead and the track is opened again (once per choice, within its first lines).
+   */
+  private fun fontForText(text: String) {
+    val key = engineSubtitleKey ?: return
+    if (text.isBlank()) return
+    if (fontCheckedKey != key) { fontCheckedKey = key; fontCheckedLines = 0 }
+    if (fontCheckedLines >= 8) return
+    fontCheckedLines++
+    if (!PorticoMpvFonts.selectFor(context, text)) return
+    fontCheckedLines = 8
+    val sid = snapshot.sid
+    if (sid.isEmpty() || sid == "no" || sid == "false") return
+    core?.set("sid", "no")
+    core?.set("sid", sid)
   }
 
   /**
