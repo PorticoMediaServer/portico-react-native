@@ -193,6 +193,9 @@ internal object PorticoDownloadCenter {
     if (entry["addedAt"] == null) entry["addedAt"] = System.currentTimeMillis().toDouble()
     entries[id] = entry
     begin(id, url, entry)
+    // Started by the person with the app in front: on Android 14 and later the job that carries it
+    // on is a user-initiated data transfer, which the system does not cut off after ten minutes.
+    if (active[id] != null || entry["waiting"] == "wifi") PorticoDownloadJob.schedule(app, cellular, userInitiated = true)
     return published(id, entry)
   }
 
@@ -635,10 +638,7 @@ class PorticoDownloadService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.downloads_channel), NotificationManager.IMPORTANCE_LOW))
-    val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
-    val notification = builder.setContentTitle(getString(R.string.downloads_running)).setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).build()
+    val notification = notification(this)
     try {
       if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC) else startForeground(NOTIFICATION, notification)
     } catch (_: Exception) {
@@ -660,7 +660,15 @@ class PorticoDownloadService : Service() {
 
   companion object {
     private const val CHANNEL = "portico.downloads"
-    private const val NOTIFICATION = 4101
+    internal const val NOTIFICATION = 4101
+
+    /** The one quiet notification a running download carries (the service's, and a user-initiated job's). */
+    internal fun notification(context: Context): Notification {
+      val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.downloads_channel), NotificationManager.IMPORTANCE_LOW))
+      val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(context)
+      return builder.setContentTitle(context.getString(R.string.downloads_running)).setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).build()
+    }
 
     fun keepAlive(context: Context) {
       try {
@@ -692,6 +700,10 @@ class PorticoDownloadJob : JobService() {
   override fun onStartJob(params: JobParameters?): Boolean {
     this.params = params
     running = true
+    // A user-initiated data transfer (Android 14 and later) shows its notification for as long as it runs.
+    if (Build.VERSION.SDK_INT >= 34 && params != null && params.isUserInitiatedJob) {
+      try { setNotification(params, PorticoDownloadService.NOTIFICATION, PorticoDownloadService.notification(this), JOB_END_NOTIFICATION_POLICY_REMOVE) } catch (_: Exception) {}
+    }
     PorticoDownloadCenter.open(applicationContext)
     PorticoDownloadCenter.post {
       PorticoDownloadCenter.onIdle = { finish() }
@@ -716,6 +728,7 @@ class PorticoDownloadJob : JobService() {
     params = null
     running = false
     scheduledCellular = null
+    scheduledUserInitiated = false
     PorticoDownloadCenter.onIdle = null
     try { jobFinished(current, PorticoDownloadCenter.hasUnfinished()) } catch (_: Exception) {}
   }
@@ -727,29 +740,43 @@ class PorticoDownloadJob : JobService() {
     @Volatile private var running = false
     /** The network the scheduled job waits for, so a change of "use mobile data" schedules it again. */
     @Volatile private var scheduledCellular: Boolean? = null
+    /** Whether the waiting job is a user-initiated data transfer (Android 14 and later). */
+    @Volatile private var scheduledUserInitiated = false
 
     /**
-     * Asks the system to carry unfinished downloads on if the process goes. One job: left alone
-     * while it is running or already waiting for the same kind of network (scheduling the same job
-     * again would stop a running one).
+     * Asks the system to carry unfinished downloads on if the process goes, and after a restart
+     * of the device (the job is persisted: RECEIVE_BOOT_COMPLETED). One job: left alone while it
+     * is running or already waiting for the same kind of network (scheduling the same job again
+     * would stop a running one). `userInitiated`: the person started a download with the app in
+     * front, so on Android 14 and later it becomes a user-initiated data transfer, which runs as
+     * long as the transfer needs instead of in ten-minute turns. Where the system refuses that,
+     * the ordinary job is scheduled.
      */
-    fun schedule(context: Context, cellular: Boolean) {
+    fun schedule(context: Context, cellular: Boolean, userInitiated: Boolean = false) {
+      val wantsUser = userInitiated && Build.VERSION.SDK_INT >= 34
       try {
         val scheduler = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
-        if (running || (scheduler.getPendingJob(JOB) != null && scheduledCellular == cellular)) return
-        scheduledCellular = cellular
-        val job = JobInfo.Builder(JOB, ComponentName(context, PorticoDownloadJob::class.java))
-            .setRequiredNetworkType(if (cellular) JobInfo.NETWORK_TYPE_ANY else JobInfo.NETWORK_TYPE_UNMETERED)
-            .setBackoffCriteria(30_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
-            .setPersisted(false)
-            .build()
-        scheduler.schedule(job)
+        if (running || (scheduler.getPendingJob(JOB) != null && scheduledCellular == cellular && (!wantsUser || scheduledUserInitiated))) return
+        if (wantsUser && submit(scheduler, context, cellular, true)) return
+        submit(scheduler, context, cellular, false)
       } catch (_: Exception) {}
     }
+
+    private fun submit(scheduler: JobScheduler, context: Context, cellular: Boolean, user: Boolean): Boolean = try {
+      val builder = JobInfo.Builder(JOB, ComponentName(context, PorticoDownloadJob::class.java))
+          .setRequiredNetworkType(if (cellular) JobInfo.NETWORK_TYPE_ANY else JobInfo.NETWORK_TYPE_UNMETERED)
+          .setBackoffCriteria(30_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
+          .setPersisted(true)
+      if (user && Build.VERSION.SDK_INT >= 34) builder.setUserInitiated(true)
+      val ok = scheduler.schedule(builder.build()) == JobScheduler.RESULT_SUCCESS
+      if (ok) { scheduledCellular = cellular; scheduledUserInitiated = user }
+      ok
+    } catch (_: Exception) { false }
 
     fun cancel(context: Context) {
       if (running) return
       scheduledCellular = null
+      scheduledUserInitiated = false
       try { (context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler).cancel(JOB) } catch (_: Exception) {}
     }
   }

@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- A download goes on with the app out of sight (phones and tablets). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The download job is persisted, so it carries unfinished downloads on after a restart of the device. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Android 14 and later: a download the person started runs as a user-initiated data transfer. -->
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
     <!-- Television: this app's own rows on the home screen (Watch Next and one channel). -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
 
