@@ -253,7 +253,11 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  NSDictionary *heard=[self heard],*presentation=heard[@"presentation"];
  // Rendering that keeps failing for this session gives way to the plain stream (INT T8).
  if([_noRender isEqual:heard[@"id"]])return nil;
- if(![_render renders:presentation]||(![self effectsWanted]&&!_rendering))return nil;
+ // A part-way start in a direct MP3 or ADTS file with the server's seek index is decoded here
+ // too, effects or not: the decoder lands on the exact frame, AVPlayer only near it.
+ NSDictionary *decoded=V1DecodePlan(presentation);
+ BOOL exact=[decoded[@"mode"] isEqual:@"direct"]&&([decoded[@"container"] isEqual:@"mp3"]||[decoded[@"container"] isEqual:@"adts"])&&V1Dictionary(decoded[@"seekIndex"])&&[presentation[@"startPositionMs"] doubleValue]>0;
+ if(![_render renders:presentation]||(![self effectsWanted]&&!_rendering&&!exact))return nil;
  _rendering=YES;
  NSDictionary *prepared=_prepared&&!_committed&&![_prepared[@"recovered"] boolValue]?@{@"token":_prepared[@"token"],@"presentation":_prepared[@"presentation"],@"sameAlbum":_prepared[@"sameAlbum"]?:@NO}:nil;
  NSDictionary *committed=_committed?@{@"token":_committed[@"token"],@"presentation":_committed[@"session"][@"presentation"],@"sameAlbum":_committed[@"sameAlbum"]?:@NO}:nil;

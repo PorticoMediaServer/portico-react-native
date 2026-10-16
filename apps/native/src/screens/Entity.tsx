@@ -185,6 +185,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // The owner arranges a library collection's own order here, on a phone or tablet, while it is
   // shown in that order: a move sends the title and the one it now follows.
   const [reordering, setReordering] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const role = viewerSession?.viewer.role;
   // A collection page carries no entity projection: the collection is the route's own id.
   const canReorder = !isTV && kind === 'collection' && (role === 'owner' || role === 'admin') && group.engaged && !group.choice.sort && !group.choice.predicates.length && sortedPages.snapshot.entries.length > 1;
@@ -323,7 +324,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const bottom = (
     <>
         {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
-        {arranging ? <ManualOrderRows entries={orderedTitles} whole={!sortedPages.snapshot.hasMore} onMove={moveTitle} /> : !sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
+        {arranging ? <ManualOrderRows entries={orderedTitles} whole={!sortedPages.snapshot.hasMore} onMove={moveTitle} onDragging={setDragging} /> : !sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
           if (section.id === 'releases' && isArtist && releases) {
             return (
               <React.Fragment key="releases-split">
@@ -347,7 +348,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
       {trackList && rowOptions && trackSection ? (
         <TrackWindowList list={sortedList ?? trackList} total={sortedList ? sorted.snapshot.total ?? 0 : trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
       ) : (
-        <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
+        <Page contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
           {top}
           {bottom}
         </Page>
