@@ -16,7 +16,7 @@ import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
 import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
 import {BackupsPanel, DiskUsagePanel, MissingTitlesPanel, RemoteSourcesPanel, RetentionRows} from '../server/StoragePanels';
-import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SupportExportPanel} from '../server/Troubleshooting';
+import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SkippedPartsPanel, SupportExportPanel} from '../server/Troubleshooting';
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
@@ -62,6 +62,7 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.logs': return <MessageLogPanel />;
     case 'server.records': return <RecordsPanel />;
     case 'server.capabilities': return <CapabilitiesPanel />;
+    case 'server.skippedParts': return <SkippedPartsPanel />;
     case 'server.supportExport': return <SupportExportPanel />;
     case 'server.feedback': return <FeedbackPanel />;
     case 'server.identity': return <IdentityRows />;
