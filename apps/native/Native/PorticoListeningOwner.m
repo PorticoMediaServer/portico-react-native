@@ -45,22 +45,21 @@ static double Timestamp(id value) {
 /** Extra request headers (v1: If-Match, Idempotency-Key, Content-Type), and the response's. */
 @property(nonatomic,copy,nullable) NSDictionary<NSString *,NSString *> *headers;
 @property(nonatomic,copy,nullable) NSDictionary *responseHeaders;
-- (void)start:(NSURL *)url token:(NSString *)token proof:(NSString *)proof body:(nullable NSDictionary *)body;
-- (void)start:(NSURL *)url token:(NSString *)token proof:(NSString *)proof body:(nullable NSDictionary *)body method:(NSString *)method;
+- (void)start:(NSURL *)url token:(NSString *)token body:(nullable NSDictionary *)body;
+- (void)start:(NSURL *)url token:(NSString *)token body:(nullable NSDictionary *)body method:(NSString *)method;
 - (void)cancel;
 @end
 @implementation PorticoListeningRequest
-- (void)start:(NSURL *)url token:(NSString *)token proof:(NSString *)proof body:(NSDictionary *)body {
- [self start:url token:token proof:proof body:body method:body?@"POST":@"GET"];
+- (void)start:(NSURL *)url token:(NSString *)token body:(NSDictionary *)body {
+ [self start:url token:token body:body method:body?@"POST":@"GET"];
 }
-- (void)start:(NSURL *)url token:(NSString *)token proof:(NSString *)proof body:(NSDictionary *)body method:(NSString *)method {
+- (void)start:(NSURL *)url token:(NSString *)token body:(NSDictionary *)body method:(NSString *)method {
  self.started=Mono();self.data=[NSMutableData new];
  NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
  configuration.HTTPCookieStorage=nil;configuration.URLCache=nil;configuration.URLCredentialStorage=nil;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;
  self.session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];
  NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
  [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
- if(proof)[request setValue:proof forHTTPHeaderField:@"X-Playback-Controller-Token"];
  request.HTTPMethod=method;
  if(body){request.HTTPBody=[NSJSONSerialization dataWithJSONObject:body options:NSJSONWritingSortedKeys error:nil];[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];}
  for(NSString *name in self.headers)[request setValue:self.headers[name] forHTTPHeaderField:name];
@@ -311,7 +310,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   self->_failures=0;
   completion(status,value,started,request);
  };
- [request start:[NSURL URLWithString:[_origin stringByAppendingString:path]] token:_token proof:nil body:[body isKindOfClass:NSDictionary.class]?body:nil method:method];
+ [request start:[NSURL URLWithString:[_origin stringByAppendingString:path]] token:_token body:[body isKindOfClass:NSDictionary.class]?body:nil method:method];
 }
 - (NSString *)sessionPath:(NSString *)suffix { return [NSString stringWithFormat:@"/v1/playback/sessions/%@%@",[_session[@"id"] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet],suffix]; }
 - (NSString *)queuePath:(NSString *)command { return [NSString stringWithFormat:@"/v1/queues/%@:%@",[_queue[@"id"] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet],command]; }
@@ -557,7 +556,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   if(status==200&&ListeningConsecutiveOnAlbum(album,disc,track,song[@"albumId"],[song[@"discNumber"] integerValue],[song[@"trackNumber"] integerValue])){NSMutableDictionary *prepared=[self->_prepared mutableCopy];prepared[@"sameAlbum"]=@YES;self->_prepared=prepared;[self apply];}
   if(self->_commitWanted)[self tick]; // a commit waiting for this answer goes now
  };
- [request start:[NSURL URLWithString:[_origin stringByAppendingFormat:@"/v1/items/%@",itemId]] token:_token proof:nil body:nil];
+ [request start:[NSURL URLWithString:[_origin stringByAppendingFormat:@"/v1/items/%@",itemId]] token:_token body:nil];
 }
 - (void)dropPrepared:(NSString *)message {
  if(!_prepared||_committed)return;
@@ -879,7 +878,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   NSDictionary *song=[value[@"song"] isKindOfClass:NSDictionary.class]?value[@"song"]:@{},*book=[value[@"bookFile"] isKindOfClass:NSDictionary.class]?value[@"bookFile"]:@{};
   double duration=[value[@"durationMs"] doubleValue]/1000.0;if(self->_duration<=0&&isfinite(duration)&&duration>0&&!self->_audible)self->_duration=duration;
   [self metadata:@{@"playbackId":playback,@"itemId":item,@"title":value[@"title"]?:@"Audio",@"artist":song[@"artist"]?:@"",@"album":song[@"albumTitle"]?:book[@"bookTitle"]?:@"",@"kind":[value[@"kind"] isKindOfClass:NSString.class]?value[@"kind"]:@"",@"posterUrl":value[@"posterUrl"]?:NSNull.null,@"albumId":Text(song[@"albumId"])?song[@"albumId"]:@"",@"discNumber":[song[@"discNumber"] isKindOfClass:NSNumber.class]?song[@"discNumber"]:@0,@"trackNumber":[song[@"trackNumber"] isKindOfClass:NSNumber.class]?song[@"trackNumber"]:@0} owner:owner];
- };[request start:[NSURL URLWithString:[_origin stringByAppendingFormat:@"/v1/items/%@",item]] token:_token proof:nil body:nil];
+ };[request start:[NSURL URLWithString:[_origin stringByAppendingFormat:@"/v1/items/%@",item]] token:_token body:nil];
 }
 - (void)clearArtwork {[_artworkRequest cancel];_artworkRequest=nil;_artworkPath=nil;_artwork=nil;}
 - (void)loadArtwork:(id)value {
@@ -895,7 +894,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   CGImageRef image=CGImageSourceCreateThumbnailAtIndex(source,0,(__bridge CFDictionaryRef)@{(__bridge id)kCGImageSourceCreateThumbnailFromImageAlways:@YES,(__bridge id)kCGImageSourceThumbnailMaxPixelSize:@512,(__bridge id)kCGImageSourceCreateThumbnailWithTransform:@YES});CFRelease(source);if(!image)return;
   UIImage *thumbnail=[UIImage imageWithCGImage:image];CGImageRelease(image);if(![self->_artworkPath isEqual:path])return;
   self->_artwork=[[MPMediaItemArtwork alloc] initWithBoundsSize:thumbnail.size requestHandler:^UIImage *(CGSize size){return thumbnail;}];[self updateNowPlaying];
- };[request start:[NSURL URLWithString:[_origin stringByAppendingString:path]] token:_token proof:nil body:nil];
+ };[request start:[NSURL URLWithString:[_origin stringByAppendingString:path]] token:_token body:nil];
 }
 - (void)addRemote:(MPRemoteCommand *)command handler:(MPRemoteCommandHandlerStatus (^)(MPRemoteCommandEvent *event))handler {
  command.enabled=YES;id target=[command addTargetWithHandler:handler];[_remoteTargets addObject:@{@"command":command,@"target":target}];
@@ -973,7 +972,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if(stop&&token&&ready&&V1ID(session)&&!_terminal){
   // DELETE is idempotent; the last position is the listener's.
   PorticoListeningRequest *cleanup=[PorticoListeningRequest new];
-  [cleanup start:[NSURL URLWithString:[origin stringByAppendingFormat:@"/v1/playback/sessions/%@",[session stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]] token:token proof:nil body:@{@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))} method:@"DELETE"];
+  [cleanup start:[NSURL URLWithString:[origin stringByAppendingFormat:@"/v1/playback/sessions/%@",[session stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]] token:token body:@{@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))} method:@"DELETE"];
  }
  // Not while the other player engine has started a video: the session is its to keep.
  if(!PorticoEngineClock.active)[[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
