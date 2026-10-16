@@ -62,8 +62,8 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
           // re-homes the Media3 picture) does not carry it, and there is no AirPlay on Android.
           "pictureInPicture" to false,
           "airPlayVideo" to false,
-          // Channels are positioned by wall-clock dates this engine does not expose.
-          "liveChannels" to false,
+          // Channels are placed by the clock epochs the server publishes (PorticoMpvLinearClock).
+          "liveChannels" to PorticoMpvController.LIVE_CHANNELS,
           // Music and audiobooks stay with the native listening owner.
           "musicSessions" to false,
           // A direct-played file's audio and subtitle tracks are switched in the engine.
@@ -150,6 +150,7 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         putInt("maxHeight", decoder.maxHeight)
         putInt("maxFrameRate", decoder.maxFrameRate)
         putBoolean("tenBit", decoder.tenBit)
+        if (decoder.points.isNotEmpty()) putArray("limits", videoPointsArray(decoder.points))
       })
       // HDR reaches the screen when the decoder draws straight onto the surface, which takes a
       // hardware decoder for a 10-bit codec and a screen that shows HDR10.
@@ -177,6 +178,7 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         putArray("dolbyVisionProfiles", Arguments.fromList(listOf(5, 7, 8)))
         // mpv deinterlaces interlaced frames itself (deinterlace=auto, FFmpeg's bwdif).
         putBoolean("softwareDeinterlace", true)
+        putBoolean("liveChannels", PorticoMpvController.LIVE_CHANNELS)
       })
     } catch (e: Exception) {
       promise.reject("capabilities", "This device's mpv capabilities could not be read.", e)

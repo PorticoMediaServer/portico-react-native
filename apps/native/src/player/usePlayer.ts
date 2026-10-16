@@ -220,7 +220,10 @@ export function usePlayerEngine() {
     // The server names the engine in its plan. While its account of the session is of another
     // presentation than the one the service holds (a re-plan on its way), the engine stays.
     const plan = planEngineOf(session, path.session(session.id));
-    const nativeOnly = !!snapshot.channel || !!snapshot.nativeListening || !!session.audio || engineInputs.current.audio;
+    // A channel plays in mpv only when the server made its stream for mpv and this build's mpv
+    // plays channels; otherwise in the platform player.
+    const channelNative = !!snapshot.channel && !(plan.engine === 'mpv' && engineFeatures('mpv').liveChannels);
+    const nativeOnly = channelNative || !!snapshot.nativeListening || !!session.audio || engineInputs.current.audio;
     if (plan.stale && mpvAvailable && !nativeOnly) return engineNow.current();
     return chooseEngine({
       setting: engineInputs.current.setting,

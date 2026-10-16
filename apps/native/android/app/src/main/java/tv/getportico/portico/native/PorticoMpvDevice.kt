@@ -26,7 +26,7 @@ import tv.getportico.portico.TelevisionDisplay
  */
 internal object PorticoMpvDevice {
   /** A hardware decoder's own limits. */
-  class Decoder(val maxWidth: Int, val maxHeight: Int, val maxFrameRate: Int, val tenBit: Boolean)
+  class Decoder(val maxWidth: Int, val maxHeight: Int, val maxFrameRate: Int, val tenBit: Boolean, val points: List<VideoPoint> = emptyList())
 
   /** mpv's codec names for the MediaCodec types FFmpeg in this build can drive. */
   private val MEDIACODEC_TYPES = mapOf(
@@ -64,9 +64,9 @@ internal object PorticoMpvDevice {
         val deep = capabilities.profileLevels.any { tenBit(codec, it) }
         val previous = found[codec]
         if (previous == null || width.toLong() * height > previous.maxWidth.toLong() * previous.maxHeight) {
-          found[codec] = Decoder(width, height, rate.coerceIn(1, 960), deep || previous?.tenBit == true)
+          found[codec] = Decoder(width, height, rate.coerceIn(1, 960), deep || previous?.tenBit == true, videoPoints(video, width, height))
         } else if (deep && !previous.tenBit) {
-          found[codec] = Decoder(previous.maxWidth, previous.maxHeight, previous.maxFrameRate, true)
+          found[codec] = Decoder(previous.maxWidth, previous.maxHeight, previous.maxFrameRate, true, previous.points)
         }
       }
     }
