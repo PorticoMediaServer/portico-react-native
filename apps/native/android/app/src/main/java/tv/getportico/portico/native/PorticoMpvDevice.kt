@@ -200,10 +200,15 @@ internal object PorticoAppVisibility {
  * drawn as empty boxes. A styled subtitle file's own attached fonts are used as usual and are not
  * affected.
  *
- * It is one face at a time. A line that mixes two scripts neither of which is in the chosen face,
- * and a track whose language is not said, are the cases it does not cover: those need a renderer
- * that can ask the system for a fallback face letter by letter (a newer libass has one for
- * Android), which this build of mpv does not carry.
+ * A line can mix scripts (Arabic with Latin names, say), so there is also a fallback chain. mpv's
+ * fonts folder (`fallbackDirectory`, its own default `~~/fonts`) holds links to the ordinary face,
+ * the face for the track's language and the faces for every script seen in its first lines, and
+ * the subtitle font family (`sub-font`) is the ordinary face's own name. libass then draws each
+ * letter in the first face that has it: the style's family, then the ordinary face, then (with the
+ * media engine's libass patch, `third_party/media-engine/patches/libass`) any face in the folder,
+ * then `subfont.ttf`. Faces over 8 MB (the Chinese, Japanese and Korean collections) are not put
+ * in the folder, since libass reads every file there into memory; they stay `subfont.ttf`, and
+ * they carry Latin letters of their own.
  */
 internal object PorticoMpvFonts {
   private val ORDINARY = listOf("Roboto-Regular.ttf", "RobotoStatic-Regular.ttf", "NotoSans-Regular.ttf", "DroidSans.ttf")
@@ -237,9 +242,25 @@ internal object PorticoMpvFonts {
       "ka" to Script("Georgian"), "kat" to Script("Georgian"), "geo" to Script("Georgian"), "am" to Script("Ethiopic"), "amh" to Script("Ethiopic"), "ti" to Script("Ethiopic"))
   private var linked: String? = null
   private var listing: List<File>? = null
+  /** The faces in the fallback folder now, by path. */
+  private val fallbacks = LinkedHashSet<String>()
+  /** A styled track's attached fonts folder in use, which gets the same fallback faces. */
+  private var attached: File? = null
+  /** libass reads each file of the fonts folder into memory when a track opens. */
+  private const val FALLBACK_BYTES = 8_000_000L
 
-  /** mpv's configuration folder. It holds nothing but the font link; mpv reads no settings from it. */
+  /** mpv's configuration folder. It holds nothing but the font link and the fonts folder; mpv reads no settings from it. */
   fun configDirectory(context: Context): File = File(context.noBackupFilesDir, "mpv")
+
+  /** mpv's fonts folder (`sub-fonts-dir`): links to the fallback faces, every one of which libass loads. */
+  fun fallbackDirectory(context: Context): File = File(configDirectory(context), "fonts")
+
+  /**
+   * The family name the ordinary face is known by, for `sub-font`: letters it has (Latin, Greek,
+   * Cyrillic, digits, punctuation) are drawn in it whatever else a line holds. `sans-serif` when
+   * it cannot be read, which is mpv's own default.
+   */
+  fun ordinaryFamily(): String = ordinary()?.takeIf { it.length() <= FALLBACK_BYTES }?.let { familyName(it) } ?: "sans-serif"
 
   private fun systemFont(names: List<String>): File? {
     for (name in names) File("/system/fonts", name).let { if (it.isFile && it.canRead()) return it }
@@ -268,8 +289,11 @@ internal object PorticoMpvFonts {
    */
   fun select(context: Context, language: String?) {
     val base = PorticoMpvSupport.baseLanguage((language ?: "").lowercase())
-    val wanted = (if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else SCRIPTS[base]?.let { scriptFont(it) }) ?: ordinary() ?: return
-    link(context, wanted)
+    val face = if (base in EAST_ASIAN_LANGUAGES) systemFont(EAST_ASIAN) else SCRIPTS[base]?.let { scriptFont(it) }
+    // A new track starts the chain again: the ordinary face and the language's.
+    resetFallbacks(context)
+    listOfNotNull(ordinary(), face).forEach { addFallback(context, it) }
+    link(context, face ?: ordinary() ?: return)
   }
 
   /** By the script the letters are written in (`scriptOf`), for the text's own face. */
@@ -288,8 +312,13 @@ internal object PorticoMpvFonts {
    * does not draw (Latin, Greek and Cyrillic are the ordinary face's); null otherwise. East Asian
    * scripts count as one (their face draws all of them, and Latin too).
    */
-  fun scriptOf(text: String): Character.UnicodeScript? {
-    val counts = HashMap<Character.UnicodeScript, Int>()
+  fun scriptOf(text: String): Character.UnicodeScript? = scriptCounts(text).maxByOrNull { it.value }?.key
+
+  /** Every script in [text] the ordinary face does not draw, most letters first. */
+  fun scriptsOf(text: String): List<Character.UnicodeScript> = scriptCounts(text).entries.sortedByDescending { it.value }.map { it.key }
+
+  private fun scriptCounts(text: String): Map<Character.UnicodeScript, Int> {
+    val counts = LinkedHashMap<Character.UnicodeScript, Int>()
     var i = 0
     while (i < text.length && i < 2000) {
       val cp = text.codePointAt(i)
@@ -299,8 +328,11 @@ internal object PorticoMpvFonts {
       val key = if (script in EAST_ASIAN_SCRIPTS) Character.UnicodeScript.HAN else script
       counts[key] = (counts[key] ?: 0) + 1
     }
-    return counts.maxByOrNull { it.value }?.key
+    return counts
   }
+
+  private fun faceFor(script: Character.UnicodeScript): File? =
+      if (script == Character.UnicodeScript.HAN) systemFont(EAST_ASIAN) else BY_SCRIPT[script]?.let { scriptFont(it) }
 
   /**
    * Points the default font at the face for the script [text] is written in, when the language
@@ -308,11 +340,104 @@ internal object PorticoMpvFonts {
    * the face changed: the track must be opened again to use it.
    */
   fun selectFor(context: Context, text: String): Boolean {
-    val script = scriptOf(text) ?: return false
-    val wanted = (if (script == Character.UnicodeScript.HAN) systemFont(EAST_ASIAN) else BY_SCRIPT[script]?.let { scriptFont(it) }) ?: return false
-    if (linked == wanted.path) return false
-    link(context, wanted)
-    return linked == wanted.path
+    val scripts = scriptsOf(text)
+    if (scripts.isEmpty()) return false
+    // Every script of the line joins the fallback chain (a few at most: one line rarely has more than two).
+    var changed = false
+    for (script in scripts.take(4)) faceFor(script)?.let { if (addFallback(context, it)) changed = true }
+    // The default face follows the line's main script, as before: a face too large for the folder is reached this way.
+    val wanted = faceFor(scripts.first())
+    if (wanted != null && linked != wanted.path) {
+      link(context, wanted)
+      if (linked == wanted.path) changed = true
+    }
+    return changed
+  }
+
+  /**
+   * A styled track's attached fonts are in a folder of their own, which mpv then reads instead of
+   * the fonts folder: the fallback faces are linked there too. Null when the track has none.
+   */
+  fun useAttachedFolder(folder: File?) {
+    attached = folder
+    if (folder != null) fallbacks.forEach { linkInto(folder, File(it)) }
+  }
+
+  private fun resetFallbacks(context: Context) {
+    fallbacks.clear()
+    try { fallbackDirectory(context).listFiles()?.forEach { it.delete() } } catch (_: Exception) {}
+  }
+
+  /** Puts [face] in the fallback folder (and the attached fonts folder in use). True when it was not there. */
+  private fun addFallback(context: Context, face: File): Boolean {
+    if (face.path in fallbacks || face.length() !in 1..FALLBACK_BYTES) return false
+    val directory = fallbackDirectory(context)
+    try { directory.mkdirs() } catch (_: Exception) { return false }
+    if (!linkInto(directory, face)) return false
+    fallbacks.add(face.path)
+    attached?.let { linkInto(it, face) }
+    return true
+  }
+
+  /** A link to [face] in [directory] under the face's own file name, or a copy where links cannot be made. */
+  private fun linkInto(directory: File, face: File): Boolean {
+    val target = File(directory, "fallback-" + face.name)
+    if (target.exists()) return true
+    return try {
+      Os.symlink(face.path, target.path)
+      true
+    } catch (_: Exception) {
+      try { face.copyTo(target, overwrite = true); true } catch (_: Exception) { false }
+    }
+  }
+
+  /**
+   * The family name (name ID 1, Windows platform, as libass reads it) of the first face in a
+   * TrueType or OpenType file or collection; null when the file cannot be read as one.
+   */
+  fun familyName(file: File): String? = try {
+    java.io.RandomAccessFile(file, "r").use { familyName(it) }
+  } catch (_: Exception) {
+    null
+  }
+
+  internal fun familyName(f: java.io.RandomAccessFile): String? {
+    fun u16(at: Long): Int { f.seek(at); return f.readUnsignedShort() }
+    fun u32(at: Long): Long { f.seek(at); return f.readInt().toLong() and 0xffffffffL }
+    val size = f.length()
+    if (size < 12) return null
+    // A collection ('ttcf') lists its faces; the first one's table directory is read.
+    val base = if (u32(0) == 0x74746366L) u32(12) else 0L
+    if (base + 12 > size) return null
+    val tables = u16(base + 4)
+    if (tables > 256 || base + 12 + tables * 16L > size) return null
+    var name = -1L
+    for (i in 0 until tables) {
+      val record = base + 12 + i * 16L
+      if (u32(record) == 0x6e616d65L) { name = u32(record + 8); break } // 'name'
+    }
+    if (name < 0 || name + 6 > size) return null
+    val count = u16(name + 2)
+    val strings = name + u16(name + 4)
+    var best: String? = null
+    for (i in 0 until minOf(count, 1024)) {
+      val record = name + 6 + i * 12L
+      if (record + 12 > size) break
+      if (u16(record) != 3 || u16(record + 6) != 1) continue
+      val language = u16(record + 4)
+      val length = u16(record + 8)
+      val at = strings + u16(record + 10)
+      if (length == 0 || length > 512 || at + length > size) continue
+      val bytes = ByteArray(length)
+      f.seek(at)
+      f.readFully(bytes)
+      val text = String(bytes, Charsets.UTF_16BE).trim()
+      if (text.isEmpty()) continue
+      // English (United States) is the name every font has; another language's is kept only until it is found.
+      if (language == 0x409) return text
+      if (best == null) best = text
+    }
+    return best
   }
 
   private fun link(context: Context, wanted: File) {
