@@ -61,7 +61,8 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const release = (api?: HttpLocalApi) => { try { api?.getRouteConnection()?.dispose(); } catch { /* already gone */ } };
   const leaveCode = (event: 'usePassword' | 'back') => { release(connected); setConnected(undefined); go(event); };
   const back = () => {
-    if (direct.step) { session.clearError(); direct.cancelStep(); }
+    if (direct.setup) { session.clearError(); direct.cancelSetup(); }
+    else if (direct.step) { session.clearError(); direct.cancelStep(); }
     else if (step === 'code') leaveCode('back');
     else go('back');
   };
