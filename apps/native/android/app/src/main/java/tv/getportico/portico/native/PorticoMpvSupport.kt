@@ -42,6 +42,20 @@ internal object PorticoMpvSupport {
   @Suppress("UNCHECKED_CAST")
   fun map(value: Any?): Map<String, Any?>? = value as? Map<String, Any?>
 
+  /**
+   * [next] is a newer presentation of the playback [previous] is bound to: the same lease,
+   * intent, session and title, a later generation. The server planned the session again in
+   * place (a quality, version, audio or subtitle change, or a channel's next window), so the
+   * command is the current one, not a stale one, and the engine opens its source.
+   */
+  fun replannedInPlace(previous: Map<*, *>, next: Map<*, *>): Boolean {
+    val before = integer(previous["generation"]) ?: return false
+    val after = integer(next["generation"]) ?: return false
+    val intent = integer(next["intentId"]) ?: return false
+    return after > before && intent == integer(previous["intentId"]) && previous["lease"] == next["lease"] &&
+        next["sessionId"] is String && next["sessionId"] == previous["sessionId"] && next["itemId"] is String && next["itemId"] == previous["itemId"]
+  }
+
   // --- mpv's JSON -------------------------------------------------------------------------
 
   private fun plain(value: Any?): Any? = when (value) {

@@ -268,7 +268,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             let sameResource = oldURL != nil && nextURL != nil && oldURL!.path == nextURL!.path && (oldURL!.query ?? "") == (nextURL!.query ?? "") && (nextURL!.user ?? "").isEmpty && (nextURL!.password ?? "").isEmpty && (nextURL!.fragment ?? "").isEmpty
             let routeChange = sameBinding && sameResource && nextRoute != nil && nextRoute! > (previousRoute ?? 0)
             let same = sameBinding && (sameSource || routeChange)
-            if intent < oldIntent || (intent == oldIntent && !same) { return "Stale playback binding." }
+            if intent < oldIntent || (intent == oldIntent && !same && !PorticoMpvSupport.replannedInPlace(old, binding)) { return "Stale playback binding." }
         }
         var pendingSeek: (revision: Int, target: Double)?
         if let pending = command["pendingSeek"], !(pending is NSNull) {

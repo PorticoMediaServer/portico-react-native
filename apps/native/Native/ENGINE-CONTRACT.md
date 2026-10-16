@@ -94,7 +94,7 @@ and the first failure is the rejection message.
 | | | `routeRevision` absent or lower than the last accepted command's. | `Stale route transition.` |
 | `listeningOwner` | string or null | mpv: must be null or absent. | `This player does not play music sessions.` |
 | `audioRender` | object or null | mpv: must be null or absent. (native validates the render plan.) | `Unsupported audio render context.` |
-| `binding` against the previous one | | `intentId` lower than before; or equal with a different binding or a different source (a new `routeRevision` with the same path and query is the same source). | `Stale playback binding.` |
+| `binding` against the previous one | | `intentId` lower than before; or equal with a different binding or a different source (a new `routeRevision` with the same path and query is the same source). A binding with the same lease, `intentId`, `sessionId` and `itemId` and a higher `generation` is not stale: the server planned the session again in place (a quality, version, audio or subtitle change, a channel's next window), and the engine opens the new source. | `Stale playback binding.` |
 | `pendingSeek` | `{revision, positionSeconds}` or null | Both finite numbers, not negative (native allows a negative position for a channel). | `Invalid seek command.` |
 | | | `revision` a whole number >= 1. | `Invalid seek revision.` |
 | | | Same binding and a `revision` lower than the last accepted seek. | `Stale seek command.` |
