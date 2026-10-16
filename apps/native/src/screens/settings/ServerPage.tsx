@@ -13,14 +13,14 @@ import {MetadataSettingsPanel} from '../server/MetadataPanels';
 import {AccountsPanel, InvitationsPanel} from '../server/PeoplePanels';
 import {BackgroundPauseRow, ClientReportsPanel, DownloadUsagePanel, FFmpegStatusRow, PlaybackProblemsPanel, ResourceUsagePanel, RestartPanel, SetAsideTitlesPanel, StorageStatusPanel} from '../server/RuntimePanels';
 import {ScheduledJobsPanel, WindowsPanel} from '../server/SchedulePanels';
-import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
+import {AccountConnectionPanel, AddressesRows, CertificateStatusRows, ConnectionRows, IdentityRows, OwnCertificateStatusRows, RemoteStatusPanel, SecureConnectionRows, TranscodeStatusPanel, UpdatesPanel} from '../server/Status';
 import {PlayHistoryPanel} from '../server/PlayHistory';
 import {BackupsPanel, DiskUsagePanel, MissingTitlesPanel, RemoteSourcesPanel, RetentionRows} from '../server/StoragePanels';
 import {CapabilitiesPanel, DetailWindowRow, FeedbackPanel, MessageLogPanel, RecordsPanel, SupportExportPanel} from '../server/Troubleshooting';
 import {FormLoadNotice, SaveBar, ServerFormsProvider, ServerSettingRowView, useFormsAbsent, useReloadForms} from './ServerForms';
 
 /** Panels that are rows inside their section's group; every other panel brings its own groups. */
-const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity', 'server.backgroundPause', 'server.ffmpegStatus']);
+const ROW_PANELS: ReadonlySet<SettingsCustomId> = new Set(['server.secureConnection', 'server.certificateStatus', 'server.addresses', 'server.connection', 'server.ownCertificateStatus', 'server.retention', 'server.detailWindow', 'server.identity', 'server.backgroundPause', 'server.ffmpegStatus']);
 
 /** The Server pages' `custom` rows (settings-structure.ts), drawn natively on phones and tablets. The state-folder warning is part of the alerts. */
 function ServerPanel({id}: {id: SettingsCustomId}) {
@@ -44,6 +44,7 @@ function ServerPanel({id}: {id: SettingsCustomId}) {
     case 'server.assistants': return <AssistantsPanel />;
     case 'server.transcodeStatus': return <TranscodeStatusPanel />;
     case 'server.remoteStatus': return <RemoteStatusPanel />;
+    case 'server.secureConnection': return <SecureConnectionRows />;
     case 'server.accountConnection': return <AccountConnectionPanel />;
     case 'server.certificateStatus': return <CertificateStatusRows />;
     case 'server.addresses': return <AddressesRows />;
