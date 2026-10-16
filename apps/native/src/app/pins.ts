@@ -18,6 +18,12 @@ export function announcePinsChanged(): void {
   for (const listener of [...listeners]) listener();
 }
 
+/** Hears every pin change made on this device; returns the way to stop. */
+export function onPinsChanged(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
 export type PinnedResourcesState = {order: readonly PinnedResource[]; revision: number; ready: boolean; reload: () => void};
 
 /** The viewer's pinned collections, saved views and playlists, kept current while shown. */

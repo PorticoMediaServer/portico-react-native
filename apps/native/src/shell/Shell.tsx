@@ -6,7 +6,7 @@ import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimate
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useLibraryMemory} from '../app/library-memory';
 import {useLibraries} from '../app/libraries';
-import {usePinnedResources} from '../app/pins';
+import {onPinsChanged, usePinnedResources} from '../app/pins';
 import {viewerScope} from '../app/content';
 import {viewerKey} from '../app/viewer-scope';
 import {useScanningLibraries} from '../app/library-scan';
@@ -155,6 +155,7 @@ export function Shell() {
   const pins = usePinnedResources(session.api, serverId, viewerKey(session.session, session.api) || undefined);
   const reloadForPins = libraries.reload;
   useEffect(() => { if (pins.ready) reloadForPins(); }, [pins.revision, pins.ready, reloadForPins]);
+  useEffect(() => onPinsChanged(reloadForPins), [reloadForPins]);
   const navigator = useRef<NavigationContainerRef<ContentStackParams>>(null);
   // MU1: the shell's failure mode for a server it can't use (web parity). One store, fed from
   // the remembered server and the route's own subscription; guarded screens swap their content
@@ -352,6 +353,8 @@ export function Shell() {
   const {hub: freshnessHub} = useFreshness();
   const reloadLibraries = libraries.reload;
   useEffect(() => freshnessHub.watch([dependsOn.libraries], reloadLibraries), [freshnessHub, reloadLibraries]);
+  // Library pins changed on another device arrive with this profile's personal changes.
+  useEffect(() => freshnessHub.watch([dependsOn.personal()], reloadLibraries), [freshnessHub, reloadLibraries]);
   // What is on the device is read at launch, so it is there to offer if the server is not.
   useEffect(() => { void offlineDownloads.open(); announceFinishedDownloads(); }, []);
   useEffect(() => beginArtworkScreen('Home'), []);
