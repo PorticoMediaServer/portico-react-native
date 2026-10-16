@@ -24,6 +24,8 @@ let probed: ProbedDevice | null = null;
 const listeners = new Set<() => void>();
 const probeListeners = new Set<() => void>();
 let revision = 0, settledRevision = -1;
+// The Player setting in the last document the server holds (null until the first is published).
+let settledSetting: EngineSetting | null = null;
 const waiting = new Set<{revision: number; done: () => void}>();
 // The device's saved values are read from its store when the app starts. Until they are in hand
 // the values here are only the defaults, and publishing those would tell the server the viewer
@@ -74,6 +76,7 @@ export const engineSettingStore = Object.freeze({
   settled(publishedRevision: number): void {
     if (publishedRevision !== revision) return;
     settledRevision = publishedRevision;
+    settledSetting = current;
     for (const waiter of [...waiting]) if (waiter.revision === publishedRevision) waiter.done();
   },
   /** Resolve once the wanted setting is published, or at the deadline. React may run the
@@ -104,6 +107,9 @@ export const engineSettingStore = Object.freeze({
     for (const done of [...loadWaiters]) done();
     loadWaiters.clear();
   },
+  /** The Player setting the server last received, which is what it plans a new session from;
+   * null until the first document is published. */
+  published: (): EngineSetting | null => settledSetting,
   /** Resolve once the saved values are in hand, or at the deadline (a store that never answers). */
   whenLoaded(timeoutMs: number): Promise<void> {
     if (loaded) return Promise.resolve();

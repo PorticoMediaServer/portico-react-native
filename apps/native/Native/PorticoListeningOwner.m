@@ -17,6 +17,8 @@ static BOOL WireID(id v) { return Text(v)&&[v length]<=128&&[v rangeOfString:@"^
 static BOOL ListeningNumber(id value,double min,double max,BOOL integer) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)!=CFBooleanGetTypeID()&&isfinite([value doubleValue])&&[value doubleValue]>=min&&[value doubleValue]<=max&&(!integer||floor([value doubleValue])==[value doubleValue]);}
 static BOOL ListeningBool(id value) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID();}
 static BOOL ListeningRate(id value) {return ListeningNumber(value,.5,2,NO)&&[@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]containsObject:value];}
+// Audiobooks also take 2.5x and 3x (the shared `audiobookRates`); music stays at 2x.
+static BOOL ListeningBookRate(id value) {return ListeningRate(value)||(ListeningNumber(value,.5,3,NO)&&[@[@2.5,@3]containsObject:value]);}
 static double Mono(void) { return NSProcessInfo.processInfo.systemUptime; }
 static double PauseClock(void) {
  static mach_timebase_info_data_t scale;static dispatch_once_t once;
@@ -674,7 +676,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (BOOL)action:(NSString *)action value:(NSNumber *)value owner:(NSString *)owner {
  if(![_owner isEqual:owner]||_terminal||![@[@"pause",@"resume",@"seek",@"rate",@"retry",@"next",@"previous"] containsObject:action])return NO;
  if([@[@"seek",@"rate"] containsObject:action]&&!ListeningNumber(value,0,1e9,NO))return NO;
- if([action isEqual:@"rate"]&&!ListeningRate(value))return NO;
+ if([action isEqual:@"rate"]&&!([[self kind] isEqual:@"audiobook_file"]?ListeningBookRate(value):ListeningRate(value)))return NO;
  if([action isEqual:@"retry"]&&value&&(id)value!=NSNull.null&&!ListeningNumber(value,0,1e9,NO))return NO;
  if([@[@"next",@"previous"] containsObject:action])return [self advance:action entry:nil owner:owner];
  [self checkDeadlines];[self beginControlGrace];[self resetInactivity];
@@ -734,7 +736,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  NSDictionary *effects=value[@"effects"];
  if(![effects isKindOfClass:NSDictionary.class]||!ListeningBool(effects[@"gapless"])||!ListeningNumber(effects[@"crossfadeSeconds"],0,12,NO)||![@[@"off",@"track",@"album"] containsObject:effects[@"normalization"]])return NO;
  id preferences=value[@"preferences"];
- if(preferences!=NSNull.null&&(![preferences isKindOfClass:NSDictionary.class]||!ListeningBool(preferences[@"autoplayNext"])||!ListeningRate(preferences[@"musicRate"])||!ListeningRate(preferences[@"bookRate"])||![@[@0,@30,@60,@90,@120] containsObject:preferences[@"passoutMinutes"]]))return NO;
+ if(preferences!=NSNull.null&&(![preferences isKindOfClass:NSDictionary.class]||!ListeningBool(preferences[@"autoplayNext"])||!ListeningRate(preferences[@"musicRate"])||!ListeningBookRate(preferences[@"bookRate"])||![@[@0,@30,@60,@90,@120] containsObject:preferences[@"passoutMinutes"]]))return NO;
  id timer=value[@"timer"];
  if(timer!=NSNull.null){
   if(![timer isKindOfClass:NSDictionary.class]||!Text(timer[@"label"])||[timer[@"label"] length]>512||!WireID(timer[@"libraryId"]))return NO;
@@ -760,9 +762,10 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 }
 - (void)applyPreferredRate {
  if(!_owner||_terminal||![_policy[@"preferences"] isKindOfClass:NSDictionary.class])return;
- double rate=[_policy[@"preferences"][[[self kind] isEqual:@"audiobook_file"]?@"bookRate":@"musicRate"] doubleValue];
+ BOOL book=[[self kind] isEqual:@"audiobook_file"];
+ double rate=[_policy[@"preferences"][book?@"bookRate":@"musicRate"] doubleValue];
  NSString *key=[NSString stringWithFormat:@"%@:%g",_session[@"id"],rate];
- if([_policyRateKey isEqual:key]||!ListeningRate(@(rate)))return;_policyRateKey=key;
+ if([_policyRateKey isEqual:key]||!(book?ListeningBookRate(@(rate)):ListeningRate(@(rate))))return;_policyRateKey=key;
  if(fabs(_rate-rate)>.00001){_rate=rate;_preferredRate=@(rate);_reportNow=YES;}
 }
 /** Music or a book: the item's kind from its metadata, else music. */

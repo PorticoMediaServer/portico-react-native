@@ -464,7 +464,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (NSArray<NSNumber *> *)supportedRates {
  if(_player.currentItem.status!=AVPlayerItemStatusReadyToPlay)return @[];
  if(_timelineOriginMS)return @[@1];
- return _player.currentItem.canPlaySlowForward?@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]:@[@1,@1.25,@1.5,@1.75,@2];
+ NSArray *rates=_player.currentItem.canPlaySlowForward?@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]:@[@1,@1.25,@1.5,@1.75,@2];
+ // Audiobooks go to 3x, as on web; the menu offers 2.5x and 3x only for them.
+ return _player.currentItem.canPlayFastForward?[rates arrayByAddingObjectsFromArray:@[@2.5,@3]]:rates;
 }
 - (double)desiredRate {return [_command[@"rate"] isKindOfClass:NSNumber.class]?[_command[@"rate"] doubleValue]:1;}
 - (NSDictionary *)rateFacts {

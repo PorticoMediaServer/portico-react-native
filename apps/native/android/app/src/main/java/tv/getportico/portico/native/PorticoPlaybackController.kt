@@ -1363,7 +1363,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   companion object {
     private const val MAX_INTEGER = 9007199254740991.0
     private val CONNECTION_STATES = setOf("ready", "verifying")
-    private val RATES = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+    // 2.5x and 3x are for audiobooks (the menu offers them only there), as on web.
+    private val RATES = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
     private val LINEAR_RATES = listOf(1.0)
     private val NETWORK_ERRORS = setOf(
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
