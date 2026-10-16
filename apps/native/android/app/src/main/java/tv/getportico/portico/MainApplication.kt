@@ -8,6 +8,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import tv.getportico.portico.native.PorticoPackage
+import tv.getportico.portico.native.PorticoServerTrust
 
 class MainApplication : Application(), ReactApplication {
 
@@ -24,6 +25,8 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // Before any client exists: every connection checks certificates the same way.
+    PorticoServerTrust.install(this)
     TelevisionDisplay.install(this)
     loadReactNative(this)
     TelevisionDisplay.keep(this)

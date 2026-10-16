@@ -1312,7 +1312,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
     /** Credentialed requests: no redirects, no cookies, no cache, a bounded body. They go on without JavaScript. */
     private val http: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
           .connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build()
     }
 

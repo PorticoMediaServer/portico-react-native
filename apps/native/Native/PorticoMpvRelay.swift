@@ -324,6 +324,11 @@ final class PorticoMpvRelay: NSObject, URLSessionDataDelegate {
 
     // MARK: - URLSession
 
+    /// The server's certificate is checked the way every Portico connection checks it: system
+    /// trust, or the owner's certificate pinned for this address (PorticoServerTrust).
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        PorticoServerTrust.handle(challenge, completion: completionHandler)
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
     }
