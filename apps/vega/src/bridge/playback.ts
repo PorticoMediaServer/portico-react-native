@@ -481,7 +481,7 @@ function refusal(command: Command): string | null {
   if (accepted?.routeRevision !== undefined && (command.routeRevision === undefined || command.routeRevision < accepted.routeRevision)) return 'Stale route transition.';
   if (accepted) {
     const prior = accepted.binding;
-    if (binding.intentId < prior.intentId || (binding.intentId === prior.intentId && (!same(binding, prior) || !sameSource(command, accepted)))) return 'Stale playback binding.';
+    if (binding.intentId < prior.intentId || (binding.intentId === prior.intentId && (!same(binding, prior) || !sameSource(command, accepted)) && !replannedInPlace(prior, binding))) return 'Stale playback binding.';
   }
   const pending = command.pendingSeek;
   if (pending !== undefined && pending !== null) {
@@ -493,6 +493,16 @@ function refusal(command: Command): string | null {
     }
   }
   return null;
+}
+
+/**
+ * A newer presentation of the same playback: the same lease, intent, session and title, a later
+ * generation. The server planned the session again in place (a quality, version, audio or
+ * subtitle change), so the command is the current one and its source is opened.
+ */
+function replannedInPlace(prior: Command['binding'], next: Command['binding']): boolean {
+  return whole(next.generation, 1) && whole(prior.generation, 1) && next.generation > prior.generation && next.intentId === prior.intentId &&
+    next.lease === prior.lease && typeof next.sessionId === 'string' && next.sessionId === prior.sessionId && typeof next.itemId === 'string' && next.itemId === prior.itemId;
 }
 
 /** Only a newer verified route may move an unchanged binding to the same media path/query. */

@@ -41,7 +41,7 @@ async function acquire(): Promise<string> {
 const binding = (more: object = {}) => ({lease, intentId: 1, sessionId: 'session', generation: 1, itemId: 'item', ...more});
 const command = (more: Record<string, unknown> = {}) => ({binding: binding(), source: base + 'index.m3u8', paused: false, rate: 1, commandRevision: ++revision, connectionState: 'ready', routeRevision: 0, pendingSeek: null, timelineOriginMs: null, audio: null, subtitles: null, ...more}) as never;
 
-function film(count = 40, bytes = 0) {
+function film(count = 40, bytes = 0, base = 'http://server.test/v1/media/GRANT/') {
   let text = '#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:7\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-MAP:URI="init.mp4"\n';
   server.routes.set(base + 'init.mp4', segment({init: true}));
   for (let n = 0; n < count; n++) { text += `#EXTINF:6.000,\ns${n}.m4s\n`; server.routes.set(`${base}s${n}.m4s`, segment({pts: 1 + n * 6, duration: 6, bytes})); }
@@ -337,11 +337,27 @@ test('stale intents and changed bindings under the same intent are refused atomi
   await engine.command(command({paused: true, binding: binding({intentId: 2})}));
   await until(() => of('ready').length === 1);
   const current = player();
-  for (const change of [{intentId: 1}, {intentId: 2, generation: 2}, {intentId: 2, itemId: 'other'}]) {
+  for (const change of [{intentId: 1}, {intentId: 2, itemId: 'other'}, {intentId: 2, sessionId: 'other', generation: 2}]) {
     await assert.rejects(engine.command(command({binding: binding(change)})), (e: any) => e.code === 'command_rejected' && e.message === 'Stale playback binding.');
     assert.equal(player(), current);
     assert.equal(player().paused, true);
   }
+});
+
+test('a newer generation of the same session under the same intent is a re-plan in place: its source opens', async () => {
+  film();
+  film(40, 0, 'http://server.test/v1/media/REPLAN/');
+  const replanned = 'http://server.test/v1/media/REPLAN/index.m3u8';
+  await acquire();
+  await engine.command(command({paused: true}));
+  await until(() => of('ready').length === 1);
+  const first = player();
+  // A subtitle or quality change: the server's new presentation of the same session.
+  await engine.command(command({paused: true, binding: binding({generation: 2}), source: replanned}));
+  assert.notEqual(player(), first);
+  await until(() => of('ready').some(fact => fact.binding.generation === 2));
+  // The presentation it replaced is not taken back.
+  await assert.rejects(engine.command(command({paused: true})), (e: any) => e.code === 'command_rejected' && e.message === 'Stale playback binding.');
 });
 
 test('invalid, conflicting and retired seeks keep the accepted state intact', async () => {

@@ -34,6 +34,17 @@ enum PorticoMpvSupport {
         return value as? NSDictionary
     }
 
+    /// `next` is a newer presentation of the playback `previous` is bound to: the same lease,
+    /// intent, session and title, a later generation. The server planned the session again in
+    /// place (a quality, version, audio or subtitle change), so the command is the current one,
+    /// not a stale one, and the engine opens its source. The Android engines apply the same rule.
+    static func replannedInPlace(_ previous: NSDictionary, _ next: NSDictionary) -> Bool {
+        guard let before = integer(previous["generation"]), let after = integer(next["generation"]), let intent = integer(next["intentId"]),
+              let session = next["sessionId"] as? String, let item = next["itemId"] as? String, let lease = next["lease"] as? String else { return false }
+        return after > before && intent == integer(previous["intentId"]) && lease == (previous["lease"] as? String)
+            && session == (previous["sessionId"] as? String) && item == (previous["itemId"] as? String)
+    }
+
     // MARK: - Addresses
 
     /// A downloaded title: a file inside the app's own Downloads folder, checked after symlinks

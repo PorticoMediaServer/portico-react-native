@@ -247,8 +247,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   BOOL sameResource=oldURL&&nextURL&&[oldURL.path isEqual:nextURL.path]&&[(oldURL.query?:@"") isEqual:(nextURL.query?:@"")]&&!nextURL.user.length&&!nextURL.password.length&&!nextURL.fragment.length;
   BOOL routeChange=sameBinding&&sameResource&&PorticoPlaybackInteger(route,0)&&[route doubleValue]>(PorticoPlaybackInteger(_command[@"routeRevision"],0)?[_command[@"routeRevision"] doubleValue]:0);
   BOOL same=sameBinding&&(sameSource||routeChange);
-  BOOL newWindow=linear&&_timelineOriginMS&&[binding[@"sessionId"] isEqual:_binding[@"sessionId"]]&&[binding[@"itemId"] isEqual:_binding[@"itemId"]]&&[binding[@"generation"] longLongValue]>[_binding[@"generation"] longLongValue];
-  if(intent<old||(intent==old&&!same&&!newWindow))return @"Stale playback binding.";
+  // A channel's next window, or the session planned again in place (a quality, version, audio or
+  // subtitle change): a newer generation of the same playback, under the same lease and intent.
+  BOOL replanned=intent==old&&[binding[@"lease"] isEqual:_binding[@"lease"]]&&[binding[@"sessionId"] isEqual:_binding[@"sessionId"]]&&[binding[@"itemId"] isEqual:_binding[@"itemId"]]&&[binding[@"generation"] longLongValue]>[_binding[@"generation"] longLongValue];
+  if(intent<old||(intent==old&&!same&&!replanned))return @"Stale playback binding.";
   if(same&&((_timelineOriginMS!=nil)!=linear||linear&&![_timelineOriginMS isEqual:clock]))return @"Channel clock changed within a binding.";
  }
 

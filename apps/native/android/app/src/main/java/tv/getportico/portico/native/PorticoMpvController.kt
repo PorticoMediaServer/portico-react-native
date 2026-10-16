@@ -308,7 +308,7 @@ internal class PorticoMpvController(private val context: Context) {
           nextUrl.userInfo.isNullOrEmpty() && nextUrl.encodedFragment.isNullOrEmpty()
       val routeChange = sameBinding && sameResource && nextRoute != null && nextRoute > (previousRoute ?: 0.0)
       val same = sameBinding && (sameSource || routeChange)
-      if (intent < oldIntent || (intent == oldIntent && !same)) return "Stale playback binding."
+      if (intent < oldIntent || (intent == oldIntent && !same && !PorticoMpvSupport.replannedInPlace(old, binding))) return "Stale playback binding."
     }
     var pendingSeek: Pair<Long, Double>? = null
     val pending = command["pendingSeek"]

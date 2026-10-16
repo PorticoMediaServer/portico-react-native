@@ -288,9 +288,10 @@ internal class PorticoPlaybackController(private val context: Context) {
           nextUrl.userInfo == null && nextUrl.encodedFragment == null
       val routeChange = sameBinding && sameResource && nextRoute != null && nextRoute > (previousRoute ?: 0.0)
       val same = sameBinding && (sameSource || routeChange)
-      val newWindow = linear && timelineOriginMs != null && bound["sessionId"] == current["sessionId"] && bound["itemId"] == current["itemId"] &&
-          number(bound["generation"])!! > number(current["generation"])!!
-      if (intent < old || (intent == old && !same && !newWindow)) return "Stale playback binding."
+      // A channel's next window, or the session planned again in place, is a newer generation
+      // of the same playback.
+      val replanned = PorticoMpvSupport.replannedInPlace(current, bound)
+      if (intent < old || (intent == old && !same && !replanned)) return "Stale playback binding."
       if (same && ((timelineOriginMs != null) != linear || (linear && timelineOriginMs != number(clock)))) return "Channel clock changed within a binding."
     }
     val pending = command["pendingSeek"]

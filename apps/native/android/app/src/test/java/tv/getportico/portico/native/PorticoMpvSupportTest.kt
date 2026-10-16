@@ -26,6 +26,20 @@ class PorticoMpvSupportTest {
   }
 
   @Test
+  fun aNewerGenerationOfTheSamePlaybackIsAReplanNotAStaleCommand() {
+    val bound = mapOf("lease" to "L", "intentId" to 1.0, "sessionId" to "s", "generation" to 1.0, "itemId" to "i")
+    // A subtitle or quality change: the server's next presentation of the same session.
+    assertTrue(support.replannedInPlace(bound, bound + ("generation" to 2.0)))
+    assertFalse("the same generation", support.replannedInPlace(bound, bound))
+    assertFalse("an older generation", support.replannedInPlace(bound + ("generation" to 2.0), bound))
+    assertFalse("another session", support.replannedInPlace(bound, bound + mapOf("generation" to 2.0, "sessionId" to "t")))
+    assertFalse("another title", support.replannedInPlace(bound, bound + mapOf("generation" to 2.0, "itemId" to "j")))
+    assertFalse("another intent", support.replannedInPlace(bound, bound + mapOf("generation" to 2.0, "intentId" to 2.0)))
+    assertFalse("another lease", support.replannedInPlace(bound, bound + mapOf("generation" to 2.0, "lease" to "M")))
+    assertFalse("not a whole number", support.replannedInPlace(bound, bound + ("generation" to 2.5)))
+  }
+
+  @Test
   fun renditionsMapByStreamIndexThenNameThenPosition() {
     val audio = listOf(mapOf("id" to 1, "ff-index" to 1), mapOf("id" to 2, "ff-index" to 2))
     assertEquals(mapOf("a" to 1, "b" to 2), support.mapRenditions(listOf(mapOf("id" to "a", "streamIndex" to 1.0), mapOf("id" to "b", "streamIndex" to 2.0)), audio))
