@@ -106,8 +106,6 @@ test('every panel the phone structure names is one this app draws', () => {
   const drawn = new Set([...source.matchAll(/case '([^']+)':/g)].map(m => m[1]));
   for (const context of [owner, administrator]) {
     for (const p of heading(on(context, false), 'server')!.pages) for (const id of panels(p)) {
-      // Devices are drawn per account on a phone; the web's every-device list is the web's.
-      if (id === 'server.devices') continue;
       assert.ok(drawn.has(id), id);
     }
   }
