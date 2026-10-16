@@ -13,4 +13,9 @@ RCT_EXTERN_METHOD(advertiseTV:(NSDictionary *)value resolver:(RCTPromiseResolveB
 RCT_EXTERN_METHOD(stopTVAdvertisement)
 RCT_EXTERN_METHOD(advertisePlayer:(NSDictionary *)value resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(stopPlayerAdvertisement)
+RCT_EXTERN_METHOD(refusedCertificate:(NSString *)origin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pinnedCertificate:(NSString *)origin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pinCertificate:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(forgetCertificate:(NSString *)origin)
+RCT_EXTERN_METHOD(proofRequest:(NSString *)origin fingerprint:(NSString *)fingerprint body:(NSString *)body resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 @end

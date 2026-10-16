@@ -28,6 +28,7 @@ import {useLibraryMemory} from '../app/library-memory';
 import {linkedView, offeredFilters, openingView, tabView, type LibraryView} from '../app/library-view';
 import {AlphabetRail, BrowseBar} from './BrowseFilters';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {usePullToRefresh} from '../app/refresh';
 import type {I18n} from '../app/i18n';
@@ -96,6 +97,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const engine = !!pivot && !category;
   const content: ContentRoute = useMemo(() => (playlists ? {libraryId, view: 'discover'} : {libraryId, view: tab as ContentView, ...(category ? {category} : {}), ...sort}), [libraryId, tab, playlists, category, sort]);
   const {snapshot, retry, refresh, next} = useContent(engine ? {libraryId, view: 'discover'} : content);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(!engine && active.shows !== 'playlists' && snapshot.phase === 'refresh-required', refresh);
   // A tab of groups (Genres, Series) is a list of the library's own; titles narrowed to a group are that group's titles.
   const opens = active.opens;
   const {capabilities, error: capabilityError} = useBrowseCapabilities(engine ? libraryId : undefined, pivot, capabilityAttempt, !opens && (genre || view.filters.some(f => ['genre', 'series', 'decade', 'collection', 'memberOf'].includes(f.field))) ? 'group-titles' : 'library');
@@ -258,7 +261,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           <LoadingGrid />
         ) : snapshot.phase === 'error' && !snapshot.sections.length ? (
           <StateView icon="error" title={i18n.t('lib.loadFailed')} message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
-        ) : snapshot.phase === 'refresh-required' ? (
+        ) : changedStuck ? (
           <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'library', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
         ) : null}
         {(playlists ? [] : snapshot.sections).map((raw, index) => {

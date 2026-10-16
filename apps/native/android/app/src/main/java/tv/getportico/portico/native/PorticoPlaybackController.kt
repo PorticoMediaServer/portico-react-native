@@ -376,7 +376,9 @@ internal class PorticoPlaybackController(private val context: Context) {
         val url = parse(address)
         if (url == null || !PorticoMpvSupport.allowedSource(context, url)) { emit("error", "Invalid media address."); return }
         val pendingStart = (next["pendingSeek"] as? Map<*, *>)?.get("positionSeconds")?.let { number(it) }
-        load(url, if (plan != null && !routeResume) pendingStart else null)
+        // A direct MP3 or ADTS file with a seek index from the server lands exactly (rendered or not).
+        @Suppress("UNCHECKED_CAST") val indexed = PorticoSeekIndex.spec(plan ?: next["seekPlan"] as? Map<String, Any?>, url.toString())
+        load(url, if (plan != null && !routeResume) pendingStart else null, indexed)
         enginePlan = plan?.get("id") as? String
         if (routeResume) {
           val epoch = routeEpoch
@@ -438,7 +440,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     // A high-bitrate stream must not take memory the interface needs on a small device.
     if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
     // A transport stream is searched further for the time asked for, so a seek in one lands.
-    val extractors = DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
+    // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
+    val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
     val gain = if (listening) PorticoAudioGain() else null
     val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
@@ -480,7 +483,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     }
   }
 
-  private fun load(url: Uri, startSeconds: Double? = null) {
+  private fun load(url: Uri, startSeconds: Double? = null, index: PorticoSeekIndex.Spec? = null) {
     // A player that came out of a music crossfade was built for music (its sound is announced to
     // the system as music). A title with a picture gets the app's own player again.
     if (playerIsDeck && listeningOwner == null) {
@@ -501,8 +504,28 @@ internal class PorticoPlaybackController(private val context: Context) {
     val start = if (routeResume && timelineOriginMs == null) (routePosition * 1000).toLong()
         else if (startSeconds != null && startSeconds > 0 && timelineOriginMs == null) (startSeconds * 1000).toLong() else C.TIME_UNSET
     engine.playWhenReady = false
-    engine.setMediaItem(MediaItem.fromUri(url), start)
-    engine.prepare()
+    // The index is read before the file is opened when it will be used: a part-way start, a
+    // resume, or any ADTS file (which Media3 cannot place at all without it).
+    val address = url.toString()
+    val resuming = (number(listeningSeek?.get("positionSeconds")) ?: 0.0) > 0
+    val wanted = index != null && PorticoSeekIndex.cached(address) == null && (start != C.TIME_UNSET || routeResume || resuming || index.container == "adts")
+    if (!wanted) {
+      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.prepare()
+      return
+    }
+    // Nothing is loaded meanwhile, so a seek waits for the file instead of moving the previous one.
+    engine.stop()
+    engine.clearMediaItems()
+    val item = itemInstanceId
+    PorticoSeekIndex.load(mediaClient, address, index!!) {
+      if (invalidated || player !== engine || itemInstanceId != item || source == null) return@load
+      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.prepare()
+      applyRouteResume()
+      applyPendingSeek()
+      applyIntent()
+    }
   }
 
   private fun unload() {
@@ -1151,6 +1174,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     next["timelineOriginMs"] = null
     next["pendingSeek"] = listeningSeek
     next["audioRender"] = listeningRender
+    next["seekPlan"] = media["seekPlan"]
     next["audio"] = attached?.get("audio") ?: command?.get("audio")
     next["subtitles"] = attached?.get("subtitles") ?: command?.get("subtitles")
     // The same command again changes nothing, and must not churn JavaScript's command barrier.
@@ -1390,7 +1414,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
     /** Media addresses are capability URLs; one client keeps their connections warm. */
     private val mediaClient: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false)
           .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 

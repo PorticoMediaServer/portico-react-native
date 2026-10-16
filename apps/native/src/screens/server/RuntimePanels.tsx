@@ -260,7 +260,7 @@ export function ClientReportsPanel() {
         items={[{id: 'read', label: t('server.reports.read'), icon: 'logs'}, {id: 'delete', label: t('web.diagnostics.clientReportDelete'), icon: 'trash', destructive: true}]}
         onSelect={id => { const report = menu; if (!report) return; if (id === 'read') show(report); else setRemoving(report); }} />
       <Sheet open={!!open} onClose={() => setOpen(undefined)} kind="form" cancelLabel={t('action.done')} title={t('server.reports.title')} subtitle={open ? `${sender(open.report)} · ${i18n.dateTime(open.report.receivedAt)}` : undefined}
-        leading={open?.body ? {label: t('invite.share'), onPress: () => { void Share.share({message: open.body ?? ''}).catch(() => {}); }} : undefined}>
+        leading={open?.body ? {label: t('server.reports.share'), onPress: () => { void Share.share({message: open.body ?? ''}).catch(() => {}); }} : undefined}>
         <View style={{paddingHorizontal: pad, gap: space.md}}>
           {open?.error ? <Notice tone="error" message={open.error} action={t('action.tryAgain')} onAction={() => show(open.report)} /> : null}
           {open?.body !== undefined ? <Text variant="caption" tone="secondary" selectable>{open.body || t('server.reports.empty')}</Text> : null}

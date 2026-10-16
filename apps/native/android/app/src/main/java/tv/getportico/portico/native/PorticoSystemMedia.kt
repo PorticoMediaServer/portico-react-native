@@ -283,7 +283,7 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
     private const val ARTWORK_LIMIT = 4L * 1024 * 1024
     private val POSTER = Regex("^/v1/items/[A-Za-z0-9_-]{1,128}/art/(poster|backdrop|thumb)$")
     private val artworkClient: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null).callTimeout(15, TimeUnit.SECONDS).build()
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null).callTimeout(15, TimeUnit.SECONDS).build()
     }
 
     /** The module of the running JavaScript, for the parts of the native layer that have a command to report. */

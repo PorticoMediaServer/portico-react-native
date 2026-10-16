@@ -25,6 +25,9 @@ import {
   type HostedConnectionSource,
 } from '../../../../packages/client-core/src/server-connections.ts';
 import { NativeQueueStore } from './queue-storage';
+import { routePath } from '../../../../packages/contracts/src/routes.ts';
+import { checkApplePlainHttp } from './apple-plain-http';
+import { certificateOrigin, settleCertificate, type CertificatePlatform } from './certificate-trust';
 const storageKey = 'network.selected.v1';
 const store = new NativeQueueStore();
 // A saved connection that is there but can never be read ends the sign-in (the shared code tells
@@ -57,7 +60,8 @@ const storage: ServerConnectionStorage = {
     );
   },
 };
-export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (input, options = {}) => {
+/** One request through the native transport, as it is. */
+const nativeRequest: typeof fetch = async (input, options = {}) => {
   if (
     typeof input !== 'string' ||
     options.signal?.aborted ||
@@ -86,7 +90,48 @@ export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (inp
   } finally {
     options.signal?.removeEventListener('abort', cancel);
   }
+};
+/**
+ * The native transport for every API request. On Apple, plain HTTP to an address off the local
+ * network is refused here with the reason (the system would refuse it anyway). A request that
+ * meets the owner's own certificate settles it (`certificate-trust.ts`) and is retried once.
+ */
+export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (input, options = {}) => {
+  if (Platform.OS === 'ios' && typeof input === 'string') checkApplePlainHttp(input);
+  try {
+    return await nativeRequest(input, options);
+  } catch (error) {
+    const origin = typeof input === 'string' && (error as {code?: unknown})?.code === 'certificate_untrusted' ? certificateOrigin(input) : undefined;
+    if (!origin || !certificateTrustAvailable()) throw error;
+    await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, options.signal ?? undefined);
+    return nativeRequest(input, options);
+  }
 });
+/** Whether this device can trust an owner's own certificate (Android and Apple; not Vega). */
+export function certificateTrustAvailable(): boolean {
+  return typeof NativeModules.PorticoNetwork?.refusedCertificate === 'function';
+}
+export const nativeCertificatePlatform: CertificatePlatform = {
+  refused: async origin => {
+    const found = await NativeModules.PorticoNetwork.refusedCertificate(origin);
+    return typeof found?.fingerprint === 'string' ? found.fingerprint : undefined;
+  },
+  pinned: async origin => {
+    const found = await NativeModules.PorticoNetwork.pinnedCertificate(origin);
+    return typeof found?.fingerprint === 'string' && typeof found?.serverId === 'string' ? {fingerprint: found.fingerprint, serverId: found.serverId} : undefined;
+  },
+  pin: async (origin, pin) => {
+    await NativeModules.PorticoNetwork.pinCertificate(origin, pin.fingerprint, pin.serverId);
+  },
+  // The identity proof only: its exact address, method and body, over the one certificate.
+  proofFetcher: (origin, fingerprint) => async (input, options = {}) => {
+    if (typeof input !== 'string' || input !== origin + routePath('prove_network_identity') || options.method !== 'POST' || typeof options.body !== 'string')
+      throw new RouteError('cancelled', 'Connection request cancelled.');
+    const raw = await NativeModules.PorticoNetwork.proofRequest(origin, fingerprint, options.body);
+    if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
+    return new Response(raw.body, {status: raw.status, headers: raw.headers});
+  },
+};
 export const nativeRouteCrypto: RouteCrypto = {
   random: n => {
     const values = NativeModules.PorticoRuntime.playbackRandomBytes(n);
