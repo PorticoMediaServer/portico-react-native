@@ -325,7 +325,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // Owners: two of an album's songs, or a book's files, that are one can be merged here (they have no page of their own to start from).
   const mergeTwo = useMergeTwo((isBook ? files : songs)?.entries ?? [], refresh);
   // Owners: this album, book or artist and another that are one can be merged from here.
-  const tools = useTitleTools(entity && (entity.kind === 'album' || entity.kind === 'book' || entity.kind === 'artist') ? {id: entity.id, title: entity.title, kind: entity.kind, libraryId, year: entity.year} : undefined, undefined, refresh);
+  const tools = useTitleTools(entity && (entity.kind === 'album' || entity.kind === 'book' || entity.kind === 'artist' || entity.kind === 'author') ? {id: entity.id, title: entity.title, kind: entity.kind, libraryId, year: entity.year} : undefined, undefined, refresh);
   const bottom = (
     <>
         {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
