@@ -150,6 +150,7 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         putInt("maxHeight", decoder.maxHeight)
         putInt("maxFrameRate", decoder.maxFrameRate)
         putBoolean("tenBit", decoder.tenBit)
+        if (decoder.points.isNotEmpty()) putArray("limits", videoPointsArray(decoder.points))
       })
       // HDR reaches the screen when the decoder draws straight onto the surface, which takes a
       // hardware decoder for a 10-bit codec and a screen that shows HDR10.

@@ -32,7 +32,9 @@ export function nativeEngineCapabilities(document: CapabilityDocument, android?:
       if (!software.has(v.codec)) return [v];
       const limit = softwareLimit(v.codec, android.deviceClass);
       if (!limit) return [];
-      return [{...v, maxWidth: Math.min(v.maxWidth ?? limit.maxWidth, limit.maxWidth), maxHeight: Math.min(v.maxHeight ?? limit.maxHeight, limit.maxHeight), maxFrameRate: Math.min(v.maxFrameRate ?? limit.maxFrameRate, limit.maxFrameRate), evidence: 'declared' as const}];
+      // The software estimate replaces the decoder's own operating points.
+      const {limits: _points, ...rest} = v;
+      return [{...rest, maxWidth: Math.min(v.maxWidth ?? limit.maxWidth, limit.maxWidth), maxHeight: Math.min(v.maxHeight ?? limit.maxHeight, limit.maxHeight), maxFrameRate: Math.min(v.maxFrameRate ?? limit.maxFrameRate, limit.maxFrameRate), evidence: 'declared' as const}];
     });
     const names = new Set(video.map(v => v.codec));
     transports = transports.map(t => (t.video ? {...t, video: t.video.filter(name => names.has(name))} : t));

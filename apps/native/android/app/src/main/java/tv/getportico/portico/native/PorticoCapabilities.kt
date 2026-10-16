@@ -109,6 +109,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     var maxBitrate = 0
     var maxLevel = 0
     var tenBit = false
+    var points: List<VideoPoint> = emptyList()
     val profiles = LinkedHashSet<String>()
     val hdr = LinkedHashSet<String>()
     val dolbyVision = LinkedHashSet<Int>()
@@ -134,7 +135,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         if (hardware && !entry.hardware) {
           entry.hardware = true
           entry.maxWidth = 0; entry.maxHeight = 0; entry.maxFrameRate = 0; entry.maxBitrate = 0; entry.maxLevel = 0
-          entry.tenBit = false; entry.profiles.clear(); entry.hdr.clear()
+          entry.tenBit = false; entry.points = emptyList(); entry.profiles.clear(); entry.hdr.clear()
         }
         val width = video.supportedWidths.upper
         val height = try { video.getSupportedHeightsFor(width).upper } catch (_: Exception) { video.supportedHeights.upper }
@@ -142,6 +143,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
           entry.maxWidth = width
           entry.maxHeight = height
           entry.maxFrameRate = try { video.getSupportedFrameRatesFor(width, height).upper.toInt() } catch (_: Exception) { video.supportedFrameRates.upper }
+          entry.points = videoPoints(video, width, height)
         }
         entry.maxBitrate = maxOf(entry.maxBitrate, video.bitrateRange.upper)
         for (level in capabilities.profileLevels) describe(codec, level, entry)
@@ -159,6 +161,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         putInt("maxWidth", entry.maxWidth)
         putInt("maxHeight", entry.maxHeight)
         if (entry.maxFrameRate in 1..960) putInt("maxFrameRate", entry.maxFrameRate)
+        if (entry.points.isNotEmpty()) putArray("limits", videoPointsArray(entry.points))
         if (entry.maxBitrate > 0) putInt("maxBitrateBps", entry.maxBitrate)
         if (entry.profiles.isNotEmpty()) putArray("profiles", Arguments.fromList(entry.profiles.toList()))
         if (entry.maxLevel > 0) putInt("maxLevel", entry.maxLevel)

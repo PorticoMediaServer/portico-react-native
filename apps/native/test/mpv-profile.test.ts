@@ -44,8 +44,11 @@ test('hardware codecs play at the chip\'s limits; the rest within what software 
   const standard = mpvEngineCapabilities(appleTV4K);
   assert.equal(codec(standard, 'hevc')!.maxWidth, 4096);
   assert.deepEqual(codec(standard, 'h264')!.bitDepths, [8, 10], '10-bit H.264 in software');
-  assert.equal(codec(standard, 'h264')!.maxWidth, 1920, 'a single codec limit must also fit software Hi10P');
-  assert.equal(codec(standard, 'h264')!.maxFrameRate, 30);
+  assert.equal(codec(standard, 'h264')!.maxWidth, 4096, '8-bit H.264 keeps the chip\'s limit');
+  assert.deepEqual(codec(standard, 'h264')!.limits, [
+    {bitDepths: [8], maxWidth: 4096, maxHeight: 2304, maxFrameRate: 60},
+    {bitDepths: [10], maxWidth: 1920, maxHeight: 1080, maxFrameRate: 30},
+  ], 'software Hi10P has its own operating point');
   assert.equal(codec(standard, 'av1')!.maxHeight, 1080, 'software AV1 stops at 1080p here');
   assert.equal(codec(standard, 'av1')!.maxFrameRate, 30);
   assert.equal(codec(standard, 'vp9')!.maxHeight, 1080);
