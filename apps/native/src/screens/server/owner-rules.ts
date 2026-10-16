@@ -136,10 +136,10 @@ export function metadataSave(read: MetadataSettings, draft: MetadataDraft, now: 
   return {expectedRevision: now.revision, localArtworkLimitBytes: limitMine ? draft.limitBytes : now.localArtworkLimitBytes, includeAdult: adultMine ? draft.includeAdult : now.includeAdult, ...(tmdb !== undefined ? {tmdbReadToken: tmdb} : {}), ...(tvdb !== undefined ? {tvdbProjectKey: tvdb} : {}), ...subtitleChanges(read, draft.subtitles)};
 }
 
-export type AttentionChoice = 'search' | 'id' | 'parent' | 'dismiss';
+export type AttentionChoice = 'search' | 'id' | 'parent' | 'retry' | 'dismiss';
 /** What the owner can do with a title that needs attention besides using a suggested match: only what the server named for it, in the order shown. */
 export function attentionChoices(entry: Pick<AttentionEntry, 'actions' | 'parentId'>): readonly AttentionChoice[] {
-  return (['search', 'id', 'parent', 'dismiss'] as const).filter(choice => attentionOffers(entry, choice) && (choice !== 'parent' || !!entry.parentId));
+  return (['search', 'id', 'parent', 'retry', 'dismiss'] as const).filter(choice => attentionOffers(entry, choice) && (choice !== 'parent' || !!entry.parentId));
 }
 
 // ── Live TV ─────────────────────────────────────────────────────────────────

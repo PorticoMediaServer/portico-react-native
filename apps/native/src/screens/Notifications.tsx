@@ -1,7 +1,7 @@
 import React, {useEffect, useState, useSyncExternalStore, useMemo} from 'react';
 import {View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
-import {FeedbackService, type FeedbackDraft, type InboxView, type Notification, type NotificationAudience} from '../../../../packages/client-core/src/index';
+import {FeedbackService, noticeWords, type FeedbackDraft, type InboxView, type Notification, type NotificationAudience} from '../../../../packages/client-core/src/index';
 import {useInbox} from '../app/inbox';
 import {useSession} from '../app/session';
 import {Badge, Button, Divider, Field, ListRow, Menu, Notice, Page, PageHeader, RowGroup, Segmented, Sheet, StateView, Surface, Text, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
@@ -47,14 +47,14 @@ export function NotificationsScreen() {
           {state.items.length ? (
             <RowGroup>
               {state.items.map((n, index) => (
-                <ListRow key={n.id} hasTVPreferredFocus={isTV && entry && index === 0} icon={severityIcon[n.severity]} title={n.title} subtitle={n.body || undefined} meta={i18n.relativeTime(n.createdAt)} trailing={!n.read ? <Badge label={i18n.t('notifications.new')} tone="accent" /> : undefined} style={{opacity: n.read && state.view !== 'archived' ? 0.7 : 1}} accessory="menu" onPress={() => setChosen(n)} />
+                <ListRow key={n.id} hasTVPreferredFocus={isTV && entry && index === 0} icon={severityIcon[n.severity]} title={noticeWords(n, i18n).title} subtitle={noticeWords(n, i18n).body || undefined} meta={i18n.relativeTime(n.createdAt)} trailing={!n.read ? <Badge label={i18n.t('notifications.new')} tone="accent" /> : undefined} style={{opacity: n.read && state.view !== 'archived' ? 0.7 : 1}} accessory="menu" onPress={() => setChosen(n)} />
               ))}
             </RowGroup>
           ) : null}
           {state.more ? <Button variant="secondary" label={i18n.t('notifications.loadMore')} loading={state.busy} onPress={() => void service.more()} /> : null}
         </View>
       </Page>
-      <Menu open={!!chosen} onClose={() => setChosen(undefined)} title={chosen?.title} subtitle={chosen?.body || undefined} items={actions} onSelect={id => { if (chosen) void service.apply(id as 'read' | 'unread' | 'archive' | 'unarchive', [chosen.id]); setChosen(undefined); }} />
+      <Menu open={!!chosen} onClose={() => setChosen(undefined)} title={chosen ? noticeWords(chosen, i18n).title : undefined} subtitle={chosen ? noticeWords(chosen, i18n).body || undefined : undefined} items={actions} onSelect={id => { if (chosen) void service.apply(id as 'read' | 'unread' | 'archive' | 'unarchive', [chosen.id]); setChosen(undefined); }} />
     </View>
   );
 }
