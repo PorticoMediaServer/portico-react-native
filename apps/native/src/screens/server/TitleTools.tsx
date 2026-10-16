@@ -41,7 +41,7 @@ export function useTitleTools(title: ToolTitle | undefined, files: readonly Titl
   const canMerge = MERGEABLE_KINDS.includes(title.kind) && !!mergeSearchGroup(title.kind);
   return {
     fileAction: (file, summary) => setMenu({file, summary}),
-    mergeRow: canMerge ? <RowGroup><ListRow tone="action" icon="link" title={t('web.selection.merge')} onPress={() => setMerging(true)} /></RowGroup> : undefined,
+    mergeRow: canMerge ? <RowGroup><ListRow tone="action" icon="link" title={t('title.merge.action')} onPress={() => setMerging(true)} /></RowGroup> : undefined,
     sheets: (
       <>
         <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.summary} subtitle={menu?.file.path}
@@ -164,16 +164,16 @@ function MergeSheet({open, title, onClose, onMerged}: {open: boolean; title: Too
   const order = other ? mergeOrder<Other>(title, other, keep) : undefined;
   const merge = () => void action.run(async () => { if (order) onMerged(await mergeTitles(api, order.from.id, order.into.id)); });
   return (
-    <Sheet open={open} onClose={onClose} kind="form" title={other ? t('web.merge.title') : t('web.selection.merge')} subtitle={other ? undefined : named(title)}
+    <Sheet open={open} onClose={onClose} kind="form" title={other ? t('web.merge.title') : t('title.merge.action')} subtitle={other ? undefined : named(title)}
       primary={other ? {label: t('web.selection.merge'), loading: action.busy, onPress: merge} : undefined} leading={other ? {label: t('action.back'), onPress: () => setOther(undefined)} : undefined}>
       <View style={{gap: space.md}}>
         {action.error ? <Notice tone="error" message={action.error} /> : null}
         {!other ? (
           <>
-            <Field label={t('server.attention.searchFor')} value={query} onChangeText={setQuery} maxLength={200} autoCorrect={false} autoFocus returnKeyType="search" />
+            <Field label={t('title.merge.find')} value={query} onChangeText={setQuery} maxLength={200} autoCorrect={false} autoFocus returnKeyType="search" />
             {snapshot.phase === 'error' && snapshot.error ? <Notice tone="error" message={problem(snapshot.error)} action={t('action.tryAgain')} onAction={() => void service.retry().catch(() => {})} /> : null}
             {found.length ? <RowGroup>{found.map(entry => <ListRow key={entry.id} icon={entry.kind === 'show' ? 'tv' : entry.kind === 'song' ? 'music' : 'film'} title={named(entry)} subtitle={entry.subtitle} accessory="navigation" onPress={() => { setOther(entry); setKeep(title.id); }} />)}</RowGroup> : null}
-            {snapshot.phase === 'ready' && !found.length ? <RowGroup><ListRow title={t('server.live.noMatches')} /></RowGroup> : null}
+            {snapshot.phase === 'ready' && !found.length ? <RowGroup><ListRow title={t('title.merge.none')} /></RowGroup> : null}
           </>
         ) : (
           <>
@@ -204,7 +204,7 @@ export function useMergeTwo(entries: readonly Readonly<{id: string; kind: string
   const offered = owner && mergeable.some((a, i) => mergeable.some((b, j) => j > i && canMergeTitles(a, b)));
   if (!offered) return {sheet: null};
   return {
-    row: <RowGroup><ListRow tone="action" icon="link" title={t('web.selection.merge')} onPress={() => setOpen(true)} /></RowGroup>,
+    row: <RowGroup><ListRow tone="action" icon="link" title={t('title.merge.action')} onPress={() => setOpen(true)} /></RowGroup>,
     sheet: <MergeTwoSheet open={open} entries={mergeable} onClose={() => setOpen(false)} onMerged={() => { setOpen(false); onMerged(); }} />,
   };
 }
@@ -226,7 +226,7 @@ function MergeTwoSheet({open, entries, onClose, onMerged}: {open: boolean; entri
   const merge = () => void action.run(async () => { if (order) { await mergeTitles(api, order.from.id, order.into.id); onMerged(); } });
   const back = other ? () => setOther(undefined) : first ? () => setFirst(undefined) : undefined;
   return (
-    <Sheet open={open} onClose={onClose} kind="form" title={order ? t('web.merge.title') : t('web.selection.merge')} subtitle={first && !other ? named(first) : undefined}
+    <Sheet open={open} onClose={onClose} kind="form" title={order ? t('web.merge.title') : t('title.merge.action')} subtitle={first && !other ? named(first) : undefined}
       primary={order ? {label: t('web.selection.merge'), loading: action.busy, onPress: merge} : undefined} leading={back ? {label: t('action.back'), onPress: back} : undefined}>
       <View style={{gap: space.md}}>
         {action.error ? <Notice tone="error" message={action.error} /> : null}

@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
-import {lanConfirmationRoots, linearError, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RefreshStatus, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
+import {lanConfirmationRoots, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RefreshStatus, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
 import type {RecordingStorage} from '../../../../../packages/client-core/src/dvr';
 import {liveSourceChoicesService, parseTunerView, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
 import {readLibraryChannels, readLibraryTemplates, saveLibraryChannel, type LibraryChannel, type LibraryChannelTemplate} from '../../../../../packages/client-core/src/library-channels';
@@ -165,7 +165,7 @@ function RemoteSourceSheet({open, tuner, onClose, onSaved}: {open: boolean; tune
         {preview ? <Notice tone="success" title={t('web.liveTv.previewMeta', {channels: preview.preview.channels, programs: preview.preview.programmes.toLocaleString()})} message={[preview.preview.names.slice(0, 6).join(', '), preview.discoveredCapacity ? t('web.liveTv.capacityTuners', {count: preview.discoveredCapacity}) : ''].filter(Boolean).join(' · ')} /> : null}
         {preview ? <ImportSkippedNotice diagnostics={preview.preview.diagnostics} /> : null}
         {confirm ? <Notice tone="warning" title={t('web.liveTv.lanTitle')} message={[t('web.liveTv.lanBody'), ...confirm].join('\n')} /> : null}
-        {action.error ? <Notice tone="error" message={linearError(action.error)} /> : null}
+        {action.error ? <Notice tone="error" message={action.error} /> : null}
       </View>
     </Sheet>
   );
