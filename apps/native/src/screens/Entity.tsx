@@ -15,7 +15,7 @@ import {announceMark, containerKindFor, useContainerState} from '../app/containe
 import {useSession} from '../app/session';
 import {activeYearsLabel, artistReleaseGroups} from '../../../../packages/client-core/src/presentation/index';
 import {TitleDetails} from './title/TitleDetails';
-import {useMergeTwo} from './server/TitleTools';
+import {useMergeTwo, useTitleTools} from './server/TitleTools';
 import type {ContentStackParams} from '../app/routes';
 import {Chip, ChipBar, ListRow, Notice, Page, StateView, showToast, useEntryFocus, useTheme, type IconName} from '../ui';
 import {SectionView} from './Home';
@@ -319,6 +319,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const noMatch = <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />;
   // Owners: two of an album's songs, or a book's files, that are one can be merged here (they have no page of their own to start from).
   const mergeTwo = useMergeTwo((isBook ? files : songs)?.entries ?? [], refresh);
+  // Owners: this album, book or artist and another that are one can be merged from here.
+  const tools = useTitleTools(entity && (entity.kind === 'album' || entity.kind === 'book' || entity.kind === 'artist') ? {id: entity.id, title: entity.title, kind: entity.kind, libraryId, year: entity.year} : undefined, undefined, refresh);
   const bottom = (
     <>
         {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
@@ -335,8 +337,9 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
           }
           return <RowGuide key={section.id}><SectionView row={1 + index} section={section} libraryId={libraryId} onMore={section.nextCursor ? () => next(section.id) : undefined} /></RowGuide>;
         })}
-        <TitleDetails rows={detailRows} tools={mergeTwo.row} />
+        <TitleDetails rows={detailRows} tools={<>{tools.mergeRow}{mergeTwo.row}</>} />
         {mergeTwo.sheet}
+        {tools.sheets}
         {snapshot.phase === 'ready' && !sections.length && !group.engaged ? <StateView icon={iconFor(kind)} title={i18n.t('title.nothingHere')} /> : null}
     </>
   );
