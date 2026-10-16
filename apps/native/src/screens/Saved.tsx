@@ -257,11 +257,13 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     </View>
   ) : <View style={{height: isTV ? space.xl : space.lg}} />;
   if (sortedOn && sortedWindow.list) {
+    // Cards keep their kind's shape when sorted, as in the list's own order: square albums, posters for films and shows.
+    const sortedShape = dominantShape(loadedKinds(sortedWindow.list as unknown as GridWindow<ContentEntry>, sortedWindow.snapshot.total));
     const empty = sortedWindow.snapshot.total === 0 && sortedWindow.snapshot.status === 'ready';
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
+        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={shapeWidth(sortedShape, metrics)} aspect={shapeAspect(sortedShape)}
           renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}</>}
           footer={empty ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
             : sortedWindow.snapshot.status === 'error' && !sortedWindow.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sortedWindow.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedWindow.list?.retry()} /> : null} />
@@ -269,16 +271,15 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     );
   }
   if (mediaTab && media.length) {
-    const shapes = new Set(media.slice(0, 60).map(e => shapeFor(e.kind)));
-    const dominant = shapes.size === 1 ? shapeFor(media[0]!.kind) : 'poster';
-    const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
+    const dominant = dominantShape(media.slice(0, 60).map(e => e.kind));
+    const itemWidth = shapeWidth(dominant, metrics);
     const notice = saved.snapshot.phase === 'error' ? <Notice tone="error" message={say(saved.snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={saved.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       : saved.snapshot.phase === 'refresh-required' ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {/* Touch: the title and tabs stay put above the grid, clear of the status bar. */}
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={dominant === 'landscape' ? 9 / 16 : dominant === 'square' ? 1 : 1.5}
+        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={shapeAspect(dominant)}
           renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}{notice}</>} />
       </View>
     );
@@ -333,8 +334,23 @@ type HistoryEntry = PersonalResourceEntry & {media: ContentEntry};
 const rowKey = (row: SavedRow) => row.key;
 const hasMedia = (entry: PersonalResourceEntry): entry is HistoryEntry => !entry.hidden && !!entry.media;
 
-/** The width a card of this shape asks for; a mixed set reads as posters. */
-function dominantShape(kinds: readonly ContentEntry['kind'][]): 'poster' | 'landscape' | 'square' {
+type GridShape = 'poster' | 'landscape' | 'square';
+const shapeWidth = (shape: GridShape, metrics: {posterWidth: number; landscapeWidth: number; squareWidth: number}) => (shape === 'landscape' ? metrics.landscapeWidth : shape === 'square' ? metrics.squareWidth : metrics.posterWidth);
+const shapeAspect = (shape: GridShape) => (shape === 'landscape' ? 9 / 16 : shape === 'square' ? 1 : 1.5);
+
+/** The kinds of the first titles a sorted list has read (up to 60), for the grid's card shape. */
+function loadedKinds(list: GridWindow<ContentEntry>, total: number | undefined): ContentEntry['kind'][] {
+  const kinds: ContentEntry['kind'][] = [];
+  for (let i = 0; i < Math.min(60, total ?? 60); i++) {
+    const slot = list.slotAt(i);
+    if (slot.kind === 'item') kinds.push(slot.item.kind);
+  }
+  return kinds;
+}
+
+/** The width a card of this shape asks for; a mixed set (or none read yet) reads as posters. */
+function dominantShape(kinds: readonly ContentEntry['kind'][]): GridShape {
+  if (!kinds.length) return 'poster';
   const shapes = new Set(kinds.map(kind => shapeFor(kind)));
   const only = shapes.size === 1 ? shapeFor(kinds[0]!) : 'poster';
   return only === 'landscape' || only === 'square' ? only : 'poster';
