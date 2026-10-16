@@ -255,6 +255,10 @@ export class NativePlaybackCoordinator {
         !!state.failedSeek || !!state.seekError,
       rate: state.channel?1:this.rate,
       timelineOriginMs:state.linear?.media.originMs??null,
+      // mpv places itself on a channel by the server's clock epochs rather than program dates.
+      // Only the start of each epoch after the first is sent, so the command changes when an
+      // epoch begins, not with every segment.
+      ...(this.engine==='mpv'&&state.linear?.media.clocks?.length?{linearClock:state.linear.media.clocks.map((c,i)=>i===0?{offsetMs:c.offsetMs}:{startMs:c.startMs,offsetMs:c.offsetMs})}:{}),
       pendingSeek: listening?null:state.pendingSeek ?? null,
       audio,
       audioRender: null,

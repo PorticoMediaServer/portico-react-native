@@ -4,6 +4,8 @@ import {useNavigation} from '@react-navigation/native';
 import {activeRecording, countUnwatched, dvrMessage, mutableRecording, playableRecording, recordingReason, recordingStateLabel, type DVRPage, type Recording, type RecordingDetail, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../packages/client-core/src/dvr';
 import {formatBytes, useArtwork} from '../app/content';
 import {useDVRClient} from '../app/dvr';
+import {useFreshDocument} from '../app/freshness';
+import {dependsOn} from '../../../../packages/client-core/src/freshness-hub';
 import {useI18n} from '../app/i18n';
 import {usePlayerActions} from '../app/player-actions';
 import {useSession} from '../app/session';
@@ -12,6 +14,8 @@ import {Badge, Button, ConfirmSheet, Divider, ListRow, Menu, Notice, Page, PageH
 import {closeLanguageMenu} from './settings/language-picker-handoff';
 
 const NO_RECORDINGS: readonly Recording[] = [];
+/** This profile's recordings or rules changed (set, started, finished, failed, from any device), or a notice arrived. */
+const RECORDING_HINTS = Object.freeze([dependsOn.list('myRecordings'), dependsOn.event('notification.changed')]);
 
 type View_ = 'upcoming' | 'recorded' | 'rules' | 'storage';
 
@@ -59,6 +63,19 @@ export function RecordingsScreen({eyebrow, picker}: {/** Channels (Spec §2.0): 
   const recordings = page?.recordings ?? NO_RECORDINGS;
   const rules = page?.rules ?? [];
   const loaded = view === 'storage' ? !!storage : !!page;
+  // The view on screen is read again, quietly, when the server says this profile's recordings
+  // changed: what is shown stays until the answer is in, and a failed read says nothing.
+  const shown = useRef({view, cursor});
+  shown.current = {view, cursor};
+  useFreshDocument(RECORDING_HINTS, async context => {
+    if (!dvr) return;
+    const asked = {view, cursor};
+    const same = () => shown.current.view === asked.view && shown.current.cursor === asked.cursor;
+    if (asked.view === 'storage') { const next = await dvr.storage(); await context.settle(); if (same()) setStorage(next); return; }
+    const next = await dvr.list(asked.view, asked.cursor);
+    await context.settle();
+    if (same()) setPage(next);
+  }, () => loaded && !cancelling && !editing && !conflict);
   // FEAT-08: show rows group by seriesId and expand to episodes.
   const [expanded, setExpanded] = useState<readonly string[]>([]);
   useEffect(() => { setExpanded([]); }, [view]);

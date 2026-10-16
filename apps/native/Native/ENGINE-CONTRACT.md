@@ -44,7 +44,7 @@ Constants (never change while the app runs):
 | `available` | boolean | The engine is built in and can start. |
 | `features.pictureInPicture` | boolean | It can float its picture. mpv: false. |
 | `features.airPlayVideo` | boolean | It can send video to an AirPlay receiver. mpv: false; native: true on iPhone and iPad. |
-| `features.liveChannels` | boolean | It plays channels (`timelineOriginMs`). mpv: false. |
+| `features.liveChannels` | boolean | It plays channels (`timelineOriginMs`). mpv: the module's `liveChannels` switch (off until played on a device; see §10). |
 | `features.musicSessions` | boolean | It plays the listening owner's music and audiobooks. mpv: false. |
 | `features.audioTrackSwitching` | boolean | It switches a file's audio track itself (`audioTrack`). native: false; mpv: true. |
 | `features.subtitleRendering` | string[] | Subtitle kinds it draws itself: `text`, `ass`, `pgs`, `vobsub`, `dvb`. native: `['text']`. |
@@ -88,7 +88,8 @@ and the first failure is the rejection message.
 | | | Equal to the last accepted: accepted without effect if the whole command is identical, otherwise refused. | `Conflicting playback command.` |
 | `binding.sessionId`, `binding.itemId` | string | Present. | `Invalid playback binding.` |
 | `timelineOriginMs` | integer or null | Positive integer when present. | `Invalid channel clock.` |
-| | | mpv: any non-null value. | `This player does not play live channels.` |
+| | | mpv with its `liveChannels` switch off: any non-null value. | `This player does not play live channels.` |
+| `linearClock` | array or absent | mpv only, with `timelineOriginMs`: the channel's clock epochs, oldest first, at most 64: `{offsetMs}` then `{startMs, offsetMs}` with increasing starts. Channel position = media time + offset. Absent without `timelineOriginMs`. | `Invalid channel clock.` |
 | `connectionState`, `routeRevision` | `'ready' \| 'verifying'`, integer >= 0 | When `connectionState` is present both must be valid. | `Invalid route transition.` |
 | | | `routeRevision` absent or lower than the last accepted command's. | `Stale route transition.` |
 | `listeningOwner` | string or null | mpv: must be null or absent. | `This player does not play music sessions.` |
@@ -335,8 +336,14 @@ maxFrameRate, tenBit}}` (each hardware decoder's own limits), `hdrOutputRanges: 
 
 ## 10. What mpv does not do
 
-Everywhere: no Picture in Picture, no AirPlay video, no live channels, no music sessions, no
-bitstream passthrough (sound is decoded to PCM in as many channels as the output takes), and
+Live channels are written but switched off (`liveChannels` in each module) until they have been
+played on a device. mpv places itself on a channel by `linearClock` (media time with
+`rebase-start-time` off, plus the epoch's offset), seeks within what it has read, and when it
+cannot (a live playlist is not seekable beyond its cache) reopens the playlist at the target
+(`?at=`, `live_start_index=0`) and seeks there once.
+
+Everywhere: no Picture in Picture, no AirPlay video, no music sessions, no bitstream
+passthrough (sound is decoded to PCM in as many channels as the output takes), and
 Dolby Vision is never output as Dolby Vision. The engine is Portico's own build
 (`third_party/media-engine/`), the same recipe on both platforms.
 

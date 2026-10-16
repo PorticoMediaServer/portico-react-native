@@ -33,7 +33,8 @@ export type HomeState = {
 
 const transient = new Set(['offline', 'unreachable', 'timeout', 'busy', 'rate-limited']);
 /** Everything Home is built from: every library's titles and order, the list of libraries, and this profile's state. */
-const homeDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
+// Trending and Popular move with the server, not this profile: their own hint.
+const homeDependencies = Object.freeze([dependsOn.libraries, dependsOn.list('recommendations'), ...titlesWithPersonalState()]);
 const operationKey = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export function useHome() {

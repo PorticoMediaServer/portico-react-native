@@ -17,6 +17,11 @@ final class PorticoMpvPlaybackModule: RCTEventEmitter {
     private var invalidated = false
     private var listening = false
 
+    /// Whether this engine plays live channels. The code is complete but has not yet been played on
+    /// a device: until it has, channels stay with AVPlayer (the capability document and the
+    /// engine's features both read this).
+    static let liveChannels = false
+
     #if canImport(Libmpv)
     private let controller = PorticoMpvController()
     static let available = true
@@ -53,8 +58,8 @@ final class PorticoMpvPlaybackModule: RCTEventEmitter {
                 // Picture in Picture window nor send it to an AirPlay receiver as video.
                 "pictureInPicture": false,
                 "airPlayVideo": false,
-                // Channels are positioned by wall-clock dates this engine does not expose.
-                "liveChannels": false,
+                // Channels are placed by the clock epochs the server publishes (PorticoMpvLinearClock).
+                "liveChannels": PorticoMpvPlaybackModule.liveChannels,
                 // Music and audiobooks stay with the native listening owner.
                 "musicSessions": false,
                 // A direct-played file's audio and subtitle tracks are switched in the engine.
@@ -124,6 +129,7 @@ final class PorticoMpvPlaybackModule: RCTEventEmitter {
             "hdrOutput": hdrOutput,
             "screen": ["width": max(pixels.width, pixels.height), "height": min(pixels.width, pixels.height), "maxFrameRate": UIScreen.main.maximumFramesPerSecond],
             "audio": ["maxOutputChannels": max(2, session.maximumOutputNumberOfChannels)],
+            "liveChannels": PorticoMpvPlaybackModule.liveChannels,
         ] as [String: Any])
     }
 

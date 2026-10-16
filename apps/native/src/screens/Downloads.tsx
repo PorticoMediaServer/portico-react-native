@@ -11,11 +11,15 @@ import {useI18n} from '../app/i18n';
 import {RootHeaderActions} from './Home';
 import {usePullToRefresh} from '../app/refresh';
 import {usePlayerActions} from '../app/player-actions';
+import {useFreshDocument} from '../app/freshness';
+import {dependsOn} from '../../../../packages/client-core/src/freshness-hub';
 
 type I18nT = ReturnType<typeof useI18n>;
 const stateLabel = (i18n: I18nT, state: DownloadState) => i18n.t('downloads.state', {state});
 const actionLabel = (i18n: I18nT, action: DownloadAction) => i18n.t('downloads.action', {action});
 const limits = [0, 5, 10, 25, 50, 100].map(gb => ({bytes: gb * 1073741824}));
+/** This profile's downloads changed on the server (asked for on another device, finished, failed, let go), or a notice arrived. */
+const DOWNLOAD_HINTS = Object.freeze([dependsOn.list('myDownloads'), dependsOn.event('notification.changed')]);
 
 /**
  * What is kept on this device. It needs no server and no sign-in, so it is also what the app
@@ -110,6 +114,8 @@ export function DownloadsScreen() {
   useEffect(() => { void service?.refresh(); }, [service]);
   // APL-SYS-07: pull to refresh what the server is preparing (the device's own files need none).
   const pull = usePullToRefresh(() => service?.refresh(), {auto: true});
+  // What the server is preparing is read again, quietly, when it says this profile's downloads changed.
+  useFreshDocument(DOWNLOAD_HINTS, async () => { await service?.revalidate(); }, () => state.phase === 'ready' && !state.unavailable);
   // Anything already on (or coming to) the device is shown there, not twice.
   const pending = state.items.filter(p => !offline.entries.some(e => e.id === p.id));
   const saveSetting = (change: Parameters<typeof offlineDownloads.setSettings>[0]) => { offlineDownloads.setSettings(change).catch(() => showToast({message: i18n.t('downloads.settingFailed'), icon: 'warning'})); };
