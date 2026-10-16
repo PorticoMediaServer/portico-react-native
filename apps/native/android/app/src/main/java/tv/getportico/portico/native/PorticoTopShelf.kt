@@ -90,7 +90,7 @@ internal object PorticoHomeShelf {
   private const val JOB = 4102
   const val AUTHORITY = "tv.getportico.portico.shelf"
   private val http: OkHttpClient by lazy {
-    OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null).callTimeout(15, TimeUnit.SECONDS).build()
+    OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null).callTimeout(15, TimeUnit.SECONDS).build()
   }
 
   private fun preferences(context: Context) = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

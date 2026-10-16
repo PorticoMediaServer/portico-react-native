@@ -4,6 +4,7 @@
 #import <AVKit/AVKit.h>
 #import <CommonCrypto/CommonDigest.h>
 #import "PorticoDownloadAttempt.h"
+#import "PorticoServerTrust.h"
 
 // Offline downloads for iPhone and iPad.
 //
@@ -252,6 +253,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   return request;
 }
 
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {[PorticoServerTrust handleChallenge:challenge completion:completionHandler];}
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didWriteData:(int64_t)written totalBytesWritten:(int64_t)total totalBytesExpectedToWrite:(int64_t)expected {
   NSString *identifier = task.taskDescription;
   if (!PorticoSafeIdentifier(identifier)) return;
@@ -598,7 +600,7 @@ RCT_EXPORT_METHOD(fetchExtra:(NSString *)identifier name:(NSString *)name url:(N
     NSURL *file = [self extraURL:identifier name:name];
     NSURL *url = [address isKindOfClass:NSString.class] ? [NSURL URLWithString:address] : nil;
     if (!file || !url || !([url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"])) { resolve(@"invalid"); return; }
-    NSURLSessionDownloadTask *task = [[NSURLSession sharedSession] downloadTaskWithRequest:[self requestFor:url] completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+    NSURLSessionDownloadTask *task = [PorticoServerTrust.session downloadTaskWithRequest:[self requestFor:url] completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
       NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
       NSNumber *size = location ? [[NSFileManager defaultManager] attributesOfItemAtPath:location.path error:nil][NSFileSize] : nil;
       NSString *outcome = @"later";

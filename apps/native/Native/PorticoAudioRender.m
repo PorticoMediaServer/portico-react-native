@@ -1,4 +1,5 @@
 #import "PorticoAudioRender.h"
+#import "PorticoServerTrust.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import <CommonCrypto/CommonDigest.h>
 #include <fcntl.h>
@@ -174,6 +175,7 @@ static void AREvict(void){
  [_have enumerateRangesUsingBlock:^(NSRange range,BOOL *stop){if(NSLocationInRange(i,range)){i=NSMaxRange(range);*stop=YES;}}];
  return i;
 }
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {[PorticoServerTrust handleChallenge:challenge completion:completionHandler];}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))done {done(nil);}
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)raw completionHandler:(void (^)(NSURLSessionResponseDisposition))done {
  NSHTTPURLResponse *r=(NSHTTPURLResponse *)raw;[_lock lock];
