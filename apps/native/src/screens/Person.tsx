@@ -4,6 +4,8 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {createWindowedCollection, type PageResult, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
+import {listedTitlesWithPersonalState, titleIdsOf} from '../../../../packages/client-core/src/freshness-hub';
+import {useFreshDocument} from '../app/freshness';
 import {readPerson, type PersonCredit, type PersonPage, type PersonRole} from '../../../../packages/client-core/src/people';
 import {captionFor, iconFor, progressFor, shapeFor, useArtwork, viewerScope} from '../app/content';
 import {titleCountLabel} from '../app/browse-count';
@@ -132,6 +134,13 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
     );
   }, [api, scope, personId, role, list]);
   const pull = usePullToRefresh(reload, {busy: first.phase === 'loading' && !first.page, auto: true});
+  // The credits follow the libraries while the page is in front: a title that arrives or goes, or a
+  // mark on one of the titles held here, is read again quietly in place.
+  useFreshDocument(
+    () => listedTitlesWithPersonalState(undefined, titleIdsOf((list?.residentItems() ?? []).map(c => c.media)), false),
+    context => (list ? list.revalidate({fetchPage: creditSource(api, scope, personId, role), hold: context.settle}) : Promise.resolve()),
+    () => list?.getSnapshot().total !== undefined,
+  );
   // APL-PERSON-01: "Known for" only when it adds something the credits below don't already show.
   const person = first.page?.person;
   const born = person?.birthDate ? i18n.date(person.birthDate, 'long') : undefined;

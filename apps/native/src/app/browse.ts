@@ -3,12 +3,12 @@ import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore}
 import {Platform} from 'react-native';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import type {ContentEntry, ContentSeeAll} from '../../../../packages/client-core/src/library-content';
-import {acrossLibraries, browseCapabilitiesPath, browseFacetsPath, parseBrowseCapabilities, parseBrowseFacets, type BrowseCapabilities, type BrowseFacetValue, type BrowseNode, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
+import {acrossLibraries, browseFields, browseCapabilitiesPath, browseFacetsPath, parseBrowseCapabilities, parseBrowseFacets, type BrowseCapabilities, type BrowseFacetValue, type BrowseNode, type BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {browsePageSource} from './browse-page-source.ts';
 import type {Predicate as PagePredicate} from './browse-page-source.ts';
 import {useSession} from './session';
 import {useFreshDocument} from './freshness';
-import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
+import {listedTitlesWithPersonalState, readsPersonalState, titleIdsOf} from '../../../../packages/client-core/src/freshness-hub';
 import {say} from './errors';
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 import {appliedFilterLabel} from '../../../../packages/client-core/src/presentation/index';
@@ -98,8 +98,10 @@ export function useBrowseWindow(input: {libraryId?: string; pivot?: string; pred
   // keep their keys, so focus stays on the cell it was on.
   const latestFetch = useRef(fetchFor);
   latestFetch.current = fetchFor;
+  // This profile's marks move it only for the titles it holds, unless its filters or order read them.
+  const personalQuery = published ? readsPersonalState([...browseFields(published.query ? [published.query] : []), ...published.sort.map(s => s.field)]) : readsPersonalState([...browseFields(predicates), sort?.field]);
   const markCurrent = useFreshDocument(
-    useMemo(() => (list && libraryId ? titlesWithPersonalState(libraryId === acrossLibraries ? undefined : libraryId) : []), [list, libraryId]),
+    () => (list && libraryId ? listedTitlesWithPersonalState(libraryId === acrossLibraries ? undefined : libraryId, titleIdsOf(list.residentItems()), personalQuery) : []),
     context => (list ? list.revalidate({fetchPage: latestFetch.current(), hold: context.settle}) : Promise.resolve()),
     () => list?.getSnapshot().total !== undefined,
   );
