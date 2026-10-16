@@ -19,8 +19,8 @@ export function CastBar() {
   const i18n = useI18n();
   const artwork = useArtwork();
   const prefs = useServerPreferences();
-  const skipBack = prefs.value<number>('playback.skipBackSeconds', 10);
-  const skipForward = prefs.value<number>('playback.skipForwardSeconds', 30);
+  const skipBack = prefs.value<number>('playback.skipBackMs', 10_000) / 1000;
+  const skipForward = prefs.value<number>('playback.skipForwardMs', 30_000) / 1000;
   const {space, colors, metrics, isTV} = useTheme();
   const [expanded, setExpanded] = useState(false);
   React.useEffect(() => { if (snapshot.phase !== 'casting') setExpanded(false); }, [snapshot.phase]);

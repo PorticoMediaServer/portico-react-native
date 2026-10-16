@@ -18,8 +18,8 @@ export function PlayOnBar() {
   const {controller, remote, watchClosely} = usePlayOn();
   const i18n = useI18n();
   const prefs = useServerPreferences();
-  const skipBack = prefs.value<number>('playback.skipBackSeconds', 10);
-  const skipForward = prefs.value<number>('playback.skipForwardSeconds', 30);
+  const skipBack = prefs.value<number>('playback.skipBackMs', 10_000) / 1000;
+  const skipForward = prefs.value<number>('playback.skipForwardMs', 30_000) / 1000;
   const {space, colors, metrics, isTV} = useTheme();
   const [expanded, setExpanded] = useState(false);
   const showing = !isTV && !!controller && !!remote;

@@ -1363,7 +1363,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     private fun currentOf(value: Any?): Map<String, Any?>? = ((value as? Map<*, *>)?.get("error") as? Map<*, *>)?.get("current") as? Map<String, Any?>
 
     private fun retryAfter(headers: Headers?, value: Any?): Double {
-      val seconds = headers?.get("Retry-After")?.toDoubleOrNull() ?: num(((value as? Map<*, *>)?.get("error") as? Map<*, *>)?.get("retryAfterSeconds"))
+      val seconds = headers?.get("Retry-After")?.toDoubleOrNull() ?: num(((value as? Map<*, *>)?.get("error") as? Map<*, *>)?.get("retryAfterMs"))?.div(1000.0)
       return if (seconds != null && seconds > 0) Math.min(30.0, seconds) else 2.0
     }
 

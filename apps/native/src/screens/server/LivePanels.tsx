@@ -160,7 +160,7 @@ function RemoteSourceSheet({open, tuner, onClose, onSaved}: {open: boolean; tune
         {draft.kind === 'xtream' ? <Field label={t('web.account.password')} secure value={draft.password} onChangeText={password => edit({password})} /> : null}
         <RowGroup>
           <PickRow title={t('web.liveTv.whoCanWatch')} value={draft.viewerAccess} options={[{id: 'server-members', label: t('web.liveTv.everyoneOnServer')}, {id: 'owner-only', label: t('web.together.onlyMe')}]} onChange={id => edit({viewerAccess: id as RemoteSourceDraft['viewerAccess']}, true)} />
-          <PickRow title={t('web.liveTv.refreshGuide')} value={String(draft.refreshSeconds)} options={[{id: '3600', label: t('web.libraries.everyHour')}, {id: '21600', label: t('web.libraries.every6h')}, {id: '43200', label: t('web.liveTv.every12h')}, {id: '86400', label: t('web.libraries.daily')}]} onChange={id => edit({refreshSeconds: Number(id)}, true)} />
+          <PickRow title={t('web.liveTv.refreshGuide')} value={String(draft.refreshMs)} options={[{id: '3600000', label: t('web.libraries.everyHour')}, {id: '21600000', label: t('web.libraries.every6h')}, {id: '43200000', label: t('web.liveTv.every12h')}, {id: '86400000', label: t('web.libraries.daily')}]} onChange={id => edit({refreshMs: Number(id)}, true)} />
         </RowGroup>
         {preview ? <Notice tone="success" title={t('web.liveTv.previewMeta', {channels: preview.preview.channels, programs: preview.preview.programmes.toLocaleString()})} message={[preview.preview.names.slice(0, 6).join(', '), preview.discoveredCapacity ? t('web.liveTv.capacityTuners', {count: preview.discoveredCapacity}) : ''].filter(Boolean).join(' · ')} /> : null}
         {preview ? <ImportSkippedNotice diagnostics={preview.preview.diagnostics} /> : null}
@@ -181,7 +181,7 @@ function DiscoverSheet({open, onClose, onUse}: {open: boolean; onClose: () => vo
   const {space} = useTheme();
   const action = useAction();
   const [result, setResult] = useState<Discovery>();
-  const search = () => void action.run(async () => setResult(await admin.send<Discovery>('/v1/admin/live-sources/discover', 'POST', {windowSeconds: 5})));
+  const search = () => void action.run(async () => setResult(await admin.send<Discovery>('/v1/admin/live-sources/discover', 'POST', {windowMs: 5000})));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) { setResult(undefined); search(); } }, [open]);
   return (
@@ -198,9 +198,9 @@ function DiscoverSheet({open, onClose, onUse}: {open: boolean; onClose: () => vo
 }
 
 type FilterRule = {mode: 'include' | 'exclude'; values: string[]};
-type SourceSettings = {/** Empty: every group, and every channel, comes in. What is kept is the source's own key for each, never a viewer's channel id. */ enabledGroups?: readonly string[]; enabledChannels?: readonly string[]; kind: string; streamBufferSeconds: number | null; retryWindowSeconds: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string; /** This source's own import limits, lower than the server's; null keeps the server's. */ importLimits?: ImportLimits | null};
+type SourceSettings = {/** Empty: every group, and every channel, comes in. What is kept is the source's own key for each, never a viewer's channel id. */ enabledGroups?: readonly string[]; enabledChannels?: readonly string[]; kind: string; streamBufferMs: number | null; retryWindowMs: number | null; userAgent: string; filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean}; channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string; /** This source's own import limits, lower than the server's; null keeps the server's. */ importLimits?: ImportLimits | null};
 type ImportLimits = {bytes: number; channels: number; programmes: number};
-type SourceDocument = {sourceId: string; sourceName: string; revision: number; settings: SourceSettings; effective: {streamBufferSeconds: number; retryWindowSeconds: number; importLimits?: ImportLimits}; availableKinds: string[]};
+type SourceDocument = {sourceId: string; sourceName: string; revision: number; settings: SourceSettings; effective: {streamBufferMs: number; retryWindowMs: number; importLimits?: ImportLimits}; availableKinds: string[]};
 const MB = 1048576;
 const FILTERS = [{key: 'categories', label: 'server.live.filter.categories'}, {key: 'countries', label: 'server.live.filter.countries'}, {key: 'keywords', label: 'server.live.filter.keywords'}] as const;
 const KIND_LABEL: Record<string, 'server.live.kind.playlist' | 'server.live.kind.guide' | 'server.live.kind.tuner'> = {playlist: 'server.live.kind.playlist', 'xmltv-guide': 'server.live.kind.guide', hdhomerun: 'server.live.kind.tuner'};
@@ -232,7 +232,9 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
     });
     opIds.release(); onChanged();
   }).then(ok => { if (ok) onClose(); });
-  const seconds = (value: number | null, fallback: number) => (value === null ? t('web.liveSource.serverDefault', {value: fallback}) : `${value} ${t('settings.unit.seconds')}`);
+  // These travel in milliseconds and are entered and shown in whole seconds.
+  const seconds = (ms: number | null, fallbackMs: number) => (ms === null ? t('web.liveSource.serverDefault', {value: fallbackMs / 1000}) : `${ms / 1000} ${t('settings.unit.seconds')}`);
+  const typedMs = (text: string) => (text.trim() === '' ? null : Math.max(0, Math.round(Number(text) || 0)) * 1000);
   return (
     <Sheet open={!!src} onClose={onClose} kind="form" title={src?.name} subtitle={t('web.liveSource.settingsLede')} primary={{label: t('action.save'), loading: action.busy, disabled: !dirty, onPress: save}}>
       <View style={{gap: space.md}}>
@@ -272,8 +274,8 @@ function SourceSettingsSheet({src, guides, onClose, onChanged}: {src?: {id: stri
             ) : null}
             {!guideOnly ? (
               <RowGroup>
-                <TypedRow numeric title={t('web.liveSource.streamBuffer')} value={draft.streamBufferSeconds === null ? '' : String(draft.streamBufferSeconds)} shown={seconds(draft.streamBufferSeconds, doc.effective.streamBufferSeconds)} onDone={text => patch({streamBufferSeconds: text.trim() === '' ? null : Math.max(0, Number(text) || 0)})} />
-                <TypedRow numeric title={t('web.liveSource.retryFor')} value={draft.retryWindowSeconds === null ? '' : String(draft.retryWindowSeconds)} shown={seconds(draft.retryWindowSeconds, doc.effective.retryWindowSeconds)} onDone={text => patch({retryWindowSeconds: text.trim() === '' ? null : Math.max(0, Number(text) || 0)})} />
+                <TypedRow numeric title={t('web.liveSource.streamBuffer')} value={draft.streamBufferMs === null ? '' : String(draft.streamBufferMs / 1000)} shown={seconds(draft.streamBufferMs, doc.effective.streamBufferMs)} onDone={text => patch({streamBufferMs: typedMs(text)})} />
+                <TypedRow numeric title={t('web.liveSource.retryFor')} value={draft.retryWindowMs === null ? '' : String(draft.retryWindowMs / 1000)} shown={seconds(draft.retryWindowMs, doc.effective.retryWindowMs)} onDone={text => patch({retryWindowMs: typedMs(text)})} />
               </RowGroup>
             ) : null}
             {/* This source's own import limits: lower than the server's, never higher; an empty field is the server's. */}
@@ -468,7 +470,7 @@ export function TunersPanel() {
 }
 
 type Keep = {mode: 'keep-all' | 'keep-count' | 'keep-days'; keepCount: number; keepDays: number; keepUntilWatched: boolean};
-type Group = {owner: RecordingOwner; anchor?: RecordingAnchor; status?: string; id: string; kind: 'series' | 'keyword'; name: string; match: string; sourceId: string; enabled: boolean; revision: number; options: {prePaddingSeconds: number | null; postPaddingSeconds: number | null; keepPolicy: Keep | null; newEpisodesOnly: boolean; priority: number; folderTemplate: string}};
+type Group = {owner: RecordingOwner; anchor?: RecordingAnchor; status?: string; id: string; kind: 'series' | 'keyword'; name: string; match: string; sourceId: string; enabled: boolean; revision: number; options: {prePaddingMs: number | null; postPaddingMs: number | null; keepPolicy: Keep | null; newEpisodesOnly: boolean; priority: number; folderTemplate: string}};
 
 /** Recording › who may record, and the standing rules. A rule is made from the guide; here it is paused, resumed or removed. */
 export function RecordingRulesPanel() {

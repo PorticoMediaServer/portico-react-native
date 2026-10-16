@@ -7,7 +7,7 @@ const known = {id: 'movie', kind: 'movie', title: 'Known title', libraryId: 'mov
 const future = {id: 'future', kind: 'interactive', title: 'Future title', libraryId: 'movies'};
 
 test('an unknown entry kind drops only that entry from Home', () => {
-  const row = {id: 'recent', title: 'Recent', kind: 'recent', artworkShape: 'poster', endpoint: '/v1/home/rows/recent', libraryId: 'movies', viewerFence: 'viewer', privacySensitivity: 'catalog', policyState: 'available', priority: 1, cacheTtlSeconds: 60, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false, entries: [known, future], total: 2, start: 0, limit: 2, hasMore: false, nextCursor: '', revision: {catalog: 1, viewer: 1}};
+  const row = {id: 'recent', title: 'Recent', kind: 'recent', artworkShape: 'poster', endpoint: '/v1/home/rows/recent', libraryId: 'movies', viewerFence: 'viewer', privacySensitivity: 'catalog', policyState: 'available', priority: 1, cacheTtlMs: 60000, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false, entries: [known, future], total: 2, start: 0, limit: 2, hasMore: false, nextCursor: '', revision: {catalog: 1, viewer: 1}};
   const document = {serverId: 'server', viewerFence: 'viewer', rows: [row], layout: {revision: 1, rowOrder: ['recent'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-09-25T00:00:00Z'};
   assert.deepEqual(validateHomeDocument(document).rows[0].entries.map(e => e.id), ['movie']);
   assert.deepEqual(validateHomeDocument({...document, rows: [{...row, entries: [future]}]}).rows[0].entries, []);

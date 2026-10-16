@@ -59,8 +59,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   // Shuffle and repeat are for listening; on television a film or episode never shows them.
   const queueModes = !state.channel && (isAudio || !isTV);
   const prefs = useServerPreferences();
-  const skipBack = prefs.value<number>('playback.skipBackSeconds', 10);
-  const skipForward = prefs.value<number>('playback.skipForwardSeconds', 30);
+  const skipBack = prefs.value<number>('playback.skipBackMs', 10_000) / 1000;
+  const skipForward = prefs.value<number>('playback.skipForwardMs', 30_000) / 1000;
   const skipModes: Record<string, SkipMode> = {intro: prefs.value('playback.introSkip', 'ask'), credits: prefs.value('playback.creditsSkip', 'ask'), recap: prefs.value('playback.recapSkip', 'ask'), outro: prefs.value('playback.creditsSkip', 'ask'), commercial: 'ask'};
   const {api, session} = useSession();
   const i18n = useI18n();

@@ -121,7 +121,7 @@ function server() {
 
 /** What the server says a title is; a valid `parseDownloadTitle` shape. */
 const TITLE = () => ({
-  kind: 'movie', title: 'Item one', year: 2020, durationSeconds: 1200,
+  kind: 'movie', title: 'Item one', year: 2020, durationMs: 1_200_000,
   parentId: '', parentTitle: '', groupId: '', groupTitle: '', groupNumber: null, number: null, artist: '', onServer: true,
 });
 
@@ -139,7 +139,7 @@ function downloadsService(items: any[] = []) {
       stub.granted.push({id: preparation.id, renew});
       const token = 'tok_' + preparation.id;
       return {preparationId: preparation.id, itemId: preparation.itemId ?? '', url: '/v1/downloads/artifacts/' + token, token,
-        issuedAt: '2026-01-01T00:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', renewAfterSeconds: 3600, renewed: false,
+        issuedAt: '2026-01-01T00:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', renewAfterMs: 3_600_000, renewed: false,
         artifact: {kind: 'prepared', ref: 'r', fileName: 'f.mp4', bytes: 10, sha256: digest64, estimated: false, container: 'mp4', contentType: 'video/mp4'}};
     },
     async bundle(preparation: {id: string; itemId: string}) {
@@ -157,7 +157,7 @@ function downloadsService(items: any[] = []) {
 
 const preparation = (id: string, itemId: string) => ({
   id, itemId, libraryId: 'lib', profileId: 'profile-a', quality: 'original', origin: 'item', state: 'ready', reason: '',
-  title: TITLE(), batchId: '', revision: 1, progress: {bytesDone: 10, bytesTotal: 10, bytesTotalEstimated: false, percent: 100, etaSeconds: null},
+  title: TITLE(), batchId: '', revision: 1, progress: {bytesDone: 10, bytesTotal: 10, bytesTotalEstimated: false, percent: 100, etaMs: null},
   actions: ['remove'], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readyAt: '', expiresAt: '',
   artifact: {kind: 'prepared', ref: 'r', fileName: 'f.mp4', bytes: 10, sha256: digest64, estimated: false, container: 'mp4', contentType: 'video/mp4'},
 });
