@@ -37,14 +37,14 @@ export function cancel(identifier: string): void {
 }
 
 /**
- * A request that asks the server to hold it (`waitSeconds`, the events long poll) is given that
+ * A request that asks the server to hold it (`waitMs`, the events long poll) is given that
  * long and a margin; every other request has the Apple module's 15 s. Without this each quiet
  * poll ended as a transport failure, which the player took for a lost route: it paused and
  * resumed whatever was playing, every 15 s.
  */
 function limitFor(url: string): number {
-  const asked = /[?&]waitSeconds=(\d{1,2})(&|$)/.exec(url);
-  return asked ? Math.max(TIMEOUT_MS, (Number(asked[1]) + 10) * 1000) : TIMEOUT_MS;
+  const asked = /[?&]waitMs=(\d{1,5})(&|$)/.exec(url);
+  return asked ? Math.max(TIMEOUT_MS, Number(asked[1]) + 10_000) : TIMEOUT_MS;
 }
 
 /** Bytes of `text` as UTF-8, without building the encoding. */

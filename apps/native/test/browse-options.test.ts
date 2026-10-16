@@ -15,7 +15,7 @@ const capabilities: BrowseCapabilities = {
   fields: ['genre', 'favorite', 'memberOf'].map(id => ({id, labelKey: id, type: id === 'favorite' ? 'boolean' : 'string', operators: ['equals'], controlHint: 'text', complexity: 'quick', cost: 'indexed', applicableKinds: []})),
   quickFilters: [{id: 'favorites', labelKey: 'favorites', query: {field: 'favorite', operator: 'equals', value: true}}, {id: 'watched', labelKey: 'watched', query: {all: [{field: 'favorite', operator: 'equals', value: true}, {field: 'watched', operator: 'equals', value: true}]}}],
   surfaces: [{id: 'library', endpoint: '/v1/libraries/{id}/browse', paging: 'keyset', sorts: ['title', 'year', 'count'], filters: ['genre', 'favorite']}, {id: 'group-titles', endpoint: '/v1/libraries/{id}/browse', paging: 'keyset', sorts: ['title'], filters: ['genre']}],
-  queryLimits: {maximumDepth: 6, maximumClauses: 50, maximumBytes: 8192, maximumSorts: 1, defaultLimit: 60, maximumLimit: 200, cursorTtlSeconds: 600},
+  queryLimits: {maximumDepth: 6, maximumClauses: 50, maximumBytes: 8192, maximumSorts: 1, defaultLimit: 60, maximumLimit: 200, cursorTtlMs: 600000},
 };
 
 test('the actual toolbar only offers the selected pivot vocabulary', () => {

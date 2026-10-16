@@ -121,7 +121,7 @@ function server() {
 
 /** What the server says a title is; a valid `parseDownloadTitle` shape. */
 const TITLE = () => ({
-  kind: 'movie', title: 'Item one', year: 2020, durationSeconds: 1200,
+  kind: 'movie', title: 'Item one', year: 2020, durationMs: 1_200_000,
   parentId: '', parentTitle: '', groupId: '', groupTitle: '', groupNumber: null, number: null, artist: '', onServer: true,
 });
 
@@ -139,7 +139,7 @@ function downloadsService(items: any[] = []) {
       stub.granted.push({id: preparation.id, renew});
       const token = 'tok_' + preparation.id;
       return {preparationId: preparation.id, itemId: preparation.itemId ?? '', url: '/v1/downloads/artifacts/' + token, token,
-        issuedAt: '2026-01-01T00:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', renewAfterSeconds: 3600, renewed: false,
+        issuedAt: '2026-01-01T00:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', renewAfterMs: 3_600_000, renewed: false,
         artifact: {kind: 'prepared', ref: 'r', fileName: 'f.mp4', bytes: 10, sha256: digest64, estimated: false, container: 'mp4', contentType: 'video/mp4'}};
     },
     async bundle(preparation: {id: string; itemId: string}) {
@@ -157,7 +157,7 @@ function downloadsService(items: any[] = []) {
 
 const preparation = (id: string, itemId: string) => ({
   id, itemId, libraryId: 'lib', profileId: 'profile-a', quality: 'original', origin: 'item', state: 'ready', reason: '',
-  title: TITLE(), batchId: '', revision: 1, progress: {bytesDone: 10, bytesTotal: 10, bytesTotalEstimated: false, percent: 100, etaSeconds: null},
+  title: TITLE(), batchId: '', revision: 1, progress: {bytesDone: 10, bytesTotal: 10, bytesTotalEstimated: false, percent: 100, etaMs: null},
   actions: ['remove'], createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readyAt: '', expiresAt: '',
   artifact: {kind: 'prepared', ref: 'r', fileName: 'f.mp4', bytes: 10, sha256: digest64, estimated: false, container: 'mp4', contentType: 'video/mp4'},
 });
@@ -495,7 +495,7 @@ test('APP-01: a renewal brings the server’s position and whether the title is 
   device.seed({id: 'prep-a', itemId: 'item-1', meta: {receipt: rA}});
   const s = server()
     .route('/v1/downloads/receipt-keys', KEYS)
-    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: false, viewing: {positionSeconds: 200, watched: false}}]}));
+    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: false, viewing: {positionMs: 200000, watched: false}}]}));
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
@@ -520,7 +520,7 @@ test('APP-02: a renewal does not override a play this device has not sent yet', 
   const s = server()
     .route('/v1/downloads/receipt-keys', KEYS)
     .route('/v1/downloads/progress', () => { throw new Error('offline'); })
-    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: true, viewing: {positionSeconds: 50, watched: false}}]}));
+    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: true, viewing: {positionMs: 50000, watched: false}}]}));
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();

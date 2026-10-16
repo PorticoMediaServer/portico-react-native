@@ -117,7 +117,7 @@ export function useNativePlayback(
     // The device's one feed: the native stream reader where it can be opened, the long poll otherwise.
     // It runs while the app is in front or something is playing, is stopped a little after neither
     // is true, and resumes from the last event it saw.
-    const events=new EventsClient({http:localV1Http(api),waitSeconds:10,openStream:eventStreamOpener((headers,signal)=>openEventStream(api,'/v1/events',{...headers,Authorization:'Bearer '+(sessionRef.current?.accessToken??'')},signal))});
+    const events=new EventsClient({http:localV1Http(api),waitMs:10000,openStream:eventStreamOpener((headers,signal)=>openEventStream(api,'/v1/events',{...headers,Authorization:'Bearer '+(sessionRef.current?.accessToken??'')},signal))});
     const stopFeed=runEventFeed(events,undefined,{
       visible:()=>AppState.currentState==='active',
       onVisibility:listener=>{const subscription=AppState.addEventListener('change',listener);return()=>subscription.remove();},

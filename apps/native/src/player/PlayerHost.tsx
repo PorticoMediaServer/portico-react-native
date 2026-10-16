@@ -40,8 +40,8 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents, signe
   const {preferences} = usePreferences();
   // OS-06: music and audiobooks use the profile's skip amounts on the lock screen and Control Center.
   const serverPrefs = useServerPreferences();
-  const skipBack = serverPrefs.value<number>('playback.skipBackSeconds', 10);
-  const skipForward = serverPrefs.value<number>('playback.skipForwardSeconds', 30);
+  const skipBack = serverPrefs.value<number>('playback.skipBackMs', 10_000) / 1000;
+  const skipForward = serverPrefs.value<number>('playback.skipForwardMs', 30_000) / 1000;
   useEffect(() => setListeningSkipIntervals(skipBack, skipForward), [skipBack, skipForward]);
   const playOffline = engine.playOffline;
   const service = engine.service;

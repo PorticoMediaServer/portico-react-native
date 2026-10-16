@@ -44,7 +44,7 @@ export function PostPlay({engine}: {engine: PlayerEngine}) {
   const {playLocal} = usePlayerActions();
   const serverPreferences = useServerPreferences();
   const offlineAutoplay = serverPreferences.value<boolean>('playback.autoplayNext', true);
-  const offlineCountdown = Math.max(0, serverPreferences.value<number>('playback.upNextCountdownSeconds', 10));
+  const offlineCountdown = Math.max(0, serverPreferences.value<number>('playback.upNextCountdownMs', 10_000) / 1000);
   const offlineItem = engine.identity.offline ? engine.identity.itemId ?? engine.state.itemId : undefined;
   const playingDownload = useRef<OfflineEntry | undefined>(undefined);
   const found = offlineItem ? offline.entries.find(e => e.itemId === offlineItem && e.state === 'ready') : undefined;
