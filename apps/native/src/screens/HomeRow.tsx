@@ -22,7 +22,7 @@ import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
 import {acrossScope} from '../app/group-scope';
 import {GroupBar, LETTER_RAIL_WIDTH, useGroupLetters} from './GroupBrowse';
 
-const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
+const rowDependencies = Object.freeze([dependsOn.libraries, dependsOn.list('recommendations'), ...titlesWithPersonalState()]);
 const NO_ENTRIES: readonly ContentEntry[] = [];
 
 /**

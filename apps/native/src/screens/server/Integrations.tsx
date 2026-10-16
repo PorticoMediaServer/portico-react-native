@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Share, View} from 'react-native';
-import {apiScopes, createAccessToken, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listAccessTokens, listApiKeys, listMemberAccessTokens, listWebhookDeliveries, listWebhooks, revokeAccessToken, revokeApiKey, revokeMemberAccessToken, sendWebhookTest, updateWebhook, type ApiAccessOptions, type ApiCredential, type ApiCredentialPage, type ApiScope, type IssuedApiCredential, type IssuedWebhook, type NewApiCredential, type Webhook, type WebhookDelivery} from '../../../../../packages/client-core/src/api-access';
+import {apiScopes, changeWebhook, createAccessToken, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listAccessTokens, listApiKeys, listMemberAccessTokens, listWebhookDeliveries, listWebhooks, revokeAccessToken, revokeApiKey, revokeMemberAccessToken, sendWebhookTest, type ApiAccessOptions, type ApiCredential, type ApiCredentialPage, type ApiScope, type IssuedApiCredential, type IssuedWebhook, type NewApiCredential, type Webhook, type WebhookDelivery} from '../../../../../packages/client-core/src/api-access';
 import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
 import {EXPIRY_DAYS, assistantAddress, credentialFacts, credentialMember, credentialState, credentialWorks, deliveryProblem, deliveryProgress, expiryLabel, scopeTicked, webhookEventGroups, webhookEventLabel, webhookTrouble, type ExpiryDays} from '../../../../../packages/client-core/src/server-admin/api-words';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
@@ -255,7 +255,7 @@ export function WebhooksPanel() {
           const w = editing?.webhook;
           if (!w) { saved(await createWebhook(api, {name: draft.name.trim(), url: draft.url.trim(), events: draft.events, ...(draft.secret ? {secret: draft.secret} : {})})); return; }
           const change = webhookChange(w, draft);
-          if (change) saved(await updateWebhook(api, w.id, change));
+          if (change) saved(await changeWebhook(api, w, change));
         }).then(ok => { if (ok) setEditing(undefined); })} />
       <Sheet open={!!issued?.secret} onClose={() => setIssued(undefined)} kind="acknowledge" title={t('api.webhooks.secretTitle')} primary={{label: t('web.access.copiedIt'), onPress: () => setIssued(undefined)}}>
         <View style={{gap: space.md}}>
@@ -264,7 +264,7 @@ export function WebhooksPanel() {
         </View>
       </Sheet>
       <RotateSheet webhook={rotating} busy={action.busy} error={action.error} onClose={() => setRotating(undefined)}
-        onRotate={secret => void action.run(async () => { if (rotating) saved(await updateWebhook(api, rotating.id, {rotateSecret: true, ...(secret ? {secret} : {})})); }).then(ok => { if (ok) setRotating(undefined); })} />
+        onRotate={secret => void action.run(async () => { if (rotating) saved(await changeWebhook(api, rotating, secret ? {secret} : {rotateSecret: true})); }).then(ok => { if (ok) setRotating(undefined); })} />
       <ConfirmSheet open={!!removing} onDismiss={() => setRemoving(undefined)} title={t('api.webhooks.removeTitle', {name: removing?.name ?? ''})} consequence={t('api.webhooks.removeBody')} confirmLabel={t('action.removeShort')} describeError={e => problem(e, 'action')}
         onConfirm={async () => { const w = removing; if (!w) return; await deleteWebhook(api, w.id); setRemoving(undefined); read.reload(); }} />
       <DeliveryLogSheet webhook={log} queued={queued} onClose={() => { setLog(undefined); setQueued(false); read.reload(); }} />

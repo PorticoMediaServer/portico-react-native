@@ -32,7 +32,7 @@ test('the expiry is counted from when the form was first sent, so a retry asks f
 
 // ── Webhooks ──
 
-const hook: Webhook = {id: 'w1', name: 'Chat', url: 'https://example.com/hook', events: ['title.added', 'scan.finished'], enabled: true, secretHint: 'ab12', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', waiting: 0, failing: 0, dropped: 0};
+const hook: Webhook = {id: 'w1', name: 'Chat', url: 'https://example.com/hook', events: ['title.added', 'scan.finished'], enabled: true, secretHint: 'ab12', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', waiting: 0, failing: 0, dropped: 0, revision: 1};
 
 test('a webhook cannot be saved without a name, a usable address and an event', () => {
   const draft = webhookDraft(hook);
