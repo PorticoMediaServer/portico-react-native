@@ -189,13 +189,14 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // shown in that order: a move sends the title and the one it now follows.
   const [reordering, setReordering] = useState(false);
   const role = viewerSession?.viewer.role;
-  const canReorder = !isTV && kind === 'collection' && (role === 'owner' || role === 'admin') && !!entity && group.engaged && !group.choice.sort && !group.choice.predicates.length && sortedPages.snapshot.entries.length > 1;
+  // A collection page carries no entity projection: the collection is the route's own id.
+  const canReorder = !isTV && kind === 'collection' && (role === 'owner' || role === 'admin') && group.engaged && !group.choice.sort && !group.choice.predicates.length && sortedPages.snapshot.entries.length > 1;
   const arranging = reordering && canReorder;
   const orderedTitles = useMemo(() => sortedPages.snapshot.entries.map(m => ({id: m.id, media: m})), [sortedPages.snapshot.entries]);
   const moveTitle = async (from: number, to: number) => {
     const request = moveRequest(orderedTitles.map(e => e.id), from, to);
-    if (!request || !entity) return;
-    await moveCollectionTitle(<T,>(path: string, method: 'GET' | 'PUT', body?: unknown) => api.request<T>(path, method, body), entity.id, request.entryId, request.afterEntryId);
+    if (!request) return;
+    await moveCollectionTitle(<T,>(path: string, method: 'GET' | 'PUT', body?: unknown) => api.request<T>(path, method, body), entityId, request.entryId, request.afterEntryId);
     await sortedPages.pages?.refresh().catch(() => {});
   };
   const secondary: HeroAction[] = [
