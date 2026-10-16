@@ -102,3 +102,16 @@ test('N13: a download scrubs with its own previews and shows its chapter thumbna
   // Sheets missing on the device: no previews rather than broken ones.
   assert.equal(offlineTrickplay({...(extras as object), trickplayTiles: [dir + 'trickplay-0']} as never), null);
 });
+
+test('a downloaded image track whose lines are partly forced offers Forced only, from the count it carried', () => {
+  const image: any = {backdropUrl: '', subtitles: [
+    {id: 'p1', language: 'en', title: 'Full', default: false, forced: false, format: 'pgs', url: dir + 'sub-p1-1.pgs', lines: {forced: 3, total: 900}},
+    {id: 'p2', language: 'en', title: 'Forced', default: false, forced: true, format: 'pgs', url: dir + 'sub-p2-1.pgs', lines: {forced: 3, total: 3}},
+    {id: 'p3', language: 'en', title: 'Older download', default: false, forced: false, format: 'pgs', url: dir + 'sub-p3-1.pgs'},
+  ]};
+  const [mixed, allForced, uncounted] = offlineSubtitleTracks(image, ['text', 'pgs']);
+  assert.deepEqual([mixed!.forcedChoice, allForced!.forcedChoice, uncounted!.forcedChoice], [true, undefined, undefined]);
+  assert.equal(offlineSubtitleCommand(mixed, binding, 2, ['pgs'], defaultCaptionStyle, true).forcedOnly, true);
+  assert.equal(offlineSubtitleCommand(mixed, binding, 2, ['pgs'], defaultCaptionStyle, false).forcedOnly, undefined);
+  assert.equal(offlineSubtitleCommand(allForced, binding, 2, ['pgs'], defaultCaptionStyle, true).forcedOnly, undefined);
+});

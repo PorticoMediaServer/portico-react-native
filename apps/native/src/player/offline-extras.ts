@@ -4,13 +4,16 @@ import type {OfflineExtras} from '../bridge/offline-downloads';
 import {isLocalSource} from '../bridge/local-playback';
 import type {CaptionStyle} from './caption-style';
 import {chaptersOf, kindOfFormat, type PlayerChapter, type SubtitleKind} from './engine-media';
+import {forcedChoiceOf} from '../../../../packages/client-core/src/subtitle-originals';
 
 /**
  * What a download brought with it, in the player's own terms: its subtitle tracks (files on this
  * device), its chapters and its skip markers. A download has no server session, so none of this
  * is asked of the server; the offline player reads it from what was stored beside the file.
  */
-export type OfflineSubtitleTrack = Readonly<{id: string; language: string; title: string; forced: boolean; default: boolean; kind: SubtitleKind; url: string; /** A styled track's attached fonts: files on this device. */ fonts?: readonly Readonly<{name: string; url: string}>[]}>;
+export type OfflineSubtitleTrack = Readonly<{id: string; language: string; title: string; forced: boolean; default: boolean; kind: SubtitleKind; url: string; /** A styled track's attached fonts: files on this device. */ fonts?: readonly Readonly<{name: string; url: string}>[];
+  /** An image track whose lines are partly forced: "Forced only" changes what is shown (the count came with the download). */
+  forcedChoice?: boolean}>;
 
 /** The subtitle tracks stored with a download that some engine of this build can draw. */
 export function offlineSubtitleTracks(extras: OfflineExtras | undefined, drawable: readonly string[]): readonly OfflineSubtitleTrack[] {
@@ -22,7 +25,8 @@ export function offlineSubtitleTracks(extras: OfflineExtras | undefined, drawabl
     if (kind === 'text' ? s.format !== 'vtt' : !drawable.includes(kind)) continue;
     // A styled track's fonts are files on this device too, at most sixteen; anything else is left out.
     const fonts = kind === 'ass' && Array.isArray(s.fonts) ? s.fonts.slice(0, 16).filter(f => !!f && typeof f.name === 'string' && f.name.length <= 160 && isLocalSource(f.url)).map(f => Object.freeze({name: f.name, url: f.url})) : [];
-    out.push(Object.freeze({id: s.id, language: s.language ?? '', title: s.title ?? '', forced: s.forced === true, default: s.default === true, kind, url: s.url, ...(fonts.length ? {fonts: Object.freeze(fonts)} : {})}));
+    const forcedChoice = (kind === 'pgs' || kind === 'vobsub') && forcedChoiceOf(s.lines);
+    out.push(Object.freeze({id: s.id, language: s.language ?? '', title: s.title ?? '', forced: s.forced === true, default: s.default === true, kind, url: s.url, ...(fonts.length ? {fonts: Object.freeze(fonts)} : {}), ...(forcedChoice ? {forcedChoice: true} : {})}));
   }
   return Object.freeze(out);
 }
@@ -84,12 +88,12 @@ export function offlineMarkers(extras: OfflineExtras | undefined, itemId: string
  * styled track is given with the fonts that came attached to it; a VobSub track by its index
  * (the pictures are the `.sub` file beside it); a DVB or PGS track as its one file.
  */
-export function offlineSubtitleCommand(track: OfflineSubtitleTrack | undefined, binding: Readonly<{intentId: number; sessionId: string; generation: number}>, revision: number, engineDraws: readonly string[], style: CaptionStyle): Record<string, unknown> {
+export function offlineSubtitleCommand(track: OfflineSubtitleTrack | undefined, binding: Readonly<{intentId: number; sessionId: string; generation: number}>, revision: number, engineDraws: readonly string[], style: CaptionStyle, forcedOnly = false): Record<string, unknown> {
   if (!track) return {binding, mode: 'off', revision};
   const render = engineDraws.includes(track.kind) ? {kind: track.kind, url: track.url, ...(track.kind === 'ass' && track.fonts?.length ? {fonts: track.fonts} : {})} : undefined;
   if (track.kind !== 'text' && !render) return {binding, mode: 'off', revision};
   return {
     binding, mode: 'track', revision, resourceId: track.id, resourceRevision: 1, origin: 'download', language: track.language, title: track.title, offsetUs: '0', refreshRevision: 0,
-    ...(track.kind === 'text' ? {documentUrl: track.url} : {}), ...(render ? {render} : {}), style,
+    ...(track.kind === 'text' ? {documentUrl: track.url} : {}), ...(render ? {render} : {}), ...(render && forcedOnly && track.forcedChoice ? {forcedOnly: true} : {}), style,
   };
 }
