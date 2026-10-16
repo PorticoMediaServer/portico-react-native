@@ -1,6 +1,6 @@
 import React, {useRef} from 'react';
 import {uiI18n} from './i18n';
-import {FlatList, ScrollView, View, type FlatListProps, type ScrollViewProps, type StyleProp, type ViewStyle} from 'react-native';
+import {FlatList, ScrollView, View, VirtualizedList, type FlatListProps, type ScrollViewProps, type StyleProp, type ViewStyle, type VirtualizedListProps} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Button} from './Button';
 import {Focusable} from './Focusable';
@@ -99,6 +99,36 @@ export function PageList<T>({contentStyle, ...rest}: FlatListProps<T> & {content
       keyboardShouldPersistTaps="handled"
       // No item snapping here: on a FlatList the snap targets are the cells, and tvOS snapped the
       // page past its header on first focus. Focus-driven scrolling keeps the focused row in view.
+      {...rest}
+      onScroll={isTV ? rest.onScroll : e => { report(e); rest.onScroll?.(e); }}
+      scrollEventThrottle={rest.scrollEventThrottle ?? 32}
+      style={[isTV ? {height} : {flex: 1}, rest.style]}
+      contentContainerStyle={[{paddingTop: isTV ? Math.max(insets.top, 60) - space.lg : insets.top, paddingBottom: insets.bottom + space.xxxl}, contentStyle]}
+    />
+  );
+  if (!isTV) return list;
+  return <View style={{flex: 1}} onLayout={e => setHeight(e.nativeEvent.layout.height)}>{height ? list : null}</View>;
+}
+
+/**
+ * `PageList` for a list whose rows are counted rather than held in an array (`getItemCount` and
+ * `getItem`, as a windowed collection is read): a page whose list can switch between its own rows
+ * and a windowed one keeps one scroller, so the header above them is never drawn again.
+ */
+export function PageRows<T>({contentStyle, listRef, ...rest}: VirtualizedListProps<T> & {contentStyle?: StyleProp<ViewStyle>; listRef?: React.Ref<VirtualizedList<T>>}) {
+  const insets = useSafeAreaInsets();
+  const {space, isTV} = useTheme();
+  const [height, setHeight] = React.useState(0);
+  const report = useReportScroll();
+  const list = (
+    <VirtualizedList<T>
+      ref={listRef}
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      windowSize={isTV ? 5 : 7}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews={false}
+      keyboardShouldPersistTaps="handled"
       {...rest}
       onScroll={isTV ? rest.onScroll : e => { report(e); rest.onScroll?.(e); }}
       scrollEventThrottle={rest.scrollEventThrottle ?? 32}

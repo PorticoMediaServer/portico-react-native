@@ -509,7 +509,10 @@ internal class PorticoMpvController(private val context: Context) {
         // inside the picture. Styled (ASS) tracks keep their own look. (The border options have
         // had two names; the one this mpv does not know is skipped.)
         "sub-use-margins" to "no", "sub-ass-force-margins" to "no",
-        "sub-font" to "sans-serif", "sub-font-size" to "45", "sub-margin-y" to "58", "sub-color" to "1.0/1.0/1.0/1.0",
+        // The family is the ordinary system face's own name, in the fonts folder with the faces for
+        // other scripts (PorticoMpvFonts): a line mixing scripts draws each letter in a face that has it.
+        "sub-font" to PorticoMpvFonts.ordinaryFamily(), "sub-fonts-dir" to PorticoMpvFonts.fallbackDirectory(context).path,
+        "sub-font-size" to "45", "sub-margin-y" to "58", "sub-color" to "1.0/1.0/1.0/1.0",
         "sub-border-style" to "background-box", "sub-back-color" to "0.0/0.0/0.0/0.7",
         "sub-outline-size" to "0", "sub-border-size" to "0", "sub-shadow-offset" to "0",
         "sub-scale" to PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context), 2),
@@ -1299,7 +1302,8 @@ internal class PorticoMpvController(private val context: Context) {
     externalSubtitleAddress = null
     subtitleToken = 0
     fontFetcher.cancel()
-    core?.set("sub-fonts-dir", "")
+    PorticoMpvFonts.useAttachedFolder(null)
+    core?.set("sub-fonts-dir", PorticoMpvFonts.fallbackDirectory(context).path)
     for (track in PorticoMpvSupport.tracks(tracks, "sub")) {
       if (track["external-filename"] != address) continue
       PorticoMpvSupport.trackId(track)?.let { core?.command(listOf("sub-remove", it.toString())) }
@@ -1421,8 +1425,9 @@ internal class PorticoMpvController(private val context: Context) {
    * N16: the face mpv draws a track with is chosen by its language tag. A track with no tag, the
    * wrong one, or lines in another script would show empty boxes, since the media engine's
    * libass has no system font lookup to fall back on. So the first lines of the track are read:
-   * when they are written in a script the chosen face does not draw, the face for that script is
-   * linked instead and the track is opened again (once per choice, within its first lines).
+   * when they are written in a script the chosen face does not draw, the face for that script
+   * joins the fallback chain (and becomes the default face) and the track is opened again (once
+   * per new face, within its first lines).
    */
   private fun fontForText(text: String) {
     val key = engineSubtitleKey ?: return
@@ -1431,7 +1436,6 @@ internal class PorticoMpvController(private val context: Context) {
     if (fontCheckedLines >= 8) return
     fontCheckedLines++
     if (!PorticoMpvFonts.selectFor(context, text)) return
-    fontCheckedLines = 8
     val sid = snapshot.sid
     if (sid.isEmpty() || sid == "no" || sid == "false") return
     core?.set("sid", "no")
@@ -1499,7 +1503,11 @@ internal class PorticoMpvController(private val context: Context) {
       val ready = { folder: java.io.File? ->
         // A fetch that finishes late must not change the fonts of a newer choice.
         if (subtitleToken == token && externalSubtitleAddress == target) {
-          if (folder != null) this.core?.set("sub-fonts-dir", folder.path)
+          if (folder != null) {
+            // mpv reads one fonts folder: the attached fonts' gets the fallback faces too.
+            PorticoMpvFonts.useAttachedFolder(folder)
+            this.core?.set("sub-fonts-dir", folder.path)
+          }
           add()
         }
       }
@@ -1922,7 +1930,7 @@ internal class PorticoMpvController(private val context: Context) {
     private val OPTIONAL_OPTIONS = setOf(
         "load-scripts", "osc", "ytdl", "input-default-bindings", "input-vo-keyboard", "resume-playback", "save-position-on-quit",
         "profile", "scale", "dscale", "cscale", "dither-depth", "deband", "correct-downscaling", "linear-downscaling", "sigmoid-upscaling",
-        "hdr-compute-peak", "tone-mapping", "sub-border-style", "sub-outline-size", "sub-border-size", "sub-shadow-offset", "sub-font",
+        "hdr-compute-peak", "tone-mapping", "sub-border-style", "sub-outline-size", "sub-border-size", "sub-shadow-offset", "sub-font", "sub-fonts-dir",
         "sub-font-size", "sub-margin-y", "sub-color", "sub-back-color", "sub-scale", "sub-use-margins", "sub-ass-force-margins", "user-agent",
         "demuxer-max-bytes", "demuxer-max-back-bytes", "network-timeout", "hwdec-codecs", "audio-channels")
   }

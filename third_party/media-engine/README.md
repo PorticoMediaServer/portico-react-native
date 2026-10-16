@@ -29,7 +29,7 @@ must carry. FFmpeg is the **same version the Portico server pins**, so both ends
 | FFmpeg | 8.1.2 (= server pin) | LGPL-2.1-or-later | Demuxing, decoding, parsing, network reads. Every decoder, demuxer, parser and bitstream filter; no encoders, muxers or devices; a small set of filters (the ones mpv inserts itself: deinterlacing, rotation, flips). Hardware decoding: MediaCodec (Android), VideoToolbox (Apple). |
 | OpenSSL | 3.5.9 (LTS) | Apache-2.0 | TLS for FFmpeg's `https` (FFmpeg accepts OpenSSL 3 without `version3` when GPL is off). Client-side algorithms only. |
 | mpv | 0.41.0 | LGPL-2.1-or-later (`-Dgpl=false`) | The player core, `libmpv`. Android draws with `vo=gpu` (OpenGL ES); Apple with `vo=gpu-next` on Vulkan through MoltenVK. |
-| libass | 0.17.5 | ISC | Styled (ASS/SSA) subtitles. Fonts: CoreText on Apple, the app's own fonts folder on Android. |
+| libass | 0.17.5 | ISC | Styled (ASS/SSA) subtitles. Fonts: CoreText on Apple, the app's own fonts folder on Android (with a patch that falls back letter by letter to any loaded font, see Patches). |
 | FreeType | 2.15.0 | FTL | Font rasterising for libass. |
 | HarfBuzz | 14.6.0 | MIT | Text shaping for libass. |
 | FriBidi | 1.0.17 | LGPL-2.1-or-later | Right-to-left text for libass. |
@@ -218,6 +218,14 @@ app (for example as a release asset); the notice text says it is published with 
   passes as `wid` (what `Native/PorticoMpvCore.swift` does), and a `moltenvk` build option. It
   also stops mpv's build from adding the Mac's own library folders (`-L/usr/local/lib`) to the
   link when cross-compiling for iOS/tvOS. Written for Portico; LGPL-2.1-or-later like mpv.
+
+- `patches/libass/0001-fall-back-to-any-loaded-font-with-the-glyph.patch`: libass looks for a
+  face that draws a missing character through the system font provider, and Android has none in
+  libass. With this, when neither the requested family nor the default family has the character,
+  any loaded font that does (the app's fonts folder, fonts attached to the file) is used before
+  the default font file, the closest weight and slant first. A line that mixes scripts (Arabic and
+  Latin, say) then draws every letter. Apple's CoreText provider answers first, so nothing changes
+  there. Written for Portico; ISC like libass.
 
 - `patches/libdovi/0001-build-the-library-without-benchmark-dependencies.patch`: removes
   libdovi's benchmark-only dependency (criterion) and the 61 lock entries only it needed, so the

@@ -5,7 +5,10 @@ import {passwordStrength} from '../../../../../packages/client-core/src/password
 import {signInMessage} from '../../app/errors';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
-import {Button, Field, useTheme, type FieldHandle} from '../../ui';
+import {Button, Field, Notice, useTheme, type FieldHandle} from '../../ui';
+import {addressNeedsSetup} from '../../app/direct-connect';
+import {nativeNetworkFetch} from '../../bridge/server-connections';
+import {ServerSetup} from './ServerSetup';
 import {AuthFrame} from './AuthFrame';
 import {PlainHttpNote} from './PlainHttpNote';
 import {CertificateQuestion} from './CertificateQuestion';
@@ -58,7 +61,8 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const release = (api?: HttpLocalApi) => { try { api?.getRouteConnection()?.dispose(); } catch { /* already gone */ } };
   const leaveCode = (event: 'usePassword' | 'back') => { release(connected); setConnected(undefined); go(event); };
   const back = () => {
-    if (direct.step) { session.clearError(); direct.cancelStep(); }
+    if (direct.setup) { session.clearError(); direct.cancelSetup(); }
+    else if (direct.step) { session.clearError(); direct.cancelStep(); }
     else if (step === 'code') leaveCode('back');
     else go('back');
   };
@@ -86,6 +90,8 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
     }
   };
   if (direct.step) return <DirectStepScreen />;
+  // First run from a phone or tablet: the server at this address has nobody set up yet.
+  if (direct.setup && !isTV) return <ServerSetup target={direct.setup} />;
   if (step === 'code' && connected) return <QuickConnect api={connected} onPassword={() => leaveCode('usePassword')} onBack={() => leaveCode('back')} />;
   // TV-AUTH-03: placeholders are examples, never a repeat of the label.
   const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
@@ -103,6 +109,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   return (
     <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.lead')} onBack={() => go('back')} error={session.error} onDismissError={session.clearError}>
       {address}
+      <SetupOffer address={settled} />
       <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
       <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={setPassword} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
       <CertificateQuestion origin={direct.origin} shown={!!session.error} onTrusted={() => { session.clearError(); submit(); }} />
@@ -110,6 +117,27 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
       <PlainHttpNote address={settled} />
     </AuthFrame>
   );
+}
+
+/**
+ * First run from a phone or tablet: once the address is typed, a server that says nobody has set
+ * it up yet is offered for setup here, before anyone types a password for an account that does
+ * not exist. Any failure to find out offers nothing (signing in then says the same).
+ */
+function SetupOffer({address}: {address: string}) {
+  const session = useSession();
+  const i18n = useI18n();
+  const [offered, setOffered] = useState(false);
+  const typed = address.trim();
+  useEffect(() => {
+    setOffered(false);
+    if (!typed) return;
+    const abort = new AbortController();
+    void addressNeedsSetup(typed, nativeNetworkFetch, abort.signal).then(yes => { if (!abort.signal.aborted && yes) setOffered(true); });
+    return () => abort.abort();
+  }, [typed]);
+  if (!offered) return null;
+  return <Notice message={i18n.t('setup.app.found')} action={i18n.t('setup.app.start')} onAction={() => { if (!session.busy) void session.direct.beginSetup().then(started => { if (!started) setOffered(false); }); }} />;
 }
 
 /**
