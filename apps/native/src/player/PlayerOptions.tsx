@@ -10,7 +10,7 @@ import {Button, ListRow, Notice, Sheet, StateView, Text, ToggleRow, alpha, showT
 import type {PlayerEngine} from './usePlayer';
 import {bitmapWarningNeeded, isBitmapResource, mediaVersionNames, ownerPlaybackSwitches, subtitleTrackNames, textTrackForLanguage} from '../../../../packages/client-core/src/presentation/index';
 import {playbackInfoRows, qualityNetworkFooter} from '../../../../packages/client-core/src/presentation/index';
-import {PlaybackApiError} from '../../../../packages/client-core/src/playback-v1/http';
+import {connectionTooSlow} from '../../../../packages/client-core/src/playback-v1/quality';
 import {qualityOptionSelected, type QualityInForce, type QualityOption} from '../../../../packages/client-core/src/playback-v1/quality';
 import {queueSaveMessage, type QueuePlaylistSave} from '../../../../packages/client-core/src/playback-v1/queue';
 import {subtitleReason} from '../../../../packages/client-core/src/subtitles';
@@ -262,10 +262,8 @@ function OptionBody({option, engine, valueOf, onClose, onPick, fromMenu, compact
 /** What to say when a quality could not be put in force. A connection too slow for it is said so,
  * with the quality that would fit when the server named one. */
 function qualityFailure(error: unknown, i18n: ReturnType<typeof useI18n>): string {
-  if (error instanceof PlaybackApiError && error.code === 'connection_too_slow') {
-    const fits = (error as {reason?: unknown}).reason;
-    return typeof fits === 'string' && /^\d+p$/.test(fits) ? i18n.t('player.quality.tooSlow', {quality: qualityName({mode: 'fixed', id: fits}, i18n.t)}) : i18n.t('player.quality.tooSlowAny');
-  }
+  const slow = connectionTooSlow(error);
+  if (slow) return slow.fits ? i18n.t('player.quality.tooSlow', {quality: qualityName({mode: 'fixed', id: slow.fits.id}, i18n.t)}) : i18n.t('player.quality.tooSlowAny');
   return i18n.t('web.player.quality.changeFailed');
 }
 

@@ -45,3 +45,7 @@ export const hasAirPlay: boolean = !android && !Platform.isTV;
 
 /** Picture in Picture: iPhone and iPad, and Android phones and tablets. Never a television. */
 export const hasPictureInPicture: boolean = !Platform.isTV && NativeModules.PorticoRuntime?.pictureInPictureSupported === true;
+
+/** Whether the viewer says what the TV shows and plays (HDR, surround) because the device cannot
+ * tell. Apple and Android detect them; Vega says yes. */
+export const declaresOutputs: boolean = false;

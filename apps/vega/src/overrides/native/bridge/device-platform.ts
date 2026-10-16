@@ -31,3 +31,6 @@ export const playOnPlatform: DestinationPlatform = platformId;
 /** No AirPlay and no Picture in Picture on this device. */
 export const hasAirPlay: boolean = false;
 export const hasPictureInPicture: boolean = false;
+
+/** Vega OS does not say what the TV shows or plays: the viewer does, in Settings (HDR, surround). */
+export const declaresOutputs: boolean = true;

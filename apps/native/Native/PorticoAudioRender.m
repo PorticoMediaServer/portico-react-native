@@ -858,7 +858,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL waiting=_active&&_primary&&!_primary.eof&&_primary.scheduled<=_primary.played;
  BOOL running=ready&&!_paused&&!_primary.ended&&_engine.running&&_primary.node.playing;
  return @{@"positionSeconds":@([self position]),@"ready":@(ready),@"observed":@(_primary.started),@"seeking":@((BOOL)(_primary&&_primary.seek>=0)),
-  @"effectiveRate":@(running?_rate:0),@"supportedRates":@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(waiting&&!_paused)),@"rateError":@"",@"rendering":@(_active)
+  @"effectiveRate":@(running?_rate:0),@"supportedRates":@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2,@2.5,@3],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(waiting&&!_paused)),@"rateError":@"",@"rendering":@(_active)
 #if DEBUG
   // Exit test (j): decoded audio held per deck (scheduled but not yet played, or a candidate's head).
   ,@"decodedAheadSeconds":@(_primary&&_primary.sampleRate>0?MAX(0,_primary.scheduled-_primary.played)/_primary.sampleRate:0)

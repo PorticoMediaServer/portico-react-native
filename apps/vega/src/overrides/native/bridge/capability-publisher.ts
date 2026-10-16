@@ -39,10 +39,11 @@ export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSna
       const [native] = await Promise.all([facts(), Promise.race([probing, new Promise<void>(resolve => setTimeout(resolve, PROBE_WAIT_MS))])]);
       if (stopped || engineSettingStore.version() !== revision) return;
       const late = !answered;
-      const document = vegaCapabilityDocument(native, route?.getSnapshot().origin ?? null, overrides, probed);
+      const document = vegaCapabilityDocument(native, route?.getSnapshot().origin ?? null, overrides, probed, engineSettingStore.declared());
       // Settings offers "Turn off HDR" and "Don't pass sound through" only where the document
       // says there is HDR, or a receiver, to turn off.
-      engineSettingStore.setProbed(probedSettings(document));
+      // On Vega the viewer's own "This TV supports HDR" is the HDR switch, so "Turn off HDR" stays away.
+      engineSettingStore.setProbed({...probedSettings(document), hdr: false});
       await publisher.publish(document).catch(() => false);
       engineSettingStore.settled(revision);
       if (late) void probing.then(() => { if (!stopped && probed) changed(); });

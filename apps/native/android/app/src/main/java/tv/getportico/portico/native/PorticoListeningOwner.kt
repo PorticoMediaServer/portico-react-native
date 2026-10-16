@@ -878,7 +878,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun action(action: String?, value: Double?, owner: String): Boolean {
     if (activeOwner != owner || terminal || action !in ACTIONS) return false
     if ((action == "seek" || action == "rate") && (value == null || !value.isFinite() || value < 0 || value > 1e9)) return false
-    if (action == "rate" && value !in RATES) return false
+    if (action == "rate" && value !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return false
     if (action == "retry" && value != null && (!value.isFinite() || value < 0 || value > 1e9)) return false
     if (action == "next" || action == "previous") return advance(action, null, owner)
     checkDeadlines(); resetInactivity()
@@ -958,7 +958,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val preferences = value["preferences"]
     if (preferences != null) {
       val p = preferences as? Map<*, *> ?: return false
-      if (p["autoplayNext"] !is Boolean || num(p["musicRate"]) !in RATES || num(p["bookRate"]) !in RATES || num(p["passoutMinutes"]) !in PASSOUT) return false
+      if (p["autoplayNext"] !is Boolean || num(p["musicRate"]) !in RATES || num(p["bookRate"]) !in BOOK_RATES || num(p["passoutMinutes"]) !in PASSOUT) return false
     }
     val timer = value["timer"]
     if (timer != null) {
@@ -995,7 +995,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val preferences = policy?.get("preferences") as? Map<*, *> ?: return
     val wanted = num(preferences[if (kind() == "audiobook_file") "bookRate" else "musicRate"]) ?: return
     val key = "${session["id"]}:$wanted"
-    if (policyRateKey == key || wanted !in RATES) return
+    if (policyRateKey == key || wanted !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return
     policyRateKey = key
     if (Math.abs(rate - wanted) > 0.00001) { rate = wanted; reportNow = true }
   }
@@ -1295,6 +1295,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     private val ADVANCES = setOf("next", "previous", "entry")
     private val ACTIONS = setOf("pause", "resume", "seek", "rate", "retry", "next", "previous")
     private val RATES = setOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+    // Audiobooks also take 2.5x and 3x (the shared `audiobookRates`); music stays at 2x.
+    private val BOOK_RATES = RATES + setOf(2.5, 3.0)
     private val PASSOUT = setOf(0.0, 30.0, 60.0, 90.0, 120.0)
     private val SLEEP_MINUTES = setOf(15.0, 30.0, 45.0, 60.0, 90.0)
     private val TIMER_CHOICES = setOf("chapter", "item", "book")

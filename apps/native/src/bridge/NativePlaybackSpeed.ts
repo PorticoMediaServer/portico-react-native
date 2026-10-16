@@ -1,6 +1,9 @@
 import type { PlaybackService } from '../../../../packages/client-core/src/index';
 import {enUS} from '../../../../packages/i18n/src/index';
+import {audiobookRates} from '../../../../packages/client-core/src/listening';
 export const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+/** The Speed menu for what is playing: audiobooks go to 3×, as on web; video stays at 2×. */
+export const ratesFor = (kind: string | undefined): readonly number[] => (kind === 'audiobook_file' ? audiobookRates : playbackRates);
 export type SpeedSnapshot = Readonly<{
   desired: number;
   effective: number;
@@ -25,7 +28,7 @@ export class NativePlaybackSpeed {
   // A saved preference is a requested rate. The native facts still decide
   // supported/effective rate; this does not pretend a paused player is playing.
   prefer = (rate:number) => {
-    if(!playbackRates.includes(rate as never))return;
+    if(!(audiobookRates as readonly number[]).includes(rate))return;
     if(this.state.ready&&!this.state.supported.includes(rate)){this.publish({...this.state,desired:1,error:enUS['player.opt.speedUnsupported']});return;}
     this.publish({...this.state,desired:rate,error:undefined});
   };

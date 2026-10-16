@@ -15,7 +15,7 @@ import type {GuideChannel} from '../../../../packages/client-core/src/channel-gu
 import {channelTuned, type Lineup} from './channel-lineup';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {NativePlaybackCoordinator} from '../bridge/NativePlaybackCoordinator';
-import {playbackRates, speedFor} from '../bridge/NativePlaybackSpeed';
+import {ratesFor, speedFor} from '../bridge/NativePlaybackSpeed';
 import {useNativeAudioSelection} from '../bridge/useNativeAudioSelection';
 import {useNativePlayback} from '../bridge/useNativePlayback';
 import {playerSettingsSupport} from '../bridge/native-listening-kinds';
@@ -51,7 +51,7 @@ import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, linesUrl
 import {automaticSteps} from './native-playback';
 import {noteEngineFact} from './failure-facts';
 import {captionStyle} from './caption-style';
-import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks} from './offline-extras';
+import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks, offlineTrickplay} from './offline-extras';
 
 /**
  * An operation id for a subtitle choice: an idempotency key, not a secret. Hermes has no `crypto`,
@@ -477,6 +477,26 @@ export function usePlayerEngine() {
       void replanEngine(playback).catch(() => {});
     });
   }, [engineSetting, playback, path]);
+
+  // N10: a fresh playback waits a few seconds for the Settings' player to reach the server (a
+  // player chosen in the player is for one playback only). On a slow link the session can start
+  // before it does, planned for the player of the playback before. When the server then has the
+  // setting, that session is planned again in place, as for a change made while playing.
+  const plannedSession = playbackState.session?.id;
+  useEffect(() => {
+    const state = playback.getSnapshot(), session = state.session, itemId = state.itemId, intent = state.intentId;
+    if (!session || !itemId || state.channel || engineInputs.current.audio || isLocalSession(session.id) || !path.session(session.id)) return;
+    const wanted = engineSettingStore.get(), published = engineSettingStore.published();
+    if (published === null || published === wanted) return;
+    let live = true;
+    void engineSettingStore.whenCurrentSettled(30000).then(() => {
+      const now = playback.getSnapshot();
+      if (!live || now.intentId !== intent || now.itemId !== itemId || now.session?.id !== session.id || !['starting', 'ready'].includes(now.phase)) return;
+      if (engineSettingStore.get() !== wanted || engineSettingStore.published() !== wanted) return;
+      void replanEngine(playback).catch(() => {});
+    });
+    return () => { live = false; };
+  }, [plannedSession, playback, path]);
 
   // Subtitles: the native player draws the text; this side chooses what it draws. The selection
   // is bound to the exact session generation, so a stale choice can never reach a new stream.
@@ -955,7 +975,8 @@ export function usePlayerEngine() {
     return () => { live = false; };
   }, [api, serverId, trickplayItem, trickplayLibrary]);
   const offeredSourceId = offersData?.current?.sourceId;
-  const trickplay = useMemo(() => (trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId]);
+  // A download scrubs with the previews that came with it.
+  const trickplay = useMemo(() => (localSession ? offlineTrickplay(offlineExtras) : trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId, localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const collapse = useCallback(() => setExpanded(false), []);
   const expand = useCallback(() => setExpanded(true), []);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);
@@ -996,7 +1017,7 @@ export function usePlayerEngine() {
     /** A download's skip markers; null for anything else. */
     downloadMarkers,
     speedState,
-    rates: playbackRates,
+    rates: ratesFor(identity.kind),
     /** The engine playing now ("native" or "mpv") and what it does not do: the chrome hides
      * Picture in Picture and AirPlay while an engine without them is active. */
     engineKind,

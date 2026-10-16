@@ -54,6 +54,8 @@ internal class PorticoMpvController(private val context: Context) {
     private set
   /** The decoder draws straight onto the surface (an HDR title on an HDR screen), rather than mpv drawing the picture. */
   var directOutput = false
+  /** mpv's own output while it draws the picture: "gpu", or "gpu-next" for Dolby Vision profile 5. */
+  private var drawnOutput = "gpu"
     private set
   /** What JavaScript wants: paused or playing. */
   val paused: Boolean get() = desiredPaused
@@ -473,6 +475,10 @@ internal class PorticoMpvController(private val context: Context) {
         // Decoding: MediaCodec for the codecs the chip has, mpv's own software decoders otherwise.
         "hwdec" to gpuDecoding(), "hwdec-codecs" to PorticoMpvDevice.hardwareDecoders.keys.joinToString(",").ifEmpty { "h264" },
         "tone-mapping" to "auto",
+        // Interlaced video (DVD rips, broadcast recordings) is deinterlaced when its frames say
+        // so (FFmpeg's bwdif in the media engine), as on Apple. Frames a television's decoder
+        // draws straight onto the surface are the decoder's to deinterlace.
+        "deinterlace" to "auto",
         // A file may not send mpv to other network or file sources. HLS is allowed to, per
         // load, once the relay has rewritten every address in its playlists to itself; and
         // mpv's own network code may speak plain HTTP to the relay and nothing else. The
@@ -513,6 +519,7 @@ internal class PorticoMpvController(private val context: Context) {
     made.onEvent = { epoch, event, next -> handle(epoch, event, next) }
     core = made
     directOutput = false
+    drawnOutput = "gpu"
     made.configureOutput("gpu", gpuDecoding())
     if (!watchingDevices) {
       watchingDevices = true
@@ -710,6 +717,7 @@ internal class PorticoMpvController(private val context: Context) {
           publishMediaInfo()
         }
       }
+      is PorticoMpvEvent.SubtitleText -> fontForText(event.text)
       is PorticoMpvEvent.Changed -> when (event.name) {
         "paused-for-cache" -> {
           if (next.pausedForCache && !before.pausedForCache && hasPlayed && !next.eofReached) emit("stalled", null)
@@ -1331,6 +1339,31 @@ internal class PorticoMpvController(private val context: Context) {
     core?.setFastTicks(true)
   }
 
+  /** The track whose lines were already looked at for their script (one look per choice). */
+  private var fontCheckedKey: String? = null
+  private var fontCheckedLines = 0
+
+  /**
+   * N16: the face mpv draws a track with is chosen by its language tag. A track with no tag, the
+   * wrong one, or lines in another script would show empty boxes, since the media engine's
+   * libass has no system font lookup to fall back on. So the first lines of the track are read:
+   * when they are written in a script the chosen face does not draw, the face for that script is
+   * linked instead and the track is opened again (once per choice, within its first lines).
+   */
+  private fun fontForText(text: String) {
+    val key = engineSubtitleKey ?: return
+    if (text.isBlank()) return
+    if (fontCheckedKey != key) { fontCheckedKey = key; fontCheckedLines = 0 }
+    if (fontCheckedLines >= 8) return
+    fontCheckedLines++
+    if (!PorticoMpvFonts.selectFor(context, text)) return
+    fontCheckedLines = 8
+    val sid = snapshot.sid
+    if (sid.isEmpty() || sid == "no" || sid == "false") return
+    core?.set("sid", "no")
+    core?.set("sid", sid)
+  }
+
   /**
    * Starts mpv drawing the track `render` describes: the track inside the media itself when the
    * description names one and the media carries it, otherwise the original subtitle file at
@@ -1438,6 +1471,8 @@ internal class PorticoMpvController(private val context: Context) {
    */
   private fun wantsDirectOutput(): Boolean {
     if (!HDR_DIRECT_OUTPUT || directRefused || !fileRequested || !restarted || engineSubtitleKey != null) return false
+    // Dolby Vision profile 5 has no HDR10 layer for the decoder to show: mpv draws it (gpu-next).
+    if (dolbyVisionProfile() == 5) return false
     val range = sourceRange()
     if (range == "sdr") return false
     val shown = PorticoMpvDevice.displayHdr(context)
@@ -1446,15 +1481,27 @@ internal class PorticoMpvController(private val context: Context) {
     return PorticoMpvDevice.hardwareDecoders[codec]?.tenBit == true
   }
 
+  /** The Dolby Vision profile of the selected picture track, when it has one (mpv's track list). */
+  private fun dolbyVisionProfile(): Int? = (selectedVideo()?.get("dolby-vision-profile") as? Number)?.toInt()
+
+  /**
+   * mpv's own output when it draws the picture. Dolby Vision profile 5 carries its colours only
+   * in the Dolby Vision layer, which mpv's gpu-next renderer (libplacebo with libdovi) reshapes
+   * and tone-maps; every other title keeps the gpu renderer.
+   */
+  private fun drawOutput(): String = if (fileRequested && dolbyVisionProfile() == 5) "gpu-next" else "gpu"
+
   private fun updateOutput() {
     val wanted = wantsDirectOutput()
-    if (wanted == directOutput) return
+    val drawn = drawOutput()
+    if (wanted == directOutput && drawn == drawnOutput) return
     directOutput = wanted
+    drawnOutput = drawn
     outputChangedAt = SystemClock.elapsedRealtime()
     // With a title open the change is made at once, in step with the surface. With none (the
     // title was just closed) it waits its turn, and costs nothing.
-    if (fileRequested) core?.configureOutput(if (wanted) "mediacodec_embed" else "gpu", if (wanted) "mediacodec" else gpuDecoding())
-    else core?.configureOutputLater("gpu", gpuDecoding())
+    if (fileRequested) core?.configureOutput(if (wanted) "mediacodec_embed" else drawn, if (wanted) "mediacodec" else gpuDecoding())
+    else { drawnOutput = "gpu"; core?.configureOutputLater("gpu", gpuDecoding()) }
     overlayListeners.toList().forEach { it() }
     publishMediaInfo()
   }
