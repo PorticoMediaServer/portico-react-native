@@ -1,10 +1,11 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useSyncExternalStore} from 'react';
 import {Share, View} from 'react-native';
 import {logCategories, logLevels, parseLogPage, type EvidenceRecord, type FeedbackReport, type FeedbackStatus, type LogCategory, type LogLevel, type LogSettings, type SupportExport} from '../../../../../packages/client-core/src/admin/index';
 import {CAPABILITY_BEHIND_PRESENCE, CAPABILITY_ROWS, capabilityReasonId, parseCapabilities, type ServerCapability} from '../../../../../packages/client-core/src/server-admin/capabilities';
 import {sentence, when} from '../../../../../packages/client-core/src/server-admin/console-words';
 import {broadcastBody, broadcastProblem, feedbackCategoryLabel, feedbackStatusLabel, utf8Length} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {setDetailWindow, type LogsDraft} from '../../../../../packages/client-core/src/server-admin/server-forms';
+import {resetSkippedParts, skippedParts, skippedVersion, subscribeSkipped} from '../../../../../packages/client-core/src/tolerant';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
@@ -118,6 +119,22 @@ export function CapabilitiesPanel() {
         </RowGroup>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Troubleshooting › Parts this app could not read: what this app left out of the server's answers
+ * on this device, by document and part (the readers' own names, never anything the server sent).
+ */
+export function SkippedPartsPanel() {
+  const t = useI18n().t;
+  useSyncExternalStore(subscribeSkipped, skippedVersion);
+  const parts = skippedParts();
+  return (
+    <RowGroup title={t('settings.server.skippedParts')} footer={t('settings.server.skippedPartsLede')}>
+      {parts.length ? [...parts].reverse().map(part => <ListRow key={part.document + '\n' + part.part} title={part.document} subtitle={part.part} meta={t('settings.server.skippedPartsCount', {count: part.count})} />) : <ListRow title={t('settings.server.skippedPartsNone')} />}
+      {parts.length ? <ListRow tone="action" title={t('action.clearAll')} onPress={resetSkippedParts} /> : null}
+    </RowGroup>
   );
 }
 
