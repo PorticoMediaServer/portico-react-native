@@ -13,6 +13,7 @@ import {useSession} from '../app/session';
 import {Artwork, Button, Card, Field, Focusable, ListRow, Notice, Page, PageHeader, Shelf, Skeleton, StateView, Text, WindowedGrid, useTheme, type FocusableHandle, type GridWindow} from '../ui';
 import {useServerPreferences} from '../app/server-preferences';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {SEARCH_CHIPS, orderedSearchGroups, searchGroupLabel, topResultKindLabel, topSearchResult, type TopSearchResult} from '../../../../packages/client-core/src/presentation/index';
 import {usePullToRefresh} from '../app/refresh';
@@ -64,6 +65,8 @@ function useSearchService() {
 export function SearchScreen() {
   const navigation = useNavigation();
   const {service, snapshot} = useSearchService();
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', () => service.refresh());
   const {space, isTV, metrics, colors} = useTheme();
   const [text, setText] = useState('');
   const [chip, setChip] = useState<Chip>('all');
@@ -212,7 +215,7 @@ export function SearchScreen() {
 
         {snapshot.phase === 'error' ? (
           <Notice tone="error" title={i18n.t('error.title.load', {subject: 'search'})} message={say(snapshot.error, 'search', 'load')} action={i18n.t('action.tryAgain')} onAction={() => void service.retry().catch(() => {})} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-        ) : snapshot.phase === 'refresh-required' ? (
+        ) : changedStuck ? (
           <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'search', 'load')} action={i18n.t('action.refresh')} onAction={() => void service.refresh().catch(() => {})} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
         ) : null}
 

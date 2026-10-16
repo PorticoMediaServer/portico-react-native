@@ -236,7 +236,10 @@ test('the other title of a merge is looked for among titles of the same kind', (
   assert.equal(mergeSearchGroup('show'), 'shows');
   assert.equal(mergeSearchGroup('episode'), 'episodes');
   assert.equal(mergeSearchGroup('song'), 'songs');
-  assert.equal(mergeSearchGroup('album'), undefined);
+  assert.equal(mergeSearchGroup('album'), 'albums');
+  assert.equal(mergeSearchGroup('artist'), 'artists');
+  assert.equal(mergeSearchGroup('book'), 'books');
+  assert.equal(mergeSearchGroup('collection'), undefined);
 });
 
 test('the title that is kept stays; the other goes into it', () => {

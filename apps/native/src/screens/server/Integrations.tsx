@@ -34,7 +34,7 @@ function useWords(kind: 'key' | 'token'): Words {
   const t = useI18n().t;
   return useMemo(() => (kind === 'key'
     ? {nameHelp: t('web.access.keyNameHelp'), none: t('web.access.noApiKeys'), create: t('web.access.createKey'), createTitle: t('web.access.createKeyTitle'), copyTitle: t('web.access.copyKeyTitle'), shownOnce: t('web.access.keyShownOnce'), secretLabel: t('web.access.apiKey'), share: t('server.people.shareKey'), revokeBody: t('web.access.revokeBody')}
-    : {nameHelp: t('api.tokens.nameHelp'), none: t('api.tokens.none'), create: t('api.tokens.create'), createTitle: t('api.tokens.createTitle'), copyTitle: t('api.tokens.copyTitle'), shownOnce: t('api.tokens.shownOnce'), secretLabel: t('api.tokens.token'), share: t('invite.share'), revokeBody: t('api.tokens.revokeBody')}), [kind, t]);
+    : {nameHelp: t('api.tokens.nameHelp'), none: t('api.tokens.none'), create: t('api.tokens.create'), createTitle: t('api.tokens.createTitle'), copyTitle: t('api.tokens.copyTitle'), shownOnce: t('api.tokens.shownOnce'), secretLabel: t('api.tokens.token'), share: t('api.tokens.share'), revokeBody: t('api.tokens.revokeBody')}), [kind, t]);
 }
 
 /**
@@ -245,7 +245,7 @@ export function WebhooksPanel() {
       {read.error && !list ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       {action.error && !editing && !rotating ? <Notice tone="error" message={action.error} /> : null}
       <RowGroup title={t('api.webhooks.title')} footer={full ? `${t('api.webhooks.lede')}\n\n${t('api.webhooks.full', {count: list.maximum})}` : t('api.webhooks.lede')}>
-        {list?.items.map(w => <ListRow key={w.id} icon="link" title={w.name} meta={w.enabled ? undefined : t('server.channels.state.disabled')} subtitle={[`${w.url} · ${t('api.webhooks.eventCount', {count: w.events.length})}`, webhookTrouble(t, w)?.text].filter(Boolean).join('\n')} subtitleLines={4} accessory="menu" onPress={() => setMenu(w)} />)}
+        {list?.items.map(w => <ListRow key={w.id} icon="link" title={w.name} meta={w.enabled ? undefined : t('api.webhooks.off')} subtitle={[`${w.url} · ${t('api.webhooks.eventCount', {count: w.events.length})}`, webhookTrouble(t, w)?.text].filter(Boolean).join('\n')} subtitleLines={4} accessory="menu" onPress={() => setMenu(w)} />)}
         {list && !list.items.length ? <ListRow readable title={t('api.webhooks.none')} /> : null}
         {list && !full ? <ListRow tone="action" icon="plus" title={t('api.webhooks.add')} onPress={() => { action.clear(); setEditing({}); }} /> : null}
       </RowGroup>
@@ -260,7 +260,7 @@ export function WebhooksPanel() {
       <Sheet open={!!issued?.secret} onClose={() => setIssued(undefined)} kind="acknowledge" title={t('api.webhooks.secretTitle')} primary={{label: t('web.access.copiedIt'), onPress: () => setIssued(undefined)}}>
         <View style={{gap: space.md}}>
           <Notice tone="warning" message={t('api.webhooks.secretShownOnce')} />
-          <SecretRows label={t('api.webhooks.secret')} secret={issued?.secret ?? ''} share={t('invite.share')} />
+          <SecretRows label={t('api.webhooks.secret')} secret={issued?.secret ?? ''} share={t('api.webhooks.shareSecret')} />
         </View>
       </Sheet>
       <RotateSheet webhook={rotating} busy={action.busy} error={action.error} onClose={() => setRotating(undefined)}
@@ -395,7 +395,7 @@ export function AssistantsPanel() {
   return (
     <RowGroup title={t('api.mcp.title')} footer={t('api.mcp.lede')}>
       <ListRow readable icon="link" title={t('api.mcp.address')} subtitle={`${address}\n${t('api.mcp.addressHelp')}`} subtitleLines={8} />
-      <ListRow tone="action" icon="upload" title={t('invite.share')} onPress={() => { void Share.share({message: address}).catch(() => {}); }} />
+      <ListRow tone="action" icon="upload" title={t('api.mcp.shareAddress')} onPress={() => { void Share.share({message: address}).catch(() => {}); }} />
       <ListRow readable icon="lock" title={t('api.mcp.key')} subtitle={t('api.mcp.keyHelp')} subtitleLines={8} />
     </RowGroup>
   );

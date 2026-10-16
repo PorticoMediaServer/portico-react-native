@@ -412,7 +412,7 @@ internal class PorticoMpvRelay {
 
     /** Media addresses are capability URLs: no cookies, no cache, no redirects. */
     private val client: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
           .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
     }
 

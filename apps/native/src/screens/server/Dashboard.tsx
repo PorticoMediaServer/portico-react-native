@@ -24,7 +24,7 @@ import {routeForLinkedTitle} from '../../app/open';
 import {useI18n} from '../../app/i18n';
 import {useDeviceEvents} from '../../app/device-events';
 import {appEnvironment, operationId, problem, TASK_EVENTS, useAction, useConsole, useRead, useServerId} from '../../app/server-console';
-import {Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, Text, isTV, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
+import {Field, ListRow, Menu, Notice, RowGroup, Segmented, Sheet, Text, rowPaddingX, useSpecPlatform, useTheme, type MenuItem} from '../../ui';
 
 const transportIcons: Record<TransportCommand, MenuItem['icon']> = {pause: 'pause', resume: 'play', back: 'back', forward: 'forward', startOver: 'restart'};
 
@@ -164,7 +164,7 @@ function Spark({points, max, width, height}: {points: readonly TelemetryPoint[];
   if (points.length < 2) return <View style={{width, height}} />;
   const t0 = points[0].t, span = Math.max(1, points[points.length - 1].t - t0), top = Math.max(max, 1e-9);
   const path = points.map((p, i) => `${i ? 'L' : 'M'}${(((p.t - t0) / span) * width).toFixed(1)},${(height - 1 - Math.min(1, p.v / top) * (height - 2)).toFixed(1)}`).join(' ');
-  return <Svg width={width} height={height}><Path d={path} fill="none" stroke={colors.accent} strokeWidth={isTV ? 3 : 1.5} /></Svg>;
+  return <Svg width={width} height={height}><Path d={path} fill="none" stroke={colors.accent} strokeWidth={1.5} /></Svg>;
 }
 
 /** Dashboard › Health: one sentence on how the server is doing, the facts behind it, and its load with recent history. */
@@ -184,7 +184,7 @@ export function HealthPanel() {
     facts.databaseBytes !== undefined ? t('settings.server.health.database', {bytes: formatBytes(facts.databaseBytes)}) : '',
   ].filter(Boolean).join(' · ');
   const data = load.data;
-  const spark = isTV ? {width: 220, height: 44} : {width: 96, height: 26};
+  const spark = {width: 96, height: 26};
   return (
     <>
       {health.error && !health.data ? <Notice tone="error" message={health.error} action={t('action.tryAgain')} onAction={health.reload} /> : null}
@@ -234,7 +234,6 @@ export function JobsPanel() {
 
 /** Dashboard › Viewing: what was watched, by whom, and how much of it the server had to convert. */
 export function StatisticsPanel() {
-  const client = useConsole();
   const t = useI18n().t;
   const {space} = useTheme();
   const platform = useSpecPlatform();

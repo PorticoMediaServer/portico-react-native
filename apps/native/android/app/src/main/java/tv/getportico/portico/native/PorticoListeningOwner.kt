@@ -296,7 +296,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val url = presentation?.get("url") as? String ?: ""
     val media = if (url.isEmpty()) null else mapOf(
         "id" to heard["id"], "generation" to presentation!!["generation"], "streamUrl" to url, "absolute" to url.startsWith("http"),
-        "mode" to (if (presentation["mode"] == "direct") "direct" else "hls"), "duration" to (if (audible != null) audibleDuration else duration), "resumeSeconds" to startSeconds(heard))
+        "mode" to (if (presentation["mode"] == "direct") "direct" else "hls"), "duration" to (if (audible != null) audibleDuration else duration), "resumeSeconds" to startSeconds(heard),
+        // The plan, for its seek index: a resume in a direct MP3 or ADTS file lands exactly even when the plain stream plays.
+        "seekPlan" to plan(presentation))
     return mapOf("playbackId" to heard["id"], "media" to media, "desired" to mapOf("state" to intent, "rate" to rate, "context" to mapOf("itemId" to heard["itemId"])))
   }
 
@@ -1310,7 +1312,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
     /** Credentialed requests: no redirects, no cookies, no cache, a bounded body. They go on without JavaScript. */
     private val http: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
           .connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build()
     }
 

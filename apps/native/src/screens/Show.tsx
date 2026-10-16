@@ -15,10 +15,11 @@ import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
 import {EPISODE_PAGE, useEpisodeWindow, type EpisodeSelection, type EpisodeSeed} from '../app/episodes';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
 import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
-import {groupSequence, sequenceContainer} from '../app/container-play';
+import {episodeGroupSequence, groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
@@ -54,6 +55,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const {libraryId, showId, seasonId, episodeId, title} = route.params;
   const target = useMemo<ShowWorkspaceRoute>(() => ({libraryId, ...(showId ? {showId} : {}), ...(seasonId ? {seasonId} : {}), ...(episodeId ? {episodeId} : {})}), [libraryId, showId, seasonId, episodeId]);
   const {snapshot, selectSeason, selectGroup, retry} = useShowWorkspace(target);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', retry);
   // P4/P7: the show's own recommendation rows (More like the show, From its creator…), named by
   // titleText; their cards offer Not interested.
   const recommendations = useShowRecommendations(snapshot.data?.show.id ?? showId);
@@ -192,10 +195,11 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     invoker.remember();
     // On Playback v1 the season plays as one server request from this episode; episodes the
     // viewer has sorted or filtered play on in the order shown, the whole list from the server's
-    // query. An episode group that isn't a season keeps the loaded list (the v1 selector can't
-    // name a range).
-    player.playSequence(queue, 0, startSeconds, sortedOn ? groupSequence(group) : sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group}));
-  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, sortedOn, group]);
+    // query. An episode group that isn't a season (a range, its specials, its whole list) plays
+    // whole as the server's query too, in the show's order.
+    const groupPlayed = data?.selected.group ? episodeGroupSequence(libraryId, data.show.id, data.selected.group) : undefined;
+    player.playSequence(queue, 0, startSeconds, sortedOn ? groupSequence(group) : groupPlayed ?? sequenceContainer('season', data?.selected.seasonId ?? undefined));
+  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, data?.show.id, libraryId, sortedOn, group]);
   const startOf = (e: ContentEntry) => (e.watched ? 0 : e.playback?.startSeconds ?? e.progressSeconds ?? 0);
   const handlers = useMemo(() => ({
     onPlay: (index: number) => {
@@ -348,7 +352,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   // "6 of 10 watched" beside the switcher, from the season's own counts (the viewer's visible episodes).
   const progress = seasonProgress(seasonState.state?.watchedCount, seasonState.state?.unwatchedCount);
   const rowGeometry = useEpisodeRowGeometry();
-  const notices = snapshot.phase === 'refresh-required' ? (
+  const notices = changedStuck ? (
     <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'show', 'load')} action={i18n.t('action.refresh')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
   ) : null;
   const switcher = data ? (

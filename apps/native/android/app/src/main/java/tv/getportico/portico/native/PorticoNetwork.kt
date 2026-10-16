@@ -18,7 +18,17 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
+import java.io.IOException
 import java.net.Inet6Address
+import java.util.concurrent.TimeUnit
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -100,6 +110,66 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
     } catch (_: Exception) {
       promise.reject("crypto_input", "Invalid signed identity.")
     }
+  }
+
+  // --- the owner's own certificate ------------------------------------------------------
+  // See PorticoServerTrust. JavaScript decides when to pin (after the server proves its identity
+  // over the certificate); these only report, prove over and store.
+
+  /** The certificate this device most recently refused at an https origin, or null. */
+  @ReactMethod
+  fun refusedCertificate(origin: String?, promise: Promise) {
+    promise.resolve(PorticoServerTrust.refused(origin)?.let { Arguments.createMap().apply { putString("fingerprint", it) } })
+  }
+
+  @ReactMethod
+  fun pinnedCertificate(origin: String?, promise: Promise) {
+    promise.resolve(PorticoServerTrust.pinned(origin)?.let { Arguments.createMap().apply { putString("fingerprint", it.fingerprint); putString("serverId", it.serverId) } })
+  }
+
+  @ReactMethod
+  fun pinCertificate(origin: String?, fingerprint: String?, serverId: String?, promise: Promise) {
+    if (PorticoServerTrust.pin(origin, fingerprint, serverId)) promise.resolve(true)
+    else promise.reject("certificate_storage", "The server's certificate could not be saved.")
+  }
+
+  @ReactMethod
+  fun forgetCertificate(origin: String?) = PorticoServerTrust.forget(origin)
+
+  /**
+   * The identity proof, and only it, over one named certificate: a POST of the caller's JSON to
+   * `<origin>/v1/networking/identity-proof`, trusting the system's authorities and that exact
+   * certificate. No credentials, no redirects, 8 KB at most, 5 seconds.
+   */
+  @ReactMethod
+  fun proofRequest(origin: String?, fingerprint: String?, body: String?, promise: Promise) {
+    val target = if (origin != null && PorticoServerTrust.key(origin) != null) (origin.trimEnd('/') + "/v1/networking/identity-proof").toHttpUrlOrNull() else null
+    if (origin == null || target == null || fingerprint == null || !CERT_FINGERPRINT.matches(fingerprint) || body == null || body.length > 4096) {
+      promise.reject("certificate_proof", "Invalid identity proof request.")
+      return
+    }
+    val client = PorticoServerTrust.proofClient(OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+        .retryOnConnectionFailure(false).callTimeout(5, TimeUnit.SECONDS), origin, fingerprint)
+    val request = Request.Builder().url(target).header("Accept", "application/json")
+        .post(body.toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType())).build()
+    client.newCall(request).enqueue(object : Callback {
+      override fun onFailure(call: Call, e: IOException) = promise.reject("certificate_proof", "The server could not prove its identity.")
+      override fun onResponse(call: Call, response: Response) {
+        response.use {
+          try {
+            val bytes = it.body?.source()?.let { source -> source.request(8193); source.buffer.readByteArray(minOf(source.buffer.size, 8193)) } ?: ByteArray(0)
+            if (bytes.size > 8192 || it.isRedirect) throw IOException()
+            val headers = Arguments.createMap()
+            for (name in it.headers.names()) headers.putString(name, it.headers.values(name).joinToString(", "))
+            promise.resolve(Arguments.createMap().apply {
+              putInt("status", it.code); putMap("headers", headers); putString("body", String(bytes, Charsets.UTF_8))
+            })
+          } catch (_: Exception) {
+            promise.reject("certificate_proof", "The server could not prove its identity.")
+          }
+        }
+      }
+    })
   }
 
   // --- the network path ------------------------------------------------------------------
@@ -511,6 +581,7 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
     private val TV_CODE = Regex("^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$")
     private val UUID_TEXT = Regex("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
     private val URL_TEXT = Regex("^[A-Za-z0-9_-]+$")
+    private val CERT_FINGERPRINT = Regex("^[A-Za-z0-9_-]{43}$")
     private val DATE = Regex("^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,9}))?(Z|[+-]\\d{2}:\\d{2})$")
 
     private fun encodeURL(bytes: ByteArray): String =

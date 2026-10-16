@@ -90,8 +90,8 @@ function OwnerTelevisionDashboard({entry}: {entry?: boolean}) {
         {jobs.data && !work.length ? <ListRow readable icon="check" title={t('web.activity.noTasks')} /> : null}
       </RowGroup>
       <RowGroup title={t('settings.server.diskUsage')}>
-        {facts.freeBytes !== undefined ? <ListRow readable icon="storage" title={t('server.live.freeOnVolume')} meta={formatBytes(facts.freeBytes)} /> : null}
-        {disk.data ? <ListRow readable icon="folder" title={t('web.maintenance.totalLabel')} meta={formatBytes(disk.data.totalBytes)} /> : null}
+        {facts.freeBytes !== undefined ? <ListRow readable icon="storage" title={t('server.dashboard.freeSpace')} meta={formatBytes(facts.freeBytes)} /> : null}
+        {disk.data ? <ListRow readable icon="folder" title={t('server.dashboard.porticoFiles')} meta={formatBytes(disk.data.totalBytes)} /> : null}
         {facts.databaseBytes !== undefined ? <ListRow readable icon="storage" title={t('server.places.database')} meta={formatBytes(facts.databaseBytes)} /> : null}
       </RowGroup>
       <RowGroup title={t('settings.server.alerts')}>

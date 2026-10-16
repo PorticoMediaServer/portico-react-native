@@ -13,8 +13,11 @@ This folder (with `src/ui/theme.ts` and `src/app/i18n.ts`) is the only place tha
 operating system it is on. Screens know `isTV` and nothing else.
 
 - `device-platform.ts`: the platform name sent to the server (`ios`, `tvos`, `android`,
-  `androidtv`, `firetv`), the device noun, and what the platform has (`hasAirPlay`,
-  `playOnPlatform`).
+  `androidtv`, `firetv`; the Vega app's own copy says `vega`), the device noun, and what the
+  platform has (`hasAirPlay`, `playOnPlatform`).
+- `event-stream.ts`: the account's `/v1/events` feed, read as a stream by the native reader on the
+  same verified connection as the API. The shared hub falls back to the bounded long poll only
+  when the stream cannot be opened.
 - `capability-document.ts`, `mpv-profile.ts` and `audio-decode.ts`: the one capability document the
   server plans from (a profile for the platform's player and one for mpv, the screen, the audio
   output, the viewer's Player setting and playback fixes), from the shared table for the platform

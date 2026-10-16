@@ -143,6 +143,10 @@ dependencies {
     // Curve25519 and byte-oriented PBKDF2/HKDF, used through the lightweight API only (no JCA
     // provider is registered): the platform has neither on the Android versions Portico supports.
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+
+    // JVM unit tests of the logic that needs no device (app/src/test): never in the app.
+    //   ./gradlew :app:testGoogleDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Open-source licences (Settings › About). apps/native/licences/android-<flavour>.txt pin each

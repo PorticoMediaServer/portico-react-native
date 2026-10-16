@@ -7,7 +7,11 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {PersonalSavedService, type PersonalResourceEntry, type PersonalSavedSnapshot} from '../../../../packages/client-core/src/personal-saved';
-import {SavedService, type PlaylistCard, type PlaylistOccurrence, type SavedEntry, type SavedRoute, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
+import {SavedService, type PlaylistCard, type PlaylistListFilter, type PlaylistOccurrence, type SavedEntry, type SavedRoute, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
+import {PlaylistControls} from './PlaylistControls';
+import {PinEditor} from './PinEditor';
+import {pinnedResourceIcon, usePinActions, usePinnedResources} from '../app/pins';
+import {useLibrariesContext} from '../app/libraries-context';
 import {captionFor, iconFor, progressFor, shapeFor, useArtwork, viewerScope} from '../app/content';
 import {useOpenEntry} from '../app/open';
 import type {ContentStackParams} from '../app/routes';
@@ -15,6 +19,7 @@ import {useSession} from '../app/session';
 import {Button, CardRow, ConfirmSheet, Card, Divider, ListRow, Notice, PageHeader, PageList, Ring, Skeleton, StateView, Tabs, Text, WindowedGrid, alpha, gridColumns, useTheme, type GridWindow, type IconName} from '../ui';
 import {historyRows, type CardRowModel, type DayRowModel} from '../app/list-rows';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {RootHeaderActions} from './Home';
 import {useI18n} from '../app/i18n';
 import {usePullToRefresh} from '../app/refresh';
@@ -23,7 +28,7 @@ import type {I18n, MessageId} from '../app/i18n';
 import {RowGuide} from './title/RowGuide';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
 import {acrossScope} from '../app/group-scope';
-import {GroupBar} from './GroupBrowse';
+import {GroupBar, LETTER_RAIL_WIDTH, useGroupLetters} from './GroupBrowse';
 import type {AcrossGroup} from '../../../../packages/client-core/src/presentation/browse-groups';
 
 const listDependencies = Object.freeze([...titlesWithPersonalState()]);
@@ -159,7 +164,10 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const group = useGroupBrowse(groupScope);
   const sortedWindow = useGroupWindow(group);
   const sortedOn = group.engaged && !!sortedWindow.list;
-  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(across ? {} : sort[tab] ?? {})}), [tab, sort, across]);
+  // Sorted by title, the list across libraries has a letter rail, as a library's has.
+  const letters = useGroupLetters(sortedWindow.list, sortedWindow.snapshot, group.sort.field);
+  const [playlistFilter, setPlaylistFilter] = useState<PlaylistListFilter>();
+  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(across ? {} : sort[tab] ?? {}), ...(tab === 'playlists' && playlistFilter ? {filter: playlistFilter} : {})} as SavedRoute), [tab, sort, across, playlistFilter]);
   const saved = useSavedService(savedRoute);
   const personalRoute = useMemo<SavedRoute | null>(() => (isPersonal(tab) ? {view: tab} : null), [tab]);
   const history = usePersonalService(personalRoute);
@@ -173,6 +181,8 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const activeDirection = sort[tab]?.direction ?? (projection?.query.direction as 'asc' | 'desc' | undefined);
 
   const refresh = isPersonal(tab) ? history.refresh : saved.refresh;
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const savedStuck = useQuietRefresh(!isPersonal(tab) && saved.snapshot.phase === 'refresh-required', saved.refresh);
   // APL-SYS-07: pull to refresh (touch) and a quiet refresh after a long absence.
   const pull = usePullToRefresh(refresh, {busy: isPersonal(tab) ? history.snapshot.loading : saved.snapshot.phase === 'loading'});
   // APL-SYS-08: the next page loads as the list nears its end; earlier pages stay.
@@ -235,14 +245,16 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
       case 'resource': return <ResourceRow resource={row.resource} first={row.first} last={row.last} onOpen={() => navigation.push('SavedResource', {resourceId: row.resource.id, title: row.resource.name})} />;
     }
   }, [space, gridWidth, renderHistory, navigation]);
-  const header = <PageHeader title={i18n.t('saved.title')} actions={<RootHeaderActions />} />;
+  const header = <><PageHeader title={i18n.t('saved.title')} actions={<RootHeaderActions />} /><SavedPins /></>;
   const tabRow = (
     <View>
       {/* TV: the guide hands focus to a tab (never to itself), so arriving from the rail always shows focus. */}
       <RowGuide><Tabs items={tabs} selected={tab} onSelect={id => setTab(id as SavedTab)} /></RowGuide>
     </View>
   );
-  const sortRow = groupScope && (hasEntries || tab === 'history' && historyEntries.length > 0 || group.engaged) ? <GroupBar group={group} /> : sorts.length ? (
+  const sortRow = tab === 'playlists' && projection ? (
+    <PlaylistControls sorts={projection.sorts} filters={projection.filters} sort={sort.playlists?.sort ?? projection.query.sort} direction={sort.playlists?.direction ?? (projection.query.direction === 'desc' ? 'desc' : 'asc')} filter={playlistFilter} onSort={(id, direction) => setSort(prev => ({...prev, playlists: {sort: id, direction}}))} onFilter={setPlaylistFilter} />
+  ) : groupScope && (hasEntries || tab === 'history' && historyEntries.length > 0 || group.engaged) ? <GroupBar group={group} /> : sorts.length ? (
     <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingHorizontal: space.page, paddingVertical: space.md}}>
       <Text variant="label" tone="tertiary" style={{marginRight: space.xs}}>{i18n.t('saved.sort')}</Text>
       {sorts.map(s => {
@@ -257,28 +269,30 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
     </View>
   ) : <View style={{height: isTV ? space.xl : space.lg}} />;
   if (sortedOn && sortedWindow.list) {
+    // Cards keep their kind's shape when sorted, as in the list's own order: square albums, posters for films and shows.
+    const sortedShape = dominantShape(loadedKinds(sortedWindow.list as unknown as GridWindow<ContentEntry>, sortedWindow.snapshot.total));
     const empty = sortedWindow.snapshot.total === 0 && sortedWindow.snapshot.status === 'ready';
     return (
-      <View style={{flex: 1}} onLayout={onLayout}>
+      <View style={{flex: 1, paddingRight: letters.shown && !isTV ? LETTER_RAIL_WIDTH : 0}} onLayout={onLayout}>
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
-          renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}</>}
+        <WindowedGrid<ContentEntry> ref={letters.grid} topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={shapeWidth(sortedShape, metrics)} aspect={shapeAspect(sortedShape)}
+          renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}{isTV ? letters.rail : null}</>}
           footer={empty ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
             : sortedWindow.snapshot.status === 'error' && !sortedWindow.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sortedWindow.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedWindow.list?.retry()} /> : null} />
+        {letters.shown && !isTV ? letters.rail : null}
       </View>
     );
   }
   if (mediaTab && media.length) {
-    const shapes = new Set(media.slice(0, 60).map(e => shapeFor(e.kind)));
-    const dominant = shapes.size === 1 ? shapeFor(media[0]!.kind) : 'poster';
-    const itemWidth = dominant === 'landscape' ? metrics.landscapeWidth : dominant === 'square' ? metrics.squareWidth : metrics.posterWidth;
+    const dominant = dominantShape(media.slice(0, 60).map(e => e.kind));
+    const itemWidth = shapeWidth(dominant, metrics);
     const notice = saved.snapshot.phase === 'error' ? <Notice tone="error" message={say(saved.snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={saved.retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      : saved.snapshot.phase === 'refresh-required' ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
+      : savedStuck ? <Notice tone="warning" message={say(saved.snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={saved.refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
     return (
       <View style={{flex: 1}} onLayout={onLayout}>
         {/* Touch: the title and tabs stay put above the grid, clear of the status bar. */}
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={dominant === 'landscape' ? 9 / 16 : dominant === 'square' ? 1 : 1.5}
+        <WindowedGrid topInset={false} list={grid} total={media.length + (pageable ? 60 : 0)} itemWidth={itemWidth} aspect={shapeAspect(dominant)}
           renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}{notice}</>} />
       </View>
     );
@@ -310,7 +324,7 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
             ) : tab === 'history' ? (
               <HistoryStatus snapshot={history.snapshot} count={historyEntries.length} shown={historyShown} width={gridWidth} onRefresh={history.refresh} onClear={history.clearHistory} />
             ) : (
-              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} onRetry={saved.retry} onRefresh={saved.refresh} />
+              <SavedStatus tab={tab} snapshot={saved.snapshot} count={savedEntries.length} width={gridWidth} changedStuck={savedStuck} onRetry={saved.retry} onRefresh={saved.refresh} />
             )}
           </>
         }
@@ -333,15 +347,30 @@ type HistoryEntry = PersonalResourceEntry & {media: ContentEntry};
 const rowKey = (row: SavedRow) => row.key;
 const hasMedia = (entry: PersonalResourceEntry): entry is HistoryEntry => !entry.hidden && !!entry.media;
 
-/** The width a card of this shape asks for; a mixed set reads as posters. */
-function dominantShape(kinds: readonly ContentEntry['kind'][]): 'poster' | 'landscape' | 'square' {
+type GridShape = 'poster' | 'landscape' | 'square';
+const shapeWidth = (shape: GridShape, metrics: {posterWidth: number; landscapeWidth: number; squareWidth: number}) => (shape === 'landscape' ? metrics.landscapeWidth : shape === 'square' ? metrics.squareWidth : metrics.posterWidth);
+const shapeAspect = (shape: GridShape) => (shape === 'landscape' ? 9 / 16 : shape === 'square' ? 1 : 1.5);
+
+/** The kinds of the first titles a sorted list has read (up to 60), for the grid's card shape. */
+function loadedKinds(list: GridWindow<ContentEntry>, total: number | undefined): ContentEntry['kind'][] {
+  const kinds: ContentEntry['kind'][] = [];
+  for (let i = 0; i < Math.min(60, total ?? 60); i++) {
+    const slot = list.slotAt(i);
+    if (slot.kind === 'item') kinds.push(slot.item.kind);
+  }
+  return kinds;
+}
+
+/** The width a card of this shape asks for; a mixed set (or none read yet) reads as posters. */
+function dominantShape(kinds: readonly ContentEntry['kind'][]): GridShape {
+  if (!kinds.length) return 'poster';
   const shapes = new Set(kinds.map(kind => shapeFor(kind)));
   const only = shapes.size === 1 ? shapeFor(kinds[0]!) : 'poster';
   return only === 'landscape' || only === 'square' ? only : 'poster';
 }
 
 /** Errors, the first load and the empty state for Watchlist, Favorites and Playlists. */
-function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; onRetry: () => void; onRefresh: () => void}) {
+function SavedStatus({tab, snapshot, count, width, changedStuck, onRetry, onRefresh}: {tab: Exclude<SavedTab, PersonalTab>; snapshot: SavedSnapshot; count: number; width: number; /** The list changed under the screen and quiet re-reads have not brought it back. */ changedStuck: boolean; onRetry: () => void; onRefresh: () => void}) {
   const {space} = useTheme();
   const i18n = useI18n();
   const loaded = !!snapshot.projection?.sections.length;
@@ -353,7 +382,7 @@ function SavedStatus({tab, snapshot, count, width, onRetry, onRefresh}: {tab: Ex
         <StateView icon="warning" title={i18n.t('saved.loadFailed')} message={say(snapshot.error, 'saved', 'load')} action={i18n.t('action.tryAgain')} onAction={onRetry} />
       ) : snapshot.phase === 'error' ? (
         <Notice tone="error" message={say(snapshot.error, 'saved', 'load')} action={i18n.t('saved.retry')} onAction={onRetry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-      ) : snapshot.phase === 'refresh-required' ? (
+      ) : changedStuck ? (
         <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'saved', 'load')} action={i18n.t('action.refresh')} onAction={onRefresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
       ) : null}
       {loadingFresh ? tab === 'playlists' ? <LoadingRows /> : <LoadingGrid width={width} /> : null}
@@ -530,3 +559,39 @@ function LoadingRows() {
   );
 }
 
+
+/**
+ * Pins on Saved: "Edit pins" everywhere (what is pinned, and the order the rail and the library
+ * list show it in), and on a phone, where there is no rail, the pinned collections, saved views and
+ * playlists themselves, first.
+ */
+function SavedPins() {
+  const i18n = useI18n();
+  const {space, isTV, window} = useTheme();
+  const {api, session} = useSession();
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const scope = useMemo(() => viewerScope(session, api), [session, api]);
+  const pins = usePinnedResources(api, scope.serverId, scope.viewerId || undefined);
+  const actions = usePinActions(api, scope.serverId);
+  const libraries = useLibrariesContext();
+  const [editing, setEditing] = useState(false);
+  // A wide tablet and a television show the pins in the rail; a phone shows them here.
+  const handheld = !isTV && window.width < 700;
+  return (
+    <View style={{paddingHorizontal: space.page, gap: space.sm, marginBottom: space.sm}}>
+      {handheld && pins.order.length ? (
+        <View>
+          <Text variant="label" tone="tertiary" style={{marginBottom: space.xs}}>{i18n.t('pins.heading')}</Text>
+          {pins.order.map((entry, index) => (
+            <View key={entry.kind + ':' + entry.id}>
+              {index > 0 ? <Divider inset={space.sm} /> : null}
+              <ListRow icon={pinnedResourceIcon(entry.kind)} title={entry.name} trailingIcon="forward" onPress={() => (entry.kind === 'playlist' ? navigation.push('Playlist', {playlistId: entry.id, title: entry.name}) : navigation.push('SavedResource', {resourceId: entry.id, title: entry.name}))} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <View style={{flexDirection: 'row'}}><Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('pins.edit')} onPress={() => setEditing(true)} /></View>
+      <PinEditor open={editing} onClose={() => setEditing(false)} libraries={libraries.items} pinned={pins.order} actions={actions} />
+    </View>
+  );
+}

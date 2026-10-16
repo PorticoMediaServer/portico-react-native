@@ -27,6 +27,7 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {AccessTokensPanel} from '../server/Integrations';
+import {RemoteControlsPanel} from './RemoteControls';
 
 /** Android's runtime: the Layout setting this process started with, and the way to change it (B-19.10). */
 const layoutRuntime = NativeModules.PorticoRuntime as undefined | {layout?: unknown; setLayout?: (choice: string) => Promise<void>};
@@ -87,7 +88,7 @@ export function useSettingsStructure(): SettingsStructure {
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
-const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote', 'accessTokens']);
+const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote', 'accessTokens', 'remoteControls']);
 
 /** One page of Settings: its sections as row groups. Personal rows save on change. */
 export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: the first row takes focus when the page opens. */ entry?: boolean}) {
@@ -236,6 +237,7 @@ function Panel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'about': return <About entry={entry} />;
     case 'privacyNote': return <PrivacyNote />;
     case 'accessTokens': return <AccessTokensPanel />;
+    case 'remoteControls': return <RemoteControlsPanel />;
     default: return null;
   }
 }

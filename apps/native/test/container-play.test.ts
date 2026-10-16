@@ -80,9 +80,15 @@ test('a group plays its query only while the viewer has sorted or filtered it', 
   assert.deepEqual(groupSequence({engaged: true, scope, predicates, sort}, {shuffle: true}), {kind: 'query', query: {libraryId: 'lib', pivot: 'episodes', query: {all: predicates}, sort: [sort]}, shuffle: true});
 });
 
-test('a list across libraries plays as its server query, in its own order; a Home row plays from the screen', async () => {
+test('a list across libraries plays as its server query, in its own order, a Home row too', async () => {
   const {groupSequence} = await import('../src/app/container-play.ts');
   const predicates = [{field: 'list', operator: 'equals' as const, value: 'p1'}, {field: 'year', operator: 'at-least' as const, value: 2000}];
   assert.deepEqual(groupSequence({engaged: true, scope: {libraryId: '*', pivot: 'items'}, predicates, sort: {field: 'groupOrder', direction: 'asc'}}), {kind: 'query', query: {libraryId: '*', pivot: 'items', query: {all: predicates}, sort: [{field: 'groupOrder', direction: 'asc'}]}});
-  assert.equal(groupSequence({engaged: true, scope: {libraryId: '*', pivot: 'titles'}, predicates: [{field: 'homeRow', operator: 'equals', value: 'recommended'}], sort: {field: 'title', direction: 'asc'}}), undefined);
+  assert.deepEqual(groupSequence({engaged: true, scope: {libraryId: '*', pivot: 'titles'}, predicates: [{field: 'homeRow', operator: 'equals', value: 'recommended'}], sort: {field: 'title', direction: 'asc'}}), {kind: 'query', query: {libraryId: '*', pivot: 'titles', query: {all: [{field: 'homeRow', operator: 'equals', value: 'recommended'}]}, sort: [{field: 'title', direction: 'asc'}]}});
+});
+
+test('an episode group and a Home row play whole through the server', async () => {
+  const {episodeGroupSequence, homeRowSequence} = await import('../src/app/container-play.ts');
+  assert.deepEqual(episodeGroupSequence('tv', 's1', 'specials'), {kind: 'query', query: {libraryId: 'tv', pivot: 'episodes', query: {all: [{field: 'episodeGroup', operator: 'equals', value: 's1/specials'}]}, sort: [{field: 'groupOrder', direction: 'asc'}]}});
+  assert.equal(homeRowSequence('recent', ['song'], {shuffle: true}).shuffle, true);
 });

@@ -1,16 +1,18 @@
-import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {Linking} from 'react-native';
 import {PlaybackSettingsService, type PlaybackSettingsSnapshot} from '../../../../../packages/client-core/src/playback-settings';
 import {checkRemoteAccess, remoteAccessHelp, type RemoteAccess, type RemoteConfiguration} from '../../../../../packages/client-core/src/remote-access';
-import {certificateDate, certificateSummary, retryCertificate, type CertificateApi, type CertificateConfig, type CertificateStatus} from '../../../../../packages/client-core/src/certificates';
+import {certificateDate, retryCertificate, type CertificateApi, type CertificateConfig, type CertificateStatus} from '../../../../../packages/client-core/src/certificates';
 import type {ConnectivityStatus} from '../../../../../packages/client-core/src/server-administration';
-import type {ConnectivityDraft} from '../../../../../packages/client-core/src/server-admin/server-forms';
+import type {CertificateDraft, ConnectivityDraft} from '../../../../../packages/client-core/src/server-admin/server-forms';
+import {secureConnectionView} from '../../../../../packages/client-core/src/server-admin/secure-connection';
 import {parseUpdateReport} from '../../../../../packages/client-core/src/administration';
 import {ClaimOnboarding} from '../../../../../packages/client-core/src/claim-onboarding';
 import {viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {addressKind, certificateBadge, connectionLine, connectivityWarning, deliveryStatusRows, listedAddresses, mappingProblem, ownCertificateLine, remoteStatusLine} from '../../../../../packages/client-core/src/server-admin/status-words';
-import type {HttpLocalApi} from '../../../../../packages/client-core/src/index';
+import {addressKind, connectionLine, connectivityWarning, deliveryStatusRows, listedAddresses, mappingProblem, ownCertificateLine, remoteStatusLine} from '../../../../../packages/client-core/src/server-admin/status-words';
+import {HttpLocalApi} from '../../../../../packages/client-core/src/index';
+import {nativeNetworkFetch} from '../../bridge/server-connections';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {useAction, useRead, useService} from '../../app/server-console';
@@ -62,7 +64,7 @@ export function RemoteStatusPanel() {
   );
 }
 
-/** The certificate's state and details, above its two settings. */
+/** The certificate's details and any problem with getting it, under the Secure connection status line. */
 export function CertificateStatusRows() {
   const {api} = useSession();
   const t = useI18n().t;
@@ -71,11 +73,9 @@ export function CertificateStatusRows() {
   const st = state.status;
   if (!st) return null;
   const certApi: CertificateApi = {requestCertificate: (act, body, signal) => (act === 'status' ? api.request('/v1/networking/certificate', 'GET', undefined, signal) : api.request(`/v1/networking/certificate/${act}`, 'POST', body, signal))};
-  const badge = certificateBadge(t, st);
   const retry = () => void action.run(async () => { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 15000); try { await retryCertificate(certApi, controller.signal); } finally { clearTimeout(timer); } await form.load(); });
   return (
     <>
-      <ListRow title={t('web.general.status')} subtitle={certificateSummary(st)} meta={badge.label} />
       {st.dnsName ? <ListRow title={t('server.cert.name')} subtitle={st.dnsName} /> : null}
       {st.issuer ? <ListRow title={t('server.cert.issuer')} meta={st.issuer} /> : null}
       {st.notAfter ? <ListRow title={t('server.cert.expires')} meta={certificateDate(st.notAfter)} /> : null}
@@ -118,15 +118,68 @@ export function OwnCertificateStatusRows() {
   return <ListRow readable title={i18n.t('web.general.status')} subtitle={line.text} subtitleLines={3} />;
 }
 
-/** Remote access › Portico Account: whether this server is connected to its owner's account. Connecting is approved in a browser. */
-export function AccountConnectionPanel() {
+/** The server's Portico Account connection, read (and resumed) while a panel shows it. */
+function useClaimStatus() {
   const session = useSession();
-  const t = useI18n().t;
   const pin = session.api.getRouteConnection()?.pin;
   const claim = useMemo(() => (pin ? new ClaimOnboarding(session.api, pin) : undefined), [session.api, pin]);
   const empty = useMemo(() => ({subscribe: () => () => {}, getSnapshot: () => null}), []);
   const state = useSyncExternalStore(claim?.subscribe ?? empty.subscribe, claim?.getSnapshot ?? empty.getSnapshot);
   useEffect(() => { void claim?.start(); return () => claim?.dispose(); }, [claim]);
+  return {claim, state};
+}
+
+/**
+ * Secure connection › status: whether devices reach this server encrypted, in one sentence, and
+ * the one step that turns it on. Signed in to a Portico Account in this app, that step happens
+ * here: the server is connected to the account (approved with this app's own account sign-in)
+ * and asks for its certificate at once. Otherwise it opens the server's settings in a browser,
+ * where the account page approves it. Plain HTTP keeps working either way.
+ */
+export function SecureConnectionRows() {
+  const session = useSession();
+  const t = useI18n().t;
+  const certificate = useServerForm<CertificateDraft, CertificateStatus>('certificate');
+  const connectivity = useServerForm<ConnectivityDraft, ConnectivityStatus>('connectivity');
+  const {claim, state} = useClaimStatus();
+  const view = secureConnectionView({certificate: certificate.state.status, own: connectivity.state.status?.tls.customCertificate, claim: state?.status});
+  const action = useAction();
+  const account = session.credentials ? session.hosted : undefined;
+  const reload = certificate.form.load;
+  // While the certificate is on its way, look again every so often; nothing else needs doing.
+  useEffect(() => {
+    if (view.state !== 'starting') return;
+    const timer = setInterval(() => void reload(), 15000);
+    return () => clearInterval(timer);
+  }, [view.state, reload]);
+  const connect = useCallback(() => void action.run(async () => {
+    if (!claim || !session.credentials) return;
+    setTried(true);
+    const live = await session.credentials.accessSession();
+    const hosted = new HttpLocalApi(session.hostedUrl, live.accessToken, nativeNetworkFetch);
+    // The account's first profile owns the server, as the account page proposes by default.
+    await claim.connect({accountId: live.account.id, profileId: live.profiles[0]?.id ?? '', approve: (input, signal) => hosted.request('/v1/server-claims/approve', 'POST', input, signal)});
+    await reload();
+  }), [action, claim, session.credentials, session.hostedUrl, reload]);
+  const serverUrl = (session.serverUrl ?? session.api.baseUrl).replace(/\/$/, '');
+  // A failed connect leaves its reason on the claim; the account panel below explains a failed check.
+  const [tried, setTried] = useState(false);
+  const failure = action.error || (tried && state?.error && !state.busy ? t('web.claim.errorUnavailable') : '');
+  return (
+    <>
+      <ListRow readable title={t('web.general.status')} subtitle={t(view.body, view.address ? {address: view.address} : undefined)} subtitleLines={5} meta={t(view.badge)} />
+      {view.canConnect && account ? <ListRow tone="action" title={t('settings.server.secure.connectWithAccount', {account: account.account.displayName || account.account.username})} subtitle={action.busy || state?.busy ? t('settings.server.secure.badgeStarting') : t('settings.server.secure.connectWithAccountHelp')} disabled={action.busy || state?.busy} onPress={connect} /> : null}
+      {(view.canConnect && !account) || view.state === 'waiting' ? <ListRow icon="globe" title={t('settings.server.secure.connectInBrowser')} subtitle={t('settings.server.secure.connectInBrowserHelp')} trailingIcon="external" onPress={() => { Linking.openURL(`${serverUrl}/settings/server-remote`).catch(() => {}); }} /> : null}
+      {failure ? <ListRow readable icon="warning" title={failure} subtitleLines={3} /> : null}
+    </>
+  );
+}
+
+/** Remote access › Portico Account: whether this server is connected to its owner's account. Connecting is approved in a browser. */
+export function AccountConnectionPanel() {
+  const session = useSession();
+  const t = useI18n().t;
+  const {claim, state} = useClaimStatus();
   const status = state?.status;
   const connected = !!status && (status.state === 'installed' || status.state === 'claimed' || status.state === 'connected');
   const pending = !!status && !connected && (status.approvalRequired || !!status.operation);

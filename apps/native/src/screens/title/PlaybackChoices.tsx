@@ -4,7 +4,7 @@ import {PlayerOffersService, type PlayerOfferedStream} from '../../../../../pack
 import {peekPendingTrackChoice, preplaySubtitles, setPendingTrackChoice} from '../../../../../packages/client-core/src/pending-track-choice';
 import {PlaybackOptionsClient, type MediaVersion} from '../../../../../packages/client-core/src/playback-v1/index';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
-import {channelsLabel, codecLabel} from '../../../../../packages/client-core/src/presentation/index';
+import {channelsLabel, codecLabel, mediaVersionNames} from '../../../../../packages/client-core/src/presentation/index';
 import {peekPendingVersion, setPendingVersion} from '../../app/pending-version';
 import {viewerScope} from '../../app/content';
 import {useI18n} from '../../app/i18n';
@@ -93,10 +93,9 @@ export function PlaybackChoices({libraryId, itemId}: {libraryId: string; itemId:
     {id: 'off', label: i18n.t('title.subtitlesOff'), selected: subtitle === 'off'},
     ...subtitleChoices.map(x => ({...x, selected: subtitle === x.id})),
   ];
-  // Named as the player's own Version menu names them: the server's label, the edition, the picture's height and the container.
-  const versionLabel = (x: MediaVersion) => [x.label, x.edition && x.edition !== x.label ? x.edition : '', x.video[0]?.height ? i18n.t('quality.height', {height: x.video[0].height}) : '', x.container?.toUpperCase() ?? ''].filter(Boolean).join(' · ');
-  // Two copies that read the same are told apart by their place in the list (best first).
-  const versions: MenuItem[] = versionList.map((x, i, all) => { const label = versionLabel(x); const same = !label || all.some((other, n) => n !== i && versionLabel(other) === label); return {id: x.id, label: same ? [i18n.t('mediaInfo.version', {number: i + 1}), label].filter(Boolean).join(' · ') : label, selected: x.id === playing}; });
+  // Named as the player's own Version menu names them (the shared rule): two copies that would read the same are told apart by bit rate, size or number.
+  const versionNames = mediaVersionNames(versionList, i18n.t);
+  const versions: MenuItem[] = versionList.map(x => ({id: x.id, label: versionNames.get(x.id) ?? x.id, selected: x.id === playing}));
   const versionValue = versions.find(x => x.selected)?.label ?? '';
   // One control is noise; the row appears when there is a choice to make somewhere.
   if (versions.length < 2 && audios.length < 2 && !subtitleChoices.length) return null;

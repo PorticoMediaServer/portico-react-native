@@ -7,7 +7,7 @@ import {continueTitle, homeHero, isContinueRow as isContinueRowId, type HomeHero
 import {useHome} from '../app/home';
 import {present} from '../app/errors';
 import {useSavedTitles} from '../app/saved-index';
-import type {SequenceContainer} from '../app/container-play';
+import {homeRowSequence, type SequenceContainer} from '../app/container-play';
 import {useI18n} from '../app/i18n';
 import {HomeCustomise} from './HomeCustomise';
 import {HomeEmpty} from './HomeEmpty';
@@ -90,7 +90,7 @@ export function HomeScreen() {
     return undefined;
   }, [navigation, i18n]);
   const renderRow = useCallback(({item: row, index}: {item: HomeRow; index: number}) => (
-    <SectionView section={sectionOf(row)} row={index + 1} entryFocus={firstRowFocus && index === 0} origin={isContinueRow(row) ? 'continue_watching' : isRecommendationRow(row) ? 'recommendation' : undefined} onMore={row.nextCursor && !paging.has(row.id) ? () => void more(row.id) : undefined} onSeeAll={seeAllFor(row)} alwaysSeeAll={!!homeViewResourceId(row.id)} />
+    <SectionView section={sectionOf(row)} row={index + 1} entryFocus={firstRowFocus && index === 0} origin={isContinueRow(row) ? 'continue_watching' : isRecommendationRow(row) ? 'recommendation' : undefined} onMore={row.nextCursor && !paging.has(row.id) ? () => void more(row.id) : undefined} onSeeAll={seeAllFor(row)} alwaysSeeAll={!!homeViewResourceId(row.id)} sequence={rowSequence(row)} />
   ), [paging, more, firstRowFocus, seeAllFor]);
   const heroHeight = metrics.heroHeight;
   const topInset = useSafeAreaInsets().top;
@@ -144,6 +144,12 @@ export function HomeScreen() {
       {document ? <HomeCustomise open={customise} onClose={() => setCustomise(false)} onSave={saveLayout} onReset={resetLayout} loadLayout={loadLayout} /> : null}
     </View>
   );
+}
+
+/** A Home row of songs, episodes or parts plays on from the one pressed: the whole row as Home holds it, from the server. */
+function rowSequence(row: HomeRow): SequenceContainer | undefined {
+  const kinds = row.entries.map(e => e.kind);
+  return kinds.some(kind => kind === 'song' || kind === 'episode' || kind === 'audiobook_file' || kind === 'chapter') ? homeRowSequence(row.id, kinds) : undefined;
 }
 
 function sectionOf(row: HomeRow): ContentSection {
