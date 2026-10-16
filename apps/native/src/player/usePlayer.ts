@@ -584,7 +584,7 @@ export function usePlayerEngine() {
     void api.request<unknown>(subtitleLinesUrl, 'GET').then(raw => { if (live) setSubtitleLines({key: subtitleLinesUrl, mixed: forcedChoiceOf(parseSubtitleLines(raw))}); }, () => {});
     return () => { live = false; };
   }, [api, subtitleLinesUrl]);
-  const forcedChoice = !!subtitleLinesUrl && subtitleLines?.key === subtitleLinesUrl && subtitleLines.mixed;
+  const streamedForcedChoice = !!subtitleLinesUrl && subtitleLines?.key === subtitleLinesUrl && subtitleLines.mixed;
   // A download's own subtitle tracks (files on this device), chosen here and nowhere else.
   const [offlineExtras, setOfflineExtras] = useState<LocalMedia['extras']>();
   const localSession = isLocalSession(playbackState.session?.id) ? playbackState.session : undefined;
@@ -592,12 +592,14 @@ export function usePlayerEngine() {
   const [offlineSubtitle, setOfflineSubtitle] = useState<{id: string | null; revision: number}>({id: null, revision: 1});
   useEffect(() => setOfflineSubtitle(prev => ({id: null, revision: prev.revision + 1})), [localSession?.id]);
   const offlineTrack = offlineTracks.find(t => t.id === offlineSubtitle.id);
+  // A download's image track carries its own count; streaming asks the server for it.
+  const forcedChoice = localSession ? !!offlineTrack?.forcedChoice : streamedForcedChoice;
   const chooseOfflineSubtitle = useCallback((id: string | null) => setOfflineSubtitle(prev => ({id, revision: prev.revision + 1})), []);
   const subtitleCommand = useMemo(() => {
     const session = playbackState.session;
     if (!session) return null;
     const binding = {intentId: playbackState.intentId, sessionId: session.id, generation: session.generation};
-    if (localSession) return offlineSubtitleCommand(offlineTrack, binding, offlineSubtitle.revision, engineFeatures(engineKind).subtitleRendering, captions);
+    if (localSession) return offlineSubtitleCommand(offlineTrack, binding, offlineSubtitle.revision, engineFeatures(engineKind).subtitleRendering, captions, forcedOnly);
     const plan = subtitlePlan;
     if (!plan) return null;
     const selected = plan.mode === 'track' && !subtitles.suppressed ? plan.selected : null;

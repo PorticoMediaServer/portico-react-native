@@ -250,8 +250,8 @@ export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{avail
   return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), ...(folderSplittable.includes(title.kind) && file.available ? ['splitFolder' as const] : []), 'delete' as const];
 }
 
-type MergeGroup = 'movies' | 'shows' | 'episodes' | 'songs' | 'albums' | 'artists' | 'books';
-const MERGE_GROUPS: Readonly<Record<string, MergeGroup>> = {movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs', album: 'albums', artist: 'artists', book: 'books'};
+type MergeGroup = 'movies' | 'shows' | 'episodes' | 'songs' | 'albums' | 'artists' | 'books' | 'authors';
+const MERGE_GROUPS: Readonly<Record<string, MergeGroup>> = {movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs', album: 'albums', artist: 'artists', book: 'books', author: 'authors'};
 /** Where the other title of a merge is looked for: the search group of the same kind, or nothing for a kind that has none. */
 export const mergeSearchGroup = (kind: string): MergeGroup | undefined => MERGE_GROUPS[kind];
 

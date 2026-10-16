@@ -101,6 +101,8 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var invalidated = false
 
   private var seeking = false
+  /** A direct MP3 opened from its start before its seek index was read; the first seek once it is here reopens it. */
+  private var unindexedMedia: String? = null
   private var seekRevision = -1L
   private var acceptedSeekRevision = -1L
   private var acceptedSeekTarget = 0.0
@@ -509,9 +511,16 @@ internal class PorticoPlaybackController(private val context: Context) {
     val address = url.toString()
     val resuming = (number(listeningSeek?.get("positionSeconds")) ?: 0.0) > 0
     val wanted = index != null && PorticoSeekIndex.cached(address) == null && (start != C.TIME_UNSET || routeResume || resuming || index.container == "adts")
+    unindexedMedia = null
     if (!wanted) {
       engine.setMediaItem(MediaItem.fromUri(url), start)
       engine.prepare()
+      // Started from the beginning, an MP3 plays at once; its index is read meanwhile, so a later
+      // scrub lands exactly too (applyPendingSeek).
+      if (index != null && PorticoSeekIndex.cached(address) == null) {
+        unindexedMedia = address
+        PorticoSeekIndex.load(mediaClient, address, index) {}
+      }
       return
     }
     // Nothing is loaded meanwhile, so a seek waits for the file instead of moving the previous one.
@@ -529,6 +538,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   }
 
   private fun unload() {
+    unindexedMedia = null
     hasPlayed = false
     previousProgress = Double.NaN
     closeIncoming()
@@ -796,6 +806,16 @@ internal class PorticoPlaybackController(private val context: Context) {
     seeking = true
     engine.playWhenReady = false
     seekWait = SeekWait(revision, target, currentBinding, intentId, itemInstanceId)
+    // An MP3 opened before its seek index arrived is opened again at the position once it has:
+    // Media3 alone only guesses an MP3's places, the index lands exactly. A queued next item
+    // (gapless music) keeps the ordinary seek.
+    val reopen = unindexedMedia
+    if (reopen != null && timelineOriginMs == null && engine.mediaItemCount == 1 && PorticoSeekIndex.cached(reopen) != null) {
+      unindexedMedia = null
+      engine.setMediaItem(MediaItem.fromUri(reopen), position)
+      engine.prepare()
+      return
+    }
     engine.seekTo(position)
   }
 

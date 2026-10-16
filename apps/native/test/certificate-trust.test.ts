@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {acceptPendingCertificate, certificateOrigin, pendingCertificate, resetCertificateQuestions, settleCertificate, type CertificatePlatform, type PinnedCertificate} from '../src/bridge/certificate-trust.ts';
+import {acceptPendingCertificate, certificateOrigin, onCertificateQuestion, parseSavedCertificates, pendingCertificate, resetCertificateQuestions, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type PendingCertificate, type PinnedCertificate} from '../src/bridge/certificate-trust.ts';
 import {RouteError, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 
 const ORIGIN = 'https://media.example:32500';
@@ -88,6 +88,22 @@ test('concurrent failures at one address share one proof', async () => {
   const {p, proofs} = platform({refused: CERT});
   await Promise.all([settleCertificate(ORIGIN, p, crypto), settleCertificate(ORIGIN, p, crypto), settleCertificate(ORIGIN, p, crypto)]);
   assert.equal(proofs.length, 1);
+});
+
+test('a question asked mid-session reaches whoever listens, and saved certificates read back as addresses', async () => {
+  resetCertificateQuestions();
+  const heard: PendingCertificate[] = [];
+  const stop = onCertificateQuestion(q => heard.push(q));
+  const {p} = platform({refused: OTHER_CERT, pinned: {fingerprint: CERT, serverId: SERVER.serverId}, server: IMPOSTOR});
+  await assert.rejects(settleCertificate(ORIGIN, p, crypto));
+  stop();
+  assert.equal(heard.length, 1);
+  assert.equal(heard[0]!.reason, 'changed');
+  assert.equal(heard[0]!.fingerprint, OTHER_CERT);
+  const saved = parseSavedCertificates([{address: 'media.example:32500', fingerprint: CERT, serverId: SERVER.serverId}, {address: 'bad', fingerprint: CERT}, {address: 'fd00::1:443', fingerprint: CERT, serverId: ''}]);
+  assert.deepEqual(saved.map(c => c.address), ['media.example:32500', 'fd00::1:443']);
+  assert.equal(savedCertificateOrigin(saved[0]!.address), ORIGIN);
+  assert.equal(savedCertificateOrigin(saved[1]!.address), 'https://[fd00::1]');
 });
 
 test('only https request URLs have a certificate origin', () => {

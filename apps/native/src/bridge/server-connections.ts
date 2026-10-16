@@ -27,7 +27,7 @@ import {
 import { NativeQueueStore } from './queue-storage';
 import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
-import { certificateOrigin, settleCertificate, type CertificatePlatform } from './certificate-trust';
+import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 const storageKey = 'network.selected.v1';
 const store = new NativeQueueStore();
 // A saved connection that is there but can never be read ends the sign-in (the shared code tells
@@ -110,6 +110,15 @@ export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (inp
 /** Whether this device can trust an owner's own certificate (Android and Apple; not Vega). */
 export function certificateTrustAvailable(): boolean {
   return typeof NativeModules.PorticoNetwork?.refusedCertificate === 'function';
+}
+/** Every certificate this device trusts at an address (none on a device that cannot trust one). */
+export async function savedCertificates(): Promise<SavedCertificate[]> {
+  if (typeof NativeModules.PorticoNetwork?.pinnedCertificates !== 'function') return [];
+  return parseSavedCertificates(await NativeModules.PorticoNetwork.pinnedCertificates());
+}
+/** Stops trusting the certificate saved at `address`: the next connection there checks it again. */
+export function forgetSavedCertificate(address: string): void {
+  NativeModules.PorticoNetwork?.forgetCertificate?.(savedCertificateOrigin(address));
 }
 export const nativeCertificatePlatform: CertificatePlatform = {
   refused: async origin => {
