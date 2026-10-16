@@ -4,6 +4,11 @@ import {defaultEngineSetting, type EngineSetting} from './engine-choice';
 export type PlaybackOverrides = Readonly<{forceStereo: boolean; disablePassthrough: boolean; disableHdr: boolean}>;
 export const noOverrides: PlaybackOverrides = Object.freeze({forceStereo: false, disablePassthrough: false, disableHdr: false});
 
+/** What the viewer says the TV shows and plays, where the device cannot tell (Vega). Off: a
+ * standard-range screen and two-channel sound. */
+export type DeclaredOutputs = Readonly<{hdr: boolean; surround: boolean}>;
+export const noDeclaredOutputs: DeclaredOutputs = Object.freeze({hdr: false, surround: false});
+
 /** What the last capability probe found that Settings needs: whether there is a receiver to pass
  * sound through to, and whether this device shows or decodes HDR at all. Null until probed. */
 export type ProbedDevice = Readonly<{audioPassthrough: boolean; hdr: boolean}>;
@@ -20,6 +25,7 @@ let device: EngineSetting = defaultEngineSetting;
 let session: EngineSetting | null = null;
 let current: EngineSetting = defaultEngineSetting;
 let overrides: PlaybackOverrides = noOverrides;
+let declared: DeclaredOutputs = noDeclaredOutputs;
 let probed: ProbedDevice | null = null;
 const listeners = new Set<() => void>();
 const probeListeners = new Set<() => void>();
@@ -66,7 +72,14 @@ export const engineSettingStore = Object.freeze({
     overrides = Object.freeze(next);
     changed();
   },
-  /** Called when the Player setting or an override changes. */
+  declared: (): DeclaredOutputs => declared,
+  setDeclared(value: Partial<DeclaredOutputs>): void {
+    const next = {hdr: value.hdr === true, surround: value.surround === true};
+    if (next.hdr === declared.hdr && next.surround === declared.surround) return;
+    declared = Object.freeze(next);
+    changed();
+  },
+  /** Called when the Player setting, an override or a declared output changes. */
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => { listeners.delete(listener); };

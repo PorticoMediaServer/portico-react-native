@@ -1,5 +1,6 @@
 import {capabilityDocumentProblem, vegaDeclaredProfile, withViewerSettings, type CapabilityDocument, type CapabilityOverrides, type EngineCapabilities} from '../../../../packages/client-core/src/client-profile';
 import type {AudioDecodeCapability} from '../../../../packages/client-core/src/playback-v1/audio-render';
+import {noDeclaredOutputs, type DeclaredOutputs} from '../../../native/src/player/engine-setting-store';
 
 /** What `PorticoCapabilities.facts()` answers on Vega. */
 export type VegaFacts = Readonly<{model?: string; osVersion?: string; deviceName?: string; appVersion?: string}>;
@@ -32,18 +33,26 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  *   device.
  * - **It does not switch between the audio tracks inside an original file.** The app switches
  *   between the named tracks of a stream, and asks the server for the title again for anything else.
- * - **Standard dynamic range.** The SDK does not say what the television shows, and HDR sent to a
- *   screen that does not show it is grey and flat: no HDR is claimed, the server tone-maps, and
- *   the "Turn off HDR" setting is not offered (`probedSettings`).
- * - **Two channels of sound** unless a receiver is reported, which this SDK never does: the
- *   server mixes surround down. Dolby audio is listed for handing on to a receiver and used only
- *   once a route is reported, so it is never used today (and is never listed as decoded here,
- *   whatever the device answers: a "yes" does not tell decoding from handing on).
+ * - **Standard dynamic range unless the viewer says otherwise.** The SDK does not say what the
+ *   television shows, and HDR sent to a screen that does not show it is grey and flat: no HDR is
+ *   claimed and the server tone-maps, until the viewer turns on "This TV supports HDR"
+ *   (`declared.hdr`, off by default). Then HEVC is claimed in HDR10 and HLG, for the screen too.
+ * - **Two channels of sound unless the viewer says otherwise.** No receiver is ever reported by
+ *   this SDK, so the server mixes surround down, until the viewer turns on "This TV supports
+ *   surround sound" (`declared.surround`, off by default). Then the output takes eight channels and
+ *   AAC, Dolby Digital and Dolby Digital Plus are listed with their surround channels: the TV or
+ *   the sound system behind it decodes them. Otherwise Dolby audio is listed only for handing on
+ *   to a receiver and used once a route is reported, which never happens today (and is never
+ *   listed as decoded: a device's "yes" does not tell decoding from handing on).
  * - **Media passes through the app's HLS reader.** The platform media element does not expose
  *   the final address of a directly opened file. HLS lets the app check every response and
  *   contain grant exposure; the server can use a plain remux without converting the picture.
  */
-export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string | null = null, overrides: CapabilityOverrides = {}, probed: CapabilityDocument | null = null): CapabilityDocument {
+export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string | null = null, overrides: CapabilityOverrides = {}, probed: CapabilityDocument | null = null, declared: DeclaredOutputs = noDeclaredOutputs): CapabilityDocument {
+  return withDeclaredOutputs(vegaDocument(facts, origin, overrides, probed), declared);
+}
+
+function vegaDocument(facts: VegaFacts | null, origin: string | null, overrides: CapabilityOverrides, probed: CapabilityDocument | null): CapabilityDocument {
   const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
   if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
   const table = declared.engines.native, asked = probed?.engines.native;
@@ -70,7 +79,33 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
   return capabilityDocumentProblem(tabled) ? withViewerSettings({...declared, engines: {native: {...table, transports: (table.transports ?? []).filter(transport => transport.transport !== 'direct')}}}, settings) : tabled;
 }
 
-/** Whatever a decoder says of itself, no HDR is claimed here (see above). */
+const hdrRanges = ['sdr', 'hdr10', 'hlg'] as const;
+const surroundChannels: Readonly<Record<string, number>> = {aac: 6, ac3: 6, eac3: 8};
+
+/** What the viewer said the TV shows and plays, laid over the document (see above). */
+export function withDeclaredOutputs(document: CapabilityDocument, declared: DeclaredOutputs): CapabilityDocument {
+  if (!declared.hdr && !declared.surround) return document;
+  const native = document.engines.native;
+  const video = declared.hdr ? native.video?.map(codec => (codec.codec === 'hevc' && codec.bitDepths?.includes(10) ? {...codec, dynamicRanges: [...hdrRanges]} : codec)) : native.video;
+  let audio = native.audio;
+  if (declared.surround) {
+    const listed = new Set((audio ?? []).map(codec => codec.codec));
+    audio = [
+      ...(audio ?? []).map(codec => (surroundChannels[codec.codec] ? {...codec, maxChannels: Math.max(codec.maxChannels ?? 2, surroundChannels[codec.codec])} : codec)),
+      ...(['ac3', 'eac3'] as const).filter(codec => !listed.has(codec)).map(codec => ({codec, maxChannels: surroundChannels[codec], evidence: 'declared' as const})),
+    ];
+  }
+  const next: CapabilityDocument = {
+    ...document,
+    ...(declared.hdr ? {display: {...document.display, dynamicRanges: [...hdrRanges]}} : {}),
+    ...(declared.surround ? {audioOutput: {...document.audioOutput, maxChannels: 8}} : {}),
+    engines: {...document.engines, native: {...native, ...(video ? {video} : {}), ...(audio ? {audio} : {})}},
+  };
+  // What the viewer said never makes the document one the server would refuse.
+  return capabilityDocumentProblem(next) ? document : next;
+}
+
+/** Whatever a decoder says of itself, no HDR is claimed here unless the viewer says so (see above). */
 function sdrOnly(video: EngineCapabilities['video']): EngineCapabilities['video'] {
   return video?.map(({dolbyVisionProfiles: _profiles, ...codec}) => ({...codec, dynamicRanges: ['sdr' as const]}));
 }
