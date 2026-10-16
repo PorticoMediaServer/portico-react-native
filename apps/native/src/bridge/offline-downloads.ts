@@ -126,7 +126,7 @@ const native = NativeModules.PorticoDownloads as undefined | {
   list(): Promise<any[]>; start(request: Record<string, unknown>): Promise<any>; pause(id: string): Promise<void>; remove(id: string): Promise<void>;
   setMeta(id: string, meta: string): Promise<void>; setMetas(metas: Record<string, string>): Promise<void>;
   storage(): Promise<{freeBytes: number; usedBytes: number}>; setCellular(allowed: boolean): Promise<void>;
-  readState(): Promise<string>; writeState(json: string): Promise<void>; play(id: string, startSeconds: number): Promise<void>; stop(): Promise<void>;
+  readState(): Promise<string>; writeState(json: string): Promise<void>;
   localFile(id: string): Promise<{url: string; durationSeconds: number}>;
   writeExtra(id: string, name: string, text: string): Promise<void>; readExtra(id: string, name: string): Promise<string>;
   /** 'saved', 'missing' (the server has none for this title), 'later' or 'invalid'. */
@@ -265,7 +265,6 @@ export class OfflineDownloads {
     } catch { this.stored = emptyStored(); }
     const emitter = new NativeEventEmitter(NativeModules.PorticoDownloads);
     this.subscriptions.push(emitter.addListener('PorticoDownloadChanged', entry => this.accept(entry)));
-    this.subscriptions.push(emitter.addListener('PorticoDownloadPlayback', event => void this.observed({...event, final: !!event.ended})));
     const entries = (await native.list()).map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);
     this.all = sort(entries);
     this.publish({ready: true, settings: this.stored.settings});
@@ -859,16 +858,8 @@ export class OfflineDownloads {
     const owner = this.entryOwner(entry);
     return Math.max(0, (owner ? this.stored.resume[owner]?.[entry.itemId] : 0) ?? 0);
   }
-  /** Plays a finished download in the system player (the launch flow, where Portico's own player
-   * is not mounted). */
-  async play(entry: OfflineEntry) {
-    const reason = this.playable(entry); if (reason) throw new Error(reason);
-    this.playing.set(entry.id, 'play_' + random());
-    await native!.play(entry.id, this.resumePoint(entry));
-  }
   /** The downloaded file, this viewer's resume point and everything that came with the download,
-   * for Portico's own player. Checked exactly as the system player's play is; no connection
-   * needed. */
+   * for Portico's own player (the only offline player). No connection needed. */
   async localMedia(entry: OfflineEntry): Promise<LocalMedia> {
     const reason = this.playable(entry); if (reason) throw new Error(reason);
     if (!native?.localFile) throw new Error(serviceText('downloads.offline.notPlayableHere'));

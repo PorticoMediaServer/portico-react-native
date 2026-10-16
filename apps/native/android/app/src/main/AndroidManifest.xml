@@ -92,11 +92,6 @@
             android:name=".native.PorticoDownloadJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
-        <activity
-            android:name=".native.PorticoOfflinePlayerActivity"
-            android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
         <!-- Television home screen: the periodic refresh, and the posters the launcher reads (read-only). -->
         <service
             android:name=".native.PorticoShelfJob"

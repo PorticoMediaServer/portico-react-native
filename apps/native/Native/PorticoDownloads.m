@@ -1,7 +1,7 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
 #import <React/RCTUtils.h>
-#import <AVKit/AVKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <CommonCrypto/CommonDigest.h>
 #import "PorticoDownloadAttempt.h"
 
@@ -29,24 +29,10 @@
 // or failed with `run` stopped by itself and is started again by the app when it can be.
 //
 // This module knows nothing about accounts, receipts or what may be played; that is decided in
-// JavaScript from the server's signed receipt. It moves, stores, verifies and plays files.
+// JavaScript from the server's signed receipt. It moves, stores and verifies files, and hands a finished one to Portico's own player.
 
 static NSString *const PorticoDownloadsSession = @"tv.getportico.portico.downloads";
 static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
-static NSString *const PorticoDownloadPlayback = @"PorticoDownloadPlayback";
-
-// Hosts the system player so its dismissal is observable: the module keeps the AVPlayer alive
-// to report position, and without this a closed player would keep playing sound.
-@interface PorticoOfflinePlayerHost : UIViewController
-@property (nonatomic, copy) void (^onClosed)(void);
-@end
-@implementation PorticoOfflinePlayerHost
-- (void)viewDidDisappear:(BOOL)animated {
-  [super viewDidDisappear:animated];
-  if ((self.isBeingDismissed || self.presentingViewController == nil) && self.onClosed) { void (^closed)(void) = self.onClosed; self.onClosed = nil; closed(); }
-}
-- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
-@end
 
 @interface PorticoDownloads : RCTEventEmitter <RCTBridgeModule, NSURLSessionDownloadDelegate>
 @end
@@ -59,15 +45,12 @@ static NSString *const PorticoDownloadPlayback = @"PorticoDownloadPlayback";
   dispatch_queue_t _queue;
   BOOL _observing;
   BOOL _cellular;
-  AVPlayer *_player;
-  id _timeObserver;
-  NSString *_playingId;
 }
 
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup { return NO; }
 - (dispatch_queue_t)methodQueue { return _queue; }
-- (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged, PorticoDownloadPlayback]; }
+- (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
 - (void)startObserving { _observing = YES; }
 - (void)stopObserving { _observing = NO; }
 
@@ -700,61 +683,6 @@ RCT_EXPORT_METHOD(localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlo
       resolve(@{@"url": url.absoluteString, @"durationSeconds": @(isfinite(seconds) && seconds > 0 ? seconds : 0)});
     }];
   });
-}
-// Plays a finished download with the system player (the launch flow's offline Downloads, where
-// Portico's player isn't mounted). No server is involved, so there is no session to keep alive;
-// the position is reported back so it can be sent to the server later.
-RCT_EXPORT_METHOD(play:(NSString *)identifier startSeconds:(double)startSeconds resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-  dispatch_async(_queue, ^{
-    NSDictionary *entry = self->_entries[identifier];
-    NSString *file = entry[@"file"];
-    if (![entry[@"state"] isEqual:@"ready"] || ![file isKindOfClass:NSString.class]) { reject(@"not_ready", @"This download is not ready to play.", nil); return; }
-    NSURL *url = [[self directoryFor:identifier] URLByAppendingPathComponent:PorticoSafeFileName(file)];
-    if (![[NSFileManager defaultManager] fileExistsAtPath:url.path]) { reject(@"missing_file", @"This download’s file is missing. Remove it and download it again.", nil); return; }
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self stopPlayback];
-      AVPlayer *player = [AVPlayer playerWithURL:url];
-      AVPlayerViewController *controller = [AVPlayerViewController new];
-      controller.player = player;
-      controller.allowsPictureInPicturePlayback = YES;
-      self->_player = player; self->_playingId = identifier;
-      __weak PorticoDownloads *weakSelf = self;
-      self->_timeObserver = [player addPeriodicTimeObserverForInterval:CMTimeMake(5, 1) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) { [weakSelf reportPlayback:NO]; }];
-      [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackEnded) name:AVPlayerItemDidPlayToEndTimeNotification object:player.currentItem];
-      if (startSeconds > 1) [player seekToTime:CMTimeMakeWithSeconds(startSeconds, 600) toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
-      UIViewController *presenter = RCTPresentedViewController();
-      if (!presenter) { [self stopPlayback]; reject(@"no_window", @"The player could not be shown.", nil); return; }
-      PorticoOfflinePlayerHost *host = [PorticoOfflinePlayerHost new];
-      host.modalPresentationStyle = UIModalPresentationFullScreen;
-      host.view.backgroundColor = UIColor.blackColor;
-      [host addChildViewController:controller];
-      controller.view.frame = host.view.bounds;
-      controller.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-      [host.view addSubview:controller.view];
-      [controller didMoveToParentViewController:host];
-      host.onClosed = ^{ [weakSelf stopPlayback]; };
-      [presenter presentViewController:host animated:YES completion:^{ [player play]; resolve(nil); }];
-    });
-  });
-}
-- (void)reportPlayback:(BOOL)ended {
-  if (!_player || !_playingId || !_observing) return;
-  double position = CMTimeGetSeconds(_player.currentTime), duration = CMTimeGetSeconds(_player.currentItem.duration);
-  if (!isfinite(position)) return;
-  [self sendEventWithName:PorticoDownloadPlayback body:@{@"id": _playingId, @"positionSeconds": @(position), @"durationSeconds": @(isfinite(duration) ? duration : 0), @"ended": @(ended)}];
-}
-- (void)playbackEnded { [self reportPlayback:YES]; }
-- (void)stopPlayback {
-  if (_player) {
-    [self reportPlayback:NO];
-    if (_timeObserver) [_player removeTimeObserver:_timeObserver];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:_player.currentItem];
-    [_player pause];
-  }
-  _player = nil; _timeObserver = nil; _playingId = nil;
-}
-RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-  dispatch_async(dispatch_get_main_queue(), ^{ [self stopPlayback]; resolve(nil); });
 }
 
 @end

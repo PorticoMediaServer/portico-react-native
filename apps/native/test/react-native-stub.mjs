@@ -81,8 +81,7 @@ export const NativeModules = {
     async setCellular(allowed) { device.cellular = allowed; },
     async readState() { return device.state; },
     async writeState(json) { device.state = json; },
-    async play(id, startSeconds) { device.played.push({id, startSeconds}); },
-    async stop() {},
+    async localFile(id) { return {url: `file:///downloads/${id}/media`, durationSeconds: 0}; },
   },
 };
 

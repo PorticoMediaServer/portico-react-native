@@ -54,6 +54,17 @@ function receipt(opts: {id: string; viewer: Viewer; itemId: string; preparationI
  * methods (and the change event `start` emits) are added here.
  * ------------------------------------------------------------------------- */
 const nativeDownloads = NativeModules.PorticoDownloads as unknown as Record<string, any>;
+
+/** A download plays only in Portico's own player: it asks for the file and this viewer's resume
+ * point (`localMedia`), and its positions come back through `recordProgress`. These two stand in
+ * for that player: what it was asked to start at, and one observation of the play. */
+async function playDownload(offline: {localMedia(entry: unknown): Promise<{startSeconds: number}>}, entry: {id: string}) {
+  const media = await offline.localMedia(entry);
+  device.played.push({id: entry.id, startSeconds: media.startSeconds});
+}
+function observe(offline: unknown, event: {id: string; playId?: string; positionSeconds: number; durationSeconds: number; ended: boolean}) {
+  void (offline as {observed(e: unknown): Promise<void>}).observed({...event, final: event.ended});
+}
 const baseStart = nativeDownloads.start as (request: any) => Promise<void>;
 /** What `writeExtra`/`fetchExtra` saved, per entry and name. */
 const extraStore = new Map<string, Map<string, string>>();
@@ -422,7 +433,7 @@ test('APP-02: offline viewing is posted for its own viewer, not whoever connects
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
   s.calls.length = 0;
-  emit('PorticoDownloadPlayback', {id: 'prep-a', positionSeconds: 120, durationSeconds: 1000, ended: false});
+  observe(offlineDownloads, {id: 'prep-a', positionSeconds: 120, durationSeconds: 1000, ended: false});
   await settle();
 
   // B signs in before it was ever sent.
@@ -460,14 +471,14 @@ test('APP-02: a resume position does not cross between profiles', async () => {
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
-  emit('PorticoDownloadPlayback', {id: 'prep-a', positionSeconds: 300, durationSeconds: 1000, ended: false});
+  observe(offlineDownloads, {id: 'prep-a', positionSeconds: 300, durationSeconds: 1000, ended: false});
   await settle();
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, B);
   await settle();
   const entry = offlineDownloads.getSnapshot().entries.find(e => e.id === 'prep-b')!;
   assert.ok(entry, 'B sees their own copy');
-  await offlineDownloads.play(entry);
+  await playDownload(offlineDownloads, entry);
   assert.deepEqual(device.played, [{id: 'prep-b', startSeconds: 0}], 'B starts at the beginning, not A’s position');
 });
 
@@ -485,7 +496,7 @@ test('APP-01: a renewal brings the server’s position and whether the title is 
   const entry = offlineDownloads.getSnapshot().entries[0]!;
   assert.equal(entry.onServer, false, 'titleOnServer is stored and surfaced');
   assert.equal(offlineDownloads.note(entry), serviceText('downloads.offline.goneFromServer'));
-  await offlineDownloads.play(entry);
+  await playDownload(offlineDownloads, entry);
   assert.deepEqual(device.played, [{id: 'prep-a', startSeconds: 200}], 'the server’s position becomes this copy’s resume point');
 });
 
@@ -506,7 +517,7 @@ test('APP-02: a renewal does not override a play this device has not sent yet', 
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
-  await offlineDownloads.play(offlineDownloads.getSnapshot().entries[0]!);
+  await playDownload(offlineDownloads, offlineDownloads.getSnapshot().entries[0]!);
   assert.deepEqual(device.played, [{id: 'prep-a', startSeconds: 300}], 'the unsent play is newer than the server’s figure');
 });
 
@@ -558,7 +569,7 @@ test('APP-09: finishing a title with auto-next on queues the next one for transf
   offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
   await settle();
   await offlineDownloads.setSettings({autoNext: true});
-  emit('PorticoDownloadPlayback', {id: 'prep-a', positionSeconds: 1000, durationSeconds: 1000, ended: true});
+  observe(offlineDownloads, {id: 'prep-a', positionSeconds: 1000, durationSeconds: 1000, ended: true});
   await settle();
 
   assert.equal(service.requested.length, 1, 'the server is asked to prepare the next title');
@@ -623,7 +634,7 @@ test('APP-03: the saved viewer can list and play their downloads with no connect
   const listed = offlineDownloads.getSnapshot().entries;
   assert.deepEqual(listed.map((e: {id: string}) => e.id), ['prep-a']);
   assert.equal(offlineDownloads.playable(listed[0]!), '', 'a valid receipt plays offline');
-  await offlineDownloads.play(listed[0]!);
+  await playDownload(offlineDownloads, listed[0]!);
   assert.deepEqual(device.played, [{id: 'prep-a', startSeconds: 0}]);
 });
 
@@ -651,7 +662,7 @@ test('APP-03: an expired receipt is listed but refuses to play until the server 
 
   const entry = offlineDownloads.getSnapshot().entries[0]!;
   assert.equal(offlineDownloads.playable(entry), serviceText('downloads.offline.needsCheckIn'));
-  await assert.rejects(() => offlineDownloads.play(entry));
+  await assert.rejects(() => playDownload(offlineDownloads, entry));
   assert.deepEqual(device.played, [], 'nothing was handed to the native player');
 });
 
@@ -667,7 +678,7 @@ test('APP-03: a receipt whose signature does not verify never plays offline', as
 
   const entry = offlineDownloads.getSnapshot().entries[0]!;
   assert.equal(offlineDownloads.playable(entry), serviceText('downloads.offline.needsSetup'));
-  await assert.rejects(() => offlineDownloads.play(entry));
+  await assert.rejects(() => playDownload(offlineDownloads, entry));
 });
 
 test('APP-03: signing out withdraws the offline list without deleting the files', async () => {
@@ -682,7 +693,7 @@ test('APP-03: signing out withdraws the offline list without deleting the files'
 
   const heldEntry = offlineDownloads.getSnapshot().entries[0]!;
   offlineDownloads.adopt(undefined);
-  await assert.rejects(offlineDownloads.play(heldEntry), (e: Error) => e.message === serviceText('downloads.offline.signIn'));
+  await assert.rejects(playDownload(offlineDownloads, heldEntry), (e: Error) => e.message === serviceText('downloads.offline.signIn'));
   assert.deepEqual(device.played, []);
   assert.deepEqual(offlineDownloads.getSnapshot().entries, [], 'nobody is named, so nothing is listed');
   assert.ok(device.entries.has('prep-a'), 'and the bytes are still there for when they sign back in');
@@ -735,7 +746,7 @@ test('APP-09: offline completion survives restart and only its owner retries aut
   offlineDownloads.adopt(A);
   await offlineDownloads.open();
   await offlineDownloads.setSettings({autoNext: true});
-  emit('PorticoDownloadPlayback', {id: 'prep-a', positionSeconds: 100, durationSeconds: 100, ended: true});
+  observe(offlineDownloads, {id: 'prep-a', positionSeconds: 100, durationSeconds: 100, ended: true});
   await settle();
   const saved = device.state;
   assert.ok(JSON.parse(saved).nextAfter[ownerKeyOf(A)]['episode-1']);
@@ -781,7 +792,7 @@ test('APP-03: restoring the saved viewer loads the cold offline entry point with
   await settle();
   assert.equal(offlineDownloads.getSnapshot().ready, true);
   assert.equal(offlineDownloads.getSnapshot().entries.some(e => e.state === 'ready'), true, 'the auth-screen card can now become visible without a network request');
-  await offlineDownloads.play(offlineDownloads.getSnapshot().entries[0]!);
+  await playDownload(offlineDownloads, offlineDownloads.getSnapshot().entries[0]!);
   assert.equal(device.played.length, 1);
 });
 
@@ -816,7 +827,7 @@ test('an acknowledgement cannot erase a newer observation made in the same milli
   });
   offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
   await settle();
-  emit('PorticoDownloadPlayback', {id: 'prep-a', playId: 'play-one', positionSeconds: 20, durationSeconds: 100, ended: false});
+  observe(offlineDownloads, {id: 'prep-a', playId: 'play-one', positionSeconds: 20, durationSeconds: 100, ended: false});
   await settle();
   answer(APPLIED(s.sent('/v1/downloads/progress')[0]!.body));
   await offlineDownloads.syncProgress();
@@ -930,7 +941,7 @@ test('successive observations of one title have an order the server can distingu
   });
   offlineDownloads.connect(s.api, downloadsService() as unknown as DownloadsService, A);
   await settle();
-  emit('PorticoDownloadPlayback', {id: 'prep-a', playId: 'play', positionSeconds: 20, durationSeconds: 100, ended: false});
+  observe(offlineDownloads, {id: 'prep-a', playId: 'play', positionSeconds: 20, durationSeconds: 100, ended: false});
   await settle();
   resolve(APPLIED(s.sent('/v1/downloads/progress')[0]!.body));
   await offlineDownloads.syncProgress();
