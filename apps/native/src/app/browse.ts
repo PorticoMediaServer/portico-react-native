@@ -1,5 +1,5 @@
 import {scopeBrowseCapabilities} from './browse-options';
-import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Platform} from 'react-native';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../packages/client-core/src/collections/index';
 import type {ContentEntry, ContentSeeAll} from '../../../../packages/client-core/src/library-content';
@@ -115,15 +115,21 @@ function sameVocabulary(a: BrowseCapabilities | undefined, b: BrowseCapabilities
 }
 const idleSnapshot = Object.freeze({generation: 0, total: undefined, totalIsLowerBound: false, status: 'idle' as const, error: undefined, positionIndex: undefined, refreshing: false});
 
+/** The group a list across libraries is, so its filter choices count that list's own titles (`facetGroupOf`). */
+export const FacetGroupContext = createContext<Readonly<{group: string; value: string}> | undefined>(undefined);
+
 export function useFacets(libraryId: string | undefined) {
   const {api} = useSession();
+  const facetGroup = useContext(FacetGroupContext);
+  const groupField = facetGroup?.group, groupValue = facetGroup?.value;
   return useCallback(async (field: string, q = ''): Promise<readonly BrowseFacetValue[]> => {
     if (!libraryId) return [];
     const params = new URLSearchParams({field, limit: '100'});
     if (q) params.set('q', q);
+    if (groupField && libraryId === acrossLibraries) { params.set('group', groupField); params.set('value', groupValue ?? ''); }
     const raw = await api.request<unknown>(`${browseFacetsPath(libraryId)}?${params}`, 'GET');
     return parseBrowseFacets(raw, field).values;
-  }, [api, libraryId]);
+  }, [api, libraryId, groupField, groupValue]);
 }
 
 /** Field and quick-filter names come from the catalogue (`filter.field.*`, `filter.quick.*`), as on the web; a field the catalogue has no name for yet is said as plain words from its key. */
