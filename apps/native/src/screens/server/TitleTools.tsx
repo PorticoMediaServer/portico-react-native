@@ -6,7 +6,7 @@ import {deletionAllowed, versionDeletionService, type VersionDeletePreview} from
 import type {TitleFile} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {SearchService, type SearchSnapshot} from '../../../../../packages/client-core/src/search';
-import {MERGEABLE_KINDS, SPLITTABLE_KINDS, canMergeTitles, findLibraryFile, mergeTitles, separateLibraryFile} from '../../../../../packages/client-core/src/title-identity';
+import {FOLDER_SPLITTABLE_KINDS, MERGEABLE_KINDS, SPLITTABLE_KINDS, canMergeTitles, findLibraryFile, mergeTitles, separateLibraryFile, separateLibraryFolder} from '../../../../../packages/client-core/src/title-identity';
 import {viewerScope} from '../../app/content';
 import {useI18n} from '../../app/i18n';
 import type {ContentStackParams} from '../../app/routes';
@@ -17,7 +17,7 @@ import {fileTools, mergeOrder, mergeSearchGroup} from './owner-rules';
 
 /** The title an owner's file tools act on. */
 export type ToolTitle = Readonly<{id: string; title: string; kind: string; libraryId: string; year?: number}>;
-type Chosen = {file: TitleFile; summary: string};
+type Chosen = {file: TitleFile; summary: string; folder?: boolean};
 
 /**
  * The owner's tools for a title's files, on phones and tablets: split a version that was grouped
@@ -37,7 +37,10 @@ export function useTitleTools(title: ToolTitle | undefined, files: readonly Titl
   if (!owner || !title) return {sheets: null};
   // The title that remains, or the new one, takes this page's place: the page it came from no longer says what is true.
   const open = (id: string) => { if (options.inPlace) return; requestAnimationFrame(() => afterOverlaysClose(() => (title.kind === 'show' ? navigation.replace('Show', {libraryId: title.libraryId, showId: id}) : navigation.replace('Detail', {libraryId: title.libraryId, itemId: id})))); };
-  const labels: Readonly<Record<'split' | 'delete', MenuItem>> = {split: {id: 'split', label: t('title.split.action'), icon: 'link'}, delete: {id: 'delete', label: t('title.deleteVersion.action'), icon: 'trash', destructive: true}};
+  const book = title.kind === 'audiobook_file';
+  const labels: Readonly<Record<'split' | 'splitFolder' | 'delete', MenuItem>> = {split: {id: 'split', label: t('title.split.action'), icon: 'link'}, splitFolder: {id: 'splitFolder', label: t(book ? 'title.splitFolder.actionBook' : 'title.splitFolder.action'), icon: 'folder'}, delete: {id: 'delete', label: t('title.deleteVersion.action'), icon: 'trash', destructive: true}};
+  // A separated folder's album or book takes this page's place.
+  const openContainer = (id: string) => { if (options.inPlace) return; requestAnimationFrame(() => afterOverlaysClose(() => navigation.replace('Entity', {libraryId: title.libraryId, view: book ? 'book' : 'album', entityId: id, title: title.title}))); };
   const canMerge = MERGEABLE_KINDS.includes(title.kind) && !!mergeSearchGroup(title.kind);
   return {
     fileAction: (file, summary) => setMenu({file, summary}),
@@ -45,9 +48,9 @@ export function useTitleTools(title: ToolTitle | undefined, files: readonly Titl
     sheets: (
       <>
         <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.summary} subtitle={menu?.file.path}
-          items={menu ? fileTools(title, menu.file, files?.length ?? 0, SPLITTABLE_KINDS).map(tool => labels[tool]) : []}
-          onSelect={id => { const chosen = menu; if (!chosen) return; if (id === 'split') setSplitting(chosen); else setDeleting(chosen); }} />
-        <SplitVersionSheet title={title} chosen={splitting} onClose={() => setSplitting(undefined)} onSplit={itemId => { setSplitting(undefined); onChanged(); open(itemId); }} />
+          items={menu ? fileTools(title, menu.file, files?.length ?? 0, SPLITTABLE_KINDS, FOLDER_SPLITTABLE_KINDS).map(tool => labels[tool]) : []}
+          onSelect={id => { const chosen = menu; if (!chosen) return; if (id === 'split') setSplitting(chosen); else if (id === 'splitFolder') setSplitting({...chosen, folder: true}); else setDeleting(chosen); }} />
+        <SplitVersionSheet title={title} chosen={splitting} onClose={() => setSplitting(undefined)} onSplit={itemId => { const folder = splitting?.folder; setSplitting(undefined); onChanged(); if (folder) openContainer(itemId); else open(itemId); }} />
         <DeleteVersionSheet title={title} chosen={deleting} onClose={() => setDeleting(undefined)} onDeleted={() => { setDeleting(undefined); onChanged(); }} />
         <MergeSheet open={merging} title={title} onClose={() => setMerging(false)} onMerged={itemId => { setMerging(false); if (itemId === title.id || options.inPlace) onChanged(); else open(itemId); }} />
       </>
@@ -63,13 +66,13 @@ function SplitVersionSheet({title, chosen, onClose, onSplit}: {title: ToolTitle;
   const {api} = useSession();
   const t = useI18n().t;
   return (
-    <ConfirmSheet open={!!chosen} onDismiss={onClose} tone="default" title={t('title.split.title')} consequence={chosen ? `${title.title} · ${chosen.summary}\n\n${t('title.split.body')}` : undefined} confirmLabel={t('title.split.confirm')}
-      describeError={e => ((e as {code?: string} | null)?.code === 'file_not_listed' ? t('title.split.notFound') : problem(e, 'action') || t('title.split.failed'))}
+    <ConfirmSheet open={!!chosen} onDismiss={onClose} tone="default" title={t(chosen?.folder ? (title.kind === 'audiobook_file' ? 'title.splitFolder.titleBook' : 'title.splitFolder.title') : 'title.split.title')} consequence={chosen ? `${title.title} · ${chosen.summary}\n\n${t(chosen.folder ? 'title.splitFolder.body' : 'title.split.body')}` : undefined} confirmLabel={t(chosen?.folder ? 'title.splitFolder.confirm' : 'title.split.confirm')}
+      describeError={e => ((e as {code?: string} | null)?.code === 'file_not_listed' ? t('title.split.notFound') : problem(e, 'action') || t(chosen?.folder ? 'title.splitFolder.failed' : 'title.split.failed'))}
       onConfirm={async () => {
         if (!chosen) return;
         const record = await findLibraryFile(api, title.libraryId, chosen.file.id);
         if (!record) throw Object.assign(new Error('file_not_listed'), {code: 'file_not_listed'});
-        onSplit(await separateLibraryFile(api, title.libraryId, record));
+        onSplit(await (chosen.folder ? separateLibraryFolder : separateLibraryFile)(api, title.libraryId, record));
       }} />
   );
 }

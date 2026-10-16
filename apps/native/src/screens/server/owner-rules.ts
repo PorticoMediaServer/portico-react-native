@@ -237,7 +237,7 @@ export function recentProblems(alerts: readonly Alert[], jobs: readonly Job[], n
 // ── A title's files, and titles that are one ────────────────────────────────
 
 /** What an owner can do with one file of a title, in the order a menu lists it. */
-export type FileTool = 'split' | 'delete';
+export type FileTool = 'split' | 'splitFolder' | 'delete';
 
 /**
  * The tools offered for one of a title's files. Splitting is offered only for the kinds the
@@ -246,8 +246,8 @@ export type FileTool = 'split' | 'delete';
  * version to stay behind. Deleting the one file is always the owner's to ask for; the server's
  * preview then says whether the library allows it.
  */
-export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{available: boolean}>, files: number, splittable: readonly string[]): readonly FileTool[] {
-  return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), 'delete' as const];
+export function fileTools(title: Readonly<{kind: string}>, file: Readonly<{available: boolean}>, files: number, splittable: readonly string[], folderSplittable: readonly string[] = []): readonly FileTool[] {
+  return [...(splittable.includes(title.kind) && file.available && files > 1 ? ['split' as const] : []), ...(folderSplittable.includes(title.kind) && file.available ? ['splitFolder' as const] : []), 'delete' as const];
 }
 
 const MERGE_GROUPS: Readonly<Record<string, 'movies' | 'shows' | 'episodes' | 'songs'>> = {movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs'};
