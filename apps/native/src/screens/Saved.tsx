@@ -7,7 +7,11 @@ import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {PersonalSavedService, type PersonalResourceEntry, type PersonalSavedSnapshot} from '../../../../packages/client-core/src/personal-saved';
-import {SavedService, type PlaylistCard, type PlaylistOccurrence, type SavedEntry, type SavedRoute, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
+import {SavedService, type PlaylistCard, type PlaylistListFilter, type PlaylistOccurrence, type SavedEntry, type SavedRoute, type SavedSnapshot} from '../../../../packages/client-core/src/saved';
+import {PlaylistControls} from './PlaylistControls';
+import {PinEditor} from './PinEditor';
+import {pinnedResourceIcon, usePinActions, usePinnedResources} from '../app/pins';
+import {useLibrariesContext} from '../app/libraries-context';
 import {captionFor, iconFor, progressFor, shapeFor, useArtwork, viewerScope} from '../app/content';
 import {useOpenEntry} from '../app/open';
 import type {ContentStackParams} from '../app/routes';
@@ -23,7 +27,7 @@ import type {I18n, MessageId} from '../app/i18n';
 import {RowGuide} from './title/RowGuide';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
 import {acrossScope} from '../app/group-scope';
-import {GroupBar} from './GroupBrowse';
+import {GroupBar, LETTER_RAIL_WIDTH, useGroupLetters} from './GroupBrowse';
 import type {AcrossGroup} from '../../../../packages/client-core/src/presentation/browse-groups';
 
 const listDependencies = Object.freeze([...titlesWithPersonalState()]);
@@ -159,7 +163,10 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   const group = useGroupBrowse(groupScope);
   const sortedWindow = useGroupWindow(group);
   const sortedOn = group.engaged && !!sortedWindow.list;
-  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(across ? {} : sort[tab] ?? {})}), [tab, sort, across]);
+  // Sorted by title, the list across libraries has a letter rail, as a library's has.
+  const letters = useGroupLetters(sortedWindow.list, sortedWindow.snapshot, group.sort.field);
+  const [playlistFilter, setPlaylistFilter] = useState<PlaylistListFilter>();
+  const savedRoute: SavedRoute | null = useMemo(() => (isPersonal(tab) ? null : {view: tab, ...(across ? {} : sort[tab] ?? {}), ...(tab === 'playlists' && playlistFilter ? {filter: playlistFilter} : {})} as SavedRoute), [tab, sort, across, playlistFilter]);
   const saved = useSavedService(savedRoute);
   const personalRoute = useMemo<SavedRoute | null>(() => (isPersonal(tab) ? {view: tab} : null), [tab]);
   const history = usePersonalService(personalRoute);
@@ -235,14 +242,16 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
       case 'resource': return <ResourceRow resource={row.resource} first={row.first} last={row.last} onOpen={() => navigation.push('SavedResource', {resourceId: row.resource.id, title: row.resource.name})} />;
     }
   }, [space, gridWidth, renderHistory, navigation]);
-  const header = <PageHeader title={i18n.t('saved.title')} actions={<RootHeaderActions />} />;
+  const header = <><PageHeader title={i18n.t('saved.title')} actions={<RootHeaderActions />} /><SavedPins /></>;
   const tabRow = (
     <View>
       {/* TV: the guide hands focus to a tab (never to itself), so arriving from the rail always shows focus. */}
       <RowGuide><Tabs items={tabs} selected={tab} onSelect={id => setTab(id as SavedTab)} /></RowGuide>
     </View>
   );
-  const sortRow = groupScope && (hasEntries || tab === 'history' && historyEntries.length > 0 || group.engaged) ? <GroupBar group={group} /> : sorts.length ? (
+  const sortRow = tab === 'playlists' && projection ? (
+    <PlaylistControls sorts={projection.sorts} filters={projection.filters} sort={sort.playlists?.sort ?? projection.query.sort} direction={sort.playlists?.direction ?? (projection.query.direction === 'desc' ? 'desc' : 'asc')} filter={playlistFilter} onSort={(id, direction) => setSort(prev => ({...prev, playlists: {sort: id, direction}}))} onFilter={setPlaylistFilter} />
+  ) : groupScope && (hasEntries || tab === 'history' && historyEntries.length > 0 || group.engaged) ? <GroupBar group={group} /> : sorts.length ? (
     <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingHorizontal: space.page, paddingVertical: space.md}}>
       <Text variant="label" tone="tertiary" style={{marginRight: space.xs}}>{i18n.t('saved.sort')}</Text>
       {sorts.map(s => {
@@ -259,12 +268,13 @@ export function SavedScreen({route}: {route: RouteProp<ContentStackParams, 'Save
   if (sortedOn && sortedWindow.list) {
     const empty = sortedWindow.snapshot.total === 0 && sortedWindow.snapshot.status === 'ready';
     return (
-      <View style={{flex: 1}} onLayout={onLayout}>
+      <View style={{flex: 1, paddingRight: letters.shown && !isTV ? LETTER_RAIL_WIDTH : 0}} onLayout={onLayout}>
         {isTV ? null : <View style={{paddingTop: insets.top}}>{header}{tabRow}</View>}
-        <WindowedGrid<ContentEntry> topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
-          renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}</>}
+        <WindowedGrid<ContentEntry> ref={letters.grid} topInset={false} list={sortedWindow.list as unknown as GridWindow<ContentEntry>} total={sortedWindow.snapshot.total} itemWidth={metrics.posterWidth} aspect={1.5}
+          renderItem={renderMedia} refreshControl={pull} header={<>{isTV ? header : null}{isTV ? tabRow : null}{sortRow}{isTV ? letters.rail : null}</>}
           footer={empty ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />
             : sortedWindow.snapshot.status === 'error' && !sortedWindow.snapshot.total ? <StateView icon="error" title={i18n.t('lib.viewLoadFailed')} message={say(sortedWindow.snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => sortedWindow.list?.retry()} /> : null} />
+        {letters.shown && !isTV ? letters.rail : null}
       </View>
     );
   }
@@ -530,3 +540,39 @@ function LoadingRows() {
   );
 }
 
+
+/**
+ * Pins on Saved: "Edit pins" everywhere (what is pinned, and the order the rail and the library
+ * list show it in), and on a phone, where there is no rail, the pinned collections, saved views and
+ * playlists themselves, first.
+ */
+function SavedPins() {
+  const i18n = useI18n();
+  const {space, isTV, window} = useTheme();
+  const {api, session} = useSession();
+  const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
+  const scope = useMemo(() => viewerScope(session, api), [session, api]);
+  const pins = usePinnedResources(api, scope.serverId, scope.viewerId || undefined);
+  const actions = usePinActions(api, scope.serverId);
+  const libraries = useLibrariesContext();
+  const [editing, setEditing] = useState(false);
+  // A wide tablet and a television show the pins in the rail; a phone shows them here.
+  const handheld = !isTV && window.width < 700;
+  return (
+    <View style={{paddingHorizontal: space.page, gap: space.sm, marginBottom: space.sm}}>
+      {handheld && pins.order.length ? (
+        <View>
+          <Text variant="label" tone="tertiary" style={{marginBottom: space.xs}}>{i18n.t('pins.heading')}</Text>
+          {pins.order.map((entry, index) => (
+            <View key={entry.kind + ':' + entry.id}>
+              {index > 0 ? <Divider inset={space.sm} /> : null}
+              <ListRow icon={pinnedResourceIcon(entry.kind)} title={entry.name} trailingIcon="forward" onPress={() => (entry.kind === 'playlist' ? navigation.push('Playlist', {playlistId: entry.id, title: entry.name}) : navigation.push('SavedResource', {resourceId: entry.id, title: entry.name}))} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <View style={{flexDirection: 'row'}}><Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('pins.edit')} onPress={() => setEditing(true)} /></View>
+      <PinEditor open={editing} onClose={() => setEditing(false)} libraries={libraries.items} pinned={pins.order} actions={actions} />
+    </View>
+  );
+}

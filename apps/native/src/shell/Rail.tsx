@@ -10,8 +10,12 @@ import {useUnreadCount} from '../app/inbox';
 import {useServerPreferences} from '../app/server-preferences';
 import {useI18n, type MessageId} from '../app/i18n';
 import {createRailExpansion, type RailExpansion} from './rail-expansion';
+import type {PinnedResource} from '../../../../packages/client-core/src/library-pins';
+import {pinnedResourceIcon} from '../app/pins';
 
-export type RailKey = 'Home' | 'Search' | 'Saved' | 'Channels' | 'Settings' | 'Downloads' | `library:${string}`;
+const NO_PINS: readonly PinnedResource[] = [];
+
+export type RailKey = 'Home' | 'Search' | 'Saved' | 'Channels' | 'Settings' | 'Downloads' | `library:${string}` | `pin:${string}`;
 
 type Item = {key: RailKey; label: string; icon: IconName; kind?: string};
 
@@ -33,7 +37,7 @@ const primary: (Omit<Item, 'label'> & {labelId: MessageId})[] = [
  */
 export type RailHandle = {focus: () => void; isFocused: () => boolean};
 
-export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; selected: RailKey; onSelect: (key: RailKey) => void; profileName?: string; serverName?: string; showChannels?: boolean; /** Offered on a wide tablet when this profile may download or has downloads on the device. */ showDownloads?: boolean; onFocusChange?: (focused: boolean) => void; /** 0 collapsed → 1 expanded, for the shell to push the content aside (APL-SHELL-07). */ expansion?: SharedValue<number>; /** Libraries with a running scan (ONB-04): a dot on the entry. */ scanning?: ReadonlySet<string>}>(function Rail({libraries, selected, onSelect, profileName, serverName, showChannels = true, showDownloads = false, onFocusChange, expansion, scanning}, ref) {
+export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** Pinned collections, saved views and playlists, between the destinations and the libraries. */ pinned?: readonly PinnedResource[]; selected: RailKey; onSelect: (key: RailKey) => void; profileName?: string; serverName?: string; showChannels?: boolean; /** Offered on a wide tablet when this profile may download or has downloads on the device. */ showDownloads?: boolean; onFocusChange?: (focused: boolean) => void; /** 0 collapsed → 1 expanded, for the shell to push the content aside (APL-SHELL-07). */ expansion?: SharedValue<number>; /** Libraries with a running scan (ONB-04): a dot on the entry. */ scanning?: ReadonlySet<string>}>(function Rail({libraries, pinned = NO_PINS, selected, onSelect, profileName, serverName, showChannels = true, showDownloads = false, onFocusChange, expansion, scanning}, ref) {
   const i18n = useI18n();
   const {colors, space, metrics, isTV, window, motion} = useTheme();
   const insets = useSafeAreaInsets();
@@ -117,7 +121,22 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; selec
   const headLayout = useAnimatedStyle(() => (progress.value > 0.5 ? {alignItems: 'flex-start' as const, paddingHorizontal: space.sm, marginLeft: 0} : {alignItems: 'center' as const, paddingHorizontal: 0, marginLeft: hiddenWidth}), [progress, space.sm, hiddenWidth]);
   // Item objects and callbacks are stable across expansion toggles, so the memoised RailItems
   // below skip re-rendering when the rail opens or closes.
-  const items: Item[] = useMemo(() => [...primary.filter(i => (i.key === 'Channels' ? showChannels : i.key === 'Downloads' ? showDownloads : true)).map(({labelId, ...rest}) => ({...rest, label: i18n.t(labelId)})), ...libraries.map<Item>(l => ({key: `library:${l.id}`, label: l.name, icon: (mediaFamilyIcon(l.kind) ?? 'film') as IconName, kind: l.kind}))], [libraries, showChannels, showDownloads, i18n]);
+  const items: Item[] = useMemo(() => [
+    ...primary.filter(i => (i.key === 'Channels' ? showChannels : i.key === 'Downloads' ? showDownloads : true)).map(({labelId, ...rest}) => ({...rest, label: i18n.t(labelId)})),
+    ...pinned.map<Item>(p => ({key: `pin:${p.kind}:${p.id}`, label: p.name, icon: pinnedResourceIcon(p.kind)})),
+    ...libraries.map<Item>(l => ({key: `library:${l.id}`, label: l.name, icon: (mediaFamilyIcon(l.kind) ?? 'film') as IconName, kind: l.kind})),
+  ], [libraries, pinned, showChannels, showDownloads, i18n]);
+  // A rule before the pinned items, before the libraries, and between pinned and other libraries.
+  const dividers = useMemo(() => {
+    const out = new Set<string>();
+    const firstPin = items.find(i => i.key.startsWith('pin:'));
+    const firstLibrary = items.find(i => i.key.startsWith('library:'));
+    if (firstPin) out.add(firstPin.key);
+    if (firstLibrary) out.add(firstLibrary.key);
+    const firstUnpinned = libraries.findIndex(l => l.pinned !== true);
+    if (firstUnpinned > 0) out.add(`library:${libraries[firstUnpinned]!.id}`);
+    return out;
+  }, [items, libraries]);
   // ONB-04: a scanning library carries the same dot as an unread badge (decorative; the library
   // screen header carries the words). Applied at render so `items` stays memoised on scan changes.
   const scanningDot = (item: Item) => item.key.startsWith('library:') && !!scanning?.has(item.key.slice('library:'.length));
@@ -193,7 +212,7 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; selec
       <ScrollView ref={scroller} showsVerticalScrollIndicator={false} contentContainerStyle={{gap: compact ? 2 : isTV ? 4 : space.xs, paddingVertical: isTV ? 4 : 0, paddingHorizontal: isTV ? 4 : 0}} style={[{flex: 1}, isTV ? {marginHorizontal: -4} : null]}>
         {items.map((item, index) => (
           <React.Fragment key={item.key}>
-            {index === primary.length - (showChannels ? 0 : 1) - (showDownloads ? 0 : 1) && libraries.length ? <View style={{height: 1, backgroundColor: alpha(colors.lineSoft, 0.8), marginVertical: space.sm, marginHorizontal: space.xs}} /> : null}
+            {dividers.has(item.key) ? <View style={{height: 1, backgroundColor: alpha(colors.lineSoft, 0.8), marginVertical: space.sm, marginHorizontal: space.xs}} /> : null}
             <RailItem ref={h => { items_ref.current.set(item.key, h); }} item={item} active={selected === item.key} compact={compact} shared={progress} ctl={ctl} hiddenWidth={hiddenWidth} forceHidden={compact} badge={scanningDot(item)} onFocus={handleFocus} onBlur={handleBlur} onPress={handlePress} focusIndex={index} />
           </React.Fragment>
         ))}

@@ -1,3 +1,4 @@
+import {announcePinsChanged} from '../../app/pins';
 import React, {useCallback, useMemo, useState} from 'react';
 import {View, type LayoutChangeEvent} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
@@ -88,11 +89,15 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   // otherwise the playlist plays whole, in its own order.
   const listed = group.engaged ? sorted.snapshot.entries : media;
   const sequenceOf = (shuffle: boolean) => groupSequence(group, {shuffle}) ?? sequenceContainer('playlist', playlistId, {shuffle});
-  const secondary: HeroAction[] = listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(listed, sequenceOf(true))}] : [];
   // M32 (web parity): playlist management the server offers — windowed
   // reorder and remove — through the service's intents. A failure is
   // presented, never thrown at the page.
   const can = (action: string) => !!playlist?.actions.includes(action);
+  const secondary: HeroAction[] = [
+    ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => play(listed, sequenceOf(true))}] : []),
+    // Pinned, a playlist sits in the rail (on a phone, at the top of Saved).
+    ...(playlist && can('pin') ? [{icon: playlist.pinned ? 'bookmarkFilled' as const : 'bookmark' as const, label: i18n.t(playlist.pinned ? 'pins.unpin' : 'pins.pin'), onPress: () => void mutate({action: 'pin', pinned: !playlist.pinned}).then(announcePinsChanged, () => {})}] : []),
+  ];
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const change = useCallback(async (work: () => Promise<unknown>) => {
@@ -278,6 +283,8 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const secondary: HeroAction[] = [
     ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => start(true)}] : []),
     ...(canReorder ? [{icon: arranging ? 'check' as const : 'list' as const, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
+    // Pinned, a collection or saved view sits in the rail (on a phone, at the top of Saved).
+    ...(resource?.actions.includes('pin') ? [{icon: resource.pinned ? 'bookmarkFilled' as const : 'bookmark' as const, label: i18n.t(resource.pinned ? 'pins.unpin' : 'pins.pin'), onPress: () => void mutate({action: 'pin', pinned: !resource.pinned}).then(done => { if (done) announcePinsChanged(); }, () => {})}] : []),
   ];
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
