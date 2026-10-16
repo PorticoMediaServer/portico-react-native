@@ -1,4 +1,5 @@
 #import "PorticoPlaybackController.h"
+#import "PorticoServerTrust.h"
 #import "PorticoAudioSelection.h"
 #import "PorticoAudioRender.h"
 #import "PorticoSubtitleSelection.h"
@@ -376,7 +377,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   [_subtitleSelection invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
   if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!PorticoAllowedSource(url)){[self emit:@"error" error:@"Invalid media address."];return;}
    [self configureVideoAudioSession];
-   AVPlayerItem *item=[AVPlayerItem playerItemWithURL:url];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
+   // The owner's own certificate is answered the way every Portico connection answers it.
+   AVURLAsset *asset=[AVURLAsset URLAssetWithURL:url options:nil];[asset.resourceLoader setDelegate:PorticoServerTrust.resourceLoaderDelegate queue:PorticoServerTrust.resourceLoaderQueue];
+   AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:asset];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
    if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"Connection restored, but the retained position is not available. Your playback session was not replaced."];}});}
   }
  }
@@ -464,7 +467,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (NSArray<NSNumber *> *)supportedRates {
  if(_player.currentItem.status!=AVPlayerItemStatusReadyToPlay)return @[];
  if(_timelineOriginMS)return @[@1];
- return _player.currentItem.canPlaySlowForward?@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]:@[@1,@1.25,@1.5,@1.75,@2];
+ NSArray *rates=_player.currentItem.canPlaySlowForward?@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]:@[@1,@1.25,@1.5,@1.75,@2];
+ // Audiobooks go to 3x, as on web; the menu offers 2.5x and 3x only for them.
+ return _player.currentItem.canPlayFastForward?[rates arrayByAddingObjectsFromArray:@[@2.5,@3]]:rates;
 }
 - (double)desiredRate {return [_command[@"rate"] isKindOfClass:NSNumber.class]?[_command[@"rate"] doubleValue]:1;}
 - (NSDictionary *)rateFacts {

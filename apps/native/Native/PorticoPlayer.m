@@ -11,6 +11,7 @@
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSecureStorageRead.h"
 #import "PorticoProfileTrust.h"
+#import "PorticoServerTrust.h"
 @interface PorticoPlayerView : UIView <AVPictureInPictureControllerDelegate>
 @property(nonatomic,copy) NSString *lease;
 @property(nonatomic) NSInteger pictureInPictureRequest;
@@ -124,6 +125,8 @@ RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL critical;
 @property(nonatomic) NSUInteger responseLimit;
+/** Set before -finish: when the failure was a refused certificate. */
+@property(nonatomic,copy) NSString *failureCode;
 - (void)finish:(NSString *)failure;
 @end
 static NSMutableDictionary<NSString *,PorticoQueueRequest *> *PorticoQueueRequests;
@@ -200,8 +203,13 @@ static const NSInteger PorticoQueueMaxActive=12;
  BOOL over=NO;@synchronized(request){if(request.completed)return;if(request.data.length+data.length>(request.responseLimit?:1048576))over=YES;else [request.data appendData:data];}
  if(over)[request finish:@"Queue response exceeded its limit."];
 }
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+ [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
+}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
- [[self requestFor:task] finish:error?@"The queue request could not be confirmed.":nil];
+ PorticoQueueRequest *request=[self requestFor:task];
+ if([PorticoServerTrust isRefusal:error]){request.failureCode=@"certificate_untrusted";[request finish:@"The server's certificate is not trusted yet."];return;}
+ [request finish:error?@"The queue request could not be confirmed.":nil];
 }
 @end
 
@@ -210,7 +218,7 @@ static const NSInteger PorticoQueueMaxActive=12;
  @synchronized(self) {if(self.completed)return;self.completed=YES;
  if(self.task.state==NSURLSessionTaskStateRunning||self.task.state==NSURLSessionTaskStateSuspended)[self.task cancel];
  @synchronized(PorticoQueueRequest.class){[PorticoQueueTransport release:self];}
- if(failure){self.reject(@"queue_transport",failure,nil);}else{
+ if(failure){self.reject(self.failureCode?:@"queue_transport",failure,nil);}else{
   NSString *body=[[NSString alloc] initWithData:self.data encoding:NSUTF8StringEncoding];
   if(!body||!self.response){self.reject(@"queue_transport",@"Invalid queue response.",nil);}else{
    NSMutableDictionary *headers=[NSMutableDictionary dictionary];for(id key in self.response.allHeaderFields)headers[[key description]]=[self.response.allHeaderFields[key] description];
@@ -261,6 +269,9 @@ static NSMutableDictionary<NSString *,PorticoEventStream *> *PorticoEventStreams
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
  completionHandler(nil);@synchronized(self){self.failed=YES;self.failureCode=@"event_redirect";[self cancel];}
+}
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+ [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
  @synchronized(self){

@@ -172,13 +172,11 @@ class PorticoMpvPlaybackModule(context: ReactApplicationContext) : PorticoEventM
         // Beyond the shared shape: what differs on Android.
         putMap("hardwareLimits", limits)
         putArray("hdrOutputRanges", Arguments.fromList(if (hdr) listOf("hdr10", "hlg").filter { shown.contains(it) } else emptyList<String>()))
-        // The HEVC decoder shows a Dolby Vision title's HDR10 layer; a title with no such layer
-        // (profile 5) would come out in the wrong colours, so it is not offered to this engine.
-        putArray("dolbyVisionProfiles", Arguments.fromList(listOf(7, 8)))
-        // The engine does not ask mpv to deinterlace (the media engine has the filters, but
-        // software deinterlacing on a television's processor is untested): interlaced video is
-        // shown as the chip's decoder returns it.
-        putBoolean("softwareDeinterlace", false)
+        // The HEVC decoder shows a Dolby Vision title's HDR10 layer (profiles 7 and 8); a title
+        // with no such layer (profile 5) is drawn by mpv's gpu-next renderer, which reshapes it.
+        putArray("dolbyVisionProfiles", Arguments.fromList(listOf(5, 7, 8)))
+        // mpv deinterlaces interlaced frames itself (deinterlace=auto, FFmpeg's bwdif).
+        putBoolean("softwareDeinterlace", true)
       })
     } catch (e: Exception) {
       promise.reject("capabilities", "This device's mpv capabilities could not be read.", e)

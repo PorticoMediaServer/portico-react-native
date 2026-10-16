@@ -21,6 +21,7 @@ import {Artwork, Button, Icon, StateView, Text, alpha, showToast, useTheme, type
 import {Timeline} from './Timeline';
 import {PostPlay} from './PostPlay';
 import {SkipPrompt, usePlayerMarkers, type SkipMode} from './SkipPrompt';
+import {UpNextCredits, useUpNextDuringCredits} from './UpNextCredits';
 import {useSession} from '../app/session';
 import {useServerPreferences} from '../app/server-preferences';
 import type {PlayerEngine} from './usePlayer';
@@ -37,7 +38,7 @@ import {MiniGuideSheet, currentLiveProgramme} from './MiniGuide';
 import {useDVRClient} from '../app/dvr';
 import {defaultRecordingOptions} from '../../../../packages/client-core/src/dvr';
 import {channelTimeline} from '../../../../packages/client-core/src/playback/channel-timeline';
-import {formatBehindSec, isBehindLive, programmeRangeLabel} from '../../../../packages/client-core/src/presentation/index';
+import {formatBehindSec, isBehindLive, programmeRangeLabel, subtitleTrackNames} from '../../../../packages/client-core/src/presentation/index';
 import {TUNER_RESERVED, tunerHandover, tunerHandoverLines} from '../../../../packages/client-core/src/live-handover';
 
 
@@ -66,6 +67,9 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   // Skip markers: the server's for the session, or the ones a download brought with it.
   const serverMarkers = usePlayerMarkers(engine.service, api, session, identity.libraryId, state.channel || identity.offline ? undefined : state.itemId, state.session?.id);
   const markers = engine.downloadMarkers ?? serverMarkers;
+  // While the closing credits run, the next title is offered in a corner; its card stands in for the "Skip credits" button.
+  const upNext = useUpNextDuringCredits(engine, markers, skipModes.credits ?? 'ask', !isAudio && !state.channel);
+  const promptModes = upNext.offer?.marker ? {...skipModes, credits: 'off' as SkipMode, outro: 'off' as SkipMode} : skipModes;
   const [chrome, setChrome] = useState(true);
   const [option, setOptionNow] = useState<OptionKey | null>(null);
   const [anchor, setAnchor] = useState<OptionAnchor>();
@@ -339,15 +343,16 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       }
       case 'subtitles': {
         const offline = engine.subtitles.offline;
-        if (offline) { const track = offline.tracks.find(t => t.id === offline.selectedId); return track ? track.language || track.title : i18n.t('player.opt.off'); }
+        // Named as the menu names it (the shared rule), not by its language code.
+        if (offline) return offline.selectedId !== null ? subtitleTrackNames(offline.tracks, i18n.t, i18n.locale).get(offline.selectedId) ?? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
         const plan = engine.subtitles.snapshot.plan;
-        const shown = engine.subtitles.shownId ? plan?.resources.find(r => r.id === engine.subtitles.shownId) : undefined;
-        return shown ? shown.language || shown.title : engine.subtitles.shownId ? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
+        const shownId = engine.subtitles.shownId;
+        return shownId ? (plan ? subtitleTrackNames(plan.resources, i18n.t, i18n.locale).get(shownId) : undefined) ?? i18n.t('player.opt.defaultTrack') : i18n.t('player.opt.off');
       }
       case 'quality':
         return qualityInForceLabel(engine.quality.inForce, i18n.t);
       case 'sleep':
-        return state.listeningDeadlines?.sleepAtMs ? 'On' : 'Off';
+        return i18n.t(state.listeningDeadlines?.sleepAtMs ? 'player.opt.on' : 'player.opt.off');
       default:
         return '';
     }
@@ -416,7 +421,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       {pictureInPicture}
       {!isTV && !isAudio ? <Pressable style={StyleSheet.absoluteFill} onPress={() => (chrome && playing ? setChrome(false) : reveal())} accessibilityLabel={chrome ? i18n.t('player.hideControls') : i18n.t('player.showControls')} /> : null}
       {!isAudio && !state.channel ? <PostPlay engine={engine} /> : null}
-      {!isAudio && !state.channel && state.phase === 'ready' ? <SkipPrompt markers={markers} position={state.positionSeconds} sessionId={state.session?.id} modes={skipModes} onSeek={engine.seekTo} onSkipped={(id, mode, at) => engine.service.markerSkipped(id, mode, at)} bottom={bottomInset + (isTV ? 260 : 190)} /> : null}
+      {!isAudio && !state.channel && state.phase === 'ready' ? <SkipPrompt markers={markers} position={state.positionSeconds} sessionId={state.session?.id} modes={promptModes} onSeek={engine.seekTo} onSkipped={(id, mode, at) => engine.service.markerSkipped(id, mode, at)} bottom={bottomInset + (isTV ? 260 : 190)} /> : null}
+      {upNext.offer && upNext.next ? <UpNextCredits engine={engine} offer={upNext.offer} next={upNext.next} postPlay={upNext.postPlay} bottom={bottomInset + (isTV ? 260 : 190)} onDismiss={upNext.dismiss} /> : null}
       {route.external && !isAudio ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', backgroundColor: colors.black}]}>
           <Icon name={route.kind === 'airplay' ? 'airplay' : 'tvDevice'} size={isTV ? 96 : 56} color={colors.textSecondary} />

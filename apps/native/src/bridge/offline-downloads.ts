@@ -90,15 +90,23 @@ export type OfflineExtras = Readonly<{
   bundle?: DownloadBundle;
   subtitles: readonly StoredSubtitle[];
   backdropUrl: string;
+  /** The scrubbing preview sheets as files on this device, in order; empty unless every one is here. */
+  trickplayTiles?: readonly string[];
+  /** Chapter thumbnails as files on this device, by the chapter's index. */
+  chapterImages?: Readonly<Record<number, string>>;
 }>;
 
 /** What is kept with a native entry besides its bytes. `claim` is the server's claim for the
  * download when that is no longer the entry's own id; `token` is the address it is fetched from;
  * `extras` are the files saved beside it; `bundle` is `BUNDLE_COMPLETE` once everything that
  * travels with it is here, 1 while some of it is still to come. */
-/** Raised when what is kept beside a download changes (3: a VobSub index is kept as `.idx`), so a
- * download marked complete under an earlier rule is completed again by the next pass. */
-const BUNDLE_COMPLETE = 3;
+/** Raised when what is kept beside a download changes (3: a VobSub index is kept as `.idx`; 4:
+ * chapter thumbnails and scrubbing previews come too), so a download marked complete under an
+ * earlier rule is completed again by the next pass. */
+const BUNDLE_COMPLETE = 4;
+/** The names a download's previews are kept under beside it. */
+const trickplayTileName = (tile: number) => `trickplay-${tile}`;
+const chapterImageName = (index: number) => `chapter-${index}`;
 type Meta = {
   libraryId?: string; kind?: string; owner?: string; receipt?: DownloadReceipt; title?: DownloadTitle;
   onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number;
@@ -126,7 +134,7 @@ const native = NativeModules.PorticoDownloads as undefined | {
   list(): Promise<any[]>; start(request: Record<string, unknown>): Promise<any>; pause(id: string): Promise<void>; remove(id: string): Promise<void>;
   setMeta(id: string, meta: string): Promise<void>; setMetas(metas: Record<string, string>): Promise<void>;
   storage(): Promise<{freeBytes: number; usedBytes: number}>; setCellular(allowed: boolean): Promise<void>;
-  readState(): Promise<string>; writeState(json: string): Promise<void>; play(id: string, startSeconds: number): Promise<void>; stop(): Promise<void>;
+  readState(): Promise<string>; writeState(json: string): Promise<void>;
   localFile(id: string): Promise<{url: string; durationSeconds: number}>;
   writeExtra(id: string, name: string, text: string): Promise<void>; readExtra(id: string, name: string): Promise<string>;
   /** 'saved', 'missing' (the server has none for this title), 'later' or 'invalid'. */
@@ -265,7 +273,6 @@ export class OfflineDownloads {
     } catch { this.stored = emptyStored(); }
     const emitter = new NativeEventEmitter(NativeModules.PorticoDownloads);
     this.subscriptions.push(emitter.addListener('PorticoDownloadChanged', entry => this.accept(entry)));
-    this.subscriptions.push(emitter.addListener('PorticoDownloadPlayback', event => void this.observed({...event, final: !!event.ended})));
     const entries = (await native.list()).map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);
     this.all = sort(entries);
     this.publish({ready: true, settings: this.stored.settings});
@@ -603,6 +610,9 @@ export class OfflineDownloads {
         ...described.artwork.map(a => [a.role, a.path] as [string, string]),
         // Each track's files under one stem: the script with its fonts, a VobSub index with its pictures.
         ...described.subtitles.flatMap(s => subtitleExtraFiles(s).map(([name, path]) => [name, path] as [string, string])),
+        // The scrubbing previews and the chapter thumbnails, so the offline player shows them too.
+        ...(described.trickplay?.tiles ?? []).map((tile, index) => [trickplayTileName(index), tile.path] as [string, string]),
+        ...described.chapters.flatMap(c => (c.image ? [[chapterImageName(c.index), c.image.path] as [string, string]] : [])),
       ];
       for (const [name, path] of files) {
         if (saved.has(name)) continue;
@@ -859,16 +869,8 @@ export class OfflineDownloads {
     const owner = this.entryOwner(entry);
     return Math.max(0, (owner ? this.stored.resume[owner]?.[entry.itemId] : 0) ?? 0);
   }
-  /** Plays a finished download in the system player (the launch flow, where Portico's own player
-   * is not mounted). */
-  async play(entry: OfflineEntry) {
-    const reason = this.playable(entry); if (reason) throw new Error(reason);
-    this.playing.set(entry.id, 'play_' + random());
-    await native!.play(entry.id, this.resumePoint(entry));
-  }
   /** The downloaded file, this viewer's resume point and everything that came with the download,
-   * for Portico's own player. Checked exactly as the system player's play is; no connection
-   * needed. */
+   * for Portico's own player (the only offline player). No connection needed. */
   async localMedia(entry: OfflineEntry): Promise<LocalMedia> {
     const reason = this.playable(entry); if (reason) throw new Error(reason);
     if (!native?.localFile) throw new Error(serviceText('downloads.offline.notPlayableHere'));
@@ -886,7 +888,11 @@ export class OfflineDownloads {
     // Each track in the form closest to how it was authored that is whole on this device (a
     // VobSub track with both its files, a styled script with the fonts that came with it); text last.
     const subtitles = (bundle?.subtitles ?? []).flatMap(s => { const stored = dir ? storedSubtitle(s, saved, dir + 'extras/') : undefined; return stored ? [stored] : []; });
-    return Object.freeze({bundle, subtitles: Object.freeze(subtitles), backdropUrl: saved.has('backdrop') && dir ? dir + 'extras/backdrop' : ''});
+    const tiles = dir ? (bundle?.trickplay?.tiles ?? []).map((_, index) => trickplayTileName(index)) : [];
+    const trickplayTiles = tiles.length && tiles.every(name => saved.has(name)) ? tiles.map(name => dir + 'extras/' + name) : [];
+    const chapterImages: Record<number, string> = {};
+    if (dir) for (const c of bundle?.chapters ?? []) if (c.image && saved.has(chapterImageName(c.index))) chapterImages[c.index] = dir + 'extras/' + chapterImageName(c.index);
+    return Object.freeze({bundle, subtitles: Object.freeze(subtitles), backdropUrl: saved.has('backdrop') && dir ? dir + 'extras/backdrop' : '', trickplayTiles: Object.freeze(trickplayTiles), chapterImages: Object.freeze(chapterImages)});
   }
   private lastLocalWrite = new Map<string, number>();
   /** Progress from Portico's player for a downloaded title. A playing position is written at most

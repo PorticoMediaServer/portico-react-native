@@ -11,7 +11,8 @@ import {parseFilesystemPage, parseLibraryDocument, providerChoices, type Filesys
 import {iconFor, viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
 import {isMetadataConflict, metadataAgentPath, parseMetadataAgent, saveMetadataAgent, type MetadataAgentId} from '../../../../../packages/client-core/src/server-admin/metadata-agent';
-import {addSourceSettings, canAddSource, createLibraryAndScan, filesystemPath, mergeFilesystemPages, scanJobLabels, scanTierHelp, scanTierLabels} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {addSourceSettings, canAddSource, createLibraryAndScan, filesystemPath, mergeFilesystemPages} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {scanDepthHelp, scanDepthName, scanStateName} from '../../../../../packages/client-core/src/server-admin/console-catalogue';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import type {ContentStackParams} from '../../app/routes';
@@ -35,7 +36,7 @@ type TitleTarget = {kind: 'show' | 'item' | 'album' | 'book'; id: string; librar
 /** Libraries: the list in the owner's order, and one library's folders, scans, metadata source, titles that need a match, and removal. */
 export function LibrariesPanel() {
   const {api, session} = useSession();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const {viewerId, serverId} = viewerScope(session, api);
   const {service, snapshot} = useService<LibraryManagementService, LibraryManagementSnapshot>(() => new LibraryManagementService({api, scope: {viewerId, serverId}}), [api, viewerId, serverId]);
   useEffect(() => { void service.loadLibraries().catch(() => {}); }, [service]);
@@ -62,7 +63,7 @@ export function LibrariesPanel() {
     ids.splice(index + by, 0, id!);
     void action.run(() => api.request('/v1/admin/libraries/order', 'PUT', {libraryIds: ids})).then(ok => { if (ok) reload(); });
   };
-  const status = (l: ManagedLibrary) => (l.source.availability === 'unavailable' ? t('web.libraries.sourceUnavailable') : attention.counts[l.id] ? t('server.attention.badge', {count: attention.counts[l.id]!}) : l.attention ? t('server.libraries.needAttention', {count: l.attention.files}) : l.lastScan?.warnings ? t('server.libraries.warnings', {count: l.lastScan.warnings}) : l.lastScan ? scanJobLabels[l.lastScan.status] : undefined);
+  const status = (l: ManagedLibrary) => (l.source.availability === 'unavailable' ? t('web.libraries.sourceUnavailable') : attention.counts[l.id] ? t('server.attention.badge', {count: attention.counts[l.id]!}) : l.attention ? t('server.libraries.needAttention', {count: l.attention.files}) : l.lastScan?.warnings ? t('server.libraries.warnings', {count: l.lastScan.warnings}) : l.lastScan ? scanStateName(t, has, l.lastScan.status) : undefined);
   return (
     <>
       {snapshot.directory.phase === 'error' ? <Notice tone="error" message={snapshot.directory.error ? problem(snapshot.directory.error) : t('web.libraries.loadFailed')} action={t('action.tryAgain')} onAction={() => void service.loadLibraries().catch(() => {})} /> : null}
@@ -187,7 +188,7 @@ function LibrarySheet({libraryId, service, snapshot, waiting, onClose, onOpenTit
 
 function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAttentionChanged, onRemoved}: {api: ReturnType<typeof useSession>['api']; library: ManagedLibrary; section: Section; service: LibraryManagementService; waiting: number; onOpenTitle: (target: TitleTarget) => void; onAttentionChanged: () => void; onRemoved: () => void}) {
   const {session} = useSession();
-  const t = useI18n().t;
+  const {t, has} = useI18n();
   const admin = useAdmin();
   const {viewerId, serverId} = viewerScope(session, api);
   const inventory = useService<LibraryInventoryService, LibraryInventorySnapshot>(() => new LibraryInventoryService({api, scope: {viewerId, serverId}, libraryId: library.id}), [api, viewerId, serverId, library.id]);
@@ -284,13 +285,13 @@ function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAt
         </>
       ) : null}
       {section === 'scanning' ? (
-        <RowGroup title={t('web.libraries.scan')} footer={config ? scanTierHelp[config.policy.tier] : t('web.libraries.scanLede')}>
-          <ListRow title={t('web.libraries.lastScan')} meta={scan ? scanJobLabels[scan.status] : undefined} subtitle={scan ? [t('server.libraries.files', {count: scan.processed}), scan.warnings ? t('server.libraries.warnings', {count: scan.warnings}) : '', scan.finishedAt ? dateTime(scan.finishedAt) : ''].filter(Boolean).join(' · ') : t('web.libraries.notScannedYet')} />
+        <RowGroup title={t('web.libraries.scan')} footer={config ? scanDepthHelp(t, has, config.policy.tier) : t('web.libraries.scanLede')}>
+          <ListRow title={t('web.libraries.lastScan')} meta={scan ? scanStateName(t, has, scan.status) : undefined} subtitle={scan ? [t('server.libraries.files', {count: scan.processed}), scan.warnings ? t('server.libraries.warnings', {count: scan.warnings}) : '', scan.finishedAt ? dateTime(scan.finishedAt) : ''].filter(Boolean).join(' · ') : t('web.libraries.notScannedYet')} />
           {library.actions.includes('scan') ? <ListRow tone="action" icon="refresh" title={running ? t('web.libraries.scanningNow') : t('web.libraries.scanNow')} disabled={running || action.busy} onPress={() => void action.run(() => service.scan())} /> : null}
           {library.actions.includes('scan') && !running ? <ListRow tone="action" title={t('web.libraries.scanAllFiles')} disabled={action.busy} onPress={() => void action.run(() => service.scan('full'))} /> : null}
           {running && scan?.actions.includes('cancel') ? <ListRow tone="destructive" title={t('web.libraries.cancelScan')} onPress={() => void action.run(() => service.cancelJob(scan.id))} /> : null}
           {library.attention ? <ListRow icon="warning" title={t('server.libraries.needAttention', {count: library.attention.files})} subtitle={t('web.libraries.attentionHelp')} accessory="navigation" onPress={() => setIssues(true)} /> : null}
-          {config ? <PickRow title={t('web.libraries.scanDepth')} value={config.policy.tier} options={(['file_list_only', 'basic', 'complete'] as ScanTier[]).concat(config.policy.tier === 'custom' ? ['custom'] : []).map(x => ({id: x, label: scanTierLabels[x]}))} onChange={tier => { if (tier !== config.policy.tier) void action.run(() => inventory.service.setPolicy({tier: tier as ScanTier, operations: config.policy.operations, expectedRevision: config.revision})).then(refresh); }} /> : null}
+          {config ? <PickRow title={t('web.libraries.scanDepth')} value={config.policy.tier} options={(['file_list_only', 'basic', 'complete'] as ScanTier[]).concat(config.policy.tier === 'custom' ? ['custom'] : []).map(x => ({id: x, label: scanDepthName(t, has, x)}))} onChange={tier => { if (tier !== config.policy.tier) void action.run(() => inventory.service.setPolicy({tier: tier as ScanTier, operations: config.policy.operations, expectedRevision: config.revision})).then(refresh); }} /> : null}
           {config?.sources.map(src => <PickRow key={src.id} icon="folder" title={t('server.library.rescan', {folder: src.name || src.path})} value={String(src.intervalSeconds)} options={[...(RESCAN.some(r => r.id === String(src.intervalSeconds)) ? [] : [{id: String(src.intervalSeconds), label: t('server.library.everyMinutes', {count: Math.round(src.intervalSeconds / 60)})}]), ...RESCAN.map(r => ({id: r.id, label: t(r.label)}))]} onChange={id => void action.run(() => inventory.service.saveSource(src.id, sourceOf(src, {intervalSeconds: Number(id)}))).then(refresh)} />)}
         </RowGroup>
       ) : null}

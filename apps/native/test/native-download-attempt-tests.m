@@ -28,6 +28,27 @@ int main(void) {
     NSCAssert(!PorticoDownloadResumePolicyMatches(entry, NO), @"unknown resume policy was trusted");
     entry[@"cellularAllowed"] = @1;
     NSCAssert(!PorticoDownloadResumePolicyMatches(entry, YES), @"malformed resume policy was trusted");
-    NSLog(@"PASS download attempt fencing: replacement, serialized restart, completed/removed files, missing identity, resume policy");
+    // N12: resume data made under an old address is pointed at the new one, in both the plain
+    // and the keyed-archive forms; anything unrecognised is refused (the transfer begins again).
+    NSURL *oldURL = [NSURL URLWithString:@"https://server/v1/downloads/old/file"], *newURL = [NSURL URLWithString:@"https://server/v1/downloads/new/file"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:oldURL];
+    [request setValue:@"bytes=1000-" forHTTPHeaderField:@"Range"];
+    NSData *archivedRequest = [NSKeyedArchiver archivedDataWithRootObject:request requiringSecureCoding:NO error:nil];
+    NSDictionary *info = @{@"NSURLSessionDownloadURL": oldURL.absoluteString, @"NSURLSessionResumeBytesReceived": @1000, @"NSURLSessionResumeCurrentRequest": archivedRequest, @"NSURLSessionResumeOriginalRequest": archivedRequest, @"NSURLSessionResumeEntityTag": @"\"sha256-abc\""};
+    NSData *plain = [NSPropertyListSerialization dataWithPropertyList:info format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+    NSData *keyed = [NSKeyedArchiver archivedDataWithRootObject:info requiringSecureCoding:NO error:nil];
+    for (NSData *resume in @[plain, keyed]) {
+      NSData *moved = PorticoDownloadRetargetResume(resume, newURL);
+      NSCAssert(moved.length > 0, @"resume data was not moved");
+      NSDictionary *read = resume == keyed ? [NSKeyedUnarchiver unarchivedObjectOfClasses:[NSSet setWithArray:@[NSDictionary.class, NSString.class, NSNumber.class, NSData.class]] fromData:moved error:nil] : [NSPropertyListSerialization propertyListWithData:moved options:0 format:NULL error:nil];
+      NSCAssert([read[@"NSURLSessionDownloadURL"] isEqual:newURL.absoluteString], @"download address not moved");
+      NSCAssert([read[@"NSURLSessionResumeBytesReceived"] isEqual:@1000], @"bytes received lost");
+      NSURLRequest *current = PorticoDownloadArchivedRequest(read[@"NSURLSessionResumeCurrentRequest"]);
+      NSCAssert([current.URL isEqual:newURL] && [[current valueForHTTPHeaderField:@"Range"] isEqual:@"bytes=1000-"], @"request not moved or its range lost");
+      NSCAssert([PorticoDownloadArchivedRequest(read[@"NSURLSessionResumeOriginalRequest"]).URL isEqual:newURL], @"original request not moved");
+    }
+    NSCAssert(PorticoDownloadRetargetResume([@"not a plist" dataUsingEncoding:NSUTF8StringEncoding], newURL) == nil, @"garbage resume data accepted");
+    NSCAssert(PorticoDownloadRetargetResume([NSPropertyListSerialization dataWithPropertyList:@{@"other": @1} format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil], newURL) == nil, @"resume data without an address accepted");
+    NSLog(@"PASS download attempt fencing: replacement, serialized restart, completed/removed files, missing identity, resume policy, moved address");
   }
 }

@@ -17,10 +17,10 @@ export type SubtitleKind = 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb';
 const kinds: readonly SubtitleKind[] = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
 /** Richest first: when a track can be had several ways, the one that keeps most of it. */
 const preference: readonly SubtitleKind[] = ['ass', 'pgs', 'vobsub', 'dvb', 'text'];
-/** A subtitle file's address as the server gives it (the shape `subtitles.ts` in the shared package accepts): the cue document, an original, or a styled track's font list. */
-const originalPath = /^\/v1\/media\/subtitles\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts)?$/;
+/** A subtitle file's address as the server gives it (the shape `subtitles.ts` in the shared package accepts): the cue document, an original, a styled track's font list, or an image track's line count. */
+const originalPath = /^\/v1\/media\/subtitles\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[1-9]\d*(?:\.vtt|\/original\.(?:ass|ssa|sup|idx|sub|mks)|\/fonts|\/lines)?$/;
 
-export type SubtitleDelivery = Readonly<{format: SubtitleKind; url?: string; fontsUrl?: string}>;
+export type SubtitleDelivery = Readonly<{format: SubtitleKind; url?: string; fontsUrl?: string; linesUrl?: string}>;
 export type SubtitleFonts = Readonly<{key: string; fonts: readonly Readonly<{name: string; url: string}>[]}>;
 export type SubtitleRender = Readonly<{
   kind: SubtitleKind;
@@ -47,7 +47,7 @@ export function deliveriesOf(resource: SubtitleResource | null | undefined): rea
   const out: SubtitleDelivery[] = [];
   for (const d of (resource?.deliveries ?? []).slice(0, 8)) {
     if (!kinds.includes(d.format as SubtitleKind)) continue;
-    out.push({format: d.format as SubtitleKind, ...(path(d.url) ? {url: path(d.url)} : {}), ...(path(d.fontsUrl) ? {fontsUrl: path(d.fontsUrl)} : {})});
+    out.push({format: d.format as SubtitleKind, ...(path(d.url) ? {url: path(d.url)} : {}), ...(path(d.fontsUrl) ? {fontsUrl: path(d.fontsUrl)} : {}), ...(path(d.linesUrl) ? {linesUrl: path(d.linesUrl)} : {})});
   }
   return out;
 }
@@ -81,7 +81,7 @@ function chosenOriginal(plan: SubtitlePlan | null | undefined, v1: Session | und
   if (shown && shown.delivery === 'device') {
     const files = v1!.presentation.subtitles.filter(s => s.trackId === shown.trackId && kindOfFormat(s.format) !== 'text');
     const file = preference.map(kind => files.find(s => kindOfFormat(s.format) === kind)).find(Boolean);
-    if (file && path(file.url)) return {format: kindOfFormat(file.format), url: file.url, ...(path(file.fontsUrl) ? {fontsUrl: file.fontsUrl} : {})};
+    if (file && path(file.url)) return {format: kindOfFormat(file.format), url: file.url, ...(path(file.fontsUrl) ? {fontsUrl: file.fontsUrl} : {}), ...(path(file.linesUrl) ? {linesUrl: file.linesUrl} : {})};
   }
   if (!plan || plan.mode !== 'track' || !plan.selected) return undefined;
   const deliveries = deliveriesOf(plan.selected).filter(d => !!d.url);
@@ -105,6 +105,12 @@ export function requiredSubtitleRendering(plan: SubtitlePlan | null | undefined,
 export function fontsUrlOf(plan: SubtitlePlan | null | undefined, v1?: Session): string | undefined {
   const original = chosenOriginal(plan, v1);
   return original?.format === 'ass' ? original.fontsUrl : undefined;
+}
+
+/** Where the chosen image track's forced-line count is read (PGS, VobSub), when the server offers it. */
+export function linesUrlOf(plan: SubtitlePlan | null | undefined, v1?: Session): string | undefined {
+  const original = chosenOriginal(plan, v1);
+  return original?.format === 'pgs' || original?.format === 'vobsub' ? original.linesUrl : undefined;
 }
 
 /** A font list answer (`{fonts: [{name, url}]}`), kept only as addresses under the list's own. */

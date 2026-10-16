@@ -2,7 +2,8 @@
  * chapters and skip markers, and the file's own description for the choice of player. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks} from '../src/player/offline-extras.ts';
+import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks, offlineTrickplay} from '../src/player/offline-extras.ts';
+import {trickplayFrameAt} from '../../../packages/client-core/src/trickplay.ts';
 import {captionStyle, defaultCaptionStyle} from '../src/player/caption-style.ts';
 import {chooseEngine, localRuleFacts} from '../src/player/engine-choice.ts';
 
@@ -84,4 +85,20 @@ test('the caption style is the profile\'s size and background', () => {
   assert.equal(captionStyle('medium', 'translucent'), defaultCaptionStyle);
   assert.deepEqual(captionStyle('extra-large', 'none'), {scale: 1.6, background: 'none'});
   assert.deepEqual(captionStyle(undefined, 'something else'), defaultCaptionStyle);
+});
+
+test('N13: a download scrubs with its own previews and shows its chapter thumbnails', () => {
+  const dir = 'file:///downloads/prep/extras/';
+  const bundle = {chapters: [{index: 1, title: 'One', startSeconds: 0, endSeconds: 60}, {index: 2, title: 'Two', startSeconds: 60, endSeconds: 120}],
+    trickplay: {id: 'set', tileWidth: 320, tileHeight: 180, columns: 10, rows: 10, intervalSeconds: 10, frameCount: 150, durationSeconds: 1500, sourceOffsetSeconds: 0, thumbnails: {path: 'trickplay/set/thumbnails.vtt', contentType: 'text/vtt'}, tiles: [{path: 'a/b', contentType: ''}, {path: 'a/c', contentType: ''}]}};
+  const extras = {bundle, subtitles: [], backdropUrl: '', trickplayTiles: [dir + 'trickplay-0', dir + 'trickplay-1'], chapterImages: {2: dir + 'chapter-2'}} as never;
+  const set = offlineTrickplay(extras);
+  assert.ok(set);
+  assert.equal(trickplayFrameAt(set!, 1005)?.tileUrl, dir + 'trickplay-1');
+  assert.equal(trickplayFrameAt(set!, 5)?.tileUrl, dir + 'trickplay-0');
+  const chapters = offlineChapters(extras);
+  assert.equal(chapters[0]?.thumbnail, undefined);
+  assert.equal(chapters[1]?.thumbnail, dir + 'chapter-2');
+  // Sheets missing on the device: no previews rather than broken ones.
+  assert.equal(offlineTrickplay({...(extras as object), trickplayTiles: [dir + 'trickplay-0']} as never), null);
 });

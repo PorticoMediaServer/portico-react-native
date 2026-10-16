@@ -1,3 +1,4 @@
+import {announcePinsChanged} from '../../app/pins';
 import React, {useCallback, useMemo, useState} from 'react';
 import {View, type LayoutChangeEvent} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
@@ -6,6 +7,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {PlaylistOccurrence, SavedEntry} from '../../../../../packages/client-core/src/saved';
 import {captionFor, formatDuration, iconFor, progressFor, shapeFor, useArtwork} from '../../app/content';
 import {say} from '../../app/errors';
+import {useQuietRefresh} from '../../app/quiet-refresh';
 import {useI18n} from '../../app/i18n';
 import {useOpenEntry} from '../../app/open';
 import {useInvoker} from '../../app/playback-events';
@@ -58,6 +60,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const open = useOpenEntry();
   const {play, invoker} = usePlayList();
   const {snapshot, refresh, retry, next, mutate, loadOrder} = usePlaylist(playlistId);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
   const playlist = snapshot.playlist;
   const sections = useMemo(() => snapshot.projection?.sections ?? [], [snapshot.projection]);
   const page = useMemo(() => sections.flatMap(s => s.entries).filter(isOccurrence), [sections]);
@@ -88,11 +92,15 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   // otherwise the playlist plays whole, in its own order.
   const listed = group.engaged ? sorted.snapshot.entries : media;
   const sequenceOf = (shuffle: boolean) => groupSequence(group, {shuffle}) ?? sequenceContainer('playlist', playlistId, {shuffle});
-  const secondary: HeroAction[] = listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle', label: i18n.t('title.shuffle'), onPress: () => play(listed, sequenceOf(true))}] : [];
   // M32 (web parity): playlist management the server offers — windowed
   // reorder and remove — through the service's intents. A failure is
   // presented, never thrown at the page.
   const can = (action: string) => !!playlist?.actions.includes(action);
+  const secondary: HeroAction[] = [
+    ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => play(listed, sequenceOf(true))}] : []),
+    // Pinned, a playlist sits in the rail (on a phone, at the top of Saved).
+    ...(playlist && can('pin') ? [{icon: playlist.pinned ? 'bookmarkFilled' as const : 'bookmark' as const, label: i18n.t(playlist.pinned ? 'pins.unpin' : 'pins.pin'), onPress: () => void mutate({action: 'pin', pinned: !playlist.pinned}).then(announcePinsChanged, () => {})}] : []),
+  ];
   const [rowMenu, setRowMenu] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const change = useCallback(async (work: () => Promise<unknown>) => {
@@ -207,7 +215,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
               <StateView icon="error" title={i18n.t('error.title.load', {subject: 'playlist'})} message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
             ) : snapshot.phase === 'error' ? (
               <Notice tone="error" message={say(snapshot.error, 'playlist', 'load')} action={i18n.t('title.retry')} onAction={retry} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
-            ) : snapshot.phase === 'refresh-required' ? (
+            ) : changedStuck ? (
               <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'playlist', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
             ) : null}
             {snapshot.phase === 'loading' && !sections.length ? <RowsSkeleton /> : null}
@@ -237,7 +245,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const artwork = useArtwork();
   const open = useOpenEntry();
   const {play, invoker} = usePlayList();
-  const {snapshot, refresh, next, mutate} = useSavedResource(resourceId);
+  const {snapshot, refresh, next, mutate, outcome} = useSavedResource(resourceId);
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width), []);
   const gridWidth = (width || window.width - metrics.railWidth) - space.page * 2;
@@ -269,6 +277,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const orderedPage = useMemo(() => snapshot.entries.flatMap(e => (e.media ? [{id: e.id, media: e.media}] : [])), [snapshot.entries]);
   const ordered = useAppendedPages(`${resourceId}:order`, snapshot.cursor, orderedPage, entryKey);
   const [reordering, setReordering] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const canReorder = !isTV && collection && !!resource?.actions.includes('reorder') && !group.engaged && ordered.length > 1;
   const arranging = reordering && canReorder;
   const moveEntry = async (from: number, to: number) => {
@@ -278,11 +287,33 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const secondary: HeroAction[] = [
     ...(listed.filter(m => m.playback).length > 1 ? [{icon: 'shuffle' as const, label: i18n.t('title.shuffle'), onPress: () => start(true)}] : []),
     ...(canReorder ? [{icon: arranging ? 'check' as const : 'list' as const, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
+    // Pinned, a collection or saved view sits in the rail (on a phone, at the top of Saved).
+    ...(resource?.actions.includes('pin') ? [{icon: resource.pinned ? 'bookmarkFilled' as const : 'bookmark' as const, label: i18n.t(resource.pinned ? 'pins.unpin' : 'pins.pin'), onPress: () => void mutate({action: 'pin', pinned: !resource.pinned}).then(done => { if (done) announcePinsChanged(); }, () => {})}] : []),
   ];
+  // Removing a title from a personal collection (its owner or an editor), with the server's Undo:
+  // the same entry goes back in the same place while the server offers it.
+  const editable = collection && !!resource?.actions.includes('entries');
+  const entryOf = useMemo(() => new Map(ordered.map(e => [e.media.id, e.id])), [ordered]);
+  const [entryMenu, setEntryMenu] = useState<ContentEntry | null>(null);
+  const removeEntry = async (entryId: string, title: string) => {
+    if (!await mutate({action: 'entries', removeEntryIds: [entryId]})) {
+      showToast({message: say(outcome().error ?? 'stale', 'saved', 'save'), icon: 'warning'});
+      return;
+    }
+    const undo = outcome().undo;
+    if (undo) showToast({message: i18n.t('saved.removal.fromCollection', {title}), action: {label: i18n.t('action.undo'), onPress: () => void mutate({action: 'entries', undoToken: undo.token}).then(ok => { if (!ok) showToast({message: i18n.t('saved.removal.undoFailed', {title}), icon: 'warning'}); })}});
+  };
+  const entryItems: MenuItem[] = [{id: 'open', label: i18n.t('web.saved.goToItem')}, {id: 'remove', label: i18n.t('web.saved.removeFromCollection'), destructive: true, section: ''}];
+  const onEntryMenu = (m: ContentEntry, id: string) => {
+    setEntryMenu(null);
+    const entryId = entryOf.get(m.id);
+    if (id === 'open') open(m);
+    else if (id === 'remove' && entryId) void removeEntry(entryId, m.title);
+  };
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
-  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => open(m, 'more')} />, [artwork, open]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => (editable && entryOf.has(m.id) ? setEntryMenu(m) : open(m, 'more'))} />, [artwork, open, editable, entryOf]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
@@ -291,6 +322,10 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
         data={group.engaged || arranging ? noRows : rows}
         keyExtractor={rowKey}
         renderItem={renderRow}
+        // Cards read whether their titles can be removed here.
+        extraData={editable}
+        // A row held by its handle moves; the page stays where it is.
+        scrollEnabled={!dragging}
         contentStyle={{paddingTop: 0}}
         refreshControl={pull}
         onScroll={onScroll}
@@ -318,9 +353,10 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
             {media.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
+        ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} onDragging={setDragging} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
+      {entryMenu ? <Menu open onClose={() => setEntryMenu(null)} title={entryMenu.title} items={entryItems} onSelect={id => onEntryMenu(entryMenu, id)} /> : null}
     </View>
   );
 }

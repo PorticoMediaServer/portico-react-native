@@ -33,9 +33,9 @@ export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server 
   useEffect(() => { offlineDownloads.open().catch(() => setError(i18n.t('downloads.openFailed'))); }, [i18n]);
   const attempt = (work: Promise<unknown>) => { setError(''); work.catch(e => setError(say(e, 'downloads', 'action'))); };
   // OS-07: a download plays in Portico's own player, in the shell and from the launch flow alike
-  // (both mount it). The system player is only what is left where no player is mounted at all.
+  // (both mount it); there is no other offline player.
   const {playLocal} = usePlayerActions();
-  const play = (entry: OfflineEntry) => (playLocal ? playLocal(entry) : offlineDownloads.play(entry));
+  const play = (entry: OfflineEntry) => (playLocal ? playLocal(entry) : Promise.reject(new Error(i18n.t('downloads.offline.notPlayableHere'))));
   const press = (entry: OfflineEntry) => {
     if (entry.state === 'ready' && !offlineDownloads.playable(entry)) attempt(play(entry));
     else setChosen(entry);

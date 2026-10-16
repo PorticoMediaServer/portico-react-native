@@ -8,6 +8,7 @@ import {useSession} from '../../app/session';
 import {Button, Field, useTheme, type FieldHandle} from '../../ui';
 import {AuthFrame} from './AuthFrame';
 import {PlainHttpNote} from './PlainHttpNote';
+import {CertificateQuestion} from './CertificateQuestion';
 import {QuickConnect} from './QuickConnect';
 import {directStepAfter, firstDirectStep, type DirectStep} from './sign-in-steps';
 
@@ -92,6 +93,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
     return (
       <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
         {address}
+        <CertificateQuestion origin={direct.origin} shown={!!(connectError || session.error)} connectionFailed={!!connectError} onTrusted={() => { setConnectError(''); session.clearError(); void connect(); }} />
         {/* A sign-in that ended reopens with the address filled in: Continue is the one press. */}
         <Button variant="primary" size="lg" label={i18n.t('action.continue')} fullWidth loading={connecting} disabled={!direct.origin.trim()} hasTVPreferredFocus={prefilled} onPress={() => void connect()} />
         <Button variant="ghost" label={i18n.t('quickConnect.usePassword')} fullWidth onPress={() => go('usePassword')} />
@@ -103,6 +105,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
       {address}
       <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
       <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={setPassword} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
+      <CertificateQuestion origin={direct.origin} shown={!!session.error} onTrusted={() => { session.clearError(); submit(); }} />
       <Button variant="primary" size="lg" label={i18n.t('auth.signIn')} fullWidth loading={session.busy} disabled={!ready} onPress={submit} />
       <PlainHttpNote address={settled} />
     </AuthFrame>

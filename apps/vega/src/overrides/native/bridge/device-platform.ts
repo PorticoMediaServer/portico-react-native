@@ -13,7 +13,7 @@ export type {DevicePlatform};
 export const isTablet: boolean = false;
 
 /** The platform word servers and the Portico Account record for this device: `vega`. */
-export const devicePlatform = platformId as DevicePlatform;
+export const devicePlatform: DevicePlatform = platformId;
 export const installationPlatform: DevicePlatform | 'ipados' = devicePlatform;
 
 /** The capability document here is the Vega one (`bridge/capability-profile.ts`), not Android's. */
@@ -25,9 +25,12 @@ export const deviceModelName: string = deviceKindName;
 /** The device noun in copy: "this Fire TV". */
 export const deviceNoun: MessageId = 'device.noun.fireTV';
 
-/** "Play on" is asked as for any Fire TV: a television plays what it is sent and sends nothing on. */
-export const playOnPlatform: DestinationPlatform = 'firetv';
+/** "Play on" is asked as for any television: it plays what it is sent and sends nothing on. */
+export const playOnPlatform: DestinationPlatform = platformId;
 
 /** No AirPlay and no Picture in Picture on this device. */
 export const hasAirPlay: boolean = false;
 export const hasPictureInPicture: boolean = false;
+
+/** Vega OS does not say what the TV shows or plays: the viewer does, in Settings (HDR, surround). */
+export const declaresOutputs: boolean = true;

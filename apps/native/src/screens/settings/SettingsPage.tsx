@@ -27,6 +27,7 @@ import {SignOutConfirm, WebHandoff} from '../SettingsPages';
 import {LanguageListPicker} from './LanguageListPicker';
 import {ResetRecommendationsRow} from './ResetRecommendations';
 import {AccessTokensPanel} from '../server/Integrations';
+import {RemoteControlsPanel} from './RemoteControls';
 
 /** Android's runtime: the Layout setting this process started with, and the way to change it (B-19.10). */
 const layoutRuntime = NativeModules.PorticoRuntime as undefined | {layout?: unknown; setLayout?: (choice: string) => Promise<void>};
@@ -34,6 +35,7 @@ import {playerSettingsSupport} from '../../bridge/native-listening-kinds';
 import {mpvAvailable} from '../../bridge/player-engines';
 import {parseEngineSetting} from '../../player/engine-choice';
 import {engineSettingStore} from '../../player/engine-setting-store';
+import {declaresOutputs} from '../../bridge/device-platform';
 
 /**
  * The Settings structure for this viewer on this device (`settings-structure.ts`): the pages,
@@ -76,6 +78,8 @@ export function useSettingsStructure(): SettingsStructure {
         playerEngines: mpvAvailable,
         audioPassthrough: probed?.audioPassthrough === true,
         ...(probed ? {hdr: probed.hdr} : {}),
+        // Vega cannot detect what the TV shows and plays: the viewer says (HDR, surround).
+        declaredOutputs: declaresOutputs,
         // A member makes personal access tokens for their own scripts; the owner makes API keys on the Server pages.
         accessTokens: signedIn && !manages,
         // Android lays itself out for a television or for touch as the person says (B-19.10).
@@ -87,7 +91,7 @@ export function useSettingsStructure(): SettingsStructure {
 }
 
 /** Panels that are a group of their own; the rest are rows inside their section's group. */
-const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote', 'accessTokens']);
+const GROUP_PANELS: ReadonlySet<SettingsCustomId> = new Set(['identity', 'profiles', 'devices', 'porticoAccount', 'about', 'privacyNote', 'accessTokens', 'remoteControls']);
 
 /** One page of Settings: its sections as row groups. Personal rows save on change. */
 export function SettingsPageBody({page, entry}: {page: StructurePage; /** TV: the first row takes focus when the page opens. */ entry?: boolean}) {
@@ -188,7 +192,8 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
     value = row.id === 'reduceMotion' ? device.preferences.reduceMotion : row.id === 'textSize' ? device.preferences.textSize : row.id === 'receiveFromDevices' ? device.preferences.receiveFromDevices
       // The player and the playback fixes: kept by this device, and sent to the server with what this device can play.
       : row.id === 'layout' ? (typeof layoutRuntime?.layout === 'string' ? layoutRuntime.layout : undefined)
-      : row.id === 'playerEngine' ? device.preferences.playerEngine : row.id === 'forceStereo' ? device.preferences.forceStereo : row.id === 'disablePassthrough' ? device.preferences.disablePassthrough : row.id === 'disableHdr' ? device.preferences.disableHdr : undefined;
+      : row.id === 'playerEngine' ? device.preferences.playerEngine : row.id === 'forceStereo' ? device.preferences.forceStereo : row.id === 'disablePassthrough' ? device.preferences.disablePassthrough : row.id === 'disableHdr' ? device.preferences.disableHdr
+      : row.id === 'tvHdr' ? device.preferences.tvHdr : row.id === 'tvSurround' ? device.preferences.tvSurround : undefined;
     write = next => {
       if (row.id === 'reduceMotion') device.update({reduceMotion: next === true});
       else if (row.id === 'textSize') device.update({textSize: next === 'large' ? 'large' : 'standard'});
@@ -199,6 +204,8 @@ function RowView({row, save, entry}: {row: Exclude<StructureRow, {kind: 'custom'
       else if (row.id === 'forceStereo') device.update({forceStereo: next === true});
       else if (row.id === 'disablePassthrough') device.update({disablePassthrough: next === true});
       else if (row.id === 'disableHdr') device.update({disableHdr: next === true});
+      else if (row.id === 'tvHdr') device.update({tvHdr: next === true});
+      else if (row.id === 'tvSurround') device.update({tvSurround: next === true});
     };
   }
   if (value === undefined) return null;
@@ -236,6 +243,7 @@ function Panel({id, entry}: {id: SettingsCustomId; entry?: boolean}) {
     case 'about': return <About entry={entry} />;
     case 'privacyNote': return <PrivacyNote />;
     case 'accessTokens': return <AccessTokensPanel />;
+    case 'remoteControls': return <RemoteControlsPanel />;
     default: return null;
   }
 }

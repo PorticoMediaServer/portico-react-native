@@ -1,0 +1,225 @@
+#import "PorticoServerTrust.h"
+#import <CommonCrypto/CommonDigest.h>
+#import <Security/Security.h>
+#import <React/RCTHTTPRequestHandler.h>
+
+static NSString *const PorticoTrustGroup = @"group.tv.getportico.portico";
+static NSString *const PorticoTrustRecord = @"portico.certificates.v1";
+static const NSUInteger PorticoTrustMaxPins = 64, PorticoTrustMaxRefused = 32;
+
+static NSUserDefaults *PorticoTrustDefaults(void) {
+  return [[NSUserDefaults alloc] initWithSuiteName:PorticoTrustGroup] ?: NSUserDefaults.standardUserDefaults;
+}
+static BOOL PorticoTrustText(NSString *value, NSString *pattern) {
+  return [value isKindOfClass:NSString.class] && [value rangeOfString:pattern options:NSRegularExpressionSearch].location != NSNotFound;
+}
+static NSString *PorticoTrustKey(NSString *host, NSInteger port) {
+  if (![host isKindOfClass:NSString.class] || !host.length || port <= 0 || port > 65535) return nil;
+  NSString *bare = host;
+  if ([bare hasPrefix:@"["] && [bare hasSuffix:@"]"]) bare = [bare substringWithRange:NSMakeRange(1, bare.length - 2)];
+  return [NSString stringWithFormat:@"%@:%ld", bare.lowercaseString, (long)port];
+}
+static NSString *PorticoTrustFingerprint(SecTrustRef trust) {
+  CFArrayRef chain = SecTrustCopyCertificateChain(trust);
+  if (!chain) return nil;
+  NSString *result = nil;
+  if (CFArrayGetCount(chain) > 0) {
+    NSData *der = CFBridgingRelease(SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(chain, 0)));
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(der.bytes, (CC_LONG)der.length, digest);
+    NSString *base = [[NSData dataWithBytes:digest length:sizeof digest] base64EncodedStringWithOptions:0];
+    result = [[[base stringByReplacingOccurrencesOfString:@"+" withString:@"-"] stringByReplacingOccurrencesOfString:@"/" withString:@"_"] stringByReplacingOccurrencesOfString:@"=" withString:@""];
+  }
+  CFRelease(chain);
+  return result;
+}
+
+static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
+
+@interface PorticoTrustSessionDelegate : NSObject <NSURLSessionDelegate> @end
+@implementation PorticoTrustSessionDelegate
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+  [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
+  completionHandler(nil);
+}
+@end
+
+/** Trusts the system's authorities and, at one address, one exact certificate: the proof only. */
+@interface PorticoTrustProofDelegate : NSObject <NSURLSessionDataDelegate>
+@property(nonatomic, copy) NSString *key;
+@property(nonatomic, copy) NSString *fingerprint;
+@end
+@implementation PorticoTrustProofDelegate
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+  NSURLProtectionSpace *space = challenge.protectionSpace;
+  SecTrustRef trust = space.serverTrust;
+  if (![space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] || !trust) { completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
+  if (SecTrustEvaluateWithError(trust, NULL)) { completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
+  if ([PorticoTrustKey(space.host, space.port) isEqualToString:self.key] && [PorticoTrustFingerprint(trust) isEqualToString:self.fingerprint]) {
+    completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]);
+    return;
+  }
+  completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
+  completionHandler(nil);
+}
+@end
+
+@interface PorticoTrustLoaderDelegate : NSObject <AVAssetResourceLoaderDelegate> @end
+@implementation PorticoTrustLoaderDelegate
+// AVFoundation asks here when a media request meets a certificate the system does not trust.
+- (BOOL)resourceLoader:(AVAssetResourceLoader *)resourceLoader shouldWaitForResponseToAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge {
+  if (![challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) return NO;
+  __block BOOL answered = NO;
+  [PorticoServerTrust handleChallenge:challenge completion:^(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential) {
+    if (disposition == NSURLSessionAuthChallengeUseCredential && credential) {
+      [challenge.sender useCredential:credential forAuthenticationChallenge:challenge];
+      answered = YES;
+    }
+  }];
+  return answered;
+}
+@end
+
+@implementation PorticoServerTrust
+
++ (void)handleChallenge:(NSURLAuthenticationChallenge *)challenge completion:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completion {
+  NSURLProtectionSpace *space = challenge.protectionSpace;
+  SecTrustRef trust = space.serverTrust;
+  if (![space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] || !trust) { completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
+  // Trusted by the system for this name: exactly what happened before.
+  if (SecTrustEvaluateWithError(trust, NULL)) { completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
+  NSString *key = PorticoTrustKey(space.host, space.port), *fingerprint = PorticoTrustFingerprint(trust);
+  if (key && fingerprint) {
+    NSString *pinned = [self pinnedForKey:key][@"fingerprint"];
+    if ([pinned isEqualToString:fingerprint]) { completion(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]); return; }
+    @synchronized(self) {
+      if (!PorticoTrustRefused) PorticoTrustRefused = [NSMutableDictionary dictionary];
+      if (PorticoTrustRefused.count >= PorticoTrustMaxRefused && !PorticoTrustRefused[key]) [PorticoTrustRefused removeAllObjects];
+      PorticoTrustRefused[key] = fingerprint;
+    }
+  }
+  completion(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+}
+
++ (NSURLSession *)session {
+  static NSURLSession *session; static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    configuration.HTTPCookieStorage = nil; configuration.HTTPShouldSetCookies = NO; configuration.URLCache = nil; configuration.URLCredentialStorage = nil;
+    session = [NSURLSession sessionWithConfiguration:configuration delegate:[PorticoTrustSessionDelegate new] delegateQueue:nil];
+  });
+  return session;
+}
+
++ (id<AVAssetResourceLoaderDelegate>)resourceLoaderDelegate {
+  static PorticoTrustLoaderDelegate *delegate; static dispatch_once_t once;
+  dispatch_once(&once, ^{ delegate = [PorticoTrustLoaderDelegate new]; });
+  return delegate;
+}
+
++ (dispatch_queue_t)resourceLoaderQueue {
+  static dispatch_queue_t queue; static dispatch_once_t once;
+  dispatch_once(&once, ^{ queue = dispatch_queue_create("tv.getportico.media-trust", DISPATCH_QUEUE_SERIAL); });
+  return queue;
+}
+
++ (BOOL)isRefusal:(NSError *)error {
+  if (![error.domain isEqualToString:NSURLErrorDomain]) return NO;
+  switch (error.code) {
+    case NSURLErrorServerCertificateUntrusted: case NSURLErrorServerCertificateHasUnknownRoot:
+    case NSURLErrorServerCertificateHasBadDate: case NSURLErrorServerCertificateNotYetValid:
+    case NSURLErrorSecureConnectionFailed: return YES;
+    default: return NO;
+  }
+}
+
++ (NSString *)keyForOrigin:(NSString *)origin {
+  if (![origin isKindOfClass:NSString.class]) return nil;
+  NSURLComponents *url = [NSURLComponents componentsWithString:origin];
+  if (![url.scheme.lowercaseString isEqualToString:@"https"] || !url.host.length) return nil;
+  return PorticoTrustKey(url.host, url.port ? url.port.integerValue : 443);
+}
+
++ (NSString *)refusedAt:(NSString *)origin {
+  NSString *key = [self keyForOrigin:origin];
+  if (!key) return nil;
+  @synchronized(self) { return PorticoTrustRefused[key]; }
+}
+
++ (NSDictionary *)pinnedForKey:(NSString *)key {
+  NSString *line = [[PorticoTrustDefaults() dictionaryForKey:PorticoTrustRecord][key] isKindOfClass:NSString.class] ? [PorticoTrustDefaults() dictionaryForKey:PorticoTrustRecord][key] : nil;
+  NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
+  if (parts.count != 2 || !PorticoTrustText(parts[0], @"^[A-Za-z0-9_-]{43}$")) return nil;
+  return @{@"fingerprint": parts[0], @"serverId": parts[1]};
+}
+
++ (NSDictionary *)pinnedAt:(NSString *)origin {
+  NSString *key = [self keyForOrigin:origin];
+  return key ? [self pinnedForKey:key] : nil;
+}
+
++ (BOOL)pin:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId {
+  NSString *key = [self keyForOrigin:origin];
+  if (!key || !PorticoTrustText(fingerprint, @"^[A-Za-z0-9_-]{43}$") || ![serverId isKindOfClass:NSString.class] || (serverId.length && !PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$"))) return NO;
+  @synchronized(self) {
+    NSUserDefaults *defaults = PorticoTrustDefaults();
+    NSMutableDictionary *pins = [[defaults dictionaryForKey:PorticoTrustRecord] mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (!pins[key] && pins.count >= PorticoTrustMaxPins) return NO;
+    pins[key] = [NSString stringWithFormat:@"%@ %@", fingerprint, serverId];
+    [defaults setObject:pins forKey:PorticoTrustRecord];
+    [PorticoTrustRefused removeObjectForKey:key];
+  }
+  return YES;
+}
+
++ (void)forget:(NSString *)origin {
+  NSString *key = [self keyForOrigin:origin];
+  if (!key) return;
+  @synchronized(self) {
+    NSUserDefaults *defaults = PorticoTrustDefaults();
+    NSMutableDictionary *pins = [[defaults dictionaryForKey:PorticoTrustRecord] mutableCopy];
+    if (!pins[key]) return;
+    [pins removeObjectForKey:key];
+    [defaults setObject:pins forKey:PorticoTrustRecord];
+  }
+}
+
++ (void)prove:(NSString *)origin fingerprint:(NSString *)fingerprint body:(NSString *)body completion:(void (^)(NSDictionary *))completion {
+  NSString *key = [self keyForOrigin:origin];
+  NSURL *url = key ? [NSURL URLWithString:[[origin stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"/"]] stringByAppendingString:@"/v1/networking/identity-proof"]] : nil;
+  if (!url || !PorticoTrustText(fingerprint, @"^[A-Za-z0-9_-]{43}$") || ![body isKindOfClass:NSString.class] || body.length > 4096) { completion(nil); return; }
+  PorticoTrustProofDelegate *delegate = [PorticoTrustProofDelegate new];
+  delegate.key = key; delegate.fingerprint = fingerprint;
+  NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+  configuration.HTTPCookieStorage = nil; configuration.HTTPShouldSetCookies = NO; configuration.URLCache = nil; configuration.URLCredentialStorage = nil;
+  configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 5;
+  NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration delegate:delegate delegateQueue:nil];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+  request.HTTPMethod = @"POST"; request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"]; [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+  [[session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    [session finishTasksAndInvalidate];
+    NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
+    NSString *text = data.length <= 8192 ? [[NSString alloc] initWithData:data ?: [NSData data] encoding:NSUTF8StringEncoding] : nil;
+    if (error || !http || !text || (http.statusCode >= 300 && http.statusCode < 400)) { completion(nil); return; }
+    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+    for (id name in http.allHeaderFields) headers[[name description]] = [http.allHeaderFields[name] description];
+    completion(@{@"status": @(http.statusCode), @"headers": headers, @"body": text});
+  }] resume];
+}
+
+@end
+
+/// React Native's own HTTP handler (images, and any request made through `fetch`) has no answer
+/// for a trust challenge of its own; it gets this one, so a poster loads from a server whose
+/// certificate the app pinned exactly as an API request does.
+@interface RCTHTTPRequestHandler (PorticoServerTrust) <NSURLSessionDelegate> @end
+@implementation RCTHTTPRequestHandler (PorticoServerTrust)
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+  [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
+}
+@end

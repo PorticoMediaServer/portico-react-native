@@ -1,4 +1,5 @@
 import type {SegmentMarkerSet} from '../../../../packages/client-core/src/segment-markers';
+import type {TrickplaySet} from '../../../../packages/client-core/src/trickplay';
 import type {OfflineExtras} from '../bridge/offline-downloads';
 import {isLocalSource} from '../bridge/local-playback';
 import type {CaptionStyle} from './caption-style';
@@ -26,9 +27,34 @@ export function offlineSubtitleTracks(extras: OfflineExtras | undefined, drawabl
   return Object.freeze(out);
 }
 
-/** A download's chapters, as the player's chapter list. */
+/** A download's chapters, as the player's chapter list, with the thumbnails that came with it. */
 export function offlineChapters(extras: OfflineExtras | undefined): readonly PlayerChapter[] {
-  return chaptersOf((extras?.bundle as {chapters?: unknown} | undefined)?.chapters);
+  const raw = (extras?.bundle as {chapters?: unknown} | undefined)?.chapters;
+  const chapters = chaptersOf(raw);
+  const images = extras?.chapterImages;
+  if (!images || !Array.isArray(raw)) return chapters;
+  // Matched by start: `chaptersOf` keeps each chapter's start and orders by it.
+  const byStart = new Map<number, string>();
+  for (const entry of raw.slice(0, 500)) {
+    const c = entry as {index?: unknown; startSeconds?: unknown} | null;
+    const image = typeof c?.index === 'number' ? images[c.index] : undefined;
+    if (image && isLocalSource(image) && typeof c?.startSeconds === 'number') byStart.set(Math.round(c.startSeconds * 10), image);
+  }
+  return byStart.size ? chapters.map(c => { const image = byStart.get(Math.round(c.startSeconds * 10)); return image ? {...c, thumbnail: image} : c; }) : chapters;
+}
+
+/** A download's scrubbing previews, as the player's trickplay set: its sheets are files on this device. */
+export function offlineTrickplay(extras: OfflineExtras | undefined): TrickplaySet | null {
+  const set = extras?.bundle?.trickplay, tiles = extras?.trickplayTiles ?? [];
+  if (!set || !tiles.length || !tiles.every(isLocalSource)) return null;
+  const perSheet = set.columns * set.rows;
+  if (!(perSheet > 0) || tiles.length < Math.ceil(set.frameCount / perSheet) || !(set.intervalSeconds > 0)) return null;
+  return Object.freeze({
+    id: set.id, sourceId: 'download', sourceRevision: 'download', width: set.columns * set.tileWidth, height: set.rows * set.tileHeight,
+    tileWidth: set.tileWidth, tileHeight: set.tileHeight, columns: set.columns, rows: set.rows, intervalSeconds: set.intervalSeconds,
+    durationSeconds: set.durationSeconds, sourceOffsetSeconds: set.sourceOffsetSeconds, tileCount: tiles.length, frameCount: set.frameCount,
+    stale: false, revision: 'download', tilesUrl: '', thumbnailsUrl: '', tileUrls: Object.freeze([...tiles]),
+  });
 }
 
 /** The container of a download's file, as the server described it. */

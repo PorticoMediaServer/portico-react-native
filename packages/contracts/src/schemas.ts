@@ -845,6 +845,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -1004,6 +1009,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -1637,6 +1645,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -1796,6 +1809,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -5132,6 +5148,11 @@ export const schemas = {
                 ],
                 "type": "object"
               },
+              "nowMs": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
               "originMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -5291,6 +5312,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "format": {
+                  "type": "string"
+                },
+                "linesUrl": {
                   "type": "string"
                 },
                 "trackId": {
@@ -5865,6 +5889,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -6024,6 +6053,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -8581,6 +8613,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -8740,6 +8777,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -26638,6 +26678,21 @@ export const schemas = {
             "endSeconds": {
               "type": "number"
             },
+            "image": {
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "contentType"
+              ],
+              "type": "object"
+            },
             "index": {
               "maximum": 9007199254740991,
               "minimum": -9007199254740991,
@@ -26834,6 +26889,94 @@ export const schemas = {
           "onServer"
         ],
         "type": "object"
+      },
+      "trickplay": {
+        "properties": {
+          "columns": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "durationSeconds": {
+            "type": "number"
+          },
+          "frameCount": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intervalSeconds": {
+            "type": "number"
+          },
+          "rows": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "sourceOffsetSeconds": {
+            "type": "number"
+          },
+          "thumbnails": {
+            "properties": {
+              "contentType": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "contentType"
+            ],
+            "type": "object"
+          },
+          "tileHeight": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "tileWidth": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "tiles": {
+            "items": {
+              "properties": {
+                "contentType": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "contentType"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "tileWidth",
+          "tileHeight",
+          "columns",
+          "rows",
+          "intervalSeconds",
+          "frameCount",
+          "durationSeconds",
+          "sourceOffsetSeconds",
+          "thumbnails",
+          "tiles"
+        ],
+        "type": "object"
       }
     },
     "required": [
@@ -26851,6 +26994,15 @@ export const schemas = {
       "subtitles"
     ],
     "type": "object"
+  },
+  "GetDownloadChapterImageRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetDownloadChapterImageResponse": {
+    "format": "binary",
+    "type": "string"
   },
   "GetDownloadOptionsRequest": {
     "properties": {},
@@ -27586,6 +27738,24 @@ export const schemas = {
     "type": "object"
   },
   "GetDownloadSubtitleResponse": {
+    "format": "binary",
+    "type": "string"
+  },
+  "GetDownloadTrickplayThumbnailsRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetDownloadTrickplayThumbnailsResponse": {
+    "format": "binary",
+    "type": "string"
+  },
+  "GetDownloadTrickplayTileRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetDownloadTrickplayTileResponse": {
     "format": "binary",
     "type": "string"
   },
@@ -39669,6 +39839,9 @@ export const schemas = {
                       "format": {
                         "type": "string"
                       },
+                      "linesUrl": {
+                        "type": "string"
+                      },
                       "url": {
                         "type": "string"
                       }
@@ -39793,6 +39966,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "url": {
@@ -56033,6 +56209,9 @@ export const schemas = {
                         "format": {
                           "type": "string"
                         },
+                        "linesUrl": {
+                          "type": "string"
+                        },
                         "url": {
                           "type": "string"
                         }
@@ -56486,6 +56665,11 @@ export const schemas = {
                 ],
                 "type": "object"
               },
+              "nowMs": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
               "originMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -56645,6 +56829,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "format": {
+                  "type": "string"
+                },
+                "linesUrl": {
                   "type": "string"
                 },
                 "trackId": {
@@ -60770,11 +60957,21 @@ export const schemas = {
             },
             "kind": {
               "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pinRevision": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
             }
           },
           "required": [
             "kind",
-            "id"
+            "id",
+            "name",
+            "pinRevision"
           ],
           "type": "object"
         },
@@ -67220,6 +67417,15 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "GetSubtitleFontsCjkRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetSubtitleFontsCjkResponse": {
+    "format": "binary",
+    "type": "string"
+  },
   "GetSuggestionsRequest": {
     "properties": {},
     "required": [],
@@ -68140,6 +68346,9 @@ export const schemas = {
                   "format": {
                     "type": "string"
                   },
+                  "linesUrl": {
+                    "type": "string"
+                  },
                   "url": {
                     "type": "string"
                   }
@@ -68264,6 +68473,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "format": {
+                  "type": "string"
+                },
+                "linesUrl": {
                   "type": "string"
                 },
                 "url": {
@@ -68504,6 +68716,9 @@ export const schemas = {
                   "format": {
                     "type": "string"
                   },
+                  "linesUrl": {
+                    "type": "string"
+                  },
                   "url": {
                     "type": "string"
                   }
@@ -68698,6 +68913,30 @@ export const schemas = {
     },
     "required": [
       "fonts"
+    ],
+    "type": "object"
+  },
+  "GetV1MediaSubtitlesGrantResourceRevisionLinesRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetV1MediaSubtitlesGrantResourceRevisionLinesResponse": {
+    "properties": {
+      "forced": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "total": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "forced",
+      "total"
     ],
     "type": "object"
   },
@@ -71295,6 +71534,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -71454,6 +71698,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -91315,6 +91562,9 @@ export const schemas = {
                   "format": {
                     "type": "string"
                   },
+                  "linesUrl": {
+                    "type": "string"
+                  },
                   "url": {
                     "type": "string"
                   }
@@ -92020,6 +92270,11 @@ export const schemas = {
                 ],
                 "type": "object"
               },
+              "nowMs": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
               "originMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -92179,6 +92434,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "format": {
+                  "type": "string"
+                },
+                "linesUrl": {
                   "type": "string"
                 },
                 "trackId": {
@@ -100693,6 +100951,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -100852,6 +101115,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {
@@ -111961,6 +112227,11 @@ export const schemas = {
                 ],
                 "type": "object"
               },
+              "nowMs": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
               "originMs": {
                 "maximum": 9007199254740991,
                 "minimum": -9007199254740991,
@@ -112120,6 +112391,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "format": {
+                  "type": "string"
+                },
+                "linesUrl": {
                   "type": "string"
                 },
                 "trackId": {
@@ -112931,6 +113205,11 @@ export const schemas = {
                     ],
                     "type": "object"
                   },
+                  "nowMs": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
                   "originMs": {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
@@ -113090,6 +113369,9 @@ export const schemas = {
                       "type": "string"
                     },
                     "format": {
+                      "type": "string"
+                    },
+                    "linesUrl": {
                       "type": "string"
                     },
                     "trackId": {

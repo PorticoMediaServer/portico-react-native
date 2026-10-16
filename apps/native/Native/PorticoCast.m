@@ -53,6 +53,8 @@ RCT_EXPORT_MODULE()
   [self sendEventWithName:@"PorticoCastSession" body:@{
     @"state": state,
     @"deviceName": session.device.friendlyName ?: @"",
+    // The SDK's own id for the television: two with one name keep separate pairing proofs.
+    @"deviceId": session.device.deviceID ?: @"",
     @"error": error ? @"cast_failed" : @"",
   }];
 }
@@ -111,7 +113,7 @@ RCT_REMAP_METHOD(current, currentWithResolver:(RCTPromiseResolveBlock)resolve re
   GCKCastSession *session = GCKCastContext.sharedInstance.sessionManager.currentCastSession;
   if (!session || session.connectionState != GCKConnectionStateConnected) { resolve([NSNull null]); return; }
   if (!_channel) [self attach:session];
-  resolve(@{@"deviceName": session.device.friendlyName ?: @""});
+  resolve(@{@"deviceName": session.device.friendlyName ?: @"", @"deviceId": session.device.deviceID ?: @""});
 }
 
 /** The SDK's own device chooser; the session events report the outcome. */

@@ -37,9 +37,12 @@ for (const [platform, source] of [['Android', android], ['Apple', apple]] as con
   });
 }
 
-test('the relays fetch with the app\'s own HTTP clients and refuse redirects', () => {
-  assert.match(androidRelay, /OkHttpClient\.Builder\(\)\.followRedirects\(false\)\.followSslRedirects\(false\)/);
-  assert.doesNotMatch(androidRelay, /hostnameVerifier|sslSocketFactory|X509TrustManager/, 'no custom trust on Android');
+test('the relays fetch with the app\'s own HTTP clients, its certificate checks, and refuse redirects', () => {
+  // The relay trusts exactly what every other Portico connection trusts: the system's authorities
+  // or the owner's certificate pinned for that address (PorticoServerTrust). It has no trust of its own.
+  assert.match(androidRelay, /OkHttpClient\.Builder\(\)\.porticoTrust\(\)\.followRedirects\(false\)\.followSslRedirects\(false\)/);
+  assert.doesNotMatch(androidRelay, /hostnameVerifier|sslSocketFactory|X509TrustManager/, 'no trust of its own on Android');
   assert.match(appleRelay, /URLSession/);
-  assert.doesNotMatch(appleRelay, /serverTrust|SecTrust|\.useCredential/, 'no custom trust on Apple');
+  assert.match(appleRelay, /PorticoServerTrust\.handle\(challenge, completion: completionHandler\)/);
+  assert.doesNotMatch(appleRelay, /SecTrust|\.useCredential|URLCredential\(trust/, 'no trust of its own on Apple');
 });

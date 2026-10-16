@@ -50,6 +50,7 @@ type Sheet =
   | {kind: 'rename'; profile: ManagedProfile}
   | {kind: 'pin'; profile: ManagedProfile}
   | {kind: 'removePin'; profile: ManagedProfile}
+  | {kind: 'forgotPin'; profile: ManagedProfile}
   | {kind: 'delete'; profile: ManagedProfile; playlists?: number; revision: number};
 
 /**
@@ -88,7 +89,7 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
     if (picked) await work(profile, () => identity.uploadAvatar(profile.id, bytesOf(picked.base64), picked.contentType));
   };
   const has = (id: string) => avatars.some(a => a.profileId === id);
-  // CON-12: one shared model decides the profile menu order. Forgot PIN has no handler here, so it is hidden.
+  // CON-12: one shared model decides the profile menu order.
   const items: MenuItem[] = chosen ? (() => {
     const model = profileActions(
       {hasPicture: has(chosen.id), pinRequired: chosen.pinRequired, primary: chosen.primary},
@@ -96,7 +97,7 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
     );
     const out: MenuItem[] = [];
     for (const action of model) {
-      if (action.id === 'forgotPin' || action.id === 'forgetDevices' && !client) continue;
+      if (action.id === 'forgetDevices' && !client) continue;
       if (action.id === 'picture' && !picker) continue;
       if (action.id === 'delete' && chosen.id === current) continue;
       if (action.id === 'changePin') out.push({id: 'pin', label: i18n.t(chosen.pinRequired ? 'profile.changePin' : 'profile.setPin'), icon: 'lock'});
@@ -113,6 +114,8 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
     else if (id === 'rename') setSheet({kind: 'rename', profile: p});
     else if (id === 'pin') setSheet({kind: 'pin', profile: p});
     else if (id === 'removePin') setSheet({kind: 'removePin', profile: p});
+    // A forgotten PIN is replaced by the signed-in account, as on the web.
+    else if (id === 'forgotPin') setSheet({kind: 'forgotPin', profile: p});
     else if (id === 'limits') onLimits(p);
     // The devices that remember this profile ask for its PIN again; nothing else changes.
     else if (id === 'forgetDevices' && client) void work(p, () => client.forgetTrust(p.id)).then(ok => { if (ok) showToast({message: i18n.t('profile.devicesForgotten', {name: p.name}), icon: 'check'}); });
@@ -144,6 +147,7 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
       {client && sheet?.kind === 'rename' ? <NameSheet title={i18n.t('profile.renameTitle', {name: sheet.profile.name})} confirm={i18n.t('action.save')} initial={sheet.profile.name} onClose={() => setSheet(undefined)}
         onSave={async name => { await client.edit(sheet.profile, {name}); done(); }} /> : null}
       {client && sheet?.kind === 'pin' ? <SetPinSheet profile={sheet.profile} onClose={() => setSheet(undefined)} onSave={async pin => { await client.edit(sheet.profile, {pin}); done(i18n.t('profile.pinSaved', {name: sheet.profile.name})); }} /> : null}
+      {sheet?.kind === 'forgotPin' ? <PINRecoverySheet profile={sheet.profile} identity={identity} onClose={() => done()} /> : null}
       {client && sheet?.kind === 'removePin' ? (
         <ConfirmSheet open onDismiss={() => setSheet(undefined)} title={i18n.t('profile.removePinConfirm.title', {name: sheet.profile.name})} consequence={i18n.t('profile.removePinConfirm.body', {name: sheet.profile.name})} confirmLabel={i18n.t('profile.removePin')}
           describeError={e => say(e, 'profiles', 'save')} onConfirm={async () => { await client.edit(sheet.profile, {pin: ''}); done(i18n.t('profile.pinRemoved', {name: sheet.profile.name})); }} />

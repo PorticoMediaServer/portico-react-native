@@ -25,13 +25,16 @@ export type Preferences = {
   forceStereo: boolean;
   disablePassthrough: boolean;
   disableHdr: boolean;
+  /** Vega: the viewer says the TV shows HDR and plays surround sound (the device cannot tell). */
+  tvHdr: boolean;
+  tvSurround: boolean;
   /** The profile's card size and backdrop setting as the server last gave them, so the app opens
    * at the size it will have, before the server has answered. The server's values are the setting. */
   cardScale: number;
   showBackdrops: boolean;
 };
 
-const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false, cardScale: 1, showBackdrops: true};
+const defaults: Preferences = {reduceMotion: false, autoplayNext: true, musicSpeed: 1, audiobookSpeed: 1, subtitleLanguage: '', textSize: 'standard', receiveFromDevices: true, playerEngine: defaultEngineSetting, forceStereo: false, disablePassthrough: false, disableHdr: false, tvHdr: false, tvSurround: false, cardScale: 1, showBackdrops: true};
 const key = 'preferences:v1';
 const store = new NativeQueueStore();
 
@@ -50,6 +53,8 @@ function parse(raw: unknown): Preferences {
     forceStereo: r.forceStereo === true,
     disablePassthrough: r.disablePassthrough === true,
     disableHdr: r.disableHdr === true,
+    tvHdr: r.tvHdr === true,
+    tvSurround: r.tvSurround === true,
     cardScale: r.cardScale === 0.82 || r.cardScale === 1.25 ? r.cardScale : 1,
     showBackdrops: r.showBackdrops !== false,
   };
@@ -85,7 +90,8 @@ export function PreferencesProvider({children}: {children: React.ReactNode}) {
   // capability publisher reads them here, and only once this device's saved values are known.
   useEffect(() => { if (loaded) engineSettingStore.set(preferences.playerEngine); }, [loaded, preferences.playerEngine]);
   useEffect(() => { if (loaded) engineSettingStore.setOverrides({forceStereo: preferences.forceStereo, disablePassthrough: preferences.disablePassthrough, disableHdr: preferences.disableHdr}); }, [loaded, preferences.forceStereo, preferences.disablePassthrough, preferences.disableHdr]);
-  // After the two above: what the publisher reads from here on is what this device saved.
+  useEffect(() => { if (loaded) engineSettingStore.setDeclared({hdr: preferences.tvHdr, surround: preferences.tvSurround}); }, [loaded, preferences.tvHdr, preferences.tvSurround]);
+  // After the three above: what the publisher reads from here on is what this device saved.
   useEffect(() => { if (loaded) engineSettingStore.markLoaded(); }, [loaded]);
   const value = useMemo(() => ({preferences, update, loaded}), [preferences, update, loaded]);
   return React.createElement(PreferencesContext.Provider, {value}, children);
