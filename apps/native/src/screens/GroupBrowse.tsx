@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {View} from 'react-native';
 import type {ContentSection} from '../../../../packages/client-core/src/library-content';
 import type {GroupBrowse} from '../app/group-browse';
@@ -7,7 +7,10 @@ import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {useSession} from '../app/session';
 import {Button, Notice, Ring, StateView, useTheme} from '../ui';
-import {BrowseBar} from './BrowseFilters';
+import {AlphabetRail, BrowseBar} from './BrowseFilters';
+import type {WindowedCollection, CollectionSnapshot} from '../../../../packages/client-core/src/collections/index';
+import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
+import type {WindowedGridHandle} from '../ui';
 import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
 import {groupSequence} from '../app/container-play';
@@ -69,4 +72,28 @@ export function GroupResults({group, results, libraryId, row, as = 'grid', plays
       {as === 'list' && snapshot.hasMore ? <View style={{alignItems: 'center', marginBottom: space.xl}}><Button variant="secondary" label={i18n.t('action.showMore')} loading={snapshot.loadingMore} onPress={() => void pages?.more()} /></View> : null}
     </>
   );
+}
+
+/** The width the handheld letter rail takes beside a grid. */
+export const LETTER_RAIL_WIDTH = 22;
+
+/**
+ * The letter rail on a group's sorted list (a list across libraries sorted by title): the server
+ * says where each letter starts, the rail scrolls the grid there. On a handheld it is a column
+ * beside the grid; on a television the one "Jump to" control, placed in the header.
+ */
+export function useGroupLetters(list: WindowedCollection<ContentEntry> | null | undefined, snapshot: Pick<CollectionSnapshot, 'positionIndex' | 'generation'> | undefined, sortField: string) {
+  const grid = useRef<WindowedGridHandle>(null);
+  const [letter, setLetter] = useState<string>();
+  useEffect(() => setLetter(undefined), [snapshot?.generation]);
+  const anchors = useMemo(() => Object.entries(snapshot?.positionIndex ?? {}).map(([key, index]) => ({key, index})).sort((a, b) => a.index - b.index), [snapshot?.positionIndex]);
+  const shown = anchors.length > 0 && sortField === 'title';
+  const jump = (key: string) => {
+    const index = list?.indexOfLetter(key) ?? anchors.find(a => a.key === key)?.index;
+    if (index === undefined) return;
+    setLetter(key);
+    grid.current?.scrollToIndex(index);
+  };
+  const rail = shown ? <AlphabetRail index={anchors} current={letter} sortField={sortField} onJump={jump} /> : null;
+  return {grid, shown, rail};
 }

@@ -19,7 +19,7 @@ import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
 import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
-import {groupSequence, sequenceContainer} from '../app/container-play';
+import {episodeGroupSequence, groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
@@ -195,10 +195,11 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     invoker.remember();
     // On Playback v1 the season plays as one server request from this episode; episodes the
     // viewer has sorted or filtered play on in the order shown, the whole list from the server's
-    // query. An episode group that isn't a season keeps the loaded list (the v1 selector can't
-    // name a range).
-    player.playSequence(queue, 0, startSeconds, sortedOn ? groupSequence(group) : sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group}));
-  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, sortedOn, group]);
+    // query. An episode group that isn't a season (a range, its specials, its whole list) plays
+    // whole as the server's query too, in the show's order.
+    const groupPlayed = data?.selected.group ? episodeGroupSequence(libraryId, data.show.id, data.selected.group) : undefined;
+    player.playSequence(queue, 0, startSeconds, sortedOn ? groupSequence(group) : groupPlayed ?? sequenceContainer('season', data?.selected.seasonId ?? undefined));
+  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, data?.show.id, libraryId, sortedOn, group]);
   const startOf = (e: ContentEntry) => (e.watched ? 0 : e.playback?.startSeconds ?? e.progressSeconds ?? 0);
   const handlers = useMemo(() => ({
     onPlay: (index: number) => {

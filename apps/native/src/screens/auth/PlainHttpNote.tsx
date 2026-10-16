@@ -1,7 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {Linking} from 'react-native';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src/index';
-import {SECURE_CONNECTION_HELP_URL} from '../../../../../packages/client-core/src/connection-note';
 import {addressSaysPlainHttp, serverSaysPlainHttp} from '../../app/plain-http-note';
 import {useI18n} from '../../app/i18n';
 import {nativeNetworkFetch} from '../../bridge/server-connections';
@@ -17,7 +15,7 @@ import {Text, useTheme} from '../../ui';
  */
 export function PlainHttpNote({api, address}: {api?: Pick<HttpLocalApi, 'connection'>; address?: string}) {
   const i18n = useI18n();
-  const {isTV, colors} = useTheme();
+  const {isTV} = useTheme();
   const [show, setShow] = useState(false);
   const typed = address?.trim() ?? '';
   useEffect(() => {
@@ -28,12 +26,6 @@ export function PlainHttpNote({api, address}: {api?: Pick<HttpLocalApi, 'connect
     return () => abort.abort();
   }, [api, typed]);
   if (!show) return null;
-  // Television has no browser to open: the sentence stands by itself there.
-  if (isTV) return <Text variant="caption" tone="tertiary" align="center">{i18n.t('web.connectivity.httpOutsideHome')}</Text>;
-  return (
-    <Text variant="caption" tone="tertiary">
-      {`${i18n.t('web.connectivity.httpOutsideHome')} `}
-      <Text accessibilityRole="link" suppressHighlighting onPress={() => void Linking.openURL(SECURE_CONNECTION_HELP_URL).catch(() => {})} style={{color: colors.accent, textDecorationLine: 'underline'}}>{i18n.t('signIn.plainHttp.link')}</Text>
-    </Text>
-  );
+  // Where the owner turns it on is said in the line itself: there is no help page to open.
+  return <Text variant="caption" tone="tertiary" {...(isTV ? {align: 'center' as const} : {})}>{`${i18n.t('web.connectivity.httpOutsideHome')} ${i18n.t('signIn.plainHttp.owner')}`}</Text>;
 }

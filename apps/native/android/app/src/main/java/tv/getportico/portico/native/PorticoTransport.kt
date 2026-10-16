@@ -28,7 +28,8 @@ import okio.BufferedSink
  * The bounded JSON control transport behind `PorticoRuntime`'s `queueRequest`, `networkRequest`
  * and `profileRequest`. These requests carry credentials and device proofs, so the transport
  * never follows a redirect, keeps no cookies and no cache, validates TLS against the system
- * trust store, and never accumulates an unbounded response.
+ * trust store or the owner's pinned certificate ([PorticoServerTrust]), and never accumulates an
+ * unbounded response.
  *
  * One shared client, so connections and TLS sessions are reused; at most 12 requests in flight
  * and 64 waiting in order, the same admission the Apple transport applies. The bounds are per
@@ -50,7 +51,7 @@ internal object PorticoTransport {
   private val deadlines = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "portico-request-deadlines").apply { isDaemon = true } }
 
   private val client: OkHttpClient by lazy {
-    OkHttpClient.Builder()
+    OkHttpClient.Builder().porticoTrust()
         .followRedirects(false)
         .followSslRedirects(false)
         .cache(null)
@@ -120,7 +121,9 @@ internal object PorticoTransport {
       entry.deadline = deadlines.schedule({ finish(entry, "The queue request could not be confirmed.", null) }, 15, TimeUnit.SECONDS)
     }
     call.enqueue(object : Callback {
-      override fun onFailure(call: Call, e: IOException) = finish(entry, "The queue request could not be confirmed.", null)
+      override fun onFailure(call: Call, e: IOException) =
+          if (PorticoServerTrust.refusedCertificate(e)) finish(entry, "The server's certificate is not trusted yet.", null, CERTIFICATE)
+          else finish(entry, "The queue request could not be confirmed.", null)
 
       override fun onResponse(call: Call, response: Response) {
         response.use { read(entry, it) }
@@ -176,7 +179,10 @@ internal object PorticoTransport {
     finish(entry, null, result)
   }
 
-  private fun finish(entry: Entry, failure: String?, result: Any?) {
+  /** The failure code for a refused certificate: the app can then ask the server to prove itself over it. */
+  const val CERTIFICATE = "certificate_untrusted"
+
+  private fun finish(entry: Entry, failure: String?, result: Any?, code: String = "queue_transport") {
     val promise: Promise?
     synchronized(entry) {
       if (entry.completed) return
@@ -189,7 +195,7 @@ internal object PorticoTransport {
     synchronized(entries) { if (entries[entry.identifier] === entry) entries.remove(entry.identifier) }
     if (failure != null) {
       entry.call?.cancel()
-      promise?.reject("queue_transport", failure)
+      promise?.reject(code, failure)
     } else {
       promise?.resolve(result)
     }

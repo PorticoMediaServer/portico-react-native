@@ -1415,7 +1415,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
     /** Media addresses are capability URLs; one client keeps their connections warm. */
     private val mediaClient: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false)
           .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     }
 

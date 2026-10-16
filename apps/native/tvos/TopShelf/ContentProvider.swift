@@ -27,6 +27,27 @@ private final class PorticoShelfRead: NSObject, URLSessionDataDelegate {
     let session = URLSession(configuration: config, delegate: reader, delegateQueue: queue)
     reader.session = session; reader.task = session.dataTask(with: request); reader.task?.resume()
   }
+  /// The owner's own certificate: the app pins it for an address once the server has proved its
+  /// identity over it (PorticoServerTrust, in the app group's defaults); the shelf honours the
+  /// same pins and nothing else beyond the system's trust.
+  func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                  completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+    let space = challenge.protectionSpace
+    guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust else {
+      completionHandler(.performDefaultHandling, nil); return
+    }
+    if SecTrustEvaluateWithError(trust, nil) { completionHandler(.performDefaultHandling, nil); return }
+    var host = space.host.lowercased()
+    if host.hasPrefix("[") && host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+    let pins = UserDefaults(suiteName: ContentProvider.group)?.dictionary(forKey: "portico.certificates.v1")
+    guard let line = pins?["\(host):\(space.port)"] as? String, let pinned = line.split(separator: " ").first,
+          let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first else {
+      completionHandler(.performDefaultHandling, nil); return
+    }
+    let digest = Data(SHA256.hash(data: SecCertificateCopyData(leaf) as Data)).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    if digest == pinned { completionHandler(.useCredential, URLCredential(trust: trust)) } else { completionHandler(.performDefaultHandling, nil) }
+  }
   func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                   newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
     completionHandler(nil)

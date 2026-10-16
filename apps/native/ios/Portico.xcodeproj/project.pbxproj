@@ -43,6 +43,7 @@
 		CA57000000000000000000A1 /* PorticoCast.m in Sources */ = {isa = PBXBuildFile; fileRef = CA57000000000000000000A2 /* PorticoCast.m */; };
 		E256F9529781C1DDA4567A7B /* PorticoDownloads.m in Sources */ = {isa = PBXBuildFile; fileRef = 4239B6B87389F0D28B2631FE /* PorticoDownloads.m */; };
 		A6B000000000000000000101 /* PorticoEngineClock.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000201 /* PorticoEngineClock.m */; };
+		A6E000000000000000000001 /* PorticoServerTrust.m in Sources */ = {isa = PBXBuildFile; fileRef = A6E000000000000000000002 /* PorticoServerTrust.m */; };
 		A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000202 /* PorticoMpvBridge.m */; };
 		A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000203 /* PorticoMpvCore.swift */; };
 		A6B000000000000000000104 /* PorticoMpvController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000204 /* PorticoMpvController.swift */; };
@@ -96,6 +97,7 @@
 		E7CB18FE2B76A8D86E32C0CE /* PorticoCapabilities.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = PorticoCapabilities.m; path = ../Native/PorticoCapabilities.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		A6B000000000000000000201 /* PorticoEngineClock.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoEngineClock.m; sourceTree = "<group>"; };
+		A6E000000000000000000002 /* PorticoServerTrust.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoServerTrust.m; sourceTree = "<group>"; };
 		A6B000000000000000000202 /* PorticoMpvBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoMpvBridge.m; sourceTree = "<group>"; };
 		A6B000000000000000000203 /* PorticoMpvCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvCore.swift; sourceTree = "<group>"; };
 		A6B000000000000000000204 /* PorticoMpvController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvController.swift; sourceTree = "<group>"; };
@@ -104,6 +106,7 @@
 		A6B000000000000000000207 /* PorticoMpvRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvRelay.swift; sourceTree = "<group>"; };
 		A6B000000000000000000208 /* PorticoMpvSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvSupport.swift; sourceTree = "<group>"; };
 		A6B000000000000000000209 /* PorticoEngineClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoEngineClock.h"; sourceTree = "<group>"; };
+		A6E000000000000000000003 /* PorticoServerTrust.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoServerTrust.h"; sourceTree = "<group>"; };
 		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -171,6 +174,7 @@
 				A12C00000000000000000003 /* PorticoAudioRender.h */,
 				A57D00000000000000000002 /* PorticoPlaybackModule.m */,
 				A6B000000000000000000201 /* PorticoEngineClock.m */,
+				A6E000000000000000000002 /* PorticoServerTrust.m */,
 				A6B000000000000000000202 /* PorticoMpvBridge.m */,
 				A6B000000000000000000203 /* PorticoMpvCore.swift */,
 				A6B000000000000000000204 /* PorticoMpvController.swift */,
@@ -179,6 +183,7 @@
 				A6B000000000000000000207 /* PorticoMpvRelay.swift */,
 				A6B000000000000000000208 /* PorticoMpvSupport.swift */,
 				A6B000000000000000000209 /* PorticoEngineClock.h */,
+				A6E000000000000000000003 /* PorticoServerTrust.h */,
 				A6B00000000000000000020A /* Portico-Bridging-Header.h */,
 				A59100000000000000000002 /* PorticoAccountAuth.m */,
 				A60900000000000000000002 /* PorticoNetwork.swift */,
@@ -386,6 +391,7 @@
 				A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */,
 				A57D00000000000000000001 /* PorticoPlaybackModule.m in Sources */,
 				A6B000000000000000000101 /* PorticoEngineClock.m in Sources */,
+				A6E000000000000000000001 /* PorticoServerTrust.m in Sources */,
 				A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */,
 				A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */,
 				A6B000000000000000000104 /* PorticoMpvController.swift in Sources */,

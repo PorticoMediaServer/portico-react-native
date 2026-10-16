@@ -377,7 +377,7 @@ internal class PorticoSubtitleSelection {
 
     /** A scoped media grant, not a bearer credential; a redirect is never followed. */
     private val client: OkHttpClient by lazy {
-      OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+      OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
           .callTimeout(20, TimeUnit.SECONDS).connectTimeout(15, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
     }
 

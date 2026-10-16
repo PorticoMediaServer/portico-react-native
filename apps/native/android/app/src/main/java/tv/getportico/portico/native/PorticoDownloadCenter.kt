@@ -85,7 +85,7 @@ internal object PorticoDownloadCenter {
   private lateinit var app: Context
   private var loaded = false
   private val http: OkHttpClient by lazy {
-    OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
+    OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
   }
   private val extraHttp: OkHttpClient by lazy { http.newBuilder().callTimeout(60, TimeUnit.SECONDS).build() }
