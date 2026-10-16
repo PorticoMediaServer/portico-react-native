@@ -50,7 +50,7 @@ import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFo
 import {automaticSteps} from './native-playback';
 import {noteEngineFact} from './failure-facts';
 import {captionStyle} from './caption-style';
-import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks} from './offline-extras';
+import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks, offlineTrickplay} from './offline-extras';
 
 /**
  * An operation id for a subtitle choice: an idempotency key, not a secret. Hermes has no `crypto`,
@@ -963,7 +963,8 @@ export function usePlayerEngine() {
     return () => { live = false; };
   }, [api, serverId, trickplayItem, trickplayLibrary]);
   const offeredSourceId = offersData?.current?.sourceId;
-  const trickplay = useMemo(() => (trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId]);
+  // A download scrubs with the previews that came with it.
+  const trickplay = useMemo(() => (localSession ? offlineTrickplay(offlineExtras) : trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId, localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const collapse = useCallback(() => setExpanded(false), []);
   const expand = useCallback(() => setExpanded(true), []);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);

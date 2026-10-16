@@ -68,6 +68,8 @@ export function useArtwork() {
   const cache = useMemo(() => new Map<string, ImageSourcePropType>(), [api, token, origin]);
   return useCallback(
     (path?: string): ImageSourcePropType | undefined => {
+      // A picture that came with a download is a file on this device: no server, no sign-in needed.
+      if (path && path.startsWith('file://')) return {uri: path};
       // Bug (c): before the session resolves the API points at a placeholder origin; an image
       // request then would go nowhere (and without a token). Show the placeholder art instead.
       if (!path || !token || !hasRealOrigin(api)) return undefined;
