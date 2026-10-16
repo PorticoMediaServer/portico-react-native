@@ -495,7 +495,7 @@ test('APP-01: a renewal brings the server’s position and whether the title is 
   device.seed({id: 'prep-a', itemId: 'item-1', meta: {receipt: rA}});
   const s = server()
     .route('/v1/downloads/receipt-keys', KEYS)
-    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: false, viewing: {positionSeconds: 200, watched: false}}]}));
+    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: false, viewing: {positionMs: 200000, watched: false}}]}));
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
@@ -520,7 +520,7 @@ test('APP-02: a renewal does not override a play this device has not sent yet', 
   const s = server()
     .route('/v1/downloads/receipt-keys', KEYS)
     .route('/v1/downloads/progress', () => { throw new Error('offline'); })
-    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: true, viewing: {positionSeconds: 50, watched: false}}]}));
+    .route('/v1/downloads/receipts/revalidate', () => ({results: [{receiptId: 'r-a', outcome: 'renewed', receipt: rA, code: '', titleOnServer: true, viewing: {positionMs: 50000, watched: false}}]}));
 
   offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
   await settle();
