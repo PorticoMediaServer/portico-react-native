@@ -1,15 +1,15 @@
 import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
 import {parseRatingSystems, type RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
-import {deleteMember, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, previewMemberDeletion, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberDeletionPreview, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
+import {deleteMember, parseAccessDevice, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, previewMemberDeletion, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberDeletionPreview, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
-import {accessListPath, clockText, memberOffLine, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {accessListPath, clockText, memberOffLine, readAccessRecord, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {VIEWING_HOURS_MAX, dayChoiceOf, daysOfChoice, newViewingHours, trustApplies, type DayChoice} from '../../../../../packages/client-core/src/server-admin/people-words';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {useLibrariesContext} from '../../app/libraries-context';
-import {findInPages, nextCursorOf, operationId, problem, saveRebased, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
+import {nextCursorOf, operationId, problem, saveRebased, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, Text, ToggleRow, useTheme} from '../../ui';
 import {InviteSheet} from '../InviteSheet';
 import {PickRow, TypedRow} from '../settings/ServerForms';
@@ -53,7 +53,7 @@ function AdministeredAccounts() {
   const [open, setOpen] = useState<string>();
   const libName = (id: string) => libraries.items.find(l => l.id === id)?.name ?? t('server.people.libraryGone');
   const selected = access.items?.find(a => a.accountId === open);
-  const readAccess = (id: string) => findInPages(page, a => a.accountId === id);
+  const readAccess = (id: string) => readAccessRecord(api, 'members', id, parseAccessMember);
   return (
     <>
       {access.error ? <Notice tone="error" message={access.error} action={t('action.tryAgain')} onAction={access.reload} /> : null}
@@ -87,7 +87,7 @@ function OwnerAccounts() {
   const changed = () => { read.reload(); access.reload(); };
   // The account, and its role record, as the server has them now: read again before a change is sent again.
   const readMember = async (id: string) => (await api.request<{items: DirectMember[]}>('/v1/direct/members')).items.find(m => m.id === id);
-  const readAccess = (id: string) => findInPages(async cursor => { const raw = await api.request(accessListPath('members', cursor)); return {items: rows(raw, parseAccessMember), nextCursor: nextCursorOf(raw)}; }, a => a.accountId === id);
+  const readAccess = (id: string) => readAccessRecord(api, 'members', id, parseAccessMember);
   return (
     <>
       {read.error ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
@@ -336,7 +336,7 @@ function AccountDevices({accountId}: {accountId: string}) {
   const [menu, setMenu] = useState<AccessDevice>();
   // A device that signed in again since the list was read has moved on: it is read again and the choice is sent again, unless it already is what was chosen.
   const trust = (d: AccessDevice, next: 'approved' | 'blocked') => void action.run(async () => {
-    await sendFresh(d, x => api.request(`/v1/admin/access/devices/${encodeURIComponent(x.id)}/trust`, 'PUT', {expectedRevision: x.revision, operationId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, trust: next})), trust: next}), () => findInPages(page, x => x.id === d.id), now => trustApplies(now, next));
+    await sendFresh(d, x => api.request(`/v1/admin/access/devices/${encodeURIComponent(x.id)}/trust`, 'PUT', {expectedRevision: x.revision, operationId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, trust: next})), trust: next}), () => readAccessRecord(api, 'devices', d.id, parseAccessDevice), now => trustApplies(now, next));
     opIds.release(); read.reload();
   });
   const waiting = read.items?.filter(d => d.trust === 'pending').length ?? 0;
@@ -381,7 +381,7 @@ export function InvitationsPanel() {
           const invitation = revoking;
           if (!invitation) return;
           // Used or already revoked in the meantime: there is nothing left to revoke.
-          await sendFresh(invitation, i => api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}), () => findInPages(page, i => i.id === invitation.id), now => (now.state === 'pending' ? true : 'done'));
+          await sendFresh(invitation, i => api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}), () => readAccessRecord(api, 'invitations', invitation.id, parseInvitation), now => (now.state === 'pending' ? true : 'done'));
           opIds.release(); setRevoking(undefined); read.reload();
         }} />
     </>
