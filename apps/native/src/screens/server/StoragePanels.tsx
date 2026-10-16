@@ -9,7 +9,8 @@ import type {LogSettings} from '../../../../../packages/client-core/src/server-a
 import {viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
-import {davCommandSucceeded, davConfiguration, mountCommandSucceeded, retentionRows, stableStorageOperationId, type WebDavDraft} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {davCommandSucceeded, davConfiguration, mountCommandSucceeded, retentionRows, sendMountCommand, stableStorageOperationId, type WebDavDraft} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {ALREADY_DONE} from '../../../../../packages/client-core/src/freshness-actions';
 import {createOperationIds, type LogsDraft, type MaintenanceDocument, type MaintenanceSettings} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../packages/i18n/src/index';
 import {useSession} from '../../app/session';
@@ -228,7 +229,10 @@ export function RemoteSourcesPanel() {
   const [menu, setMenu] = useState<{kind: 'mount'; mount: StorageMount} | {kind: 'webdav'; source: RemoteSource}>();
   const [remove, setRemove] = useState<typeof menu>();
   const runMount = (work: () => Promise<unknown>) => action.run(async () => {
-    try { await work(); } finally { const phase = mounts.service.getSnapshot().mutation.phase; if (phase !== 'ambiguous' && phase !== 'pending' && phase !== 'preparing' && phase !== 'recovering') mountIds.release(); }
+    let outcome: unknown;
+    try { outcome = await work(); } finally { const phase = mounts.service.getSnapshot().mutation.phase; if (phase !== 'ambiguous' && phase !== 'pending' && phase !== 'preparing' && phase !== 'recovering') mountIds.release(); }
+    // Already done elsewhere (stopped from another device, say) is done, not a failure.
+    if (outcome === ALREADY_DONE) return;
     const mutation = mounts.service.getSnapshot().mutation;
     if (!mountCommandSucceeded(mutation)) throw Object.assign(new Error('request_failed'), {code: mutation.error?.code ?? 'request_failed'});
   });
@@ -261,11 +265,11 @@ export function RemoteSourcesPanel() {
       <Menu open={adding} onClose={() => setAdding(false)} title={t('web.storage.addSource')} items={[{id: 'webdav', label: t('web.storage.webdavShare'), detail: t('web.storage.webdavMeta'), icon: 'globe'}, {id: 'rclone', label: t('web.storage.rcloneRemote'), detail: t('web.storage.rcloneMeta'), icon: 'storage'}]} onSelect={id => { action.clear(); setForm(id === 'webdav' ? {kind: 'webdav', source: null} : {kind: 'rclone'}); }} />
       <Menu open={!!menu} onClose={() => setMenu(undefined)} title={menu?.kind === 'mount' ? menu.mount.name : menu?.source.name}
         items={menu?.kind === 'mount' ? mountItems(menu.mount) : [{id: 'edit', label: t('web.storage.editConnection'), icon: 'edit'}, {id: 'delete', label: t('action.removeShort'), icon: 'trash', destructive: true}]}
-        onSelect={id => { const x = menu; if (!x) return; action.clear(); if (id === 'delete') setRemove(x); else if (x.kind === 'webdav') setForm({kind: 'webdav', source: x.source}); else void runMount(() => mounts.service.act(x.mount.id, id as 'start' | 'stop' | 'restart', x.mount.controlRevision)); }} />
-      <WebDavSheet open={form?.kind === 'webdav'} source={form?.kind === 'webdav' ? form.source : null} busy={d.busy || action.busy} error={action.error} onClose={() => setForm(undefined)} onSave={draft => { const source = form?.kind === 'webdav' ? form.source : null; void runDav(() => dav.service.configure(source?.id ?? null, davConfiguration(source, draft))).then(ok => { if (ok) setForm(undefined); }); }} />
+        onSelect={id => { const x = menu; if (!x) return; action.clear(); if (id === 'delete') setRemove(x); else if (x.kind === 'webdav') setForm({kind: 'webdav', source: x.source}); else void runMount(() => sendMountCommand(mounts.service, mountIds, x.mount.id, id as 'start' | 'stop' | 'restart')); }} />
+      <WebDavSheet open={form?.kind === 'webdav'} source={form?.kind === 'webdav' ? form.source : null} busy={d.busy || action.busy} error={action.error} onClose={() => setForm(undefined)} onSave={draft => { const source = form?.kind === 'webdav' ? form.source : null; void runDav(() => dav.service.configure(source?.id ?? null, davConfiguration(source, draft), source ?? undefined)).then(ok => { if (ok) setForm(undefined); }); }} />
       <RcloneSheet open={form?.kind === 'rclone'} busy={action.busy} error={action.error} onClose={() => setForm(undefined)} onSave={input => void runMount(() => mounts.service.create(input)).then(ok => { if (ok) setForm(undefined); })} />
       <ConfirmSheet open={!!remove} onDismiss={() => setRemove(undefined)} title={t('web.storage.removeMountTitle', {name: remove?.kind === 'mount' ? remove.mount.name : remove?.source.name ?? ''})} consequence={remove?.kind === 'mount' ? t('web.storage.removeMountBody') : t('web.storage.removeSourceBody')} confirmLabel={t('action.removeShort')}
-        onConfirm={async () => { const x = remove; if (!x) return; const ok = await (x.kind === 'mount' ? runMount(() => mounts.service.remove(x.mount.id, x.mount.controlRevision)) : runDav(() => dav.service.remove(x.source))); if (ok) setRemove(undefined); }} />
+        onConfirm={async () => { const x = remove; if (!x) return; const ok = await (x.kind === 'mount' ? runMount(() => sendMountCommand(mounts.service, mountIds, x.mount.id, 'delete')) : runDav(() => dav.service.remove(x.source))); if (ok) setRemove(undefined); }} />
     </>
   );
 }

@@ -1,16 +1,6 @@
 package tv.getportico.portico.native
 
-import android.app.Activity
-import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.FrameLayout
-import android.widget.MediaController
-import android.widget.VideoView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -19,12 +9,11 @@ import com.facebook.react.bridge.ReadableMap
 import java.io.File
 
 /**
- * `NativeModules.PorticoDownloads`: the methods and two events of the Apple module
- * (`PorticoDownloadChanged`, `PorticoDownloadPlayback`). Phones and tablets only; a television has
+ * `NativeModules.PorticoDownloads`: the methods and the event of the Apple module
+ * (`PorticoDownloadChanged`). A download plays in Portico's own player (`localFile`). Phones and tablets only; a television has
  * no such module, and the app hides downloads there.
  */
 class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(context) {
-  private val main = Handler(Looper.getMainLooper())
   @Volatile private var invalidated = false
   private val changed: (Map<String, Any?>) -> Unit = { entry ->
     if (!invalidated) emit("PorticoDownloadChanged", Arguments.makeNativeMap(entry))
@@ -38,7 +27,6 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
 
   override fun initialize() {
     super.initialize()
-    current = this
     PorticoDownloadCenter.post {
       if (invalidated) return@post
       PorticoDownloadCenter.open(reactApplicationContext)
@@ -48,7 +36,6 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
 
   override fun invalidate() {
     invalidated = true
-    if (current === this) current = null
     // Transfers belong to the process and go on; only the listener goes.
     PorticoDownloadCenter.post {
       if (PorticoDownloadCenter.onChanged === changed) PorticoDownloadCenter.onChanged = null
@@ -142,99 +129,5 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     result.putDouble("durationSeconds", PorticoDownloadCenter.durationSeconds(file))
     promise.resolve(result)
   }
-
-  /**
-   * Plays a finished download in a plain full-screen player (the launch flow's offline Downloads,
-   * where Portico's player isn't mounted). No server is involved; the position is reported back
-   * so it can be sent to the server later.
-   */
-  @ReactMethod
-  fun play(identifier: String?, startSeconds: Double, promise: Promise) = PorticoDownloadCenter.post {
-    val file = fileOr(identifier, promise) ?: return@post
-    main.post {
-      val activity = reactApplicationContext.currentActivity
-      if (activity == null) { promise.reject("no_window", "The player could not be shown."); return@post }
-      activity.startActivity(Intent(activity, PorticoOfflinePlayerActivity::class.java)
-          .putExtra("id", identifier).putExtra("path", file.path).putExtra("startSeconds", startSeconds))
-      promise.resolve(null)
-    }
-  }
-
-  @ReactMethod
-  fun stop(promise: Promise) {
-    main.post { PorticoOfflinePlayerActivity.current?.finish(); promise.resolve(null) }
-  }
-
-  internal fun playback(id: String, positionSeconds: Double, durationSeconds: Double, ended: Boolean) {
-    if (invalidated) return
-    val body = Arguments.createMap()
-    body.putString("id", id)
-    body.putDouble("positionSeconds", positionSeconds)
-    body.putDouble("durationSeconds", durationSeconds)
-    body.putBoolean("ended", ended)
-    emit("PorticoDownloadPlayback", body)
-  }
-
-  companion object {
-    @Volatile internal var current: PorticoDownloads? = null
-  }
 }
 
-/** The plain full-screen player for a downloaded file: the system's video view and its controls. */
-class PorticoOfflinePlayerActivity : Activity() {
-  private val main = Handler(Looper.getMainLooper())
-  private var video: VideoView? = null
-  private var id = ""
-
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    val path = intent.getStringExtra("path")
-    id = intent.getStringExtra("id") ?: ""
-    // Only a file inside the downloads folder is ever played here.
-    val root = File(noBackupFilesDir, "Downloads").canonicalPath
-    val file = path?.let { File(it).canonicalFile }
-    if (file == null || !file.path.startsWith("$root/") || !file.isFile) { finish(); return }
-    current = this
-    val view = VideoView(this)
-    val frame = FrameLayout(this)
-    frame.setBackgroundColor(0xFF000000.toInt())
-    frame.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
-    setContentView(frame)
-    view.setMediaController(MediaController(this).also { it.setAnchorView(view) })
-    view.setVideoURI(Uri.fromFile(file))
-    val start = intent.getDoubleExtra("startSeconds", 0.0)
-    view.setOnPreparedListener { if (start > 1) view.seekTo((start * 1000).toInt()); view.start() }
-    view.setOnCompletionListener { report(true) }
-    view.setOnErrorListener { _, _, _ -> finish(); true }
-    video = view
-    main.postDelayed(tick, 5000)
-  }
-
-  private val tick = object : Runnable {
-    override fun run() { report(false); main.postDelayed(this, 5000) }
-  }
-
-  private fun report(ended: Boolean) {
-    val view = video ?: return
-    val duration = view.duration
-    PorticoDownloads.current?.playback(id, view.currentPosition / 1000.0, if (duration > 0) duration / 1000.0 else 0.0, ended)
-  }
-
-  override fun onPause() {
-    super.onPause()
-    report(false)
-    video?.pause()
-  }
-
-  override fun onDestroy() {
-    main.removeCallbacks(tick)
-    video?.stopPlayback()
-    video = null
-    if (current === this) current = null
-    super.onDestroy()
-  }
-
-  companion object {
-    @Volatile internal var current: PorticoOfflinePlayerActivity? = null
-  }
-}

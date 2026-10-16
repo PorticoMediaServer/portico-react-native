@@ -58,9 +58,12 @@ test('a chip that decodes only 8-bit leaves 10-bit and HDR to software where sof
   const standard = mpvEngineCapabilities(olderPhone);
   assert.equal(mpvDeviceClass(olderPhone), 'standard');
   assert.deepEqual(codec(standard, 'hevc')!.bitDepths, [8, 10]);
-  assert.deepEqual([codec(standard, 'hevc')!.maxHeight, codec(standard, 'hevc')!.maxFrameRate], [1080, 30], 'one limit per codec: the one both depths fit');
+  assert.deepEqual(codec(standard, 'hevc')!.limits, [
+    {bitDepths: [8], maxWidth: 1920, maxHeight: 1088, maxFrameRate: 60},
+    {bitDepths: [10], maxWidth: 1920, maxHeight: 1080, maxFrameRate: 30},
+  ], 'the chip keeps 8-bit at its limit; 10-bit is software\'s');
   assert.deepEqual(codec(standard, 'h264')!.bitDepths, [8, 10]);
-  assert.equal(codec(standard, 'h264')!.maxHeight, 1080, '10-bit H.264 is software\'s, so its limit is the entry\'s');
+  assert.equal(codec(standard, 'h264')!.limits!.find(l => l.bitDepths?.includes(10))!.maxHeight, 1080, '10-bit H.264 is software\'s');
   assert.equal(codec(standard, 'vp9')!.maxHeight, 1080, 'software VP9 on a standard device');
   assert.equal(codec(standard, 'vp9')!.maxFrameRate, 30);
 

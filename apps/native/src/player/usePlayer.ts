@@ -15,7 +15,7 @@ import type {GuideChannel} from '../../../../packages/client-core/src/channel-gu
 import {channelTuned, type Lineup} from './channel-lineup';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {NativePlaybackCoordinator} from '../bridge/NativePlaybackCoordinator';
-import {playbackRates, speedFor} from '../bridge/NativePlaybackSpeed';
+import {ratesFor, speedFor} from '../bridge/NativePlaybackSpeed';
 import {useNativeAudioSelection} from '../bridge/useNativeAudioSelection';
 import {useNativePlayback} from '../bridge/useNativePlayback';
 import {playerSettingsSupport} from '../bridge/native-listening-kinds';
@@ -31,6 +31,7 @@ import type {OfflineDisplay} from '../bridge/offline-downloads';
 import {dolbyVisionWarningNeeded, mayCarryVideo} from './dolby-vision';
 import {stepQueue} from './queue-step';
 import {sourceFactsOf, type SourceFacts} from '../../../../packages/client-core/src/presentation/index';
+import {forcedChoiceOf, parseSubtitleLines} from '../../../../packages/client-core/src/subtitle-originals';
 import {audioTrackLabel, type PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
 import {PlaybackOptionsClient} from '../../../../packages/client-core/src/playback-v1/options';
@@ -46,11 +47,11 @@ import {showToast} from '../ui';
 import {chooseEngine, localRuleFacts, parseEngineSetting, type EngineKind} from './engine-choice';
 import {engineSettingStore} from './engine-setting-store';
 import {replanEngine} from './engine-replan';
-import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering, type EngineMedia, type SubtitleFonts, type SubtitleKind} from './engine-media';
+import {chaptersOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, linesUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering, type EngineMedia, type SubtitleFonts, type SubtitleKind} from './engine-media';
 import {automaticSteps} from './native-playback';
 import {noteEngineFact} from './failure-facts';
 import {captionStyle} from './caption-style';
-import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks} from './offline-extras';
+import {offlineChapters, offlineContainer, offlineMarkers, offlineSubtitleCommand, offlineSubtitleTracks, offlineTrickplay} from './offline-extras';
 
 /**
  * An operation id for a subtitle choice: an idempotency key, not a secret. Hermes has no `crypto`,
@@ -219,7 +220,10 @@ export function usePlayerEngine() {
     // The server names the engine in its plan. While its account of the session is of another
     // presentation than the one the service holds (a re-plan on its way), the engine stays.
     const plan = planEngineOf(session, path.session(session.id));
-    const nativeOnly = !!snapshot.channel || !!snapshot.nativeListening || !!session.audio || engineInputs.current.audio;
+    // A channel plays in mpv only when the server made its stream for mpv and this build's mpv
+    // plays channels; otherwise in the platform player.
+    const channelNative = !!snapshot.channel && !(plan.engine === 'mpv' && engineFeatures('mpv').liveChannels);
+    const nativeOnly = channelNative || !!snapshot.nativeListening || !!session.audio || engineInputs.current.audio;
     if (plan.stale && mpvAvailable && !nativeOnly) return engineNow.current();
     return chooseEngine({
       setting: engineInputs.current.setting,
@@ -477,6 +481,26 @@ export function usePlayerEngine() {
     });
   }, [engineSetting, playback, path]);
 
+  // N10: a fresh playback waits a few seconds for the Settings' player to reach the server (a
+  // player chosen in the player is for one playback only). On a slow link the session can start
+  // before it does, planned for the player of the playback before. When the server then has the
+  // setting, that session is planned again in place, as for a change made while playing.
+  const plannedSession = playbackState.session?.id;
+  useEffect(() => {
+    const state = playback.getSnapshot(), session = state.session, itemId = state.itemId, intent = state.intentId;
+    if (!session || !itemId || state.channel || engineInputs.current.audio || isLocalSession(session.id) || !path.session(session.id)) return;
+    const wanted = engineSettingStore.get(), published = engineSettingStore.published();
+    if (published === null || published === wanted) return;
+    let live = true;
+    void engineSettingStore.whenCurrentSettled(30000).then(() => {
+      const now = playback.getSnapshot();
+      if (!live || now.intentId !== intent || now.itemId !== itemId || now.session?.id !== session.id || !['starting', 'ready'].includes(now.phase)) return;
+      if (engineSettingStore.get() !== wanted || engineSettingStore.published() !== wanted) return;
+      void replanEngine(playback).catch(() => {});
+    });
+    return () => { live = false; };
+  }, [plannedSession, playback, path]);
+
   // Subtitles: the native player draws the text; this side chooses what it draws. The selection
   // is bound to the exact session generation, so a stale choice can never reach a new stream.
   const subtitleScope = !isAudio && playbackState.session && !isLocalSession(playbackState.session.id) && playbackState.itemId && !playbackState.channel && !['error', 'ended', 'idle'].includes(playbackState.phase) ? playbackState.session : undefined;
@@ -550,6 +574,17 @@ export function usePlayerEngine() {
     void api.request<unknown>(subtitleFontsUrl, 'GET').then(settle, () => settle(null));
     return () => { live = false; };
   }, [api, subtitleFontsUrl]);
+  // "Forced only" means something only for an image track that marks some lines forced and not
+  // others (as the web decides from the lines it decodes): the server counts them, once per track.
+  const subtitleLinesUrl = engineKind === 'mpv' && !subtitles.suppressed ? linesUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
+  const [subtitleLines, setSubtitleLines] = useState<{key: string; mixed: boolean} | null>(null);
+  useEffect(() => {
+    if (!subtitleLinesUrl) { setSubtitleLines(null); return; }
+    let live = true;
+    void api.request<unknown>(subtitleLinesUrl, 'GET').then(raw => { if (live) setSubtitleLines({key: subtitleLinesUrl, mixed: forcedChoiceOf(parseSubtitleLines(raw))}); }, () => {});
+    return () => { live = false; };
+  }, [api, subtitleLinesUrl]);
+  const forcedChoice = !!subtitleLinesUrl && subtitleLines?.key === subtitleLinesUrl && subtitleLines.mixed;
   // A download's own subtitle tracks (files on this device), chosen here and nowhere else.
   const [offlineExtras, setOfflineExtras] = useState<LocalMedia['extras']>();
   const localSession = isLocalSession(playbackState.session?.id) ? playbackState.session : undefined;
@@ -574,8 +609,8 @@ export function usePlayerEngine() {
     const documentUrl = selected ? plan.documentUrl : undefined;
     if (!documentUrl && !render) return {binding, mode: 'off', revision: plan.revision};
     const track = selected ?? deviceTrack?.resource;
-    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly ? {forcedOnly: true} : {}), style: captions};
-  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly]);
+    return {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? deviceTrack!.id, resourceRevision: track?.revision ?? 1, manifestName: track?.manifestName, origin: track?.origin ?? 'embedded', language: track?.language ?? '', title: track?.title ?? '', offsetUs: selected ? plan.offsetUs : '0', ...(documentUrl ? {documentUrl: new URL(documentUrl, api.baseUrl).href} : {}), refreshRevision: 0, ...(render ? {render} : {}), ...(render && (render.kind === 'pgs' || render.kind === 'vobsub') && forcedOnly && forcedChoice ? {forcedOnly: true} : {}), style: captions};
+  }, [subtitlePlan, subtitles.suppressed, deviceTrack, playbackState.session, playbackState.intentId, api, engineKind, subtitleFontsUrl, subtitleFonts, presentation, v1Session, captions, localSession, offlineTrack, offlineSubtitle.revision, forcedOnly, forcedChoice]);
   // A chosen track the device is to draw in a kind only mpv draws moves the title to mpv (and
   // back when the choice changes). The server's plan names mpv for such a track already; this
   // holds for a download, and for the moment before a plan arrives.
@@ -943,7 +978,8 @@ export function usePlayerEngine() {
     return () => { live = false; };
   }, [api, serverId, trickplayItem, trickplayLibrary]);
   const offeredSourceId = offersData?.current?.sourceId;
-  const trickplay = useMemo(() => (trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId]);
+  // A download scrubs with the previews that came with it.
+  const trickplay = useMemo(() => (localSession ? offlineTrickplay(offlineExtras) : trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId, localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const collapse = useCallback(() => setExpanded(false), []);
   const expand = useCallback(() => setExpanded(true), []);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);
@@ -968,7 +1004,7 @@ export function usePlayerEngine() {
       /** The track on screen: the selection's, or one the engine reads from the file it plays. */
       shownId: shownSubtitleId,
       /** Image subtitles drawn here by mpv: show only their forced lines (for this playback). Null when that does not apply. */
-      forcedOnly: subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: setForcedOnly} : null,
+      forcedOnly: forcedChoice && subtitleCommand && (subtitleCommand as {render?: {kind?: string}}).render && ['pgs', 'vobsub'].includes((subtitleCommand as {render: {kind?: string}}).render.kind ?? '') ? {on: forcedOnly, set: setForcedOnly} : null,
       /** Choose a track, or turn subtitles off (`null`), with an optional timing correction: a change to the playing session. */
       choose: chooseSubtitleTrack,
       /** A download's own tracks, and the one chosen. */
@@ -984,7 +1020,7 @@ export function usePlayerEngine() {
     /** A download's skip markers; null for anything else. */
     downloadMarkers,
     speedState,
-    rates: playbackRates,
+    rates: ratesFor(identity.kind),
     /** The engine playing now ("native" or "mpv") and what it does not do: the chrome hides
      * Picture in Picture and AirPlay while an engine without them is active. */
     engineKind,

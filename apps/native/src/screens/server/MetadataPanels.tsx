@@ -64,7 +64,7 @@ export function MetadataSettingsPanel() {
   // One provider key: a row that says whose key is in use and opens a field to paste the owner's
   // own, and, while theirs is set, a row to go back to Portico's. A key is never shown back.
   const keyRows = (id: string, label: string, set: boolean, edit: KeyEdit, change: (next: KeyEdit) => void) => [
-    <TypedRow key={id} secure title={label} help={edit.remove ? t('server.metadata.keyRemoving') : keyChange(edit) !== undefined ? t('settings.save.unsaved') : set ? t('server.metadata.keySet') : t('server.metadata.keyOurs')} value={edit.typed} shown="" placeholder={set ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => change({typed, remove: false})} />,
+    <TypedRow key={id} secure title={label} help={edit.remove ? t('server.metadata.keyRemoving') : keyChange(edit) !== undefined ? t('server.metadata.keyUnsaved') : set ? t('server.metadata.keySet') : t('server.metadata.keyOurs')} value={edit.typed} shown="" placeholder={set ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => change({typed, remove: false})} />,
     ...(set ? [<ListRow key={id + ':own'} tone="action" title={edit.remove ? t('server.metadata.keyKeep') : t('server.metadata.keyRemove')} onPress={() => change({typed: '', remove: !edit.remove})} />] : []),
   ];
   if (!doc) return read.error ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null;
@@ -79,7 +79,7 @@ export function MetadataSettingsPanel() {
         <ToggleRow title={t('metadata.settings.includeAdult')} subtitle={t('server.metadata.adultHelp')} value={adult} onChange={setAdult} />
       </RowGroup>
       <RowGroup title={t('server.metadata.subtitles')} footer={t('server.metadata.subtitlesLede')}>
-        <TypedRow secure title={t('server.metadata.openSubtitlesKey')} help={subtitleKey.remove ? t('server.metadata.keyRemoving') : keyChange(subtitleKey) !== undefined ? t('settings.save.unsaved') : doc.openSubtitlesKeyConfigured ? t('server.metadata.openSubtitlesKeyOwn') : t('server.metadata.openSubtitlesKeyServer')} value={subtitleKey.typed} shown="" placeholder={doc.openSubtitlesKeyConfigured ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => setSubtitleKey({typed, remove: false})} />
+        <TypedRow secure title={t('server.metadata.openSubtitlesKey')} help={subtitleKey.remove ? t('server.metadata.keyRemoving') : keyChange(subtitleKey) !== undefined ? t('server.metadata.keyUnsaved') : doc.openSubtitlesKeyConfigured ? t('server.metadata.openSubtitlesKeyOwn') : t('server.metadata.openSubtitlesKeyServer')} value={subtitleKey.typed} shown="" placeholder={doc.openSubtitlesKeyConfigured ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => setSubtitleKey({typed, remove: false})} />
         {doc.openSubtitlesKeyConfigured ? <ListRow tone="action" title={subtitleKey.remove ? t('server.metadata.keyKeep') : t('server.metadata.openSubtitlesUseServer')} onPress={() => setSubtitleKey({typed: '', remove: !subtitleKey.remove})} /> : null}
         <TypedRow title={t('server.metadata.openSubtitlesUser')} value={subtitleUser} shown={subtitleUser} maxLength={512} onDone={setSubtitleUser} />
         {subtitleUser.trim() ? <TypedRow secure title={t('server.metadata.openSubtitlesPassword')} help={doc.openSubtitlesPasswordConfigured && !subtitlePassword && subtitleUser.trim() === doc.openSubtitlesUsername ? t('server.metadata.openSubtitlesPasswordSaved') : undefined} value={subtitlePassword} shown="" maxLength={512} onDone={setSubtitlePassword} /> : null}
@@ -117,7 +117,7 @@ type IdProvider = (typeof ID_PROVIDERS)[number];
  * why, the closest matches, and what the owner can do: use a match, search by hand, give the
  * title's ID at a provider, or dismiss it. The server says which of those a title allows.
  */
-export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}: {/** Absent: closed. */ libraryId?: string; onClose: () => void; /** Open a title's own page (the sheets close first). */ onOpenTitle: (target: {kind: 'show' | 'item'; id: string; libraryId: string}) => void; onChanged?: () => void}) {
+export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}: {/** Absent: closed. */ libraryId?: string; onClose: () => void; /** Open a title's own page (the sheets close first). */ onOpenTitle: (target: {kind: 'show' | 'item' | 'album' | 'book'; id: string; libraryId: string; title?: string}) => void; onChanged?: () => void}) {
   const i18n = useI18n();
   const t = i18n.t;
   const {space} = useTheme();
@@ -147,12 +147,13 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
       await sendFresh(entry, e => service.act({kind: e.kind, entityId: e.entityId, expectedRevision: e.revision, ...command}), () => findInPages(page, e => e.entityId === entry.entityId && e.kind === entry.kind));
     }).then(ok => { if (ok) setNotice(done); read.reload(); onChanged?.(); return ok; });
   };
-  const labels: Readonly<Record<AttentionChoice, {label: string; icon: MenuItem['icon']}>> = {search: {label: t('server.attention.search'), icon: 'search'}, id: {label: t('server.attention.enterId'), icon: 'link'}, parent: {label: t('server.attention.openShow'), icon: 'tv'}, dismiss: {label: t('metadata.attention.dismiss'), icon: 'close'}};
+  const labels: Readonly<Record<AttentionChoice, {label: string; icon: MenuItem['icon']}>> = {search: {label: t('server.attention.search'), icon: 'search'}, id: {label: t('server.attention.enterId'), icon: 'link'}, parent: {label: t('server.attention.openShow'), icon: 'tv'}, retry: {label: t('server.attention.lookUpAgain'), icon: 'refresh'}, dismiss: {label: t('metadata.attention.dismiss'), icon: 'close'}};
   const choose = (entry: AttentionEntry, id: AttentionChoice) => {
     action.clear();
     if (id === 'search') setSearching(entry);
     else if (id === 'id') setIdentifying(entry);
     else if (id === 'parent') onOpenTitle({kind: 'show', id: entry.parentId, libraryId: entry.libraryId});
+    else if (id === 'retry') void send(entry, {action: 'retry'}, t('server.attention.lookingUp'));
     else void send(entry, {action: 'dismiss'}, t('server.attention.dismissed'));
   };
   return (
@@ -166,7 +167,7 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
           const more = attentionChoices(entry);
           return (
             <RowGroup key={`${entry.kind}:${entry.entityId}`}>
-              <ListRow icon={entry.kind === 'show' ? 'tv' : 'film'} title={entry.title || t('server.attention.untitled')} subtitle={attentionReason(t, has, entry.reason)} subtitleLines={3} accessory="navigation" onPress={() => onOpenTitle({kind: entry.kind, id: entry.entityId, libraryId: entry.libraryId})} />
+              <ListRow icon={attentionIcon(entry)} title={entry.title || t('server.attention.untitled')} subtitle={attentionReason(t, has, entry.reason, entry.kind)} subtitleLines={3} accessory="navigation" onPress={() => onOpenTitle(attentionTarget(entry))} />
               {offered.map(candidate => <ListRow key={candidate.key} title={candidateLine(candidate)} subtitle={candidateFacts(t, has, candidate).join(' · ') || undefined} meta={t('web.liveSource.useThis')} accessibilityLabel={t('server.attention.useNamed', {title: candidate.title})} disabled={action.busy}
                 onPress={() => void send(entry, {action: 'accept', candidateKey: candidate.key, ...(candidate.orders[0] ? {order: candidate.orders[0].id} : {})}, t('server.attention.matched', {title: candidate.title}))} />)}
               {more.length ? <ListRow tone="action" title={offered.length ? t('server.attention.somethingElse') : t('server.attention.choose')} accessibilityLabel={t('server.attention.actions', {title: entry.title})} onPress={() => setMenu(entry)} /> : null}
@@ -186,6 +187,17 @@ export function NeedsAttentionSheet({libraryId, onClose, onOpenTitle, onChanged}
 }
 
 /** Search by hand: the words to look for; the matches arrive in the list a moment later. */
+/** Where an entry's own page is: an album or book is settled on its page, a track on its album's. */
+function attentionTarget(entry: AttentionEntry): {kind: 'show' | 'item' | 'album' | 'book'; id: string; libraryId: string; title?: string} {
+  if (entry.kind === 'song' && entry.parentId) return {kind: 'album', id: entry.parentId, libraryId: entry.libraryId};
+  if (entry.kind === 'album' || entry.kind === 'book') return {kind: entry.kind, id: entry.entityId, libraryId: entry.libraryId, title: entry.title};
+  return {kind: entry.kind === 'show' ? 'show' : 'item', id: entry.entityId, libraryId: entry.libraryId};
+}
+
+function attentionIcon(entry: AttentionEntry): 'tv' | 'music' | 'book' | 'film' {
+  return entry.kind === 'show' ? 'tv' : entry.kind === 'album' || entry.kind === 'song' ? 'music' : entry.kind === 'book' ? 'book' : 'film';
+}
+
 function SearchSheet({entry, busy, error, onClose, onSearch}: {entry?: AttentionEntry; busy: boolean; error: string; onClose: () => void; onSearch: (query: string) => void}) {
   const t = useI18n().t;
   const {space} = useTheme();

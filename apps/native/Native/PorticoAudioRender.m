@@ -1,4 +1,5 @@
 #import "PorticoAudioRender.h"
+#import "PorticoServerTrust.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import <CommonCrypto/CommonDigest.h>
 #include <fcntl.h>
@@ -174,6 +175,7 @@ static void AREvict(void){
  [_have enumerateRangesUsingBlock:^(NSRange range,BOOL *stop){if(NSLocationInRange(i,range)){i=NSMaxRange(range);*stop=YES;}}];
  return i;
 }
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {[PorticoServerTrust handleChallenge:challenge completion:completionHandler];}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))done {done(nil);}
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)raw completionHandler:(void (^)(NSURLSessionResponseDisposition))done {
  NSHTTPURLResponse *r=(NSHTTPURLResponse *)raw;[_lock lock];
@@ -238,6 +240,12 @@ static void AREvict(void){
 - (void)dealloc {[self close];}
 @end
 
+/** Refuses a redirect: the index is read from exactly the address the plan names. */
+@interface ARIndexFetch : NSObject<NSURLSessionTaskDelegate> @end
+@implementation ARIndexFetch
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))done {done(nil);}
+@end
+
 /** Core Audio decoding over ARBytes: AudioFile with a blocking read callback, wrapped by
  * ExtAudioFile (packet tables, priming, sample-accurate seeks). Confined to one deck's queue. */
 @interface ARDecoder : NSObject
@@ -256,6 +264,10 @@ static void AREvict(void){
  ARBytes *_bytes;NSDictionary *_plan;AudioFileID _file;ExtAudioFileRef _ext;long long _first,_next;
  AudioConverterRef _aac;SInt64 _packet;long long _packetFrames,_aacSkip;
  void *_packetBuffer;AudioStreamPacketDescription *_packetDescriptions;UInt32 _packetCapacity,_aacInputChannels;
+ // The server's seek index (MP3, ADTS): a second AudioFile over the bytes from an entry on, decoded
+ // packet by packet from there; `_ixSkip` frames are dropped to reach the exact frame.
+ NSArray<NSNumber *> *_offsets,*_frames;BOOL _indexTried;AudioFileID _shifted;AudioConverterRef _ix;long long _base,_ixSkip;SInt64 _ixPacket;
+ void *_ixBuffer;AudioStreamPacketDescription *_ixDescriptions;UInt32 _ixCapacity,_ixChannels;
 }
 static OSStatus ARRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
 // A converted stream of unknown length reads as very long; its real end reads as end of file.
@@ -273,6 +285,19 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
  return noErr;
 }
 
+// The bytes from an index entry on, as a file of their own (a packet boundary starts a valid stream).
+static OSStatus ARShiftedRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:d->_base+position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
+static SInt64 ARShiftedSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;long long size=d->_bytes.size;return size>d->_base?size-d->_base:0;}
+static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBufferList *data,AudioStreamPacketDescription **descriptions,void *client){
+ ARDecoder *d=(__bridge ARDecoder *)client;
+ UInt32 packets=MIN(*count,128),bytes=d->_ixCapacity;
+ OSStatus status=AudioFileReadPacketData(d->_shifted,false,&bytes,d->_ixDescriptions,d->_ixPacket,&packets,d->_ixBuffer);
+ if(status!=noErr&&status!=kAudioFileEndOfFileError){*count=0;return status;}
+ d->_ixPacket+=packets;*count=packets;
+ data->mNumberBuffers=1;data->mBuffers[0].mNumberChannels=d->_ixChannels;data->mBuffers[0].mDataByteSize=bytes;data->mBuffers[0].mData=d->_ixBuffer;
+ if(descriptions)*descriptions=d->_ixDescriptions;
+ return noErr;
+}
 - (instancetype)initWithBytes:(ARBytes *)bytes plan:(NSDictionary *)plan {if((self=[super init])){_bytes=bytes;_plan=plan;}return self;}
 + (AudioFileTypeID)hint:(NSDictionary *)plan {
  NSString *c=plan[@"container"];
@@ -347,8 +372,90 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
 
  return [self seek:0];
 }
+/**
+ * Reads the plan's seek index once (`GET …/audio-index`, direct MP3 and ADTS only), on this deck's
+ * queue. `{version: 1, offsets, frames}`, both rising, at most 4096 entries (client-core's
+ * `parseSeekIndex`). Without one the file is placed by Core Audio as before.
+ */
+- (BOOL)loadIndex {
+ if(_indexTried)return _offsets!=nil;
+ _indexTried=YES;
+ NSString *container=_plan[@"container"];
+ if(![_plan[@"mode"] isEqual:@"direct"]||!([container isEqual:@"mp3"]||[container isEqual:@"adts"]))return NO;
+ NSDictionary *named=APDictionary(_plan[@"seekIndex"]);NSString *path=[named[@"url"] isKindOfClass:NSString.class]?named[@"url"]:nil;
+ NSURL *media=[NSURL URLWithString:_plan[@"url"]];NSURL *url=path.length&&path.length<=4096?[NSURL URLWithString:path relativeToURL:media].absoluteURL:nil;
+ if(!media||!url||!APSameOrigin(url,media))return NO;
+ NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;configuration.URLCache=nil;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.HTTPShouldSetCookies=NO;configuration.timeoutIntervalForRequest=4;
+ NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:[ARIndexFetch new] delegateQueue:nil];
+ __block NSData *body=nil;dispatch_semaphore_t done=dispatch_semaphore_create(0);
+ [[session dataTaskWithURL:url completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
+  if(!error&&[response isKindOfClass:NSHTTPURLResponse.class]&&((NSHTTPURLResponse *)response).statusCode==200&&data.length<=(1<<20))body=data;
+  dispatch_semaphore_signal(done);
+ }] resume];
+ dispatch_semaphore_wait(done,dispatch_time(DISPATCH_TIME_NOW,(int64_t)(5*NSEC_PER_SEC)));
+ [session invalidateAndCancel];
+ NSDictionary *json=body?APDictionary([NSJSONSerialization JSONObjectWithData:body options:0 error:nil]):nil;
+ NSArray *offsets=[json[@"offsets"] isKindOfClass:NSArray.class]?json[@"offsets"]:nil,*frames=[json[@"frames"] isKindOfClass:NSArray.class]?json[@"frames"]:nil;
+ if(![json[@"version"] isEqual:@1]||!offsets.count||offsets.count>4096||offsets.count!=frames.count)return NO;
+ for(NSUInteger i=0;i<offsets.count;i++){
+  if(!APInteger(offsets[i],0,9007199254740991.0)||!APInteger(frames[i],0,9007199254740991.0))return NO;
+  if(i>0&&([offsets[i] longLongValue]<=[offsets[i-1] longLongValue]||[frames[i] longLongValue]<[frames[i-1] longLongValue]))return NO;
+ }
+ _offsets=offsets;_frames=frames;return YES;
+}
+- (void)leaveIndex {
+ if(_ix){AudioConverterDispose(_ix);_ix=NULL;}
+ if(_shifted){AudioFileClose(_shifted);_shifted=NULL;}
+ free(_ixBuffer);_ixBuffer=NULL;free(_ixDescriptions);_ixDescriptions=NULL;
+}
+/**
+ * Places a part-way position by the index: the last entry at or before the raw frame (one earlier
+ * when that leaves the decoder fewer packets than it needs to warm up: MP3 3, AAC 2, as the web's),
+ * a fresh decoder over the bytes from that entry, and the frames up to the position dropped. Only
+ * the bytes from the entry on are fetched. NO when there is no index or it can't be used here.
+ */
+- (BOOL)seekIndexed:(long long)frame {
+ if(![self loadIndex])return NO;
+ BOOL mp3=[_plan[@"container"] isEqual:@"mp3"];
+ long long raw=[_plan[@"trim"][@"startFrames"] longLongValue]+frame;
+ NSUInteger lo=0,hi=_frames.count-1;
+ while(lo<hi){NSUInteger mid=(lo+hi+1)/2;if([_frames[mid] longLongValue]<=raw)lo=mid;else hi=mid-1;}
+ long long preroll=mp3?3*1152:2*1024;
+ if(lo>0&&raw-[_frames[lo] longLongValue]<preroll)lo--;
+ if([_frames[lo] longLongValue]>raw)return NO;
+ [self leaveIndex];
+ _base=[_offsets[lo] longLongValue];
+ if(AudioFileOpenWithCallbacks((__bridge void *)self,ARShiftedRead,NULL,ARShiftedSize,NULL,[ARDecoder hint:_plan],&_shifted)!=noErr){_shifted=NULL;return NO;}
+ AudioStreamBasicDescription source={0};UInt32 size=sizeof(source);
+ if(AudioFileGetProperty(_shifted,kAudioFilePropertyDataFormat,&size,&source)!=noErr||source.mSampleRate<=0||source.mFramesPerPacket==0){[self leaveIndex];return NO;}
+ AudioStreamBasicDescription client=*_format.streamDescription;
+ if(AudioConverterNew(&source,&client,&_ix)!=noErr){_ix=NULL;[self leaveIndex];return NO;}
+ UInt32 prime=kConverterPrimeMethod_None;
+ if(AudioConverterSetProperty(_ix,kAudioConverterPrimeMethod,sizeof(prime),&prime)!=noErr){[self leaveIndex];return NO;}
+ UInt32 cookieSize=0;Boolean writable=false;
+ if(AudioFileGetPropertyInfo(_shifted,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0&&cookieSize<=65536){
+  void *cookie=malloc(cookieSize);
+  if(cookie&&AudioFileGetProperty(_shifted,kAudioFilePropertyMagicCookieData,&cookieSize,cookie)==noErr)AudioConverterSetProperty(_ix,kAudioConverterDecompressionMagicCookie,cookieSize,cookie);
+  free(cookie);
+ }
+ UInt32 maxPacket=0,packetSize=sizeof(maxPacket);
+ if(AudioFileGetProperty(_shifted,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768){[self leaveIndex];return NO;}
+ _ixCapacity=maxPacket*128;_ixBuffer=malloc(_ixCapacity);_ixDescriptions=calloc(128,sizeof(AudioStreamPacketDescription));
+ if(!_ixBuffer||!_ixDescriptions){[self leaveIndex];return NO;}
+ _ixChannels=source.mChannelsPerFrame;_ixPacket=0;
+ // The index counts raw frames at the file's packet clock (MP3 1152 or 576, ADTS 1024 per block);
+ // a decoder that outputs at another rate (HE-AAC) is scaled to the plan's clock.
+ double scale=client.mSampleRate/source.mSampleRate;
+ _ixSkip=llround((raw-[_frames[lo] longLongValue])*scale);
+ if(_ixSkip<0){[self leaveIndex];return NO;}
+ _next=frame;return YES;
+}
 - (NSString *)seek:(long long)frame {
  frame=MAX(0,MIN(frame,_total));
+ // A part-way position in a direct MP3 or ADTS file lands exactly by the server's index; Core
+ // Audio alone estimates MP3 positions or reads every byte before them.
+ if(frame>0&&[self seekIndexed:frame])return nil;
+ [self leaveIndex];
  if(_aac){
   // Two complete packets warm the codec; discard their output plus the intra-packet offset.
   // Packet lookup is constant time and AudioFile reads the container's existing byte index.
@@ -365,12 +472,21 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
  AVAudioPCMBuffer *buffer=[[AVAudioPCMBuffer alloc] initWithPCMFormat:_format frameCapacity:want];
  buffer.frameLength=want; // sizes the buffer list for the read
  UInt32 got=want;OSStatus status=noErr;
- if(_aac){
+ if(_aac&&!_ix){
   do {
    buffer.frameLength=want;got=want;
    status=AudioConverterFillComplexBuffer(_aac,ARAACInput,(__bridge void *)self,&got,buffer.mutableAudioBufferList,NULL);
    if(status!=noErr||got==0)break;
    UInt32 drop=(UInt32)MIN(_aacSkip,got);_aacSkip-=drop;
+   if(drop)for(AVAudioChannelCount ch=0;ch<_format.channelCount;ch++)memmove(buffer.floatChannelData[ch],buffer.floatChannelData[ch]+drop,(got-drop)*sizeof(float));
+   got-=drop;
+  }while(got==0);
+ }else if(_ix){
+  do {
+   buffer.frameLength=want;got=want;
+   status=AudioConverterFillComplexBuffer(_ix,ARIndexInput,(__bridge void *)self,&got,buffer.mutableAudioBufferList,NULL);
+   if(status!=noErr||got==0)break;
+   UInt32 drop=(UInt32)MIN(_ixSkip,(long long)got);_ixSkip-=drop;
    if(drop)for(AVAudioChannelCount ch=0;ch<_format.channelCount;ch++)memmove(buffer.floatChannelData[ch],buffer.floatChannelData[ch]+drop,(got-drop)*sizeof(float));
    got-=drop;
   }while(got==0);
@@ -380,6 +496,7 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
  buffer.frameLength=got;_next+=got;return buffer;
 }
 - (void)close {
+ [self leaveIndex];
  if(_aac){AudioConverterDispose(_aac);_aac=NULL;}
  if(_ext){ExtAudioFileDispose(_ext);_ext=NULL;}
  if(_file){AudioFileClose(_file);_file=NULL;}
@@ -741,7 +858,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL waiting=_active&&_primary&&!_primary.eof&&_primary.scheduled<=_primary.played;
  BOOL running=ready&&!_paused&&!_primary.ended&&_engine.running&&_primary.node.playing;
  return @{@"positionSeconds":@([self position]),@"ready":@(ready),@"observed":@(_primary.started),@"seeking":@((BOOL)(_primary&&_primary.seek>=0)),
-  @"effectiveRate":@(running?_rate:0),@"supportedRates":@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(waiting&&!_paused)),@"rateError":@"",@"rendering":@(_active)
+  @"effectiveRate":@(running?_rate:0),@"supportedRates":@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2,@2.5,@3],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(waiting&&!_paused)),@"rateError":@"",@"rendering":@(_active)
 #if DEBUG
   // Exit test (j): decoded audio held per deck (scheduled but not yet played, or a candidate's head).
   ,@"decodedAheadSeconds":@(_primary&&_primary.sampleRate>0?MAX(0,_primary.scheduled-_primary.played)/_primary.sampleRate:0)

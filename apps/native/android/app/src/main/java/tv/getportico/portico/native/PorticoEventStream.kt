@@ -26,7 +26,7 @@ internal object PorticoEventStream {
   private val entries = HashMap<String, Entry>()
   private val readers = Executors.newFixedThreadPool(4)
   private val client by lazy {
-    OkHttpClient.Builder()
+    OkHttpClient.Builder().porticoTrust()
         .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
         .cache(null).callTimeout(2100, TimeUnit.SECONDS)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)

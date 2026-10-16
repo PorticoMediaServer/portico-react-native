@@ -82,3 +82,22 @@ test('nothing is published before the device has read what the viewer saved', as
   assert.equal(ready, true);
   await store.whenLoaded(1);
 });
+
+test('the setting the server plans from is the last one published, not the one asked for', () => {
+  store.setSession(null);
+  store.set('automatic');
+  store.settled(store.version());
+  assert.equal(store.published(), 'automatic');
+  // A player chosen in the player, then dropped for a fresh playback before the server heard of it.
+  store.setSession('mpv');
+  const sent = store.version();
+  store.setSession(null);
+  store.settled(sent);
+  assert.equal(store.get(), 'automatic');
+  assert.equal(store.published(), 'automatic');
+  store.setSession('mpv');
+  assert.equal(store.published(), 'automatic');
+  store.settled(store.version());
+  assert.equal(store.published(), 'mpv');
+  store.setSession(null);
+});

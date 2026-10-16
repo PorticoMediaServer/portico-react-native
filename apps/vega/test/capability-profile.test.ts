@@ -108,3 +108,18 @@ test('Settings offers Turn off HDR and Don\'t pass sound through only where they
   assert.deepEqual(probedSettings({...document, audioOutput: {route: 'hdmi', maxChannels: 6}}), {audioPassthrough: true, hdr: false});
   assert.deepEqual(probedSettings({...document, display: {dynamicRanges: ['sdr', 'hdr10']}}), {audioPassthrough: false, hdr: true});
 });
+
+test('the viewer says the TV shows HDR and plays surround: claimed then, never before', () => {
+  const plain = vegaCapabilityDocument({model: 'AFTKRT'});
+  assert.deepEqual(plain.display?.dynamicRanges, ['sdr']);
+  assert.equal(plain.audioOutput?.maxChannels, 2);
+  const hdr = vegaCapabilityDocument({model: 'AFTKRT'}, null, {}, null, {hdr: true, surround: false});
+  assert.deepEqual(hdr.display?.dynamicRanges, ['sdr', 'hdr10', 'hlg']);
+  assert.deepEqual(hdr.engines.native.video?.find(codec => codec.codec === 'hevc')?.dynamicRanges, ['sdr', 'hdr10', 'hlg']);
+  assert.equal(hdr.audioOutput?.maxChannels, 2);
+  const surround = vegaCapabilityDocument({model: 'AFTKRT'}, null, {}, null, {hdr: false, surround: true});
+  assert.equal(surround.audioOutput?.maxChannels, 8);
+  assert.equal(surround.engines.native.audio?.find(codec => codec.codec === 'eac3')?.maxChannels, 8);
+  assert.equal(surround.engines.native.audio?.find(codec => codec.codec === 'aac')?.maxChannels, 6);
+  assert.deepEqual(surround.display?.dynamicRanges, ['sdr']);
+});

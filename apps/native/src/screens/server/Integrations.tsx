@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Share, View} from 'react-native';
-import {apiScopes, createAccessToken, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listAccessTokens, listApiKeys, listMemberAccessTokens, listWebhookDeliveries, listWebhooks, revokeAccessToken, revokeApiKey, revokeMemberAccessToken, sendWebhookTest, updateWebhook, type ApiAccessOptions, type ApiCredential, type ApiCredentialPage, type ApiScope, type IssuedApiCredential, type IssuedWebhook, type NewApiCredential, type Webhook, type WebhookDelivery} from '../../../../../packages/client-core/src/api-access';
+import {apiScopes, changeWebhook, createAccessToken, createApiKey, createWebhook, deleteWebhook, getApiAccessOptions, listAccessTokens, listApiKeys, listMemberAccessTokens, listWebhookDeliveries, listWebhooks, revokeAccessToken, revokeApiKey, revokeMemberAccessToken, sendWebhookTest, type ApiAccessOptions, type ApiCredential, type ApiCredentialPage, type ApiScope, type IssuedApiCredential, type IssuedWebhook, type NewApiCredential, type Webhook, type WebhookDelivery} from '../../../../../packages/client-core/src/api-access';
 import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
 import {EXPIRY_DAYS, assistantAddress, credentialFacts, credentialMember, credentialState, credentialWorks, deliveryProblem, deliveryProgress, expiryLabel, scopeTicked, webhookEventGroups, webhookEventLabel, webhookTrouble, type ExpiryDays} from '../../../../../packages/client-core/src/server-admin/api-words';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
@@ -34,7 +34,7 @@ function useWords(kind: 'key' | 'token'): Words {
   const t = useI18n().t;
   return useMemo(() => (kind === 'key'
     ? {nameHelp: t('web.access.keyNameHelp'), none: t('web.access.noApiKeys'), create: t('web.access.createKey'), createTitle: t('web.access.createKeyTitle'), copyTitle: t('web.access.copyKeyTitle'), shownOnce: t('web.access.keyShownOnce'), secretLabel: t('web.access.apiKey'), share: t('server.people.shareKey'), revokeBody: t('web.access.revokeBody')}
-    : {nameHelp: t('api.tokens.nameHelp'), none: t('api.tokens.none'), create: t('api.tokens.create'), createTitle: t('api.tokens.createTitle'), copyTitle: t('api.tokens.copyTitle'), shownOnce: t('api.tokens.shownOnce'), secretLabel: t('api.tokens.token'), share: t('invite.share'), revokeBody: t('api.tokens.revokeBody')}), [kind, t]);
+    : {nameHelp: t('api.tokens.nameHelp'), none: t('api.tokens.none'), create: t('api.tokens.create'), createTitle: t('api.tokens.createTitle'), copyTitle: t('api.tokens.copyTitle'), shownOnce: t('api.tokens.shownOnce'), secretLabel: t('api.tokens.token'), share: t('api.tokens.share'), revokeBody: t('api.tokens.revokeBody')}), [kind, t]);
 }
 
 /**
@@ -245,7 +245,7 @@ export function WebhooksPanel() {
       {read.error && !list ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       {action.error && !editing && !rotating ? <Notice tone="error" message={action.error} /> : null}
       <RowGroup title={t('api.webhooks.title')} footer={full ? `${t('api.webhooks.lede')}\n\n${t('api.webhooks.full', {count: list.maximum})}` : t('api.webhooks.lede')}>
-        {list?.items.map(w => <ListRow key={w.id} icon="link" title={w.name} meta={w.enabled ? undefined : t('server.channels.state.disabled')} subtitle={[`${w.url} · ${t('api.webhooks.eventCount', {count: w.events.length})}`, webhookTrouble(t, w)?.text].filter(Boolean).join('\n')} subtitleLines={4} accessory="menu" onPress={() => setMenu(w)} />)}
+        {list?.items.map(w => <ListRow key={w.id} icon="link" title={w.name} meta={w.enabled ? undefined : t('api.webhooks.off')} subtitle={[`${w.url} · ${t('api.webhooks.eventCount', {count: w.events.length})}`, webhookTrouble(t, w)?.text].filter(Boolean).join('\n')} subtitleLines={4} accessory="menu" onPress={() => setMenu(w)} />)}
         {list && !list.items.length ? <ListRow readable title={t('api.webhooks.none')} /> : null}
         {list && !full ? <ListRow tone="action" icon="plus" title={t('api.webhooks.add')} onPress={() => { action.clear(); setEditing({}); }} /> : null}
       </RowGroup>
@@ -255,16 +255,16 @@ export function WebhooksPanel() {
           const w = editing?.webhook;
           if (!w) { saved(await createWebhook(api, {name: draft.name.trim(), url: draft.url.trim(), events: draft.events, ...(draft.secret ? {secret: draft.secret} : {})})); return; }
           const change = webhookChange(w, draft);
-          if (change) saved(await updateWebhook(api, w.id, change));
+          if (change) saved(await changeWebhook(api, w, change));
         }).then(ok => { if (ok) setEditing(undefined); })} />
       <Sheet open={!!issued?.secret} onClose={() => setIssued(undefined)} kind="acknowledge" title={t('api.webhooks.secretTitle')} primary={{label: t('web.access.copiedIt'), onPress: () => setIssued(undefined)}}>
         <View style={{gap: space.md}}>
           <Notice tone="warning" message={t('api.webhooks.secretShownOnce')} />
-          <SecretRows label={t('api.webhooks.secret')} secret={issued?.secret ?? ''} share={t('invite.share')} />
+          <SecretRows label={t('api.webhooks.secret')} secret={issued?.secret ?? ''} share={t('api.webhooks.shareSecret')} />
         </View>
       </Sheet>
       <RotateSheet webhook={rotating} busy={action.busy} error={action.error} onClose={() => setRotating(undefined)}
-        onRotate={secret => void action.run(async () => { if (rotating) saved(await updateWebhook(api, rotating.id, {rotateSecret: true, ...(secret ? {secret} : {})})); }).then(ok => { if (ok) setRotating(undefined); })} />
+        onRotate={secret => void action.run(async () => { if (rotating) saved(await changeWebhook(api, rotating, secret ? {secret} : {rotateSecret: true})); }).then(ok => { if (ok) setRotating(undefined); })} />
       <ConfirmSheet open={!!removing} onDismiss={() => setRemoving(undefined)} title={t('api.webhooks.removeTitle', {name: removing?.name ?? ''})} consequence={t('api.webhooks.removeBody')} confirmLabel={t('action.removeShort')} describeError={e => problem(e, 'action')}
         onConfirm={async () => { const w = removing; if (!w) return; await deleteWebhook(api, w.id); setRemoving(undefined); read.reload(); }} />
       <DeliveryLogSheet webhook={log} queued={queued} onClose={() => { setLog(undefined); setQueued(false); read.reload(); }} />
@@ -395,7 +395,7 @@ export function AssistantsPanel() {
   return (
     <RowGroup title={t('api.mcp.title')} footer={t('api.mcp.lede')}>
       <ListRow readable icon="link" title={t('api.mcp.address')} subtitle={`${address}\n${t('api.mcp.addressHelp')}`} subtitleLines={8} />
-      <ListRow tone="action" icon="upload" title={t('invite.share')} onPress={() => { void Share.share({message: address}).catch(() => {}); }} />
+      <ListRow tone="action" icon="upload" title={t('api.mcp.shareAddress')} onPress={() => { void Share.share({message: address}).catch(() => {}); }} />
       <ListRow readable icon="lock" title={t('api.mcp.key')} subtitle={t('api.mcp.keyHelp')} subtitleLines={8} />
     </RowGroup>
   );

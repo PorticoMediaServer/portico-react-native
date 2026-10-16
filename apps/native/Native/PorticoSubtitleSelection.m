@@ -1,4 +1,5 @@
 #import "PorticoSubtitleSelection.h"
+#import "PorticoServerTrust.h"
 #import <Foundation/Foundation.h>
 #import <MediaAccessibility/MediaAccessibility.h>
 #import <CoreText/CoreText.h>
@@ -218,6 +219,7 @@ static BOOL PlainText(id value){
  // A scoped media grant, not a bearer credential. Redirects are denied below.
  _task=[_session dataTaskWithRequest:request];[_task resume];
 }
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {[PorticoServerTrust handleChallenge:challenge completion:completionHandler];}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {completionHandler(nil);}
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
  if(task!=_task){completionHandler(NSURLSessionResponseCancel);return;}

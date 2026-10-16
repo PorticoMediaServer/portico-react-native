@@ -448,8 +448,6 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       const assertCandidate = () => { if (expectedGeneration !== generation.current) throw changedWhileSigningIn(url); };
       assertCandidate();
       const candidate = selectedViewerRecord(url, session);
-      const priorSelection = viewer.getSnapshot();
-      const sameFamily = priorSelection.serverUrl === candidate.serverUrl && priorSelection.session?.sessionFamilyId === candidate.session.sessionFamilyId;
       const central = credentials?.getSnapshot().session;
       const oldServer = attachedServer;
       setError('');
@@ -513,9 +511,8 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
             if (record.session.viewer.authority === 'hosted' && central?.account.id === record.session.viewer.accountId) bindAccountAttachment(local, record.session, central);
           },
           revoke: async record => {
-            // A refreshed access token is the same sign-in. Retiring it would revoke the
-            // selected family, and a failed restore must keep its established family usable.
-            if (record.serverUrl === candidate.serverUrl && record.session.sessionFamilyId === candidate.session.sessionFamilyId && sameFamily) return;
+            // The shared commit never retires a record of the sign-in in use (same server and
+            // family: `sameSignIn`), so a refreshed token or a failed restore keeps its family.
             try {
               await profileAPI(record.serverUrl, record.session.accessToken).logout();
             } finally {

@@ -7,7 +7,7 @@ import {viewerScope} from './content';
 import {compatContentApi} from '../../../../packages/client-core/src/presentation/index';
 import {useSession} from './session';
 import {usePooledService} from './freshness';
-import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
+import {titleWithPersonalState, titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 
 export const requestId = () => Promise.resolve(NativeModules.PorticoRuntime.newRequestId() as Promise<string> | string).then(v => String(v).toLowerCase());
 
@@ -21,7 +21,8 @@ export function useDetail(target: DetailTarget | null) {
   const {service, snapshot, document, memo} = usePooledService<DetailService, DetailSnapshot>(
     'detail:' + key,
     () => new DetailService({api, scope, requestId}),
-    target ? titlesWithPersonalState(target.libraryId) : [],
+    // This title's own state (or anything under it), not every title of its library.
+    target ? titleWithPersonalState(target.libraryId, [target.itemId]) : [],
   );
   useEffect(() => {
     if (!target || memo.selected) return;
@@ -47,7 +48,7 @@ export function useShowWorkspace(route: ShowWorkspaceRoute | null) {
   const {service, snapshot, document, memo} = usePooledService<ShowWorkspaceService, ShowWorkspaceSnapshot>(
     'show:' + key,
     () => new ShowWorkspaceService({api: compatContentApi(api), scope}),
-    route ? titlesWithPersonalState(route.libraryId) : [],
+    route ? (route.showId ? titleWithPersonalState(route.libraryId, [route.showId]) : titlesWithPersonalState(route.libraryId)) : [],
   );
   useEffect(() => {
     if (!route || memo.selected) return;

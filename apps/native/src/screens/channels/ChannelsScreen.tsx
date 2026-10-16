@@ -10,6 +10,8 @@ import {ALL, LIBRARY, RECORDINGS, serverWideReason, channelEntries, channelGuide
 import {present, say} from '../../app/errors';
 import type {Lineup} from '../../player/channel-lineup';
 import {usePlayerActions} from '../../app/player-actions';
+import {useFreshDocument} from '../../app/freshness';
+import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
 import {useSession} from '../../app/session';
 import {Button, Chip, ChipBar, Menu, Sheet, afterOverlaysClose, Notice, PageHeader, Segmented, Skeleton, StateView, showToast, useSpecPlatform, useTheme, type FocusableHandle, type MenuItem} from '../../ui';
 import {RecordingsScreen} from '../Recordings';
@@ -18,6 +20,9 @@ import {ChannelList, ChannelTimeline} from './ChannelList';
 import {GuideGrid, type GuideActions, type Selection} from './GuideGrid';
 import {ProgramSheet} from './ProgramSheet';
 import {GEOMETRY, useGuideFormat} from './format';
+
+/** The guide was brought in again, this profile's recordings changed, or a notice arrived. */
+const GUIDE_HINTS = Object.freeze([dependsOn.list('guide'), dependsOn.list('myRecordings'), dependsOn.event('notification.changed')]);
 
 /**
  * Channels (Spec — Channels and Guide §2, §3, §4, §6): one destination organized by source.
@@ -109,6 +114,9 @@ function GuideScreen({entry, name, library, sources, picker, manager, onRecordin
     store.reset(makeSource());
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => store.dispose(), [store]);
+  // The programmes in view are read again, quietly, when the server brings the guide in again or
+  // this profile's recordings change (a programme's recording mark).
+  useFreshDocument(GUIDE_HINTS, async context => { await context.settle(); forgetGuideReads(); store.invalidate(); });
   // The grid and list report their viewport once they know the channel count, and the count comes
   // from the first channel page: ask for the top of the guide around now so that page is read.
   useEffect(() => { const now = Date.now(); store.setViewport({firstRow: 0, lastRow: 12, start: now - HOUR_MS, end: now + 3 * HOUR_MS}); }, [store]);

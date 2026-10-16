@@ -19,10 +19,9 @@ import type {ClientAudioCodec, ClientTransport, ClientVideoCodec, DynamicRange, 
  * engine. Sound is decoded on the device to PCM in as many channels as the output takes; nothing
  * is passed through as a bitstream, and object audio (Atmos, DTS:X) plays as its channel bed.
  *
- * Android differs in three ways, each reported by its module and none assumed here:
- * - Dolby Vision profile 5 is not offered (its colours need mpv's gpu-next renderer; the Android
- *   engine draws with vo=gpu); profiles 7 and 8 play as their HDR10 layer.
- * - Interlaced video is not offered: the Android engine does not ask mpv to deinterlace.
+ * Android differs in two ways, each reported by its module and none assumed here:
+ * - Dolby Vision profiles 7 and 8 play as their HDR10 layer; profile 5 (no such layer) is drawn
+ *   by mpv's gpu-next renderer, which reshapes it.
  * - An HDR title on an HDR screen is shown in HDR (the decoder draws straight onto the surface),
  *   unless the chosen subtitles are ones mpv must draw, when it is tone-mapped like any other.
  */
@@ -39,13 +38,15 @@ export type MpvDeviceFacts = Readonly<{
   /** Android: each hardware decoder's own limits, by codec (`MediaCodecList`). A codec listed here
    * is decoded by the chip; `tenBit` says whether that includes 10-bit. Absent (Apple): a
    * hardware codec plays at the chip's fixed limits. */
-  hardwareLimits?: Readonly<Record<string, Readonly<{maxWidth?: number; maxHeight?: number; maxFrameRate?: number; tenBit?: boolean}> | undefined>>;
+  hardwareLimits?: Readonly<Record<string, Readonly<{maxWidth?: number; maxHeight?: number; maxFrameRate?: number; tenBit?: boolean; limits?: readonly Readonly<{maxWidth: number; maxHeight: number; maxFrameRate: number}>[]}> | undefined>>;
   /** The HDR kinds the screen shows from this engine. Absent: HDR10 and HLG when `hdrOutput`. */
   hdrOutputRanges?: readonly string[];
   /** The Dolby Vision profiles this engine shows in the right colours. Absent: 5, 7 and 8. */
   dolbyVisionProfiles?: readonly number[];
   /** False when this build of mpv cannot deinterlace. Absent: it can. */
   softwareDeinterlace?: boolean;
+  /** This build's mpv plays live channels (placed by the server's clock epochs). Absent: it does not. */
+  liveChannels?: boolean;
 }>;
 
 export type SubtitleRenderingKind = 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb';
@@ -62,6 +63,7 @@ export type EngineCapabilities = Readonly<{
   subtitleRendering: readonly SubtitleRenderingKind[];
   toneMapsHdr: boolean;
   embeddedAudioSwitching: boolean;
+  liveChannels?: boolean;
 }>;
 
 /** How much software decoding the device can keep up with. */
@@ -142,18 +144,37 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     if (!width || !height) return uhd60;
     return {maxWidth: Math.max(width, height), maxHeight: Math.min(width, height), maxFrameRate: Math.min(240, whole(own?.maxFrameRate) ?? 60)};
   };
+  // The chip decoder's own operating points ("4K at 30, 1080p at 60") where the device reports
+  // them, each within the chip's overall limit.
+  const chipPoints = (codec: string, overall: Limit): Limit[] => {
+    const points = (facts?.hardwareLimits?.[codec]?.limits ?? []).map(p => ({maxWidth: whole(p.maxWidth), maxHeight: whole(p.maxHeight), maxFrameRate: whole(p.maxFrameRate)}))
+      .filter((p): p is Limit => !!p.maxWidth && !!p.maxHeight && !!p.maxFrameRate).map(p => within(p, overall));
+    return points.length > 1 ? points.slice(0, 8) : [overall];
+  };
+  // Operating points by depth: the chip's for the depths it decodes, software's for a depth only
+  // mpv's own decoder takes. Absent when one limit says it all.
+  const points = (chipDepths: number[], chipLimit: Limit[], softDepths: number[], soft: Limit | null): ClientVideoCodec['limits'] => {
+    const out = [...chipLimit.map(l => ({bitDepths: chipDepths, ...l})), ...(soft && softDepths.length ? [{bitDepths: softDepths, ...soft}] : [])];
+    return out.length > 1 ? out : undefined;
+  };
+  const largest = (limits: Limit[]): Limit => limits.reduce((a, b) => ({maxWidth: Math.max(a.maxWidth, b.maxWidth), maxHeight: Math.max(a.maxHeight, b.maxHeight), maxFrameRate: Math.max(a.maxFrameRate, b.maxFrameRate)}));
   // Whether the chip takes 10-bit for a codec. Where it does not, 10-bit is software's.
   const deep = (codec: string): boolean => facts?.hardwareLimits?.[codec]?.tenBit !== false;
   const dolbyVision = (facts?.dolbyVisionProfiles ?? [5, 7, 8]).filter(p => Number.isInteger(p) && p >= 0 && p <= 20);
   const deinterlaces = facts?.softwareDeinterlace !== false;
   const video: ClientVideoCodec[] = [];
   // H.264: 8-bit in hardware. 10-bit (Hi10P) has no hardware decoder anywhere, so it is offered
-  // only where software keeps up. The document has one limit per codec, so both depths must
-  // fit that limit. Availability alone cannot give an A8-based Apple TV HD a 4K decoder; an
-  // Android device reports its H.264 decoder's own limits.
+  // only where software keeps up, within the software limit: the document's operating points let
+  // the two depths have different limits. Availability alone cannot give an A8-based Apple TV HD a
+  // 4K decoder; an Android device reports its H.264 decoder's own limits.
   const h264Hardware = facts?.hardwareLimits?.h264 ? chip('h264') : tier === 'light' ? hd60 : uhd60;
-  const h264Limit = heavy ?? (hardware.h264 ? h264Hardware : hd30);
-  video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...h264Limit, dynamicRanges: ['sdr'], evidence: probed});
+  if (hardware.h264) {
+    const eight = chipPoints('h264', h264Hardware);
+    const limits = points([8], eight, heavy ? [10] : [], heavy ? within(heavy, h264Hardware) : null);
+    video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(limits ? largest([...eight, ...(heavy ? [heavy] : [])]) : h264Hardware), ...(limits ? {limits} : {}), dynamicRanges: ['sdr'], evidence: probed});
+  } else {
+    video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(heavy ?? hd30), dynamicRanges: ['sdr'], evidence: probed});
+  }
   // HEVC, VP9 and AV1. A chip that decodes only 8-bit (an older Android device) leaves 10-bit,
   // and with it HDR, to software where software keeps up; both depths then share the limit both
   // fit, as for H.264.
@@ -161,9 +182,12 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     if (!hardware[codec] && !heavy) return;
     const chipTenBit = hardware[codec] && deep(codec);
     const tenBit = chipTenBit || !!heavy;
-    const limit = !hardware[codec] ? heavy! : chipTenBit || !heavy ? chip(codec) : within(chip(codec), heavy);
+    const own = hardware[codec] ? chipPoints(codec, chip(codec)) : [];
+    // A chip that decodes only 8-bit keeps its own limits for 8-bit; 10-bit is software's.
+    const limits = hardware[codec] ? points(chipTenBit ? [8, 10] : [8], own, !chipTenBit && heavy ? [10] : [], !chipTenBit && heavy ? within(chip(codec), heavy) : null) : undefined;
+    const limit = !hardware[codec] ? heavy! : limits ? largest(own) : chip(codec);
     const ranges: DynamicRange[] = tenBit ? [...hdrRanges, ...(codec === 'hevc' && dolbyVision.length ? ['dolby_vision' as const] : [])] : ['sdr'];
-    video.push({codec, bitDepths: tenBit ? [8, 10] : [8], ...limit, dynamicRanges: ranges, ...(codec === 'hevc' && tenBit && dolbyVision.length ? {dolbyVisionProfiles: dolbyVision} : {}), evidence: probed});
+    video.push({codec, bitDepths: tenBit ? [8, 10] : [8], ...limit, ...(limits ? {limits} : {}), dynamicRanges: ranges, ...(codec === 'hevc' && tenBit && dolbyVision.length ? {dolbyVisionProfiles: dolbyVision} : {}), evidence: probed});
   };
   modern('hevc'); modern('vp9'); modern('av1');
   // The older codecs: the chip's decoder where the device has one (Android), software otherwise.
@@ -192,6 +216,7 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     subtitleRendering: Object.freeze(['text', 'ass', 'pgs', 'vobsub', 'dvb'] as const),
     toneMapsHdr: true,
     embeddedAudioSwitching: true,
+    ...(facts?.liveChannels === true ? {liveChannels: true} : {}),
   });
 }
 

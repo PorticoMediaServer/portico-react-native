@@ -6,6 +6,7 @@ import type {ContentEntry, ContentRoute, ContentSection} from '../../../../packa
 import {formatDuration, iconFor, lengthFor, shapeFor, useArtwork, useContent} from '../app/content';
 import {usePlayingItemId} from '../app/player-actions';
 import {say} from '../app/errors';
+import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n, type I18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
 import {useInvoker} from '../app/playback-events';
@@ -15,7 +16,7 @@ import {announceMark, containerKindFor, useContainerState} from '../app/containe
 import {useSession} from '../app/session';
 import {activeYearsLabel, artistReleaseGroups} from '../../../../packages/client-core/src/presentation/index';
 import {TitleDetails} from './title/TitleDetails';
-import {useMergeTwo} from './server/TitleTools';
+import {useMergeTwo, useTitleTools} from './server/TitleTools';
 import type {ContentStackParams} from '../app/routes';
 import {Chip, ChipBar, ListRow, Notice, Page, StateView, showToast, useEntryFocus, useTheme, type IconName} from '../ui';
 import {SectionView} from './Home';
@@ -52,6 +53,8 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const {libraryId, view, entityId, title} = route.params;
   const content = useMemo<ContentRoute>(() => ({libraryId, view, entityId}), [libraryId, view, entityId]);
   const {snapshot, retry, refresh, next} = useContent(content);
+  // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
+  const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const {space, isTV} = useTheme();
   const i18n = useI18n();
@@ -185,6 +188,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // The owner arranges a library collection's own order here, on a phone or tablet, while it is
   // shown in that order: a move sends the title and the one it now follows.
   const [reordering, setReordering] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const role = viewerSession?.viewer.role;
   // A collection page carries no entity projection: the collection is the route's own id.
   const canReorder = !isTV && kind === 'collection' && (role === 'owner' || role === 'admin') && group.engaged && !group.choice.sort && !group.choice.predicates.length && sortedPages.snapshot.entries.length > 1;
@@ -278,7 +282,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
         />
         {snapshot.phase === 'error' && !sections.length ? (
           <StateView icon="warning" title={i18n.t('error.title.load', {subject: 'library'})} message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
-        ) : snapshot.phase === 'refresh-required' ? (
+        ) : changedStuck ? (
           <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'library', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginBottom: space.lg}} />
         ) : null}
 
@@ -320,10 +324,12 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const noMatch = <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} />;
   // Owners: two of an album's songs, or a book's files, that are one can be merged here (they have no page of their own to start from).
   const mergeTwo = useMergeTwo((isBook ? files : songs)?.entries ?? [], refresh);
+  // Owners: this album, book or artist and another that are one can be merged from here.
+  const tools = useTitleTools(entity && (entity.kind === 'album' || entity.kind === 'book' || entity.kind === 'artist') ? {id: entity.id, title: entity.title, kind: entity.kind, libraryId, year: entity.year} : undefined, undefined, refresh);
   const bottom = (
     <>
         {sortedList && sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? noMatch : null}
-        {arranging ? <ManualOrderRows entries={orderedTitles} whole={!sortedPages.snapshot.hasMore} onMove={moveTitle} /> : !sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
+        {arranging ? <ManualOrderRows entries={orderedTitles} whole={!sortedPages.snapshot.hasMore} onMove={moveTitle} onDragging={setDragging} /> : !sortsTracks && group.engaged ? <GroupResults group={group} results={sortedPages} libraryId={groupLibrary} row={1} /> : rest.map((section, index) => {
           if (section.id === 'releases' && isArtist && releases) {
             return (
               <React.Fragment key="releases-split">
@@ -336,8 +342,9 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
           }
           return <RowGuide key={section.id}><SectionView row={1 + index} section={section} libraryId={libraryId} onMore={section.nextCursor ? () => next(section.id) : undefined} /></RowGuide>;
         })}
-        <TitleDetails rows={detailRows} tools={mergeTwo.row} />
+        <TitleDetails rows={detailRows} tools={<>{tools.mergeRow}{mergeTwo.row}</>} />
         {mergeTwo.sheet}
+        {tools.sheets}
         {snapshot.phase === 'ready' && !sections.length && !group.engaged ? <StateView icon={iconFor(kind)} title={i18n.t('title.nothingHere')} /> : null}
     </>
   );
@@ -347,7 +354,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
       {trackList && rowOptions && trackSection ? (
         <TrackWindowList list={sortedList ?? trackList} total={sortedList ? sorted.snapshot.total ?? 0 : trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
       ) : (
-        <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
+        <Page contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
           {top}
           {bottom}
         </Page>

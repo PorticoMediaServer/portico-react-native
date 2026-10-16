@@ -1,6 +1,10 @@
 package tv.getportico.portico.native
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.database.ContentObserver
 import android.hardware.display.DisplayManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -39,6 +43,15 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = changed()
     override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = changed()
   }
+  // Fire OS (and some televisions) say what the receiver takes through the HDMI plug broadcast
+  // and the "surround sound" system setting rather than the audio device list: either changing
+  // asks for the profile again too.
+  private val hdmiChanged = object : BroadcastReceiver() {
+    override fun onReceive(context: Context?, intent: Intent?) = changed()
+  }
+  private val surroundChanged = object : ContentObserver(Handler(Looper.getMainLooper())) {
+    override fun onChange(selfChange: Boolean) = changed()
+  }
   private val displayChanged = object : DisplayManager.DisplayListener {
     override fun onDisplayAdded(displayId: Int) {}
     override fun onDisplayRemoved(displayId: Int) {}
@@ -55,6 +68,12 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     }
     audio.registerAudioDeviceCallback(audioChanged, main)
     displays.registerDisplayListener(displayChanged, main)
+    try {
+      val filter = IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG)
+      if (Build.VERSION.SDK_INT >= 33) reactApplicationContext.registerReceiver(hdmiChanged, filter, Context.RECEIVER_NOT_EXPORTED)
+      else reactApplicationContext.registerReceiver(hdmiChanged, filter)
+    } catch (_: Exception) {}
+    try { reactApplicationContext.contentResolver.registerContentObserver(Settings.Global.getUriFor(SURROUND_SETTING), false, surroundChanged) } catch (_: Exception) {}
   }
 
   override fun invalidate() {
@@ -62,6 +81,8 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     if (was) {
       audio.unregisterAudioDeviceCallback(audioChanged)
       displays.unregisterDisplayListener(displayChanged)
+      try { reactApplicationContext.unregisterReceiver(hdmiChanged) } catch (_: Exception) {}
+      try { reactApplicationContext.contentResolver.unregisterContentObserver(surroundChanged) } catch (_: Exception) {}
     }
     super.invalidate()
   }
@@ -109,6 +130,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     var maxBitrate = 0
     var maxLevel = 0
     var tenBit = false
+    var points: List<VideoPoint> = emptyList()
     val profiles = LinkedHashSet<String>()
     val hdr = LinkedHashSet<String>()
     val dolbyVision = LinkedHashSet<Int>()
@@ -134,7 +156,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         if (hardware && !entry.hardware) {
           entry.hardware = true
           entry.maxWidth = 0; entry.maxHeight = 0; entry.maxFrameRate = 0; entry.maxBitrate = 0; entry.maxLevel = 0
-          entry.tenBit = false; entry.profiles.clear(); entry.hdr.clear()
+          entry.tenBit = false; entry.points = emptyList(); entry.profiles.clear(); entry.hdr.clear()
         }
         val width = video.supportedWidths.upper
         val height = try { video.getSupportedHeightsFor(width).upper } catch (_: Exception) { video.supportedHeights.upper }
@@ -142,6 +164,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
           entry.maxWidth = width
           entry.maxHeight = height
           entry.maxFrameRate = try { video.getSupportedFrameRatesFor(width, height).upper.toInt() } catch (_: Exception) { video.supportedFrameRates.upper }
+          entry.points = videoPoints(video, width, height)
         }
         entry.maxBitrate = maxOf(entry.maxBitrate, video.bitrateRange.upper)
         for (level in capabilities.profileLevels) describe(codec, level, entry)
@@ -159,6 +182,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         putInt("maxWidth", entry.maxWidth)
         putInt("maxHeight", entry.maxHeight)
         if (entry.maxFrameRate in 1..960) putInt("maxFrameRate", entry.maxFrameRate)
+        if (entry.points.isNotEmpty()) putArray("limits", videoPointsArray(entry.points))
         if (entry.maxBitrate > 0) putInt("maxBitrateBps", entry.maxBitrate)
         if (entry.profiles.isNotEmpty()) putArray("profiles", Arguments.fromList(entry.profiles.toList()))
         if (entry.maxLevel > 0) putInt("maxLevel", entry.maxLevel)
@@ -284,16 +308,29 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
   /** The output a new playback would use, as one of the words the profile uses, and how many channels it carries. */
   private fun output(outputs: List<AudioDeviceInfo>): WritableMap {
     val device = activeOutput(outputs)
-    val route = device?.let { d -> ROUTES.first { d.type in it.first }.second } ?: if (outputs.isEmpty()) "" else "other"
+    var route = device?.let { d -> ROUTES.first { d.type in it.first }.second } ?: if (outputs.isEmpty()) "" else "other"
     val chosen = device ?: outputs.firstOrNull()
     // A device that lists no channel counts takes any number of channels. That is eight on a
     // digital output (a receiver or television) and two on anything else.
-    val channels = chosen?.channelCounts?.maxOrNull() ?: if (chosen != null && chosen.type in DIGITAL_OUTPUTS) 8 else 2
+    var channels = chosen?.channelCounts?.maxOrNull() ?: if (chosen != null && chosen.type in DIGITAL_OUTPUTS) 8 else 2
+    // Fire OS may list no HDMI device at all. A television box whose sound is not going to
+    // headphones, Bluetooth or USB, with the HDMI plug reporting a connected sink, sends it over
+    // HDMI, with as many channels as the plug reported.
+    if (PorticoMpvDevice.isTelevision && route !in setOf("hdmi", "bluetooth", "headphones", "usb")) {
+      hdmiPlug()?.let { plugged -> route = "hdmi"; if (plugged > 0) channels = plugged }
+    }
     return Arguments.createMap().apply {
       putInt("maxOutputChannels", channels.coerceIn(2, 16))
       putString("route", route)
     }
   }
+
+  /** The HDMI sink's channel count from the plug broadcast when one is connected (0: not said), else null. */
+  private fun hdmiPlug(): Int? = try {
+    val sticky = if (Build.VERSION.SDK_INT >= 33) reactApplicationContext.registerReceiver(null, IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG), Context.RECEIVER_NOT_EXPORTED)
+        else reactApplicationContext.registerReceiver(null, IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG))
+    if (sticky?.getIntExtra(AudioManager.EXTRA_AUDIO_PLUG_STATE, 0) == 1) sticky.getIntExtra(AudioManager.EXTRA_MAX_CHANNEL_COUNT, 0) else null
+  } catch (_: Exception) { null }
 
   // --- display ---------------------------------------------------------------------------
 
@@ -324,6 +361,8 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
   }
 
   companion object {
+    /** The Fire OS and Android TV "surround sound" setting Media3 reads for an external receiver. */
+    private const val SURROUND_SETTING = "external_surround_sound_enabled"
     private val VIDEO = mapOf(
         "video/avc" to "h264", "video/hevc" to "hevc", "video/av01" to "av1", "video/x-vnd.on2.vp9" to "vp9",
         "video/x-vnd.on2.vp8" to "vp8", "video/mp4v-es" to "mpeg4", "video/mpeg2" to "mpeg2video",

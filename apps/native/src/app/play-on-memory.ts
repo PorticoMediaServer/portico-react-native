@@ -22,15 +22,3 @@ export function readSentPlayback(raw: unknown, viewer: string, now: number): Sen
   if (typeof v.at !== 'number' || !Number.isFinite(v.at) || v.at > now + 60_000 || now - v.at > SENT_PLAYBACK_MAX_AGE_MS) return undefined;
   return Object.freeze({viewer: v.viewer, handoffId: v.handoffId, device: v.device, ...(text(v.title, 300) ? {title: v.title} : {}), at: v.at});
 }
-
-/** The id of the handoff a commit answer says was committed (`POST /v1/handoffs/{id}/commit`), or nothing. */
-export function committedHandoffId(path: string, method: string, answer: unknown): string | undefined {
-  const match = method === 'POST' ? /^\/v1\/handoffs\/([^/]+)\/commit$/.exec(path) : null;
-  if (!match) return undefined;
-  const a = answer as {handoff?: {id?: unknown; state?: unknown}; id?: unknown; state?: unknown} | null;
-  const doc = a && typeof a === 'object' ? (a.handoff && typeof a.handoff === 'object' ? a.handoff : a) : undefined;
-  if (!doc || doc.state !== 'committed') return undefined;
-  let named: string;
-  try { named = decodeURIComponent(match[1]!); } catch { return undefined; }
-  return typeof doc.id === 'string' && doc.id === named ? named : undefined;
-}

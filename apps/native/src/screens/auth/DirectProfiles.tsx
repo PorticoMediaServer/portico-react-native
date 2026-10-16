@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {BackHandler, TVEventControl, View} from 'react-native';
 import {parseDirectSnapshot, type ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
 import {useSession} from '../../app/session';
@@ -7,6 +7,8 @@ import {useI18n} from '../../app/i18n';
 import {AuthFrame} from './AuthFrame';
 import {say} from '../../app/errors';
 import {ProfileAvatar, useProfilePictures} from './ProfileAvatar';
+import {IdentityClient} from '../../../../../packages/client-core/src/index';
+import {PINRecoverySheet} from '../Profiles';
 
 /**
  * Profile chooser for a direct (server credential) account. Shown after
@@ -22,6 +24,9 @@ export function DirectProfiles({onCancel}: {onCancel: () => void}) {
   const [pinFor, setPinFor] = useState<ManagedProfile>();
   const [pin, setPin] = useState('');
   const [pinKey, setPinKey] = useState(0);
+  // Forgot PIN: the signed-in account sets a new one (the same recovery as Settings and the web).
+  const [recovering, setRecovering] = useState<ManagedProfile>();
+  const identity = useMemo(() => (pending ? new IdentityClient(pending.api) : undefined), [pending]);
   const i18n = useI18n();
   useEffect(() => {
     if (!pending || pending.snapshot) return;
@@ -82,7 +87,8 @@ export function DirectProfiles({onCancel}: {onCancel: () => void}) {
       {pinFor ? (
         <View style={{alignItems: isTV ? 'center' : 'flex-start', gap: space.md}}>
           <Text variant="body" tone="secondary">{pinFor.name}</Text>
-          <PinEntry value={pin} onChange={setPin} onComplete={value => void submitPin(value)} label={i18n.t('pin.fourDigit')} error={session.error || undefined} errorKey={pinKey} disabled={session.busy} />
+          <PinEntry value={pin} onChange={setPin} onComplete={value => void submitPin(value)} label={i18n.t('pin.fourDigit')} error={session.error || undefined} errorKey={pinKey} disabled={session.busy} onForgot={identity ? () => { session.clearError(); setRecovering(pinFor); } : undefined} />
+          {recovering && identity ? <PINRecoverySheet profile={recovering} identity={identity} onClose={() => { setRecovering(undefined); setPin(''); setPinKey(k => k + 1); }} /> : null}
         </View>
       ) : !profiles && loadError ? (
         // QA: a failed load says so and offers another try, instead of spinning forever.

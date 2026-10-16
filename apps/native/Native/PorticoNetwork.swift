@@ -195,5 +195,22 @@ final class PorticoNetwork: RCTEventEmitter, NetServiceDelegate {
         service.setTXTRecord(NetService.data(fromTXTRecord: text.mapValues { Data($0.utf8) })); service.delegate = self; playerService = service; service.publish(); resolve(true)
     }
     @objc func stopPlayerAdvertisement() { playerService?.stop(); playerService = nil }
+    // The owner's own certificate (PorticoServerTrust). JavaScript decides when to pin, after the
+    // server proves its identity over the certificate; these only report, prove over and store.
+    @objc func refusedCertificate(_ origin: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        resolve(PorticoServerTrust.refused(at: origin).map { ["fingerprint": $0] })
+    }
+    @objc func pinnedCertificate(_ origin: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        resolve(PorticoServerTrust.pinned(at: origin))
+    }
+    @objc func pinCertificate(_ origin: String, fingerprint: String, serverId: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        if PorticoServerTrust.pin(origin, fingerprint: fingerprint, serverId: serverId) { resolve(true) } else { reject("certificate_storage", "The server's certificate could not be saved.", nil) }
+    }
+    @objc func forgetCertificate(_ origin: String) { PorticoServerTrust.forget(origin) }
+    @objc func proofRequest(_ origin: String, fingerprint: String, body: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        PorticoServerTrust.prove(origin, fingerprint: fingerprint, body: body) { response in
+            if let response = response { resolve(response) } else { reject("certificate_proof", "The server could not prove its identity.", nil) }
+        }
+    }
     @objc func stopTVAdvertisement() { tvExpiry?.invalidate(); tvExpiry = nil; tvService?.stop(); tvService = nil }
 }

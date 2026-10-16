@@ -5,6 +5,7 @@
 #import <ImageIO/ImageIO.h>
 #import <UIKit/UIKit.h>
 #import "PorticoPlaybackController.h"
+#import "PorticoServerTrust.h"
 #import "PorticoEngineClock.h"
 
 /**
@@ -264,6 +265,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   [_artworkTask resume];
 }
 // The bearer must never follow a redirect to somewhere else.
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {[PorticoServerTrust handleChallenge:challenge completion:completionHandler];}
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler { completionHandler(nil); }
 
 #pragma mark - Remote commands

@@ -190,11 +190,3 @@ adb reverse tcp:19424 tcp:19424                       # Metro, for a debug build
   until a release key exists. Cast needs `-PporticoCastApplicationId=<id>`;
   Hosted sign-in needs `-PporticoHostedUrl=<origin>`.
 - Icons and the launch logo are generated: `scripts/make-icons.sh android`.
-
-## Known gaps
-
-- Poster-size preference is stored but not yet applied to card metrics.
-- `src/app/compat.ts` folds newer server fields (`artwork` objects, extra
-  navigation views) into the shape the checked-in core validates; remove once
-  `packages/client-core` catches up.
-- Playlist editing, history clearing and recording actions are not exposed.

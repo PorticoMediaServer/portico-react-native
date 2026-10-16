@@ -22,6 +22,7 @@ extension Notification.Name {
 /// Everything here runs on the main queue. mpv itself is only ever touched through
 /// `PorticoMpvCore`, on its own queue.
 final class PorticoMpvController: NSObject, PorticoEngineClockSource {
+
     static weak var shared: PorticoMpvController?
 
     /// A fact for JavaScript.
@@ -71,6 +72,12 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     private var routeFailed = false
     private var routeEpoch = 0
     private var routePosition = 0.0
+    /// A channel: its clock (media time to channel position), the seek that already reopened the
+    /// playlist at its target once (mpv cannot seek a live playlist beyond what it holds), and
+    /// whether the open playlist was asked to start at a position.
+    private var linear: PorticoMpvLinearClock?
+    private var linearReloaded = -1
+    private var linearOpenedAt = false
 
     private var core: PorticoMpvCore?
     private let relay = PorticoMpvRelay()
@@ -239,7 +246,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         guard let sessionId = binding["sessionId"] as? String, let itemId = binding["itemId"] as? String else { return "Invalid playback binding." }
         if let clock = command["timelineOriginMs"], !(clock is NSNull) {
             guard PorticoMpvSupport.integer(clock) != nil else { return "Invalid channel clock." }
-            return "This player does not play live channels."
+            guard PorticoMpvPlaybackModule.liveChannels else { return "This player does not play live channels." }
+            guard PorticoMpvLinearClock(command["linearClock"]) != nil else { return "Invalid channel clock." }
+        } else if let clock = command["linearClock"], !(clock is NSNull) {
+            return "Invalid channel clock."
         }
         let route = command["routeRevision"]
         if let connection = command["connectionState"], !(connection is NSNull) {
@@ -322,6 +332,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             }
         }
         command = next
+        if let origin = next["timelineOriginMs"], !(origin is NSNull) { linear = PorticoMpvLinearClock(next["linearClock"]) } else { linear = nil }
         paused = PorticoMpvSupport.boolean(next["paused"]) ?? true
         if verifying {
             if !routeSuspended {
@@ -355,7 +366,8 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
                 }
                 configureAudioSession()
                 itemInstanceId = UUID().uuidString
-                beginLoad(url)
+                linearReloaded = -1
+                beginLoad(url, linearAt: linearStart())
                 if routeResume {
                     let epoch = routeEpoch
                     let load = loadEpoch
@@ -491,7 +503,26 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         updateOutputRange()
     }
 
-    private func beginLoad(_ url: URL) {
+    /// Where a channel opens: the position being restored, or the seek in hand; nil for the
+    /// server's own start (near the live edge). mpv cannot seek a live playlist outside what it
+    /// has read, so the playlist itself is asked to start there.
+    private func linearStart() -> Double? {
+        guard linear != nil else { return nil }
+        if routeResume, !routeSuspended { return routePosition }
+        guard let pending = pendingSeekCommand(), let revision = PorticoMpvSupport.integer(pending["revision"]), revision > seekRevision,
+              let target = PorticoMpvSupport.number(pending["positionSeconds"]), target >= 0 else { return nil }
+        return target
+    }
+
+    private func beginLoad(_ original: URL, linearAt: Double? = nil) {
+        // The playlist starting at a channel position: the server serves it from the segment
+        // holding that position (?at=milliseconds from the channel's origin).
+        var url = original
+        linearOpenedAt = false
+        if linear != nil, let at = linearAt, at.isFinite, at >= 0, var parts = URLComponents(url: original, resolvingAgainstBaseURL: false) {
+            parts.queryItems = [URLQueryItem(name: "at", value: String(Int64((at * 1000).rounded(.down))))]
+            if let opened = parts.url { url = opened; linearOpenedAt = true }
+        }
         loadEpoch += 1
         let epoch = loadEpoch
         fileRequested = true
@@ -536,9 +567,18 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             options["demuxer-lavf-format"] = "hls"
             referencesAllowed = true
         }
-        // The position to start at is part of opening the file, so nothing is decoded from the
-        // beginning only to be thrown away.
-        if routeResume, !routeSuspended {
+        if linear != nil {
+            // A channel is placed by its clock: media time stays the stream's own (so the
+            // server's clock epochs apply), what has been read stays seekable, and a playlist
+            // reopened at a position is read from its first segment. The position itself is then
+            // reached by seek once the picture is up (applyPendingSeek).
+            options["rebase-start-time"] = "no"
+            options["demuxer-seekable-cache"] = "yes"
+            if linearOpenedAt { options["demuxer-lavf-o"] = "protocol_whitelist=%20%file,http,tcp,crypto,live_start_index=0" }
+            if routeResume, !routeSuspended { routeSeeking = true }
+        } else if routeResume, !routeSuspended {
+            // The position to start at is part of opening the file, so nothing is decoded from
+            // the beginning only to be thrown away.
             routeSeeking = true
             options["start"] = String(format: "%.3f", routePosition)
         } else if let pending = pendingSeekCommand(), let revision = PorticoMpvSupport.integer(pending["revision"]), let target = PorticoMpvSupport.number(pending["positionSeconds"]), revision > seekRevision {
@@ -623,7 +663,7 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
             if var flight = seekInFlight, flight.token == token {
                 if code < 0 {
                     seekInFlight = nil
-                    completeSeek(revision: flight.revision, target: flight.target, finished: false)
+                    if !reopenLinear(revision: flight.revision, target: flight.target) { completeSeek(revision: flight.revision, target: flight.target, finished: false) }
                 } else {
                     flight.commandAccepted = true
                     seekInFlight = flight
@@ -674,7 +714,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         if routeResume {
             routeSeeking = false
             let actual = currentPosition()
-            if !actual.isFinite || abs(actual - routePosition) > 0.5 {
+            // A channel reopens at the segment holding the position: within one segment of it.
+            let tolerance = linear != nil ? 8.0 : 0.5
+            if !actual.isFinite || abs(actual - routePosition) > tolerance {
                 routeResume = false
                 routeFailed = true
                 routeEpoch += 1
@@ -729,8 +771,9 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     }
 
     private func currentPosition() -> Double {
-        guard fileRequested else { return lastPosition }
-        return snapshot.timePos.isFinite ? snapshot.timePos : lastPosition
+        let media = fileRequested && snapshot.timePos.isFinite ? snapshot.timePos : lastPosition
+        guard let clock = linear else { return media }
+        return clock.position(media)
     }
 
     private func applyIntent() {
@@ -760,7 +803,34 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         seekToken += 1
         seekInFlight = (seekToken, revision, target, false, false)
         core.set("pause", "yes")
-        core.command(["seek", String(format: "%.3f", target), "absolute+exact"], token: seekToken)
+        // A channel position is sought as the media time its clock maps it to.
+        let media = linear?.media(target, near: snapshot.timePos) ?? target
+        core.command(["seek", String(format: "%.3f", media), "absolute+exact"], token: seekToken)
+        if linear != nil {
+            // Outside what mpv holds of a live playlist the seek is accepted and then quietly not
+            // made: no new frame comes. That is a refusal too.
+            let token = seekToken
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self = self, !self.invalidated, let flight = self.seekInFlight, flight.token == token, !flight.restartSeen else { return }
+                self.seekInFlight = nil
+                if !self.reopenLinear(revision: flight.revision, target: flight.target) { self.completeSeek(revision: flight.revision, target: flight.target, finished: false) }
+            }
+        }
+    }
+
+    /// mpv holds only what it has read of a live playlist. A channel seek it refuses is made again
+    /// once, on the playlist reopened at the target; a second refusal is a failed seek.
+    private func reopenLinear(revision: Int, target: Double) -> Bool {
+        guard linear != nil, linearReloaded != revision, let source = source, !source.isEmpty, let url = URL(string: source) else { return false }
+        linearReloaded = revision
+        seekInFlight = nil
+        seekRevision = revision - 1
+        seeking = true
+        subtitleOverlay.invalidate()
+        resetAudio()
+        unload()
+        beginLoad(url, linearAt: target)
+        return true
     }
 
     // Command replies and playback-restart events can arrive in either order.
@@ -1452,4 +1522,57 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
     func engineClockRate() -> Double { return effectiveRate() }
     func engineClockDuration() -> Double { return snapshot.duration }
 }
+/// A channel's clock as mpv sees it. AVPlayer places itself on a channel by the playlist's program
+/// dates; mpv reports media time instead (with `rebase-start-time` off: the stream's own
+/// timestamps). The server publishes, per stretch of the channel's timeline, the offset from media
+/// time to channel position (`presentation.linear.clocks`), and the coordinator hands it to this
+/// engine as `linearClock`: oldest first, the first without a start. MPEG-TS timestamps wrap every
+/// 2^33 ticks of 90 kHz (about 26.5 hours) and FFmpeg unwraps them from wherever it started, so a
+/// media time is matched modulo that period.
+struct PorticoMpvLinearClock: Equatable {
+    static let wrapSeconds = 8_589_934_592.0 / 90_000.0
+    private let starts: [Double]
+    private let offsets: [Double]
+
+    /// `linearClock` as the coordinator sends it: [{offsetMs}, {startMs, offsetMs}, …], at most 64.
+    init?(_ value: Any?) {
+        guard let list = value as? [Any], !list.isEmpty, list.count <= 64 else { return nil }
+        var starts: [Double] = [], offsets: [Double] = []
+        for (index, item) in list.enumerated() {
+            guard let entry = item as? [AnyHashable: Any], let offset = (entry["offsetMs"] as? NSNumber)?.doubleValue, offset.isFinite, abs(offset) <= 1e15 else { return nil }
+            var start = -Double.infinity
+            if index > 0 {
+                guard let ms = (entry["startMs"] as? NSNumber)?.doubleValue, ms.isFinite, ms >= 0, ms / 1000 > starts[index - 1] else { return nil }
+                start = ms / 1000
+            }
+            starts.append(start)
+            offsets.append(offset / 1000)
+        }
+        self.starts = starts
+        self.offsets = offsets
+    }
+
+    /// The channel position (seconds from the channel's origin) of a media time, or NaN.
+    func position(_ media: Double) -> Double {
+        guard media.isFinite else { return .nan }
+        for index in starts.indices.reversed() {
+            let start = starts[index]
+            let end = index + 1 < starts.count ? starts[index + 1] : Double.infinity
+            var position = media + offsets[index]
+            let anchor = start.isFinite ? start : (end.isFinite ? end : position)
+            position += PorticoMpvLinearClock.wrapSeconds * ((anchor - position) / PorticoMpvLinearClock.wrapSeconds).rounded()
+            if position >= start - 2, position < end + 2 { return position }
+        }
+        return .nan
+    }
+
+    /// The media time of a channel position, on the same side of a wrap as the media time now.
+    func media(_ position: Double, near: Double) -> Double {
+        let index = starts.lastIndex(where: { !$0.isFinite || $0 <= position }) ?? 0
+        var media = position - offsets[index]
+        if near.isFinite { media += PorticoMpvLinearClock.wrapSeconds * ((near - media) / PorticoMpvLinearClock.wrapSeconds).rounded() }
+        return media
+    }
+}
+
 #endif

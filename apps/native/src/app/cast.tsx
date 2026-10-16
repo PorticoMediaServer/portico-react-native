@@ -64,12 +64,12 @@ export function CastProvider({children}: {children: React.ReactNode}) {
     if (!controller || !native || !emitter) return;
     let live = true;
     const describe = (itemId: string) => api.item(itemId).then(item => item.title, () => undefined);
-    const adopt = (deviceName: string) => {
+    const adopt = (device: CastDevice) => {
       if (!live || starting.current || controller.getSnapshot().phase !== 'off') return;
-      void controller.adopt(transportFor(deviceName), describe);
+      void controller.adopt(transportFor(device), describe);
     };
-    void castControllerStorageReady.then(() => native.current() as Promise<{deviceName: string} | null>).then(current => { if (current) adopt(current.deviceName); }, () => {});
-    const sub = emitter.addListener('PorticoCastSession', (event: {state: string; deviceName: string}) => { if (event.state === 'started') void castControllerStorageReady.then(() => adopt(event.deviceName)); });
+    void castControllerStorageReady.then(() => native.current() as Promise<CastDevice | null>).then(current => { if (current) adopt(current); }, () => {});
+    const sub = emitter.addListener('PorticoCastSession', (event: CastDevice & {state: string}) => { if (event.state === 'started') void castControllerStorageReady.then(() => adopt(event)); });
     return () => { live = false; sub.remove(); };
   }, [controller, api]);
   const cast = useCallback((itemId: string, meta: CastMetadata, startSeconds: number, onStarted?: () => void, choices?: CastChoices) => {
@@ -79,13 +79,13 @@ export function CastProvider({children}: {children: React.ReactNode}) {
     let done = false;
     // The system chooser reports nothing when it is dismissed without a device: give up quietly.
     const giveUp = setTimeout(() => { if (!done) { done = true; starting.current = false; sub.remove(); controller.cancelConnecting(); } }, 90000);
-    const sub = emitter.addListener('PorticoCastSession', (event: {state: string; deviceName: string}) => {
+    const sub = emitter.addListener('PorticoCastSession', (event: CastDevice & {state: string}) => {
       if (done) return;
       done = true;
       clearTimeout(giveUp);
       sub.remove();
       if (event.state !== 'started') { starting.current = false; controller.cancelConnecting(); return; }
-      void controller.start(transportFor(event.deviceName), itemId, meta, startSeconds, choices).then(ok => { if (ok) onStarted?.(); }).finally(() => { starting.current = false; });
+      void controller.start(transportFor(event), itemId, meta, startSeconds, choices).then(ok => { if (ok) onStarted?.(); }).finally(() => { starting.current = false; });
     });
     native.choose();
   }, [controller]);
@@ -93,9 +93,12 @@ export function CastProvider({children}: {children: React.ReactNode}) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/** The television a native session reports: its name, and the SDK's own id for it (absent from an older build). */
+type CastDevice = {deviceName: string; deviceId?: string};
+
 /** The shared protocol's transport over the native session to one television. */
-function transportFor(deviceName: string): CastTransport {
-  return {deviceName: deviceName || 'TV', send: m => castTransport.send(m), onMessage: castTransport.onMessage, onSessionEnd: castTransport.onSessionEnd, end: stop => castTransport.end(stop)};
+function transportFor({deviceName, deviceId}: CastDevice): CastTransport {
+  return {deviceName: deviceName || 'TV', ...(deviceId ? {deviceId} : {}), send: m => castTransport.send(m), onMessage: castTransport.onMessage, onSessionEnd: castTransport.onSessionEnd, end: stop => castTransport.end(stop)};
 }
 
 export function useCastController() {

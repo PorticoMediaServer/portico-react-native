@@ -1,15 +1,15 @@
 import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
 import {parseRatingSystems, type RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
-import {deleteMember, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, previewMemberDeletion, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberDeletionPreview, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
+import {deleteMember, parseAccessDevice, parseAccessDevicePage, parseAccessMember, parseInvitation, parseLimitsDocument, previewMemberDeletion, type AccessDevice, type AccessMember, type AccessTier, type Invitation, type MemberDeletionPreview, type MemberLimits} from '../../../../../packages/client-core/src/server-administration';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
-import {accessListPath, clockText, memberOffLine, tierLabels, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
-import {VIEWING_HOURS_MAX, dayChoiceOf, daysOfChoice, newViewingHours, trustApplies, type DayChoice} from '../../../../../packages/client-core/src/server-admin/people-words';
+import {accessListPath, clockText, memberOffLine, readAccessRecord, type DirectMember} from '../../../../../packages/client-core/src/server-admin/panel-logic';
+import {VIEWING_HOURS_MAX, dayChoiceOf, daysOfChoice, deviceFacts, newViewingHours, roleLabel, trustApplies, type DayChoice} from '../../../../../packages/client-core/src/server-admin/people-words';
 import {createOperationIds} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {useLibrariesContext} from '../../app/libraries-context';
-import {findInPages, nextCursorOf, operationId, problem, saveRebased, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
+import {nextCursorOf, operationId, problem, saveRebased, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, RowGroup, Sheet, Text, ToggleRow, useTheme} from '../../ui';
 import {InviteSheet} from '../InviteSheet';
 import {PickRow, TypedRow} from '../settings/ServerForms';
@@ -23,7 +23,6 @@ const INVITATION_MOVES = [dependsOn.list('invitations')];
 /** The platform words that mean a television, whichever client announced the device. */
 const televisionPlatforms = new Set(['tvos', 'androidtv', 'firetv', 'vega', 'roku', 'webos', 'tizen']);
 
-const since = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'}) : '—');
 const rows = <T,>(raw: unknown, each: (x: unknown) => T): T[] => {
   const list = (raw as {items?: unknown})?.items;
   if (!Array.isArray(list)) throw Object.assign(new Error('invalid_response'), {code: 'invalid_response'});
@@ -53,7 +52,7 @@ function AdministeredAccounts() {
   const [open, setOpen] = useState<string>();
   const libName = (id: string) => libraries.items.find(l => l.id === id)?.name ?? t('server.people.libraryGone');
   const selected = access.items?.find(a => a.accountId === open);
-  const readAccess = (id: string) => findInPages(page, a => a.accountId === id);
+  const readAccess = (id: string) => readAccessRecord(api, 'members', id, parseAccessMember);
   return (
     <>
       {access.error ? <Notice tone="error" message={access.error} action={t('action.tryAgain')} onAction={access.reload} /> : null}
@@ -61,7 +60,7 @@ function AdministeredAccounts() {
         {(access.items ?? []).map(m => {
           const facts = [m.role === 'owner' || !m.allowedLibraries.length ? t('server.people.allLibraries') : m.allowedLibraries.map(libName).join(', '), m.limits.maxStreams ? t('server.people.streams', {count: m.limits.maxStreams}) : '', m.limits.maxContentRating ? t('server.people.upTo', {rating: m.limits.maxContentRating}) : ''];
           const off = memberOffLine(m, t, iso => i18n.date(iso));
-          return <ListRow key={m.accountId} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.accountId)} />;
+          return <ListRow key={m.accountId} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : roleLabel(t, m.role)} accessory="navigation" onPress={() => setOpen(m.accountId)} />;
         })}
         {access.more ? <ListRow tone="action" title={t('server.showMore')} onPress={access.loadMore} /> : null}
       </RowGroup>
@@ -87,7 +86,7 @@ function OwnerAccounts() {
   const changed = () => { read.reload(); access.reload(); };
   // The account, and its role record, as the server has them now: read again before a change is sent again.
   const readMember = async (id: string) => (await api.request<{items: DirectMember[]}>('/v1/direct/members')).items.find(m => m.id === id);
-  const readAccess = (id: string) => findInPages(async cursor => { const raw = await api.request(accessListPath('members', cursor)); return {items: rows(raw, parseAccessMember), nextCursor: nextCursorOf(raw)}; }, a => a.accountId === id);
+  const readAccess = (id: string) => readAccessRecord(api, 'members', id, parseAccessMember);
   return (
     <>
       {read.error ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
@@ -97,7 +96,7 @@ function OwnerAccounts() {
           const facts = [m.hostedAccountId ? t('server.people.porticoAccount') : '', m.role === 'owner' || !m.allowedLibraries.length ? t('server.people.allLibraries') : m.allowedLibraries.map(libName).join(', '), limits?.maxStreams ? t('server.people.streams', {count: limits.maxStreams}) : '', limits?.maxContentRating ? t('server.people.upTo', {rating: limits.maxContentRating}) : ''];
           // An account that is off says since when, and whether the owner turned it off or the person left.
           const off = memberOffLine(m, t, iso => i18n.date(iso));
-          return <ListRow key={m.id} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : tierLabels[m.role]} accessory="navigation" onPress={() => setOpen(m.id)} />;
+          return <ListRow key={m.id} icon="account" title={m.username} subtitle={[facts.filter(Boolean).join(' · '), off].filter(Boolean).join('\n')} subtitleLines={off ? 3 : undefined} meta={m.disabled ? t('web.people.disabledBadge') : roleLabel(t, m.role)} accessory="navigation" onPress={() => setOpen(m.id)} />;
         })}
         {access.more ? <ListRow tone="action" title={t('server.showMore')} onPress={access.loadMore} /> : null}
         <ListRow tone="action" icon="plus" title={t('web.people.addAccount')} onPress={() => setAdding(true)} />
@@ -190,7 +189,7 @@ function AccountSheet({member, access, libraries, onClose, onChanged, readMember
           {action.error ? <Notice tone="error" message={action.error} /> : null}
           {doc.error ? <Notice tone="error" message={doc.error} action={t('action.tryAgain')} onAction={doc.reload} /> : null}
           <RowGroup>
-            {owner || byAdministrator || !access ? <ListRow title={t('web.access.roleLabel')} meta={tierLabels[member.role]} /> : <PickRow title={t('web.access.roleLabel')} value={role} options={[{id: 'member', label: t('web.access.roleMember')}, {id: 'admin', label: t('web.access.roleAdmin')}]} onChange={v => setRole(v as AccessTier)} />}
+            {owner || byAdministrator || !access ? <ListRow title={t('web.access.roleLabel')} meta={roleLabel(t, member.role)} /> : <PickRow title={t('web.access.roleLabel')} value={role} options={[{id: 'member', label: t('web.access.roleMember')}, {id: 'admin', label: t('web.access.roleAdmin')}]} onChange={v => setRole(v as AccessTier)} />}
             {!owner && !byAdministrator ? <ToggleRow title={t('web.people.disableAccount')} subtitle={t('web.people.disableAccountHelp')} value={disabled} onChange={setDisabled} /> : null}
           </RowGroup>
           {!owner && !byAdministrator ? <LibraryChoice all={all} chosen={chosen} libraries={libraries} onChange={(a, c) => { setAll(a); setChosen(c); }} /> : null}
@@ -253,8 +252,8 @@ function ViewingHours({limits, onChange}: {limits: MemberLimits; onChange: (next
       {windows.map((w, i) => (
         <RowGroup key={i} title={i === 0 ? t('server.people.hours') : undefined}>
           <PickRow title={t('server.people.hoursDays')} value={dayChoiceOf(w.days)} options={dayOptions(w.days)} onChange={choice => change(i, {days: daysOfChoice(choice as DayChoice, w.days)})} />
-          <TypedRow title={t('server.people.hoursFrom')} value={clockText(w.startMinute)} shown={clock(w.startMinute)} placeholder="08:00" onDone={text => { const minute = typedClock(text); if (minute !== undefined) change(i, {startMinute: minute}); }} />
-          <TypedRow title={t('server.people.hoursUntil')} value={clockText(w.endMinute)} shown={w.endMinute <= w.startMinute ? `${clock(w.endMinute)} · ${t('server.people.hoursNextDay')}` : clock(w.endMinute)} placeholder="20:00" onDone={text => { const minute = typedClock(text); if (minute !== undefined) change(i, {endMinute: minute}); }} />
+          <TypedRow title={t('server.people.hoursFrom')} help={t('server.people.hoursTimeHelp')} value={clockText(w.startMinute)} shown={clock(w.startMinute)} placeholder="08:00" onDone={text => { const minute = typedClock(text); if (minute !== undefined) change(i, {startMinute: minute}); }} />
+          <TypedRow title={t('server.people.hoursUntil')} help={t('server.people.hoursTimeHelp')} value={clockText(w.endMinute)} shown={w.endMinute <= w.startMinute ? `${clock(w.endMinute)} · ${t('server.people.hoursNextDay')}` : clock(w.endMinute)} placeholder="20:00" onDone={text => { const minute = typedClock(text); if (minute !== undefined) change(i, {endMinute: minute}); }} />
           <ListRow tone="destructive" title={t('server.people.hoursRemove')} onPress={() => set(windows.filter((_, n) => n !== i))} />
         </RowGroup>
       ))}
@@ -325,18 +324,22 @@ function AddAccountSheet({open, libraries, onClose, onAdded}: {open: boolean; li
   );
 }
 
-/** An account's devices, in the one place they are managed: approve, block, and see when each was last here. */
-function AccountDevices({accountId}: {accountId: string}) {
+/**
+ * An account's devices, in the one place they are managed: approve, block, and see when each was last here.
+ * Without an account (People › Devices): everyone's devices, most recently seen first, each with whose it is.
+ */
+export function AccountDevices({accountId}: {accountId?: string}) {
   const {api} = useSession();
-  const t = useI18n().t;
-  const page = async (cursor: string) => { const raw = await api.request(accessListPath('devices', cursor) + '&account=' + encodeURIComponent(accountId)); return {items: [...parseAccessDevicePage(raw).items], nextCursor: nextCursorOf(raw)}; };
+  const i18n = useI18n();
+  const t = i18n.t;
+  const page = async (cursor: string) => { const raw = await api.request(accessListPath('devices', cursor) + (accountId ? '&account=' + encodeURIComponent(accountId) : '')); return {items: [...parseAccessDevicePage(raw).items], nextCursor: nextCursorOf(raw)}; };
   const read = usePagedList(page, [api, accountId], {on: DEVICE_MOVES});
   const action = useAction();
   const [opIds] = useState(() => createOperationIds(operationId));
   const [menu, setMenu] = useState<AccessDevice>();
   // A device that signed in again since the list was read has moved on: it is read again and the choice is sent again, unless it already is what was chosen.
   const trust = (d: AccessDevice, next: 'approved' | 'blocked') => void action.run(async () => {
-    await sendFresh(d, x => api.request(`/v1/admin/access/devices/${encodeURIComponent(x.id)}/trust`, 'PUT', {expectedRevision: x.revision, operationId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, trust: next})), trust: next}), () => findInPages(page, x => x.id === d.id), now => trustApplies(now, next));
+    await sendFresh(d, x => api.request(`/v1/admin/access/devices/${encodeURIComponent(x.id)}/trust`, 'PUT', {expectedRevision: x.revision, operationId: opIds.forPayload(JSON.stringify({id: x.id, revision: x.revision, trust: next})), trust: next}), () => readAccessRecord(api, 'devices', d.id, parseAccessDevice), now => trustApplies(now, next));
     opIds.release(); read.reload();
   });
   const waiting = read.items?.filter(d => d.trust === 'pending').length ?? 0;
@@ -345,7 +348,7 @@ function AccountDevices({accountId}: {accountId: string}) {
       {read.error ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       {action.error ? <Notice tone="error" message={action.error} /> : null}
       <RowGroup title={t('devices.title')} footer={waiting ? t('web.access.devicesWaiting', {count: waiting}) : t('web.access.devicesLede')}>
-        {read.items?.map(d => <ListRow key={d.id} icon={televisionPlatforms.has(d.platform) ? 'tvDevice' : d.platform === 'web' ? 'globe' : 'account'} title={d.name} subtitle={t('web.access.deviceMeta', {platform: d.platform, when: since(d.lastSeenAt)})} meta={d.trust === 'approved' ? t('web.access.trustApproved') : d.trust === 'blocked' ? t('web.access.trustBlocked') : t('web.access.trustWaiting')} accessory="menu" onPress={() => setMenu(d)} />)}
+        {read.items?.map(d => <ListRow key={d.id} icon={televisionPlatforms.has(d.platform) ? 'tvDevice' : d.platform === 'web' ? 'globe' : 'account'} title={d.name} subtitle={deviceFacts(t, d, {showOwner: !accountId, relative: iso => i18n.relativeTime(iso)})} meta={d.trust === 'approved' ? t('web.access.trustApproved') : d.trust === 'blocked' ? t('web.access.trustBlocked') : t('web.access.trustWaiting')} accessory="menu" onPress={() => setMenu(d)} />)}
         {read.items && !read.items.length ? <ListRow title={t('web.devices.none')} /> : null}
         {read.more ? <ListRow tone="action" title={t('server.showMore')} onPress={read.loadMore} /> : null}
       </RowGroup>
@@ -359,7 +362,9 @@ function AccountDevices({accountId}: {accountId: string}) {
 /** People › Invitations: who has been invited and has not joined yet. */
 export function InvitationsPanel() {
   const {api} = useSession();
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
+  const name = (i: Invitation) => i.email || i.porticoUsername || t('web.access.invitationUnlabelled');
   const page = async (cursor: string) => { const raw = await api.request(accessListPath('invitations', cursor)); return {items: rows(raw, parseInvitation), nextCursor: nextCursorOf(raw)}; };
   const read = usePagedList(page, [api], {on: INVITATION_MOVES});
   const [opIds] = useState(() => createOperationIds(operationId));
@@ -370,18 +375,18 @@ export function InvitationsPanel() {
     <>
       {read.error ? <Notice tone={read.items ? 'warning' : 'error'} message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
       <RowGroup title={t('web.access.invitations')} footer={t('web.access.invitationsLede')}>
-        {pending.map(i => <ListRow key={i.id} icon="mail" title={i.email || t('web.access.invitationUnlabelled')} subtitle={t('web.access.inviteMeta', {role: tierLabels[i.role], date: new Date(i.expiresAt).toLocaleDateString()})} accessory="menu" onPress={() => setRevoking(i)} />)}
+        {pending.map(i => <ListRow key={i.id} icon="mail" title={name(i)} subtitle={[t('web.access.inviteMeta', {role: roleLabel(t, i.role), date: i18n.date(i.expiresAt)}), i.porticoUsername ? t('server.people.inviteOnlyFor', {username: i.porticoUsername}) : ''].filter(Boolean).join(' · ')} accessory="menu" onPress={() => setRevoking(i)} />)}
         {read.items && !pending.length ? <ListRow title={t('web.access.noInvitations')} /> : null}
         {read.more ? <ListRow tone="action" title={t('server.showMore')} onPress={read.loadMore} /> : null}
         <ListRow tone="action" icon="plus" title={t('web.access.inviteSomeone')} onPress={() => setInviting(true)} />
       </RowGroup>
       <InviteSheet open={inviting} onClose={() => { setInviting(false); read.reload(); }} />
-      <ConfirmSheet open={!!revoking} onDismiss={() => setRevoking(undefined)} title={t('server.people.revokeInvitation', {name: revoking?.email || t('web.access.invitationUnlabelled')})} confirmLabel={t('web.access.revoke')} describeError={e => problem(e, 'action')}
+      <ConfirmSheet open={!!revoking} onDismiss={() => setRevoking(undefined)} title={t('server.people.revokeInvitation', {name: revoking ? name(revoking) : ''})} confirmLabel={t('web.access.revoke')} describeError={e => problem(e, 'action')}
         onConfirm={async () => {
           const invitation = revoking;
           if (!invitation) return;
           // Used or already revoked in the meantime: there is nothing left to revoke.
-          await sendFresh(invitation, i => api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}), () => findInPages(page, i => i.id === invitation.id), now => (now.state === 'pending' ? true : 'done'));
+          await sendFresh(invitation, i => api.request(`/v1/admin/access/invitations/${encodeURIComponent(i.id)}/revoke`, 'POST', {expectedRevision: i.revision, operationId: opIds.forPayload(JSON.stringify({id: i.id, revision: i.revision}))}), () => readAccessRecord(api, 'invitations', invitation.id, parseInvitation), now => (now.state === 'pending' ? true : 'done'));
           opIds.release(); setRevoking(undefined); read.reload();
         }} />
     </>

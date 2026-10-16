@@ -14,13 +14,15 @@ import {useI18n} from '../app/i18n';
 import {present, say} from '../app/errors';
 import {withoutNotInterested} from '../app/not-interested';
 import {useTurnedDown} from '../app/not-interested-hook';
-import {Notice, Page, PageHeader, Skeleton, StateView, WindowedGrid, useTheme} from '../ui';
+import {Button, Notice, Page, PageHeader, Skeleton, StateView, WindowedGrid, useTheme} from '../ui';
+import {usePlayerActions} from '../app/player-actions';
+import {groupSequence, homeRowSequence} from '../app/container-play';
 import {useSectionCards} from './Home';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
 import {acrossScope} from '../app/group-scope';
-import {GroupBar} from './GroupBrowse';
+import {GroupBar, LETTER_RAIL_WIDTH, useGroupLetters} from './GroupBrowse';
 
-const rowDependencies = Object.freeze([dependsOn.libraries, ...titlesWithPersonalState()]);
+const rowDependencies = Object.freeze([dependsOn.libraries, dependsOn.list('recommendations'), ...titlesWithPersonalState()]);
 const NO_ENTRIES: readonly ContentEntry[] = [];
 
 /**
@@ -37,7 +39,7 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const {api} = useSession();
   const i18n = useI18n();
-  const {space, metrics} = useTheme();
+  const {space, metrics, isTV} = useTheme();
   const pager = useMemo(() => new HomeRowPager(api, rowId), [api, rowId]);
   useEffect(() => { void pager.load(); return () => pager.dispose(); }, [pager]);
   // The row's full list follows the libraries and this profile's state while it is in front; pages already scrolled into stay.
@@ -61,12 +63,26 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
   const group = useGroupBrowse(groupScope);
   const sorted = useGroupWindow(group);
   const sortedOn = group.engaged && !!sorted.list;
-  const header = <><PageHeader title={name} onBack={() => navigation.goBack()} />{entries.length || group.engaged ? <GroupBar group={group} /> : null}</>;
+  // Sorted by title, the row has a letter rail, as a library has.
+  const letters = useGroupLetters(sorted.list, sorted.snapshot, group.sort.field);
+  // Play and Shuffle play the whole row from the server: as it stands now in its own order, or as
+  // sorted and filtered here. The first title shown is where Play starts.
+  const player = usePlayerActions();
+  const first = sortedOn ? firstPlayable(sorted.list) : entries.find(e => e.playback);
+  const play = (shuffle: boolean) => {
+    if (!first) return;
+    player.playSequence([first], 0, 0, sortedOn ? groupSequence(group, {shuffle}) : homeRowSequence(rowId, entries.map(e => e.kind), {shuffle}));
+  };
+  const actions = first ? <View style={{flexDirection: 'row', gap: space.sm}}>
+    <Button variant="primary" icon="play" label={i18n.t('action.play')} onPress={() => play(false)} />
+    <Button variant="secondary" icon="shuffle" label={i18n.t('title.shuffle')} onPress={() => play(true)} />
+  </View> : undefined;
+  const header = <><PageHeader title={name} onBack={() => navigation.goBack()} actions={actions} />{entries.length || group.engaged ? <GroupBar group={group} /> : null}{sortedOn && isTV ? letters.rail : null}</>;
   const notice = state.error && row ? <Notice tone="warning" message={say(state.error, 'home', 'load')} action={i18n.t('action.tryAgain')} onAction={() => void (state.phase === 'error' ? pager.load() : pager.more())} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;
   return (
     <View style={{flex: 1}}>
-      {row && sortedOn ? <WindowedGrid<ContentEntry> list={sorted.list as unknown as GridWindow<ContentEntry>} total={sorted.snapshot.total} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={header}
-        footer={sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} /> : null} />
+      {row && sortedOn ? <View style={{flex: 1, paddingRight: letters.shown && !isTV ? LETTER_RAIL_WIDTH : 0}}><WindowedGrid<ContentEntry> ref={letters.grid} list={sorted.list as unknown as GridWindow<ContentEntry>} total={sorted.snapshot.total} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={header}
+        footer={sorted.snapshot.status === 'ready' && sorted.snapshot.total === 0 ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={group.reset} /> : null} />{letters.shown && !isTV ? letters.rail : null}</View>
       : row ? <WindowedGrid list={grid} total={entries.length + (state.nextCursor ? 60 : 0)} itemWidth={width || metrics.posterWidth} aspect={shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5} renderItem={renderCard} header={<>{header}{notice}</>} footer={state.phase === 'loading' && state.restarts ? <View style={{paddingHorizontal: space.page}}><Skeleton width={metrics.posterWidth} height={metrics.posterWidth * 1.5} /></View> : null} generation={state.restarts} /> : <Page>
         {header}
         {state.phase === 'loading' && !state.entries.length ? (
@@ -76,4 +92,14 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
       </Page>}
     </View>
   );
+}
+
+/** The first playable title of a sorted or filtered row that has been read. */
+function firstPlayable(list: {itemAt(index: number): ContentEntry | undefined} | null | undefined): ContentEntry | undefined {
+  for (let i = 0; list && i < 50; i++) {
+    const entry = list.itemAt(i);
+    if (!entry) return undefined;
+    if (entry.playback) return entry;
+  }
+  return undefined;
 }

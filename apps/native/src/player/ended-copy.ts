@@ -20,6 +20,10 @@ export function endedCopy(ended: Readonly<{reason: string; message?: string}>, t
     // A recording took this channel's tuner (the owner's "Stop watching" setting).
     return {title: t('live.handover.stoppedTitle'), message: t('live.handover.stopped'), short: t('live.handover.stoppedTitle')};
   }
+  if (ended.reason === 'outside_allowed_hours') {
+    // The account's allowed hours closed while it played (N20): the server ended the session.
+    return {title: t('player.ended.outsideHoursTitle'), message: t('player.ended.outsideHours'), short: t('player.ended.outsideHoursTitle')};
+  }
   const text = sessionEndMessage(ended);
   return {title: t('error.title.load', {subject: 'playback'}), message: text, short: text};
 }
