@@ -6,6 +6,7 @@ import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimate
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useLibraryMemory} from '../app/library-memory';
 import {useLibraries} from '../app/libraries';
+import {onPinsChanged, usePinnedResources} from '../app/pins';
 import {viewerScope} from '../app/content';
 import {viewerKey} from '../app/viewer-scope';
 import {useScanningLibraries} from '../app/library-scan';
@@ -112,7 +113,7 @@ const screens = {
  * page; they differ only in where they start.
  */
 type RootName = 'HomeRoot' | 'LibraryRoot' | 'SavedRoot' | 'ChannelsRoot' | 'DownloadsRoot' | 'SearchRoot' | 'SettingsRoot';
-const rootFor: Record<Exclude<RailKey, `library:${string}`>, RootName> = {Home: 'HomeRoot', Saved: 'SavedRoot', Channels: 'ChannelsRoot', Downloads: 'DownloadsRoot', Search: 'SearchRoot', Settings: 'SettingsRoot'};
+const rootFor: Record<Exclude<RailKey, `library:${string}` | `pin:${string}`>, RootName> = {Home: 'HomeRoot', Saved: 'SavedRoot', Channels: 'ChannelsRoot', Downloads: 'DownloadsRoot', Search: 'SearchRoot', Settings: 'SettingsRoot'};
 const firstScreen: Record<RootName, keyof ContentStackParams> = {HomeRoot: 'Home', LibraryRoot: 'Library', SavedRoot: 'Saved', ChannelsRoot: 'Channels', DownloadsRoot: 'Downloads', SearchRoot: 'Search', SettingsRoot: 'Settings'};
 const Roots = createRootsNavigator();
 const contentScreens = (Object.keys(screens) as (keyof typeof screens)[]).map(name => <Stack.Screen key={name} name={name} component={screens[name] as React.ComponentType} />);
@@ -150,6 +151,11 @@ export function Shell() {
   const serverId = useMemo(() => viewerScope(session.session, session.api).serverId, [session.session, session.api]);
   const libraryIds = useMemo(() => libraries.items.map(l => l.id), [libraries.items]);
   const scanning = useScanningLibraries(session.api, serverId, libraryIds);
+  // Pinned collections, saved views and playlists sit in the rail; a pin changed anywhere reorders the libraries too.
+  const pins = usePinnedResources(session.api, serverId, viewerKey(session.session, session.api) || undefined);
+  const reloadForPins = libraries.reload;
+  useEffect(() => { if (pins.ready) reloadForPins(); }, [pins.revision, pins.ready, reloadForPins]);
+  useEffect(() => onPinsChanged(reloadForPins), [reloadForPins]);
   const navigator = useRef<NavigationContainerRef<ContentStackParams>>(null);
   // MU1: the shell's failure mode for a server it can't use (web parity). One store, fed from
   // the remembered server and the route's own subscription; guarded screens swap their content
@@ -167,6 +173,8 @@ export function Shell() {
     else navigator.current?.dispatch(StackActions.push('Servers'));
   }, [session.saved]);
   const [selected, setSelected] = useState<RailKey>('Home');
+  const pinsRef = useRef(pins.order);
+  pinsRef.current = pins.order;
   const rail = useRef<{focus: () => void; isFocused: () => boolean}>(null);
   const gate = useRef(new ExitGate()).current;
   const railExpansion = useSharedValue(0);
@@ -194,11 +202,21 @@ export function Shell() {
   // goes back to its top; choosing another library shows that library in the Library root.
   const select = useCallback(
     (key: RailKey) => {
-      setSelected(key);
       const nav = navigator.current;
+      if (key.startsWith('pin:')) {
+        // A pinned collection, saved view or playlist opens in Saved, on top of what Saved showed.
+        const [, kind, ...rest] = key.split(':');
+        const id = rest.join(':');
+        const entry = pinsRef.current.find(p => p.kind === kind && p.id === id);
+        setSelected('Saved');
+        if (!nav || !id) return;
+        nav.dispatch(CommonActions.navigate({name: 'SavedRoot', params: kind === 'playlist' ? {screen: 'Playlist', params: {playlistId: id, title: entry?.name}, initial: false} : {screen: 'SavedResource', params: {resourceId: id, title: entry?.name}, initial: false}}));
+        return;
+      }
+      setSelected(key);
       if (!nav) return;
       const libraryId = key.startsWith('library:') ? key.slice('library:'.length) : undefined;
-      const target: RootName = libraryId ? 'LibraryRoot' : rootFor[key as Exclude<RailKey, `library:${string}`>];
+      const target: RootName = libraryId ? 'LibraryRoot' : rootFor[key as Exclude<RailKey, `library:${string}` | `pin:${string}`>];
       const roots = nav.getRootState() as NavigationState | undefined;
       const shown = roots?.routes[roots.index];
       const stack = roots?.routes.find(r => r.name === target)?.state as NavigationState | undefined;
@@ -335,6 +353,8 @@ export function Shell() {
   const {hub: freshnessHub} = useFreshness();
   const reloadLibraries = libraries.reload;
   useEffect(() => freshnessHub.watch([dependsOn.libraries], reloadLibraries), [freshnessHub, reloadLibraries]);
+  // Library pins changed on another device arrive with this profile's personal changes.
+  useEffect(() => freshnessHub.watch([dependsOn.personal()], reloadLibraries), [freshnessHub, reloadLibraries]);
   // What is on the device is read at launch, so it is there to offer if the server is not.
   useEffect(() => { void offlineDownloads.open(); announceFinishedDownloads(); }, []);
   useEffect(() => beginArtworkScreen('Home'), []);
@@ -366,9 +386,9 @@ export function Shell() {
               <View style={{alignSelf: 'stretch', zIndex: 20}}>
                 <RailAfterPlayer>
                   {generation => isTV
-                    ? <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} libraries={libraries.items} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />
+                    ? <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} libraries={libraries.items} pinned={pins.order} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />
                     // A wide tablet: Downloads keeps its place among the destinations, by the tab bar's rule.
-                    : <DownloadsGate showing={selected === 'Downloads'} onHidden={select}>{offered => <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} showDownloads={offered} libraries={libraries.items} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />}</DownloadsGate>}
+                    : <DownloadsGate showing={selected === 'Downloads'} onHidden={select}>{offered => <Rail key={generation} ref={rail} onFocusChange={onRailFocusChange} showChannels={hasChannels} showDownloads={offered} libraries={libraries.items} pinned={pins.order} selected={selected} onSelect={select} profileName={profileName} serverName={session.system?.name} expansion={railExpansion} scanning={scanning} />}</DownloadsGate>}
                 </RailAfterPlayer>
               </View>
             )}
