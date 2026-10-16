@@ -7,7 +7,7 @@ import {viewerScope} from './viewer-scope';
 import {hasRealOrigin, useSession} from './session';
 import {activeI18n} from './errors';
 import {usePooledService} from './freshness';
-import {titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
+import {listedTitlesWithPersonalState, titleIdsOf, titlesWithPersonalState} from '../../../../packages/client-core/src/freshness-hub';
 
 /**
  * One server-authored content projection (Home, a library tab, an entity
@@ -23,10 +23,13 @@ export function useContent(route: ContentRoute | null) {
   // profile's state moved, while its screen is in front. A new sort or filter of the same
   // destination is the same document reading another route, so the list stays until the new
   // order arrives.
+  // A container's page (an album, an artist, a collection) moves for this profile's state only of
+  // the container and the titles it shows; a library's own views follow all of it.
+  let made: LibraryContentService | undefined;
   const {service, snapshot, document, memo} = usePooledService<LibraryContentService, LibraryContentSnapshot>(
     route ? `content:${route.libraryId}:${route.view}:${route.entityId ?? ''}` : 'content:',
-    () => new LibraryContentService({api: compatContentApi(api), scope}),
-    route ? titlesWithPersonalState(route.libraryId) : [],
+    () => (made = new LibraryContentService({api: compatContentApi(api), scope})),
+    !route ? [] : route.entityId ? (() => { const libraryId = route.libraryId, entityId = route.entityId!; return () => listedTitlesWithPersonalState(libraryId, [entityId, ...titleIdsOf((made?.getSnapshot().sections ?? []).flatMap(s => s.entries))], false); })() : titlesWithPersonalState(route.libraryId),
   );
   const [refused, setRefused] = useState<{key: string; message: string} | undefined>(undefined);
   useEffect(() => {

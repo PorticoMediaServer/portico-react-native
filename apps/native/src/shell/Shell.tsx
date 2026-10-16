@@ -56,6 +56,7 @@ import {ConnectionStatusProvider} from '../app/connection-context';
 import {CustodyPrompt} from './CustodyPrompt';
 import {guarded} from './ScreenBoundary';
 import {AwayNotice} from './AwayNotice';
+import {CertificateNotice} from './CertificateNotice';
 import {FreshnessRuntime, useFreshness, useInputPulse} from '../app/freshness';
 import {dependsOn} from '../../../../packages/client-core/src/freshness-hub';
 import {MetadataEditorProvider} from '../app/metadata-editor';
@@ -375,6 +376,7 @@ export function Shell() {
         <ConnectionFeed store={connectionStore} api={session.api} saved={session.saved?.state ?? (session.outsideHours ? 'outsideHours' : undefined)} />
         <FreshnessRuntime />
         <AwayNotice />
+        <CertificateNotice />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>
         <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}</>}>
           <TVMenuGate gate={gate} />

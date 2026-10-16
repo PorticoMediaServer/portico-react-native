@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {View} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {AppState, View} from 'react-native';
+import {useIsFocused, useNavigation} from '@react-navigation/native';
 import {downloadBytes, type DownloadAction, type DownloadPreparation, type DownloadState} from '../../../../packages/client-core/src/index';
 import {useDownloads, useOffline} from '../app/downloads';
 import {groupOfflineEntries, offlineDownloads, offlineFailure, offlineWaiting, type OfflineEntry} from '../bridge/offline-downloads';
@@ -116,6 +116,19 @@ export function DownloadsScreen() {
   const pull = usePullToRefresh(() => service?.refresh(), {auto: true});
   // What the server is preparing is read again, quietly, when it says this profile's downloads changed.
   useFreshDocument(DOWNLOAD_HINTS, async () => { await service?.revalidate(); }, () => state.phase === 'ready' && !state.unavailable);
+  // Preparation progress has no hint of its own: while the server is preparing something, its
+  // progress is read again every 30 seconds, as on the web, only while this screen is in front.
+  const focused = useIsFocused();
+  const preparing = state.items.some(p => p.state === 'queued' || p.state === 'running') || state.requests.some(r => r.request.state === 'capturing' || r.request.state === 'admitting' || r.request.state === 'preparing');
+  useEffect(() => {
+    if (!preparing || !focused || !service || state.unavailable) return;
+    const timer = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      service.revalidate().catch(() => {});
+      service.refreshRequests().catch(() => {});
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [preparing, focused, service, state.unavailable]);
   // Anything already on (or coming to) the device is shown there, not twice.
   const pending = state.items.filter(p => !offline.entries.some(e => e.id === p.id));
   const saveSetting = (change: Parameters<typeof offlineDownloads.setSettings>[0]) => { offlineDownloads.setSettings(change).catch(() => showToast({message: i18n.t('downloads.settingFailed'), icon: 'warning'})); };

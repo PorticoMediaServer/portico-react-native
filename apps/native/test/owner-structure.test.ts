@@ -42,7 +42,7 @@ test('Storage, Streaming, Troubleshooting and General carry their owner panels i
   const storage = sections(page(phone, 'server', 'storage'));
   assert.deepEqual(storage.slice(storage.indexOf('retention'), storage.indexOf('sources') + 1), ['retention', 'usage', 'places', 'downloadUsage', 'sources']);
   const trouble = sections(page(phone, 'server', 'troubleshooting'));
-  assert.deepEqual(trouble.slice(trouble.indexOf('capabilities'), trouble.indexOf('export') + 1), ['capabilities', 'setAside', 'clientReports', 'export']);
+  assert.deepEqual(trouble.slice(trouble.indexOf('capabilities'), trouble.indexOf('export') + 1), ['capabilities', 'setAside', 'clientReports', 'skipped', 'export']);
   const general = sections(page(phone, 'server', 'general'));
   assert.deepEqual(general.slice(general.indexOf('updates'), general.indexOf('updates') + 2), ['updates', 'restart']);
   assert.deepEqual(panels(page(phone, 'server', 'metadata')), ['server.metadataSettings']);
@@ -72,7 +72,7 @@ test('an administrator has the Server sections the server lets them use, on a ph
   const phone = on(administrator, false);
   assert.deepEqual(heading(phone, 'server')!.pages.map(p => p.id), ['dashboard', 'people', 'troubleshooting']);
   assert.deepEqual(panels(page(phone, 'server', 'dashboard')), ['server.nowPlaying']);
-  assert.deepEqual(panels(page(phone, 'server', 'people')), ['server.accounts', 'server.invitations']);
+  assert.deepEqual(panels(page(phone, 'server', 'people')), ['server.accounts', 'server.invitations', 'server.devices']);
   assert.deepEqual(panels(page(phone, 'server', 'troubleshooting')), ['server.logs', 'server.setAsideTitles']);
   const tv = on(administrator, true);
   assert.deepEqual(heading(tv, 'server')!.pages.map(p => p.id), ['dashboard']);

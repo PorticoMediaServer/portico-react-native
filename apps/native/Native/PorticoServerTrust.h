@@ -33,6 +33,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSDictionary<NSString *, NSString *> *)pinnedAt:(nullable NSString *)origin NS_SWIFT_NAME(pinned(at:));
 + (BOOL)pin:(nullable NSString *)origin fingerprint:(nullable NSString *)fingerprint serverId:(nullable NSString *)serverId NS_SWIFT_NAME(pin(_:fingerprint:serverId:));
 + (void)forget:(nullable NSString *)origin NS_SWIFT_NAME(forget(_:));
+/** Every pinned certificate: `address` (host:port), `fingerprint` and `serverId`, in address order. */
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)allPinned NS_SWIFT_NAME(allPinned());
 /** The identity proof, and only it, over one named certificate (see PorticoNetwork.proofRequest). */
 + (void)prove:(NSString *)origin fingerprint:(NSString *)fingerprint body:(NSString *)body completion:(void (^)(NSDictionary *_Nullable response))completion NS_SWIFT_NAME(prove(_:fingerprint:body:completion:));
 @end

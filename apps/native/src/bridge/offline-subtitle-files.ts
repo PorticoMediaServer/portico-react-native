@@ -43,6 +43,8 @@ export type StoredSubtitle = Readonly<{
   url: string;
   /** A styled script's attached fonts that are on this device, by the names they are kept under. */
   fonts?: readonly Readonly<{name: string; url: string}>[];
+  /** An image track's line count and how many are forced, as the server counted them. */
+  lines?: Readonly<{forced: number; total: number}>;
 }>;
 
 /**
@@ -65,5 +67,6 @@ export function storedSubtitle(track: DownloadBundleSubtitle, saved: ReadonlySet
   return Object.freeze({
     id: track.id, language: track.language, title: track.title, default: track.default, forced: track.forced, format: form, url: at(form),
     ...(fonts.length ? {fonts: Object.freeze(fonts)} : {}),
+    ...(track.lines ? {lines: track.lines} : {}),
   });
 }

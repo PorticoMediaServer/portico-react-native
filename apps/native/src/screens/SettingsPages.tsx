@@ -8,6 +8,8 @@ import {useI18n} from '../app/i18n';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
 import {ConfirmSheet, ListRow, Page, PageHeader, RowGroup, Surface, Text, ToggleRow, isTV, showToast, useInitialFocus, useTheme, type IconName} from '../ui';
+import {forgetSavedCertificate, savedCertificates} from '../bridge/server-connections';
+import type {SavedCertificate} from '../bridge/certificate-trust';
 import {useOffline} from '../app/downloads';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {formatBytes} from '../../../../packages/client-core/src/presentation/content';
@@ -90,6 +92,11 @@ export function ServersScreen() {
   useEffect(() => { void knownDirectServers.list().then(setKnown, () => {}); }, [mode]);
   // A server that is also one of the account's is listed once, under "Your servers".
   const direct = known.filter(k => !session.servers.some(s => s.id === k.serverId));
+  // The owner's own certificates this device trusts, each at its address: forgetting one makes the
+  // next connection there check the certificate again.
+  const [certificates, setCertificates] = useState<readonly SavedCertificate[]>([]);
+  const [forgetting, setForgetting] = useState<SavedCertificate>();
+  useEffect(() => { void savedCertificates().then(setCertificates, () => {}); }, [mode, forgetting]);
   if (mode === 'switch') return <HostedChooser title={i18n.t('servers.switch')} initialServerId={target} onBack={() => { setTarget(undefined); setMode('list'); }} />;
   if (mode === 'direct') return <DirectSignIn onBack={() => { session.direct.resetPin(); session.clearError(); setMode('list'); }} />;
   const current = session.session?.viewer.serverId;
@@ -117,6 +124,11 @@ export function ServersScreen() {
                 : <ListRow key={k.serverId} icon="server" title={k.name} subtitle={friendlyHost(k.address)} accessory="navigation" onPress={() => { session.direct.setOrigin(k.address); setMode('direct'); }} />)}
             </RowGroup>
           ) : null}
+          {certificates.length ? (
+            <RowGroup title={i18n.t('connection.certificate.saved')}>
+              {certificates.map(c => <ListRow key={c.address} icon="lock" title={c.address} subtitle={i18n.t('connection.certificate.fingerprint', {fingerprint: c.fingerprint.slice(0, 16) + '…'})} accessory="navigation" onPress={() => setForgetting(c)} />)}
+            </RowGroup>
+          ) : null}
           <RowGroup>
             {session.hosted ? <ListRow icon="switch" title={i18n.t('servers.switch')} accessory="navigation" onPress={() => setMode('switch')} /> : null}
             {/* Spec — Hosted at Scale: the list is version-checked at most every few hours; this checks now. */}
@@ -125,6 +137,8 @@ export function ServersScreen() {
           </RowGroup>
         </View>
       </Page>
+      <ConfirmSheet open={!!forgetting} onDismiss={() => setForgetting(undefined)} title={i18n.t('connection.certificate.forget')} consequence={forgetting ? i18n.t('connection.certificate.forgetBody', {address: forgetting.address}) : undefined}
+        confirmLabel={i18n.t('connection.certificate.forgetAction')} onConfirm={() => { if (forgetting) forgetSavedCertificate(forgetting.address); setForgetting(undefined); }} />
     </View>
   );
 }

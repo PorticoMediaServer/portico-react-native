@@ -13,7 +13,8 @@ import {useDownloads} from '../app/downloads';
 import {useGroupActions} from '../app/together';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
 import {useSession} from '../app/session';
-import {Button, Divider, Field, ListRow, Menu, Notice, Sheet, StateView, Surface, showToast, useTheme, type MenuItem} from '../ui';
+import {Button, ConfirmSheet, Divider, Field, ListRow, Menu, Notice, Sheet, StateView, Surface, showToast, useTheme, type MenuItem} from '../ui';
+import {separateArtist} from '../../../../packages/client-core/src/title-identity';
 import type {usePlayerEngine} from './usePlayer';
 import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
@@ -41,6 +42,7 @@ export function EntryMenu({entry, origin, engine, onClose, onOpen, onTogether}: 
   const target = useMemo(() => (entry?.libraryId && entry.id ? {libraryId: entry.libraryId, itemId: entry.id} : null), [entry?.libraryId, entry?.id]);
   const {snapshot, mutate} = useDetail(target);
   const [playlistFor, setPlaylistFor] = useState<ContentEntry | null>(null);
+  const [separating, setSeparating] = useState<ContentEntry | null>(null);
   const containerKind = entry?.navigation?.entityId ? containerKindFor(entry.kind) : undefined;
   const containerId = containerKind ? entry!.navigation!.entityId! : undefined;
   const container = useContainerState(api, entry ? containerKind : undefined, entry ? containerId : undefined);
@@ -75,6 +77,7 @@ export function EntryMenu({entry, origin, engine, onClose, onOpen, onTogether}: 
       download: !downloads.service ? undefined : entry.playback ? 'media' : downloadKind ? 'container' : undefined,
       details: !!entry.navigation && origin !== 'page',
       editMetadata: !!(canEdit && repairTargetFor(entry)),
+      separateArtist: canEdit && entry.kind === 'album' && !!entry.navigation?.entityId,
     });
     return groups.flatMap(group => group.actions.map((action, index): MenuItem => ({
       id: action.id, label: i18n.t(action.label), icon: action.icon as MenuItem['icon'], destructive: action.destructive,
@@ -128,12 +131,24 @@ export function EntryMenu({entry, origin, engine, onClose, onOpen, onTogether}: 
         break;
       case 'details': onOpen(entry); break;
       case 'editMetadata': { const repair = repairTargetFor(entry); if (repair) editor?.open({targets: [repair], titles: [entry.title]}); break; }
+      case 'separateArtist': setSeparating(entry); break;
     }
   };
   return (
     <>
       <Menu open={entry !== null} onClose={onClose} title={entry?.title} subtitle={entry?.subtitle} items={items} onSelect={select} />
       <PlaylistSheet entry={playlistFor} onClose={() => setPlaylistFor(null)} />
+      {/* "Not this artist…" (owners): the album moves to a new artist of the same name, whose page then opens. */}
+      <ConfirmSheet open={!!separating} onDismiss={() => setSeparating(null)} tone="default" title={i18n.t('title.separateArtist.title')} consequence={i18n.t('title.separateArtist.body')} confirmLabel={i18n.t('title.separateArtist.confirm')}
+        describeError={e => say(e, 'show', 'action') || i18n.t('title.separateArtist.failed')}
+        onConfirm={async () => {
+          const album = separating;
+          if (!album?.navigation?.entityId) return;
+          const artistId = await separateArtist(api, [album.navigation.entityId]);
+          setSeparating(null);
+          emitPlaybackChange({positionSeconds: 0, completed: false, reason: 'closed'});
+          onOpen({id: artistId, kind: 'artist', title: album.subtitle ?? album.title, libraryId: album.libraryId, navigation: {view: 'artist', entityId: artistId}});
+        }} />
     </>
   );
 }
