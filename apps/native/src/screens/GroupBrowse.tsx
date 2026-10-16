@@ -8,6 +8,8 @@ import {useI18n} from '../app/i18n';
 import {useSession} from '../app/session';
 import {Button, Notice, Ring, StateView, useTheme} from '../ui';
 import {BrowseBar} from './BrowseFilters';
+import {FacetGroupContext} from '../app/browse';
+import {facetGroupOf} from '../../../../packages/client-core/src/browse';
 import {SectionView} from './Home';
 import {RowGuide} from './title/RowGuide';
 import {groupSequence} from '../app/container-play';
@@ -25,9 +27,11 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
   const session = useSession();
   const owner = session.session?.viewer.role === 'owner';
   const {scope, capabilities} = group;
+  // A list across libraries counts its filter choices over its own titles.
+  const facetGroup = useMemo(() => (scope ? facetGroupOf(scope.base) : undefined), [scope]);
   if (!scope || !capabilities) return null;
   const bar = (
-    <BrowseBar
+    <FacetGroupContext.Provider value={facetGroup}><BrowseBar
       inline
       leading={leading}
       owner={owner}
@@ -38,7 +42,7 @@ export function GroupBar({group, leading}: {group: GroupBrowse; /** Drawn before
       sort={group.sort}
       onSort={group.setSort}
       ownOrder={{selected: group.ownSelected, onSelect: () => group.setSort(undefined)}}
-    />
+    /></FacetGroupContext.Provider>
   );
   return (
     <RowGuide>
