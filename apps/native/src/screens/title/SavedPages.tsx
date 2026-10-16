@@ -269,6 +269,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const orderedPage = useMemo(() => snapshot.entries.flatMap(e => (e.media ? [{id: e.id, media: e.media}] : [])), [snapshot.entries]);
   const ordered = useAppendedPages(`${resourceId}:order`, snapshot.cursor, orderedPage, entryKey);
   const [reordering, setReordering] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const canReorder = !isTV && collection && !!resource?.actions.includes('reorder') && !group.engaged && ordered.length > 1;
   const arranging = reordering && canReorder;
   const moveEntry = async (from: number, to: number) => {
@@ -313,6 +314,8 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
         renderItem={renderRow}
         // Cards read whether their titles can be removed here.
         extraData={editable}
+        // A row held by its handle moves; the page stays where it is.
+        scrollEnabled={!dragging}
         contentStyle={{paddingTop: 0}}
         refreshControl={pull}
         onScroll={onScroll}
@@ -340,7 +343,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
             {media.length ? <GroupBar group={group} /> : null}
           </>
         }
-        ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
+        ListFooterComponent={arranging ? <ManualOrderRows entries={ordered} whole={!snapshot.nextCursor} onMove={moveEntry} onDragging={setDragging} /> : group.engaged && groupScope ? <GroupResults group={group} results={sorted} libraryId={collection ? undefined : groupScope.libraryId} /> : <MoreSpinner busy={snapshot.loading && media.length > 0} />}
       />
       <StatusBarScrim onBack={() => navigation.goBack()} title={resource?.name ?? title} />
       {entryMenu ? <Menu open onClose={() => setEntryMenu(null)} title={entryMenu.title} items={entryItems} onSelect={id => onEntryMenu(entryMenu, id)} /> : null}
