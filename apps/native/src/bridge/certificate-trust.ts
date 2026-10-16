@@ -43,6 +43,16 @@ const UNPROVEN = new Set(['identity_mismatch', 'invalid_identity', 'invalid_resp
 
 const pending = new Map<string, PendingCertificate>();
 const inflight = new Map<string, Promise<void>>();
+const listeners = new Set<(question: PendingCertificate) => void>();
+
+/**
+ * Hear each question as it is recorded, wherever the request was made: a certificate that
+ * changes while the app is signed in is asked about where the person is, not only at sign-in.
+ */
+export function onCertificateQuestion(listener: (question: PendingCertificate) => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 /** The https origin of a request URL, or undefined for anything else. */
 export function certificateOrigin(url: string): string | undefined {
@@ -83,7 +93,9 @@ async function decide(origin: string, platform: CertificatePlatform, crypto: Rou
     return;
   }
   const reason = serverId ? 'changed' : 'unverified';
-  pending.set(origin, {origin, fingerprint, serverId, reason});
+  const question: PendingCertificate = {origin, fingerprint, serverId, reason};
+  pending.set(origin, question);
+  for (const listener of [...listeners]) { try { listener(question); } catch { /* a listener's failure is its own */ } }
   throw reason === 'changed'
     ? new RouteError('certificate_changed', 'This server’s certificate changed, and Portico couldn’t confirm it’s the same server.')
     : new RouteError('certificate_unverified', 'This server uses its own certificate and couldn’t prove it’s a Portico server.');
@@ -111,4 +123,25 @@ export async function acceptPendingCertificate(origin: string, platform: Certifi
 export function resetCertificateQuestions(): void {
   pending.clear();
   inflight.clear();
+  listeners.clear();
+}
+
+/** A certificate this device trusts at one address (`host:port`). */
+export type SavedCertificate = Readonly<{address: string; fingerprint: string; serverId: string}>;
+
+/** The https origin a saved `host:port` stands for (an IPv6 host in brackets). */
+export function savedCertificateOrigin(address: string): string {
+  const at = address.lastIndexOf(':');
+  const host = address.slice(0, at), port = address.slice(at + 1);
+  return `https://${host.includes(':') ? `[${host}]` : host}${port === '443' ? '' : `:${port}`}`;
+}
+
+/** Saved certificates as the device reports them; anything malformed is left out. */
+export function parseSavedCertificates(raw: unknown): SavedCertificate[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((v): SavedCertificate[] => {
+    const r = v as Record<string, unknown> | null;
+    if (!r || typeof r.address !== 'string' || !/^[^\s]+:\d{1,5}$/.test(r.address) || typeof r.fingerprint !== 'string' || !FINGERPRINT.test(r.fingerprint)) return [];
+    return [{address: r.address, fingerprint: r.fingerprint, serverId: typeof r.serverId === 'string' ? r.serverId : ''}];
+  });
 }

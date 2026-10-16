@@ -176,6 +176,17 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   return YES;
 }
 
++ (NSArray<NSDictionary<NSString *, NSString *> *> *)allPinned {
+  NSDictionary *pins = [PorticoTrustDefaults() dictionaryForKey:PorticoTrustRecord];
+  NSMutableArray<NSDictionary<NSString *, NSString *> *> *out = [NSMutableArray array];
+  NSArray *keys = [[pins.allKeys filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id key, NSDictionary *bindings) { return [key isKindOfClass:NSString.class]; }]] sortedArrayUsingSelector:@selector(compare:)];
+  for (NSString *key in keys) {
+    NSDictionary *pin = [self pinnedForKey:key];
+    if (pin) [out addObject:@{@"address": key, @"fingerprint": pin[@"fingerprint"], @"serverId": pin[@"serverId"]}];
+  }
+  return out;
+}
+
 + (void)forget:(NSString *)origin {
   NSString *key = [self keyForOrigin:origin];
   if (!key) return;

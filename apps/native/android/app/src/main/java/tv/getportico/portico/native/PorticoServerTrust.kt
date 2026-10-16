@@ -121,6 +121,12 @@ internal object PorticoServerTrust {
     }
   }
 
+  /** Every pinned certificate by `host:port`, in address order. */
+  fun all(): List<Pair<String, Pin>> {
+    load()
+    return pins.entries.sortedBy { it.key }.map { it.key to it.value }
+  }
+
   fun forget(origin: String?) {
     val key = key(origin) ?: return
     load()

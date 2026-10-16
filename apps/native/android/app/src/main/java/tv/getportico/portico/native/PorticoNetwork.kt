@@ -136,6 +136,16 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
   @ReactMethod
   fun forgetCertificate(origin: String?) = PorticoServerTrust.forget(origin)
 
+  /** Every certificate pinned on this device: its `host:port`, fingerprint and proving server. */
+  @ReactMethod
+  fun pinnedCertificates(promise: Promise) {
+    val out = Arguments.createArray()
+    for ((address, pin) in PorticoServerTrust.all()) {
+      out.pushMap(Arguments.createMap().apply { putString("address", address); putString("fingerprint", pin.fingerprint); putString("serverId", pin.serverId) })
+    }
+    promise.resolve(out)
+  }
+
   /**
    * The identity proof, and only it, over one named certificate: a POST of the caller's JSON to
    * `<origin>/v1/networking/identity-proof`, trusting the system's authorities and that exact
