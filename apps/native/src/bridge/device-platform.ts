@@ -15,7 +15,8 @@ export const isTablet: boolean = !Platform.isTV && (android
   ? Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600
   : (Platform as {isPad?: boolean}).isPad === true);
 
-export type DevicePlatform = 'tvos' | 'ios' | 'androidtv' | 'firetv' | 'android';
+/** `vega` is a Fire TV on Vega OS: only the Vega app announces it (its own `device-platform.ts`). */
+export type DevicePlatform = 'tvos' | 'ios' | 'androidtv' | 'firetv' | 'android' | 'vega';
 
 /** The platform a device announces itself as. Fire TV is Android TV on Amazon hardware. */
 export const devicePlatform: DevicePlatform = Platform.isTV ? (amazon ? 'firetv' : android ? 'androidtv' : 'tvos') : android ? 'android' : 'ios';
