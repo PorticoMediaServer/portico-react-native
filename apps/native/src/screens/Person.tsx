@@ -19,7 +19,7 @@ import {StatusBarScrim, TitleHero} from './title/TitleHero';
 import {usePullToRefresh} from '../app/refresh';
 import {useGroupBrowse, useGroupWindow} from '../app/group-browse';
 import {acrossScope} from '../app/group-scope';
-import {GroupBar} from './GroupBrowse';
+import {GroupBar, LETTER_RAIL_WIDTH, useGroupLetters} from './GroupBrowse';
 import type {GridWindow} from '../ui/Grid';
 
 /** Credits per windowed page (the person's first page seeds page 0). */
@@ -90,7 +90,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   const {api, session} = useSession();
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  const {space, metrics} = useTheme();
+  const {space, metrics, isTV} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -163,6 +163,9 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   const firstCredit = seed?.credits[0] ?? list?.itemAt(0);
   const firstShape = firstCredit ? shapeFor(firstCredit.media.kind) : 'poster';
   const aspect = firstShape === 'landscape' ? 9 / 16 : firstShape === 'square' || firstShape === 'circle' ? 1 : 1.5;
+  // Sorted by title, the person's titles have a letter rail, as a library has.
+  const letters = useGroupLetters(sortedOn ? sorted.list : null, sortedOn ? sorted.snapshot : undefined, group.sort.field);
+  const rail = sortedOn && letters.shown;
   const header = (
     <>
       <TitleHero
@@ -183,6 +186,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
         <Segmented items={roles} selected={role} onSelect={id => setRole(id as PersonRole)} accessibilityLabel={i18n.t('title.credits')} />
       </View>
       <GroupBar group={group} />
+      {rail && isTV ? letters.rail : null}
       {first.phase === 'error' && person ? <Notice tone="error" message={first.error ?? ''} action={i18n.t('title.retry')} onAction={reload} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
     </>
   );
@@ -204,7 +208,9 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
       {list ? (
         // One grid for both lists, so the hero and the controls above it are never drawn again:
         // a change of sort or filter leaves the page where it is, and television focus on the control.
+        <View style={{flex: 1, paddingRight: rail && !isTV ? LETTER_RAIL_WIDTH : 0}}>
         <WindowedGrid<PersonCredit | ContentEntry>
+          ref={letters.grid}
           list={(sortedOn ? sorted.list! : list) as GridWindow<PersonCredit | ContentEntry>}
           total={sortedOn ? sorted.snapshot.total : snapshot.total}
           itemWidth={metrics.posterWidth}
@@ -215,6 +221,8 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
           generation={snapshot.generation}
           refreshControl={pull}
         />
+        {rail && !isTV ? letters.rail : null}
+        </View>
       ) : (
         <Page refreshControl={pull}>{header}{footer}</Page>
       )}
