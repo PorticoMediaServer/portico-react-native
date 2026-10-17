@@ -2571,15 +2571,6 @@
    "text": 38
   },
   {
-   "id": "maven:org.jetbrains.kotlin:kotlin-bom:1.8.22",
-   "name": "org.jetbrains.kotlin:kotlin-bom",
-   "version": "1.8.22",
-   "licence": "Apache-2.0",
-   "group": "android",
-   "url": "https://kotlinlang.org/",
-   "text": 38
-  },
-  {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib:2.1.20",
    "name": "org.jetbrains.kotlin:kotlin-stdlib",
    "version": "2.1.20",
@@ -2618,15 +2609,6 @@
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0",
    "name": "org.jetbrains.kotlinx:kotlinx-coroutines-android",
-   "version": "1.9.0",
-   "licence": "Apache-2.0",
-   "group": "android",
-   "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 38
-  },
-  {
-   "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.9.0",
-   "name": "org.jetbrains.kotlinx:kotlinx-coroutines-bom",
    "version": "1.9.0",
    "licence": "Apache-2.0",
    "group": "android",
@@ -2790,8 +2772,8 @@
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
-  "apps/native/licences/android-firetv.txt": "6a28b738c6a015411c3b58d76e58aab866c2fa1535aa010bc483dd16f679a34f",
-  "apps/native/licences/android-google.txt": "e69f132c6e0f499b2e2d6c7bb42856065eb52187696482255908128bb4e98b9b",
+  "apps/native/licences/android-firetv.txt": "c323b4addc5e9440965e813b498c8c4c29dae865b9c2f81c2ecda7670a34e153",
+  "apps/native/licences/android-google.txt": "23f27bc228126578051cc7220075eb9ffc5f867c10c6c5e9e366e06682fd8f92",
   "apps/native/licences/assets.json": "68ca19fea182a00c1a326130336350ed701a54ac5c5c09b508e04cd35fa73781",
   "apps/native/licences/js-android.txt": "b865dfabc1e629f0b079f73f5abfac77bdc9cec95c1ad599b64cb4f24bdb6cf8",
   "apps/native/package-lock.json": "1adc8beeac7e3bffc2ae46e6b15eeb068a07e7cdc0210ae0825513132a2944f5",
