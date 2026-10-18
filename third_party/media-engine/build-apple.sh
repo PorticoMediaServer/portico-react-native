@@ -434,6 +434,17 @@ done
 # ---------------------------------------------------------------------------------------------
 # Frameworks.
 
+# A restored component cache contains prefixes/build trees, while out/ is
+# regenerated. Restore inspection metadata even when every compile is up to date.
+mkdir -p "$ME_OUT/$PLATFORM"
+for slice in $SLICES; do
+    meta="$ME_OUT/$PLATFORM/meta/$slice"
+    cached_build="$ME_WORK/build/$PLATFORM/$slice-arm64"
+    mkdir -p "$meta"
+    cp "$cached_build/ffmpeg/config.h" "$meta/ffmpeg-config.h"
+    cp "$cached_build/ffmpeg/config_components.h" "$meta/ffmpeg-config_components.h"
+    cp "$cached_build/mpv/config.h" "$meta/mpv-config.h"
+done
 me_write_build_info "$PLATFORM" "$ME_OUT/$PLATFORM/build-info.json"
 "$ME_ROOT/collect-notices.sh" "$PLATFORM"
 
