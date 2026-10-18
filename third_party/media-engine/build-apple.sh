@@ -23,12 +23,22 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 CLEAN=0
+SLICES="ios ios-simulator tvos tvos-simulator"
 while (( $# )); do
     case "$1" in
         --clean) CLEAN=1; shift ;;
+        --slices) (( $# >= 2 )) || me_die "--slices needs a space-separated list"; SLICES="$2"; shift 2 ;;
         -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) me_die "Unknown argument $1 (see --help)" ;;
     esac
+done
+
+[[ -n "$SLICES" ]] || me_die "Select at least one Apple slice"
+seen=" "
+for slice in $SLICES; do
+    case "$slice" in ios|ios-simulator|tvos|tvos-simulator) ;; *) me_die "Unknown Apple slice: $slice" ;; esac
+    [[ "$seen" != *" $slice "* ]] || me_die "Duplicate Apple slice: $slice"
+    seen+="$slice "
 done
 
 PLATFORM=apple
@@ -74,8 +84,11 @@ me_tools
 # ---------------------------------------------------------------------------------------------
 # Per-target toolchain settings. A target is one slice and one architecture.
 
-TARGETS="ios:arm64 ios-simulator:arm64 ios-simulator:x86_64 tvos:arm64 tvos-simulator:arm64"
-SLICES="ios ios-simulator tvos tvos-simulator"
+TARGETS=""
+for slice in $SLICES; do
+    TARGETS+="$slice:arm64 "
+    [[ "$slice" != ios-simulator ]] || TARGETS+="$slice:x86_64 "
+done
 
 set_target() {
     SLICE="${1%%:*}"; ARCH="${1##*:}"
@@ -574,5 +587,5 @@ done
 rm -rf "$ME_ROOT/apple/Frameworks"; mkdir -p "$ME_ROOT/apple/Frameworks"
 cp -R "$XC"/*.xcframework "$ME_ROOT/apple/Frameworks/"
 
-python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --write-manifest
+python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --slices "$SLICES" --write-manifest
 me_say "Done. Open the Xcode workspaces; the PorticoMediaEngine package now resolves from apple/Frameworks."

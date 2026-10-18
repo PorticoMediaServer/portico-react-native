@@ -1,0 +1,141 @@
+name: Apple builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, apple-actions-builds]
+    paths:
+      - '.github/workflows/apple-builds.yml'
+      - 'third_party/media-engine/**'
+      - 'apps/native/**'
+      - 'packages/**'
+      - '.node-version'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-builds-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  javascript:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+        working-directory: apps/native
+      - name: Prepare production JavaScript on Linux
+        working-directory: apps/native
+        run: |
+          mkdir -p "$RUNNER_TEMP/bundle/assets"
+          node node_modules/react-native/cli.js bundle --platform ios --dev false --minify false --entry-file index.js --bundle-output "$RUNNER_TEMP/bundle/main.jsbundle" --assets-dest "$RUNNER_TEMP/bundle/assets" --max-workers 2
+          cd "$RUNNER_TEMP/bundle"
+          sha256sum main.jsbundle > SHA256SUMS
+          tar -czf "$RUNNER_TEMP/apple-javascript.tar.gz" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: apple-javascript, path: '${{ runner.temp }}/apple-javascript.tar.gz', if-no-files-found: error, retention-days: 14}
+
+  media:
+    runs-on: xcode-27
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [ios, tvos]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
+      RUSTUP_TOOLCHAIN: 1.99.0
+      MEDIA_ENGINE_JOBS: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Record actual runner capacity and tools
+        run: |
+          uname -m
+          xcodebuild -version
+          xcodebuild -showsdks
+          df -h .
+          sysctl -n hw.memsize
+          rustup toolchain install 1.99.0 --profile minimal
+          command -v pkg-config
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: third_party/media-engine/work
+          key: apple-work-${{ matrix.slice }}-${{ hashFiles('third_party/media-engine/sources.lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: apple-work-${{ matrix.slice }}-${{ hashFiles('third_party/media-engine/sources.lock.json') }}-
+      - name: Build and verify selected media frameworks
+        run: third_party/media-engine/build-apple.sh --slices '${{ matrix.slice }}'
+      - name: Package reusable frameworks and source notices
+        run: |
+          tar -czf "$RUNNER_TEMP/apple-engine-${{ matrix.slice }}.tar.gz" -C third_party/media-engine apple/Frameworks out/apple/meta out/apple/notices out/apple/source out/apple/manifest.json out/apple/build-info.json
+          du -sh third_party/media-engine/work third_party/media-engine/out
+          df -h .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: 'apple-engine-${{ matrix.slice }}', path: '${{ runner.temp }}/apple-engine-${{ matrix.slice }}.tar.gz', if-no-files-found: error, retention-days: 30}
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: always() && !cancelled()
+        with:
+          path: third_party/media-engine/work
+          key: apple-work-${{ matrix.slice }}-${{ hashFiles('third_party/media-engine/sources.lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: {name: 'apple-media-logs-${{ matrix.slice }}', path: third_party/media-engine/work/logs, retention-days: 14}
+
+  apps:
+    needs: [javascript, media]
+    runs-on: xcode-27
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            sdk: iphoneos
+          - platform: tvos
+            sdk: appletvos
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: 'apple-engine-${{ matrix.platform }}', path: '${{ runner.temp }}/engine'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: apple-javascript, path: '${{ runner.temp }}/javascript'}
+      - name: Restore prepared inputs
+        run: |
+          tar -xzf "$RUNNER_TEMP/engine/apple-engine-${{ matrix.platform }}.tar.gz" -C third_party/media-engine
+          mkdir -p "$RUNNER_TEMP/bundle"
+          tar -xzf "$RUNNER_TEMP/javascript/apple-javascript.tar.gz" -C "$RUNNER_TEMP/bundle"
+          (cd "$RUNNER_TEMP/bundle" && shasum -a 256 -c SHA256SUMS)
+          ln -s ../../apple/Frameworks third_party/media-engine/out/apple/xcframeworks
+          python3 third_party/media-engine/verify.py apple --slices '${{ matrix.platform }}'
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+        working-directory: apps/native
+      - name: Install locked CocoaPods dependencies
+        working-directory: apps/native/${{ matrix.platform }}
+        run: |
+          test "$(pod --version)" = 1.17.0
+          pod install --deployment
+      - name: Archive for physical devices without distribution credentials
+        env:
+          CLI_PATH: ${{ github.workspace }}/scripts/apple-prebuilt-bundle.cjs
+          PORTICO_PREBUILT_BUNDLE: ${{ runner.temp }}/bundle
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          xcodebuild -workspace apps/native/${{ matrix.platform }}/Portico.xcworkspace -scheme Portico -configuration Release -sdk '${{ matrix.sdk }}' -destination 'generic/platform=${{ matrix.platform == 'ios' && 'iOS' || 'tvOS' }}' -derivedDataPath "$RUNNER_TEMP/DerivedData" -archivePath "$RUNNER_TEMP/Portico-${{ matrix.platform }}.xcarchive" -jobs 3 archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO | tee "$RUNNER_TEMP/build-${{ matrix.platform }}.log"
+          ditto -c -k --keepParent "$RUNNER_TEMP/Portico-${{ matrix.platform }}.xcarchive" dist/Portico-${{ matrix.platform }}-unsigned.xcarchive.zip
+          cp third_party/media-engine/out/apple/source/*.tar dist/
+          cp third_party/media-engine/out/apple/notices/THIRD-PARTY-NOTICES.txt dist/
+          (cd dist && shasum -a 256 * > SHA256SUMS)
+          df -h .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: 'Portico-${{ matrix.platform }}-unsigned', path: dist/, if-no-files-found: error, retention-days: 14}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: {name: 'apple-build-log-${{ matrix.platform }}', path: '${{ runner.temp }}/build-${{ matrix.platform }}.log', retention-days: 14}

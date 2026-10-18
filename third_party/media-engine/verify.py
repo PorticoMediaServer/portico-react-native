@@ -490,6 +490,11 @@ def verify_apple(args, r: Report) -> dict:
     # on tvOS devices, x86_64 in the tvOS simulator, which Rust and so libdovi do not support).
     needles = path_needles(args.work)
     wanted_slices = {"ios": {"arm64"}, "ios-simulator": {"arm64", "x86_64"}, "tvos": {"arm64"}, "tvos-simulator": {"arm64"}}
+    if args.slices:
+        requested = args.slices.split()
+        if not requested or len(set(requested)) != len(requested) or set(requested) - set(wanted_slices):
+            raise ValueError(f"invalid Apple slices: {args.slices}")
+        wanted_slices = {name: wanted_slices[name] for name in requested}
     inventory = {}
     for xc in sorted(root.glob("*.xcframework")):
         name = xc.stem
@@ -607,6 +612,7 @@ def main() -> int:
     parser.add_argument("platform", choices=["android", "apple"])
     parser.add_argument("--out", type=pathlib.Path, default=HERE / "out")
     parser.add_argument("--abis", default="")
+    parser.add_argument("--slices", default="", help="Apple slices selected by build-apple.sh; default: all")
     parser.add_argument("--work", type=pathlib.Path,
                         default=pathlib.Path(os.environ.get("MEDIA_ENGINE_WORK_DIR") or HERE / "work"),
                         help="the build's work directory, which no library may name (default: MEDIA_ENGINE_WORK_DIR or ./work)")
