@@ -262,25 +262,24 @@ function InitialCircle({name, size}: {name?: string; size: number}) {
  */
 function CompactBackground({source, phone, height}: {source?: ImageSourcePropType; phone: boolean; height?: number}) {
   const {colors} = useTheme();
-  const [size, setSize] = useState({width: 0, height: 0});
   return (
-    <View pointerEvents="none" onLayout={e => setSize({width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height})} style={{position: 'absolute', left: 0, right: 0, top: 0, ...(height ? {height} : {bottom: 0}), overflow: 'hidden', backgroundColor: colors[spec.hero.fallback.to]}}>
+    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, ...(height ? {height} : {bottom: 0}), overflow: 'hidden', backgroundColor: colors[spec.hero.fallback.to]}}>
       {source ? <Image source={source} blurRadius={32} resizeMode="cover" style={{position: 'absolute', left: -24, right: -24, top: -24, bottom: -24, opacity: 0.55}} /> : null}
       {source ? <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: alpha(colors.ink, 0.25)}} /> : null}
-      {size.width > 0 ? (
-        <Svg width={size.width} height={size.height} style={{position: 'absolute', left: 0, top: 0}}>
-          <Defs>
-            <LinearGradient id="compactBottom" x1="0" y1="0" x2="0" y2="1">
-              {(phone ? spec.hero.scrim.phoneBottom : spec.hero.scrim.bottom).map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
-            </LinearGradient>
-            <LinearGradient id="compactSide" x1="0" y1="0" x2="1" y2="0">
-              {spec.hero.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
-            </LinearGradient>
-          </Defs>
-          {phone ? null : <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#compactSide)" />}
-          <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#compactBottom)" />
-        </Svg>
-      ) : null}
+      {/* Sized by percentage, never by a measured size: a measured one is fractional, and Android drew
+          the shade a pixel short of the art (a bright line along the band's foot), as in Backdrop. */}
+      <Svg width="100%" height="100%" style={{position: 'absolute', left: 0, top: 0}}>
+        <Defs>
+          <LinearGradient id="compactBottom" x1="0" y1="0" x2="0" y2="1">
+            {(phone ? spec.hero.scrim.phoneBottom : spec.hero.scrim.bottom).map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
+          </LinearGradient>
+          <LinearGradient id="compactSide" x1="0" y1="0" x2="1" y2="0">
+            {spec.hero.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
+          </LinearGradient>
+        </Defs>
+        {phone ? null : <Rect x={0} y={0} width="100%" height="100%" fill="url(#compactSide)" />}
+        <Rect x={0} y={0} width="100%" height="100%" fill="url(#compactBottom)" />
+      </Svg>
     </View>
   );
 }
@@ -295,30 +294,28 @@ function sizedBackdrop(source: ImageSourcePropType | undefined, width: number): 
 /** No backdrop: a quiet tinted gradient in its place (spec §1), never an empty box. */
 function Tint({height}: {height: number}) {
   const {colors} = useTheme();
-  const [width, setWidth] = useState(0);
   return (
-    <View pointerEvents="none" onLayout={e => setWidth(e.nativeEvent.layout.width)} style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
-      {width ? (
-        <Svg width={width} height={height}>
-          <Defs>
-            <LinearGradient id="tint" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor={colors[spec.hero.fallback.from]} stopOpacity={1} />
-              <Stop offset="1" stopColor={colors[spec.hero.fallback.to]} stopOpacity={1} />
-            </LinearGradient>
-            <LinearGradient id="glow" x1="0" y1="0" x2="0.6" y2="1">
-              <Stop offset="0" stopColor={colors[spec.hero.fallback.glow]} stopOpacity={spec.hero.fallback.glowAlpha} />
-              <Stop offset="1" stopColor={colors[spec.hero.fallback.glow]} stopOpacity={0} />
-            </LinearGradient>
-            <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0.6" stopColor={colors.ink} stopOpacity={0} />
-              <Stop offset="1" stopColor={colors.ink} stopOpacity={1} />
-            </LinearGradient>
-          </Defs>
-          <Rect x={0} y={0} width={width} height={height} fill="url(#tint)" />
-          <Rect x={0} y={0} width={width} height={height} fill="url(#glow)" />
-          <Rect x={0} y={0} width={width} height={height} fill="url(#fade)" />
-        </Svg>
-      ) : null}
+    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
+      {/* Sized by percentage (see CompactBackground). */}
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id="tint" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor={colors[spec.hero.fallback.from]} stopOpacity={1} />
+            <Stop offset="1" stopColor={colors[spec.hero.fallback.to]} stopOpacity={1} />
+          </LinearGradient>
+          <LinearGradient id="glow" x1="0" y1="0" x2="0.6" y2="1">
+            <Stop offset="0" stopColor={colors[spec.hero.fallback.glow]} stopOpacity={spec.hero.fallback.glowAlpha} />
+            <Stop offset="1" stopColor={colors[spec.hero.fallback.glow]} stopOpacity={0} />
+          </LinearGradient>
+          <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0.6" stopColor={colors.ink} stopOpacity={0} />
+            <Stop offset="1" stopColor={colors.ink} stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width="100%" height="100%" fill="url(#tint)" />
+        <Rect x={0} y={0} width="100%" height="100%" fill="url(#glow)" />
+        <Rect x={0} y={0} width="100%" height="100%" fill="url(#fade)" />
+      </Svg>
     </View>
   );
 }

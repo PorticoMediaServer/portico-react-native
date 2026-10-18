@@ -67,7 +67,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const recommendations = useShowRecommendations(snapshot.data?.show.id ?? showId);
   const turnedDown = useTurnedDown();
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
-  const {space, isTV, window, metrics} = useTheme();
+  const {space, isTV, window, metrics, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const player = usePlayerActions();
@@ -470,8 +470,9 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   if (isTV) {
     return (
       <EpisodeTintContext.Provider value={show?.id}>
-      <View style={{flex: 1}}>
-        <Page titled contentStyle={{paddingTop: 0}}>
+      {/* Ink, as below. */}
+      <View style={{flex: 1, backgroundColor: colors.ink}}>
+        <Page contentStyle={{paddingTop: 0}}>
           {hero}
           {notices}
           {/* Focus in the episodes brings the switcher near the top, with the row below it. */}
@@ -491,7 +492,8 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   }
   return (
     <EpisodeTintContext.Provider value={show?.id}>
-    <View style={{flex: 1}}>
+    {/* Ink, not the atmosphere: the hero's art fades to ink, and the atmosphere's lighter glow would meet it on a hard line. */}
+    <View style={{flex: 1, backgroundColor: colors.ink}}>
       <EpisodeList
         ref={listRef}
         list={list}

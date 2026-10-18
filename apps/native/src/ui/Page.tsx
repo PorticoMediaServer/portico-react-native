@@ -50,9 +50,7 @@ export function PageHeader({title, eyebrow, subtitle, actions, onBack, backLabel
 
 /** Vertical scrolling page body with safe-area bottom padding. On touch, the status bar gets an
  * opaque backing so scrolled content never runs under the clock (IOS-HOME-01, for every page). */
-/** `titled`: the page opens with a title hero, whose art fades to ink, so the page is ink below it
- * (the atmosphere's lighter glow would otherwise meet the fade on a hard line). */
-export function Page({children, style, contentStyle, titled, ...rest}: ScrollViewProps & {children: React.ReactNode; contentStyle?: StyleProp<ViewStyle>; titled?: boolean}) {
+export function Page({children, style, contentStyle, ...rest}: ScrollViewProps & {children: React.ReactNode; contentStyle?: StyleProp<ViewStyle>}) {
   const insets = useSafeAreaInsets();
   const {space, isTV, colors} = useTheme();
   // The backing appears only once content has moved under the status bar, so the page's own
@@ -66,7 +64,7 @@ export function Page({children, style, contentStyle, titled, ...rest}: ScrollVie
     rest.onScroll?.(e);
   };
   const scroll = (
-    <ScrollView {...rest} onScroll={isTV ? rest.onScroll : onScroll} scrollEventThrottle={rest.scrollEventThrottle ?? 32} {...(isTV ? ({snapToAlignment: 'item'} as object) : null)} style={[{flex: 1}, titled ? {backgroundColor: colors.ink} : null, style]} contentContainerStyle={[{paddingTop: isTV ? Math.max(insets.top, 60) - space.lg : insets.top, paddingBottom: insets.bottom + space.xxxl}, contentStyle]} keyboardShouldPersistTaps="handled">
+    <ScrollView {...rest} onScroll={isTV ? rest.onScroll : onScroll} scrollEventThrottle={rest.scrollEventThrottle ?? 32} {...(isTV ? ({snapToAlignment: 'item'} as object) : null)} style={[{flex: 1}, style]} contentContainerStyle={[{paddingTop: isTV ? Math.max(insets.top, 60) - space.lg : insets.top, paddingBottom: insets.bottom + space.xxxl}, contentStyle]} keyboardShouldPersistTaps="handled">
       {children}
     </ScrollView>
   );

@@ -204,7 +204,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
     <View style={{alignItems: 'center', paddingVertical: space.lg}}><Ring size={24} thickness={2} /></View>
   ) : null;
   return (
-    // Ink, not the atmosphere: the hero's art fades to ink (Page `titled`).
+    // Ink, not the atmosphere: the hero's art fades to ink, and the atmosphere's lighter glow would meet it on a hard line.
     <View style={{flex: 1, backgroundColor: colors.ink}}>
       {list ? (
         // One grid for both lists, so the hero and the controls above it are never drawn again:

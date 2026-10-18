@@ -345,12 +345,12 @@ const TvEpisodeRow = React.memo(function TvEpisodeRow({list, index, marks, handl
  * M26: an episode without a still of its own — its episode code, large, on the show's colour
  * (a stable tint from the show's id until the server publishes a dominant colour).
  */
-export function EpisodeStillPlaceholder({code, width}: {code: string; width: number}) {
+export function EpisodeStillPlaceholder({code, width}: {code?: string; width: number}) {
   const {colors, metrics, space} = useTheme();
   const seed = React.useContext(EpisodeTintContext);
   return (
     <View style={{width, height: Math.round(width * 9 / 16), borderRadius: metrics.radius.card, backgroundColor: seed ? `hsl(${titleTintHue(seed)}, 32%, 22%)` : colors.raised, alignItems: 'center', justifyContent: 'center', padding: space.sm}}>
-      <Text variant="heading" align="center" lines={2}>{code}</Text>
+      {code ? <Text variant="heading" align="center" lines={2}>{code}</Text> : null}
     </View>
   );
 }
@@ -490,7 +490,9 @@ export const EpisodeRowView = React.memo(function EpisodeRowView({entry, positio
                 {still.kind === 'still' ? (
                   <Artwork source={artwork(still.path)} shape="landscape" width={geometry.still} title={entry.title} />
                 ) : (
-                  <EpisodeStillPlaceholder code={episodeCode(i18n, entry)} width={geometry.still} />
+                  // A playable row's still carries the play badge at rest (touch has no hover), so its code
+                  // gives way: the row's own title already names the episode.
+                  <EpisodeStillPlaceholder code={playable ? undefined : episodeCode(i18n, entry)} width={geometry.still} />
                 )}
               </ArtworkPlacementContext.Provider>
             ) : <Skeleton width={geometry.still} height={geometry.stillHeight} radius={metrics.radius.card} />}

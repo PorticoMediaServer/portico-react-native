@@ -50,7 +50,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const editor = useMetadataEditor();
   const {session: viewerSession, api} = useSession();
-  const {space, isTV, metrics} = useTheme();
+  const {space, isTV, metrics, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const player = usePlayerActions();
@@ -235,8 +235,9 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const titleRowsShown = relatedRowsForPage(titleRows);
   const personWidth = isTV ? 150 : 84;
   return (
-    <View style={{flex: 1}}>
-      <Page titled contentStyle={{paddingTop: 0}} refreshControl={pull}>
+    // Ink, not the atmosphere: the hero's art fades to ink, and the atmosphere's lighter glow would meet it on a hard line.
+    <View style={{flex: 1, backgroundColor: colors.ink}}>
+      <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
         <TitleHero
           ref={invoker.ref}
           loading={!item}

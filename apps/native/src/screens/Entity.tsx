@@ -56,7 +56,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
   const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
-  const {space, isTV} = useTheme();
+  const {space, isTV, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const playing = usePlayingItemId();
@@ -350,11 +350,12 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   );
 
   return (
-    <View style={{flex: 1}}>
+    // Ink, not the atmosphere: the hero's art fades to ink, and the atmosphere's lighter glow would meet it on a hard line.
+    <View style={{flex: 1, backgroundColor: colors.ink}}>
       {trackList && rowOptions && trackSection ? (
         <TrackWindowList list={sortedList ?? trackList} total={sortedList ? sorted.snapshot.total ?? 0 : trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
       ) : (
-        <Page titled contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
+        <Page contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
           {top}
           {bottom}
         </Page>
