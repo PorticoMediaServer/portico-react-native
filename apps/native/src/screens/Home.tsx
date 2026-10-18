@@ -56,7 +56,6 @@ export function HomeScreen() {
     indexTitles({continueWatching: titles(['continue_watching', 'continue']), saved: savedTitles});
   }, [state.document, savedTitles]);
   const {system, api, session} = useSession();
-  const loadingFirst = state.phase === 'loading' && !state.document;
   const {space, isTV, metrics} = useTheme();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -77,6 +76,17 @@ export function HomeScreen() {
   // just removed from Continue Watching leaves the hero with the row.
   const hero = useMemo(() => homeHero(document, i18n.t, {duration: heroDuration, hidden: removed}), [document, i18n, removed]);
   const heroArt = hero ? artwork(hero.entry.backdropUrl ?? hero.entry.posterUrl) : undefined;
+  // The server sends its slower shelves as placeholders, filled in a moment later: until one has,
+  // Home is still loading, not empty (it never flashes "Nothing here yet"). At most a few seconds, in
+  // case a shelf never arrives.
+  const pendingShelves = !rows.length && !hero && !!document?.rows.some(r => r.deferred && !r.entries.length);
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (!pendingShelves) { setGaveUp(false); return; }
+    const timer = setTimeout(() => setGaveUp(true), PENDING_SHELVES_MS);
+    return () => clearTimeout(timer);
+  }, [pendingShelves]);
+  const loadingFirst = (state.phase === 'loading' && !document) || (pendingShelves && !gaveUp);
   // Stable per row so rows sit out unrelated re-renders; paging state is read per row.
   const paging = state.paging;
   // QA (TV): with no hero, the first row's first card takes the opening focus.
@@ -119,7 +129,8 @@ export function HomeScreen() {
               // APL-SHELL-08: the first load reserves the hero's place, so the rows don't jump when it arrives.
               <HeroSkeleton />
             ) : (
-              <View style={{paddingHorizontal: space.page, paddingTop: isTV ? space.xl : space.lg, paddingBottom: space.lg}}>
+              // Touch: below the floating header (wordmark and buttons), never under it.
+              <View style={{paddingHorizontal: space.page, paddingTop: isTV ? space.xl : metrics.control + space.lg, paddingBottom: space.lg}}>
                 <Text variant="label" tone="tertiary">{system?.name ?? i18n.t('web.home.serverFallback')}</Text>
                 <Text variant="title">{i18n.t('web.shell.home')}</Text>
               </View>
@@ -137,8 +148,8 @@ export function HomeScreen() {
         }
         ListFooterComponent={
           <>
-            {document && !rows.length && !hero ? <HomeEmpty /> : null}
-            {document ? <View style={{paddingHorizontal: space.page, paddingBottom: space.xl, alignItems: 'flex-end'}}><Button size="sm" variant="ghost" icon="settings" label={i18n.t('home.customize.action')} onPress={() => setCustomise(true)} /></View> : null}
+            {document && !rows.length && !hero && !loadingFirst ? <HomeEmpty /> : null}
+            {document && !loadingFirst ? <View style={{paddingHorizontal: space.page, paddingBottom: space.xl, alignItems: 'flex-end'}}><Button size="sm" variant="ghost" icon="settings" label={i18n.t('home.customize.action')} onPress={() => setCustomise(true)} /></View> : null}
           </>
         }
       />
@@ -172,15 +183,19 @@ function HeroSkeleton() {
   );
 }
 
+/** How long Home waits for its first shelf before it says there is nothing here. */
+const PENDING_SHELVES_MS = 10_000;
+
 /** APL-HOME-02: no "1m" for a short clip. */
 const heroDuration = (seconds: number) => (seconds >= 120 ? formatDuration(seconds) : '');
 
 /** Behind the hero: wide artwork as it is, or a softened copy of the cover when that is all there is. */
 function HeroArt({hero, source, height}: {hero: HomeHero; source?: ImageSourcePropType; height: number}) {
-  const {colors, backdrops} = useTheme();
+  const {colors, backdrops, isTV, window} = useTheme();
   // "Show backdrops" off: Home keeps its plain lit canvas behind the hero.
   if (!backdrops) return null;
-  if (hero.art === 'backdrop') return <Backdrop source={source} height={height} align="right" opacity={0.85} />;
+  // Phones: the identity sits over the art, so one top-to-bottom shade and no side shade (heroSpec.scrim.phoneOverlay).
+  if (hero.art === 'backdrop') return <Backdrop source={source} height={height} align={!isTV && window.width < 700 ? 'overlay' : 'right'} opacity={0.85} />;
   return (
     <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height, overflow: 'hidden'}}>
       {source ? <Image source={source} blurRadius={40} resizeMode="cover" style={{position: 'absolute', left: -32, right: -32, top: -32, bottom: -32, opacity: 0.45}} /> : null}

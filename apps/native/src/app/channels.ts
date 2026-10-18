@@ -60,6 +60,35 @@ export function useChannelSources(): SourcesSnapshot & {refresh: () => void} {
 const store = new NativeQueueStore();
 const memoryCache = new Map<string, ChannelMemory>();
 
+/**
+ * Whether Channels is offered (§2.0), steady from launch: until this viewer's sources have loaded,
+ * the answer from last time on this device, so the tab bar and rail never gain a tab after Home
+ * has drawn. A first launch (nothing remembered) waits for the sources as before.
+ */
+const offeredCache = new Map<string, boolean>();
+export function useHasChannels(): boolean {
+  const {api, session} = useSession();
+  const {sources, loading, failed} = useChannelSources();
+  const key = `channels:offered:v1:${viewerScope(session, api).viewerId}|${api.baseUrl}`;
+  const [remembered, setRemembered] = useState<boolean | undefined>(() => offeredCache.get(key));
+  useEffect(() => {
+    let active = true;
+    if (offeredCache.has(key)) { setRemembered(offeredCache.get(key)); return; }
+    setRemembered(undefined);
+    store.change(key, raw => ({record: raw, value: raw === true})).then(v => { if (active && !offeredCache.has(key)) { offeredCache.set(key, v); setRemembered(v); } }, () => {});
+    return () => { active = false; };
+  }, [key]);
+  const settled = !loading && !failed;
+  const offered = sources.length > 0;
+  useEffect(() => {
+    if (!settled || offeredCache.get(key) === offered) return;
+    offeredCache.set(key, offered);
+    setRemembered(offered);
+    void store.change(key, () => ({record: offered, value: offered})).catch(() => {});
+  }, [settled, offered, key]);
+  return settled || offered ? offered : remembered ?? false;
+}
+
 export function useChannelMemory(entry: string) {
   const {api, session} = useSession();
   const viewer = useMemo(() => viewerScope(session, api).viewerId, [session, api]);

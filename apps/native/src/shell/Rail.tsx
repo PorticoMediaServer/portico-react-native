@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming, type SharedValue} from 'react-native-reanimated';
 import type {Library} from '../../../../packages/client-core/src/index';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
+import {iconFor} from '../../../../packages/client-core/src/presentation/index';
 import {BrandMark, Focusable, Icon, Text, Wordmark, alpha, spec, useSpecPlatform, useTheme, type FocusableHandle, type IconName} from '../ui';
 import {railBrowsing} from '../ui/theme';
 import {useUnreadCount} from '../app/inbox';
@@ -24,7 +25,8 @@ type Item = {key: RailKey; label: string; icon: IconName; kind?: string};
 
 /** TV-RAIL-08: the shared family icon, except Anime (the family shares TV's monitor, which made the two
  * rows identical while the rail is collapsed) and an unknown kind (a library, not a movie). */
-const railLibraryIcon = (kind: string): IconName => (kind === 'anime' ? 'category' : ((mediaFamilyIcon(kind) ?? 'library') as IconName));
+/** A library's icon, the web's (`iconFor`): Anime has its own, not a second TV. Unknown kinds read as a library. */
+export const railLibraryIcon = (kind: string): IconName => (mediaFamilyIcon(kind) ? iconFor(kind) : 'library') as IconName;
 
 const primary: (Omit<Item, 'label'> & {labelId: MessageId})[] = [
   {key: 'Home', labelId: 'web.shell.home', icon: 'home'},

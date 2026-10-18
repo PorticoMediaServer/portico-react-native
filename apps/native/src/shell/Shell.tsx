@@ -18,7 +18,7 @@ import {HomeScreen} from '../screens/Home';
 import {LibraryScreen} from '../screens/Library';
 import {ChannelsScreen} from '../screens/channels/ChannelsScreen';
 import {ChannelReminderHost} from '../screens/channels/Reminders';
-import {useChannelSources} from '../app/channels';
+import {useHasChannels} from '../app/channels';
 import {SavedScreen} from '../screens/Saved';
 import {PlaylistScreen, SavedResourceScreen} from '../screens/title/SavedPages';
 import {HomeRowScreen} from '../screens/HomeRow';
@@ -42,10 +42,9 @@ import {linkIntents} from './link-intents';
 import {LinkFence, alreadyShowing, linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
-import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {AppearanceProvider, Atmosphere, cardScaleFor, showToast, useTheme, type IconName} from '../ui';
+import {AppearanceProvider, Atmosphere, cardScaleFor, showToast, useTheme} from '../ui';
 import {BottomBar, type TabKey} from './BottomBar';
-import {Rail, type RailKey} from './Rail';
+import {Rail, railLibraryIcon, type RailKey} from './Rail';
 import {PlayerHost} from '../player/PlayerHost';
 import type {PlayerActions} from '../app/player-actions';
 import {usePlayerVisible} from '../app/player-actions';
@@ -141,7 +140,7 @@ export function Shell() {
   // IOS-SHELL-02: an iPhone keeps its tab bar in landscape; only an iPad (wide) uses the rail.
   const handheld = !isTV && (!isTablet || window.width < 700);
   // Channels (Live TV, Library Channels, Recordings) is offered once the server has a source.
-  const hasChannels = useChannelSources().sources.length > 0;
+  const hasChannels = useHasChannels();
   const offline = useOffline();
   const [lastLibrary, setLastLibrary] = useState<string>();
   // Keyed on who is signed in, not on the access token: a renewed sign-in does not read the list again.
@@ -378,7 +377,7 @@ export function Shell() {
         <AwayNotice />
         <CertificateNotice />
         <ConnectionStatusProvider store={connectionStore} retry={retryConnection} useAnother={useAnotherServer}>
-        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? ((mediaFamilyIcon(currentLibrary.kind) ?? 'film') as IconName) : undefined} />}</DownloadsGate> : null}</>}>
+        <PlayerHost intents={playerIntents} onOpen={openEntry} onTogether={viewTogether} bottom={<><PlayOnBar />{handheld ? <DownloadsGate showing={tab === 'Downloads'} onHidden={selectTab}>{offered => <BottomBar selected={tab} onSelect={selectTab} showChannels={hasChannels} showDownloads={offered} downloadsActive={offline.entries.some(e => e.state === 'downloading')} libraryIcon={currentLibrary ? railLibraryIcon(currentLibrary.kind) : undefined} />}</DownloadsGate> : null}</>}>
           <TVMenuGate gate={gate} />
           <View style={{flex: 1, flexDirection: handheld ? 'column' : 'row'}}>
             {handheld ? null : (
