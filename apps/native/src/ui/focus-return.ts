@@ -152,7 +152,7 @@ const INTENT_KEYS = new Set(['up', 'down', 'left', 'right', 'select', 'longSelec
 type Registered = {target: FocusTarget; place: () => FocusPlace};
 type Named = {scope: string; key: string};
 type Invoker = Named & {place: FocusPlace};
-type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown; locate?: () => string | 'loading' | 'gone'};
+type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown; locate?: () => string | 'loading' | 'gone'; armed?: boolean};
 
 export type FocusReturn = ReturnType<typeof createFocusReturn>;
 
@@ -197,6 +197,7 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     const scope = p.origin.scope;
     if (p.locate) {
       // A list's own move (`follow`): the list says which control is there now, or that it is still reading.
+      p.armed = true;
       const where = p.locate();
       if (where === 'gone') { stop(); return; }
       if (where === 'loading') p.looks++;
@@ -316,8 +317,12 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       overlays = Math.max(0, overlays + (open ? 1 : -1));
       if (!overlays) { inOverlay = false; invoker = null; }
     },
-    /** The person pressed a key on the remote: a return still under way stops where it is. */
+    /**
+     * The person pressed a key on the remote: a return still under way stops where it is. A move
+     * not yet begun (`follow`) was started by this very press, which it takes as its own.
+     */
     intent() {
+      if (pending?.locate && !pending.armed) { pending.armed = true; return; }
       stop();
     },
     /** A screen became the one showing (`true`), or another was pushed over it or chosen instead. */
@@ -369,8 +374,10 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     follow(scope: string, locate: () => string | 'loading' | 'gone') {
       stop();
       if (!owner || !active(scope)) return;
-      pending = {origin: {owner, scope, key: '', place: {}}, key: '', place: {}, asks: 0, looks: 0, fallbacks: 0, timer: undefined, locate};
-      step();
+      // Owned from now (a viewer change, the screen leaving or going end it), first asked once the
+      // focus engine has finished with the press that started it.
+      pending = {origin: {owner, scope, key: '', place: {}}, key: '', place: {}, asks: 0, looks: 0, fallbacks: 0, timer: undefined, locate, armed: false};
+      pending.timer = timers.schedule(step, delay);
     },
     /** For tests and diagnostics. */
     state() {

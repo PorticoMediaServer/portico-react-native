@@ -443,16 +443,18 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   const stageTop = useStageTop();
   const tvRail = useTvRail();
   const scope = React.useContext(FocusScopeContext);
-  // Left from the letters after a jump: the title jumped to (focus would otherwise go back to the
-  // card last used, scrolled away by the jump), once its page has arrived and its card is drawn;
-  // a key, the screen leaving or another viewer ends the wait. Without a jump the grid's own memory
-  // decides. Asked a frame later, after whatever the same press did.
+  // Left from the letters after a jump: the title jumped to (the grid's focus memory would put it
+  // back on the card last used, scrolled away by the jump), once its page has arrived and its card
+  // is drawn. It belongs to this viewer and screen from the press on: another key, the screen
+  // leaving, another viewer or a new list ends it. Without a jump the grid's own memory decides.
+  const generationRef = useRef(snapshot.generation);
+  generationRef.current = snapshot.generation;
   const leaveLetters = () => {
     const index = landing.current;
     landing.current = undefined;
     if (index === undefined) return;
-    const locate = windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at)});
-    requestAnimationFrame(() => focusReturn.follow(scope, locate));
+    const generation = generationRef.current;
+    focusReturn.follow(scope, windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at), current: () => generationRef.current === generation}));
   };
   const top = (
     <>

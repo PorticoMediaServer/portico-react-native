@@ -146,16 +146,18 @@ export function windowResolver<T>({group, list, total, keyOf, scrollTo, radius}:
 
 /**
  * TV: where focus goes after a letter jumped a windowed grid to `index` (`FocusReturn.follow`): the
- * card that is there, once the list holds it (until then the list is asked for it, `ensure`, and
- * waited for). Gone when the grid has gone or no longer names its cards.
+ * card that is there. Every look brings that place into view (`ensure`: the grid scrolls there and
+ * asks for its page), loaded or not, since the focus engine may have scrolled the grid back to the
+ * card it remembered and unmounted this one. Until the list holds it, it is waited for. Gone when
+ * the grid has gone, no longer names its cards, or has read a new list (`current` false).
  */
-export function windowLanding<T>({list, index, group, keyOf, ensure}: {list: () => WindowLike<T> | null | undefined; index: number; group: () => string | undefined; keyOf: (item: T) => string; ensure: (index: number) => void}): () => string | 'loading' | 'gone' {
+export function windowLanding<T>({list, index, group, keyOf, ensure, current = () => true}: {list: () => WindowLike<T> | null | undefined; index: number; group: () => string | undefined; keyOf: (item: T) => string; ensure: (index: number) => void; current?: () => boolean}): () => string | 'loading' | 'gone' {
   return () => {
     const window = list();
     const own = group();
-    if (!window || own === undefined) return 'gone';
+    if (!window || own === undefined || !current()) return 'gone';
+    ensure(index);
     const slot = window.slotAt(index);
-    if (slot.kind !== 'item') { ensure(index); return 'loading'; }
-    return cardFocusKey(own, keyOf(slot.item));
+    return slot.kind === 'item' ? cardFocusKey(own, keyOf(slot.item)) : 'loading';
   };
 }

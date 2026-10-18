@@ -421,3 +421,32 @@ test('a TV letter landing whose card is loaded but not drawn yet is asked again 
   assert.equal(drawn.asked, 1);
   assert.equal(registry.state().returning, undefined);
 });
+
+test('a TV letter landing on a title that is loaded but was scrolled away and unmounted (the grid restored its old card) brings it back, then focuses it', () => {
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  const list = {slotAt: (i: number) => ({kind: 'item' as const, item: {id: `t${i}`}}), ensureRange: () => {}};
+  const cards = new Map<string, ReturnType<typeof card>>();
+  let first = 0;
+  // The grid mounts the cards of three rows of six from `first`.
+  const layout = () => {
+    for (const [id, c] of cards) { const i = Number(id.slice(1)); if (i < first || i >= first + 18) { c.unregister(); cards.delete(id); } }
+    for (let i = first; i < first + 18; i++) if (!cards.has(`t${i}`)) cards.set(`t${i}`, card(registry, 'library', cardFocusKey('cards', `t${i}`), {column: i}));
+  };
+  const scrollToIndex = (index: number) => { first = index - (index % 6); layout(); };
+  scrollToIndex(600);
+  let generation = 1;
+  registry.follow('library', windowLanding<Entry>({list: () => list, index: 603, group: () => 'cards', keyOf: e => e.id, ensure: scrollToIndex, current: () => generation === 1}));
+  // Left: the grid's focus memory puts focus back on the first row's card and scrolls back there.
+  scrollToIndex(0);
+  assert.equal(cards.has('t603'), false, 'scrolled away, unmounted');
+  c.drain();
+  assert.equal(cards.get('t603')?.asked, 1, 'brought back into view, then focused');
+  // A new list read after the jump: the landing ends rather than focusing whatever is there now.
+  registry.follow('library', windowLanding<Entry>({list: () => list, index: 9, group: () => 'cards', keyOf: e => e.id, ensure: scrollToIndex, current: () => generation === 1}));
+  generation = 2;
+  c.drain();
+  assert.equal(cards.get('t9')?.asked ?? 0, 0);
+  assert.equal(registry.state().returning, undefined);
+});

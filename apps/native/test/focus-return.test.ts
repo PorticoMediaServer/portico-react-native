@@ -410,36 +410,56 @@ test('a control that belongs to a row goes back to the row when it is no longer 
   assert.equal(episode.asked, 1);
 });
 
-test('a list\'s own move (a TV letter jumped to) belongs to its viewer and its screen, and a key or another move ends it', () => {
-  const c = clock();
-  const registry = createFocusReturn(c.timers);
-  registry.setOwner('viewer-a');
+test('a list\'s own move (a TV letter jumped to) belongs to its viewer and its screen, from the press on, and a key or another move ends it', () => {
   const key = cardFocusKey('cards', 'm1');
-  const queued: (() => boolean)[] = [];
-  registry.register('library', key, {focus: still => { queued.push(still); }});
-  const ends: [string, () => void][] = [
-    ['another viewer', () => registry.setOwner('viewer-b')],
-    ['the screen covered', () => registry.setScopeActive('library', false)],
-    ['a key', () => registry.intent()],
-    ['another move', () => registry.follow('library', () => 'loading')],
-    ['the screen gone', () => registry.disposeScope('library')],
-  ];
-  for (const [why, end] of ends) {
+  const setup = () => {
+    const c = clock();
+    const registry = createFocusReturn(c.timers);
     registry.setOwner('viewer-a');
-    registry.setScopeActive('library', true);
-    if (!registry.state().owner) registry.setOwner('viewer-a');
+    const queued: (() => boolean)[] = [];
     registry.register('library', key, {focus: still => { queued.push(still); }});
-    queued.length = 0;
     registry.follow('library', () => key);
-    assert.equal(queued.length, 1, `${why}: asked at once`);
-    assert.equal(queued[0]!(), true, `${why}: still wanted before it ends`);
-    end();
-    assert.equal(queued[0]!(), false, `${why}: the queued request no longer lands`);
+    return {c, registry, queued};
+  };
+  const ends: [string, (r: ReturnType<typeof createFocusReturn>) => void][] = [
+    ['another viewer', r => r.setOwner('viewer-b')],
+    ['the screen covered', r => r.setScopeActive('library', false)],
+    ['the screen gone', r => r.disposeScope('library')],
+    ['another move', r => r.follow('library', () => 'loading')],
+    ['a playback return', r => r.restore()],
+  ];
+  // Ended before its first look (the frame after the press): it never asks, and nothing it would have asked lands.
+  for (const [why, end] of ends) {
+    const {c, registry, queued} = setup();
+    assert.equal(queued.length, 0, `${why}: not asked during the press itself`);
+    end(registry);
     c.drain();
+    assert.equal(queued.filter(still => still()).length, 0, `${why}, before it began`);
+  }
+  // Ended after it asked: the queued request no longer lands.
+  for (const [why, end] of [...ends, ['a key', (r: ReturnType<typeof createFocusReturn>) => r.intent()]] as typeof ends) {
+    const {c, registry, queued} = setup();
+    c.next();
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0]!(), true, `${why}: wanted until it ends`);
+    end(registry);
+    assert.equal(queued[0]!(), false, `${why}: the queued request no longer lands`);
+  }
+  // The press that started it is its own (its intent may be heard after it began); a second key ends it.
+  {
+    const {c, registry, queued} = setup();
+    registry.intent();
+    c.next();
+    assert.equal(queued.length, 1, 'the starting press does not end it');
+    const again = setup();
+    again.registry.intent();
+    again.registry.intent();
+    again.c.drain();
+    assert.equal(again.queued.length, 0, 'another key before it began does');
   }
   // Without a viewer, or on a screen that is not showing, nothing is followed.
+  const {registry} = setup();
   registry.setOwner('');
   registry.follow('library', () => key);
   assert.equal(registry.state().returning, undefined);
 });
-
