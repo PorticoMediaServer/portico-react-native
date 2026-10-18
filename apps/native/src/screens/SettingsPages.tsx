@@ -13,8 +13,8 @@ import type {SavedCertificate} from '../bridge/certificate-trust';
 import {useOffline} from '../app/downloads';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {formatBytes} from '../../../../packages/client-core/src/presentation/content';
-import {HostedChooser} from './auth/HostedChooser';
-import {DirectSignIn} from './auth/DirectSignIn';
+import {signInMode, type SignInRequest} from '../app/sign-in-mode';
+import {linkViewerKey} from '../shell/pending-link';
 import {knownDirectServers} from '../bridge/known-servers';
 import {friendlyHost} from '../app/content';
 import type {KnownDirectServer} from '../../../../packages/client-core/src/known-servers';
@@ -84,21 +84,24 @@ export function ServersScreen() {
   const i18n = useI18n();
   const {space} = useTheme();
   const back = useBack();
-  const [mode, setMode] = useState<'list' | 'switch' | 'direct'>('list');
-  const [target, setTarget] = useState<string>();
   const entry = useInitialFocus();
+  // Justin (18 Oct 2026): signing in elsewhere takes the whole screen, with this viewer's browsing
+  // gone until it ends (`sign-in-mode.ts`); left without signing in, this page shows again with
+  // focus on the row it was opened from.
+  const viewer = linkViewerKey(session.session?.viewer);
+  const [returnTo] = useState(() => signInMode.takeOpener(viewer));
+  const signIn = (request: SignInRequest, opener: string) => { session.clearError(); signInMode.open(viewer, request, opener); };
+  const first = (opener: string, otherwise: boolean) => isTV && entry && (returnTo ? returnTo === opener : otherwise);
   // Servers this device signed in to directly (no credentials kept; choosing one signs in again).
   const [known, setKnown] = useState<readonly KnownDirectServer[]>([]);
-  useEffect(() => { void knownDirectServers.list().then(setKnown, () => {}); }, [mode]);
+  useEffect(() => { void knownDirectServers.list().then(setKnown, () => {}); }, []);
   // A server that is also one of the account's is listed once, under "Your servers".
   const direct = known.filter(k => !session.servers.some(s => s.id === k.serverId));
   // The owner's own certificates this device trusts, each at its address: forgetting one makes the
   // next connection there check the certificate again.
   const [certificates, setCertificates] = useState<readonly SavedCertificate[]>([]);
   const [forgetting, setForgetting] = useState<SavedCertificate>();
-  useEffect(() => { void savedCertificates().then(setCertificates, () => {}); }, [mode, forgetting]);
-  if (mode === 'switch') return <HostedChooser title={i18n.t('servers.switch')} initialServerId={target} onBack={() => { setTarget(undefined); setMode('list'); }} />;
-  if (mode === 'direct') return <DirectSignIn onBack={() => { session.direct.resetPin(); session.clearError(); setMode('list'); }} />;
+  useEffect(() => { void savedCertificates().then(setCertificates, () => {}); }, [forgetting]);
   const current = session.session?.viewer.serverId;
   const how = i18n.t(session.session?.viewer.authority === 'hosted' ? 'settings.connectedThroughAccount' : 'settings.connectedDirectly');
   return (
@@ -114,14 +117,14 @@ export function ServersScreen() {
               {/* A named server opens its profiles directly; the current one is only a label. */}
               {session.servers.map((s, i) => s.id === current
                 ? <ListRow key={s.id} icon="server" title={s.name} selected meta={i18n.t('profile.current')} />
-                : <ListRow key={s.id} hasTVPreferredFocus={isTV && entry && i === session.servers.findIndex(v => v.id !== current)} icon="server" title={s.name} meta={s.presence ? i18n.t(s.presence.online ? 'web.servers.online' : 'web.servers.offline') : undefined} accessory="navigation" onPress={() => { setTarget(s.id); setMode('switch'); }} />)}
+                : <ListRow key={s.id} hasTVPreferredFocus={first(`server:${s.id}`, i === session.servers.findIndex(v => v.id !== current))} icon="server" title={s.name} meta={s.presence ? i18n.t(s.presence.online ? 'web.servers.online' : 'web.servers.offline') : undefined} accessory="navigation" onPress={() => signIn({kind: 'switch', serverId: s.id}, `server:${s.id}`)} />)}
             </RowGroup>
           ) : null}
           {direct.length ? (
             <RowGroup title={i18n.t('servers.direct')}>
               {direct.map(k => k.serverId === current
                 ? <ListRow key={k.serverId} icon="server" title={k.name} subtitle={friendlyHost(k.address)} selected meta={i18n.t('profile.current')} />
-                : <ListRow key={k.serverId} icon="server" title={k.name} subtitle={friendlyHost(k.address)} accessory="navigation" onPress={() => { session.direct.setOrigin(k.address); setMode('direct'); }} />)}
+                : <ListRow key={k.serverId} hasTVPreferredFocus={first(`known:${k.serverId}`, false)} icon="server" title={k.name} subtitle={friendlyHost(k.address)} accessory="navigation" onPress={() => { session.direct.setOrigin(k.address); signIn({kind: 'direct'}, `known:${k.serverId}`); }} />)}
             </RowGroup>
           ) : null}
           {certificates.length ? (
@@ -130,10 +133,10 @@ export function ServersScreen() {
             </RowGroup>
           ) : null}
           <RowGroup>
-            {session.hosted ? <ListRow icon="switch" title={i18n.t('servers.switch')} accessory="navigation" onPress={() => setMode('switch')} /> : null}
+            {session.hosted ? <ListRow icon="switch" title={i18n.t('servers.switch')} accessory="navigation" hasTVPreferredFocus={first('switch', false)} onPress={() => signIn({kind: 'switch'}, 'switch')} /> : null}
             {/* Spec — Hosted at Scale: the list is version-checked at most every few hours; this checks now. */}
             {session.hosted ? <ListRow icon="refresh" title={i18n.t('web.servers.refresh')} meta={session.directoryStatus === 'loading' ? i18n.t('web.chooser.loading') : session.portico.checkedAt ? i18n.t('web.servers.checked', {when: new Date(session.portico.checkedAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}) : undefined} onPress={session.portico.refreshServers} /> : null}
-            <ListRow icon="server" title={i18n.t('servers.connectDirect')} accessory="navigation" hasTVPreferredFocus={isTV && entry && !session.servers.length} onPress={() => setMode('direct')} />
+            <ListRow icon="server" title={i18n.t('servers.connectDirect')} accessory="navigation" hasTVPreferredFocus={first('direct', !session.servers.length)} onPress={() => signIn({kind: 'direct'}, 'direct')} />
           </RowGroup>
         </View>
       </Page>

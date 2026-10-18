@@ -39,6 +39,7 @@ import {DeviceApprovalCover} from '../app/device';
 import {offlineDownloads} from '../bridge/offline-downloads';
 import {DownloadsGate} from './DownloadsGate';
 import {linkIntents} from './link-intents';
+import {signInMode} from '../app/sign-in-mode';
 import {LinkFence, alreadyShowing, linkViewerKey} from './pending-link';
 import {routeForEntry, routeForLinkedTitle} from '../app/open';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
@@ -247,8 +248,17 @@ export function Shell() {
     },
     [select, libraries.items, lastLibrary],
   );
+  // A sign-in begun from here (Settings › Servers) takes the whole screen and this shell goes
+  // (`sign-in-mode.ts`); left without signing in elsewhere, the shell comes back where it was.
+  const shellViewer = linkViewerKey(session.session?.viewer);
+  const [returning] = useState(() => signInMode.takeShell(shellViewer) as NavigationState | undefined);
+  const place = useRef<NavigationState | undefined>(returning);
+  const placeViewer = useRef(shellViewer);
+  placeViewer.current = shellViewer;
+  useEffect(() => () => signInMode.keepShell(placeViewer.current, place.current), []);
   const theme = useMemo(() => ({...DarkTheme, colors: {...DarkTheme.colors, background: 'transparent', card: 'transparent', primary: colors.accent, text: colors.text, border: colors.line}}), [colors]);
   const onStateChange = useCallback((state: Parameters<NonNullable<React.ComponentProps<typeof NavigationContainer>['onStateChange']>>[0]) => {
+    place.current = state as NavigationState | undefined;
     const shown = state?.routes[state.index];
     if (!shown) return;
     // PERF-03: each screen's artwork is timed and ordered from here.
@@ -270,12 +280,15 @@ export function Shell() {
     <NavigationContainer
       ref={navigator}
       theme={theme}
+      initialState={returning}
+      // Back where it was: the rail and the Menu key follow the restored place.
+      onReady={returning ? () => onStateChange(returning) : undefined}
       onStateChange={onStateChange}>
       <Roots.Navigator initialRouteName="HomeRoot">
         {rootScreens}
       </Roots.Navigator>
     </NavigationContainer>
-  ), [theme, onStateChange]);
+  ), [theme, onStateChange, returning]);
   const openEntry = useCallback((entry: ContentEntry) => {
     const route = routeForEntry(entry);
     if (route) navigator.current?.dispatch(StackActions.push(route.name, route.params));

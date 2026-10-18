@@ -7,6 +7,9 @@ import {AuthFlow} from './src/screens/auth/AuthFlow';
 import {DirectProfiles} from './src/screens/auth/DirectProfiles';
 import {Shell} from './src/shell/Shell';
 import {useLinkIntake} from './src/shell/link-intents';
+import {linkViewerKey} from './src/shell/pending-link';
+import {signInMode} from './src/app/sign-in-mode';
+import {SignInElsewhere} from './src/screens/auth/SignInElsewhere';
 import {clearTopShelf} from './src/app/top-shelf';
 import {ErrorBoundary} from './src/shell/ErrorBoundary';
 import {Atmosphere, Ring, ThemeProvider, Wordmark, useMenuKey, useTheme} from './src/ui';
@@ -21,12 +24,20 @@ function Root() {
   // showing the last profile's titles.
   const signedOut = session.phase === 'signedOut';
   React.useEffect(() => { if (signedOut) clearTopShelf(); }, [signedOut]);
-  // Justin's rule: the app always opens into the shell. A remembered sign-in is shown at once and
-  // confirmed in the background (the shell's banner says how that is going); sign-in appears only
-  // when there is no sign-in at all, or after "Use another server or account" / "Sign in again".
+  // Who is signed in: a sign-in begun while signed in belongs to them and ends with them.
+  const viewer = session.phase === 'ready' ? linkViewerKey(session.session?.viewer) : null;
+  const elsewhere = React.useSyncExternalStore(signInMode.subscribe, () => signInMode.current(viewer));
+  React.useEffect(() => signInMode.settle(viewer), [viewer]);
+  // Justin (18 Oct 2026): browsing (the shell: its rail, tab bar, screens, their providers and
+  // requests) is mounted only for a signed-in viewer with a profile, and never during a sign-in.
+  // Signed out, choosing a profile, or signing in elsewhere is the whole screen; the shell is gone,
+  // so nothing can move into it and links wait for it. A device's own sign-in, remembered from
+  // before, still opens straight into the shell and is confirmed in the background (the shell's
+  // status says how that is going).
   if (session.phase === 'restoring') return <Connecting />;
   if (session.phase !== 'ready') return <AuthFlow onSavedServer={session.recovery ? session.openSaved : undefined} />;
   if (session.direct.pending) return <DirectProfiles onCancel={session.direct.cancelPending} />;
+  if (elsewhere) return <SignInElsewhere request={elsewhere} />;
   return <Shell />;
 }
 
