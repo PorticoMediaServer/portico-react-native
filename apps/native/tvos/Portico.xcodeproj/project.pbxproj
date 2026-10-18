@@ -534,7 +534,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico;
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -564,7 +564,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico;
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -734,7 +734,7 @@
 					"-Xlinker",
 					_NSExtensionMain,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv.TopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
@@ -759,7 +759,7 @@
 					"-Xlinker",
 					_NSExtensionMain,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv.TopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
