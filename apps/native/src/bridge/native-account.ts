@@ -1,5 +1,6 @@
 import {NativeModules} from 'react-native';
-import {HostedAccountClient, parseAccountReturn, parseNativeAccountContinuation, type AccountReturn, type NativeAccountContinuation, type MFAChallenge} from '../../../../packages/client-core/src/index';
+import {ApiError, HostedAccountClient, parseAccountReturn, parseNativeAccountContinuation, type AccountReturn, type AccountTransport, type NativeAccountContinuation, type MFAChallenge} from '../../../../packages/client-core/src/index';
+import {nativeNetworkFetch} from './server-connections';
 
 /** SEC-01: a provider return for the sign-in this app started, or undefined for any other. */
 export function accountReturnOf(raw:string,expected:string,accountOrigin:string):AccountReturn|undefined {
@@ -12,9 +13,26 @@ export function accountBridge():AccountBridge {
  if(!bridge||typeof bridge.loadContinuation!=='function'||typeof bridge.newBinding!=='function')throw new Error('The account authorization module is missing from this build. Rebuild the native target.');
  return bridge;
 }
+/**
+ * NS-03: Portico Account requests (password, second factor, provider completion) go through the
+ * app's native transport, never React Native's `fetch`, which follows a redirect on Apple and would
+ * send the password on to wherever it points. The native transport refuses every redirect, keeps no
+ * cookies or cache, and never settles an owner's certificate for the account service (NS-02), as
+ * for the account's own sign-in renewal (`credentials.ts`). Everything else is the shared client's
+ * default transport as it was: the same headers, 15-second bound, response limit and errors.
+ */
+export function nativeAccountTransport(origin:string,binding:string,fetcher:typeof fetch=nativeNetworkFetch):AccountTransport {
+ return async(path,method,body,signal,token,completion)=>{
+  const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();const timer=setTimeout(abort,15000);
+  try{const response=await fetcher(origin+path,{method,signal:controller.signal,headers:{'Content-Type':'application/json','X-Portico-Continuation':binding,...(token?{Authorization:'Bearer '+token}:{}),...(completion?{'X-Portico-Completion':completion}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+   const raw=await response.text();if(raw.length>262144)throw new Error('The account response is too large.');let value:unknown;try{value=raw?JSON.parse(raw):undefined;}catch{throw new Error('The account service returned unreadable data.');}
+   if(!response.ok){const failure=value&&typeof value==='object'?(value as {error?:unknown}).error:undefined,e=(failure&&typeof failure==='object'?failure:{}) as {code?:unknown;message?:unknown;retryable?:unknown};throw new ApiError(response.status,typeof e.code==='string'?e.code:'request_failed',typeof e.message==='string'?e.message:'The account request did not finish.',e.retryable===true||response.status>=500);}return value;
+  }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+ };
+}
 export class NativeAccountOwner {
  readonly origin:string;api:HostedAccountClient;private value:NativeAccountContinuation;private writes:Promise<void>=Promise.resolve();
- constructor(origin:string,value:NativeAccountContinuation){this.origin=origin;this.value=value;this.api=new HostedAccountClient(origin,'native',undefined,value.binding);}
+ constructor(origin:string,value:NativeAccountContinuation){this.origin=origin;this.value=value;this.api=new HostedAccountClient(origin,'native',nativeAccountTransport(origin,value.binding),value.binding);}
  get continuation(){return this.value;}
  /** Expected binding fences late callbacks from a cancelled or replaced attempt. */
  async update(expected:string,change:{transactionId?:string;completionCode?:string;mfa?:MFAChallenge}):Promise<void>{
@@ -25,7 +43,7 @@ export class NativeAccountOwner {
  }
  async reset():Promise<void>{
   const write=this.writes.then(async()=>{const value:NativeAccountContinuation={version:1,binding:await accountBridge().newBinding(),expiresAt:new Date(Date.now()+86400000).toISOString()};
-   await accountBridge().saveContinuation(this.origin,JSON.stringify(value));this.value=value;this.api=new HostedAccountClient(this.origin,'native',undefined,value.binding);
+   await accountBridge().saveContinuation(this.origin,JSON.stringify(value));this.value=value;this.api=new HostedAccountClient(this.origin,'native',nativeAccountTransport(this.origin,value.binding),value.binding);
   });this.writes=write.catch(()=>{});return write;
  }
 }
