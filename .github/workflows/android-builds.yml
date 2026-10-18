@@ -3,14 +3,6 @@ name: Android and Fire OS builds
 on:
   workflow_dispatch:
   workflow_call:
-  pull_request:
-    paths:
-      - '.github/workflows/android-builds.yml'
-      - 'third_party/media-engine/**'
-      - 'apps/native/android/**'
-  push:
-    branches: [android-vega-actions]
-    paths: ['.github/workflows/android-builds.yml', 'third_party/media-engine/**', 'apps/native/android/**']
 
 permissions:
   contents: read
@@ -42,7 +34,10 @@ jobs:
       - name: Build and verify pinned media sources
         env:
           MEDIA_ENGINE_JOBS: '4'
-        run: third_party/media-engine/build-android.sh --abis "${{ matrix.abi }}"
+        run: |
+          third_party/media-engine/build-android.sh --abis "${{ matrix.abi }}"
+          mv third_party/media-engine/out/android/manifest.json "third_party/media-engine/out/android/manifest-${{ matrix.abi }}.json"
+          mv third_party/media-engine/out/android/build-info.json "third_party/media-engine/out/android/build-info-${{ matrix.abi }}.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-media-${{ matrix.abi }}
@@ -91,8 +86,11 @@ jobs:
           cp apps/native/android/app/build/outputs/bundle/firetvRelease/*.aab dist/android/
           cp third_party/media-engine/out/android/source/*.tar dist/android/
           cp third_party/media-engine/out/android/notices/THIRD-PARTY-NOTICES.txt dist/android/
+          cp third_party/media-engine/out/android/manifest-*.json dist/android/
+          cp third_party/media-engine/out/android/build-info-*.json dist/android/
+          python3 scripts/verify-android-packages.py dist/android/*.apk dist/android/*.aab
           printf '%s\n' "$GITHUB_SHA" > dist/android/SOURCE_COMMIT
-          (cd dist/android && sha256sum *.apk *.aab *.tar THIRD-PARTY-NOTICES.txt SOURCE_COMMIT > SHA256SUMS)
+          (cd dist/android && sha256sum *.apk *.aab *.tar *.json THIRD-PARTY-NOTICES.txt SOURCE_COMMIT > SHA256SUMS)
           echo 'Release-mode testing builds signed with the repository development key; no store upload.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
