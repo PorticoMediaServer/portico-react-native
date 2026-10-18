@@ -233,7 +233,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           libraryId={libraryId}
           libraryKind={library?.kind ?? ''}
           window={browse}
-          renderStrip={isTV ? jumpTo => strip(published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities ? <BrowseBar inline trailing={jumpTo} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} /> : jumpTo, countedEyebrow) : undefined}
+          renderStrip={isTV ? jumpTo => strip(published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities ? <BrowseBar inline trailing={jumpTo} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} onSaveView={opens ? undefined : saveView} /> : jumpTo, countedEyebrow) : undefined}
           renderHeader={() => (isTV ? (
             // Television: the strip above the grid holds the tabs, Sort, Filter and Jump to, so the
             // tabs are one Up from the grid and nothing sits between them and the cards.

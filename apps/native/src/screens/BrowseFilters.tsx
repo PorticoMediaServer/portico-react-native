@@ -103,14 +103,30 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
       </Sheet>
     </>
   );
-  // Television: two buttons beside the tabs. Every filter is in the side panel (the list, then one field's values).
+  // Names the current filters and sort as a saved view: the same form, its error and its submit on every platform.
+  const canSave = !!onSaveView && predicates.length > 0;
+  const startSaving = () => { setViewName(''); setSaveError(''); setSaving(true); };
+  const saveSheet = (
+    <Sheet open={saving} onClose={() => setSaving(false)} title={i18n.t('lib.saveViewTitle')} subtitle={i18n.t('lib.saveViewSubtitle')} kind="form" cancelLabel={i18n.t('lib.cancel')}
+      primary={{label: i18n.t('lib.save'), loading: saveBusy, disabled: !viewName.trim() || saveBusy, onPress: () => void saveView()}}>
+      <View style={{gap: space.md}}>
+        {saveError ? <Notice tone="error" message={saveError} /> : null}
+        <Field label={i18n.t('lib.saveViewName')} value={viewName} onChangeText={setViewName} placeholder={i18n.t('lib.saveViewPlaceholder')} maxLength={80} returnKeyType="done" onSubmitEditing={() => { if (viewName.trim()) void saveView(); }} />
+        <Text variant="caption" tone="tertiary">{i18n.t('lib.saveViewHelp')}</Text>
+      </View>
+    </Sheet>
+  );
+  // Television: two buttons beside the tabs, and Save view after them once a filter is on (as on
+  // touch). Every filter is in the side panel (the list, then one field's values).
   if (inline) {
     return (
       <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
         {leading}
         {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
         <Button size="sm" variant="secondary" icon="filter" selected={predicates.length > 0} label={predicates.length ? i18n.t('lib.activeFilters', {count: predicates.length}) : i18n.t('filter.title')} onPress={() => setFilters({})} />
+        {canSave ? <Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('lib.saveView')} onPress={startSaving} /> : null}
         {trailing}
+        {saveSheet}
         {overlays}
       </View>
     );
@@ -126,7 +142,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
         {model.quick.map(f => <Button key={f.id} size="sm" variant="secondary" selected={isQuickOn(f.id)} label={quickFilterLabel(f.labelKey)} onPress={() => toggleQuick(f.id)} />)}
         {model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
         <Button size="sm" variant="secondary" icon="filter" label={i18n.t('filter.add')} onPress={() => setFilters({})} />
-        {onSaveView && predicates.length ? <Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('lib.saveView')} onPress={() => { setViewName(''); setSaveError(''); setSaving(true); }} /> : null}
+        {canSave ? <Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('lib.saveView')} onPress={startSaving} /> : null}
       </ScrollView>
       </RowGuide>
       {model.applied.length ? (
@@ -138,14 +154,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
         </RowGuide>
       ) : null}
       {typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={{paddingHorizontal: space.page}}>{browseCountLabel(i18n.t, total, pivotId, totalIsLowerBound)}</Text> : null}
-      <Sheet open={saving} onClose={() => setSaving(false)} title={i18n.t('lib.saveViewTitle')} subtitle={i18n.t('lib.saveViewSubtitle')} kind="form" cancelLabel={i18n.t('lib.cancel')}
-        primary={{label: i18n.t('lib.save'), loading: saveBusy, disabled: !viewName.trim() || saveBusy, onPress: () => void saveView()}}>
-        <View style={{gap: space.md}}>
-          {saveError ? <Notice tone="error" message={saveError} /> : null}
-          <Field label={i18n.t('lib.saveViewName')} value={viewName} onChangeText={setViewName} placeholder={i18n.t('lib.saveViewPlaceholder')} maxLength={80} returnKeyType="done" onSubmitEditing={() => { if (viewName.trim()) void saveView(); }} />
-          <Text variant="caption" tone="tertiary">{i18n.t('lib.saveViewHelp')}</Text>
-        </View>
-      </Sheet>
+      {saveSheet}
       {overlays}
     </View>
   );
