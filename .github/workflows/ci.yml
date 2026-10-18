@@ -12,7 +12,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish expensive native builds so their verified artifacts and caches survive
+  # a small follow-up push. GitHub retains only the latest pending run.
+  cancel-in-progress: false
 
 jobs:
   javascript:
