@@ -324,3 +324,51 @@ test('a playlist entry past what has been read is read on to rather than taken a
   c.drain();
   assert.equal(p.cards.get(cardFocusKey('list', 'o2'))?.asked, 1, 'o1 is hidden, so o2');
 });
+
+test('a playlist entry that became hidden under the player is gone: its nearest visible entry, or nothing when none is', () => {
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  let entries: Occurrence[] = [{id: 'o1', media: {id: 'a'}}, {id: 'o2', media: {id: 'b'}}, {id: 'o3', media: {id: 'c'}}];
+  const p = playlist(registry, () => entries);
+  registry.focused('playlist', cardFocusKey('list', 'o1'));
+  registry.capture();
+  // The title is no longer visible to this profile: the occurrence stays, hidden (a disabled, unnamed row).
+  entries = [{id: 'o1', media: {id: 'a'}, hidden: true}, ...entries.slice(1)];
+  p.layout();
+  registry.restore();
+  c.drain();
+  assert.equal(p.cards.get(cardFocusKey('list', 'o2'))?.asked, 1, 'the visible neighbour');
+  assert.ok(!p.scrolls.includes(0), 'never scrolled to the hidden row');
+  assert.equal(registry.state().returning, undefined);
+  // Everything left is hidden: the return gives up at once rather than asking twelve times.
+  registry.focused('playlist', cardFocusKey('list', 'o2'));
+  registry.capture();
+  entries = entries.map(o => ({...o, hidden: true}));
+  p.layout();
+  registry.restore();
+  assert.equal(c.drain(), 1, 'one look, then stop');
+  assert.equal(registry.state().returning, undefined);
+});
+
+test('the same song twice, one occurrence hidden: the hidden one hands over to its nearest visible entry; the visible one is still found', () => {
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  let entries: Occurrence[] = [{id: 'o1', media: {id: 'song'}}, {id: 'o2', media: {id: 'other'}}, {id: 'o3', media: {id: 'x'}}, {id: 'o4', media: {id: 'song'}}];
+  const p = playlist(registry, () => entries);
+  registry.focused('playlist', cardFocusKey('list', 'o4'));
+  registry.capture();
+  entries = entries.map(o => (o.id === 'o4' ? {...o, hidden: true} : o));
+  p.layout();
+  registry.restore();
+  c.drain();
+  assert.equal(p.cards.get(cardFocusKey('list', 'o3'))?.asked, 1, 'its nearest visible entry');
+  assert.equal(p.cards.get(cardFocusKey('list', 'o1'))?.asked, 0, 'not the other occurrence of the same song');
+  // Started from the visible occurrence: found, though the other is hidden.
+  registry.focused('playlist', cardFocusKey('list', 'o1'));
+  registry.capture();
+  registry.restore();
+  c.drain();
+  assert.equal(p.cards.get(cardFocusKey('list', 'o1'))?.asked, 1);
+});

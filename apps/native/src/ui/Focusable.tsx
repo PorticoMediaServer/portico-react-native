@@ -4,7 +4,7 @@ import Animated, {useAnimatedStyle, useSharedValue, withTiming, Easing, type Sha
 import {uiI18n} from './i18n';
 import {useTheme} from './theme';
 import {focusReturn, type FocusPlace, type FocusResolver} from './focus-return';
-import {useFocusReturnBinding} from './focus-binding';
+import {nativeFocusRequest, useFocusReturnBinding} from './focus-binding';
 
 export type FocusableState = {focused: boolean; hovered: boolean; pressed: boolean};
 
@@ -108,7 +108,7 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
   // control says when it takes focus (`focus-binding.ts`).
   const focusScope = React.useContext(FocusScopeContext);
   const inOverlay = React.useContext(FocusOverlayContext);
-  const returning = useFocusReturnBinding({tv: isTV, scope: focusScope, key: focusKey && !disabled ? focusKey : undefined, place: focusPlace, overlay: inOverlay, request: () => requestAnimationFrame(() => (inner.current as {requestTVFocus?: () => void} | null)?.requestTVFocus?.())});
+  const returning = useFocusReturnBinding({tv: isTV, scope: focusScope, key: focusKey && !disabled ? focusKey : undefined, place: focusPlace, overlay: inOverlay, request: nativeFocusRequest(() => inner.current)});
   const [state, setState] = useState<FocusableState>({focused: false, hovered: false, pressed: false});
   const focusScale = scale ?? metrics.focusScale;
   const progress = useSharedValue(0);

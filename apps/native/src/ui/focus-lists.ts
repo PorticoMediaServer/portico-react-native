@@ -42,7 +42,8 @@ export function rowsResolver<T>({rows, group, first, base, scrollTo}: {rows: () 
 
 /**
  * A list held in memory. `usable` leaves out entries with nothing to focus (a hidden playlist
- * entry); `loading` is true while the list is still being read. `more`, for a list read page by
+ * entry): one that has become unusable counts as gone, and hands over to the nearest usable
+ * entry (none: the return gives up); `loading` is true while the list is still being read. `more`, for a list read page by
  * page: asks for the next page when the entry's old place is past what has been read, and says
  * whether there is one (so the entry is waited for, not taken as gone).
  */
@@ -54,10 +55,11 @@ export function arrayResolver<T>({group, items, keyOf, scrollTo, usable, loading
       if (!card || own === undefined || card.group !== own) return LOOKUP_UNKNOWN;
       const now = items();
       const index = now.findIndex((item, i) => keyOf(item, i) === card.entryId);
-      if (index >= 0) { scrollTo(index); return LOOKUP_FOUND; }
+      if (index >= 0 && (!usable || usable(now[index]!))) { scrollTo(index); return LOOKUP_FOUND; }
       if (loading?.()) return LOOKUP_LOADING;
-      if (place.column !== undefined && place.column >= now.length && more?.()) { if (now.length) scrollTo(now.length - 1); return LOOKUP_LOADING; }
-      const near = nearestUsable(now, Math.min(Math.max(0, place.column ?? 0), now.length - 1), usable);
+      if (index < 0 && place.column !== undefined && place.column >= now.length && more?.()) { if (now.length) scrollTo(now.length - 1); return LOOKUP_LOADING; }
+      // Still listed but nothing to focus there now (hidden): its neighbours, from where it is.
+      const near = nearestUsable(now, index >= 0 ? index : Math.min(Math.max(0, place.column ?? 0), now.length - 1), usable);
       return lookupGone(near === undefined ? undefined : cardFocusKey(own, keyOf(now[near]!, near)));
     },
   };

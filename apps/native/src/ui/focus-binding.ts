@@ -12,6 +12,8 @@ import {focusReturn, type FocusPlace, type FocusReturn} from './focus-return';
  * - Every control reports taking focus, named or not, so playback started from an unnamed control
  *   never reuses the last named one. Inside a sheet or menu (`overlay`) a control is never named:
  *   the control the sheet was opened from keeps being the one playback came from.
+ * - The registry's request reaches the native view a frame later (`nativeFocusRequest`), and only
+ *   if the return still wants this control then.
  */
 export function useFocusReturnBinding({tv, scope, key, place, overlay = false, request, registry = focusReturn}: {
   tv: boolean;
@@ -21,8 +23,8 @@ export function useFocusReturnBinding({tv, scope, key, place, overlay = false, r
   place?: FocusPlace;
   /** The control is in a sheet or menu. */
   overlay?: boolean;
-  /** Asks the native focus engine to focus the control. */
-  request: () => void;
+  /** Asks the native focus engine to focus the control, unless `still()` is false by the time it runs. */
+  request: (still: () => boolean) => void;
   registry?: FocusReturn;
 }): {onFocus: () => void; onBlur: () => void} {
   const named = tv && key && !overlay ? key : undefined;
@@ -33,7 +35,7 @@ export function useFocusReturnBinding({tv, scope, key, place, overlay = false, r
   const focusedNow = useRef(false);
   useEffect(() => {
     if (!named) return;
-    const off = registry.register(scope, named, {focus: () => asking.current()}, () => placeNow.current);
+    const off = registry.register(scope, named, {focus: still => asking.current(still)}, () => placeNow.current);
     if (focusedNow.current) registry.focused(scope, named);
     return off;
   }, [named, scope, registry]);
@@ -48,6 +50,16 @@ export function useFocusReturnBinding({tv, scope, key, place, overlay = false, r
     if (named) registry.blurred(scope, named);
   }, [named, scope, registry]);
   return {onFocus, onBlur};
+}
+
+/**
+ * Focusable's request: on the next frame (so a freshly mounted control has finished layout before
+ * the focus engine looks at it), and only if the return that asked still wants this control then:
+ * a key pressed, the screen left, the viewer changed or the row reused for another entry since
+ * leave focus where it is.
+ */
+export function nativeFocusRequest(view: () => unknown, frame: (run: () => void) => unknown = run => requestAnimationFrame(run)): (still: () => boolean) => void {
+  return still => { frame(() => { if (still()) (view() as {requestTVFocus?: () => void} | null)?.requestTVFocus?.(); }); };
 }
 
 /** A sheet or menu that is up counts as one, from its first frame (so a press inside it already knows). */

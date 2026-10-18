@@ -25,12 +25,22 @@
  *   the player, the return's own request) does not.
  * - A sheet or menu belongs to the control focus was on when it opened (the card whose More
  *   menu it is). Starting from inside one captures that control, and nothing if it was unnamed.
+ *   It is remembered as it was when the first sheet opened, so a list redrawing or dropping that
+ *   control under the menu does not change what the menu's Play comes from.
+ * - A request for focus is answered by the native focus engine a frame later. By then the return
+ *   may have ended (a key, the screen leaving, another viewer), or the control may have been
+ *   reused for another entry; the request asks `still()` first and does nothing then.
  *
  * Nothing here is React: the screens' controls and lists plug in through `Focusable` and the
  * resolvers in `focus-lists.ts`.
  */
 
-export type FocusTarget = {focus(): void};
+/**
+ * A control the registry can focus. `still` says, when the request finally reaches the native
+ * focus engine (a frame later), whether this return still wants this control: false once the
+ * return has ended, moved to another control, or this control has left or been renamed.
+ */
+export type FocusTarget = {focus(still: () => boolean): void};
 /** Where the control sat when it registered: its row on the screen and its place in the row. */
 export type FocusPlace = Readonly<{row?: number; column?: number}>;
 export type FocusOrigin = Readonly<{owner: string; scope: string; key: string; place: FocusPlace}>;
@@ -141,6 +151,7 @@ const INTENT_KEYS = new Set(['up', 'down', 'left', 'right', 'select', 'longSelec
 
 type Registered = {target: FocusTarget; place: () => FocusPlace};
 type Named = {scope: string; key: string};
+type Invoker = Named & {place: FocusPlace};
 type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown};
 
 export type FocusReturn = ReturnType<typeof createFocusReturn>;
@@ -164,6 +175,11 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
   let inOverlay = false;
   /** Sheets and menus open over the screens. */
   let overlays = 0;
+  /**
+   * The control the first open sheet or menu was opened from, as it was then (`null`: an unnamed
+   * one, or forgotten since); kept while any is open, whatever happens to the control under it.
+   */
+  let invoker: Invoker | null = null;
   let origin: FocusOrigin | undefined;
   let pending: Pending | undefined;
 
@@ -183,10 +199,12 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     // mounted, then the control is asked.
     const lookups = [...(resolvers.get(scope) ?? [])].map(resolver => resolver.resolve(p.key, p.place));
     const decision = decideFocusReturn(lookups);
-    const found = scopes.get(scope)?.get(p.key);
+    const key = p.key;
+    const found = scopes.get(scope)?.get(key);
     if (found) {
       p.asks++;
-      found.target.focus();
+      // Answered a frame later: only if this return still wants this very registration then.
+      found.target.focus(() => pending === p && p.key === key && p.origin.owner === owner && active(scope) && scopes.get(scope)?.get(key) === found);
     } else if (decision.kind === 'switch' && p.fallbacks < 2) {
       p.key = decision.next;
       p.fallbacks++;
@@ -211,6 +229,7 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     if (origin?.scope === scope) origin = undefined;
     if (pending?.origin.scope === scope) stop();
     if (current?.scope === scope) { current = null; holding = false; }
+    if (invoker?.scope === scope) invoker = null;
   };
 
   return {
@@ -222,11 +241,13 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       current = null;
       holding = false;
       inOverlay = false;
+      invoker = null;
       stop();
     },
     /**
      * A named control is mounted. `place` is read when it is needed, so a control that moves in
-     * its list keeps one registration. Unregistering the control that has focus forgets it.
+     * its list keeps one registration. Unregistering the control that has focus forgets it (an
+     * open menu's invoker is kept: the menu still belongs to it).
      */
     register(scope: string, key: string, target: FocusTarget, place: FocusPlace | (() => FocusPlace) = {}): () => void {
       let map = scopes.get(scope);
@@ -271,10 +292,14 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       holding = false;
       inOverlay = false;
     },
-    /** A sheet or menu opened (`true`) or closed. */
+    /**
+     * A sheet or menu opened (`true`) or closed. The first to open remembers the control focus was
+     * on (named, with its place, or none); nested ones keep it; the last to close forgets it.
+     */
     overlay(open: boolean) {
+      if (open && !overlays) invoker = current ? {scope: current.scope, key: current.key, place: placeOf(current.scope, current.key)} : null;
       overlays = Math.max(0, overlays + (open ? 1 : -1));
-      if (!overlays) inOverlay = false;
+      if (!overlays) { inOverlay = false; invoker = null; }
     },
     /** The person pressed a key on the remote: a return still under way stops where it is. */
     intent() {
@@ -295,14 +320,16 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     },
     /**
      * Playback is starting: remember the control it was started from. That is the named control
-     * with focus, or, from inside a sheet or menu, the control focus was on when it opened.
-     * Nothing is remembered when that is an unnamed control (the rail, a deep link), so an older
-     * origin never returns.
+     * with focus, or, from inside a sheet or menu, the control focus was on when the first one
+     * opened (its place now, if it is still there; else where it was then). Nothing is remembered
+     * when that is an unnamed control (the rail, a deep link), so an older origin never returns.
      */
     capture(): FocusOrigin | undefined {
       stop();
-      const from = current && (holding || inOverlay || overlays > 0) ? current : null;
-      origin = owner && from ? {owner, scope: from.scope, key: from.key, place: placeOf(from.scope, from.key)} : undefined;
+      let from: Invoker | null = null;
+      if (overlays > 0) from = invoker && (scopes.get(invoker.scope)?.has(invoker.key) ? {...invoker, place: placeOf(invoker.scope, invoker.key)} : invoker);
+      else if (current && (holding || inOverlay)) from = {...current, place: placeOf(current.scope, current.key)};
+      origin = owner && from ? {owner, scope: from.scope, key: from.key, place: from.place} : undefined;
       return origin;
     },
     /** The player has closed: give focus back to the origin, once, if its screen is the one showing. */
@@ -318,7 +345,7 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     cancel: stop,
     /** For tests and diagnostics. */
     state() {
-      return {owner, origin, returning: pending ? {key: pending.key, asks: pending.asks, looks: pending.looks} : undefined, overlays, current: current ? {...current, holding} : null, inOverlay};
+      return {owner, origin, returning: pending ? {key: pending.key, asks: pending.asks, looks: pending.looks} : undefined, overlays, invoker, current: current ? {...current, holding} : null, inOverlay};
     },
   };
 }

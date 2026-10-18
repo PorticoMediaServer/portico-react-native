@@ -121,6 +121,9 @@ export function EpisodeDetails({libraryId, entry, index, showTitle, heading, col
   const start = play?.playback?.startSeconds ?? entry.playback?.startSeconds ?? entry.progressSeconds ?? 0;
   const primaryLabel = resuming && duration ? i18n.t('title.resumeRemaining', {remaining: formatDuration(Math.max(0, duration - progress))}) : resuming ? i18n.t('entry.resume') : i18n.t('action.play');
   const size = isTV ? 'lg' : 'md';
+  // TV-PLAYER-03: these belong to the episode's row, where focus goes back when the details have
+  // closed; its place is the row's, so a removed episode hands over to the one now in its place.
+  const within = (action: string) => ({focusKey: withinFocusKey(episodeFocusKey(entry), action), focusPlace: index === undefined ? undefined : {column: index}});
   const code = episodeCode(i18n, entry);
   const context = episodeContext(i18n.t, showTitle, item?.episode?.seasonNumber ?? entry.seasonNumber);
   const facts = heading ? episodeMeta(i18n, {...entry, duration}) : undefined;
@@ -157,13 +160,12 @@ export function EpisodeDetails({libraryId, entry, index, showTitle, heading, col
       {overview ? <Text variant="body" tone="secondary" style={{maxWidth: 960}}>{overview}</Text> : !data && snapshot.phase === 'loading' ? <Skeleton height={14} width="90%" /> : null}
       {playable && play?.playback ? <PlaybackChoices libraryId={libraryId} itemId={play.playback.itemId} /> : null}
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs}}>
-        {/* TV-PLAYER-03: these belong to the episode's row, where focus goes back when the details have closed. */}
-        {playable ? <Button ref={first} variant="primary" icon="play" label={primaryLabel} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'play')} onPress={() => onPlay({entry, index, startSeconds: resuming ? start : 0})} /> : null}
-        {playable && resuming ? <Button variant="secondary" icon="restart" label={i18n.t('title.playFromStart')} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'restart')} onPress={() => onPlay({entry, index, startSeconds: 0})} /> : null}
+        {playable ? <Button ref={first} variant="primary" icon="play" label={primaryLabel} size={size} {...within('play')} onPress={() => onPlay({entry, index, startSeconds: resuming ? start : 0})} /> : null}
+        {playable && resuming ? <Button variant="secondary" icon="restart" label={i18n.t('title.playFromStart')} size={size} {...within('restart')} onPress={() => onPlay({entry, index, startSeconds: 0})} /> : null}
         {canList ? <Button variant="secondary" icon={listed ? 'bookmarkFilled' : 'bookmark'} label={i18n.t(listed ? 'title.inWatchlist' : 'title.watchlist')} selected={listed} size={size} onPress={() => mutate({action: 'watchlist', value: !listed})} /> : null}
         {canFavorite ? <Button variant="secondary" icon={favorite ? 'heartFilled' : 'heart'} accessibilityLabel={i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')} selected={favorite} size={size} onPress={() => mutate({action: 'favorite', value: !favorite})} /> : null}
         {canMarkWatched ? <Button variant="secondary" icon={watched ? 'watched' : 'check'} accessibilityLabel={i18n.t(watched ? 'title.markUnwatched' : 'title.markWatched')} selected={watched} size={size} onPress={() => mutate({action: 'watched', value: !watched})} /> : null}
-        <Button ref={playable ? undefined : first} variant="secondary" icon="more" accessibilityLabel={i18n.t('title.moreActions')} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'more')} onPress={() => player.more(entry)} />
+        <Button ref={playable ? undefined : first} variant="secondary" icon="more" accessibilityLabel={i18n.t('title.moreActions')} size={size} {...within('more')} onPress={() => player.more(entry)} />
       </View>
       {snapshot.mutationError ? <Notice tone="error" message={say(snapshot.mutationError, 'detail', 'save')} action={i18n.t('title.retry')} onAction={retryMutation} /> : null}
       {/* The episode stays in the library while its files are gone; it says since when, and that it comes back by itself. */}
