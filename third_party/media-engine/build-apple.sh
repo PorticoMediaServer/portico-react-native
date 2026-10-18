@@ -168,13 +168,32 @@ cpu_family = '$CPU_FAMILY'
 cpu = '$ARCH'
 endian = 'little'
 EOF
+    # Generators such as FriBidi's Unicode tables run on the build Mac. The
+    # exported SDKROOT/CC describe the Apple device, so configure native tools
+    # explicitly with the macOS SDK and target instead of inheriting them.
+    local host_sdk host_cc host_cxx host_target
+    host_sdk=$(xcrun --sdk macosx --show-sdk-path)
+    host_cc=$(xcrun --sdk macosx -f clang)
+    host_cxx=$(xcrun --sdk macosx -f clang++)
+    host_target="$(uname -m)-apple-macos11.0"
+    cat > "$BUILD/native.ini" <<EOF
+[binaries]
+c = '$host_cc'
+cpp = '$host_cxx'
+
+[built-in options]
+c_args = ['--target=$host_target', '-isysroot$host_sdk']
+cpp_args = ['--target=$host_target', '-isysroot$host_sdk']
+c_link_args = ['--target=$host_target', '-isysroot$host_sdk']
+cpp_link_args = ['--target=$host_target', '-isysroot$host_sdk']
+EOF
 }
 
 meson_build() {
     local name="$1"; shift
     local dir="$BUILD/$name"
     rm -rf "$dir"
-    meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" \
+    meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" --native-file "$BUILD/native.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
     # mpv writes its configure command line and config folder into config.h.
