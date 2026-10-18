@@ -21,6 +21,8 @@
 # rustup, python3, perl, pkg-config (brew install pkgconf), curl. meson, ninja, cmake, nasm and
 # cargo-c are installed into the work directory at their pinned versions.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+set -E
+trap 'me_say "Command failed at line $LINENO (status $?): $BASH_COMMAND"' ERR
 trap 'me_say "Command failed at line $LINENO (status $?): $BASH_COMMAND"' ERR
 
 CLEAN=0
@@ -576,7 +578,7 @@ for slice in $SLICES; do
         otool -l "$fw/$name" | awk '/cmd LC_RPATH/ {getline; getline; print $2}' | sort -u | while read -r rp; do
             install_name_tool -delete_rpath "$rp" "$fw/$name"
         done
-        links=$(otool -L "$fw/$name")
+        links=$(otool -L "$fw/$name" | awk '/^[[:space:]]/ {print $1}')
         [[ "$links" != *"$ME_WORK"* ]] || me_die "$name still refers to the build directory: $links"
         # -S as well: the debug map's object-file paths (N_OSO) name the build folders.
         strip -x -S "$fw/$name"
