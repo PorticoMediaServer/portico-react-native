@@ -7,6 +7,9 @@ import {Icon} from './Icon';
 import {inputFocusOnDemand, spec, useSpecPlatform, useTheme} from './theme';
 import {uiI18n} from './i18n';
 
+/** Television: how long a field waits for its input to say it took focus before asking again. */
+const REASK_MS = 500;
+
 export type FieldProps = Omit<TextInputProps, 'style'> & {
   label?: string;
   hint?: string;
@@ -57,9 +60,12 @@ export const Field = forwardRef<FieldHandle, FieldProps>(function Field({label, 
     if (!onDemand) { input.current?.focus(); return; }
     setEditing(true);
     // The container's change has to reach the native view before the input can take focus:
-    // ask on the next frame, and once more if that was too early.
+    // ask on the next frame, and once more if that was too early. The input's own focus event can
+    // arrive well after it took focus on a busy television, so the second ask waits, and never
+    // clears a request the keyboard already answered: that blur would hand focus away and leave
+    // the keyboard typing into nothing.
     requestAnimationFrame(ask);
-    setTimeout(() => { if (!taken.current) ask(); }, 150);
+    setTimeout(() => { if (!taken.current && !Keyboard.isVisible()) ask(); }, REASK_MS);
   }, [onDemand, ask]);
   const close = useCallback(() => {
     if (!onDemand) return;

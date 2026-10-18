@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {addressNeedsSetup, connectDirectServer, findDirectServer, serverAddress} from '../src/app/direct-connect.ts';
+import {addressFailure, addressNeedsSetup, connectDirectServer, findDirectServer, firstAnsweringAtOnce, serverAddress} from '../src/app/direct-connect.ts';
 import {ShownError} from '../src/app/errors.ts';
 import {RouteError, routeBase64, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 import {RouteConnection} from '../../../packages/client-core/src/route-connection.ts';
@@ -310,4 +310,71 @@ test('an address typed with its scheme is used as typed', () => {
   assert.equal(serverAddress('https://192.168.1.20:8443/'), 'https://192.168.1.20:8443');
   assert.equal(serverAddress('HTTP://nas.local'), 'HTTP://nas.local');
   assert.equal(serverAddress('http://portico.example.com'), 'http://portico.example.com');
+});
+
+const after = <T,>(ms: number, value: T, fail = false) => new Promise<T>((resolve, reject) => setTimeout(() => (fail ? reject(value) : resolve(value)), ms));
+
+test('an address that answers at once is the only one asked', async () => {
+  const asked: number[] = [];
+  await firstAnsweringAtOnce(['a', 'b', 'c'], async (_origin, i) => { asked.push(i); return i; }, new AbortController().signal, 5);
+  assert.deepEqual(asked, [0]);
+});
+
+test('an address that keeps quiet does not hold up the next ones', async () => {
+  const began = Date.now();
+  const asked: Record<number, number> = {};
+  // The likeliest gives no answer for 60 ms, then fails; the next is asked long before that.
+  const found = await firstAnsweringAtOnce(['quiet', 'b'], async (_origin, i) => {
+    asked[i] = Date.now() - began;
+    return i === 0 ? after(60, new Error('no answer'), true) : 'b';
+  }, new AbortController().signal, 5);
+  assert.deepEqual(found, {origin: 'b', value: 'b'});
+  assert.ok(asked[1]! < 40, `the next address waited ${asked[1]} ms`);
+});
+
+test('the likeliest address that answers wins, even when a less likely one answers first', async () => {
+  const found = await firstAnsweringAtOnce(['likely', 'other'], async (_origin, i) => (i === 0 ? after(30, 'slow') : 'fast'), new AbortController().signal, 5);
+  assert.deepEqual(found, {origin: 'likely', value: 'slow'});
+});
+
+test('a less likely address is used once every likelier one has failed', async () => {
+  const found = await firstAnsweringAtOnce(['likely', 'other'], async (_origin, i) => (i === 0 ? after(20, new Error('refused'), true) : 'answer'), new AbortController().signal);
+  assert.deepEqual(found, {origin: 'other', value: 'answer'});
+});
+
+test('when none answers, the likeliest address’s failure is reported', async () => {
+  const first = new Error('first');
+  await assert.rejects(firstAnsweringAtOnce(['a', 'b'], async (_origin, i) => { throw i === 0 ? first : new Error('second'); }, new AbortController().signal), e => e === first);
+});
+
+test('once the answer is decided, or the attempt is abandoned, nothing keeps asking', async () => {
+  const signals: AbortSignal[] = [];
+  await firstAnsweringAtOnce(['a', 'b'], async (_origin, i, own) => { signals.push(own); return i === 0 ? 'answer' : after(1000, 'late'); }, new AbortController().signal);
+  assert.ok(signals.every(s => s.aborted));
+  const outer = new AbortController();
+  const asked: AbortSignal[] = [];
+  const pending = firstAnsweringAtOnce(['a', 'b'], (_origin, _i, own) => { asked.push(own); return new Promise((_, reject) => own.addEventListener('abort', () => reject(new Error('stopped')))); }, outer.signal, 1000);
+  outer.abort();
+  await assert.rejects(pending, {code: 'cancelled'});
+  // Only the likeliest had been asked; it was stopped, and the next never was.
+  assert.equal(asked.length, 1);
+  assert.ok(asked.every(s => s.aborted));
+});
+
+test('an address that gave no answer in time says it could not be reached', () => {
+  const said = addressFailure(Object.assign(new Error('The address gave no answer in time.'), {code: 'timeout'}), '10.255.255.1');
+  assert.ok(said instanceof ShownError);
+  assert.match((said as ShownError).message, /can’t reach 10\.255\.255\.1/i);
+});
+
+test('an address that never answers is reported as unreachable, not as a generic failure', async () => {
+  // The identity check gives up on its own; the native transport then reports a cancellation.
+  const base = scripted();
+  const env: ConnectionEnvironment = {...base.env, fetcher: ((_input: unknown, init?: RequestInit) => new Promise((_, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new RouteError('cancelled', 'Connection request cancelled.')), {once: true});
+  })) as typeof fetch};
+  await assert.rejects(
+    connectDirectServer({origin: 'http://10.255.255.1:32500', env, signal: new AbortController().signal, isCurrent: () => true}),
+    /can’t reach 10\.255\.255\.1:32500/i,
+  );
 });

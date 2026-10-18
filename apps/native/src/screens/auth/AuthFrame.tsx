@@ -20,8 +20,10 @@ export function AuthFrame({title, lead, children, onBack, error, onDismissError,
   return (
     <View style={{flex: 1}}>
       <Atmosphere />
-      <KeyboardAvoidingView style={{flex: 1}} behavior={keyboardAvoidance} enabled={keyboardAvoidanceEnabled}>
-        <ScrollView contentContainerStyle={{flexGrow: 1, paddingHorizontal: space.page, paddingTop: Math.max(insets.top, isTV ? 60 : 0) + (compact ? space.md : space.xl), paddingBottom: insets.bottom + (compact ? space.md : space.xxl), // APL-AUTH-10: centred on television, iPad and landscape phones; left-aligned only on a narrow phone.
+      {/* The atmosphere runs under the status bar; the form scrolls below it, so a form the
+          keyboard pushes up never runs under the clock. */}
+      <KeyboardAvoidingView style={{flex: 1, marginTop: insets.top}} behavior={keyboardAvoidance} enabled={keyboardAvoidanceEnabled}>
+        <ScrollView contentContainerStyle={{flexGrow: 1, paddingHorizontal: space.page, paddingTop: Math.max(0, (isTV ? 60 : 0) - insets.top) + (compact ? space.md : space.xl), paddingBottom: insets.bottom + (compact ? space.md : space.xxl), // APL-AUTH-10: centred on television, iPad and landscape phones; left-aligned only on a narrow phone.
           alignItems: isTV || window.width >= 700 ? 'center' : 'flex-start', justifyContent: 'center'}} keyboardShouldPersistTaps="handled">
           <View style={{width, gap: compact ? space.md : space.lg}}>
             {onBack ? <Button variant="ghost" size="sm" icon="back" label={i18n.t('action.back')} onPress={onBack} style={{marginLeft: -space.sm}} /> : null}

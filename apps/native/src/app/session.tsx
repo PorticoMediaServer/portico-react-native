@@ -151,6 +151,8 @@ export type SessionValue = {
     inspect: () => Promise<void>;
     resetPin: () => void;
     signIn: (username: string, password: string) => Promise<void>;
+    /** Abandon the sign-in (or TV connection) under way: its answer is ignored and Sign in is ready again. */
+    cancel: () => void;
     /** TV-AUTH-01: verify and connect to the server at `origin`, for Quick Connect. */
     connect: () => Promise<HttpLocalApi>;
     /** TV-AUTH-01: sign in with a session Quick Connect issued on `api`. */
@@ -250,6 +252,19 @@ async function serverReplaced(record: SelectedViewerRecord): Promise<boolean> {
 
 /** How long the launch gate waits for a saved server before offering the saved-server screen. */
 const RESUME_DEADLINE_MS = 15000;
+/** How long a direct sign-in has, once its server has answered, to finish or say why it couldn't. */
+const SIGN_IN_DEADLINE_MS = 15000;
+
+/** One step of a sign-in, given SIGN_IN_DEADLINE_MS to answer; then it is stopped and fails as "took too long". */
+async function inTime<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work(controller.signal), new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new ShownError(activeI18n().t('error.timeout'))); }, SIGN_IN_DEADLINE_MS); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** The API before a server is chosen. Never a real destination: nothing may be requested from it. */
 export const PLACEHOLDER_ORIGIN = 'http://127.0.0.1:1';
@@ -278,7 +293,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   });
   const [system, setSystem] = useState<SystemInfo>();
   const [error, setError] = useState('');
+  // Work in flight, one token per operation. Each releases its own token however it ends, so a
+  // sign-in that was superseded (an ending, Back, new details) can't leave the spinner running or
+  // stop a newer one; abandoning an attempt drops every token at once.
   const [busy, setBusy] = useState(false);
+  const operations = useRef(new Set<symbol>());
+  const beginBusy = useCallback(() => { const op = Symbol('busy'); operations.current.add(op); setBusy(true); return op; }, []);
+  const endBusy = useCallback((op: symbol) => { if (operations.current.delete(op) && !operations.current.size) setBusy(false); }, []);
+  const dropBusy = useCallback(() => { operations.current.clear(); setBusy(false); }, []);
   const [recovery, setRecovery] = useState<SelectedViewerRecord>();
   const [resumeFailure, setResumeFailure] = useState<'offline' | 'auth'>();
   const [savedState, setSavedState] = useState<'checking' | 'offline' | 'replaced' | 'outsideHours'>();
@@ -386,11 +408,11 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       if (!account && current.session && !selected && api.baseUrl !== event.origin) return;
       if (account) void credentials?.logout().catch(() => {});
       signInNeeded.current('ended');
-      setBusy(false);
+      dropBusy();
       setError('');
       setSignInNote(runtime.credentialExposureMessage(activeI18n().locale));
     });
-  }, [api, credentials]);
+  }, [api, credentials, dropBusy]);
 
   const serversRef = useRef(servers);
   serversRef.current = servers;
@@ -494,7 +516,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           })
           .catch(() => {});
       };
-      setBusy(true);
+      const op = beginBusy();
       try {
         await commit.commit(candidate, {
           current: () => {
@@ -545,10 +567,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         if (expectedGeneration === generation.current) setError(message(e));
         throw e;
       } finally {
-        if (expectedGeneration === generation.current) setBusy(false);
+        endBusy(op);
       }
     },
-    [attachedServer, bindAccountAttachment, commit, credentials, keepAlive, setAttachedServer],
+    [attachedServer, bindAccountAttachment, commit, credentials, keepAlive, setAttachedServer, beginBusy, endBusy],
   );
 
   // APL-AUTH-01: resuming a saved server always settles. The restore-and-verify work is one
@@ -560,7 +582,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   const resumeSaved = useCallback(async () => {
     if (!recovery) return;
     const record = recovery, gen = generation.current;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     try {
       let flight = resumeInFlight.current;
@@ -630,9 +652,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         resumeWake = () => { clearTimeout(resumeRetry.current); void resumeSavedRef.current(); };
       }
     } finally {
-      if (gen === generation.current) setBusy(false);
+      endBusy(op);
     }
-  }, [recovery, credentials, commitSelectedViewer, dropServer]);
+  }, [recovery, credentials, commitSelectedViewer, dropServer, beginBusy, endBusy]);
   const resumeSavedRef = useRef(resumeSaved);
   resumeSavedRef.current = resumeSaved;
   // A directly signed-in server that is now reached at another address (its identity proven there)
@@ -709,7 +731,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // Direct sign-in: inspect → confirm fingerprint → credentials → (profiles).
   const inspect = useCallback(async () => {
     if (busy) return;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     const gen = ++generation.current;
     try {
@@ -718,9 +740,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     } catch (e) {
       setError(message(addressFailure(e, directOrigin)));
     } finally {
-      setBusy(false);
+      endBusy(op);
     }
-  }, [busy, directOrigin]);
+  }, [busy, directOrigin, beginBusy, endBusy]);
 
   const acceptDirect = useCallback(
     async (url: string, session: LocalSession, grant?: DirectPending, gen = generation.current) => {
@@ -793,74 +815,122 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [acceptDirect]);
 
   const signInDirectRef = useRef<(username: string, password: string) => Promise<void>>(async () => {});
+  // The direct sign-in being attempted. Changing any detail abandons it (`cancelAttempt`): its
+  // requests are aborted, whatever it answers later is ignored, and Sign in is ready again at once.
+  const attempt = useRef<{controller: AbortController} | undefined>(undefined);
+  const cancelAttempt = useCallback(() => {
+    const live = attempt.current;
+    if (!live) return;
+    attempt.current = undefined;
+    generation.current++;
+    live.controller.abort();
+    dropBusy();
+  }, [dropBusy]);
+  useEffect(() => () => attempt.current?.controller.abort(), []);
+
   const signInDirect = useCallback(
     async (username: string, password: string) => {
-      if (busy) return;
-      setBusy(true);
+      // Signing in again replaces an attempt still under way.
+      cancelAttempt();
+      const op = beginBusy();
       setError('');
       const gen = pin ? generation.current : ++generation.current;
+      const mine = {controller: new AbortController()};
+      attempt.current = mine;
+      const {signal} = mine.controller;
+      // The address lookup bounds each candidate itself; from the moment a server has answered,
+      // the rest of the sign-in gets SIGN_IN_DEADLINE_MS to finish or say why it couldn't.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let expire: (e: unknown) => void = () => {};
+      const expired = new Promise<never>((_, reject) => { expire = reject; });
+      let timedOut = false;
+      const arm = () => { timer = setTimeout(() => { timedOut = true; expire(new ShownError(activeI18n().t('error.timeout'))); }, SIGN_IN_DEADLINE_MS); };
       let connected: Awaited<ReturnType<typeof connectPairedServer>> | undefined;
       let issued: LocalSession | undefined;
       let offered = false;
-      try {
-        // One page, one button: the server is looked up and its identity pinned as part of signing in.
-        let identity = pin;
-        if (!identity) {
-          // Each likely address for what was typed is tried until one answers and proves an identity.
-          let found: Awaited<ReturnType<typeof findDirectServer>>;
-          try { found = await findDirectServer(directOrigin, nativeConnectionEnvironment, new AbortController().signal); }
-          catch (e) { throw addressFailure(e, directOrigin); }
-          if (gen !== generation.current) return;
-          answered.current = {typed: directOrigin, address: found.address};
-          identity = found.identity;
-          setPin(identity);
-        }
-        connected = await connectPairedServer(pinnedAddress(directOrigin), identity, nativeConnectionEnvironment, new AbortController().signal);
-        const local = connected.api;
-        const info = await local.system();
-        if (info.setupRequired) {
-          // A phone or tablet sets it up here; a television says where it can be set up.
-          if (Platform.isTV) throw new ShownError(activeI18n().t('setup.app.notSetUp'));
-          if (gen !== generation.current) return;
-          holdSetup({api: local, name: info.name, hostedConfigured: info.hostedConfigured});
-          offered = true;
-          return;
-        }
-        const result = await directSignIn(local, username, password);
-        // The server accepted the credentials: remember the address and username (not the password)
-        // so a sign-in that ends later reopens with both filled in.
-        void rememberDirectSignIn(directOrigin, username).catch(() => {});
-        // A viewer session straight from sign-in is signed out again if accepting it fails.
-        if (result.kind === 'signed-in' && directOutcome(result) === 'viewer') issued = result.session;
-        await settleDirect(result, connected, username, password, gen);
-        offered = true;
-      } catch (e) {
-        setError(message(e));
-      } finally {
-        if (!offered && connected) {
-          if (issued) {
-            connected.api.setAccessToken(issued.accessToken);
-            try {
-              await connected.api.logout();
-            } catch {}
+      const work = (async () => {
+        try {
+          // One page, one button: the server is looked up and its identity pinned as part of signing in.
+          let identity = pin;
+          if (!identity) {
+            // Each likely address for what was typed is tried until one answers and proves an identity.
+            let found: Awaited<ReturnType<typeof findDirectServer>>;
+            try { found = await findDirectServer(directOrigin, nativeConnectionEnvironment, signal); }
+            catch (e) { throw addressFailure(e, directOrigin); }
+            if (gen !== generation.current) return;
+            answered.current = {typed: directOrigin, address: found.address};
+            identity = found.identity;
+            setPin(identity);
           }
-          connected.connection.dispose();
+          arm();
+          connected = await connectPairedServer(pinnedAddress(directOrigin), identity, nativeConnectionEnvironment, signal);
+          const local = connected.api;
+          const info = await local.system();
+          if (gen !== generation.current) return;
+          if (info.setupRequired) {
+            // A phone or tablet sets it up here; a television says where it can be set up.
+            if (Platform.isTV) throw new ShownError(activeI18n().t('setup.app.notSetUp'));
+            holdSetup({api: local, name: info.name, hostedConfigured: info.hostedConfigured});
+            offered = true;
+            return;
+          }
+          const result = await directSignIn(local, username, password, signal);
+          if (gen !== generation.current) {
+            if (result.kind === 'signed-in') issued = result.session;
+            return;
+          }
+          // The server accepted the credentials: remember the address and username (not the password)
+          // so a sign-in that ends later reopens with both filled in.
+          void rememberDirectSignIn(directOrigin, username).catch(() => {});
+          // A viewer session straight from sign-in is signed out again if accepting it fails.
+          if (result.kind === 'signed-in' && directOutcome(result) === 'viewer') issued = result.session;
+          await settleDirect(result, connected, username, password, gen);
+          offered = true;
+        } finally {
+          // Whatever wasn't handed on is released, even when the answer came after the attempt was abandoned.
+          if (!offered && connected) {
+            if (issued) {
+              connected.api.setAccessToken(issued.accessToken);
+              try {
+                await connected.api.logout();
+              } catch {}
+            }
+            connected.connection.dispose();
+          }
         }
-        setBusy(false);
+      })();
+      try {
+        await Promise.race([work, expired]);
+      } catch (e) {
+        // An abandoned attempt says nothing; the person has already moved on.
+        if (attempt.current === mine) setError(message(e));
+      } finally {
+        clearTimeout(timer);
+        if (attempt.current === mine) {
+          attempt.current = undefined;
+          // Out of time: its requests stop, and nothing it answers later may sign in.
+          if (timedOut) {
+            if (gen === generation.current) generation.current++;
+            mine.controller.abort();
+          }
+        }
+        work.catch(() => {});
+        endBusy(op);
       }
     },
-    [busy, pin, directOrigin, settleDirect, holdSetup],
+    [pin, directOrigin, settleDirect, holdSetup, beginBusy, endBusy, cancelAttempt],
   );
 
   /** C45: the code for a two-step sign-in (authenticator or recovery code). */
   const completeChallenge = useCallback(async (code: string) => {
     const held = stepState.current;
     if (!held?.token || busy) return;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     const gen = generation.current;
     try {
-      const result = await completeDirectSignInChallenge(held.connected.api, held.token, code);
+      const token = held.token;
+      const result = await inTime(signal => completeDirectSignInChallenge(held.connected.api, token, code, signal));
       if (gen !== generation.current || stepState.current !== held) {
         if (result.kind === 'signed-in') { held.connected.api.setAccessToken(result.session.accessToken); void held.connected.api.logout().catch(() => {}); }
         return;
@@ -877,31 +947,31 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     } catch (e) {
       setError(message(e));
     } finally {
-      setBusy(false);
+      endBusy(op);
     }
-  }, [busy, settleDirect]);
+  }, [busy, settleDirect, beginBusy, endBusy]);
 
   /** C45: the server requires a new password; change it with the sign-in's session, then sign in with it. */
   const changeRequired = useCallback(async (newPassword: string) => {
     const held = stepState.current;
     if (!held?.session || busy) return;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     let changed = false;
     const gen = generation.current;
     try {
-      await changeRequiredPassword(held.connected.api, held.password, newPassword);
+      await inTime(signal => changeRequiredPassword(held.connected.api, held.password, newPassword, signal));
       changed = true;
     } catch (e) {
       setError(message(e));
     } finally {
-      setBusy(false);
+      endBusy(op);
     }
     if (!changed || gen !== generation.current || stepState.current !== held) return;
     // The change ended every session of the account, the step's included.
     releaseStep(false);
     await signInDirectRef.current(held.username, newPassword);
-  }, [busy, releaseStep]);
+  }, [busy, releaseStep, beginBusy, endBusy]);
 
   const retrySignIn = useCallback(async () => {
     const held = stepState.current;
@@ -918,24 +988,32 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     // Like signInDirect: an unpinned attempt is a new generation, so an address
     // edited (or a Continue pressed twice) while it is in flight is superseded
     // instead of pinning a stale identity and returning a stale connection.
+    cancelAttempt();
     const gen = pin ? generation.current : ++generation.current;
-    const {api, pin: identity, address} = await connectDirectServer({
-      origin: directOrigin,
-      pin,
-      address: pin ? pinnedAddress(directOrigin) : undefined,
-      env: nativeConnectionEnvironment,
-      signal: new AbortController().signal,
-      isCurrent: () => gen === generation.current,
-    });
-    answered.current = {typed: directOrigin, address};
-    setPin(identity);
-    return api;
-  }, [pin, directOrigin]);
+    // It is the attempt under way until it answers, so a changed address abandons it too.
+    const mine = {controller: new AbortController()};
+    attempt.current = mine;
+    try {
+      const {api, pin: identity, address} = await connectDirectServer({
+        origin: directOrigin,
+        pin,
+        address: pin ? pinnedAddress(directOrigin) : undefined,
+        env: nativeConnectionEnvironment,
+        signal: mine.controller.signal,
+        isCurrent: () => gen === generation.current && attempt.current === mine,
+      });
+      answered.current = {typed: directOrigin, address};
+      setPin(identity);
+      return api;
+    } finally {
+      if (attempt.current === mine) attempt.current = undefined;
+    }
+  }, [pin, directOrigin, cancelAttempt]);
 
   /** First run from a phone or tablet: connect to the server at the typed address and hold it for setup. */
   const beginSetup = useCallback(async () => {
     if (busy) return false;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     const gen = pin ? generation.current : ++generation.current;
     try {
@@ -950,14 +1028,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       setError(message(e));
       return false;
     } finally {
-      setBusy(false);
+      endBusy(op);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, pin, directOrigin, holdSetup]);
 
   const acceptQuickConnect = useCallback(async (local: HttpLocalApi, issued: LocalSession) => {
     const gen = ++generation.current;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     try {
       await rememberNativeSession(local, issued, nativeConnectionEnvironment, undefined, () => gen === generation.current);
@@ -966,9 +1044,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       setError(message(e));
       throw e;
     } finally {
-      setBusy(false);
+      endBusy(op);
     }
-  }, [acceptDirect]);
+  }, [acceptDirect, beginBusy, endBusy]);
 
   /** Setup created the owner: the session it issued is this device's sign-in, on the connection setup used. */
   const finishSetup = useCallback(async (issued: LocalSession) => {
@@ -987,20 +1065,20 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         const current = viewer.getSnapshot();
         return current.session ? undefined : undefined;
       })());
-      setBusy(true);
+      const op = beginBusy();
       setError('');
       try {
         const serverId = snapshot?.serverId ?? viewer.getSnapshot().session?.viewer.serverId ?? pending.api.getRouteConnection()?.pin.serverId ?? '';
         const accountId = snapshot?.account.id ?? viewer.getSnapshot().session?.viewer.accountId ?? '';
-        const selection = await selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin});
+        const selection = await inTime(signal => selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin}, signal));
         await acceptDirect(pending.api.baseUrl, selection.session, pending, gen);
       } catch (e) {
         setError(message(e));
       } finally {
-        setBusy(false);
+        endBusy(op);
       }
     },
-    [pending, acceptDirect],
+    [pending, acceptDirect, beginBusy, endBusy],
   );
 
   const cancelPending = useCallback(() => {
@@ -1040,7 +1118,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     if (!credentials || !live) { setError(activeI18n().t('web.portico.signInFirst')); return 'failed'; }
     const kind = options.kind ?? 'interactive';
     const gen = ++generation.current;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     let connected: Awaited<ReturnType<typeof connectHostedServer>> | undefined;
     let kept = false;
@@ -1079,9 +1157,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     } finally {
       clearTimeout(timer);
       if (!kept && connected) connected.connection.dispose();
-      setBusy(false);
+      endBusy(op);
     }
-  }, [credentials, hostedApi, settleDirect, dropServer, checkServersNow]);
+  }, [credentials, hostedApi, settleDirect, dropServer, checkServersNow, beginBusy, endBusy]);
   porticoConnectRef.current = porticoConnect;
   /** The shell's landing: sign in to one server and say exactly what failed, if anything. */
   const porticoOpen = useCallback(async (server: HostedServer): Promise<PorticoFailure | undefined> => {
@@ -1099,7 +1177,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     const live = credentials?.getSnapshot().session;
     if (!credentials || !live) { setError(activeI18n().t('web.portico.signInFirst')); return false; }
     const gen = ++generation.current;
-    setBusy(true);
+    const op = beginBusy();
     setError('');
     let connected: Awaited<ReturnType<typeof connectPairedServer>> | undefined;
     let kept = false;
@@ -1142,9 +1220,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       throw e;
     } finally {
       if (!kept && connected) connected.connection.dispose();
-      setBusy(false);
+      endBusy(op);
     }
-  }, [credentials, hostedApi, settleDirect, checkServersNow]);
+  }, [credentials, hostedApi, settleDirect, checkServersNow, beginBusy, endBusy]);
 
   /* A session the server's move to its own membership ended (migration 0120, `session_migrated`):
      re-admit silently with the Portico Account and the same profile. Only a refusal, or no Portico
@@ -1338,6 +1416,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         inspect,
         resetPin: () => setPin(undefined),
         signIn: signInDirect,
+        cancel: cancelAttempt,
         connect: connectDirect,
         acceptSession: acceptQuickConnect,
         pending,
@@ -1358,7 +1437,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       activationApproved,
       signOut,
     }),
-    [hoursRefused, retryRenewal, deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, connectDirect, acceptQuickConnect, setupTarget, beginSetup, holdSetup, finishSetup, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
+    [hoursRefused, retryRenewal, deviceReset, savedState, signInHint, clearSignInHint, signInNote, openSaved, retrySaved, signInAgain, useAnother, restoring, scope, api, system, credentials, hosted, servers, directoryStatus, directoryError, refreshServers, attachedServer, recovery, resumeFailure, error, busy, resumeSaved, forgetSaved, directOrigin, pin, inspect, signInDirect, cancelAttempt, connectDirect, acceptQuickConnect, setupTarget, beginSetup, holdSetup, finishSetup, pending, directStep, completeChallenge, changeRequired, releaseStep, retrySignIn, chooseProfile, leaveServer, transferOwnership, acceptCustody, porticoOpen, porticoLastServer, cancelPending, openProfileChooser, porticoConnect, acceptPortico, serversCheckedAt, activationApproved, signOut],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

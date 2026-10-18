@@ -24,6 +24,8 @@ export type ButtonProps = Omit<FocusableProps, 'children' | 'style'> & {
   loading?: boolean;
   /** Circular icon-only control: transport controls and avatars only (buttonSpec). */
   round?: boolean;
+  /** A heavier icon line, for a control that sits over artwork (the handheld root header). */
+  iconStrokeWidth?: number;
   fullWidth?: boolean;
   style?: StyleProp<ViewStyle>;
 };
@@ -37,7 +39,7 @@ const specVariant = (v: ButtonVariant): keyof typeof spec.button.variants => (v 
  * `sm` button reaches 44 pt on touch through its hit area (APL-SYS-01); on TV every size is at
  * least 64 px. Loading keeps the label and swaps the leading icon for a spinner (CON-14).
  */
-export const Button = forwardRef<FocusableHandle, ButtonProps>(function Button({label, icon, iconNumber, trailingIcon, variant = 'secondary', size = 'md', selected = false, loading = false, round = false, transport, fullWidth = false, disabled, style, accessibilityLabel, hitSlop, ...rest}, ref) {
+export const Button = forwardRef<FocusableHandle, ButtonProps>(function Button({label, icon, iconNumber, trailingIcon, variant = 'secondary', size = 'md', selected = false, loading = false, round = false, iconStrokeWidth, transport, fullWidth = false, disabled, style, accessibilityLabel, hitSlop, ...rest}, ref) {
   const {colors, isTV} = useTheme();
   const platform = useSpecPlatform();
   const b = spec.button;
@@ -88,7 +90,7 @@ export const Button = forwardRef<FocusableHandle, ButtonProps>(function Button({
                   {iconNumber}
                 </Text>
               </View>
-            ) : icon ? <Icon name={icon} size={iconSize} color={foreground} /> : null}
+            ) : icon ? <Icon name={icon} size={iconSize} color={foreground} strokeWidth={iconStrokeWidth} /> : null}
             {label && !t ? (
               <Text variant={b.label[size]} style={{color: foreground, textDecorationLine: variant === 'link' && pressed ? 'underline' : 'none'}} lines={1}>
                 {label}

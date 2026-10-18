@@ -74,13 +74,20 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
   try {
     const headers: Record<string, string> = {};
     new Headers(options.headers).forEach((v, k) => (headers[k] = v));
-    const raw = await NativeModules.PorticoRuntime.networkRequest(
-      id,
-      input,
-      options.method ?? 'GET',
-      headers,
-      options.body ?? null,
-    );
+    let raw: {status: number; headers: Record<string, string>; body: string};
+    try {
+      raw = await NativeModules.PorticoRuntime.networkRequest(
+        id,
+        input,
+        options.method ?? 'GET',
+        headers,
+        options.body ?? null,
+      );
+    } catch (error) {
+      // The caller gave up on it: that is a cancellation, whatever the transport said as it stopped.
+      if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
+      throw error;
+    }
     if (options.signal?.aborted)
       throw new RouteError('cancelled', 'Connection request cancelled.');
     return new Response(

@@ -2,7 +2,7 @@ import {connectPairedServer, inspectDirectServer, type ConnectionEnvironment} fr
 import {HttpLocalApi, type SystemInfo} from '../../../../packages/client-core/src/index';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
-import {DEFAULT_SERVER_PORT, firstAnswering, serverAddress, serverAddressCandidates} from '../../../../packages/client-core/src/server-address';
+import {DEFAULT_SERVER_PORT, serverAddress, serverAddressCandidates} from '../../../../packages/client-core/src/server-address';
 import {activeI18n, present, ShownError} from './errors';
 
 /**
@@ -32,23 +32,90 @@ const FIRST_WAIT_MS = 15000;
 const NEXT_WAIT_MS = 6000;
 
 /** A signal that ends when `outer` does or after `ms`, whichever is first (Hermes has no `AbortSignal.timeout`). */
-function within(ms: number, outer: AbortSignal): {signal: AbortSignal; done: () => void} {
+function within(ms: number, outer: AbortSignal): {signal: AbortSignal; done: () => void; expired: () => boolean} {
   const controller = new AbortController();
   const stop = () => controller.abort();
-  const timer = setTimeout(stop, ms);
+  let expired = false;
+  const timer = setTimeout(() => { expired = true; stop(); }, ms);
   if (outer.aborted) stop(); else outer.addEventListener('abort', stop, {once: true});
-  return {signal: controller.signal, done: () => { clearTimeout(timer); outer.removeEventListener('abort', stop); }};
+  return {signal: controller.signal, done: () => { clearTimeout(timer); outer.removeEventListener('abort', stop); }, expired: () => expired};
+}
+
+/** An address that gave no answer in its time: unreachable, never a generic failure. */
+const noAnswer = () => Object.assign(new Error('The address gave no answer in time.'), {code: 'timeout'});
+
+/** How long the likeliest address is given alone before the next is asked as well. */
+const STAGGER_MS = 1500;
+
+/**
+ * Asks the candidates most likely first, without waiting for each in turn: the next one is asked
+ * as soon as the one before fails, or once it has gone STAGGER_MS without answering. The most
+ * likely address that answers wins (an address is taken only once every likelier one has failed),
+ * so a server that answers at once is the only address contacted, and nothing answering takes
+ * about the longest single wait rather than every wait added up. When none answers, the most
+ * likely address's failure is the one reported.
+ */
+export async function firstAnsweringAtOnce<T>(candidates: readonly string[], probe: (origin: string, index: number, signal: AbortSignal) => Promise<T>, signal: AbortSignal, stagger = STAGGER_MS): Promise<{origin: string; value: T}> {
+  const controllers = candidates.map(() => new AbortController());
+  const stopAll = () => { for (const c of controllers) c.abort(); };
+  if (signal.aborted) stopAll(); else signal.addEventListener('abort', stopAll, {once: true});
+  const outcomes: ({value: T} | {error: unknown} | undefined)[] = candidates.map(() => undefined);
+  let next = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abandon = () => {};
+  try {
+    return await new Promise((resolve, reject) => {
+      let decided = false;
+      // Abandoned before any address answered: it ends now, with nothing more asked.
+      abandon = () => { if (!decided) { decided = true; reject(Object.assign(new Error('The search was cancelled.'), {code: 'cancelled'})); } };
+      if (signal.aborted) { abandon(); return; }
+      signal.addEventListener('abort', abandon, {once: true});
+      const decide = () => {
+        if (decided) return;
+        for (let i = 0; i < outcomes.length; i++) {
+          const outcome = outcomes[i];
+          if (!outcome) return;
+          if ('value' in outcome) { decided = true; resolve({origin: candidates[i]!, value: outcome.value}); return; }
+        }
+        decided = true;
+        reject((outcomes[0] as {error: unknown}).error);
+      };
+      const ask = () => {
+        clearTimeout(timer);
+        if (decided || next >= candidates.length) return;
+        const i = next++;
+        if (next < candidates.length) timer = setTimeout(ask, stagger);
+        probe(candidates[i]!, i, controllers[i]!.signal).then(
+          value => { outcomes[i] = {value}; decide(); },
+          error => { outcomes[i] = {error}; if (!signal.aborted) ask(); decide(); },
+        );
+      };
+      ask();
+    });
+  } finally {
+    // The answer is decided (or the attempt abandoned): whatever is still asking stops.
+    clearTimeout(timer);
+    signal.removeEventListener('abort', abandon);
+    signal.removeEventListener('abort', stopAll);
+    stopAll();
+  }
 }
 
 /**
- * Finds the server for a typed address: each likely address in turn until one answers and proves
- * an identity. Nothing is trusted because it answered; the identity it proves is what gets pinned.
- * When none answers, the most likely address's failure is the one reported.
+ * Finds the server for a typed address: the likely addresses are asked, most likely first, and
+ * the most likely one that answers and proves an identity is used. Nothing is trusted because it answered;
+ * the identity it proves is what gets pinned.
  */
 export async function findDirectServer(typed: string, env: ConnectionEnvironment, signal: AbortSignal): Promise<{address: string; identity: ServerPin}> {
-  const found = await firstAnswering(serverAddressCandidates(typed), async (origin, index) => {
-    const wait = within(index === 0 ? FIRST_WAIT_MS : NEXT_WAIT_MS, signal);
-    try { return await inspectDirectServer(origin, env, wait.signal); } finally { wait.done(); }
+  const found = await firstAnsweringAtOnce(serverAddressCandidates(typed), async (origin, index, own) => {
+    const wait = within(index === 0 ? FIRST_WAIT_MS : NEXT_WAIT_MS, own);
+    try { return await inspectDirectServer(origin, env, wait.signal); }
+    catch (e) {
+      // Stopped by a timer (this wait's, or the identity check's own) rather than by the person: no answer.
+      const stopped = wait.expired() || (!own.aborted && (e as {code?: unknown} | null)?.code === 'cancelled');
+      throw stopped ? noAnswer() : e;
+    }
+    finally { wait.done(); }
   }, signal);
   return {address: found.origin, identity: found.value};
 }
@@ -66,8 +133,8 @@ export async function addressNeedsSetup(typed: string, fetcher: typeof fetch, si
   let candidates: readonly string[];
   try { candidates = serverAddressCandidates(typed); } catch { return false; }
   try {
-    const found = await firstAnswering(candidates, async origin => {
-      const wait = within(SETUP_ASK_MS, signal);
+    const found = await firstAnsweringAtOnce(candidates, async (origin, _index, own) => {
+      const wait = within(SETUP_ASK_MS, own);
       try { return await new HttpLocalApi(origin, '', fetcher).request<SystemInfo>(routePath('get_system'), 'GET', undefined, wait.signal); } finally { wait.done(); }
     }, signal);
     return found.value?.setupRequired === true;
