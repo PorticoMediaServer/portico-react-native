@@ -75,6 +75,20 @@ jobs:
           df -h .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: {name: 'apple-engine-${{ matrix.slice }}', path: '${{ runner.temp }}/apple-engine-${{ matrix.slice }}.tar.gz', if-no-files-found: error, retention-days: 30}
+      - name: Record framework diagnostics after a failed verification
+        if: failure()
+        run: |
+          mkdir -p third_party/media-engine/work/logs
+          for name in Libavcodec Libavfilter Libavformat Libavutil Libfreetype; do
+            binary="third_party/media-engine/work/frameworks/${{ matrix.slice }}/$name.framework/$name"
+            if [ -f "$binary" ]; then
+              xcrun nm -m "$binary" > "third_party/media-engine/work/logs/$name-symbols.txt"
+              xcrun otool -L "$binary" > "third_party/media-engine/work/logs/$name-links.txt"
+            fi
+          done
+          if [ -f third_party/media-engine/out/apple/manifest.json ]; then
+            cp third_party/media-engine/out/apple/manifest.json third_party/media-engine/work/logs/observed-manifest.json
+          fi
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         if: always() && !cancelled()
         with:

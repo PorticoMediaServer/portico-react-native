@@ -244,7 +244,9 @@ build_openssl() {
 
 build_fribidi() { meson_build fribidi $(me_fribidi_common_flags); }
 
-build_freetype() { meson_build freetype $(me_freetype_common_flags); }
+# Avoid auto-linking Xcode 27's optional HVF font library; the shipped fonts
+# use the existing FreeType rasterizer and the apps retain their iOS/tvOS 15.1 floor.
+build_freetype() { meson_build freetype $(me_freetype_common_flags) -Dhvf=disabled; }
 
 build_harfbuzz() { meson_build harfbuzz $(me_harfbuzz_common_flags); }
 
