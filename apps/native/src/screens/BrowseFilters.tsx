@@ -4,7 +4,7 @@ import type {BrowseCapabilities, BrowseFacetValue, BrowseFieldCapability, Browse
 import {formatBrowseAnchor} from '../../../../packages/client-core/src/browse';
 import {activeRangePreset, browseValueLabel, fieldSelectionSummary, filterControlOf, filterValuesField, nextToolbarSort, orderFilterValues, rangePresets, toolbarModel, type ToolbarGroupId} from '../../../../packages/client-core/src/presentation/index';
 import {fieldLabel, predicateLabel, quickFilterLabel, useFacets, type Predicate} from '../app/browse';
-import {Button, Divider, Field, FocusGroup, Focusable, ListRow, Menu, Notice, Sheet, Surface, Text, alpha, isFocusIntent, useTheme, type FocusableHandle, type MenuItem} from '../ui';
+import {Button, Divider, Field, FocusGroup, Focusable, ListRow, Menu, Notice, Sheet, Surface, Text, alpha, isFocusIntent, keyReports, useTheme, type FocusableHandle, type MenuItem} from '../ui';
 import {say} from '../app/errors';
 import {browseCountLabel} from '../app/browse-count';
 import {useI18n, type I18n} from '../app/i18n';
@@ -333,27 +333,41 @@ export function AlphabetRail({index, current, onJump, sortField}: {index: readon
 export function LetterRail({index, current, onJump, onLeave, sortField}: {index: readonly BrowsePositionAnchor[]; current?: string; onJump: (key: string) => void; /** Left from a key: back into the grid. */ onLeave?: () => void; sortField?: string}) {
   const {space, colors, metrics, type} = useTheme();
   const i18n = useI18n();
-  const inside = useRef(false);
-  const left = useRef(0);
+  /** The key with focus, if any (by its letter, so a blur arriving after the next key's focus changes nothing). */
+  const focusedKey = useRef<string | null>(null);
+  /** Focus has left the keys altogether (no other key took it) and no other key has been pressed since. */
+  const leaving = useRef(false);
   const leave = useRef(onLeave);
   leave.current = onLeave;
-  // The key press arrives as focus leaves the rail, so a Left just after the last key lost focus counts too.
+  // Left from a key: back into the grid. tvOS reports the press while focus is still on the key.
+  // Android reports a press only by its release, after the focus engine has already moved focus
+  // off the key for it (`KeyReports`): a Left released once focus has left the keys, with no other
+  // key pressed since (an Up off the top key, then Left in the toolbar, is not leaving the rail).
   useTVEventHandler(event => {
-    if (event?.eventType !== 'left' || !isFocusIntent(event)) return;
-    if (inside.current || Date.now() - left.current < 250) leave.current?.();
+    const reports = keyReports();
+    if (!isFocusIntent(event, reports)) return;
+    const inside = focusedKey.current !== null;
+    if (event?.eventType !== 'left') { if (!inside) leaving.current = false; return; }
+    if (!inside && !(reports === 'release' && leaving.current)) return;
+    leaving.current = false;
+    leave.current?.();
   });
   if (index.length < 4) return null;
   const label = (key: string) => formatBrowseAnchor(key, sortField ?? 'title', i18n.t('library.anchorNoValue'));
   const size = metrics.controlSmall;
+  // A key's focus ring is drawn this far outside it (`FocusRing`).
+  const ring = metrics.focusRing + 2;
   return (
     // A column as tall as the grid beside it (the guide stretched to it, the list filling the
     // guide), so the keys that don't fit scroll with focus rather than spilling past the screen.
-    <FocusGroup style={{width: size, flex: 1, alignSelf: 'stretch'}}>
-      {/* Room for a key's focus ring at both ends, and (Android) when focus scrolls a key to the edge. */}
-      <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} fadingEdgeLength={space.md} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.md}}>
+    // As wide as the keys and their focus ring each side (the screen gives it that room), since the
+    // list clips what is drawn outside it.
+    <FocusGroup style={{width: size + ring * 2, flex: 1, alignSelf: 'stretch'}}>
+      {/* Room for a key's focus ring at both ends and both sides, and (Android) when focus scrolls a key to the edge. */}
+      <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} fadingEdgeLength={space.md} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.md, paddingHorizontal: ring}}>
         {index.map(a => (
           <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => onJump(a.key)}
-            onFocus={() => { inside.current = true; }} onBlur={() => { inside.current = false; left.current = Date.now(); }} style={{width: size, height: size}}>
+            onFocus={() => { focusedKey.current = a.key; leaving.current = false; }} onBlur={() => { if (focusedKey.current !== a.key) return; focusedKey.current = null; leaving.current = true; }} style={{width: size, height: size}}>
             {({focused}) => (
               <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: metrics.radius.control, backgroundColor: focused ? alpha(colors.white, 0.14) : 'transparent'}}>
                 <Text style={[type.bodyStrong, {color: current === a.key ? colors.accent : focused ? colors.text : colors.textSecondary}]}>{label(a.key)}</Text>

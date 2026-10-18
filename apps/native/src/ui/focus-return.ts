@@ -40,7 +40,7 @@
  * focus engine (a frame later), whether this return still wants this control: false once the
  * return has ended, moved to another control, or this control has left or been renamed.
  */
-export type FocusTarget = {focus(still: () => boolean): void};
+export type FocusTarget = {focus(still: () => boolean): void; /** The native view, for a focus guide's `destinations`. */ node?: () => unknown};
 /** Where the control sat when it registered: its row on the screen and its place in the row. */
 export type FocusPlace = Readonly<{row?: number; column?: number}>;
 export type FocusOrigin = Readonly<{owner: string; scope: string; key: string; place: FocusPlace}>;
@@ -139,13 +139,29 @@ export function parentFocusKey(key: string): string | undefined {
 }
 
 /**
- * A remote key that is the person moving or choosing (not focus moving by itself): a direction,
- * Select, Menu/Back, a page or swipe. A key's release (`eventKeyAction` 1) is the end of a press
- * already counted, or of the press that closed the player, so it is not counted again.
+ * How a platform tells the app about a press on the remote.
+ *
+ * - `press` (tvOS; Vega's one event with no action): the press itself (`eventKeyAction` 0, or none)
+ *   comes first, and its release (1) after it.
+ * - `release` (Android TV and Fire TV, react-native-tvos with key-down events off, as Portico runs
+ *   it): an ordinary press is reported once, by its release (1), after the focus engine has
+ *   already moved for it. A held key is reported as `long…` at its first repeat (0) and again at
+ *   its release (1).
  */
-export function isFocusIntent(event: {eventType?: string; eventKeyAction?: number} | null | undefined): boolean {
-  if (!event || typeof event.eventType !== 'string' || event.eventKeyAction === 1) return false;
-  return INTENT_KEYS.has(event.eventType);
+export type KeyReports = 'press' | 'release';
+
+/**
+ * A remote key that is the person moving or choosing (not focus moving by itself): a direction,
+ * Select, Menu/Back, a page or swipe, counted once per press. With `press` reports a release is
+ * the end of a press already counted (or of the press that closed the player); with `release`
+ * reports the release is the only report of an ordinary press, and a held key counts when it
+ * starts to repeat, not again when let go.
+ */
+export function isFocusIntent(event: {eventType?: string; eventKeyAction?: number} | null | undefined, reports: KeyReports = 'press'): boolean {
+  if (!event || typeof event.eventType !== 'string' || !INTENT_KEYS.has(event.eventType)) return false;
+  const action = event.eventKeyAction;
+  if (reports === 'press' || action == null || action < 0) return action !== 1;
+  return event.eventType.startsWith('long') ? action === 0 : action === 1;
 }
 const INTENT_KEYS = new Set(['up', 'down', 'left', 'right', 'select', 'longSelect', 'longUp', 'longDown', 'longLeft', 'longRight', 'menu', 'pageUp', 'pageDown', 'swipeUp', 'swipeDown', 'swipeLeft', 'swipeRight', 'channelUp', 'channelDown']);
 
@@ -203,6 +219,8 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       if (where === 'loading') p.looks++;
       else {
         p.key = where;
+        // Already there (the grid's guide took the press there itself, `destinations`): done.
+        if (holding && current?.scope === scope && current.key === where) { stop(); return; }
         p.asks++;
         const target = scopes.get(scope)?.get(where);
         target?.target.focus(() => pending === p && p.key === where && p.origin.owner === owner && active(scope) && scopes.get(scope)?.get(where) === target);
@@ -360,6 +378,10 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       if (!taken || taken.owner !== owner || !active(taken.scope)) return;
       pending = {origin: taken, key: taken.key, place: taken.place, asks: 0, looks: 0, fallbacks: 0, timer: undefined};
       pending.timer = timers.schedule(step, delay);
+    },
+    /** The native view of a named control that is mounted on this screen, for a focus guide to hand focus to. */
+    nodeOf(scope: string, key: string): unknown {
+      return scopes.get(scope)?.get(key)?.target.node?.() ?? undefined;
     },
     /** Stop a return under way. */
     cancel: stop,

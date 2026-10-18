@@ -134,6 +134,11 @@ export type WindowedGridProps<T> = {
    * inset, only, on TV, room for the focused card to grow without being cut by the grid's top.
    */
   pinnedAbove?: boolean;
+  /**
+   * False while nothing in the grid can take focus (TV: loading, empty): the scroller is then no
+   * focus target of its own (Android makes a scrollable list focusable).
+   */
+  scrollable?: boolean;
 };
 
 /**
@@ -143,7 +148,7 @@ export type WindowedGridProps<T> = {
  * page arrives, and unloaded cells are placeholders with stable keys. The visible range is
  * reported to the store, which fetches, prefetches and evicts pages.
  */
-function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, header, footer, gap, contentStyle, generation = 0, refreshControl, topInset = true, pinnedAbove = false}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, header, footer, gap, contentStyle, generation = 0, refreshControl, topInset = true, pinnedAbove = false, scrollable = true}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const {space, window, isTV, metrics} = useTheme();
   const insets = useSafeAreaInsets();
   const [measured, setMeasured] = useState(0);
@@ -226,6 +231,7 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
       contentContainerStyle={[{paddingBottom: insets.bottom + space.xxxl}, contentStyle]}
       keyboardShouldPersistTaps="handled"
       refreshControl={refreshControl}
+      scrollEnabled={scrollable}
       onScroll={isTV ? undefined : report}
       scrollEventThrottle={32}
     />

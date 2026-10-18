@@ -1,6 +1,7 @@
 import {useEffect, useRef} from 'react';
 import {useTVEventHandler} from 'react-native';
 import {focusReturn, isFocusIntent} from '../ui/focus-return';
+import {keyReports} from '../ui/key-reports';
 
 /**
  * APL-HOME-03 / TV-PLAYER-03: what the player tells the rest of the app.
@@ -62,5 +63,5 @@ export function usePlayerFocusReturn(covering: boolean, viewer: string, tv: bool
     if (was.current && !covering) focusReturn.restore();
     was.current = covering;
   }, [covering, tv]);
-  useTVEventHandler(event => { if (tv && isFocusIntent(event)) focusReturn.intent(); });
+  useTVEventHandler(event => { if (tv && isFocusIntent(event, keyReports())) focusReturn.intent(); });
 }

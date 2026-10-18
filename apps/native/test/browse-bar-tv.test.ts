@@ -7,6 +7,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {isFocusIntent, type KeyReports} from '../src/ui/focus-return.ts';
+let reports: KeyReports = 'press';
 
 const loose = (named: Record<string, unknown> = {}) => new Proxy(named, {get: (target, name) => (name in target ? target[name as string] : name === 'default' ? loose() : typeof name === 'string' && /^(use|[a-z])/.test(name) ? () => undefined : String(name))});
 let compact = false;
@@ -108,7 +110,7 @@ test('TV letters: ten-foot keys down the grid\'s right; Select jumps, Left from 
     react: {...base, default: base}, 'react-native': loose({useTVEventHandler: (f: typeof tvEvent) => { tvEvent = f; }}),
     '../../../../packages/client-core/src/browse': loose({formatBrowseAnchor: (key: string) => key}),
     '../../../../packages/client-core/src/presentation/index': loose(),
-    '../app/browse': loose(), '../ui': loose({useTheme: () => ({...theme(), metrics: {controlSmall: 64, radius: {control: 8}}, colors: {}, type: {bodyStrong: {}}}), isFocusIntent: (e: {eventKeyAction?: number}) => e.eventKeyAction !== 1, alpha: () => ''}),
+    '../app/browse': loose(), '../ui': loose({useTheme: () => ({...theme(), metrics: {controlSmall: 64, focusRing: 4, radius: {control: 8}}, colors: {}, type: {bodyStrong: {}}}), isFocusIntent, keyReports: () => reports, alpha: () => ''}),
     '../app/errors': loose(), '../app/browse-count': loose(), '../app/i18n': loose({useI18n: () => ({t: (id: string) => id})}), './title/RowGuide': loose(),
   });
   const jumped: string[] = [];
@@ -120,16 +122,50 @@ test('TV letters: ten-foot keys down the grid\'s right; Select jumps, Left from 
   const guide = tree.find(n => n.type === 'FocusGroup')!, scroller = tree.find(n => n.type === 'ScrollView')!;
   assert.deepEqual([guide.props.style.flex, guide.props.style.alignSelf, scroller.props.style.flex], [1, 'stretch', 1], 'a column as tall as the grid, so keys that do not fit scroll');
   assert.deepEqual([keys[0]!.props.style.width, keys[0]!.props.style.height], [64, 64], 'the ten-foot minimum, not phone-sized letters');
+  // The list clips what is drawn outside it: the column holds each key's focus ring (4 + 2 outside it) on both sides as well as at both ends.
+  assert.deepEqual([guide.props.style.width, scroller.props.contentContainerStyle.paddingHorizontal], [64 + 6 * 2, 6], 'room for the ring\'s sides (seen clipped on the TV)');
   keys[2]!.props.onPress();
   assert.deepEqual(jumped, ['C']);
+  // tvOS: the press arrives while focus is still on the key, then its release.
+  reports = 'press';
   tvEvent!({eventType: 'left'});
   assert.equal(left, 0, 'Left elsewhere on the screen is not the rail\'s');
   keys[2]!.props.onFocus();
-  tvEvent!({eventType: 'left', eventKeyAction: 1});
-  assert.equal(left, 0, 'a release is not a press');
-  // The key's blur can arrive before the press it came from.
-  keys[2]!.props.onBlur();
   tvEvent!({eventType: 'left', eventKeyAction: 0});
-  assert.equal(left, 1);
+  assert.equal(left, 1, 'Left pressed on a key');
+  keys[2]!.props.onBlur();
+  tvEvent!({eventType: 'left', eventKeyAction: 1});
+  assert.equal(left, 1, 'its release is not another press');
+  tvEvent!({eventType: 'left', eventKeyAction: 0});
+  assert.equal(left, 1, 'a later Left in the grid is not the rail\'s');
+  // Android TV: an ordinary press is reported only by its release, after the focus engine has
+  // already moved focus off the key for it (seen on the device: Left never reached the rail).
+  reports = 'release';
+  keys[3]!.props.onFocus();
+  keys[3]!.props.onBlur();
+  tvEvent!({eventType: 'left', eventKeyAction: 1});
+  assert.equal(left, 2, 'Left released after focus left the keys');
+  tvEvent!({eventType: 'left', eventKeyAction: 1});
+  assert.equal(left, 2, 'once: a second Left is in the grid');
+  // Down from one key to the next: the blur may come after the next key's focus.
+  keys[1]!.props.onFocus();
+  keys[2]!.props.onFocus();
+  keys[1]!.props.onBlur();
+  tvEvent!({eventType: 'down', eventKeyAction: 1});
+  tvEvent!({eventType: 'left', eventKeyAction: 1});
+  assert.equal(left, 3, 'still on a key, Left from it');
+  // Up off the top key into the toolbar, then Left there: not leaving the rail.
+  keys[0]!.props.onFocus();
+  keys[0]!.props.onBlur();
+  tvEvent!({eventType: 'up', eventKeyAction: 1});
+  tvEvent!({eventType: 'left', eventKeyAction: 1});
+  assert.equal(left, 3, 'Left in the toolbar after Up is not the rail\'s');
+  // A held Left reports longLeft as it starts to repeat: once.
+  keys[0]!.props.onFocus();
+  keys[0]!.props.onBlur();
+  tvEvent!({eventType: 'longLeft', eventKeyAction: 0});
+  tvEvent!({eventType: 'longLeft', eventKeyAction: 1});
+  assert.equal(left, 3, 'a held key is not Left (it was already moving through the grid)');
+  reports = 'press';
   assert.equal(all(h.render(() => m.LetterRail({index: index.slice(0, 3), onJump: () => {}}))).length, 0, 'too few letters: no rail');
 });

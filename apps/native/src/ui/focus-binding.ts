@@ -15,7 +15,7 @@ import {focusReturn, type FocusPlace, type FocusReturn} from './focus-return';
  * - The registry's request reaches the native view a frame later (`nativeFocusRequest`), and only
  *   if the return still wants this control then.
  */
-export function useFocusReturnBinding({tv, scope, key, place, overlay = false, request, registry = focusReturn}: {
+export function useFocusReturnBinding({tv, scope, key, place, overlay = false, request, node, registry = focusReturn}: {
   tv: boolean;
   scope: string;
   /** The control's name, undefined for an unnamed (or disabled) control. */
@@ -25,6 +25,8 @@ export function useFocusReturnBinding({tv, scope, key, place, overlay = false, r
   overlay?: boolean;
   /** Asks the native focus engine to focus the control, unless `still()` is false by the time it runs. */
   request: (still: () => boolean) => void;
+  /** The control's native view (a focus guide can name it as where focus goes). */
+  node?: () => unknown;
   registry?: FocusReturn;
 }): {onFocus: () => void; onBlur: () => void} {
   const named = tv && key && !overlay ? key : undefined;
@@ -32,10 +34,12 @@ export function useFocusReturnBinding({tv, scope, key, place, overlay = false, r
   placeNow.current = {row: place?.row, column: place?.column};
   const asking = useRef(request);
   asking.current = request;
+  const viewOf = useRef(node);
+  viewOf.current = node;
   const focusedNow = useRef(false);
   useEffect(() => {
     if (!named) return;
-    const off = registry.register(scope, named, {focus: still => asking.current(still)}, () => placeNow.current);
+    const off = registry.register(scope, named, {focus: still => asking.current(still), node: () => viewOf.current?.()}, () => placeNow.current);
     if (focusedNow.current) registry.focused(scope, named);
     return off;
   }, [named, scope, registry]);

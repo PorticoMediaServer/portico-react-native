@@ -321,6 +321,22 @@ test('what counts as the person pressing a key: directions, Select and Menu as p
   assert.equal(isFocusIntent(null), false);
 });
 
+test('Android TV reports an ordinary press only by its release, and a held key once as it starts to repeat', () => {
+  // react-native-tvos with key-down events off: `left` arrives once, as eventKeyAction 1, after the
+  // focus engine has moved. Counting only presses (0) heard no key on Android at all.
+  for (const eventType of ['up', 'down', 'left', 'right', 'select', 'menu']) {
+    assert.equal(isFocusIntent({eventType, eventKeyAction: 1}, 'release'), true, `${eventType} released`);
+    assert.equal(isFocusIntent({eventType, eventKeyAction: 0}, 'release'), false, `${eventType} down (key-down events on): its release counts instead`);
+  }
+  for (const eventType of ['longLeft', 'longSelect']) {
+    assert.equal(isFocusIntent({eventType, eventKeyAction: 0}, 'release'), true, `${eventType} starts`);
+    assert.equal(isFocusIntent({eventType, eventKeyAction: 1}, 'release'), false, `${eventType} let go: already counted`);
+  }
+  assert.equal(isFocusIntent({eventType: 'left'}, 'release'), true, 'no action: one event for the press');
+  assert.equal(isFocusIntent({eventType: 'playPause', eventKeyAction: 1}, 'release'), false);
+  assert.equal(isFocusIntent({eventType: 'blur', eventKeyAction: 1}, 'release'), false);
+});
+
 test('a screen that is not the one showing is never given focus, and a screen that has gone forgets its origin', () => {
   const c = clock();
   const registry = createFocusReturn(c.timers);

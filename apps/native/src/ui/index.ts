@@ -3,6 +3,7 @@ export * from './Text';
 export * from './Icon';
 export * from './Focusable';
 export * from './focus-return';
+export * from './key-reports';
 export * from './Button';
 export * from './Canvas';
 export * from './Artwork';

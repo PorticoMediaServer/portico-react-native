@@ -82,3 +82,25 @@ export function heroText(height: number, sizes: Readonly<{padding: number; title
   const overviewLines = Math.max(0, Math.min(3, Math.floor(left / sizes.overview)));
   return {titleLines, overviewLines};
 }
+
+/**
+ * Whether a Discover stage has nothing below its preview that can take focus: still loading, an
+ * empty library, or every row filtered out (a row with no titles draws nothing). A failure keeps
+ * its Try again; a stage with any title keeps its cards.
+ *
+ * Such a stage's lower part is no focus region (`BrowseStage` `contentless`): one with nothing to
+ * focus took focus itself (its guide, or the scroller inside it), and neither Right from the rail
+ * nor Up reached the library's tabs. The tabs are then the way in.
+ */
+export function stageContentless({body, phase, rows}: {/** Drawn instead of the rows (a first load, a failure, an empty library). */ body: boolean; phase: string; rows: readonly {entries: readonly unknown[]}[]}): boolean {
+  return body ? phase !== 'error' : !rows.some(row => row.entries.length > 0);
+}
+
+/**
+ * Whether a TV library grid's place holds anything to focus: a title, Try again after a failure,
+ * Clear filters when nothing matches, or the header's own notice (the filters failed to load).
+ * Otherwise (loading, an empty library) it is no focus region, for the same reason as above.
+ */
+export function gridReachable({total, failed, hasList, empty, filtered, headerActions}: {total: number | undefined; failed: boolean; hasList: boolean; empty: boolean; filtered: boolean; headerActions: boolean}): boolean {
+  return (total ?? 0) > 0 || (failed && hasList) || (empty && filtered) || headerActions;
+}

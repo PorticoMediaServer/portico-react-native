@@ -161,3 +161,33 @@ export function windowLanding<T>({list, index, group, keyOf, ensure, current = (
     return slot.kind === 'item' ? cardFocusKey(own, keyOf(slot.item)) : 'loading';
   };
 }
+
+/**
+ * Where a focus guide should send focus entering it (its `destinations`) once a list's move has
+ * landed (a TV letter jumped to): `locate` (as `windowLanding`) names the control, and `nodeOf`
+ * its native view once it is mounted, then `found` is told, once. Looked for a bounded number of
+ * times (the page may still be reading, the card not drawn yet); stopped by the returned function.
+ */
+export function landingDestination({locate, nodeOf, found, interval = 120, attempts = 40, timers = {schedule: (run: () => void, ms: number) => setTimeout(run, ms), cancel: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>)}}: {
+  locate: () => string | 'loading' | 'gone';
+  nodeOf: (key: string) => unknown;
+  found: (node: unknown) => void;
+  interval?: number;
+  attempts?: number;
+  timers?: {schedule(run: () => void, ms: number): unknown; cancel(handle: unknown): void};
+}): () => void {
+  let looks = 0;
+  let handle: unknown;
+  let stopped = false;
+  const look = () => {
+    if (stopped) return;
+    const where = locate();
+    if (where === 'gone') { stopped = true; return; }
+    const node = where === 'loading' ? undefined : nodeOf(where);
+    if (node) { stopped = true; found(node); return; }
+    if (++looks >= attempts) { stopped = true; return; }
+    handle = timers.schedule(look, interval);
+  };
+  handle = timers.schedule(look, 0);
+  return () => { stopped = true; timers.cancel(handle); };
+}

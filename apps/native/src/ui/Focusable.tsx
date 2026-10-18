@@ -108,7 +108,7 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
   // control says when it takes focus (`focus-binding.ts`).
   const focusScope = React.useContext(FocusScopeContext);
   const inOverlay = React.useContext(FocusOverlayContext);
-  const returning = useFocusReturnBinding({tv: isTV, scope: focusScope, key: focusKey && !disabled ? focusKey : undefined, place: focusPlace, overlay: inOverlay, request: nativeFocusRequest(() => inner.current)});
+  const returning = useFocusReturnBinding({tv: isTV, scope: focusScope, key: focusKey && !disabled ? focusKey : undefined, place: focusPlace, overlay: inOverlay, request: nativeFocusRequest(() => inner.current), node: () => inner.current});
   const [state, setState] = useState<FocusableState>({focused: false, hovered: false, pressed: false});
   const focusScale = scale ?? metrics.focusScale;
   const progress = useSharedValue(0);
@@ -216,14 +216,14 @@ function FocusRing({progress, radius}: {progress: SharedValue<number>; radius: n
  * without `autoFocus` is itself focusable and focus could land on the empty container.
  * Off television it renders its children and nothing else.
  */
-export function FocusGroup({children, style, trapRight}: {children: React.ReactNode; style?: StyleProp<ViewStyle>; trapRight?: boolean}) {
+export function FocusGroup({children, style, trapRight, destinations}: {children: React.ReactNode; style?: StyleProp<ViewStyle>; trapRight?: boolean; /** Where focus entering the group goes first, when that control is on screen (a TV letter's title); the remembered control otherwise. A group that ever names one passes an empty list to stop (an absent prop leaves the last one in place natively). */ destinations?: readonly unknown[]}) {
   const {isTV} = useTheme();
   if (!isTV) return style ? <View style={style}>{children}</View> : <>{children}</>;
   // Always `autoFocus`: a guide without it is itself a focus target on tvOS, so the engine could
   // land on the empty container (seen as "Focused" in the accessibility tree). With it, entering
   // the group goes to the child last focused there, else the first one.
   return (
-    <TVFocusGuideView autoFocus trapFocusRight={trapRight} style={style}>
+    <TVFocusGuideView autoFocus trapFocusRight={trapRight} {...(destinations ? {destinations: destinations as never} : {})} style={style}>
       {children}
     </TVFocusGuideView>
   );

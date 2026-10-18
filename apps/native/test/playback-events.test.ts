@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHookHost, act} from './hook-driver.ts';
-import {pressRemote} from './react-native-stub.mjs';
+import {Platform, pressRemote} from './react-native-stub.mjs';
 import {emitPlaybackChange, focusReturn, usePlayerFocusReturn, useRefreshOnPlayback} from '../src/app/playback-events.ts';
 
 test('a progress change refreshes every subscriber once, debounced', (t) => {
@@ -114,6 +114,33 @@ test('TV: a key pressed on the remote while focus is on its way back ends the re
   assert.equal(asked, 0);
   host.unmount();
   unregister();
+});
+
+test('TV on Android: a key pressed while focus is on its way back ends the return, though Android reports it only by its release', () => {
+  focusReturn.setOwner('');
+  const before = Platform.OS;
+  Platform.OS = 'android';
+  try {
+    let covering = true;
+    let asked = 0;
+    const unregister = focusReturn.register('home', 'action:play', {focus: () => { asked++; }});
+    const host = createHookHost(() => usePlayerFocusReturn(covering, 'viewer', true));
+    host.mount();
+    covering = false;
+    host.rerender();
+    focusReturn.focused('home', 'action:play');
+    focusReturn.capture();
+    covering = true;
+    host.rerender();
+    covering = false;
+    host.rerender();
+    assert.ok(focusReturn.state().returning, 'under way');
+    pressRemote({eventType: 'down', eventKeyAction: 1});
+    assert.equal(focusReturn.state().returning, undefined, 'Down ended it (its release is the only report)');
+    assert.equal(asked, 0);
+    host.unmount();
+    unregister();
+  } finally { Platform.OS = before; }
 });
 
 test('TV: the player host going away forgets the origin and the return it started; a new host starts afresh', () => {

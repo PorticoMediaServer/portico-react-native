@@ -62,7 +62,7 @@ export function useStripHeight(): number {
 /** What the preview says before any card has been seen: where the viewer is ("Home" on the server). */
 export type StageIdentity = Readonly<{eyebrow?: string; title: string}>;
 
-export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity, notice, loading = false, rows, keyExtractor, renderRow, initialRows = 3, footer, body, focusRows, snaps}: {
+export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity, notice, loading = false, rows, keyExtractor, renderRow, initialRows = 3, footer, body, focusRows, snaps, contentless = false}: {
   store: BrowsePreviewStore;
   layout: StageLayout & {top: number};
   /** The library's tabs; nothing on Home. */
@@ -92,6 +92,13 @@ export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity,
   focusRows?: Readonly<{group: (row: T) => string; first: (row: T) => string | undefined; base: number}>;
   /** Whether a row comes to rest at the top when it takes focus (a row of cards); a taller block (a grid inside Discover) scrolls as usual. */
   snaps?: (row: T) => boolean;
+  /**
+   * Nothing below the preview can take focus (an empty, loading or wholly filtered-out Discover, a
+   * state with no action): what is there is drawn as it is, but is not a focus region. A region
+   * with nothing to focus took focus itself (its guide, or the scroller it holds), so neither
+   * Right from the rail nor Up reached the strip; the strip's tabs are then the way in.
+   */
+  contentless?: boolean;
 }) {
   const list = useRef<FlatList<T>>(null);
   const latest = useRef({rows, focusRows});
@@ -120,7 +127,8 @@ export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity,
         {loading ? <PreviewSkeleton height={layout.hero} /> : <PreviewHero store={store} height={layout.hero} identity={identity} />}
         {notice ? <View style={{position: 'absolute', top: 0, left: 0, right: 0}}>{notice}</View> : null}
       </View>
-      {/* Down from the tabs comes back to the card last used here, not to whichever is nearest. */}
+      {contentless ? <View style={listStyle}>{body ?? null}</View> : (
+      // Down from the tabs comes back to the card last used here, not to whichever is nearest.
       <FocusGroup style={listStyle}>
         {body ? <ScrollView style={listStyle} showsVerticalScrollIndicator={false}>{body}</ScrollView> : (
           <FlatList
@@ -144,6 +152,7 @@ export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity,
           />
         )}
       </FocusGroup>
+      )}
     </View>
   );
 }

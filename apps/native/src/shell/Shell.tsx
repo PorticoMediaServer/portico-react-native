@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {BackHandler, TVEventControl, TVFocusGuideView, View} from 'react-native';
+import {BackHandler, TVEventControl, View} from 'react-native';
 import {isTablet} from '../bridge/device-platform';
 import {CommonActions, DarkTheme, StackActions, TabActions, NavigationContainer, type NavigationContainerRef, type NavigationState} from '@react-navigation/native';
 import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
@@ -381,7 +381,7 @@ export function Shell() {
           <TVMenuGate gate={gate} />
           <View style={{flex: 1, flexDirection: handheld ? 'column' : 'row'}}>
             {handheld ? null : (
-              // One guide per side: the rail remembers its destination, the content its card.
+              // One guide per side: the rail remembers its destination, each destination its card (`Roots`).
               // A focus guide shrink-wraps its child unless told otherwise, which is what cut the rail short.
               // The rail is its own focus guide: entry from the content lands on the current destination.
               <View style={{alignSelf: 'stretch', zIndex: 20}}>
@@ -396,12 +396,14 @@ export function Shell() {
             {/* APL-SHELL-07: while the rail is open the content slides aside by a transform, so it is
                 pushed rather than covered, and nothing re-measures while the focus engine is moving. */}
             <Animated.View style={[{flex: 1}, pushed]}>
-              <TVFocusGuideView autoFocus style={{flex: 1}}>
+              {/* Each destination remembers its own last control (`Roots`): one memory for all of
+                  them sent focus back into a destination no longer showing. */}
+              <View style={{flex: 1}}>
                 {/* INT M6: a new Portico owner accepts the server's registration here. */}
                 <CustodyPrompt />
                 {navigatorTree}
                 <MetadataEditorSheet />
-              </TVFocusGuideView>
+              </View>
             </Animated.View>
           </View>
         </PlayerHost>

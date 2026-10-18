@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cardFocusKey, createFocusReturn, type FocusResolver} from '../src/ui/focus-return.ts';
-import {arrayResolver, locateInWindow, rowsResolver, windowLanding, windowResolver} from '../src/ui/focus-lists.ts';
+import {arrayResolver, landingDestination, locateInWindow, rowsResolver, windowLanding, windowResolver} from '../src/ui/focus-lists.ts';
 import {createWindowedCollection, type FetchPage} from '../../../packages/client-core/src/collections/index.ts';
 
 function clock() {
@@ -449,4 +449,49 @@ test('a TV letter landing on a title that is loaded but was scrolled away and un
   c.drain();
   assert.equal(cards.get('t9')?.asked ?? 0, 0);
   assert.equal(registry.state().returning, undefined);
+});
+
+test('Android: the grid\'s guide names the title a letter jumped to once its card is drawn, and the landing that follows the Left finds focus already there', () => {
+  // On the device the focus engine moves focus for Left before the app hears of it (the release),
+  // and the grid's guide put it back on the card last used: the guide is told the title instead.
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  let loaded = false;
+  const list = {slotAt: (i: number) => (loaded ? {kind: 'item' as const, item: {id: `t${i}`}} : {kind: 'placeholder' as const}), ensureRange: () => {}};
+  const nodes = new Map<string, object>();
+  const told: unknown[] = [];
+  const locate = windowLanding<Entry>({list: () => list as never, index: 42, group: () => 'cards', keyOf: e => e.id, ensure: () => {}});
+  landingDestination({locate, nodeOf: key => registry.nodeOf('library', key), found: node => told.push(node), timers: c.timers});
+  c.next(); c.next();
+  assert.deepEqual(told, [], 'still reading its page');
+  loaded = true;
+  c.next();
+  assert.deepEqual(told, [], 'loaded, not drawn: no view to name yet');
+  const view = {tag: 't42'};
+  nodes.set('t42', view);
+  let asked = 0;
+  registry.register('library', cardFocusKey('cards', 't42'), {focus: () => { asked++; }, node: () => nodes.get('t42')}, {column: 42});
+  c.next();
+  assert.deepEqual(told, [view], 'its view, once');
+  assert.equal(c.drain(), 0, 'and it stops looking');
+  // The guide took the Left there; the landing started by the same Left sees it and ends without asking.
+  registry.focused('library', cardFocusKey('cards', 't42'));
+  registry.follow('library', windowLanding<Entry>({list: () => list as never, index: 42, group: () => 'cards', keyOf: e => e.id, ensure: () => {}}));
+  registry.intent();
+  c.drain();
+  assert.equal(asked, 0, 'never asked again (a key pressed meanwhile would have been pulled back)');
+  assert.equal(registry.state().returning, undefined);
+});
+
+test('a landing destination stops when told to, when the list is gone, and after its bounded looks', () => {
+  const c = clock();
+  let stop = landingDestination({locate: () => 'loading', nodeOf: () => undefined, found: () => assert.fail('nothing to find'), timers: c.timers, attempts: 5});
+  assert.equal(c.drain(), 5, 'five looks, then it gives up');
+  stop = landingDestination({locate: () => 'loading', nodeOf: () => undefined, found: () => assert.fail('stopped'), timers: c.timers});
+  c.next();
+  stop();
+  assert.equal(c.drain(), 0);
+  landingDestination({locate: () => 'gone', nodeOf: () => ({}), found: () => assert.fail('gone'), timers: c.timers});
+  assert.equal(c.drain(), 1);
 });

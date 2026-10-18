@@ -14,9 +14,10 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
 import {Button, Dropdown, FocusGroup, FocusScopeContext, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, Text, WindowedGrid, cardFocusKey, focusReturn, useFocusResolver, useTheme, type DropdownAnchor, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
-import {windowLanding, windowResolver} from '../ui/focus-lists';
+import {landingDestination, windowLanding, windowResolver} from '../ui/focus-lists';
 import {LoadingShelves, RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {BrowsePreviewContext, BrowseStage, LibraryStrip, useBrowsePreview, useStageLayout, useStageTop, useStripHeight} from './BrowseStage';
+import {gridReachable, stageContentless} from '../app/browse-stage';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
 import {categoryDestination, filterValuesField, genreFilter, isContinueRow, libraryTab, libraryTabForPivot, libraryTabs, presetApplication, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
 import {captionFor, formatClock} from '../app/content';
@@ -236,9 +237,9 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const stripHeight = useStripHeight();
   const stageTop = useStageTop();
   const libraryName = library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle');
-  const tvTabs = <Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={false} inset={space.xs} />;
-  const strip = () => (
-    <RowGuide><LibraryStrip name={libraryName} status={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} tabs={tvTabs} height={stripHeight} /></RowGuide>
+  // The tabs take the screen's entry focus only when nothing below them can (`contentless`).
+  const strip = (entry = false) => (
+    <RowGuide><LibraryStrip name={libraryName} status={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} tabs={<Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={entry} inset={space.xs} />} height={stripHeight} /></RowGuide>
   );
   // Discover on TV is the browsing stage: the focused card's preview above, its rows moved by focus
   // beneath. A Discover made only of grids or lists stays a page, with no preview.
@@ -272,6 +273,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
                 : capabilities ? <BrowseBar presets={presetsOn ? <SavedViewsButton presets={presets} onApply={applyPreset} /> : undefined} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} saveHeld={presets.unconfirmed?.intent.action === 'create' ? presets.unconfirmed.intent.name : undefined} onSaveDiscard={presets.discard} describeSaveError={e => changeError(i18n, e)} onSaveView={opens ? undefined : saveView} /> : null}
             </>
           ) : undefined}
+          headerActions={isTV && !!capabilityError}
           renderHeader={() => (isTV ? (
             <>
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
@@ -305,6 +307,9 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
       : snapshot.phase === 'ready' && !sections.length ? <StateView icon={(mediaFamilyIcon(library?.kind ?? '') ?? 'film') as IconName} title={scan.scanning ? i18n.t('web.library.scanningTitle') : (projection?.empty?.fallback ?? i18n.t('library.emptyLibrary'))} message={scan.scanning ? i18n.t('web.library.scanningBody') : i18n.t(owner ? 'web.empty.libraryOwnerBody' : 'web.empty.libraryMemberBody')} />
       : !sections.length ? <LoadingShelves />
       : undefined;
+    // Nothing below the strip to focus (`stageContentless`): the tabs are the way in, and take the
+    // screen's entry focus. A failure's Try again and any card keep the rows' region and entry.
+    const contentless = stageContentless({body: !!body, phase: snapshot.phase, rows: shown});
     const notice = changedStuck ? <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'library', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginTop: space.sm}} /> : null;
     return (
       <BrowsePreviewContext.Provider value={preview}>
@@ -312,8 +317,9 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           <BrowseStage
             store={preview}
             layout={stage}
-            strip={strip()}
+            strip={strip(contentless)}
             stripHeight={stripHeight}
+            contentless={contentless}
             identity={{title: libraryName}}
             loading={loadingFirst}
             notice={notice}
@@ -384,6 +390,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
 }
 
 const NO_SECTIONS: readonly ContentSection[] = [];
+/** A focus guide with no destination (one that named one passes this to stop: `FocusGroup`). */
+const NO_DESTINATIONS: readonly unknown[] = [];
 const sectionKey = (section: ContentSection) => section.id;
 /** Discover's rows for focus coming back after playback: a row is its section, numbered from 0. */
 const SECTION_FOCUS_ROWS = {group: (section: ContentSection) => section.id, first: (section: ContentSection) => section.entries[0]?.id, base: 0} as const;
@@ -405,9 +413,10 @@ function LoadingGrid() {
 /** The space the phone's letter rail takes beside the grid. */
 const RAIL_WIDTH = 22;
 /** TV: the letter keys' column (ten-foot keys) and its gap from the grid. */
-const useTvRail = () => { const {metrics, space} = useTheme(); return {width: metrics.controlSmall, gap: space.md}; };
+/** TV letters: the keys' width, the gap to the grid, and the room each side for a key's focus ring (`FocusRing`'s inset), outside the keys and inside the gap and the page's gutter. */
+const useTvRail = () => { const {metrics, space} = useTheme(); return {width: metrics.controlSmall, gap: space.md, ring: metrics.focusRing + 2}; };
 
-function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false, sequence}: {/** The list as the server's query: a pressed song plays it whole on from there. */ sequence?: SequenceContainer; /** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header above the grid. */ renderHeader: () => React.ReactElement; /** TV: the library's strip and the grid's own row, pinned above the grid. */ renderStrip?: () => React.ReactNode; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
+function EngineResults({window: {list, snapshot}, renderHeader, headerActions = false, renderStrip, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false, sequence}: {/** The list as the server's query: a pressed song plays it whole on from there. */ sequence?: SequenceContainer; /** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header above the grid. */ renderHeader: () => React.ReactElement; /** TV: the header holds something to press (a notice's Try again). */ headerActions?: boolean; /** TV: the library's strip and the grid's own row, pinned above the grid. */ renderStrip?: () => React.ReactNode; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
   const i18n = useI18n();
   const {space, isTV, metrics, window} = useTheme();
   const playing = usePlayingItemId();
@@ -446,6 +455,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
     setLetter(key);
     landing.current = index;
     grid.current?.scrollToIndex(index);
+    if (isTV) watchLanding(index);
   };
   const failed = snapshot.status === 'error';
   const empty = snapshot.total === 0 && snapshot.status === 'ready';
@@ -481,11 +491,32 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   // leaving, another viewer or a new list ends it. Without a jump the grid's own memory decides.
   const generationRef = useRef(snapshot.generation);
   generationRef.current = snapshot.generation;
+  // The grid's own guide hands Left from the letters straight to that title once its card is
+  // drawn (`destinations`), so Android's focus engine never goes back to the card last used first.
+  const [toward, setToward] = useState<readonly unknown[]>(NO_DESTINATIONS);
+  const towardWatch = useRef<() => void>(undefined);
+  const watchLanding = (index: number) => {
+    towardWatch.current?.();
+    setToward(NO_DESTINATIONS);
+    const generation = generationRef.current;
+    towardWatch.current = landingDestination({
+      locate: windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: () => {}, current: () => generationRef.current === generation}),
+      nodeOf: key => focusReturn.nodeOf(scope, key),
+      found: node => setToward([node]),
+    });
+  };
+  useEffect(() => () => towardWatch.current?.(), []);
+  useEffect(() => { towardWatch.current?.(); towardWatch.current = undefined; setToward(NO_DESTINATIONS); }, [snapshot.generation]);
   const leaveLetters = () => {
     const index = landing.current;
     landing.current = undefined;
     if (index === undefined) return;
     const generation = generationRef.current;
+    // Android has already moved focus for this Left by now (it reports the release); tvOS reports
+    // the press first, so the guide keeps its destination a moment longer for the move to use it.
+    towardWatch.current?.();
+    towardWatch.current = undefined;
+    setTimeout(() => setToward(now => (landing.current === undefined ? NO_DESTINATIONS : now)), 300);
     focusReturn.follow(scope, windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at), current: () => generationRef.current === generation}));
   };
   const top = (
@@ -502,10 +533,12 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
     : empty ? (filtered ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={onClearFilters} /> : scanning ? <StateView icon={(mediaFamilyIcon(libraryKind) ?? 'film') as IconName} title={i18n.t('web.library.scanningTitle')} message={i18n.t('web.library.scanningBody')} /> : pivot === 'collections' ? <StateView icon="collection" title={i18n.t('library.emptyCollections')} message={i18n.t('library.emptyCollectionsBody')} /> : groups ? <StateView icon="category" title={i18n.t('library.genres.empty')} message={i18n.t('library.genres.emptyBody')} /> : pivot === 'series' ? <StateView icon="collection" title={i18n.t('library.emptySeries')} message={i18n.t('library.emptySeriesBody')} /> : <StateView icon={(mediaFamilyIcon(libraryKind) ?? 'film') as IconName} title={i18n.t('library.emptyLibrary')} message={i18n.t(owner ? 'web.empty.libraryOwnerBody' : 'web.empty.libraryMemberBody')} />)
     : null;
   const pinned = !!renderStrip;
+  // TV: whether anything in the grid's place can take focus (`gridReachable`).
+  const reachable = gridReachable({total: snapshot.total, failed, hasList: !!list, empty, filtered, headerActions});
   const body = list ? (
-    <WindowedGrid ref={grid} list={list} total={snapshot.total} itemWidth={tracks ? window.width : groups ? metrics.squareWidth : width || metrics.posterWidth} aspect={aspect} renderItem={tracks ? renderTrack : groups ? renderGroup : renderCard} header={top} footer={footer} generation={snapshot.generation} refreshControl={refreshControl} pinnedAbove={pinned} />
+    <WindowedGrid ref={grid} list={list} total={snapshot.total} itemWidth={tracks ? window.width : groups ? metrics.squareWidth : width || metrics.posterWidth} aspect={aspect} renderItem={tracks ? renderTrack : groups ? renderGroup : renderCard} header={top} footer={footer} generation={snapshot.generation} refreshControl={refreshControl} pinnedAbove={pinned} scrollable={!pinned || reachable} />
   ) : (
-    <Page refreshControl={refreshControl} contentStyle={pinned ? {paddingTop: 0} : undefined}>{top}{footer}</Page>
+    <Page refreshControl={refreshControl} scrollEnabled={!pinned || reachable} contentStyle={pinned ? {paddingTop: 0} : undefined}>{top}{footer}</Page>
   );
   if (pinned) {
     // TV: the strip stays at the top while the grid moves under it; Down from it comes back to the
@@ -516,9 +549,13 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
         <View style={{height: stageTop}} />
         {renderStrip!()}
         <View style={{flex: 1}}>
-          <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}}>{body}</FocusGroup>
+          {reachable
+            ? <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}} destinations={toward}>{body}</FocusGroup>
+            // Nothing in the grid's place to focus (loading, empty, no action): not a focus region,
+            // so Right from the rail and Down from the row above reach the strip and the toolbar.
+            : <View style={{flex: 1}}>{body}</View>}
           {letters ? (
-            <View style={{position: 'absolute', top: 0, bottom: space.lg, right: space.page, width: tvRail.width}}>
+            <View style={{position: 'absolute', top: 0, bottom: space.lg, right: space.page - tvRail.ring, width: tvRail.width + tvRail.ring * 2}}>
               <LetterRail index={anchors} current={letter} sortField={sortField} onJump={jump} onLeave={leaveLetters} />
             </View>
           ) : null}
