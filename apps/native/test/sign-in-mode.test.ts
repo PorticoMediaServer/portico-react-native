@@ -74,3 +74,68 @@ test('a link arriving during the sign-in waits: the old viewer\'s shell opens it
     detach();
   }
 });
+
+test('a viewer set aside while a new one is checked is not their sign-in ending: the mode and what it kept stay', () => {
+  const mode = new SignInMode();
+  const place = {routes: []};
+  mode.open(demo, {kind: 'direct'}, 'direct');
+  mode.keepShell(demo, place);
+  const end = mode.handoff();
+  assert.equal(mode.handingOver(), true);
+  mode.settle(null);
+  assert.deepEqual(mode.current(null), {kind: 'direct'}, 'shown while nobody is signed in, for that moment only');
+  end();
+  end();
+  assert.equal(mode.handingOver(), false, 'ended once');
+  // Refused: the old viewer is back, still signing in.
+  mode.settle(demo);
+  assert.deepEqual(mode.current(demo), {kind: 'direct'});
+  assert.equal(mode.current(null), undefined, 'nobody has a sign-in outside a handoff');
+  mode.close();
+  assert.equal(mode.takeShell(demo), place);
+  assert.equal(mode.takeOpener(demo), 'direct');
+});
+
+test('Back during a handoff ends the sign-in when the handoff does, so the old viewer comes back to their shell', () => {
+  const mode = new SignInMode();
+  mode.open(demo, {kind: 'direct'}, 'direct');
+  mode.keepShell(demo, {routes: []});
+  const end = mode.handoff();
+  mode.close();
+  assert.deepEqual(mode.current(null), {kind: 'direct'}, 'still the sign-in while the old viewer is put back');
+  assert.equal(mode.takeShell(demo), undefined);
+  end();
+  mode.settle(demo);
+  assert.equal(mode.current(demo), undefined);
+  assert.ok(mode.takeShell(demo));
+  // Ended with nobody back (signed out meanwhile): nothing is kept for anyone.
+  mode.open(demo, {kind: 'direct'});
+  mode.keepShell(demo, {routes: []});
+  mode.handoff()();
+  mode.settle(null);
+  assert.equal(mode.current(demo), undefined);
+  assert.equal(mode.takeShell(demo), undefined);
+});
+
+test('an accepted sign-in ends the mode whoever it signed in, the same viewer included, and drops what was kept', () => {
+  const mode = new SignInMode();
+  mode.open(demo, {kind: 'direct'}, 'direct');
+  mode.keepShell(demo, {routes: []});
+  const end = mode.handoff();
+  mode.signedIn();
+  end();
+  mode.settle(demo);
+  assert.equal(mode.current(demo), undefined, 'the same viewer key, and over');
+  assert.equal(mode.takeShell(demo), undefined);
+  assert.equal(mode.takeOpener(demo), undefined);
+});
+
+test('a named server is the sign-in\'s once: opened, the sign-in is the account\'s servers', () => {
+  const mode = new SignInMode();
+  mode.open(demo, {kind: 'switch', serverId: 'home'});
+  mode.targetOpened();
+  assert.deepEqual(mode.current(demo), {kind: 'switch'});
+  mode.open(demo, {kind: 'direct'});
+  mode.targetOpened();
+  assert.deepEqual(mode.current(demo), {kind: 'direct'}, 'nothing else changes');
+});

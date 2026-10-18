@@ -16,7 +16,7 @@ import {useI18n} from '../../app/i18n';
  * chooser, the same one as a direct sign-in. Used after signing in to the account and from
  * Settings › Switch server.
  */
-export function HostedChooser({onBack, onSignOut, onDirect, initialServerId, title = 'Choose a server'}: {onBack?: () => void; /** Open this server straight away (a named server chosen in Settings). */ initialServerId?: string; onSignOut?: () => void; onDirect?: (address?: string) => void; title?: string}) {
+export function HostedChooser({onBack, onSignOut, onDirect, initialServerId, onInitialOpened, title = 'Choose a server'}: {onBack?: () => void; /** Open this server straight away (a named server chosen in Settings). */ initialServerId?: string; /** `initialServerId` was opened: its owner stops naming it, so a chooser shown again lists the servers. */ onInitialOpened?: () => void; onSignOut?: () => void; onDirect?: (address?: string) => void; title?: string}) {
   const session = useSession();
   const i18n = useI18n();
   const {space, isTV} = useTheme();
@@ -53,6 +53,7 @@ export function HostedChooser({onBack, onSignOut, onDirect, initialServerId, tit
     if (!chosen) return;
     auto.current = true;
     connect(chosen);
+    if (chosen.id === initialServerId) onInitialOpened?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.directoryStatus, servers, initialServerId, current]);
   // The server answered with its profiles: its own chooser, here.

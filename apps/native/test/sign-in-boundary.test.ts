@@ -89,6 +89,17 @@ test('Root: the shell is mounted only for a signed-in viewer with a profile, and
     assert.equal(shown({session: {viewer: {...viewer, serverId: 'home'}}}), 'Shell');
     assert.equal(signInMode.current(other), undefined);
     assert.equal(signInMode.current(demo), undefined);
+    // The viewer set aside while a new one is checked: still that sign-in (or its profiles), no
+    // shell and no sign-in screens; it is not their sign-in ending.
+    signInMode.open(demo, {kind: 'direct'});
+    assert.equal(shown({}), 'SignInElsewhere');
+    const end = signInMode.handoff();
+    assert.equal(shown({phase: 'signedOut', session: undefined}), 'SignInElsewhere', 'nobody signed in for a moment');
+    assert.equal(shown({phase: 'signedOut', session: undefined, direct: {pending: {}}}), 'DirectProfiles');
+    assert.deepEqual(signInMode.current(demo), {kind: 'direct'}, 'not settled away');
+    end();
+    assert.equal(shown({phase: 'signedOut', session: undefined}), 'AuthFlow', 'the handoff over and nobody back: the sign-in screens');
+    assert.equal(signInMode.current(demo), undefined, 'and the mode is over');
   } finally { signInMode.close(); r.unmount(); }
 });
 
@@ -99,7 +110,7 @@ async function signInElsewhere() {
   const calls: string[] = [];
   const session: any = {
     clearError: () => calls.push('clearError'),
-    direct: {cancel: () => calls.push('cancel'), cancelStep: () => calls.push('cancelStep'), cancelSetup: () => calls.push('cancelSetup'), resetPin: () => calls.push('resetPin')},
+    direct: {cancel: () => calls.push('cancel'), abandon: () => calls.push('abandon'), cancelStep: () => calls.push('cancelStep'), cancelSetup: () => calls.push('cancelSetup'), resetPin: () => calls.push('resetPin')},
   };
   const m = await screenModule(new URL('../src/screens/auth/SignInElsewhere.tsx', import.meta.url), modulesOf({
     react: r.react,
@@ -126,7 +137,7 @@ test('signing in elsewhere: the remote\'s Back walks the sign-in\'s own steps, t
     form.props.backRef.current = null;
     s.session.direct.step = 'challenge';
     assert.equal(s.back(), true, 'never out of the app');
-    assert.deepEqual(s.calls, ['cancel', 'cancelStep', 'resetPin', 'clearError'], 'the attempt and its further step abandoned');
+    assert.deepEqual(s.calls, ['cancel', 'abandon', 'cancelStep', 'resetPin', 'clearError'], 'the attempt, all it began and its further step abandoned');
     assert.equal(signInMode.current(demo), undefined, 'back to the viewer signed in');
     s.r.unmount();
     assert.equal(s.menu(), 0);
@@ -138,16 +149,29 @@ test('signing in elsewhere: the remote\'s Back walks the sign-in\'s own steps, t
     assert.deepEqual([chooser.type, chooser.props.initialServerId, chooser.props.title], ['HostedChooser', 'home', 'servers.switch']);
     t.session.direct.setup = {};
     chooser.props.onBack();
-    assert.deepEqual(t.calls, ['cancel', 'cancelStep', 'cancelSetup', 'resetPin', 'clearError'], 'a server still being opened is abandoned too (its late answer is ignored)');
+    assert.deepEqual(t.calls, ['cancel', 'abandon', 'cancelStep', 'cancelSetup', 'resetPin', 'clearError'], 'a server still being opened is abandoned too (its late answer is ignored)');
     assert.equal(signInMode.current(demo), undefined);
-    // While a remembered sign-in is still being confirmed, that check is not abandoned with it.
-    t.calls.length = 0;
-    t.session.direct.setup = undefined;
-    t.session.saved = {state: 'checking'};
-    signInMode.open(demo, {kind: 'switch'});
-    chooser.props.onBack();
-    assert.deepEqual(t.calls, ['cancel', 'resetPin', 'clearError']);
+    // While a remembered sign-in is not yet confirmed, its check is not abandoned with it; what the
+    // sign-in began is, whatever that remembered sign-in is doing (sign-in-handoff.test.ts).
+    for (const state of ['checking', 'offline', 'replaced', 'outsideHours']) {
+      t.calls.length = 0;
+      t.session.direct.setup = undefined;
+      t.session.saved = {state};
+      signInMode.open(demo, {kind: 'switch'});
+      chooser.props.onBack();
+      assert.deepEqual(t.calls, ['cancel', 'abandon', 'resetPin', 'clearError'], state);
+    }
   } finally { signInMode.close(); t.r.unmount(); }
+  // A named server: opened once, then the account's servers.
+  const n = await signInElsewhere();
+  try {
+    signInMode.open(demo, {kind: 'switch', serverId: 'home'});
+    const chooser = n.r.render(() => n.m.SignInElsewhere({request: signInMode.current(demo)})) as any;
+    assert.equal(chooser.props.initialServerId, 'home');
+    chooser.props.onInitialOpened();
+    assert.deepEqual(signInMode.current(demo), {kind: 'switch'});
+    assert.equal((n.r.render(() => n.m.SignInElsewhere({request: signInMode.current(demo)})) as any).props.initialServerId, undefined, 'shown again, it lists the servers');
+  } finally { signInMode.close(); n.r.unmount(); }
 });
 
 test('Settings › Servers: every sign-in opens on the whole screen (no sign-in drawn inside the shell); back, focus returns to the row it came from', async () => {

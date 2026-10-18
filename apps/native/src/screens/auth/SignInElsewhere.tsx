@@ -14,9 +14,12 @@ import {HostedChooser} from './HostedChooser';
  */
 export function leaveSignIn(session: Pick<SessionValue, 'direct' | 'clearError' | 'saved'>): void {
   session.direct.cancel();
-  // Abandoning the step also ends any sign-in still waiting on its server (an account's server
-  // being opened), so a late answer cannot switch servers after Back. Not while a sign-in this
-  // device remembered is still being confirmed: that check would be abandoned with it.
+  // Everything else it began (an account's server being opened, a code, a Quick Connect) can no
+  // longer sign in either, so a late answer cannot switch servers after Back, whatever the
+  // remembered sign-in is doing: this leaves its confirmation and retries alone.
+  session.direct.abandon();
+  // A further step is released. Without one, the step's generation is not moved while a sign-in
+  // this device remembered is not yet confirmed: that check would be abandoned with it.
   if (session.direct.step || !session.saved) session.direct.cancelStep();
   if (session.direct.setup) session.direct.cancelSetup();
   session.direct.resetPin();
@@ -51,5 +54,6 @@ export function SignInElsewhere({request}: {request: SignInRequest}) {
     return () => sub.remove();
   }, [request.kind, leave]);
   if (request.kind === 'direct') return <DirectSignIn backRef={directBack} onBack={leave} />;
-  return <HostedChooser title={i18n.t('servers.switch')} initialServerId={request.serverId} onBack={leave} />;
+  // A named server opens once: its profiles cancelled, the account's servers are listed instead.
+  return <HostedChooser title={i18n.t('servers.switch')} initialServerId={request.serverId} onInitialOpened={signInMode.targetOpened} onBack={leave} />;
 }

@@ -24,18 +24,23 @@ function Root() {
   // showing the last profile's titles.
   const signedOut = session.phase === 'signedOut';
   React.useEffect(() => { if (signedOut) clearTopShelf(); }, [signedOut]);
-  // Who is signed in: a sign-in begun while signed in belongs to them and ends with them.
+  // Who is signed in: a sign-in begun while signed in belongs to them and ends with them. The
+  // session says when that sign-in is accepted and when the viewer is only set aside for a moment
+  // (a new viewer being checked), so neither is read from who happens to be on screen.
   const viewer = session.phase === 'ready' ? linkViewerKey(session.session?.viewer) : null;
   const elsewhere = React.useSyncExternalStore(signInMode.subscribe, () => signInMode.current(viewer));
-  React.useEffect(() => signInMode.settle(viewer), [viewer]);
+  const handingOver = React.useSyncExternalStore(signInMode.subscribe, signInMode.handingOver);
+  React.useEffect(() => signInMode.settle(viewer), [viewer, handingOver]);
   // Justin (18 Oct 2026): browsing (the shell: its rail, tab bar, screens, their providers and
   // requests) is mounted only for a signed-in viewer with a profile, and never during a sign-in.
   // Signed out, choosing a profile, or signing in elsewhere is the whole screen; the shell is gone,
   // so nothing can move into it and links wait for it. A device's own sign-in, remembered from
   // before, still opens straight into the shell and is confirmed in the background (the shell's
   // status says how that is going).
+  // Nobody is signed in while a sign-in's new viewer is checked: that sign-in (or its profiles)
+  // stays on screen, and the shell stays unmounted, until the new viewer is in or the old one is back.
   if (session.phase === 'restoring') return <Connecting />;
-  if (session.phase !== 'ready') return <AuthFlow onSavedServer={session.recovery ? session.openSaved : undefined} />;
+  if (session.phase !== 'ready' && !elsewhere) return <AuthFlow onSavedServer={session.recovery ? session.openSaved : undefined} />;
   if (session.direct.pending) return <DirectProfiles onCancel={session.direct.cancelPending} />;
   if (elsewhere) return <SignInElsewhere request={elsewhere} />;
   return <Shell />;
