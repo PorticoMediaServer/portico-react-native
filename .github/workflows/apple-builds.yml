@@ -6,6 +6,7 @@ on:
     branches: [main, apple-actions-builds]
     paths:
       - '.github/workflows/apple-builds.yml'
+      - 'scripts/apple-prebuilt-bundle.cjs'
       - 'third_party/media-engine/**'
       - 'apps/native/**'
       - 'packages/**'
@@ -28,6 +29,8 @@ jobs:
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
       - run: npm ci --legacy-peer-deps --no-audit --no-fund
         working-directory: apps/native
+      - name: Verify Mach-O symbol classification regressions
+        run: python3 -B -m unittest discover -s third_party/media-engine/tests
       - name: Prepare production JavaScript on Linux
         working-directory: apps/native
         run: |
