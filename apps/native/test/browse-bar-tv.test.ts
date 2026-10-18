@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const loose = (named: Record<string, unknown> = {}) => new Proxy(named, {get: (target, name) => (name in target ? target[name as string] : name === 'default' ? loose() : typeof name === 'string' && /^(use|[a-z])/.test(name) ? () => undefined : String(name))});
-const theme = () => ({isTV: true, space: {xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, page: 48}});
+let compact = false;
+const theme = () => ({isTV: !compact, window: {compact}, space: {xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, page: 48}});
 function all(node: unknown, out: {type?: unknown; props?: any}[] = []): {type?: unknown; props?: any}[] {
   if (!node || typeof node !== 'object') return out;
   if (Array.isArray(node)) { node.forEach(n => all(n, out)); return out; }
@@ -72,6 +73,31 @@ test('TV library grid: the row under the tabs has the web\'s quick and promoted 
   assert.ok(labels.some(l => String(l).startsWith('genre')) && labels.some(l => String(l).startsWith('year')), 'the promoted filters');
   assert.ok(labels.includes('filter.add') && labels.includes('lib.saveView'));
   assert.deepEqual(row.filter(n => n.type === 'Text').at(-1)?.props.children, ['24 shows'], 'the count ends the row');
+});
+
+test('phone: the row collapses to Sort, Filter (counting what is on), Saved views and Save view; a quick filter that is on is a chip', async () => {
+  compact = true;
+  try {
+    const h = hooks();
+    const base = {...h.react, memo: (f: unknown) => f, createContext: (value: unknown) => ({value})};
+    const quick = {field: 'watched', operator: 'equals', value: false};
+    const model = {sorts: [{id: 'title'}], quick: [{id: 'unwatched', labelKey: 'quick.unwatched', query: quick}], promoted: [{id: 'genre', labelKey: 'genre'}], groups: [], applied: [], sort: {flippable: true}};
+    const m = await screenModule(new URL('../src/screens/BrowseFilters.tsx', import.meta.url), {
+      react: {...base, default: base}, 'react-native': loose(),
+      '../../../../packages/client-core/src/browse': loose(),
+      '../../../../packages/client-core/src/presentation/index': loose({toolbarModel: () => model, fieldSelectionSummary: () => ''}),
+      '../app/browse': loose({fieldLabel: (id: string) => id, quickFilterLabel: (id: string) => id, predicateLabel: (p: {field: string}) => p.field}), '../ui': loose({useTheme: theme}), '../app/errors': loose(),
+      '../app/browse-count': {browseCountLabel: () => '24 shows'}, '../app/i18n': loose({useI18n: () => ({t: (id: string, v?: {count?: number}) => (v?.count !== undefined ? `${id}:${v.count}` : id)})}), './title/RowGuide': loose(),
+    });
+    const tree = all(h.render(() => m.BrowseBar({libraryId: 'lib', capabilities: {library: {kind: 'show'}, sorts: [{id: 'title', defaultDirection: 'asc'}], resolvedPivot: {id: 'shows'}}, predicates: [quick], onChange: () => {}, sort: {field: 'title', direction: 'asc'}, onSort: () => {}, total: 24, onSaveView: async () => {}, presets: {type: 'SavedViewsButton', props: {}}})));
+    const scroll = tree.find(n => n.type === 'ScrollView' && n.props.horizontal)!;
+    const row = all(scroll.props.children);
+    const labels = row.filter(n => n.type === 'Button').map(n => n.props.label);
+    assert.ok(!labels.includes('quick.unwatched') && !labels.some(l => String(l).startsWith('genre')), `no quick or promoted buttons: ${labels}`);
+    assert.ok(labels.includes('lib.activeFilters:1'), 'Filter says how many are on');
+    assert.ok(row.some(n => n.type === 'SavedViewsButton'), 'Saved views stays in the row');
+    assert.ok(tree.some(n => n.type === 'Button' && n.props.label === 'watched' && n.props.trailingIcon === 'close'), 'the quick filter that is on is a removable chip');
+  } finally { compact = false; }
 });
 
 test('TV letters: ten-foot keys down the grid\'s right; Select jumps, Left from them goes back into the grid', async () => {

@@ -23,9 +23,13 @@ import {RowGuide} from './title/RowGuide';
  * 2026), as on the web: the same buttons in one row that scrolls sideways with focus, the count at
  * its end.
  */
-export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, totalIsLowerBound = false, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Just Sort and Filter as two buttons (a group's page, under its hero); every filter is in the panel. */ inline?: boolean; /** Drawn after the buttons in the inline form. */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** `total` is a lower bound (a broad filter counted only up to 10,000): "10,000+". */ totalIsLowerBound?: boolean; /** Owners also get the availability filter. */ owner?: boolean}) {
-  const {space, isTV} = useTheme();
+export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, totalIsLowerBound = false, onSaveView, owner = false, ownOrder, inline = false, trailing, leading, presets, saveHeld, onSaveDiscard, describeSaveError}: {/** A save sent with no answer: offered again under the name it was sent with, until it is confirmed or set aside. */ saveHeld?: string; /** Closing the form sets the unconfirmed save aside. */ onSaveDiscard?: () => void; /** The words for a failed save (an unconfirmed one in the way, or the server's answer). */ describeSaveError?: (e: unknown) => string; /** The library's saved views (its presets), after Filter. */ presets?: React.ReactNode; /** Just Sort and Filter as two buttons (a group's page, under its hero); every filter is in the panel. */ inline?: boolean; /** Drawn after the buttons in the inline form. */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** `total` is a lower bound (a broad filter counted only up to 10,000): "10,000+". */ totalIsLowerBound?: boolean; /** Owners also get the availability filter. */ owner?: boolean}) {
+  const {space, isTV, window} = useTheme();
   const i18n = useI18n();
+  // A phone keeps the row short (as the web's narrow toolbar does): Sort, Filter (every filter,
+  // the quick ones too, is in its sheet), Saved views and Save view. A tablet and a TV show the
+  // quick and promoted filters in the row as well.
+  const collapsed = window.compact;
   const model = useMemo(() => toolbarModel(capabilities, capabilities.library.kind, predicates, sort, {owner, textEntry: !isTV}), [capabilities, predicates, sort, owner, isTV]);
   const hasSort = model.sorts.length > 0;
   const own = !!ownOrder?.selected;
@@ -46,10 +50,12 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const saveView = async () => {
-    if (!onSaveView) return;
+    const name = saveHeld ?? viewName.trim();
+    if (!onSaveView || !name) return;
     setSaveBusy(true); setSaveError('');
-    try { await onSaveView(viewName.trim()); setSaving(false); } catch (e) { setSaveError(say(e, 'library', 'save')); } finally { setSaveBusy(false); }
+    try { await onSaveView(name); setSaving(false); } catch (e) { setSaveError(describeSaveError ? describeSaveError(e) : say(e, 'library', 'save')); } finally { setSaveBusy(false); }
   };
+  const closeSave = () => { if (saveHeld !== undefined) onSaveDiscard?.(); setSaving(false); };
   // Sort is one control: it names the field and the direction, and choosing the current field flips it.
   const sortCap = capabilities.sorts.find(x => x.id === sort.field);
   const ownLabel = i18n.t('web.saved.sort.other');
@@ -109,11 +115,11 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
   const canSave = !!onSaveView && predicates.length > 0;
   const startSaving = () => { setViewName(''); setSaveError(''); setSaving(true); };
   const saveSheet = (
-    <Sheet open={saving} onClose={() => setSaving(false)} title={i18n.t('lib.saveViewTitle')} subtitle={i18n.t('lib.saveViewSubtitle')} kind="form" cancelLabel={i18n.t('lib.cancel')}
-      primary={{label: i18n.t('lib.save'), loading: saveBusy, disabled: !viewName.trim() || saveBusy, onPress: () => void saveView()}}>
+    <Sheet open={saving} onClose={closeSave} title={i18n.t('lib.saveViewTitle')} subtitle={i18n.t('lib.saveViewSubtitle')} kind="form" cancelLabel={i18n.t('lib.cancel')}
+      primary={{label: i18n.t('lib.save'), loading: saveBusy, disabled: !(saveHeld ?? viewName.trim()) || saveBusy, onPress: () => void saveView()}}>
       <View style={{gap: space.md}}>
-        {saveError ? <Notice tone="error" message={saveError} /> : null}
-        <Field label={i18n.t('lib.saveViewName')} value={viewName} onChangeText={setViewName} placeholder={i18n.t('lib.saveViewPlaceholder')} maxLength={80} returnKeyType="done" onSubmitEditing={() => { if (viewName.trim()) void saveView(); }} />
+        {saveError ? <Notice tone="error" message={saveError} /> : saveHeld !== undefined ? <Notice tone="warning" message={i18n.t('lib.savedViewUnconfirmed')} /> : null}
+        <Field label={i18n.t('lib.saveViewName')} value={saveHeld ?? viewName} editable={saveHeld === undefined} onChangeText={setViewName} placeholder={i18n.t('lib.saveViewPlaceholder')} maxLength={80} returnKeyType="done" onSubmitEditing={() => { if (saveHeld ?? viewName.trim()) void saveView(); }} />
         <Text variant="caption" tone="tertiary">{i18n.t('lib.saveViewHelp')}</Text>
       </View>
     </Sheet>
@@ -133,6 +139,8 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
       </View>
     );
   }
+  // Collapsed, a quick filter that is on has no button of its own in the row: it is a chip with the rest.
+  const applied = collapsed ? predicates : model.applied;
   const count = typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={isTV ? {alignSelf: 'center', paddingHorizontal: space.sm} : {paddingHorizontal: space.page}}>{browseCountLabel(i18n.t, total, pivotId, totalIsLowerBound)}</Text> : null;
   return (
     <View style={{gap: space.sm, paddingVertical: space.sm}}>
@@ -142,17 +150,18 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: space.xs, paddingHorizontal: space.page, paddingVertical: isTV ? space.xs : 0}} style={isTV ? {overflow: 'visible'} : undefined}>
         {leading}
         {hasSort ? <Button size="sm" variant="secondary" icon="sort" label={sortLabel} accessibilityLabel={`${i18n.t('sort.title')}: ${sortLabel}`} onPress={() => setSortOpen(true)} /> : null}
-        {model.quick.map(f => <Button key={f.id} size="sm" variant="secondary" selected={isQuickOn(f.id)} label={quickFilterLabel(f.labelKey)} onPress={() => toggleQuick(f.id)} />)}
-        {model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
-        <Button size="sm" variant="secondary" icon="filter" label={i18n.t('filter.add')} onPress={() => setFilters({})} />
+        {collapsed ? null : model.quick.map(f => <Button key={f.id} size="sm" variant="secondary" selected={isQuickOn(f.id)} label={quickFilterLabel(f.labelKey)} onPress={() => toggleQuick(f.id)} />)}
+        {collapsed ? null : model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
+        <Button size="sm" variant="secondary" icon="filter" selected={collapsed && predicates.length > 0} label={collapsed && predicates.length ? i18n.t('lib.activeFilters', {count: predicates.length}) : i18n.t('filter.add')} onPress={() => setFilters({})} />
+        {presets}
         {canSave ? <Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('lib.saveView')} onPress={startSaving} /> : null}
         {isTV ? count : null}
       </ScrollView>
       </RowGuide>
-      {model.applied.length ? (
+      {applied.length ? (
         <RowGuide>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: space.xs, paddingHorizontal: space.page, paddingVertical: isTV ? space.xs : 0}} style={isTV ? {overflow: 'visible'} : undefined}>
-          {model.applied.map((p, i) => <Button key={`${p.field}:${i}`} size="sm" variant="secondary" selected trailingIcon="close" label={predicateLabel(p as Predicate, capabilities)} onPress={() => onChange(predicates.filter(x => x !== p))} />)}
+          {applied.map((p, i) => <Button key={`${p.field}:${i}`} size="sm" variant="secondary" selected trailingIcon="close" label={predicateLabel(p as Predicate, capabilities)} onPress={() => onChange(predicates.filter(x => x !== p))} />)}
           <Button size="sm" variant="ghost" label={i18n.t('lib.clearAll')} onPress={() => onChange([])} />
         </ScrollView>
         </RowGuide>

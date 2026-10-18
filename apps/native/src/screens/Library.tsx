@@ -9,18 +9,16 @@ import {useLibraryScan} from '../app/library-scan';
 import {useLibrariesContext} from '../app/libraries-context';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
-import {PersonalSavedService} from '../../../../packages/client-core/src/personal-saved';
 import {viewerScope} from '../app/content';
-import {requestId} from '../app/detail';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Button, Dropdown, FocusGroup, FocusScopeContext, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, cardFocusKey, focusReturn, useFocusResolver, useTheme, type DropdownAnchor, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
+import {Button, Dropdown, FocusGroup, FocusScopeContext, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, Text, WindowedGrid, cardFocusKey, focusReturn, useFocusResolver, useTheme, type DropdownAnchor, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
 import {windowLanding, windowResolver} from '../ui/focus-lists';
 import {LoadingShelves, RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {BrowsePreviewContext, BrowseStage, LibraryStrip, useBrowsePreview, useStageLayout, useStageTop, useStripHeight} from './BrowseStage';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
-import {categoryDestination, genreFilter, isContinueRow, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
+import {categoryDestination, filterValuesField, genreFilter, isContinueRow, libraryTab, libraryTabForPivot, libraryTabs, presetApplication, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
 import {captionFor, formatClock} from '../app/content';
 import {usePlayerActions, usePlayingItemId} from '../app/player-actions';
 import type {BrowseSortSelection} from '../../../../packages/client-core/src/browse';
@@ -28,6 +26,8 @@ import {useBrowseCapabilities, useBrowseWindow, type Predicate} from '../app/bro
 import {useLibraryMemory} from '../app/library-memory';
 import {linkedView, offeredFilters, openingView, tabView, type LibraryView} from '../app/library-view';
 import {AlphabetRail, BrowseBar, LetterRail} from './BrowseFilters';
+import {SavedViewsButton, changeError, useScreenPresets} from './LibraryPresets';
+import {savedViewBrowse, type PersonalResource} from '../../../../packages/client-core/src/personal-saved';
 import {say} from '../app/errors';
 import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
@@ -153,15 +153,47 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     setPublished(null);
     setView(linkedView<Tab>(opens.tab, [{field: opens.field, operator: 'in', value: [entry.title]} as Predicate]));
   }, [opens]);
-  // Names the current filters and sort as a saved view; the server reruns it whenever it is opened.
+  // The library's presets (its saved views for this pivot), on the server and so on every device
+  // of this profile. One is applied as stored: as the tab's own filters and sort when that is all
+  // it is, else whole (its query and sorts as the tab's list, or, with no tab for its pivot, the
+  // saved view itself). Applying one is not a choice remembered for the library, and changes no preset.
+  const dataPivot = capabilities?.resolvedPivot?.id ?? pivot;
+  const presetsOn = engine && !!capabilities && !opens && !active.fixedFilter;
+  const presets = useScreenPresets(libraryId, dataPivot, presetsOn);
+  // The saved view the tab's list is showing whole, by name, for as long as that list is the one shown.
+  const [appliedView, setAppliedView] = useState<{name: string; published: ContentSeeAll}>();
+  const applyPreset = (row: PersonalResource) => {
+    const stored = savedViewBrowse(row);
+    if (!stored) return;
+    const offered = new Set((capabilities?.fields ?? []).flatMap(f => [f.id, filterValuesField(f).field]));
+    const how = presetApplication(kind, stored, offered);
+    if (!how.tab) { navigation.push('SavedResource', {resourceId: row.id, title: row.name}); return; }
+    touched.current = true;
+    if (how.kind === 'controls') {
+      setPublished(null);
+      setView({tab: how.tab as Tab, filters: how.predicates as readonly Predicate[], sort: {sort: how.sort.field, direction: how.sort.direction}, recalled: false});
+      return;
+    }
+    const whole: ContentSeeAll = {pivot: stored.pivot, ...(stored.query ? {query: stored.query} : {}), sort: stored.sort};
+    setPublished(whole);
+    setAppliedView({name: row.name, published: whole});
+    setView(linkedView<Tab>(how.tab as Tab));
+  };
+  const appliedName = appliedView && appliedView.published === published ? appliedView.name : undefined;
+  // A list shown whole (a row's See all, a saved view): what it is, and the way back to the tab's own filters.
+  const publishedBar = (
+    <View style={{flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.page, paddingVertical: isTV ? space.sm : space.md}}>
+      {appliedName ? <Text variant="label" tone="secondary" lines={1}>{i18n.t('lib.savedViewApplied', {name: appliedName})}</Text> : null}
+      <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} />
+      {presetsOn ? <SavedViewsButton presets={presets} onApply={applyPreset} /> : null}
+    </View>
+  );
+  // Names the current filters and sort as a saved view, under the pivot the server browses; the
+  // server reruns it whenever it is opened. A refusal keeps the form open and says why.
   const saveView = useCallback(async (name: string) => {
-    if (!pivot) return;
-    const service = new PersonalSavedService(session.api, viewerScope(session.session, session.api), requestId);
-    try {
-      await service.select({view: 'views'});
-      await service.mutate({action: 'create', kind: 'view', name, definition: {libraryId, pivot, query: predicates.length ? {all: predicates} : null, sort: [engineSort], presentation: 'grid'}});
-    } finally { service.dispose(); }
-  }, [session.api, session.session, libraryId, pivot, predicates, engineSort]);
+    if (!dataPivot) return;
+    await presets.save(name, {libraryId, pivot: dataPivot, query: predicates.length ? {all: predicates} : null, sort: [engineSort], presentation: 'grid'});
+  }, [presets, libraryId, dataPivot, predicates, engineSort]);
   const browse = useBrowseWindow({libraryId, pivot, predicates, sort: engineSort, published: published && published.pivot === pivot ? published : undefined, enabled: engine && !!capabilities});
   // The same list as the server's query, for a song pressed to play the whole list on from there.
   const listSequence = useMemo(() => viewSequence({libraryId, pivot, predicates, sort: engineSort, ...(published && published.pivot === pivot ? {query: published.query, sorts: published.sort} : {})}), [libraryId, pivot, predicates, engineSort, published]);
@@ -236,8 +268,8 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           renderStrip={isTV ? () => (
             <>
               {strip()}
-              {published?.pivot === pivot ? <RowGuide><View style={{flexDirection: 'row', paddingHorizontal: space.page, paddingVertical: space.sm}}><Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View></RowGuide>
-                : capabilities ? <BrowseBar owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} onSaveView={opens ? undefined : saveView} /> : null}
+              {published?.pivot === pivot ? <RowGuide>{publishedBar}</RowGuide>
+                : capabilities ? <BrowseBar presets={presetsOn ? <SavedViewsButton presets={presets} onApply={applyPreset} /> : undefined} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} saveHeld={presets.unconfirmed?.intent.action === 'create' ? presets.unconfirmed.intent.name : undefined} onSaveDiscard={presets.discard} describeSaveError={e => changeError(i18n, e)} onSaveView={opens ? undefined : saveView} /> : null}
             </>
           ) : undefined}
           renderHeader={() => (isTV ? (
@@ -247,7 +279,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           ) : (
             <>
               {header}
-              {published?.pivot === pivot ? <View style={{paddingHorizontal: space.page, paddingVertical: space.md}}><Button variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /></View> : capabilities ? <BrowseBar owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} onSaveView={opens ? undefined : saveView} /> : <View style={{height: space.lg}} />}
+              {published?.pivot === pivot ? publishedBar : capabilities ? <BrowseBar presets={presetsOn ? <SavedViewsButton presets={presets} onApply={applyPreset} /> : undefined} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} total={browse.snapshot.total} totalIsLowerBound={browse.snapshot.totalIsLowerBound} saveHeld={presets.unconfirmed?.intent.action === 'create' ? presets.unconfirmed.intent.name : undefined} onSaveDiscard={presets.discard} describeSaveError={e => changeError(i18n, e)} onSaveView={opens ? undefined : saveView} /> : <View style={{height: space.lg}} />}
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
             </>
           ))}
