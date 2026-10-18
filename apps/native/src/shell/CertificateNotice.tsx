@@ -1,7 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {useI18n} from '../app/i18n';
 import {useFreshness} from '../app/freshness';
-import {useSession} from '../app/session';
+import {hasRealOrigin, useSession} from '../app/session';
 import {acceptPendingCertificate, certificateOrigin, onCertificateQuestion, type PendingCertificate} from '../bridge/certificate-trust';
 import {certificateTrustAvailable, nativeCertificatePlatform} from '../bridge/server-connections';
 import {ConfirmSheet, showToast} from '../ui';
@@ -11,14 +11,18 @@ import {ConfirmSheet, showToast} from '../ui';
  * is the same server's: the question the sign-in screen asks, asked where the person is. Trusting
  * it is their choice; afterwards every open screen reads again. "Not now" leaves requests failing
  * with the plain message, and the same certificate is not asked about again this session.
+ * While a saved sign-in is still resuming (after a restart the app has no connection yet and shows
+ * "Can't reach"), the question about the saved server is asked here too, and trusting resumes it.
  */
 export function CertificateNotice() {
   const i18n = useI18n();
-  const {api} = useSession();
+  const session = useSession();
+  const {api} = session;
   const {hub} = useFreshness();
   const [asked, setAsked] = useState<PendingCertificate>();
   const [declined] = useState(() => new Set<string>());
-  const origin = certificateOrigin(api.baseUrl);
+  const resuming = !hasRealOrigin(api) && session.saved ? session.saved : undefined;
+  const origin = certificateOrigin(resuming && session.recovery ? session.recovery.serverUrl : api.baseUrl);
   useEffect(() => {
     if (!origin || !certificateTrustAvailable()) return;
     return onCertificateQuestion(question => {
@@ -37,7 +41,7 @@ export function CertificateNotice() {
       onConfirm={async () => {
         if (await acceptPendingCertificate(asked.origin, nativeCertificatePlatform)) {
           showToast({message: i18n.t('connection.certificate.trusted'), icon: 'check'});
-          hub.resync();
+          if (resuming) resuming.retry(); else hub.resync();
         }
         setAsked(undefined);
       }}
