@@ -5,6 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {Button} from './Button';
 import type {FocusableHandle} from './Focusable';
+import {focusReturn} from './focus-return';
 import {Icon, type IconName} from './Icon';
 import {Field} from './Field';
 import {ListRow, rowPaddingX} from './ListRow';
@@ -143,6 +144,8 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   }, [open]);
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
+  // While it is up, focus is in the sheet and the control beneath it is the one it was opened from (focus-return.ts).
+  useEffect(() => { if (!mounted) return; focusReturn.overlay(true); return () => focusReturn.overlay(false); }, [mounted]);
   // Once the Modal has unmounted, give UIKit a moment to finish dismissing before the next one presents.
   useEffect(() => {
     // Never cancelled: a closing mark that outlived its sheet would hold every later overlay back.
@@ -437,6 +440,7 @@ export function Dropdown({open, onClose, anchor, items: given, onSelect, width =
     if (wasOpen.current && !open) { overlayClosing(dropdownId, true); setTimeout(() => overlayClosing(dropdownId, false), 120); }
     wasOpen.current = open;
   }, [open, dropdownId]);
+  useEffect(() => { if (!open) return; focusReturn.overlay(true); return () => focusReturn.overlay(false); }, [open]);
   const insets = useSafeAreaInsets();
   const progress = useSharedValue(0);
   useEffect(() => {

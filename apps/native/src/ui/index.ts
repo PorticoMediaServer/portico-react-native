@@ -2,6 +2,7 @@ export * from './theme';
 export * from './Text';
 export * from './Icon';
 export * from './Focusable';
+export * from './focus-return';
 export * from './Button';
 export * from './Canvas';
 export * from './Artwork';

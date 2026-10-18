@@ -102,11 +102,11 @@ const ListRowView = React.memo(function ListRowView({row, actions, nowStore, sta
   );
   return (
     <View style={[{height, flexDirection: 'row', alignItems: 'center', gap: space.sm, borderBottomWidth: 1, borderBottomColor: colors.lineSoft, opacity: channelDimmed(channel, actions.quiet) ? 0.6 : 1}, pad]}>
-      <Focusable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={reason || undefined} radius={metrics.radius.control} scale={isTV ? 1.02 : 1} hasTVPreferredFocus={preferFocus} style={{flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: isTV ? space.sm : 0}} onPress={open} onLongPress={openMenu}>
+      <Focusable focusKey={`channel:${channel.id}`} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={reason || undefined} radius={metrics.radius.control} scale={isTV ? 1.02 : 1} hasTVPreferredFocus={preferFocus} style={{flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: isTV ? space.sm : 0}} onPress={open} onLongPress={openMenu}>
         {body}
       </Focusable>
       {/* §6: a Watch button on the row starts the channel directly. */}
-      {channel.tuneAvailable ? <Button variant="ghost" round icon="play" accessibilityLabel={t('channels.watchChannel', {channel: channel.name})} onPress={watch} /> : null}
+      {channel.tuneAvailable ? <Button variant="ghost" round icon="play" focusKey={`channel-watch:${channel.id}`} accessibilityLabel={t('channels.watchChannel', {channel: channel.name})} onPress={watch} /> : null}
       {!isTV ? <Button variant="ghost" round icon="moreVertical" accessibilityLabel={t('channels.moreFor', {channel: channel.name})} onPress={openMenu} /> : null}
     </View>
   );

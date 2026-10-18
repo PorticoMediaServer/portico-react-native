@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState, useRef} from 'react';
 import {View} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -13,13 +13,13 @@ import {say} from '../app/errors';
 import {useI18n, type I18n} from '../app/i18n';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
 import {useDownloads} from '../app/downloads';
-import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
+import {useRefreshOnPlayback} from '../app/playback-events';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
 import {useGroupActions} from '../app/together';
 import {useCurrentActivity} from '../bridge/NativeActivity';
-import {Button, Card, Menu, Notice, Page, PersonCard, Shelf, Skeleton, StateView, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
+import {Button, Card, cardFocusKey, Menu, Notice, Page, PersonCard, Shelf, Skeleton, StateView, showToast, useEntryFocus, useTheme, type IconName, type MenuItem, type FocusableHandle} from '../ui';
 import {SectionView} from './Home';
 import {withoutNotInterested} from '../app/not-interested';
 import {useTurnedDown} from '../app/not-interested-hook';
@@ -45,7 +45,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const target = useMemo(() => ({libraryId, itemId}), [libraryId, itemId]);
   const {snapshot, mutate, retry, refresh, retryMutation, dismissMutation} = useDetail(target);
   // TV-PLAYER-03 / APL-HOME-03: focus returns to Play after the player, and Resume/Play is current.
-  const invoker = useInvoker();
+  const playControl = useRef<FocusableHandle>(null);
   useRefreshOnPlayback(refresh, change => change.reason !== 'progress' && change.itemId === target.itemId);
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const editor = useMetadataEditor();
@@ -87,7 +87,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   // synopsis "More", and a late hasTVPreferredFocus doesn't move it, so the claim asks directly.
   const playable = !!play?.playback;
   useEffect(() => {
-    if (isTV && claim && playable) invoker.ref.current?.focus();
+    if (isTV && claim && playable) playControl.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTV, claim, playable]);
   const pull = usePullToRefresh(refresh, {busy: snapshot.phase === 'loading'});
@@ -132,7 +132,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
     if (!item) return;
     switch (id) {
       case 'start_over':
-        if (restart?.playback) { invoker.remember(); player.play(restart.playback.itemId, 0, entryOf(item)); }
+        if (restart?.playback) { player.play(restart.playback.itemId, 0, entryOf(item)); }
         break;
       case 'playNext':
       case 'addToQueue': {
@@ -239,7 +239,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
     <View style={{flex: 1, backgroundColor: colors.ink}}>
       <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
         <TitleHero
-          ref={invoker.ref}
+          ref={playControl}
           loading={!item}
           backdrop={item?.backdropUrl ? artwork(item.backdropUrl) : undefined}
           art={item ? {source: artwork(item.posterUrl), shape: item.song || item.bookFile ? 'square' : 'poster', icon: item.song ? 'music' : item.bookFile ? 'book' : undefined} : undefined}
@@ -258,7 +258,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
             label: resume ? (remaining ? i18n.t('title.resumeRemaining', {remaining}) : i18n.t('entry.resume')) : i18n.t('entry.play'),
             progress: resume && item.duration ? (item.progressSeconds ?? 0) / item.duration : undefined,
             preferFocus: isTV && claim,
-            onPress: () => { invoker.remember(); player.play(play.playback!.itemId, play.playback!.startSeconds, entryOf(item)); },
+            onPress: () => { player.play(play.playback!.itemId, play.playback!.startSeconds, entryOf(item)); },
           } : undefined}
           secondary={secondary}
           onMore={menuItems.length ? () => setMenu(true) : undefined}
@@ -279,7 +279,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
           <RowGuide key={row.id}><SectionView row={3 + index} origin="recommendation" section={{id: row.id, type: 'rail', heading: {key: row.id, fallback: row.heading}, entries: row.entries, totalCount: row.entries.length, nextCursor: ''}} /></RowGuide>
         ))}
         {data?.extras?.map(extra => (
-          <RowGuide key={extra.type}><Shelf title={extra.label} data={extra.items} itemWidth={metrics.landscapeWidth} keyExtractor={e => e.id} renderItem={({item: e}) => <Card title={e.title} subtitle={e.duration ? formatDuration(e.duration) : undefined} source={artwork(e.backdropUrl ?? e.posterUrl)} shape="landscape" width={metrics.landscapeWidth} onPress={e.playback ? () => player.play(e.playback!.itemId, 0, e) : undefined} />} /></RowGuide>
+          <RowGuide key={extra.type}><Shelf title={extra.label} data={extra.items} itemWidth={metrics.landscapeWidth} keyExtractor={e => e.id} renderItem={({item: e, index}) => <Card title={e.title} subtitle={e.duration ? formatDuration(e.duration) : undefined} source={artwork(e.backdropUrl ?? e.posterUrl)} shape="landscape" width={metrics.landscapeWidth} focusKey={cardFocusKey(`extras:${extra.type}`, e.id)} focusPlace={{column: index}} onPress={e.playback ? () => player.play(e.playback!.itemId, 0, e) : undefined} />} /></RowGuide>
         ))}
         {item && !item.song ? <TitleDetails rows={detailRows} files={data?.files} genres={genreLinks} fileAction={tools.fileAction} tools={<>{tools.mergeRow}{mergeExtras.row}</>} /> : null}
         {tools.sheets}

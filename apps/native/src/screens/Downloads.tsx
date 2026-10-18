@@ -77,6 +77,7 @@ export function DeviceDownloads({hideEmpty = false}: {/** IOS-DL-01: the server 
                 <View key={e.id}>
                   {i ? <Divider inset={space.md} /> : null}
                   <ListRow
+                    focusKey={`download:${e.id}`}
                     source={e.artworkUrl ? {uri: e.artworkUrl} : undefined}
                     icon={e.artworkUrl ? undefined : e.kind === 'song' || e.kind === 'audiobook_file' ? 'music' : 'film'}
                     title={e.title || i18n.t('downloads.title')}

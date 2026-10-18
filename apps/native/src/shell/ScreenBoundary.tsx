@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {TVFocusGuideView, View} from 'react-native';
 import {CommonActions, useIsFocused, useNavigation} from '@react-navigation/native';
-import {Button, NavScope, ScreenSpeechContext, ScreenTitleContext, StateView, useTheme} from '../ui';
+import {Button, FocusScopeContext, NavScope, ScreenSpeechContext, ScreenTitleContext, StateView, useTheme} from '../ui';
 import {DestinationAnnouncer, announce} from '../ui/announce';
 import {useConnectionStatus} from '../app/connection-context';
 import {CONNECTION_EXEMPT_SCREENS, connectionView} from '../app/connection-status';
@@ -91,7 +91,8 @@ export function guarded<P extends object>(Screen: React.ComponentType<P>): (prop
       ) : (
         <Boundary key={mountedGeneration} resetKey={props.route.key} onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} onHome={() => navigation.dispatch(CommonActions.navigate({name: 'HomeRoot', params: {screen: 'Home', pop: true}}))}>
           {/* Each screen has its own navigation-bar scope (its scroll position and its title). */}
-          <ScreenTitleContext.Provider value={reportTitle}><ScreenSpeechContext.Provider value={speak}><NavScope><MemoScreen {...props} /></NavScope></ScreenSpeechContext.Provider></ScreenTitleContext.Provider>
+          {/* Named controls belong to this screen (its route), for focus coming back after playback. */}
+          <FocusScopeContext.Provider value={routeKey}><ScreenTitleContext.Provider value={reportTitle}><ScreenSpeechContext.Provider value={speak}><NavScope><MemoScreen {...props} /></NavScope></ScreenSpeechContext.Provider></ScreenTitleContext.Provider></FocusScopeContext.Provider>
         </Boundary>
       );
     // Television: a screen covered by a pushed one must leave the focus engine

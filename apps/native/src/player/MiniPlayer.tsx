@@ -53,7 +53,7 @@ export function NowPlayingPill({engine}: {engine: PlayerEngine}) {
   const playing = engine.state.intent === 'playing' && engine.state.phase === 'ready';
   return (
     <View pointerEvents="box-none" style={{position: 'absolute', top: 60, right: 80, zIndex: 30}}>
-      <Focusable accessibilityRole="button" accessibilityLabel={activeI18n().t('player.nowPlayingTitle', {title: engine.identity.title})} radius={metrics.radius.pill} onPress={engine.expand}>
+      <Focusable accessibilityRole="button" accessibilityLabel={activeI18n().t('player.nowPlayingTitle', {title: engine.identity.title})} radius={metrics.radius.pill} focusKey="action:now-playing" onPress={engine.expand}>
         {({focused}) => (
           <View style={{flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: space.xs, paddingRight: space.lg, paddingVertical: space.xs, borderRadius: metrics.radius.pill, backgroundColor: focused ? colors.raisedHigh : alpha(colors.material, 0.95), borderWidth: 1, borderColor: alpha(colors.lineStrong, 0.5), maxWidth: 520}}>
             <Artwork source={artwork(engine.identity.posterUrl)} shape="square" width={48} radius={24} title={engine.identity.title} icon="music" />

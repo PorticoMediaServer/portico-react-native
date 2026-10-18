@@ -4,7 +4,7 @@ import {Image, View, type ImageSourcePropType} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry, ContentSection} from '../../../../packages/client-core/src/library-content';
 import {captionFor, cardLinesFor, formatDuration, iconFor, lengthFor, progressFor, shapeFor, useArtwork} from '../app/content';
-import {homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
+import {browseStart, homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
 import {useHome} from '../app/home';
 import {present} from '../app/errors';
 import {useSavedTitles} from '../app/saved-index';
@@ -19,10 +19,11 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentStackParams} from '../app/routes';
-import {Artwork, Backdrop, Button, Card, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useScreenTitle, useTheme, Wordmark} from '../ui';
+import {Artwork, Backdrop, Button, Card, cardFocusKey, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useScreenTitle, useTheme, Wordmark} from '../ui';
+import {BrowseStage, previewDuration, useBrowsePreview, useBrowsePreviewContext, useStageLayout, BrowsePreviewContext} from './BrowseStage';
+import type {BrowsePreviewStore} from '../app/browse-preview';
 import {indexTitles} from '../bridge/NativeActivity';
 import {ArtworkPlacementContext} from '../ui/ArtworkPipeline';
-import {useInvoker} from '../app/playback-events';
 import {usePlayerActions, type EntryOrigin} from '../app/player-actions';
 import {continueHiddenSnapshot, continueScope, hiddenFor, isContinueRow, onContinueChanged, settleContinueHidden, subscribeContinueHidden, withoutRemoved} from '../app/continue-watching';
 import {usePullToRefresh} from '../app/refresh';
@@ -74,7 +75,7 @@ export function HomeScreen() {
   const rows = useMemo(() => withoutRemoved(document?.rows ?? [], removed).map(r => withoutNotInterested(r, turnedDown)).filter(r => r.entries.length), [document, removed, turnedDown]);
   // The hero is the server's choice: the newer of the two Continue rows' first entries. A title
   // just removed from Continue Watching leaves the hero with the row.
-  const hero = useMemo(() => homeHero(document, i18n.t, {duration: heroDuration, hidden: removed}), [document, i18n, removed]);
+  const hero = useMemo(() => homeHero(document, i18n.t, {duration: previewDuration, hidden: removed}), [document, i18n, removed]);
   const heroArt = hero ? artwork(hero.entry.backdropUrl ?? hero.entry.posterUrl) : undefined;
   // The server sends its slower shelves as placeholders, filled in a moment later: until one has,
   // Home is still loading, not empty (it never flashes "Nothing here yet"). At most a few seconds, in
@@ -100,19 +101,65 @@ export function HomeScreen() {
     if (!row.libraryId && isRecommendationRow(row)) return () => navigation.push('HomeRow', {rowId: row.id, title: serverTextLabel(i18n, row.titleText, row.title)});
     return undefined;
   }, [navigation, i18n]);
+  // Television (Justin, 18 Oct 2026): browsing starts on the Continue card the server put first,
+  // else the first that resumes, else the first usable card; the preview describes it until focus moves.
+  const start = useMemo(() => (isTV ? browseStart(rows, document?.hero) : undefined), [isTV, rows, document?.hero]);
+  const preview = useBrowsePreview(`home\n${scope}`);
+  useEffect(() => {
+    if (!isTV) return;
+    const row = start ? rows[start.rowIndex] : undefined;
+    const entry = row && start ? row.entries[start.entryIndex] : undefined;
+    const first = row && entry ? {entry, group: row.id, resume: isContinueRowId(row.id) && !!entry.playback} : undefined;
+    if (!preview.getSnapshot().touched) preview.seed(first);
+    else preview.reconcile((group, id) => rows.find(r => r.id === group)?.entries.find(e => e.id === id), first);
+  }, [isTV, rows, start, preview]);
   const renderRow = useCallback(({item: row, index}: {item: HomeRow; index: number}) => (
-    <SectionView section={sectionOf(row)} row={index + 1} entryFocus={firstRowFocus && index === 0} origin={isContinueRow(row) ? 'continue_watching' : isRecommendationRow(row) ? 'recommendation' : undefined} onMore={row.nextCursor && !paging.has(row.id) ? () => void more(row.id) : undefined} onSeeAll={seeAllFor(row)} alwaysSeeAll={!!homeViewResourceId(row.id)} sequence={rowSequence(row)} />
-  ), [paging, more, firstRowFocus, seeAllFor]);
+    <SectionView section={sectionOf(row)} row={index + 1} entryFocus={start ? start.rowIndex === index : firstRowFocus && index === 0} entryIndex={start && start.rowIndex === index ? start.entryIndex : 0} origin={isContinueRow(row) ? 'continue_watching' : isRecommendationRow(row) ? 'recommendation' : undefined} onMore={row.nextCursor && !paging.has(row.id) ? () => void more(row.id) : undefined} onSeeAll={seeAllFor(row)} alwaysSeeAll={!!homeViewResourceId(row.id)} sequence={rowSequence(row)} />
+  ), [paging, more, firstRowFocus, seeAllFor, start]);
+  const stage = useStageLayout(0);
   const heroHeight = metrics.heroHeight;
   const topInset = useSafeAreaInsets().top;
   // Home refreshes whenever the app or this screen comes back (not only after five minutes): it is
   // where Continue Watching and what was just added are expected to be current.
   const pull = usePullToRefresh(refresh);
+  const customiseButton = document && !loadingFirst ? <View style={{paddingHorizontal: space.page, paddingBottom: space.xl, alignItems: 'flex-end'}}><Button size="sm" variant="ghost" icon="settings" label={i18n.t('home.customize.action')} focusKey="action:customise" onPress={() => setCustomise(true)} /></View> : null;
+  if (isTV) {
+    // The preview stays above; the rows move by focus beneath it. Loading, a failure and an empty
+    // Home take the rows' place, and what they offer (Try again) can be reached from the rail.
+    const notice = loadingFirst || !document ? null
+      : state.phase === 'loading' && state.staleRefresh ? <Notice tone="warning" message={i18n.t('error.changed')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginTop: space.sm}} />
+      : state.phase === 'error' ? <Notice tone="warning" message={failure.body} action={failure.actionLabel} onAction={failure.actionLabel ? refresh : undefined} style={{marginHorizontal: space.page, marginTop: space.sm}} />
+      : null;
+    const body = loadingFirst ? <LoadingShelves />
+      : state.phase === 'error' && !document ? <StateView icon="warning" title={failure.title} message={failure.body} action={failure.actionLabel} onAction={failure.actionLabel ? refresh : undefined} />
+      : document && !rows.length ? <><HomeEmpty />{customiseButton}</>
+      : !document ? <LoadingShelves />
+      : undefined;
+    return (
+      <BrowsePreviewContext.Provider value={preview}>
+        <View style={{flex: 1}}>
+          <BrowseStage
+            store={preview}
+            layout={stage}
+            identity={{eyebrow: system?.name ?? i18n.t('web.home.serverFallback'), title: i18n.t('web.shell.home')}}
+            loading={loadingFirst}
+            notice={notice}
+            rows={rows}
+            keyExtractor={homeRowKey}
+            renderRow={renderRow}
+            initialRows={(start?.rowIndex ?? 0) + 2}
+            footer={customiseButton}
+            body={body}
+            focusRows={HOME_FOCUS_ROWS}
+          />
+          {document ? <HomeCustomise open={customise} onClose={() => setCustomise(false)} onSave={saveLayout} onReset={resetLayout} loadLayout={loadLayout} /> : null}
+        </View>
+      </BrowsePreviewContext.Provider>
+    );
+  }
   return (
     <View style={{flex: 1}}>
       {!isTV ? <HeaderUtilities backed={scrolled} /> : null}
-      {/* Television: the backdrop stays behind the rows (the page moves by focus). Touch: it is part of the page and scrolls away with it. */}
-      {hero && isTV ? <HeroArt hero={hero} source={heroArt} height={heroHeight + 120} /> : null}
       <PageList
         refreshControl={pull}
         onScroll={e => { const y = e.nativeEvent.contentOffset.y > 8; if (y !== scrolled) setScrolled(y); }}
@@ -149,7 +196,7 @@ export function HomeScreen() {
         ListFooterComponent={
           <>
             {document && !rows.length && !hero && !loadingFirst ? <HomeEmpty /> : null}
-            {document && !loadingFirst ? <View style={{paddingHorizontal: space.page, paddingBottom: space.xl, alignItems: 'flex-end'}}><Button size="sm" variant="ghost" icon="settings" label={i18n.t('home.customize.action')} onPress={() => setCustomise(true)} /></View> : null}
+            {customiseButton}
           </>
         }
       />
@@ -157,6 +204,10 @@ export function HomeScreen() {
     </View>
   );
 }
+
+const homeRowKey = (row: HomeRow) => row.id;
+/** Home's rows for focus coming back after playback: a row is its id, numbered from 1 (the artwork rows). */
+const HOME_FOCUS_ROWS = {group: (row: HomeRow) => row.id, first: (row: HomeRow) => row.entries[0]?.id, base: 1} as const;
 
 /** A Home row of songs, episodes or parts plays on from the one pressed: the whole row as Home holds it, from the server. */
 function rowSequence(row: HomeRow): SequenceContainer | undefined {
@@ -186,8 +237,6 @@ function HeroSkeleton() {
 /** How long Home waits for its first shelf before it says there is nothing here. */
 const PENDING_SHELVES_MS = 10_000;
 
-/** APL-HOME-02: no "1m" for a short clip. */
-const heroDuration = (seconds: number) => (seconds >= 120 ? formatDuration(seconds) : '');
 
 /** Behind the hero: wide artwork as it is, or a softened copy of the cover when that is all there is. */
 function HeroArt({hero, source, height}: {hero: HomeHero; source?: ImageSourcePropType; height: number}) {
@@ -210,7 +259,6 @@ export function Hero({hero, eyebrow, cover, onPlay, onDetails}: {hero: HomeHero;
   const i18n = useI18n();
   const {space, isTV, metrics, window} = useTheme();
   const initial = useInitialFocus();
-  const invoker = useInvoker();
   const {entry} = hero;
   const coverWidth = isTV ? 260 : 112;
   return (
@@ -231,7 +279,7 @@ export function Hero({hero, eyebrow, cover, onPlay, onDetails}: {hero: HomeHero;
       ) : null}
       {hero.progress > 0 ? <ProgressBar value={hero.progress} style={{marginTop: space.md, maxWidth: isTV ? 420 : 240}} /> : null}
       <View style={{flexDirection: 'row', gap: space.sm, marginTop: space.lg}}>
-        <Button ref={invoker.ref} variant="primary" icon="play" label={hero.playLabel} onPress={() => { invoker.remember(); onPlay(); }} hasTVPreferredFocus={initial} size={isTV ? 'lg' : 'md'} />
+        <Button variant="primary" icon="play" label={hero.playLabel} focusKey="action:play" onPress={onPlay} hasTVPreferredFocus={initial} size={isTV ? 'lg' : 'md'} />
         <Button variant="secondary" icon="info" label={i18n.t('action.details')} onPress={onDetails} size={isTV ? 'lg' : 'md'} />
       </View>
     </View>
@@ -239,13 +287,21 @@ export function Hero({hero, eyebrow, cover, onPlay, onDetails}: {hero: HomeHero;
 }
 
 /** One title's card. Its handlers are made here, once per entry, so the memoised Card holds. */
-const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred, libraryId, origin, open, artwork, resume, detailLine}: {entry: ContentEntry; /** A Continue Watching card: what is left as the caption (an episode reads as everywhere else). */ resume?: boolean; /** The row holds an episode: every card keeps room for its third line. */ detailLine?: boolean; /** X-14: one geometry per row. */ shape: ReturnType<typeof shapeFor>; width?: number; preferred: boolean; libraryId?: string; origin?: EntryOrigin; open: ReturnType<typeof useOpenEntry>; artwork: ReturnType<typeof useArtwork>}) {
-  const onPress = useCallback(() => open(entry, 'open', libraryId), [open, entry, libraryId]);
+const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred, libraryId, origin, open, artwork, resume, detailLine, group, row, column, preview}: {entry: ContentEntry; /** A Continue Watching card: what is left as the caption (an episode reads as everywhere else). */ resume?: boolean; /** The row holds an episode: every card keeps room for its third line. */ detailLine?: boolean; /** X-14: one geometry per row. */ shape: ReturnType<typeof shapeFor>; width?: number; preferred: boolean; libraryId?: string; origin?: EntryOrigin; open: ReturnType<typeof useOpenEntry>; artwork: ReturnType<typeof useArtwork>; /** The row (section) the card is in, for its focus name. */ group: string; row: number; column: number; /** TV browsing: the preview that describes the card with focus. */ preview: BrowsePreviewStore | null}) {
+  const {isTV} = useTheme();
+  // TV (Justin, 18 Oct 2026): Select on a Continue card resumes it; any other card opens its page.
+  // The long press (Menu) still has Details, Play from start and the rest.
+  const resumes = isTV && !!resume && !!entry.playback;
+  const onPress = useCallback(() => (resumes ? open(entry, 'play') : open(entry, 'open', libraryId)), [open, entry, libraryId, resumes]);
   const onLongPress = useCallback(() => open(entry, 'more', libraryId, origin), [open, entry, libraryId, origin]);
+  const onFocus = useMemo(() => (preview ? () => preview.show({entry, group, resume: resumes}) : undefined), [preview, entry, group, resumes]);
+  const place = useMemo(() => ({row, column}), [row, column]);
   const lines = cardLinesFor(entry, resume);
   return (
     <Card
       hasTVPreferredFocus={preferred}
+      focusKey={cardFocusKey(group, entry.id)}
+      focusPlace={place}
       title={lines.title}
       subtitle={lines.caption}
       detail={lines.detail}
@@ -260,6 +316,7 @@ const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred,
       icon={entry.posterUrl || entry.backdropUrl ? undefined : iconFor(entry.kind)}
       onPress={onPress}
       onLongPress={onLongPress}
+      onFocus={onFocus}
     />
   );
 });
@@ -267,7 +324,7 @@ const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred,
 const shapeFamilies = new Set<string>(['movie', 'tv', 'anime', 'audiobook', 'music']);
 
 /** One card geometry per section (X-14) and a stable card renderer for shelves, grids and paged grids. */
-export function useSectionCards(entries: readonly ContentEntry[], libraryId?: string, entryFocus = false, placement?: {row: number; group?: string}, origin?: EntryOrigin) {
+export function useSectionCards(entries: readonly ContentEntry[], libraryId?: string, entryFocus = false, placement?: {row: number; group?: string}, origin?: EntryOrigin, /** The card that takes the entry focus, when it is not the first. */ entryIndex = 0) {
   const {metrics, isTV} = useTheme();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -287,11 +344,13 @@ export function useSectionCards(entries: readonly ContentEntry[], libraryId?: st
   const resume = !!group && isContinueRowId(group);
   // An episode's card has three lines (show, episode, "S1 · E3"): its row keeps room for them on every card.
   const detailLine = entries.some(entry => entry.kind === 'episode');
+  // TV browsing: the card with focus is described by the screen's preview (none on a grid).
+  const preview = useBrowsePreviewContext();
   const renderCard = useCallback((entry: ContentEntry, w?: number, index = -1) => (
     <ArtworkPlacementContext.Provider value={{row, group, column: Math.max(0, index)}}>
-      <EntryCard entry={entry} shape={shape} width={w} preferred={isTV && claim && index === 0} libraryId={libraryId} origin={origin} open={open} artwork={artwork} resume={resume} detailLine={detailLine} />
+      <EntryCard entry={entry} shape={shape} width={w} preferred={isTV && claim && index === entryIndex} libraryId={libraryId} origin={origin} open={open} artwork={artwork} resume={resume} detailLine={detailLine} group={group ?? 'cards'} row={row} column={Math.max(0, index)} preview={preview} />
     </ArtworkPlacementContext.Provider>
-  ), [shape, isTV, claim, libraryId, origin, open, artwork, row, group, resume, detailLine]);
+  ), [shape, isTV, claim, libraryId, origin, open, artwork, row, group, resume, detailLine, entryIndex, preview]);
   return {shape, width, renderCard, open, artwork};
 }
 
@@ -305,10 +364,10 @@ export function sectionTitle(i18n: Pick<I18n, 't' | 'has'>, heading: ContentSect
   return heading.key.startsWith('home.row.') ? serverTextLabel(i18n, heading, heading.fallback) : heading.fallback;
 }
 
-export function SectionView({section, onSeeAll, onMore, hideTitle = false, libraryId, entryFocus = false, loadingMore = false, row, origin, alwaysSeeAll = false, sequence}: {/** The list as the server's query: a pressed row plays it whole on from there, not just what is loaded. */ sequence?: SequenceContainer; /** See all even when the row shows everything it has (a saved view's page holds more). */ alwaysSeeAll?: boolean; /** Position on the screen, for artwork order. */ row?: number; /** X-12: the cards' place, for their long-press menu. */ origin?: EntryOrigin; /** The first card takes focus when the screen opens. */ entryFocus?: boolean; section: ContentSection; onSeeAll?: () => void; onMore?: () => void; hideTitle?: boolean; /** The library this section belongs to, for entries the server did not stamp (engine results). */ libraryId?: string; loadingMore?: boolean}) {
+export function SectionView({section, onSeeAll, onMore, hideTitle = false, libraryId, entryFocus = false, entryIndex = 0, loadingMore = false, row, origin, alwaysSeeAll = false, sequence}: {/** With `entryFocus`, the card that takes it (browsing starts on a Continue card that is not the first). */ entryIndex?: number; /** The list as the server's query: a pressed row plays it whole on from there, not just what is loaded. */ sequence?: SequenceContainer; /** See all even when the row shows everything it has (a saved view's page holds more). */ alwaysSeeAll?: boolean; /** Position on the screen, for artwork order. */ row?: number; /** X-12: the cards' place, for their long-press menu. */ origin?: EntryOrigin; /** The first card takes focus when the screen opens. */ entryFocus?: boolean; section: ContentSection; onSeeAll?: () => void; onMore?: () => void; hideTitle?: boolean; /** The library this section belongs to, for entries the server did not stamp (engine results). */ libraryId?: string; loadingMore?: boolean}) {
   const {space} = useTheme();
   const i18n = useI18n();
-  const {width, renderCard, open, artwork} = useSectionCards(section.entries, libraryId, entryFocus, {row: row ?? 0, group: section.id}, origin);
+  const {width, renderCard, open, artwork} = useSectionCards(section.entries, libraryId, entryFocus, {row: row ?? 0, group: section.id}, origin, entryIndex);
   const player = usePlayerActions();
   const first = section.entries[0];
   const renderShelfCard = useCallback(({item, index}: {item: ContentEntry; index: number}) => renderCard(item, undefined, index), [renderCard]);
@@ -320,7 +379,7 @@ export function SectionView({section, onSeeAll, onMore, hideTitle = false, libra
         {!hideTitle ? <Text variant="heading" style={{marginBottom: space.sm}}>{title}</Text> : null}
         {section.entries.map(entry => (
           // APL-AUDIO-03: a track plays (with the rest of the list queued after it); details stay one long-press away.
-          <ListRow key={entry.id} title={entry.title} subtitle={captionFor(entry)} meta={lengthFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} progress={progressFor(entry)} watched={entry.watched} unavailable={entry.available === false}
+          <ListRow key={entry.id} focusKey={cardFocusKey(section.id, entry.id)} title={entry.title} subtitle={captionFor(entry)} meta={lengthFor(entry)} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape={shapeFor(entry.kind)} progress={progressFor(entry)} watched={entry.watched} unavailable={entry.available === false}
             onPress={() => {
               if (sequence && entry.playback) player.playSequence([entry], 0, 0, sequence);
               else if ((entry.kind === 'song' || entry.kind === 'audiobook_file') && entry.playback) {
@@ -343,10 +402,13 @@ export function SectionView({section, onSeeAll, onMore, hideTitle = false, libra
       </View>
     );
   }
-  return <Shelf title={title} data={section.entries} itemWidth={width} keyExtractor={e => e.id} renderItem={renderShelfCard} onSeeAll={section.totalCount > section.entries.length || section.seeAll || alwaysSeeAll ? onSeeAll : undefined} seeAllLabel={section.totalCount ? i18n.t('shelf.seeAllCount', {count: i18n.number(section.totalCount)}) : i18n.t('shelf.seeAll')} onEndReached={onMore} />;
+  return <Shelf title={title} data={section.entries} itemWidth={width} keyExtractor={entryKey} renderItem={renderShelfCard} focusGroup={section.id} initialIndex={entryFocus ? entryIndex : undefined} onSeeAll={section.totalCount > section.entries.length || section.seeAll || alwaysSeeAll ? onSeeAll : undefined} seeAllLabel={section.totalCount ? i18n.t('shelf.seeAllCount', {count: i18n.number(section.totalCount)}) : i18n.t('shelf.seeAll')} onEndReached={onMore} />;
 }
 
-function LoadingShelves() {
+const entryKey = (entry: ContentEntry) => entry.id;
+
+/** The first rows' place while they are read. */
+export function LoadingShelves() {
   const {space, metrics} = useTheme();
   return (
     <View style={{paddingHorizontal: space.page, gap: space.xl}}>

@@ -8,7 +8,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import {formatDuration, progressFor, useArtwork} from '../../app/content';
 import {useI18n, type I18n} from '../../app/i18n';
 import {titleTintHue} from '../../../../../packages/client-core/src/presentation/index';
-import {Artwork, Button, Focusable, Icon, ProgressBar, ProgressLine, Skeleton, Text, alpha, useReportScroll, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
+import {cardFocusKey, Artwork, Button, Focusable, Icon, ProgressBar, ProgressLine, Skeleton, Text, alpha, useReportScroll, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
 import {ArtworkPlacementContext} from '../../ui/ArtworkPipeline';
 import {episodeCode} from './facts';
 import {episodeArt} from './layout';
@@ -482,7 +482,7 @@ export const EpisodeRowView = React.memo(function EpisodeRowView({entry, positio
   return (
     <View style={{height: geometry.height, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: inset ?? space.page}}>
       {landed ? <LandingPlate inset={space.page - space.sm} /> : null}
-      <Focusable ring={false} radius={metrics.radius.card} accessibilityRole="button" accessibilityLabel={label ? (playable ? i18n.t('card.play', {title: label}) : i18n.t('title.aboutEpisode', {title: label})) : undefined} onPress={entry ? (playable ? onPlay : onDetails) : undefined} onLongPress={entry && onMore ? () => onMore(entry) : undefined}>
+      <Focusable ring={false} radius={metrics.radius.card} focusKey={entry ? cardFocusKey('episodes', entry.id) : undefined} focusPlace={{column: position}} accessibilityRole="button" accessibilityLabel={label ? (playable ? i18n.t('card.play', {title: label}) : i18n.t('title.aboutEpisode', {title: label})) : undefined} onPress={entry ? (playable ? onPlay : onDetails) : undefined} onLongPress={entry && onMore ? () => onMore(entry) : undefined}>
         {({focused, hovered}) => (
           <View style={{borderRadius: metrics.radius.card, overflow: 'hidden'}}>
             {entry && still ? (

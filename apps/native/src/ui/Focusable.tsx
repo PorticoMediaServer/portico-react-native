@@ -3,6 +3,7 @@ import {Platform, Pressable, TVFocusGuideView, View, useTVEventHandler, type Acc
 import Animated, {useAnimatedStyle, useSharedValue, withTiming, Easing, type SharedValue} from 'react-native-reanimated';
 import {uiI18n} from './i18n';
 import {useTheme} from './theme';
+import {focusReturn, type FocusPlace, type FocusResolver} from './focus-return';
 
 export type FocusableState = {focused: boolean; hovered: boolean; pressed: boolean};
 
@@ -26,6 +27,13 @@ export type FocusableProps = Omit<PressableProps, 'children' | 'style'> & {
    * offers it to assistive technology as a named action too, so it never depends on holding.
    */
   longPressLabel?: string;
+  /**
+   * TV: this control's name on its screen (`cardFocusKey`, `action:play`), so focus can come back
+   * to it after the player it started has closed (`focus-return.ts`). Unnamed controls are not tracked.
+   */
+  focusKey?: string;
+  /** Where a named control sits (its row and column), for the neighbour to go to if it has gone. */
+  focusPlace?: FocusPlace;
 };
 
 /** `node` is the native view, for a focus guide's `destinations`. */
@@ -59,6 +67,20 @@ export function runFocusedMenu(): void {
  */
 export const PreferredFocusContext = React.createContext(false);
 
+/** The screen a named control belongs to (its route), for focus returning after playback. Outside a screen: the shell. */
+export const FocusScopeContext = React.createContext('shell');
+
+/**
+ * TV: a list that can bring one of its named controls back into view for focus returning after
+ * playback (`focus-return.ts`). The resolver reads the list as it is when asked, so pass one whose
+ * methods read refs, not a new one per render.
+ */
+export function useFocusResolver(resolver: FocusResolver | undefined): void {
+  const {isTV} = useTheme();
+  const scope = React.useContext(FocusScopeContext);
+  useEffect(() => (isTV && resolver ? focusReturn.addResolver(scope, resolver) : undefined), [isTV, resolver, scope]);
+}
+
 /**
  * The one interaction primitive. Owns focus (television), hover (pointer on
  * iPad), press, and the shared scale/ring animation so that every card,
@@ -66,7 +88,7 @@ export const PreferredFocusContext = React.createContext(false);
  * directly.
  */
 export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Focusable(
-  {children, style, radius = 8, scale, ring, disabled, busy = false, longPressLabel, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onStateChange, onPress, onLongPress, ...rest},
+  {children, style, radius = 8, scale, ring, disabled, busy = false, longPressLabel, focusKey, focusPlace, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onStateChange, onPress, onLongPress, ...rest},
   ref,
 ) {
   const {isTV, metrics, motion} = useTheme();
@@ -75,6 +97,15 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
   // RN's View exposes requestTVFocus (not focus); the next frame lets a
   // freshly mounted target finish layout before the focus engine looks at it.
   useImperativeHandle(ref, () => ({focus: () => { requestAnimationFrame(() => (inner.current as {requestTVFocus?: () => void} | null)?.requestTVFocus?.()); }, node: () => inner.current}), []);
+  // A named control is known to the focus-return registry while it is mounted (TV only).
+  const focusScope = React.useContext(FocusScopeContext);
+  const named = isTV && focusKey && !disabled ? focusKey : undefined;
+  const placeRow = focusPlace?.row;
+  const placeColumn = focusPlace?.column;
+  useEffect(() => {
+    if (!named) return;
+    return focusReturn.register(focusScope, named, {focus: () => requestAnimationFrame(() => (inner.current as {requestTVFocus?: () => void} | null)?.requestTVFocus?.())}, {row: placeRow, column: placeColumn});
+  }, [named, focusScope, placeRow, placeColumn]);
   const [state, setState] = useState<FocusableState>({focused: false, hovered: false, pressed: false});
   const focusScale = scale ?? metrics.focusScale;
   const progress = useSharedValue(0);
@@ -121,12 +152,14 @@ export const Focusable = forwardRef<FocusableHandle, FocusableProps>(function Fo
         update({focused: true});
         // The Menu key acts on whatever has focus (see `useMenuKey`).
         focusedMenu = {owner: menuOwner, run: () => heldNow.current?.({nativeEvent: {}} as GestureResponderEvent)};
+        if (named) focusReturn.focused(focusScope, named);
         onFocus?.(e);
       }}
       onBlur={e => {
         progress.value = withTiming(0, timing);
         update({focused: false});
         if (focusedMenu?.owner === menuOwner) focusedMenu = undefined;
+        if (named) focusReturn.blurred(focusScope, named);
         onBlur?.(e);
       }}
       onHoverIn={e => {

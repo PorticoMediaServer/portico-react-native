@@ -11,11 +11,10 @@ import {say} from '../../app/errors';
 import {useQuietRefresh} from '../../app/quiet-refresh';
 import {useI18n} from '../../app/i18n';
 import {useOpenEntry} from '../../app/open';
-import {useInvoker} from '../../app/playback-events';
 import {groupSequence, occurrenceSequence, savedSequence, sequenceContainer, type SequenceContainer} from '../../app/container-play';
 import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
-import {Card, CardRow, Divider, ListRow, Menu, Notice, PageList, PageRows, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem, type WindowedGridHandle} from '../../ui';
+import {cardFocusKey, Card, CardRow, Divider, ListRow, Menu, Notice, PageList, PageRows, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem, type WindowedGridHandle, type FocusableHandle} from '../../ui';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
 import {usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
@@ -31,20 +30,19 @@ import {moveRequest} from '../../../../../packages/client-core/src/presentation/
 
 const isOccurrence = (entry: SavedEntry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry';
 
-/** Plays a list from its first entry and remembers the control for TV focus return. */
+/** Plays a list from its first entry, with a ref to the page's primary control for its opening focus. */
 function usePlayList() {
   const player = usePlayerActions();
-  const invoker = useInvoker();
+  const playControl = useRef<FocusableHandle>(null);
   // `container`: the playlist, the collection or saved view, or the sorted or filtered list, as
   // one server request, however long (the server shuffles the whole of it for Shuffle). The
   // entries are what the player shows while it starts.
   const play = useCallback((list: readonly ContentEntry[], container: SequenceContainer | undefined) => {
     const playable = list.filter(e => e.playback);
     if (!playable.length) return;
-    invoker.remember();
     player.playSequence(playable, 0, 0, container);
-  }, [player, invoker]);
-  return {play, invoker};
+  }, [player]);
+  return {play, playControl};
 }
 
 /**
@@ -60,7 +58,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
-  const {play, invoker} = usePlayList();
+  const {play, playControl} = usePlayList();
   const {snapshot, refresh, retry, next, mutate, loadOrder} = usePlaylist(playlistId);
   // The server says the list changed under the screen: it is read again quietly, and only a list still refused says so.
   const changedStuck = useQuietRefresh(snapshot.phase === 'refresh-required', refresh);
@@ -209,6 +207,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
         {index > 0 ? <Divider inset={space.sm} /> : null}
         <ListRow
           ordinal={ordinal}
+          focusKey={cardFocusKey('list', m.id)}
           title={m.title}
           subtitle={captionFor(m)}
           meta={formatDuration(m.duration) || undefined}
@@ -250,7 +249,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
         ListHeaderComponent={
           <View onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}>
             <TitleHero
-              ref={invoker.ref}
+              ref={playControl}
               loading={!playlist && snapshot.phase === 'loading'}
               art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'square', icon: cover ? undefined : 'queue', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
               eyebrow={i18n.t('title.kind', {kind: 'playlist'})}
@@ -296,7 +295,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
-  const {play, invoker} = usePlayList();
+  const {play, playControl} = usePlayList();
   const {snapshot, refresh, next, mutate, outcome} = useSavedResource(resourceId);
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width), []);
@@ -365,7 +364,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const {columns, columnWidth} = gridColumns(gridWidth, metrics.posterWidth, space.gutter);
   // The cards are rows of the page's own list: only the rows near the viewport are mounted.
   const rows = useMemo(() => cardRows(media, columns, mediaKey), [media, columns]);
-  const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => (editable && entryOf.has(m.id) ? setEntryMenu(m) : open(m, 'more'))} />, [artwork, open, editable, entryOf]);
+  const renderCard = useCallback((m: ContentEntry, w: number) => <Card focusKey={cardFocusKey('media', m.id)} title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => (editable && entryOf.has(m.id) ? setEntryMenu(m) : open(m, 'more'))} />, [artwork, open, editable, entryOf]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
     <View style={{flex: 1, backgroundColor: colors.ink}} onLayout={onLayout}>
@@ -387,7 +386,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
         ListHeaderComponent={
           <>
             <TitleHero
-              ref={invoker.ref}
+              ref={playControl}
               loading={!resource && snapshot.loading}
               art={{source: cover ? artwork(cover.posterUrl) : undefined, shape: 'poster', icon: cover ? undefined : view ? 'filter' : 'collection', mosaic: mosaic?.length ? mosaic.map(p => artwork(p)) : undefined}}
               eyebrow={view ? i18n.t('title.savedView') : resource?.visibility === 'server' ? i18n.t('title.sharedCollection') : i18n.t('title.kind', {kind: 'collection'})}

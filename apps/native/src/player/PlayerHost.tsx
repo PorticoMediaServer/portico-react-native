@@ -3,6 +3,8 @@ import {View} from 'react-native';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {PlayerActionsContext, PlayerVisibilityContext, PlayingItemContext, type EntryOrigin, type PlayerActions} from '../app/player-actions';
 import {useTheme} from '../ui';
+import {usePlayerFocusReturn} from '../app/playback-events';
+import {useSession} from '../app/session';
 import {ConfirmSheet} from '../ui';
 import {useI18n} from '../app/i18n';
 import {EntryMenu} from './EntryMenu';
@@ -67,6 +69,10 @@ export function PlayerHost({children, bottom, onOpen, onTogether, intents, signe
   if (intents) intents.current = actions;
   const showFull = engine.active && (engine.expanded || (!engine.isAudio && !engine.pipActive));
   const showMini = engine.active && !showFull && engine.isAudio;
+  // TV-PLAYER-03: the origin the engine captured belongs to this viewer only, and focus goes back
+  // to it once the player no longer covers the screens (closed, or audio sent to the pill).
+  const {session} = useSession();
+  usePlayerFocusReturn(showFull, signedOut ? 'signed-out' : session ? [session.viewer.serverId, session.viewer.accountId, session.viewer.profileId].join('\n') : '', isTV);
   // APP-06: video in Picture in Picture draws nothing here, but the player must
   // stay mounted — it owns the native PiP controller and is the only route for
   // the `stopped` and `restore` events that bring the full player back.

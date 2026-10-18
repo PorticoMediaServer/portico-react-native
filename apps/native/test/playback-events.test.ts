@@ -1,8 +1,8 @@
-/** APL-HOME-03 / TV-PLAYER-03: progress broadcasts and invoker focus return. */
+/** APL-HOME-03 / TV-PLAYER-03: progress broadcasts, and focus going back when the player closes. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHookHost, act} from './hook-driver.ts';
-import {emitPlaybackChange, rememberInvoker, restoreInvoker, useRefreshOnPlayback} from '../src/app/playback-events.ts';
+import {emitPlaybackChange, focusReturn, usePlayerFocusReturn, useRefreshOnPlayback} from '../src/app/playback-events.ts';
 
 test('a progress change refreshes every subscriber once, debounced', (t) => {
   t.mock.timers.enable({apis: ['setTimeout'], now: 1_800_000_000_000});
@@ -38,23 +38,51 @@ test('a progress change refreshes every subscriber once, debounced', (t) => {
   t.mock.timers.reset();
 });
 
-test('focus returns to the control that started playback', (t) => {
-  t.mock.timers.enable({apis: ['setTimeout'], now: 1_800_000_000_000});
-  // No invoker remembered: nothing scheduled, nothing thrown.
-  restoreInvoker();
-  t.mock.timers.tick(10000);
-  let focused = 0;
-  const handle = {focus: () => focused++};
-  rememberInvoker(handle);
-  restoreInvoker();
-  assert.equal(focused, 0, 'focus returns after a beat, not synchronously');
-  t.mock.timers.tick(250);
-  assert.equal(focused, 1);
-  rememberInvoker(null);
-  restoreInvoker();
-  t.mock.timers.tick(10000);
-  assert.equal(focused, 1, 'clearing the invoker cancels the return');
-  t.mock.timers.reset();
+test('focus goes back once the player stops covering the screens, for the viewer it was captured for', () => {
+  focusReturn.setOwner('');
+  let covering = false;
+  let viewer = 'server\naccount\nprofile-a';
+  let asked = 0;
+  const unregister = focusReturn.register('home', 'action:play', {focus: () => { asked++; focusReturn.focused('home', 'action:play'); }});
+  const host = createHookHost(() => usePlayerFocusReturn(covering, viewer, true));
+  host.mount();
+  focusReturn.focused('home', 'action:play');
+  assert.ok(focusReturn.capture(), 'captured as playback starts');
+  covering = true;
+  host.rerender();
+  assert.equal(focusReturn.state().returning, undefined, 'nothing returns while the player covers the screens');
+  covering = false;
+  host.rerender();
+  assert.ok(focusReturn.state().returning, 'the player closed: the return is under way');
+  focusReturn.cancel();
+  // A new viewer forgets the origin before the player closes.
+  focusReturn.focused('home', 'action:play');
+  focusReturn.capture();
+  covering = true;
+  host.rerender();
+  viewer = 'server\naccount\nprofile-b';
+  host.rerender();
+  covering = false;
+  host.rerender();
+  assert.equal(focusReturn.state().returning, undefined);
+  assert.equal(asked, 0);
+  host.unmount();
+  unregister();
+  focusReturn.setOwner('');
+});
+
+test('off television the player never moves focus', () => {
+  focusReturn.setOwner('viewer');
+  let covering = true;
+  const host = createHookHost(() => usePlayerFocusReturn(covering, 'viewer', false));
+  host.mount();
+  focusReturn.focused('shell', 'action:now-playing');
+  focusReturn.capture();
+  covering = false;
+  host.rerender();
+  assert.equal(focusReturn.state().returning, undefined);
+  host.unmount();
+  focusReturn.setOwner('');
 });
 
 test('broadcasts never throw, even with no subscribers', () => {

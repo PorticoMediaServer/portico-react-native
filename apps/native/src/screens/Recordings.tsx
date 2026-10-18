@@ -115,6 +115,7 @@ export function RecordingsScreen({eyebrow, picker}: {/** Channels (Spec §2.0): 
     return (
       <ListRow
         key={r.id}
+        focusKey={`recording:${r.id}`}
         hasTVPreferredFocus={claim && r.id === (focusId ?? firstId)}
         source={poster}
         shape="poster"

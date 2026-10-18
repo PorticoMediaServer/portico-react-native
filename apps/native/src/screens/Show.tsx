@@ -18,12 +18,12 @@ import {say} from '../app/errors';
 import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n} from '../app/i18n';
 import {repairTargetFor, useMetadataEditor} from '../app/metadata-editor';
-import {useInvoker, useRefreshOnPlayback} from '../app/playback-events';
+import {useRefreshOnPlayback} from '../app/playback-events';
 import {episodeGroupSequence, groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import type {ContentStackParams} from '../app/routes';
 import {useSession} from '../app/session';
-import {Button, ListRow, Notice, Page, PersonCard, Sheet, Shelf, Skeleton, StateView, Switch, showToast, useEntryFocus, useTheme, type IconName, type MenuItem} from '../ui';
+import {Button, ListRow, Notice, Page, PersonCard, Sheet, Shelf, Skeleton, StateView, Switch, showToast, useEntryFocus, useTheme, type IconName, type MenuItem, type FocusableHandle} from '../ui';
 import {EpisodeBrowser, EpisodeList, EpisodeTintContext, useEpisodeRowGeometry, type EpisodeListHandle, type EpisodeMarks, type RenderDetails} from './title/Episodes';
 import {TitleDetails} from './title/TitleDetails';
 import {useTitleTools} from './server/TitleTools';
@@ -76,7 +76,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   // Editing is the owner's, however they signed in (the server authorises both alike).
   const canEdit = !isTV && session?.viewer.role === 'owner';
   const owner = session?.viewer.role === 'owner';
-  const invoker = useInvoker();
+  const playControl = useRef<FocusableHandle>(null);
   const listRef = useRef<EpisodeListHandle>(null);
   const [railJump, setRailJump] = useState<{index: number; focus?: boolean}>();
   const data = snapshot.data;
@@ -228,14 +228,13 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
     }
     if (!queue.length) return;
     startedHere.current = new Set(queue.map(e => e.id));
-    invoker.remember();
     // On Playback v1 the season plays as one server request from this episode; episodes the
     // viewer has sorted or filtered play on in the order shown, the whole list from the server's
     // query. An episode group that isn't a season (a range, its specials, its whole list) plays
     // whole as the server's query too, in the show's order.
     const groupPlayed = data?.selected.group ? episodeGroupSequence(libraryId, data.show.id, data.selected.group) : undefined;
     player.playSequence(queue, 0, startSeconds, sortedOn ? groupSequence(group) : groupPlayed ?? sequenceContainer('season', data?.selected.seasonId ?? undefined));
-  }, [list, total, player, invoker, data?.selected.seasonId, data?.selected.group, data?.show.id, libraryId, sortedOn, group]);
+  }, [list, total, player, data?.selected.seasonId, data?.selected.group, data?.show.id, libraryId, sortedOn, group]);
   const startOf = (e: ContentEntry) => (e.watched ? 0 : e.playback?.startSeconds ?? e.progressSeconds ?? 0);
   // The still plays; the text opens the episode in place and closes it again (one open at a time).
   const toggle = useCallback((index: number) => {
@@ -324,7 +323,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
       // "Play season" is the season from its first episode, also while the list is sorted another way.
       const first = loaded.find(e => e.playback);
       if (!sortedOn) playAt(0, 0);
-      else if (first) { invoker.remember(); player.playSequence([first], 0, 0, sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group})); }
+      else if (first) { player.playSequence([first], 0, 0, sequenceContainer('season', data?.selected.seasonId ?? undefined, {group: !!data?.selected.group})); }
     }
     else if (id === 'settings') setShowSettings(true);
     else if (id === 'watched' || id === 'unwatched') void markSeason(id === 'watched');
@@ -342,7 +341,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   // Opened for an episode, television puts focus on that episode's row instead.
   const forEpisode = !!episodeId;
   useEffect(() => {
-    if (isTV && claim && primaryPlayable && !forEpisode) invoker.ref.current?.focus();
+    if (isTV && claim && primaryPlayable && !forEpisode) playControl.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTV, claim, primaryPlayable]);
   const code =primaryEntry ? episodeCode(i18n, primaryEntry) : '';
@@ -357,7 +356,6 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
       const at = sortedOn ? -1 : loaded.findIndex(e => e.id === primaryEntry.id);
       if (at >= 0) { playAt(at, primaryResumes ? startOf(primaryEntry) : 0); return; }
       if (!primaryEntry.playback || !show) return;
-      invoker.remember();
       player.playSequence([primaryEntry], 0, primaryResumes ? startOf(primaryEntry) : 0, sequenceContainer('show', show.id));
     },
   } : undefined;
@@ -381,7 +379,7 @@ export function ShowScreen({route}: {route: RouteProp<ContentStackParams, 'Show'
   const genreLinks = show?.genres?.length ? {names: dedupeNames(show.genres), onPress: (name: string) => navigation.push('Library', {libraryId: show.libraryId, tab: 'browse' as const, genre: name})} : undefined;
   const hero = (
     <TitleHero
-      ref={invoker.ref}
+      ref={playControl}
       loading={!show}
       backdrop={show?.backdropUrl ? artwork(show.backdropUrl) : undefined}
       art={show ? {source: artwork(show.posterUrl), shape: 'poster', icon: 'tv'} : undefined}

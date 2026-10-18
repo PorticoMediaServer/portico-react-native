@@ -12,7 +12,7 @@ export type TabItem = {id: string; label: string};
  * an animated accent underline. A tab is chosen by pressing it, on every platform: moving
  * focus across the strip on television changes nothing.
  */
-export function Tabs({items, selected, onSelect, style, entryFocus = true}: {items: readonly TabItem[]; selected: string; onSelect: (id: string) => void; style?: object; /** False where the content below, not the strip, should take focus when the screen opens. */ entryFocus?: boolean}) {
+export function Tabs({items, selected, onSelect, style, entryFocus = true, inset}: {items: readonly TabItem[]; selected: string; onSelect: (id: string) => void; style?: object; /** False where the content below, not the strip, should take focus when the screen opens. */ entryFocus?: boolean; /** The strip's own side padding, where something sits beside it (a library's name); the page's gutter otherwise. */ inset?: number}) {
   const {colors, space, isTV, motion, metrics} = useTheme();
   const [layouts, setLayouts] = useState<Record<string, {x: number; width: number}>>({});
   const initial = useInitialFocus();
@@ -28,7 +28,7 @@ export function Tabs({items, selected, onSelect, style, entryFocus = true}: {ite
   const underline = useAnimatedStyle(() => ({transform: [{translateX: x.value}], width: w.value}));
   return (
     <View style={[{borderBottomWidth: 1, borderBottomColor: colors.lineSoft}, style]}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: space.page - space.sm}}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: inset ?? space.page - space.sm}}>
         <View style={{flexDirection: 'row'}}>
           {items.map((item, index) => {
             const active = item.id === selected;

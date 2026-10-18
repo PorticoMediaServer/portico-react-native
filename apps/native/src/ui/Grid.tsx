@@ -129,6 +129,8 @@ export type WindowedGridProps<T> = {
   refreshControl?: React.ReactElement<RefreshControlProps>;
   /** False when something pinned above the grid already clears the status bar (touch only). */
   topInset?: boolean;
+  /** Something pinned above the grid clears the top on every platform (a TV library's strip): no top padding at all. */
+  pinnedAbove?: boolean;
 };
 
 /**
@@ -138,7 +140,7 @@ export type WindowedGridProps<T> = {
  * page arrives, and unloaded cells are placeholders with stable keys. The visible range is
  * reported to the store, which fetches, prefetches and evicts pages.
  */
-function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, header, footer, gap, contentStyle, generation = 0, refreshControl, topInset = true}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, header, footer, gap, contentStyle, generation = 0, refreshControl, topInset = true, pinnedAbove = false}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const {space, window, isTV, metrics} = useTheme();
   const insets = useSafeAreaInsets();
   const [measured, setMeasured] = useState(0);
@@ -158,7 +160,7 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
   const columnWidth = Math.floor((available - spacing * (columns - 1)) / columns);
   const rows = total === undefined ? 2 : Math.ceil(total / columns);
   const rowStride = rowHeight || columnWidth * aspect + 56 + space.lg;
-  const topPad = isTV ? Math.max(insets.top, 60) - space.lg : topInset ? insets.top : 0;
+  const topPad = pinnedAbove ? 0 : isTV ? Math.max(insets.top, 60) - space.lg : topInset ? insets.top : 0;
   React.useImperativeHandle(ref, () => ({
     scrollToIndex: (index: number) => {
       const row = Math.floor(index / columns);

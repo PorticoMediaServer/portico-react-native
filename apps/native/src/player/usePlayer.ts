@@ -22,7 +22,7 @@ import {playerSettingsSupport} from '../bridge/native-listening-kinds';
 import {containerPlay, type SequenceContainer} from '../app/container-play';
 import {queueItemInput} from '../../../../packages/client-core/src/queue-controller';
 import {useSession} from '../app/session';
-import {emitPlaybackChange, restoreInvoker} from '../app/playback-events';
+import {emitPlaybackChange, focusReturn} from '../app/playback-events';
 import {audioEffectsAvailability, musicAudioEffects} from '../../../../packages/client-core/src/music-preferences';
 import {publishAudioRenderAvailability} from '../app/audio-render-status';
 import {useServerPreferences} from '../app/server-preferences';
@@ -132,6 +132,9 @@ export function usePlayerEngine() {
   const setGroupControl = useCallback((control: GroupControl | null) => { groupControl.current = control; }, []);
   const [identity, setIdentity] = useState<NowPlaying>({title: ''});
   const [expanded, setExpanded] = useState(false);
+  const covering = useRef(false);
+  /** TV-PLAYER-03: a start from the screens names the control it came from, for focus to return to (`focusReturn`). */
+  const captureOrigin = useCallback(() => { if (Platform.isTV && !covering.current) focusReturn.capture(); }, []);
   const [pipRequest, setPipRequest] = useState(0);
   const [pipActive, setPipActive] = useState(false);
   /* M27 Dolby Vision warning: pending play intent awaiting confirmation, and item ids already
@@ -645,6 +648,9 @@ export function usePlayerEngine() {
   }, [playbackState.nativeListening?.owner, playbackState.session?.id, playbackState.itemId, identity]);
 
   const active = playbackState.phase !== 'idle';
+  // TV: the player covers the screens while it is up (video, or audio opened full). A start asked
+  // for from inside it (the next episode, another channel) keeps the origin captured when it opened.
+  covering.current = active && (expanded || !isAudio) && !pipActive;
 
   /* APP-07: the item whose presentation identity is deliberately on screen.
    *
@@ -741,6 +747,7 @@ export function usePlayerEngine() {
   useEffect(() => () => stopPausedStart.current(), [playback]);
   const play = useCallback(
     (itemId: string, startSeconds: number, entry?: ContentEntry, start?: Readonly<{/** Begin paused: the title is loaded and shows its frame, silent, until someone presses Play (a Watch Together room that is paused). */ paused?: boolean}>) => {
+      captureOrigin();
       const mine = ++intent.current;
       setDolbyPending(null);
       // Armed before the load is asked for, so the first thing the engine hears of the title is "paused".
@@ -753,12 +760,13 @@ export function usePlayerEngine() {
         else setDolbyPending({intent: mine, kind: 'single', itemId, startSeconds, entry});
       });
     },
-    [startSingle, checkDolbyFor, playback],
+    [startSingle, checkDolbyFor, playback, captureOrigin],
   );
   /** OS-07: play a download in this player. What it shows comes from the download itself (no
    * library, so no quality ladder or audio choices), and its progress stays on the device. */
   const playOffline = useCallback(
     async (pendingMedia: LocalMedia | Promise<LocalMedia>, display: OfflineDisplay) => {
+      captureOrigin();
       const mine = ++intent.current;
       setDolbyPending(null);
       const media = await pendingMedia;
@@ -772,10 +780,11 @@ export function usePlayerEngine() {
       setExpanded(true);
       return playLocal(media);
     },
-    [playLocal],
+    [playLocal, captureOrigin],
   );
   const tune = useCallback(
     (channel: GuideChannel, lineup?: Lineup) => {
+      captureOrigin();
       intent.current++;
       setDolbyPending(null);
       channelTuned(channel, lineup);
@@ -786,7 +795,7 @@ export function usePlayerEngine() {
       setExpanded(true);
       void playback.playChannel({kind: channel.provenance, sourceId: channel.sourceId, channelId: channel.id, generation: channel.generation}).catch(() => {});
     },
-    [playback],
+    [playback, captureOrigin],
   );
   /** Play `entries[index]` and queue what follows it, so Up Next has somewhere to go. */
   const startSequenceInner = useCallback(
@@ -823,6 +832,7 @@ export function usePlayerEngine() {
   );
   const playSequence = useCallback(
     (entries: readonly ContentEntry[], index: number, startSeconds: number, container?: SequenceContainer) => {
+      captureOrigin();
       const mine = ++intent.current;
       setDolbyPending(null);
       const first = entries.slice(index).filter(e => e.playback)[0];
@@ -835,7 +845,7 @@ export function usePlayerEngine() {
         else setDolbyPending({intent: mine, kind: 'sequence', entries, index, startSeconds, container});
       });
     },
-    [startSequenceInner, checkDolbyFor],
+    [startSequenceInner, checkDolbyFor, captureOrigin],
   );
   const confirmDolby = useCallback(() => {
     const pending = dolbyPending;
@@ -911,7 +921,6 @@ export function usePlayerEngine() {
     emitPlaybackChange({itemId: snap.itemId, positionSeconds: snap.positionSeconds, completed: snap.phase === 'ended', reason: 'closed'});
     playback.leave();
     topShelfChanged();
-    if (Platform.isTV) restoreInvoker();
     setExpanded(false);
     setPipActive(false);
   }, [playback]);
@@ -983,7 +992,8 @@ export function usePlayerEngine() {
   // A download scrubs with the previews that came with it.
   const trickplay = useMemo(() => (localSession ? offlineTrickplay(offlineExtras) : trickplayView ? preferredTrickplaySet(trickplayView, offeredSourceId) ?? preferredTrickplaySet(trickplayView) : null), [trickplayView, offeredSourceId, localSession?.id, offlineExtras]); // eslint-disable-line react-hooks/exhaustive-deps
   const collapse = useCallback(() => setExpanded(false), []);
-  const expand = useCallback(() => setExpanded(true), []);
+  // The television's now-playing pill opens the player again: focus comes back to it after.
+  const expand = useCallback(() => { captureOrigin(); setExpanded(true); }, [captureOrigin]);
   const requestPip = useCallback(() => setPipRequest(v => v + 1), []);
   const setRate = useCallback((rate: number) => {
     if (speedKind && speedKind !== 'song') playerSessionChoices.set(speedKind === 'audiobook_file' ? 'speed:audiobook' : 'speed:video', run, rate);

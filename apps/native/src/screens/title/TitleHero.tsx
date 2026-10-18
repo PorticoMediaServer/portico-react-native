@@ -137,7 +137,7 @@ export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function Ti
         <View style={{gap: h.actions.gap[p], marginTop: space.md, ...(phone ? null : {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start'})}}>
           {primary ? (
             <View style={{alignSelf: phone ? 'stretch' : 'flex-start'}}>
-              <Button ref={ref} variant="primary" icon={primary.icon ?? 'play'} label={primary.label} size={size} fullWidth={phone} hasTVPreferredFocus={primary.preferFocus} onPress={primary.onPress} />
+              <Button ref={ref} variant="primary" icon={primary.icon ?? 'play'} label={primary.label} size={size} fullWidth={phone} hasTVPreferredFocus={primary.preferFocus} focusKey="action:primary" onPress={primary.onPress} />
               {primary.progress && primary.progress > 0 ? <ProgressBar value={primary.progress} height={h.actions.progress.height} style={{marginTop: space.xs, marginHorizontal: h.actions.progress.insetX}} /> : null}
             </View>
           ) : null}
@@ -147,7 +147,7 @@ export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function Ti
               // CON-13: no round (round is for transport and avatars only).
               <View style={{flexDirection: 'row', alignItems: 'center', gap: h.actions.gap[p]}}>
                 {actions.map(a => (
-                  <Button key={a.icon + a.label} variant="secondary" icon={a.icon} size={size} selected={a.selected} accessibilityLabel={a.label} onPress={a.onPress} onFocus={() => setFocusedAction(a.label)} onBlur={() => setFocusedAction(v => (v === a.label ? undefined : v))} />
+                  <Button key={a.icon + a.label} variant="secondary" icon={a.icon} size={size} selected={a.selected} accessibilityLabel={a.label} focusKey={`action:${a.icon}`} onPress={a.onPress} onFocus={() => setFocusedAction(a.label)} onBlur={() => setFocusedAction(v => (v === a.label ? undefined : v))} />
                 ))}
                 <Text variant="caption" tone="secondary" lines={1} style={{marginLeft: space.sm, opacity: focusedAction ? 1 : 0}}>{focusedAction ?? ' '}</Text>
               </View>
@@ -156,7 +156,7 @@ export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function Ti
               // APL-DETAIL-02); the heart, the check and ⋯ are glyphs everyone reads. The full name is for VoiceOver.
               <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm}}>
                 {actions.map(a => (
-                  <Button key={a.icon + a.label} variant="secondary" size={size} icon={a.icon} label={a.iconOnly ? undefined : a.short ?? a.label} accessibilityLabel={a.label} selected={a.selected} onPress={a.onPress} />
+                  <Button key={a.icon + a.label} variant="secondary" size={size} icon={a.icon} label={a.iconOnly ? undefined : a.short ?? a.label} accessibilityLabel={a.label} selected={a.selected} focusKey={`action:${a.icon}`} onPress={a.onPress} />
                 ))}
               </View>
             )

@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo, useState, useRef} from 'react';
 import {View} from 'react-native';
 import {useNavigation, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -9,7 +9,6 @@ import {say} from '../app/errors';
 import {useQuietRefresh} from '../app/quiet-refresh';
 import {useI18n, type I18n} from '../app/i18n';
 import {useOpenEntry} from '../app/open';
-import {useInvoker} from '../app/playback-events';
 import {groupSequence, sequenceContainer} from '../app/container-play';
 import {usePlayerActions} from '../app/player-actions';
 import {announceMark, containerKindFor, useContainerState} from '../app/container-state';
@@ -18,7 +17,7 @@ import {activeYearsLabel, artistReleaseGroups} from '../../../../packages/client
 import {TitleDetails} from './title/TitleDetails';
 import {useMergeTwo, useTitleTools} from './server/TitleTools';
 import type {ContentStackParams} from '../app/routes';
-import {Chip, ChipBar, ListRow, Notice, Page, StateView, showToast, useEntryFocus, useTheme, type IconName} from '../ui';
+import {cardFocusKey, Chip, ChipBar, ListRow, Notice, Page, StateView, showToast, useEntryFocus, useTheme, type IconName, type FocusableHandle} from '../ui';
 import {SectionView} from './Home';
 import {StatusBarScrim, TitleHero, type HeroAction} from './title/TitleHero';
 import {mosaicPaths} from './title/layout';
@@ -62,7 +61,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const playing = usePlayingItemId();
   const player = usePlayerActions();
   const open = useOpenEntry();
-  const invoker = useInvoker();
+  const playControl = useRef<FocusableHandle>(null);
   const {api, session: viewerSession} = useSession();
   const projection = snapshot.projection;
   const entity = projection?.entity;
@@ -133,12 +132,10 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const playFrom = (list: readonly ContentEntry[], index: number) => {
     const playable = list.slice(index).filter(e => e.playback);
     if (!playable.length) return;
-    invoker.remember();
     player.playSequence(playable, 0, 0, sequenceContainer(kind, entity?.id));
   };
   const playChapter = (entry: ContentEntry, startSeconds?: number) => {
     if (!entry.playback) return;
-    invoker.remember();
     player.play(entry.playback.itemId, startSeconds ?? entry.playback.startSeconds ?? 0, entry);
   };
   // M32: Popular tracks play from the track pressed, like the web list.
@@ -147,13 +144,12 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
     if (!popularTracks) return;
     const playable = popularTracks.entries.slice(index).filter(e => e.playback);
     if (!playable.length) return;
-    invoker.remember();
     player.playSequence(playable, 0, 0);
   };
   const everything = useMemo(() => sections.flatMap(s => s.entries).filter(e => e.playback && e.kind !== 'chapter'), [sections]);
   // Sorted or filtered, the hero's Play and Shuffle play that list (the server's query, however long).
   const sortedFirst = group.engaged && !isBook ? (sortsTracks ? sortedList?.itemAt(0) : sortedPages.snapshot.entries.find(e => e.playback)) : undefined;
-  const playSorted = (first: ContentEntry, shuffle: boolean) => { if (!first.playback) return; invoker.remember(); player.playSequence([first], 0, 0, groupSequence(group, {shuffle})); };
+  const playSorted = (first: ContentEntry, shuffle: boolean) => { if (!first.playback) return; player.playSequence([first], 0, 0, groupSequence(group, {shuffle})); };
   const queue = songs?.entries ?? files?.entries ?? everything;
   const resumeChapter = isBook && listening?.resume && !listening.resumeUnavailable ? chapterAt(chapters?.entries ?? [], listening.resume.itemId, listening.resume.positionSeconds) : undefined;
   const claim = useEntryFocus(!!entity);
@@ -165,7 +161,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   if (isBook && listening?.resume && !listening.resumeUnavailable) {
     const resume = listening.resume;
     const label = resumeChapter ? i18n.t('title.resumeChapter', {chapter: resumeChapter.title}) : i18n.t('entry.resume');
-    primary = {label, preferFocus: isTV && claim, onPress: () => { invoker.remember(); player.play(resume.itemId, resume.positionSeconds, resumeChapter ?? entity); }};
+    primary = {label, preferFocus: isTV && claim, onPress: () => { player.play(resume.itemId, resume.positionSeconds, resumeChapter ?? entity); }};
   } else if (isBook && chapters?.entries.some(e => e.playback)) {
     const first = chapters.entries.find(e => e.playback)!;
     primary = {label: i18n.t('entry.play'), preferFocus: isTV && claim, onPress: () => playChapter(first)};
@@ -202,7 +198,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   };
   const secondary: HeroAction[] = [
     ...(canReorder ? [{icon: (arranging ? 'check' : 'list') as IconName, label: i18n.t(arranging ? 'order.done' : 'order.reorder'), onPress: () => setReordering(on => !on)}] : []),
-    ...(sortedFirst ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => playSorted(sortedFirst, true)}] : !isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { invoker.remember(); player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
+    ...(sortedFirst ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => playSorted(sortedFirst, true)}] : !isBook && queue.filter(e => e.playback).length > 1 ? [{icon: 'shuffle' as IconName, label: i18n.t('title.shuffle'), onPress: () => { player.playSequence(queue.filter(e => e.playback), 0, 0, sequenceContainer(kind, entity?.id, {shuffle: true})); }}] : []),
     ...(container.carries('watchlisted') && container.state ? [{icon: (listed ? 'bookmarkFilled' : 'bookmark') as IconName, label: i18n.t(listed ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'), short: i18n.t('title.watchlist'), selected: listed, onPress: () => { void container.setFlag('watchlisted', !listed).catch(failed); }}] : []),
     ...(container.carries('favorite') && container.state ? [{icon: (favorite ? 'heartFilled' : 'heart') as IconName, label: i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'), iconOnly: true, selected: favorite, onPress: () => { void container.setFlag('favorite', !favorite).catch(failed); }}] : []),
     ...(isBook && container.state ? [{icon: (finished ? 'watched' : 'check') as IconName, label: i18n.t(finished ? 'title.markNotFinished' : 'title.markFinished'), iconOnly: true, selected: finished, onPress: () => {
@@ -240,7 +236,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
         art: kind === 'artist',
         ordinal: kind === 'artist' ? undefined : e => e.trackNumber,
         subtitle: kind === 'artist' ? e => e.album?.name : e => { const artist = songArtist(e); return artist && artist !== entity?.subtitle ? artist : undefined; },
-        onPlay: index => { const pressed = sortedList.itemAt(index); if (pressed?.playback) { invoker.remember(); player.playSequence([pressed], 0, 0, groupSequence(group)); } },
+        onPlay: index => { const pressed = sortedList.itemAt(index); if (pressed?.playback) { player.playSequence([pressed], 0, 0, groupSequence(group)); } },
         onMore: more,
       };
     }
@@ -267,7 +263,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
   const top = (
     <>
         <TitleHero
-          ref={invoker.ref}
+          ref={playControl}
           loading={!entity && (snapshot.phase === 'loading' || snapshot.phase === 'idle')}
           backdrop={entity?.backdropUrl ? artwork(entity.backdropUrl) : undefined}
           art={{source: entity ? artwork(entity.posterUrl ?? entity.backdropUrl) : undefined, shape: shape === 'landscape' ? 'poster' : shape, icon: entity?.posterUrl || entity?.backdropUrl ? undefined : shape === 'circle' ? 'person' : iconFor(kind), mosaic: heroMosaic?.length ? heroMosaic.map(p => artwork(p)) : undefined}}
@@ -304,6 +300,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
             {popularTracks.entries.map((entry, index) => (
               <ListRow
                 key={entry.id}
+                focusKey={cardFocusKey('popular', entry.id)}
                 title={entry.title}
                 meta={lengthFor(entry)}
                 selected={playing === entry.id}

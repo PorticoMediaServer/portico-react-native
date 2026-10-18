@@ -1,13 +1,13 @@
 import {useEffect, useRef} from 'react';
-import type {FocusableHandle} from '../ui';
+import {focusReturn} from '../ui/focus-return';
 
 /**
  * APL-HOME-03 / TV-PLAYER-03: what the player tells the rest of the app.
  *
  * - `changed`: viewing progress moved (the player closed, a title finished, or every minute while
  *   playing). Home, Detail and Saved refresh so Continue Watching and "Resume" are current.
- * - The control that started playback is remembered, and focus goes back to it when the player
- *   closes (NAV-10.8), instead of to the rail.
+ * - The control that started playback is captured by name, and focus goes back to it when the
+ *   player closes (NAV-10.8), instead of to the rail: see `focusReturn`.
  */
 export type PlaybackChange = {itemId?: string; positionSeconds: number; completed: boolean; reason: 'closed' | 'ended' | 'progress'};
 const listeners = new Set<(change: PlaybackChange) => void>();
@@ -34,20 +34,24 @@ export function useRefreshOnPlayback(refresh: () => void, filter?: (change: Play
   }, []);
 }
 
-let invoker: FocusableHandle | null = null;
-/** Remember the control that is starting playback (TV). */
-export function rememberInvoker(handle: FocusableHandle | null) {
-  invoker = handle;
-}
-/** Return focus to it once the player has gone (TV). */
-export function restoreInvoker() {
-  const target = invoker;
-  if (!target) return;
-  setTimeout(() => target.focus(), 250);
-}
+/**
+ * Focus coming back after playback (TV-PLAYER-03, NAV-10.8) is `focusReturn` (ui/focus-return.ts):
+ * the player captures the named control it was started from as it starts, and gives focus back to
+ * it, confirmed, once it has closed. Nothing here holds a control.
+ */
+export {focusReturn};
 
-/** A ref for a play control plus `remember()` to call as it starts playback. */
-export function useInvoker() {
-  const ref = useRef<FocusableHandle>(null);
-  return {ref, remember: () => rememberInvoker(ref.current)};
+/**
+ * The player's side of focus coming back (PlayerHost): the origin belongs to `viewer` only (a new
+ * server, account or profile forgets it), and focus goes back to it once the player no longer
+ * `covering` the screens: closed, ended, or audio sent on to the now-playing pill. Television only.
+ */
+export function usePlayerFocusReturn(covering: boolean, viewer: string, tv: boolean) {
+  useEffect(() => focusReturn.setOwner(viewer), [viewer]);
+  const was = useRef(false);
+  useEffect(() => {
+    if (!tv) return;
+    if (was.current && !covering) focusReturn.restore();
+    was.current = covering;
+  }, [covering, tv]);
 }

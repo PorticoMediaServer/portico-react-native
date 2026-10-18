@@ -74,8 +74,8 @@ export function HomeRowScreen({route}: {route: RouteProp<ContentStackParams, 'Ho
     player.playSequence([first], 0, 0, sortedOn ? groupSequence(group, {shuffle}) : homeRowSequence(rowId, entries.map(e => e.kind), {shuffle}));
   };
   const actions = first ? <View style={{flexDirection: 'row', gap: space.sm}}>
-    <Button variant="primary" icon="play" label={i18n.t('action.play')} onPress={() => play(false)} />
-    <Button variant="secondary" icon="shuffle" label={i18n.t('title.shuffle')} onPress={() => play(true)} />
+    <Button variant="primary" icon="play" label={i18n.t('action.play')} focusKey="action:play" onPress={() => play(false)} />
+    <Button variant="secondary" icon="shuffle" label={i18n.t('title.shuffle')} focusKey="action:shuffle" onPress={() => play(true)} />
   </View> : undefined;
   const header = <><PageHeader title={name} onBack={() => navigation.goBack()} actions={actions} />{entries.length || group.engaged ? <GroupBar group={group} /> : null}{sortedOn && isTV ? letters.rail : null}</>;
   const notice = state.error && row ? <Notice tone="warning" message={say(state.error, 'home', 'load')} action={i18n.t('action.tryAgain')} onAction={() => void (state.phase === 'error' ? pager.load() : pager.more())} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null;

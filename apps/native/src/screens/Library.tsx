@@ -15,10 +15,11 @@ import {requestId} from '../app/detail';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Button, Dropdown, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, useTheme, type DropdownAnchor, type IconName, type WindowedGridHandle} from '../ui';
-import {RootHeaderActions, SectionView, useSectionCards} from './Home';
+import {Button, Dropdown, FocusGroup, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, cardFocusKey, parseCardFocusKey, useFocusResolver, useTheme, type DropdownAnchor, type FocusPlace, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
+import {LoadingShelves, RootHeaderActions, SectionView, useSectionCards} from './Home';
+import {BrowsePreviewContext, BrowseStage, LibraryStrip, useBrowsePreview, useStageLayout, useStageTop, useStripHeight} from './BrowseStage';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
-import {categoryDestination, genreFilter, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
+import {categoryDestination, genreFilter, isContinueRow, libraryTab, libraryTabForPivot, libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../packages/client-core/src/presentation/index';
 import {captionFor, formatClock} from '../app/content';
 import {browseCountLabel} from '../app/browse-count';
 import {usePlayerActions, usePlayingItemId} from '../app/player-actions';
@@ -198,6 +199,31 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
     </>
   );
   const switcherMenu = <Dropdown open={!!switcher} anchor={switcher} onClose={() => setSwitcher(undefined)} items={libraries.map(l => ({id: l.id, label: l.name, icon: (mediaFamilyIcon(l.kind) ?? 'film') as IconName, selected: l.id === libraryId}))} onSelect={id => navigation.setParams({libraryId: id, tab: undefined, category: undefined})} />;
+  // TV (Justin, 18 Oct 2026): the library's own navigation is one slim strip at the top, in the
+  // same place on Discover and on every grid, apart from the preview's words; the rail stays the
+  // way between libraries. Above it, the server (or on a grid, the count); a running scan says so.
+  const stripHeight = useStripHeight();
+  const stageTop = useStageTop();
+  const libraryName = library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle');
+  const tvTabs = <Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={false} inset={space.xs} />;
+  const strip = (trailing?: React.ReactNode, eyebrow = system?.name) => (
+    <RowGuide><LibraryStrip name={libraryName} eyebrow={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : eyebrow} tabs={tvTabs} trailing={trailing} height={stripHeight} /></RowGuide>
+  );
+  // Discover on TV is the browsing stage: the focused card's preview above, its rows moved by focus
+  // beneath. A Discover made only of grids or lists stays a page, with no preview.
+  const sections = playlists ? NO_SECTIONS : snapshot.sections;
+  const discoverStage = isTV && tab === 'discover' && !playlists && !engine && !category && !(snapshot.phase === 'ready' && sections.length > 0 && !sections.some(x => x.type === 'rail'));
+  const shown = useMemo(() => sections.map(raw => (tab === 'discover' && isRecommendationRow(raw) ? withoutNotInterested(raw, turnedDown, true) : raw)), [sections, tab, turnedDown]);
+  const preview = useBrowsePreview(`library\n${libraryId}\n${scope.serverId}\n${session.session?.viewer.accountId ?? ''}\n${session.session?.viewer.profileId ?? ''}`);
+  const stage = useStageLayout(stripHeight);
+  useEffect(() => {
+    if (!discoverStage) return;
+    const firstRow = shown.find(x => x.entries.length);
+    const firstEntry = firstRow?.entries[0];
+    const first = firstRow && firstEntry ? {entry: firstEntry, group: firstRow.id, resume: isContinueRow(firstRow.id) && !!firstEntry.playback} : undefined;
+    if (!preview.getSnapshot().touched) preview.seed(first);
+    else preview.reconcile((group, id) => shown.find(x => x.id === group)?.entries.find(e => e.id === id), first);
+  }, [discoverStage, shown, preview]);
   if (engine) {
     return (
       <View style={{flex: 1}}>
@@ -206,17 +232,11 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           libraryId={libraryId}
           libraryKind={library?.kind ?? ''}
           window={browse}
-          renderHeader={jumpTo => (isTV ? (
-            // Television: two rows. The title, then one row with the tabs, Sort, Filter and Jump to,
-            // so the tabs are one Up from the grid and nothing sits between the header and the cards.
+          renderStrip={isTV ? jumpTo => strip(published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities ? <BrowseBar inline trailing={jumpTo} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} /> : jumpTo, countedEyebrow) : undefined}
+          renderHeader={() => (isTV ? (
+            // Television: the strip above the grid holds the tabs, Sort, Filter and Jump to, so the
+            // tabs are one Up from the grid and nothing sits between them and the cards.
             <>
-              {titleBlock}
-              <RowGuide>
-                <View style={{flexDirection: 'row', alignItems: 'center', gap: space.md, paddingRight: space.page, marginBottom: space.lg}}>
-                  <View style={{flex: 1, minWidth: 0}}>{tabStrip}</View>
-                  {published?.pivot === pivot ? <Button size="sm" variant="secondary" label={i18n.t('library.clearFilters')} onPress={() => setPublished(null)} /> : capabilities ? <BrowseBar inline trailing={jumpTo} owner={owner} libraryId={libraryId} capabilities={capabilities} predicates={chosen} onChange={pickFilters} sort={engineSort} onSort={next => pickSort({sort: next.field, direction: next.direction})} /> : jumpTo}
-                </View>
-              </RowGuide>
               {capabilityError ? <Notice tone="error" title={i18n.t('lib.optionsLoadFailed')} message={capabilityError} action={i18n.t('action.tryAgain')} onAction={() => setCapabilityAttempt(n => n + 1)} style={{marginHorizontal: space.page, marginBottom: space.lg}} /> : null}
             </>
           ) : (
@@ -241,10 +261,39 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
       </View>
     );
   }
-  return (
-    <View style={{flex: 1}}>
-      <Page stickyHeaderIndices={isTV ? undefined : [1]} refreshControl={pull}>
-        {header.props.children}
+  if (discoverStage) {
+    const loadingFirst = snapshot.phase === 'loading' && !sections.length;
+    const body = loadingFirst ? <LoadingShelves />
+      : snapshot.phase === 'error' && !sections.length ? <StateView icon="error" title={i18n.t('lib.loadFailed')} message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={retry} />
+      : snapshot.phase === 'ready' && !sections.length ? <StateView icon={(mediaFamilyIcon(library?.kind ?? '') ?? 'film') as IconName} title={scan.scanning ? i18n.t('web.library.scanningTitle') : (projection?.empty?.fallback ?? i18n.t('library.emptyLibrary'))} message={scan.scanning ? i18n.t('web.library.scanningBody') : i18n.t(owner ? 'web.empty.libraryOwnerBody' : 'web.empty.libraryMemberBody')} />
+      : !sections.length ? <LoadingShelves />
+      : undefined;
+    const notice = changedStuck ? <Notice tone="warning" message={say(snapshot.error ?? 'stale', 'library', 'load')} action={i18n.t('action.refresh')} onAction={refresh} style={{marginHorizontal: space.page, marginTop: space.sm}} /> : null;
+    return (
+      <BrowsePreviewContext.Provider value={preview}>
+        <View style={{flex: 1}}>
+          <BrowseStage
+            store={preview}
+            layout={stage}
+            strip={strip()}
+            stripHeight={stripHeight}
+            identity={{eyebrow: system?.name, title: libraryName}}
+            loading={loadingFirst}
+            notice={notice}
+            rows={shown}
+            keyExtractor={sectionKey}
+            renderRow={({item: section, index}) => <SectionView row={index} entryFocus={index === 0} origin={tab === 'discover' && isRecommendationRow(section) ? 'recommendation' : undefined} section={section} libraryId={libraryId} loadingMore={snapshot.phase === 'loading'} onMore={section.nextCursor ? () => next(section.id) : undefined} onSeeAll={section.type === 'rail' && section.seeAll && libraryTabForPivot(kind, section.seeAll.pivot) ? () => seeAll(section) : undefined} />}
+            body={body}
+            focusRows={SECTION_FOCUS_ROWS}
+            snaps={snapsRow}
+          />
+          {switcherMenu}
+        </View>
+      </BrowsePreviewContext.Provider>
+    );
+  }
+  const pageBody = (
+    <>
         {playlists ? <LibraryPlaylists /> : null}
         {!playlists && tab === 'browse' && sorts.length ? (
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.page, paddingVertical: space.md}}>
@@ -272,11 +321,37 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
           return <SectionView key={section.id} row={index} entryFocus={index === 0} origin={recommendation ? 'recommendation' : undefined} section={section} libraryId={libraryId} hideTitle={tab === 'browse' && snapshot.sections.length === 1} loadingMore={snapshot.phase === 'loading'} onMore={section.nextCursor ? () => next(section.id) : undefined} onSeeAll={section.type === 'rail' && section.seeAll && libraryTabForPivot(kind, section.seeAll.pivot) ? () => seeAll(section) : undefined} />;
         })}
         {!playlists && snapshot.phase === 'ready' && !snapshot.sections.length ? <StateView icon={(mediaFamilyIcon(library?.kind ?? '') ?? 'film') as IconName} title={scan.scanning ? i18n.t('web.library.scanningTitle') : (projection?.empty?.fallback ?? i18n.t('library.emptyLibrary'))} message={scan.scanning ? i18n.t('web.library.scanningBody') : i18n.t(owner ? 'web.empty.libraryOwnerBody' : 'web.empty.libraryMemberBody')} /> : null}
+    </>
+  );
+  if (isTV) {
+    // The strip stays put at the top; what is under it scrolls by focus, and Down from the strip
+    // comes back to what was last used there.
+    return (
+      <View style={{flex: 1}}>
+        <View style={{height: stageTop}} />
+        {strip()}
+        <FocusGroup style={{flex: 1}}><Page refreshControl={pull} contentStyle={{paddingTop: 0}}>{pageBody}</Page></FocusGroup>
+        {switcherMenu}
+      </View>
+    );
+  }
+  return (
+    <View style={{flex: 1}}>
+      <Page stickyHeaderIndices={[1]} refreshControl={pull}>
+        {header.props.children}
+        {pageBody}
       </Page>
       {switcherMenu}
     </View>
   );
 }
+
+const NO_SECTIONS: readonly ContentSection[] = [];
+const sectionKey = (section: ContentSection) => section.id;
+/** Discover's rows for focus coming back after playback: a row is its section, numbered from 0. */
+const SECTION_FOCUS_ROWS = {group: (section: ContentSection) => section.id, first: (section: ContentSection) => section.entries[0]?.id, base: 0} as const;
+/** A row of cards comes to rest at the top of the stage; a grid or a list inside Discover scrolls as usual. */
+const snapsRow = (section: ContentSection) => section.type === 'rail';
 
 function LoadingGrid() {
   const {space, metrics, window} = useTheme();
@@ -293,7 +368,7 @@ function LoadingGrid() {
 /** The space the phone's letter rail takes beside the grid. */
 const RAIL_WIDTH = 22;
 
-function EngineResults({window: {list, snapshot}, renderHeader, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false, sequence}: {/** The list as the server's query: a pressed song plays it whole on from there. */ sequence?: SequenceContainer; /** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header, given the television Jump to control (or nothing) to place in its row. */ renderHeader: (jumpTo: React.ReactNode) => React.ReactElement; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
+function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sortField, libraryId, libraryKind, filtered, onClearFilters, pivot, refreshControl, blocked, scanning, tab, onOpenGroup, owner = false, sequence}: {/** The list as the server's query: a pressed song plays it whole on from there. */ sequence?: SequenceContainer; /** The owner's empty library says where a scan starts; a member's says who adds media. */ owner?: boolean; /** The tab drawn: its entries are titles (cards), tracks (rows) or groups (genre cards). */ tab: LibraryTab; onOpenGroup?: (entry: ContentEntry) => void; libraryId: string; libraryKind: string; window: ReturnType<typeof useBrowseWindow>; /** The header, given the television Jump to control (or nothing) to place in its row. */ renderHeader: (jumpTo: React.ReactNode) => React.ReactElement; /** TV: the library's strip, pinned above the grid, given the Jump to control. */ renderStrip?: (jumpTo: React.ReactNode) => React.ReactNode; sortField: string; filtered: boolean; onClearFilters: () => void; pivot: string; refreshControl?: React.ReactElement<RefreshControlProps>; /** The library's filters couldn't load, so no results are coming: no skeleton (the header says why). */ blocked?: boolean; /** A scan is running: the empty state says so instead of "Nothing here". */ scanning?: boolean}) {
   const i18n = useI18n();
   const {space, isTV, metrics, window} = useTheme();
   const playing = usePlayingItemId();
@@ -320,7 +395,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, sortField, libra
     if (queue.length) player.playSequence(queue, 0, 0);
   }, [list, player, sequence]);
   const renderTrack = useCallback((entry: ContentEntry, _width: number, index: number) => (
-    <ListRow title={entry.title} subtitle={[entry.artist?.name ?? captionFor(entry), entry.album?.name].filter(Boolean).join(' · ')} meta={entry.duration ? formatClock(entry.duration) : undefined} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape="square" selected={playing === entry.id} onPress={() => (entry.playback ? playFrom(index) : open(entry, 'open', libraryId))} onLongPress={() => open(entry, 'more', libraryId)} />
+    <ListRow focusKey={cardFocusKey('tracks', entry.id)} focusPlace={{column: index}} title={entry.title} subtitle={[entry.artist?.name ?? captionFor(entry), entry.album?.name].filter(Boolean).join(' · ')} meta={entry.duration ? formatClock(entry.duration) : undefined} source={artwork(entry.posterUrl ?? entry.backdropUrl)} shape="square" selected={playing === entry.id} onPress={() => (entry.playback ? playFrom(index) : open(entry, 'open', libraryId))} onLongPress={() => open(entry, 'more', libraryId)} />
   ), [artwork, open, libraryId, playing, playFrom]);
   const renderGroup = useCallback((entry: ContentEntry, w?: number) => <GenreCard libraryId={libraryId} entry={entry} width={w} onPress={() => onOpenGroup?.(entry)} />, [libraryId, onOpenGroup]);
   const aspect = tracks ? 64 / Math.max(1, window.width) : groups ? 1 : shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5;
@@ -338,10 +413,38 @@ function EngineResults({window: {list, snapshot}, renderHeader, sortField, libra
   // On TV the anchors ride the existing Jump-to pattern in the same place.
   // For you ranks by taste: it has no letters to jump to.
   const rail = anchors.length > 0 && !filtered && sortField === 'title' && !groups;
+  const jumpTo = rail && isTV ? <AlphabetRail index={anchors} current={letter} sortField={sortField} onJump={jump} /> : null;
+  // TV: focus coming back after playback to a card or a song the grid no longer mounts. The grid
+  // is scrolled to where it was; if another title now holds that place, focus goes to that one.
+  const windowRef = useRef(list);
+  windowRef.current = list;
+  const gridResolver = useMemo<FocusResolver>(() => {
+    const at = (key: string, place: FocusPlace) => {
+      const card = parseCardFocusKey(key);
+      const index = place.column;
+      if (!card || (card.group !== 'cards' && card.group !== 'tracks') || index === undefined) return undefined;
+      const slot = windowRef.current?.slotAt(index);
+      return {card, index, slot: slot?.kind === 'item' ? slot.item : undefined};
+    };
+    return {
+      reveal: (key, place) => {
+        const found = at(key, place);
+        if (!found || found.slot?.id !== found.card.entryId) return false;
+        grid.current?.scrollToIndex(found.index);
+        return true;
+      },
+      fallback: (key, place) => {
+        const found = at(key, place);
+        return found?.slot && found.slot.id !== found.card.entryId ? cardFocusKey(found.card.group, found.slot.id) : undefined;
+      },
+    };
+  }, []);
+  useFocusResolver(gridResolver);
+  const stageTop = useStageTop();
   const top = (
     <>
       {/* The letter rail narrows the grid, not the page header: the header keeps the screen's full width so its buttons do not move between tabs. */}
-      <View style={{marginRight: rail && !isTV ? -RAIL_WIDTH : 0}}>{renderHeader(rail && isTV ? <AlphabetRail index={anchors} current={letter} sortField={sortField} onJump={jump} /> : null)}</View>
+      <View style={{marginRight: rail && !isTV ? -RAIL_WIDTH : 0}}>{renderHeader(jumpTo)}</View>
       {failed && snapshot.total ? <Notice tone="warning" message={say(snapshot.error, 'library', 'load')} action={i18n.t('action.tryAgain')} onAction={() => list?.retry()} style={{marginHorizontal: space.page, marginBottom: space.md}} /> : null}
     </>
   );
@@ -351,13 +454,25 @@ function EngineResults({window: {list, snapshot}, renderHeader, sortField, libra
     // APL-LIB-02: "No titles match" only when filters are on; otherwise the pivot's own empty state.
     : empty ? (filtered ? <StateView icon="filter" title={i18n.t('library.noMatch')} message={i18n.t('library.noMatchBody')} action={i18n.t('library.clearFilters')} onAction={onClearFilters} /> : scanning ? <StateView icon={(mediaFamilyIcon(libraryKind) ?? 'film') as IconName} title={i18n.t('web.library.scanningTitle')} message={i18n.t('web.library.scanningBody')} /> : pivot === 'collections' ? <StateView icon="collection" title={i18n.t('library.emptyCollections')} message={i18n.t('library.emptyCollectionsBody')} /> : groups ? <StateView icon="category" title={i18n.t('library.genres.empty')} message={i18n.t('library.genres.emptyBody')} /> : pivot === 'series' ? <StateView icon="collection" title={i18n.t('library.emptySeries')} message={i18n.t('library.emptySeriesBody')} /> : <StateView icon={(mediaFamilyIcon(libraryKind) ?? 'film') as IconName} title={i18n.t('library.emptyLibrary')} message={i18n.t(owner ? 'web.empty.libraryOwnerBody' : 'web.empty.libraryMemberBody')} />)
     : null;
+  const pinned = !!renderStrip;
+  const body = list ? (
+    <WindowedGrid ref={grid} list={list} total={snapshot.total} itemWidth={tracks ? window.width : groups ? metrics.squareWidth : width || metrics.posterWidth} aspect={aspect} renderItem={tracks ? renderTrack : groups ? renderGroup : renderCard} header={top} footer={footer} generation={snapshot.generation} refreshControl={refreshControl} pinnedAbove={pinned} />
+  ) : (
+    <Page refreshControl={refreshControl} contentStyle={pinned ? {paddingTop: 0} : undefined}>{top}{footer}</Page>
+  );
+  if (pinned) {
+    // TV: the strip stays at the top while the grid moves under it; Down from it comes back to the card last used.
+    return (
+      <View style={{flex: 1}}>
+        <View style={{height: stageTop}} />
+        {renderStrip!(jumpTo)}
+        <FocusGroup style={{flex: 1}}>{body}</FocusGroup>
+      </View>
+    );
+  }
   return (
     <View style={{flex: 1, paddingRight: rail && !isTV ? RAIL_WIDTH : 0}}>
-      {list ? (
-        <WindowedGrid ref={grid} list={list} total={snapshot.total} itemWidth={tracks ? window.width : groups ? metrics.squareWidth : width || metrics.posterWidth} aspect={aspect} renderItem={tracks ? renderTrack : groups ? renderGroup : renderCard} header={top} footer={footer} generation={snapshot.generation} refreshControl={refreshControl} />
-      ) : (
-        <Page refreshControl={refreshControl}>{top}{footer}</Page>
-      )}
+      {body}
       {rail && !isTV ? <AlphabetRail index={anchors} current={letter} sortField={sortField} onJump={jump} /> : null}
     </View>
   );

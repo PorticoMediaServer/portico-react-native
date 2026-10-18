@@ -256,6 +256,7 @@ export const GuideGrid = forwardRef<GuideGridHandle, {actions: GuideActions; geo
           {/* The one focus stop of the grid; the focused cell is drawn by its row. */}
           <Focusable
             ref={grid}
+            focusKey="action:guide"
             ring={false}
             scale={1}
             accessibilityRole="button"
