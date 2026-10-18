@@ -1,6 +1,7 @@
 /** Plan §9.3 C3: the JS side of the v1 native listening owner (PorticoListeningSessionOwner). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {NativeListeningV1Adapter, parseNativeListeningV1Event, type NativeListeningBridge} from '../src/bridge/NativeListeningAdapter.ts';
 import type {NativeListeningV1Event} from '../../../packages/client-core/src/playback/native-listening.ts';
 
@@ -10,7 +11,15 @@ const session = (id: string, over: Record<string, unknown> = {}) => ({
   presentation: {generation: 1, mode: 'direct', url: `/v1/media/grant-${id}/audio`, startPositionMs: 0, subtitles: [], decision: {}},
   ...over,
 });
+// Read the actual producer lists, rather than a hand-maintained seven-speed fixture.
+const androidProducer = readFileSync(new URL('../android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt', import.meta.url), 'utf8');
+const appleProducer = readFileSync(new URL('../Native/PorticoAudioRender.m', import.meta.url), 'utf8');
+const androidRates = androidProducer.match(/private val RATES = listOf\(([^)]+)\)/)![1].split(',').map(Number);
+const appleRates = appleProducer.match(/@"supportedRates":@\[([^\]]+)\]/)![1].split(',').map(value => Number(value.replace('@', '')));
+const producerStatus = (supportedRates: number[]) => ({effectiveRate: 1, supportedRates, rendering: true, timerStopped: false, rateWaiting: false, rateError: '', policyRevision: 0, expiredTimerRevision: -1});
+
 const raw = (owner: string, sequence: number, s: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+  ...producerStatus(androidRates),
   owner, sequence, intent: 'playing', rate: 1, positionSeconds: 3, observed: true, ready: true, seeking: false, ended: false, error: null, terminal: false,
   route: 'Speaker', deadlines: {sleepAtMs: null, passoutAtMs: null}, commandRevision: 2,
   binding: {lease: 'lease-1', intentId: 1, sessionId: s.id, generation: 1, itemId: s.itemId},
@@ -24,6 +33,29 @@ test('a v1 snapshot reads its session, queue, seq and binding', () => {
   assert.deepEqual(e.queue, {id: 'q1', revision: '7'});
   assert.equal(e.lastSeq, 4);
   assert.equal(e.durationSeconds, 200);
+});
+
+for (const [producer, rates] of [['Android', androidRates], ['Apple AudioRender', appleRates]] as const) {
+  test(`${producer}'s actual nine-speed capabilities parse at 1x, 2.5x and 3x`, () => {
+    assert.deepEqual(rates, [.5, .75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]);
+    for (const effectiveRate of [0, 1, 2.5, 3]) {
+      const event = parseNativeListeningV1Event(raw('o', 1, session('s1'), {...producerStatus(rates), effectiveRate}), 'o', 's1');
+      assert.equal(event.effectiveRate, effectiveRate);
+      assert.deepEqual(event.supportedRates, rates);
+    }
+  });
+}
+
+test('native rate validation still rejects malformed and out-of-contract values', () => {
+  for (const effectiveRate of [-1, 3.01, NaN, Infinity, '3']) {
+    assert.throws(() => parseNativeListeningV1Event(raw('o', 1, session('s1'), {effectiveRate}), 'o', 's1'), /effective rate/);
+  }
+  for (const supportedRates of [[...androidRates, 1], [4], ['1'], [NaN], [Infinity], null]) {
+    assert.throws(() => parseNativeListeningV1Event(raw('o', 1, session('s1'), {supportedRates}), 'o', 's1'), /supported rates/);
+  }
+  for (const supportedRates of [[], [1], androidRates.slice(0, 7)]) {
+    assert.deepEqual(parseNativeListeningV1Event(raw('o', 1, session('s1'), {supportedRates}), 'o', 's1').supportedRates, supportedRates);
+  }
 });
 
 test('a different session needs a queue move from the session JS knows (or its unacknowledged root)', () => {
@@ -83,10 +115,14 @@ test('the adapter hands the session over once, acknowledges snapshots and follow
   x.push(raw('owner-1', x.next(), session('s2'), {transition: {previousSessionId: 's1', queue: null}}));
   x.push(raw('owner-1', x.next(), session('s3'), {transition: {previousSessionId: 's1', queue: null}}));
   assert.deepEqual(events.map(e => e.session.id), ['s1', 's2', 's3']);
+  // A real nine-speed snapshot arriving after adoption must keep its owner alive too.
+  x.push(raw('owner-1', x.next(), session('s3'), {...producerStatus(appleRates), rate: 3, effectiveRate: 3}));
+  assert.equal(events.at(-1)?.effectiveRate, 3);
+  assert.equal(x.calls.some(c => c.name === 'retire'), false);
   // A stale or foreign snapshot is ignored.
   x.deliver(raw('owner-1', 2, session('s2')));
   x.deliver(raw('someone-else', 99, session('s9')));
-  assert.equal(events.length, 3);
+  assert.equal(events.length, 4);
   await adapter.advance('entry', 'e-9');
   assert.ok(x.calls.some(c => c.name === 'advance' && c.args[1] === 'entry' && c.args[2] === 'e-9'));
   await adapter.action('pause');

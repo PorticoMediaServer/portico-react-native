@@ -28,12 +28,14 @@ export interface NativeListeningBridge {
  listeningAdvance?(owner:string,reason:string,entryId:string|null):Promise<unknown>;
  listeningSessionUpdated?(owner:string,sessionId:string):Promise<unknown>;
 }
+// Keep the bridge capability bounds aligned with the Apple and Android producers.
+const nativeListeningRates: readonly number[] = [.5,.75,1,1.25,1.5,1.75,2,2.5,3];
 /** The checks every native listening snapshot passes. */
 function checkNativeStatus(raw:any,owner:string){
  if(!raw||raw.owner!==owner||!Number.isSafeInteger(raw.sequence)||raw.sequence<1||!['playing','paused'].includes(raw.intent)||!Number.isFinite(raw.positionSeconds)||raw.positionSeconds<0||!Number.isFinite(raw.rate)||raw.rate<=0||!Number.isSafeInteger(raw.commandRevision)||raw.commandRevision<0||typeof raw.route!=='string'||raw.route.length>4096||![raw.observed,raw.ready,raw.seeking,raw.ended,raw.terminal].every(v=>typeof v==='boolean')||raw.error!==null&&typeof raw.error!=='string'||!listeningDeadline(raw.deadlines?.sleepAtMs)||!listeningDeadline(raw.deadlines?.passoutAtMs))throw new Error('Invalid native listening snapshot.');
  for(const key of ['rendering','timerStopped','rateWaiting'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
- if(raw.effectiveRate!==undefined&&(!Number.isFinite(raw.effectiveRate)||raw.effectiveRate<0||raw.effectiveRate>2))throw new Error('Invalid native effective rate.');
- if(raw.supportedRates!==undefined&&(!Array.isArray(raw.supportedRates)||raw.supportedRates.length>7||raw.supportedRates.some((rate:unknown)=>typeof rate!=='number'||![.5,.75,1,1.25,1.5,1.75,2].includes(rate))))throw new Error('Invalid native supported rates.');
+ if(raw.effectiveRate!==undefined&&(!Number.isFinite(raw.effectiveRate)||raw.effectiveRate<0||raw.effectiveRate>3))throw new Error('Invalid native effective rate.');
+ if(raw.supportedRates!==undefined&&(!Array.isArray(raw.supportedRates)||raw.supportedRates.length>nativeListeningRates.length||raw.supportedRates.some((rate:unknown)=>typeof rate!=='number'||!nativeListeningRates.includes(rate))))throw new Error('Invalid native supported rates.');
  if(raw.rateError!==undefined&&(typeof raw.rateError!=='string'||raw.rateError.length>4096))throw new Error('Invalid native rate error.');
  for(const key of ['expiredTimerRevision','policyRevision'] as const)if(raw[key]!==undefined&&(!Number.isSafeInteger(raw[key])||raw[key]<(key==='expiredTimerRevision'?-1:0)))throw new Error('Invalid native policy revision.');
 }
