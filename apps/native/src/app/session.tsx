@@ -423,6 +423,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // The account's server list is kept on the device and version-checked (Spec — Hosted at Scale), so
   // it stays available while signed in to a server: re-admission and Switch server use it.
   const {credentials, hosted, setHosted, servers, directoryStatus, directoryError, refreshServers, dropServer, checkServersNow, serversCheckedAt, attachedServer, setAttachedServer} = useHostedAccount(hostedUrl, 'hosted', !restoring);
+  // Credential exposure is Vega's containment (`apps/vega/src/bridge/credential-boundary.ts`): its
+  // SDK follows a redirect before the app sees it, so the runtime finds afterwards that a request
+  // carrying a credential was answered from another address, revokes what went there, and reports
+  // it here. Android and Apple have no such event by design: their native transports refuse every
+  // redirect before anything more is sent (`PorticoTransport.kt`, `PorticoPlayer.m`), Portico
+  // Account sign-in included (NS-03), so there is nothing to contain afterwards.
   useEffect(() => {
     const runtime = NativeModules.PorticoRuntime;
     if (typeof runtime?.onCredentialExposure !== 'function') return;
