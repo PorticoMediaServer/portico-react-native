@@ -1,6 +1,7 @@
 # Apple CI and TestFlight preparation
 
-`Apple builds` prepares production JavaScript on Ubuntu, then builds the pinned
+`CI` calls `Apple builds` for pull requests and pushes to main. The reusable
+workflow prepares production JavaScript on Ubuntu, then builds the pinned
 media sources and Xcode archives on separate `xcode-27` runners for iOS and tvOS.
 No personal Mac or local simulator state is required. Component caches include
 recipe/patch stamps; strict media verification still runs after a cache restore.
@@ -37,6 +38,9 @@ The `apple-distribution` GitHub environment holds these secrets:
 - `APPLE_IOS_APP_STORE_PROFILE_BASE64`
 - `APPLE_TVOS_APP_STORE_PROFILE_BASE64`
 - `APPLE_TOPSHELF_APP_STORE_PROFILE_BASE64`
+- `APP_STORE_CONNECT_PRIVATE_KEY_BASE64`
+- `APP_STORE_CONNECT_KEY_ID`
+- `APP_STORE_CONNECT_ISSUER_ID`
 
 Only `main` and the temporary `apple-actions-builds` branch may use it; Justin
 reviews jobs before secrets are released. Unsigned builds do not use signing
@@ -55,3 +59,9 @@ modal. Do not accept agreements again on the account holder's behalf.
 Signed Portico archive/export validation, upload authentication, TestFlight
 metadata/groups, installs and device playback remain separate checks. These
 workflows do not upload an app or submit a store release.
+
+The App Store Connect team key uses the Developer role for build uploads, not
+Admin. Apple applies team keys to all apps in the account. At this checkpoint,
+a scoped read-only API request still returned
+`FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`; key storage alone does not
+establish that upload authentication or agreement propagation has completed.

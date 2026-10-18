@@ -1,19 +1,7 @@
 name: Release
 
-# Builds the apps for a release from one commit and drafts a GitHub release with them:
-#
-#  - the whole CI suite on that commit first (ci.yml, with portico-server at the recorded commit);
-#  - Android: the media engine from pinned source, then release APKs and the App Bundle;
-#  - Apple: the media engine, then unsigned iPhone/iPad and Apple TV archives;
-#  - each platform's media-engine corresponding source bundle and notices (the LGPL asks for them
-#    beside the app), and a SHA-256 list of everything attached.
-#
-# What stays by hand, because it needs credentials or tools these runners do not have: store
-# signing (Android release builds are signed with the debug key until distribution is decided, see
-# apps/native/android/app/build.gradle; Apple archives are unsigned), notarization and store
-# upload. Vega packages are built by the CI suite using the pinned Amazon SDK. The release
-# is left as a draft for store signing and review before it is published.
-
+# Run the same complete platform suite, then collect its exact artifacts into a
+# draft on version tags. Signing, notarization and store upload remain separate.
 on:
   push:
     tags: ['v*']
@@ -30,56 +18,35 @@ jobs:
   checks:
     uses: ./.github/workflows/ci.yml
 
-  apple:
-    needs: checks
-    runs-on: macos-15
-    timeout-minutes: 240
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - name: Media engine from pinned source
-        run: |
-          brew list pkgconf > /dev/null 2>&1 || brew install pkgconf
-          third_party/media-engine/build-apple.sh
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/native
-      - name: Unsigned archives (iPhone and iPad, Apple TV)
-        run: |
-          mkdir -p dist
-          for platform in ios tvos; do
-            sdk=iphoneos; [ "$platform" = tvos ] && sdk=appletvos
-            (cd "apps/native/$platform" && pod install)
-            xcodebuild -workspace "apps/native/$platform/Portico.xcworkspace" -scheme Portico -configuration Release \
-              -sdk "$sdk" -archivePath "$RUNNER_TEMP/Portico-$platform.xcarchive" archive \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-            ditto -c -k --keepParent "$RUNNER_TEMP/Portico-$platform.xcarchive" "dist/Portico-$platform-unsigned.xcarchive.zip"
-          done
-          cp third_party/media-engine/out/apple/source/*.tar dist/
-          cp third_party/media-engine/out/apple/notices/THIRD-PARTY-NOTICES.txt dist/media-engine-apple-THIRD-PARTY-NOTICES.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with: {name: apple, path: dist/, if-no-files-found: error}
-
   draft:
-    needs: [checks, apple]
+    needs: checks
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: android-and-fire-os, path: dist}
+        with: {name: android-and-fire-os, path: inputs/android}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: vega-release-packages, path: dist}
+        with: {name: vega-release-packages, path: inputs/vega}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: apple, path: dist}
-      - name: Draft the release with every file and its SHA-256
+        with: {name: Portico-ios-unsigned, path: inputs/ios}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: Portico-tvos-unsigned, path: inputs/tvos}
+      - name: Preserve each platform's source, notices and checksums
+        run: |
+          mkdir -p dist
+          for platform in android vega ios tvos; do
+            test -n "$(find "inputs/$platform" -type f -print -quit)"
+            tar -czf "dist/Portico-$platform-$GITHUB_REF_NAME.tar.gz" -C "inputs/$platform" .
+          done
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dist
-          sha256sum * > SHA256SUMS.txt
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
             --title "Portico apps $GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA. Android builds are signed with the debug key and Apple archives are unsigned: sign for the stores and review before publishing." \
+            --notes "Built from $GITHUB_SHA. Android/Fire OS use development signing; Apple archives are unsigned. Platform bundles preserve corresponding source, notices and checksums. Review store signing and device acceptance before publishing." \
             ./*

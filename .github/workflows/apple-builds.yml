@@ -2,15 +2,7 @@ name: Apple builds
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, apple-actions-builds]
-    paths:
-      - '.github/workflows/apple-builds.yml'
-      - 'scripts/apple-prebuilt-bundle.cjs'
-      - 'third_party/media-engine/**'
-      - 'apps/native/**'
-      - 'packages/**'
-      - '.node-version'
+  workflow_call:
 
 permissions:
   contents: read

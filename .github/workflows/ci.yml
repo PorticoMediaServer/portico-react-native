@@ -45,8 +45,7 @@ jobs:
       - run: npm test
         working-directory: portico-react-native/apps/native
 
-  # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
-  # not have; type checks, tests and strings need only its npm packages.
+  # Fast Vega checks run separately from the SDK-backed package builds.
   vega:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -70,6 +69,9 @@ jobs:
 
   android:
     uses: ./.github/workflows/android-builds.yml
+
+  apple:
+    uses: ./.github/workflows/apple-builds.yml
 
   apple-contracts:
     runs-on: macos-15
