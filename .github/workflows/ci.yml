@@ -15,6 +15,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pipelines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Android pipeline regression fixtures
+        run: python3 -B -m unittest discover -s scripts/ci -p 'test_*.py' -v
+
   javascript:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -67,13 +75,19 @@ jobs:
 
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with: {distribution: temurin, java-version: '17'}
+      - name: Media-engine host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential python3-venv pkgconf curl perl libssl-dev patch xz-utils
+      - name: Pinned NDK, Rust and verified media engine for every app ABI
+        run: scripts/ci/prepare-android.sh
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/native
       - name: Assemble the debug builds (phones and televisions, Fire OS)
