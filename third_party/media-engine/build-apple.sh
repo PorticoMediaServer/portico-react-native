@@ -21,6 +21,7 @@
 # rustup, python3, perl, pkg-config (brew install pkgconf), curl. meson, ninja, cmake, nasm and
 # cargo-c are installed into the work directory at their pinned versions.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+trap 'me_say "Command failed at line $LINENO (status $?): $BASH_COMMAND"' ERR
 
 CLEAN=0
 SLICES="ios ios-simulator tvos tvos-simulator"
@@ -458,6 +459,9 @@ stem_of_install_name() {  # an install name of one of our libraries -> its stem,
     local base; base=$(basename "$1")
     base=${base#lib}; base=${base%%.*}
     for pair in $STEMS; do [[ "${pair%%:*}" == "$base" ]] && { echo "$base"; return; }; done
+    # System libraries are intentionally not rewritten. An empty successful
+    # result lets the caller continue under set -e while preserving their names.
+    return 0
 }
 
 platform_names() {  # <slice> -> CFBundleSupportedPlatforms value and UIDeviceFamily
