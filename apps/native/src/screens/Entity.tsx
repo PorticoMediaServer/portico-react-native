@@ -354,7 +354,7 @@ export function EntityScreen({route}: {route: RouteProp<ContentStackParams, 'Ent
       {trackList && rowOptions && trackSection ? (
         <TrackWindowList list={sortedList ?? trackList} total={sortedList ? sorted.snapshot.total ?? 0 : trackSection.totalCount} row={rowOptions} header={top} footer={bottom} refreshControl={pull} />
       ) : (
-        <Page contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
+        <Page titled contentStyle={{paddingTop: 0}} refreshControl={pull} scrollEnabled={!dragging}>
           {top}
           {bottom}
         </Page>

@@ -1,23 +1,30 @@
 import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, TVFocusGuideView, View} from 'react-native';
+import {ScrollView, TVFocusGuideView, View, type StyleProp, type ViewStyle} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming, type SharedValue} from 'react-native-reanimated';
 import type {Library} from '../../../../packages/client-core/src/index';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {BrandMark, Focusable, Icon, Text, Wordmark, alpha, useTheme, type FocusableHandle, type IconName} from '../ui';
+import {BrandMark, Focusable, Icon, Text, Wordmark, alpha, spec, useSpecPlatform, useTheme, type FocusableHandle, type IconName} from '../ui';
 import {railBrowsing} from '../ui/theme';
 import {useUnreadCount} from '../app/inbox';
 import {useServerPreferences} from '../app/server-preferences';
 import {useI18n, type MessageId} from '../app/i18n';
 import {createRailExpansion, type RailExpansion} from './rail-expansion';
+import {railBrandGeometry, railGeometry, railRowHeight, type RailGeometry} from './rail-geometry';
 import type {PinnedResource} from '../../../../packages/client-core/src/library-pins';
 import {pinnedResourceIcon} from '../app/pins';
 
 const NO_PINS: readonly PinnedResource[] = [];
+/** The panel's right border. */
+const railBorder = 1;
 
 export type RailKey = 'Home' | 'Search' | 'Saved' | 'Channels' | 'Settings' | 'Downloads' | `library:${string}` | `pin:${string}`;
 
 type Item = {key: RailKey; label: string; icon: IconName; kind?: string};
+
+/** TV-RAIL-08: the shared family icon, except Anime (the family shares TV's monitor, which made the two
+ * rows identical while the rail is collapsed) and an unknown kind (a library, not a movie). */
+const railLibraryIcon = (kind: string): IconName => (kind === 'anime' ? 'category' : ((mediaFamilyIcon(kind) ?? 'library') as IconName));
 
 const primary: (Omit<Item, 'label'> & {labelId: MessageId})[] = [
   {key: 'Home', labelId: 'web.shell.home', icon: 'home'},
@@ -55,7 +62,7 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** P
   const setExpanded = useCallback((next: boolean) => {
     const open = next && !compact;
     if (open) ctl.expand();
-    else ctl.collapse();
+    else ctl.collapseNow();
     const target = open ? 1 : 0;
     progress.value = withTiming(target, timing);
     if (expansion) expansion.value = withTiming(target, timing);
@@ -111,20 +118,35 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** P
     transform: [{translateX: (1 - progress.value) * collapsedX}],
     backgroundColor: interpolateColor(progress.value, [0, 1], [collapsedBg, colors.ink]),
   }), [collapsedBg, colors.ink, collapsedX, metrics.railWidthExpanded, progress]);
-  const labelOpacity = useAnimatedStyle(() => ({opacity: progress.value}), [progress]);
-  const markOpacity = useAnimatedStyle(() => ({opacity: 1 - progress.value}), [progress]);
-  // Collapsed, only the panel's rightmost railWidth is on screen, so the collapsed header and rows
-  // start there (a discrete switch at the midpoint, like their alignment). Centred across the full
-  // panel instead, every icon sat in the off-screen part and only the edge of the selected row's
-  // highlight showed.
-  const hiddenWidth = -collapsedX;
-  const headLayout = useAnimatedStyle(() => (progress.value > 0.5 ? {alignItems: 'flex-start' as const, paddingHorizontal: space.sm, marginLeft: 0} : {alignItems: 'center' as const, paddingHorizontal: 0, marginLeft: hiddenWidth}), [progress, space.sm, hiddenWidth]);
+  // TV-RAIL-02: collapsed, only the panel's rightmost railWidth is on screen. The header, the
+  // dividers and each row's foreground are counter-translated by exactly the panel's slide, so
+  // they stay where the viewer sees them through the whole animation (no midpoint switch of
+  // margin, padding or display); the rows' Focusables never move within the panel, so their native
+  // focus frames are the same in every state. See rail-geometry.ts.
+  const paddingX = isTV ? space.md : compact ? 6 : space.sm;
+  const geo = useMemo(() => railGeometry({railWidth: metrics.railWidth, railWidthExpanded: metrics.railWidthExpanded, paddingX, border: railBorder, icon: compact ? 22 : metrics.icon, gap: space.md, dividerInset: space.xs}), [metrics.railWidth, metrics.railWidthExpanded, paddingX, compact, metrics.icon, space.md, space.xs]);
+  const {hiddenWidth, collapsedInner, dividerInset, dividerWidth} = geo;
+  const counter = useAnimatedStyle(() => ({transform: [{translateX: hiddenWidth * (1 - progress.value)}]}), [progress, hiddenWidth]);
+  // A divider is a full-width line scaled (a transform, never a layout property) to the row
+  // surface's width less its insets, about its left end.
+  const dividerStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    const scaleX = (collapsedInner + hiddenWidth * p - 2 * dividerInset) / dividerWidth;
+    return {transform: [{translateX: hiddenWidth * (1 - p) - (dividerWidth / 2) * (1 - scaleX)}, {scaleX}]};
+  }, [progress, collapsedInner, hiddenWidth, dividerInset, dividerWidth]);
+  // TV-RAIL-07: the brand is the wordmark alone when open and the symbol alone when closed, and
+  // its P is identical in both: same height, top and left (Justin, 18 Oct 2026; as on the web).
+  // The symbol is drawn at the wordmark's height and origin, which is where the wordmark's own P is
+  // (brand-ink.ts), and that P is centred in the collapsed column like the row icons.
+  const brandHeight = isTV ? 52 : 36;
+  const brandSlot = brandHeight + (isTV ? 10 : 8);
+  const brand = useMemo(() => railBrandGeometry({brandHeight, slotHeight: brandSlot, collapsedInner}), [brandHeight, brandSlot, collapsedInner]);
   // Item objects and callbacks are stable across expansion toggles, so the memoised RailItems
   // below skip re-rendering when the rail opens or closes.
   const items: Item[] = useMemo(() => [
     ...primary.filter(i => (i.key === 'Channels' ? showChannels : i.key === 'Downloads' ? showDownloads : true)).map(({labelId, ...rest}) => ({...rest, label: i18n.t(labelId)})),
     ...pinned.map<Item>(p => ({key: `pin:${p.kind}:${p.id}`, label: p.name, icon: pinnedResourceIcon(p.kind)})),
-    ...libraries.map<Item>(l => ({key: `library:${l.id}`, label: l.name, icon: (mediaFamilyIcon(l.kind) ?? 'film') as IconName, kind: l.kind})),
+    ...libraries.map<Item>(l => ({key: `library:${l.id}`, label: l.name, icon: railLibraryIcon(l.kind), kind: l.kind})),
   ], [libraries, pinned, showChannels, showDownloads, i18n]);
   // A rule before the pinned items, before the libraries, and between pinned and other libraries.
   const dividers = useMemo(() => {
@@ -158,9 +180,12 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** P
     clearTimeout(blurTimer.current);
     focusedRef.current = false;
     latest.current.onFocusChange?.(false);
-    setExpanded(false);
+    // TV-RAIL-03: focus truth changes at once (the Menu exit gate needs it), but the rail only closes
+    // once no item has held focus for 140 ms, so stepping between items never starts a collapse.
     blurTimer.current = setTimeout(() => {
-      if (!focusedRef.current) browse(undefined);
+      if (focusedRef.current) return;
+      setExpanded(false);
+      browse(undefined);
     }, 140);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setExpanded]);
@@ -169,6 +194,8 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** P
   }, []);
   const top = Math.max(insets.top, isTV ? 60 : 0);
   const settingsItem: Item = useMemo(() => ({key: 'Settings', label: profileName ? profileName : i18n.t('web.shell.settings'), icon: 'account'}), [profileName, i18n]);
+  // TV-RAIL-06: it reads as the profile's name, but says where it goes and whose server it is.
+  const settingsA11y = [i18n.t('web.shell.settings'), profileName, serverName].filter(Boolean).join(', ');
   // The rail always occupies its collapsed width in the layout and opens OVER the content. If it
   // widened in the flow instead, everything beside it would re-measure and shift while the focus
   // engine was in the middle of choosing where to go.
@@ -188,82 +215,122 @@ export const Rail = forwardRef<RailHandle, {libraries: readonly Library[]; /** P
           bottom: 0,
           paddingTop: top + (isTV ? space.md : space.md),
           paddingBottom: Math.max(insets.bottom, isTV ? 40 : space.md),
-          paddingHorizontal: isTV ? space.md : compact ? 6 : space.sm,
-          borderRightWidth: 1,
+          paddingHorizontal: paddingX,
+          borderRightWidth: railBorder,
           borderRightColor: alpha(colors.lineSoft, 0.7),
           overflow: 'hidden',
         },
         panelStyle,
       ]}
       onPointerEnter={() => !compact && setExpanded(true)}
-      onPointerLeave={() => setExpanded(false)}>
-      <View style={{marginBottom: space.lg, height: isTV ? 44 : 30, justifyContent: 'center'}}>
-        <Animated.View style={[headLayout, markOpacity]}>
-          <RailA11y ctl={ctl} shared={progress} visibleWhen="collapsed" forceHidden={compact}>
-            <BrandMark size={isTV ? 34 : 24} />
+      onPointerLeave={() => { if (!focusedRef.current) setExpanded(false); }}>
+      <View style={{marginBottom: space.lg, height: brandSlot}}>
+        <Animated.View style={[{position: 'absolute', left: 0, top: 0, bottom: 0, width: geo.expandedInner}, counter]}>
+          {/* The symbol under the wordmark: the wordmark fades in over it with the same P on the same pixels. */}
+          <RailA11y style={{position: 'absolute', left: brand.x, top: brand.y}} ctl={ctl} shared={progress} visibleWhen="collapsed" forceHidden={compact}>
+            <BrandMark size={brand.size} />
           </RailA11y>
-        </Animated.View>
-        <Animated.View style={[headLayout, {position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center'}, labelOpacity]}>
-          <RailA11y ctl={ctl} shared={progress} visibleWhen="expanded" forceHidden={compact}>
-            <Wordmark height={isTV ? 30 : 20} />
+          <RailA11y style={{position: 'absolute', left: brand.x, top: brand.y}} ctl={ctl} shared={progress} visibleWhen="expanded" forceHidden={compact}>
+            <Wordmark height={brand.size} />
           </RailA11y>
         </Animated.View>
       </View>
       <ScrollView ref={scroller} showsVerticalScrollIndicator={false} contentContainerStyle={{gap: compact ? 2 : isTV ? 4 : space.xs, paddingVertical: isTV ? 4 : 0, paddingHorizontal: isTV ? 4 : 0}} style={[{flex: 1}, isTV ? {marginHorizontal: -4} : null]}>
         {items.map((item, index) => (
           <React.Fragment key={item.key}>
-            {dividers.has(item.key) ? <View style={{height: 1, backgroundColor: alpha(colors.lineSoft, 0.8), marginVertical: space.sm, marginHorizontal: space.xs}} /> : null}
-            <RailItem ref={h => { items_ref.current.set(item.key, h); }} item={item} active={selected === item.key} compact={compact} shared={progress} ctl={ctl} hiddenWidth={hiddenWidth} forceHidden={compact} badge={scanningDot(item)} onFocus={handleFocus} onBlur={handleBlur} onPress={handlePress} focusIndex={index} />
+            {dividers.has(item.key) ? (
+              <View style={{height: 1, marginVertical: space.sm}}>
+                <Animated.View style={[{position: 'absolute', top: 0, left: dividerInset, width: dividerWidth, height: 1, backgroundColor: alpha(colors.lineSoft, 0.8)}, dividerStyle]} />
+              </View>
+            ) : null}
+            <RailItem ref={h => { items_ref.current.set(item.key, h); }} item={item} active={selected === item.key} compact={compact} shared={progress} ctl={ctl} geo={geo} forceHidden={compact} badge={scanningDot(item)} onFocus={handleFocus} onBlur={handleBlur} onPress={handlePress} focusIndex={index} />
           </React.Fragment>
         ))}
       </ScrollView>
-      <RailItem ref={h => { items_ref.current.set('Settings', h); }} item={settingsItem} sub={serverName} badge={badges && unread > 0} active={selected === 'Settings'} compact={compact} shared={progress} ctl={ctl} hiddenWidth={hiddenWidth} forceHidden={compact} onFocus={handleFocus} onBlur={handleBlur} onPress={handlePress} />
+      <RailItem ref={h => { items_ref.current.set('Settings', h); }} item={settingsItem} sub={serverName} badge={badges && unread > 0} a11yLabel={settingsA11y} a11yValue={badges && unread > 0 ? i18n.t('notifications.unreadLabel', {count: unread}) : undefined} active={selected === 'Settings'} compact={compact} shared={progress} ctl={ctl} geo={geo} forceHidden={compact} onFocus={handleFocus} onBlur={handleBlur} onPress={handlePress} />
     </Animated.View>
     </Footprint>
   );
 });
 
 /**
- * PERF-06: labels and the wordmark are always mounted. Visibility comes from the shared value
- * (opacity, plus `display` so a hidden block takes no space and the row `gap` doesn't shift the
- * icon), and assistive technology follows the a11y channel. Re-renders only this small subtree —
- * never the `RailItem` above it.
+ * PERF-06: labels and the wordmark are always mounted, in a layout that never changes.
+ * Visibility is opacity from the shared value, and this view is its only owner (TV-RAIL-02: no
+ * second fade above it, which darkened the hand-over); assistive technology follows the a11y
+ * channel. Re-renders only this small subtree — never the `RailItem` above it.
+ * The collapsed-only content (the brand symbol) stays fully drawn until the rail is fully open:
+ * the wordmark fading in over it carries the same P on the same pixels, so the P never dims and
+ * only the letters after it appear.
  */
-function RailA11y({ctl, shared, visibleWhen, forceHidden, children}: {ctl: RailExpansion; shared: {value: number}; visibleWhen: 'expanded' | 'collapsed'; /** Compact rails never show labels. */ forceHidden: boolean; children: React.ReactNode}) {
+function RailA11y({ctl, shared, visibleWhen, forceHidden, style, children}: {ctl: RailExpansion; shared: {value: number}; visibleWhen: 'expanded' | 'collapsed'; /** Compact rails never show labels. */ forceHidden: boolean; /** Layout of the block itself (its flex space, or its place in the header). */ style?: StyleProp<ViewStyle>; children: React.ReactNode}) {
   const hidden = useSyncExternalStore(ctl.subscribeA11y, () => forceHidden || (visibleWhen === 'expanded') !== ctl.isExpanded());
-  const visibility = useAnimatedStyle(() => {
-    const showing = !forceHidden && (visibleWhen === 'expanded') === (shared.value > 0.5);
-    return {opacity: visibleWhen === 'expanded' ? shared.value : 1 - shared.value, display: showing ? 'flex' as const : 'none' as const};
-  }, [ctl, shared, visibleWhen, forceHidden]);
+  const visibility = useAnimatedStyle(() => ({
+    opacity: forceHidden ? 0 : visibleWhen === 'expanded' ? shared.value : shared.value < 1 ? 1 : 0,
+  }), [shared, visibleWhen, forceHidden]);
   return (
-    <Animated.View style={visibility} accessibilityElementsHidden={hidden} importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}>
+    <Animated.View style={[style, visibility]} accessibilityElementsHidden={hidden} importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}>
       {children}
     </Animated.View>
   );
 }
 
-const RailItem = React.memo(forwardRef<FocusableHandle, {item: Item; active: boolean; compact: boolean; shared: SharedValue<number>; ctl: RailExpansion; /** How much of the panel is off screen while collapsed. */ hiddenWidth: number; forceHidden: boolean; sub?: string; badge?: boolean; onFocus: (key: RailKey, index?: number) => void; onBlur: (key: RailKey) => void; onPress: (key: RailKey) => void; /** Scroll position reset when the first destination takes focus. */ focusIndex?: number}>(function RailItem({item, active, compact, shared, ctl, hiddenWidth, forceHidden, sub, badge, onFocus, onBlur, onPress, focusIndex}, ref) {
-  const {colors, space, metrics, isTV} = useTheme();
+const RailItem = React.memo(forwardRef<FocusableHandle, {item: Item; active: boolean; compact: boolean; shared: SharedValue<number>; ctl: RailExpansion; /** The rail's geometry (memoised: a stable prop). */ geo: RailGeometry; forceHidden: boolean; sub?: string; badge?: boolean; /** What assistive technology says, when it is more than the visible label. */ a11yLabel?: string; /** State the row's dot shows (unread notifications). */ a11yValue?: string; onFocus: (key: RailKey, index?: number) => void; onBlur: (key: RailKey) => void; onPress: (key: RailKey) => void; /** Scroll position reset when the first destination takes focus. */ focusIndex?: number}>(function RailItem({item, active, compact, shared, ctl, geo, forceHidden, sub, badge, a11yLabel, a11yValue, onFocus, onBlur, onPress, focusIndex}, ref) {
+  const {colors, space, metrics, isTV, type, motion} = useTheme();
+  const platform = useSpecPlatform();
+  const labelRole = isTV ? 'bodyStrong' : 'captionStrong';
   // APL-SHELL-05: 64 pt on television (the ten-foot minimum) so every destination fits 1080p.
-  const size = compact ? 48 : isTV ? metrics.control : 56;
-  // PERF-06: row alignment follows the shared value with a discrete switch on the UI thread — one
-  // layout pass at the midpoint, never a per-frame Yoga layout and never a React render.
-  const layout = useAnimatedStyle(() => (shared.value > 0.5 ? {justifyContent: 'flex-start' as const, paddingHorizontal: space.md, marginLeft: 0} : {justifyContent: 'center' as const, paddingHorizontal: 0, marginLeft: hiddenWidth}), [shared, space.md, hiddenWidth]);
+  // TV-RAIL-05: a row with a subtitle (Settings) is a subtitle row (rowSpec), tall enough for both
+  // lines at any text size, open or closed alike; it may still grow with its text.
+  const size = railRowHeight({single: compact ? 48 : isTV ? metrics.control : 56, withSubtitle: sub && !compact ? spec.row.minHeight.withSubtitle[platform] : undefined, titleLine: type[labelRole].lineHeight ?? 0, subtitleLine: type[spec.row.subtitle.role].lineHeight ?? 0, paddingY: spec.row.paddingY[platform]});
+  // TV-RAIL-04: the row's own focus treatment (focusSpec, rows): a ring inside the visible surface
+  // and the row focus scale, about that surface. Focus never replaces the fill. Driven here, so the
+  // Focusable's own ring (outside a full-width host that is mostly off screen) stays off.
+  const focus = useSharedValue(0);
+  const focusTiming = {duration: motion.reduce ? 0 : motion.quick, easing: Easing.out(Easing.cubic)};
+  const rowScale = isTV ? spec.focus.scale.row.tv : 1;
+  // TV-RAIL-02: the foreground undoes the panel's slide, so the icon and label never move on
+  // screen; only the surface's width follows the panel's visible edge. Its formulas are
+  // foregroundX and surfaceWidth in rail-geometry.ts. The surface is an absolute decorative leaf:
+  // its width is the only layout the animation touches, and nothing else is laid out around it.
+  const {hiddenWidth, collapsedInner, expandedInner} = geo;
+  const foreground = useAnimatedStyle(() => {
+    const p = shared.value;
+    const scale = 1 + (rowScale - 1) * focus.value;
+    return {transform: [{translateX: hiddenWidth * (1 - p) + ((collapsedInner + hiddenWidth * p) / 2 - expandedInner / 2) * (1 - scale)}, {scale}]};
+  }, [shared, focus, rowScale, hiddenWidth, collapsedInner, expandedInner]);
+  const surface = useAnimatedStyle(() => ({width: collapsedInner + hiddenWidth * shared.value}), [shared, collapsedInner, hiddenWidth]);
+  const ring = useAnimatedStyle(() => ({opacity: focus.value}), [focus]);
   return (
-    <Focusable ref={ref} accessibilityRole="button" accessibilityLabel={item.label} accessibilityState={{selected: active}} radius={metrics.radius.control} scale={1} ring={isTV} onFocus={() => onFocus(item.key, focusIndex)} onBlur={() => onBlur(item.key)} onPress={() => onPress(item.key)} style={{alignSelf: 'stretch'}}>
+    <Focusable
+      ref={ref}
+      accessibilityRole="button"
+      accessibilityLabel={a11yLabel ?? item.label}
+      accessibilityValue={a11yValue ? {text: a11yValue} : undefined}
+      accessibilityState={{selected: active}}
+      radius={metrics.radius.control}
+      scale={1}
+      ring={false}
+      onFocus={() => { focus.value = withTiming(1, focusTiming); onFocus(item.key, focusIndex); }}
+      onBlur={() => { focus.value = withTiming(0, focusTiming); onBlur(item.key); }}
+      onPress={() => onPress(item.key)}
+      style={{alignSelf: 'stretch'}}>
       {({focused, hovered}) => (
-        <Animated.View style={[{height: size, borderRadius: metrics.radius.control, flexDirection: 'row', alignItems: 'center', gap: space.md, backgroundColor: focused ? colors.raisedHigh : hovered ? alpha(colors.raisedHigh, 0.6) : active ? alpha(colors.accent, 0.14) : 'transparent'}, layout]}>
-          {active ? <View style={{position: 'absolute', left: 0, top: size * 0.25, bottom: size * 0.25, width: 3, borderRadius: 2, backgroundColor: colors.accent}} /> : null}
+        <Animated.View style={[{minHeight: size, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingLeft: geo.iconX, paddingRight: space.md}, foreground]}>
+          {/* The visible surface: fill, selected bar and focus ring. Without a focus ring (iPad), keyboard focus keeps its fill. */}
+          <Animated.View pointerEvents="none" style={[{position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: metrics.radius.control, backgroundColor: hovered ? alpha(colors.raisedHigh, 0.6) : active ? alpha(colors.accent, 0.14) : focused && !isTV ? colors.raisedHigh : 'transparent'}, surface]}>
+            {active ? <View style={{position: 'absolute', left: 0, top: '25%', bottom: '25%', width: 3, borderRadius: 2, backgroundColor: colors.accent}} /> : null}
+            {isTV ? <Animated.View style={[{position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: metrics.radius.control, borderWidth: spec.focus.ringWidth.tv, borderColor: colors.focus}, ring]} /> : null}
+          </Animated.View>
           <View>
             <Icon name={item.icon} size={compact ? 22 : metrics.icon} color={active || focused ? colors.text : colors.textSecondary} />
             {badge ? <View style={{position: 'absolute', top: -2, right: -4, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent}} /> : null}
           </View>
-          <Animated.View style={{flex: 1, minWidth: 0}}>
-            <RailA11y ctl={ctl} shared={shared} visibleWhen="expanded" forceHidden={forceHidden}>
-              <Text variant={isTV ? 'bodyStrong' : 'captionStrong'} lines={1} style={{color: active || focused ? colors.text : colors.textSecondary}}>{item.label}</Text>
-              {sub ? <Text variant="micro" tone="tertiary" lines={1}>{sub}</Text> : null}
-            </RailA11y>
-          </Animated.View>
+          {/* TV-RAIL-01/02: the icon is centred in the collapsed surface by geometry (geo.iconX), so the
+              label keeps its place and only fades. */}
+          <RailA11y style={{flex: 1, minWidth: 0}} ctl={ctl} shared={shared} visibleWhen="expanded" forceHidden={forceHidden}>
+            <Text variant={labelRole} lines={1} style={{color: active || focused ? colors.text : colors.textSecondary}}>{item.label}</Text>
+            {sub ? <Text variant={spec.row.subtitle.role} tone="tertiary" lines={1}>{sub}</Text> : null}
+          </RailA11y>
         </Animated.View>
       )}
     </Focusable>

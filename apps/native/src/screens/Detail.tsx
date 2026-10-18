@@ -73,7 +73,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const itemEntry = useMemo(() => (item ? entryOf(item) : null), [item]);
   // OS-03 (iOS): the title on screen is offered to Handoff, Spotlight and Siri.
   useCurrentActivity(item ? {itemId: item.id, title: item.title, subtitle: item.episode ? `${item.episode.showTitle} · ${item.title}` : item.year ? String(item.year) : undefined, webUrl: viewerSession?.viewer.authority === 'hosted' ? `https://web.getportico.tv/media/${encodeURIComponent(item.id)}` : undefined} : null);
-  // Spec §3: an episode opens on its show page, with the episode's panel over it.
+  // Spec §3: an episode opens on its show page, at its season, brought into view and marked a moment.
   useEffect(() => {
     if (item?.episode) navigation.replace('Show', {libraryId, showId: item.episode.showId, episodeId: item.id});
   }, [item, libraryId, navigation]);
@@ -236,7 +236,7 @@ export function DetailScreen({route}: {route: RouteProp<ContentStackParams, 'Det
   const personWidth = isTV ? 150 : 84;
   return (
     <View style={{flex: 1}}>
-      <Page contentStyle={{paddingTop: 0}} refreshControl={pull}>
+      <Page titled contentStyle={{paddingTop: 0}} refreshControl={pull}>
         <TitleHero
           ref={invoker.ref}
           loading={!item}

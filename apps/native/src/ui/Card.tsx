@@ -12,6 +12,10 @@ import {alpha, useTheme} from './theme';
 export type CardProps = Omit<FocusableProps, 'children' | 'style' | 'radius'> & {
   title: string;
   subtitle?: string;
+  /** A third line (TV, Plex's shape): "S1 · E3" under an episode's own title. */
+  detail?: string;
+  /** Keep room for the third line though this card has none, so a row holding an episode stands even. */
+  detailLine?: boolean;
   source?: ImageSourcePropType;
   shape?: ArtworkShape;
   width?: number;
@@ -41,7 +45,7 @@ const UNAVAILABLE_OPACITY = 0.55;
  * clips the title, and the focus halo is drawn around the artwork only.
  */
 /** Memoised; pays off once the list passes stable handlers. */
-export const Card = React.memo(function Card({title, subtitle, source, shape = 'poster', width, progress = 0, badge, watched, unavailable, titleLines = 1, icon, captionless, style, ...rest}: CardProps) {
+export const Card = React.memo(function Card({title, subtitle, detail, detailLine, source, shape = 'poster', width, progress = 0, badge, watched, unavailable, titleLines = 1, icon, captionless, style, ...rest}: CardProps) {
   const {metrics, space, colors, isTV, type} = useTheme();
   const w = width ?? (shape === 'landscape' ? metrics.landscapeWidth : shape === 'poster' ? metrics.posterWidth : metrics.squareWidth);
   // The caption keeps one height whatever the card says: room for the title's lines and one
@@ -49,9 +53,10 @@ export const Card = React.memo(function Card({title, subtitle, source, shape = '
   // row, so a card with a short title, a wrapped title or no caption must all stand equally tall.
   const {fontScale} = useWindowDimensions();
   const scale = isTV ? 1 : fontScale || 1;
-  const captionHeight = Math.ceil(space.sm + titleLines * (type.captionStrong.lineHeight ?? 18) * scale + 1 + (type.micro.lineHeight ?? 14) * Math.min(scale, 2));
+  const lines = detail || detailLine ? 2 : 1;
+  const captionHeight = Math.ceil(space.sm + titleLines * (type.captionStrong.lineHeight ?? 18) * scale + 1 + lines * (type.micro.lineHeight ?? 14) * Math.min(scale, 2));
   return (
-    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle, watched, progress, badge, unavailable})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
+    <Focusable accessibilityRole="button" accessibilityLabel={cardName(title, {subtitle: [subtitle, detail].filter(Boolean).join(', ') || undefined, watched, progress, badge, unavailable})} longPressLabel={rest.onLongPress ? uiI18n().t('card.more', {title}) : undefined} radius={metrics.radius.card} ring={false} style={[{width: w}, style]} {...rest}>
       {({focused, hovered}) => (
         <View>
           <FocusHalo active={focused} width={w} height={w / artworkRatio[shape]} radius={metrics.radius.card} />
@@ -83,6 +88,11 @@ export const Card = React.memo(function Card({title, subtitle, source, shape = '
               {subtitle ? (
                 <Text variant="micro" tone="tertiary" lines={1} style={{marginTop: 1}}>
                   {subtitle}
+                </Text>
+              ) : null}
+              {detail ? (
+                <Text variant="micro" tone="tertiary" lines={1}>
+                  {detail}
                 </Text>
               ) : null}
             </View>

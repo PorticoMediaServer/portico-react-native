@@ -56,7 +56,7 @@ function usePlayList() {
 export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'Playlist'>}) {
   const {playlistId, title} = route.params;
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
-  const {space, isTV} = useTheme();
+  const {space, isTV, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -225,7 +225,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
     );
   };
   return (
-    <View style={{flex: 1}}>
+    <View style={{flex: 1, backgroundColor: colors.ink}}>
       <View style={{flex: 1, paddingRight: rail && !isTV ? LETTER_RAIL_WIDTH : 0}}>
       <PageRows<PlaylistOccurrence | number>
         listRef={scroller}
@@ -292,7 +292,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
 export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParams, 'SavedResource'>}) {
   const {resourceId, title} = route.params;
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
-  const {space, isTV, metrics, window} = useTheme();
+  const {space, isTV, metrics, window, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -368,7 +368,7 @@ export function SavedResourceScreen({route}: {route: RouteProp<ContentStackParam
   const renderCard = useCallback((m: ContentEntry, w: number) => <Card title={m.title} subtitle={captionFor(m)} source={artwork(m.posterUrl ?? m.backdropUrl)} shape={shapeFor(m.kind) === 'square' ? 'square' : 'poster'} width={w} progress={progressFor(m)} watched={m.watched === true} unavailable={m.available === false} icon={m.posterUrl || m.backdropUrl ? undefined : iconFor(m.kind)} onPress={() => open(m)} onLongPress={() => (editable && entryOf.has(m.id) ? setEntryMenu(m) : open(m, 'more'))} />, [artwork, open, editable, entryOf]);
   const renderRow = useCallback(({item: row}: {item: CardRowModel<ContentEntry>}) => <CardRow items={row.items} first={row.first} columnWidth={columnWidth} keyOf={mediaKey} renderItem={renderCard} />, [columnWidth, renderCard]);
   return (
-    <View style={{flex: 1}} onLayout={onLayout}>
+    <View style={{flex: 1, backgroundColor: colors.ink}} onLayout={onLayout}>
       <PageList
         // While a sort or a filter is on, the sorted titles are listed under the header in place of the view's own.
         data={group.engaged || arranging ? noRows : rows}

@@ -2,8 +2,8 @@ import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} 
 import {useUnreadCount} from '../app/inbox';
 import {Image, View, type ImageSourcePropType} from 'react-native';
 import type {ContentEntry, ContentSection} from '../../../../packages/client-core/src/library-content';
-import {captionFor, continueCaptionFor, formatDuration, iconFor, lengthFor, progressFor, shapeFor, useArtwork} from '../app/content';
-import {continueTitle, homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
+import {captionFor, cardLinesFor, formatDuration, iconFor, lengthFor, progressFor, shapeFor, useArtwork} from '../app/content';
+import {homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
 import {useHome} from '../app/home';
 import {present} from '../app/errors';
 import {useSavedTitles} from '../app/saved-index';
@@ -223,14 +223,17 @@ export function Hero({hero, eyebrow, cover, onPlay, onDetails}: {hero: HomeHero;
 }
 
 /** One title's card. Its handlers are made here, once per entry, so the memoised Card holds. */
-const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred, libraryId, origin, open, artwork, resume}: {entry: ContentEntry; /** A Continue Watching card: the show as the title, what is left as the caption. */ resume?: boolean; /** X-14: one geometry per row. */ shape: ReturnType<typeof shapeFor>; width?: number; preferred: boolean; libraryId?: string; origin?: EntryOrigin; open: ReturnType<typeof useOpenEntry>; artwork: ReturnType<typeof useArtwork>}) {
+const EntryCard = React.memo(function EntryCard({entry, shape, width, preferred, libraryId, origin, open, artwork, resume, detailLine}: {entry: ContentEntry; /** A Continue Watching card: what is left as the caption (an episode reads as everywhere else). */ resume?: boolean; /** The row holds an episode: every card keeps room for its third line. */ detailLine?: boolean; /** X-14: one geometry per row. */ shape: ReturnType<typeof shapeFor>; width?: number; preferred: boolean; libraryId?: string; origin?: EntryOrigin; open: ReturnType<typeof useOpenEntry>; artwork: ReturnType<typeof useArtwork>}) {
   const onPress = useCallback(() => open(entry, 'open', libraryId), [open, entry, libraryId]);
   const onLongPress = useCallback(() => open(entry, 'more', libraryId, origin), [open, entry, libraryId, origin]);
+  const lines = cardLinesFor(entry, resume);
   return (
     <Card
       hasTVPreferredFocus={preferred}
-      title={resume ? continueTitle(entry) : entry.title}
-      subtitle={resume ? continueCaptionFor(entry) : captionFor(entry)}
+      title={lines.title}
+      subtitle={lines.caption}
+      detail={lines.detail}
+      detailLine={detailLine}
       source={artwork(shape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl ?? entry.backdropUrl)}
       shape={shape}
       width={width}
@@ -266,11 +269,13 @@ export function useSectionCards(entries: readonly ContentEntry[], libraryId?: st
   const row = placement?.row ?? 0;
   const group = placement?.group;
   const resume = !!group && isContinueRowId(group);
+  // An episode's card has three lines (show, episode, "S1 · E3"): its row keeps room for them on every card.
+  const detailLine = entries.some(entry => entry.kind === 'episode');
   const renderCard = useCallback((entry: ContentEntry, w?: number, index = -1) => (
     <ArtworkPlacementContext.Provider value={{row, group, column: Math.max(0, index)}}>
-      <EntryCard entry={entry} shape={shape} width={w} preferred={isTV && claim && index === 0} libraryId={libraryId} origin={origin} open={open} artwork={artwork} resume={resume} />
+      <EntryCard entry={entry} shape={shape} width={w} preferred={isTV && claim && index === 0} libraryId={libraryId} origin={origin} open={open} artwork={artwork} resume={resume} detailLine={detailLine} />
     </ArtworkPlacementContext.Provider>
-  ), [shape, isTV, claim, libraryId, origin, open, artwork, row, group, resume]);
+  ), [shape, isTV, claim, libraryId, origin, open, artwork, row, group, resume, detailLine]);
   return {shape, width, renderCard, open, artwork};
 }
 

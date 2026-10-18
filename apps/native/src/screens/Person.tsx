@@ -90,7 +90,7 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
   const {api, session} = useSession();
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const scope = useMemo(() => viewerScope(session, api), [session, api]);
-  const {space, metrics, isTV} = useTheme();
+  const {space, metrics, isTV, colors} = useTheme();
   const i18n = useI18n();
   const artwork = useArtwork();
   const open = useOpenEntry();
@@ -204,7 +204,8 @@ export function PersonScreen({route}: {route: RouteProp<ContentStackParams, 'Per
     <View style={{alignItems: 'center', paddingVertical: space.lg}}><Ring size={24} thickness={2} /></View>
   ) : null;
   return (
-    <View style={{flex: 1}}>
+    // Ink, not the atmosphere: the hero's art fades to ink (Page `titled`).
+    <View style={{flex: 1, backgroundColor: colors.ink}}>
       {list ? (
         // One grid for both lists, so the hero and the controls above it are never drawn again:
         // a change of sort or filter leaves the page where it is, and television focus on the control.

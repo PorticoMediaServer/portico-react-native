@@ -1,5 +1,5 @@
-import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {cardCaption, continueCaption, formatClock, formatDuration} from '../../../../packages/client-core/src/presentation/index';
+import {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
+import {cardCaption, cardLines, continueLines, formatClock, formatDuration, type CardLines, type CardLinesEntry} from '../../../../packages/client-core/src/presentation/index';
 import type {ImageSourcePropType} from 'react-native';
 import {LibraryContentService, type ContentRoute, type LibraryContentSnapshot} from '../../../../packages/client-core/src/library-content';
 import {compatContentApi} from '../../../../packages/client-core/src/presentation/index';
@@ -109,7 +109,8 @@ export function lengthFor(entry: {kind: string; duration?: number}): string | un
   return entry.kind === 'song' ? formatClock(entry.duration) : formatDuration(entry.duration) || undefined;
 }
 
-/** A Continue Watching card's caption ("S1 E3 · 24 min left"). */
-export function continueCaptionFor(entry: Parameters<typeof continueCaption>[0]): string | undefined {
-  return continueCaption(entry, activeI18n().t);
+/** A card's lines (TV in Plex's shape: show, episode, "S1 · E3"); Continue Watching's when `resume`. */
+export function cardLinesFor(entry: CardLinesEntry, resume = false): CardLines {
+  const i18n = activeI18n();
+  return (resume ? continueLines : cardLines)(entry, i18n.t, {locale: i18n.locale});
 }

@@ -54,11 +54,11 @@ export type TitleHeroProps = {
 
 /**
  * TitleHero (Spec — Title Pages §1): the one fixture every title page opens with, filled per
- * type. Its height doesn't change between types on the same device: television 60 % of the
- * screen; iPad min(70 % of the height, 720); iPhone a 16:9 backdrop with the identity below it.
- * With no backdrop it is the compact hero instead: the art beside the identity over a blurred,
- * darkened version of that art (or a quiet tint), never a tall empty band. While loading, the
- * skeleton keeps the full geometry so the page doesn't jump when data lands.
+ * type. Its height doesn't change between types on the same device, with or without a backdrop:
+ * television 60 % of the screen; iPad 54 % of the height, between 440 and 580; iPhone a 16:9
+ * backdrop with the identity below it. With no backdrop it is the compact hero: the title's art
+ * over a blurred, darkened version of itself (or a quiet tint), in the same geometry (beside the
+ * identity on iPad and TV, in the middle of the band on iPhone), melting into the page like a backdrop.
  *
  * Pages put it first in a `Page`/list whose content has no top padding: the hero owns the
  * safe-area inset so its backdrop runs under the status bar.
@@ -77,18 +77,18 @@ export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function Ti
   const [expanded, setExpanded] = useState(false);
   const [reading, setReading] = useState(false);
   const [focusedAction, setFocusedAction] = useState<string>();
-  const band = phone ? Math.round(window.width / h.height.phone.backdropAspect) + insets.top : isTV ? Math.round(window.height * h.height.tv.viewportFraction) : Math.min(Math.round(window.height * h.height.tablet.viewportFraction), h.height.tablet.max);
+  const tablet = h.height.tablet;
+  const band = phone ? Math.round(window.width / h.height.phone.backdropAspect) + insets.top : isTV ? Math.round(window.height * h.height.tv.viewportFraction) : Math.min(Math.max(Math.round(window.height * tablet.viewportFraction), tablet.min), tablet.max);
   const sized = sizedBackdrop(backdrop, h.backdropWidth[p]);
   // M26: no backdrop means the compact hero, never the tall empty band.
   const compact = heroLayout({backdropUrl: sourceKey(backdrop) || undefined, loading}) === 'compact';
   const factLine = (facts ?? []).filter(part => part !== undefined && part !== null && part !== false && part !== '').join(' · ');
-  // Compact heroes always sit beside the identity, on phones too.
-  const showArt = !!art && (!phone || compact);
+  // Beside the identity on wide layouts; on iPhone the art sits in the band instead.
+  const showArt = !!art && !phone;
   const artWidth = art?.shape === 'poster' ? h.artwork.poster[p] || h.artwork.posterMin : h.artwork.square[p] || h.artwork.posterMin;
-  const heroWidth = phone ? 96 : artWidth;
-  // iPhone while the tall band shows without a backdrop (loading): the title's own art sits in the
-  // band. A compact hero already shows the art beside the identity, so never draw it twice.
-  const bandArt = phone && !sized && !compact && art && art.shape !== 'landscape' ? art : undefined;
+  // iPhone without a backdrop (a compact hero, or one still loading): the title's own art sits in
+  // the middle of the same 16:9 band a film's backdrop fills, so an album opens the way a film does.
+  const bandArt = phone && !sized && art && art.shape !== 'landscape' ? art : undefined;
   const bandArtSize = Math.round((band - insets.top) * 0.72);
   const size = h.actions.size[p];
   const synopsisMax = h.synopsis.maxWidth[p] || undefined;
@@ -168,31 +168,23 @@ export const TitleHero = forwardRef<FocusableHandle, TitleHeroProps>(function Ti
   return (
     // TV-SHOW-01: focus anywhere in the hero brings the page back to its top, title included.
     <View {...(isTV ? ({scrollSnapOffset: 0} as object) : null)}>
-      {sized ? <Backdrop source={sized} height={phone ? band : band + space.xl} align={phone ? 'top' : 'right'} opacity={h.backdropOpacity[p]} /> : compact ? <CompactBackground source={art?.source} /> : <Tint height={phone ? band : band + space.xl} />}
+      {sized ? <Backdrop source={sized} height={phone ? band : band + space.xl} align={phone ? 'top' : 'right'} opacity={h.backdropOpacity[p]} /> : compact ? <CompactBackground source={art?.source} phone={phone} height={phone ? band : undefined} /> : <Tint height={phone ? band : band + space.xl} />}
       {bandArt ? (
         <View pointerEvents="none" style={{position: 'absolute', top: insets.top, left: 0, right: 0, height: band - insets.top, alignItems: 'center', justifyContent: 'center'}}>
-          <Artwork source={bandArt.source} shape={bandArt.shape} width={bandArt.shape === 'poster' ? Math.round(bandArtSize * 2 / 3) : bandArtSize} title={title} icon={bandArt.icon} priority />
+          <HeroArt art={bandArt} title={title} width={bandArt.shape === 'poster' ? Math.round(bandArtSize * 2 / 3) : bandArtSize} />
         </View>
       ) : null}
       {phone ? (
-        compact ? (
-          // Clears the floating Back button (StatusBarScrim: insets.top + sm, a small round button).
-          <View style={{paddingTop: insets.top + space.xxxl + space.xs, paddingHorizontal: h.paddingX.phone, paddingBottom: h.paddingBottom.phone}}>
-            <View style={{flexDirection: 'row', gap: h.gap[p], alignItems: 'center'}}>
-              {showArt && art ? <HeroArt art={art} title={title} width={heroWidth} /> : null}
-              {identity}
-            </View>
-          </View>
-        ) : (
-          <>
-            <View style={{height: band}} />
-            <View style={{paddingHorizontal: h.paddingX.phone, paddingTop: space.md, paddingBottom: h.paddingBottom.phone}}>{identity}</View>
-          </>
-        )
+        // iPhone: the 16:9 band (a backdrop, or the art over its own blur), then the identity, for every title.
+        <>
+          <View style={{height: band}} />
+          <View style={{paddingHorizontal: h.paddingX.phone, paddingTop: space.md, paddingBottom: h.paddingBottom.phone}}>{identity}</View>
+        </>
       ) : (
-        // iPad leaves room at the top for the floating Back (StatusBarScrim).
-        <View style={{...(compact ? null : {height: band}), paddingTop: compact ? insets.top + space.xl : isTV ? space.xl : insets.top + space.xxxl + space.lg, paddingHorizontal: h.paddingX[p], paddingBottom: h.paddingBottom[p]}}>
-          <View style={{flex: 1, flexDirection: 'row', alignItems: compact ? 'center' : 'flex-end', gap: h.gap[p]}}>
+        // iPad leaves room at the top for the floating Back (StatusBarScrim). A compact hero keeps
+        // the same band as a backdrop hero, so a film and an album open the same way.
+        <View style={{height: band, paddingTop: isTV ? space.xl : insets.top + space.xxxl + space.lg, paddingHorizontal: h.paddingX[p], paddingBottom: h.paddingBottom[p]}}>
+          <View style={{flex: 1, flexDirection: 'row', alignItems: 'flex-end', gap: h.gap[p]}}>
             {showArt && art ? <HeroArt art={art} title={title} width={artWidth} /> : null}
             {identity}
           </View>
@@ -263,13 +255,32 @@ function InitialCircle({name, size}: {name?: string; size: number}) {
   );
 }
 
-/** M26 compact background: the blurred, darkened art full-bleed, or a quiet tint with no art. */
-function CompactBackground({source}: {source?: ImageSourcePropType}) {
+/**
+ * M26 compact background: the blurred, darkened art full-bleed, or a quiet tint with no art. It
+ * takes a backdrop's scrims (spec.hero.scrim, the phone's on iPhone), so it melts into the page
+ * instead of ending on an edge. On iPhone it fills the band only (`height`), as a backdrop does.
+ */
+function CompactBackground({source, phone, height}: {source?: ImageSourcePropType; phone: boolean; height?: number}) {
   const {colors} = useTheme();
+  const [size, setSize] = useState({width: 0, height: 0});
   return (
-    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, overflow: 'hidden', backgroundColor: colors[spec.hero.fallback.to]}}>
+    <View pointerEvents="none" onLayout={e => setSize({width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height})} style={{position: 'absolute', left: 0, right: 0, top: 0, ...(height ? {height} : {bottom: 0}), overflow: 'hidden', backgroundColor: colors[spec.hero.fallback.to]}}>
       {source ? <Image source={source} blurRadius={32} resizeMode="cover" style={{position: 'absolute', left: -24, right: -24, top: -24, bottom: -24, opacity: 0.55}} /> : null}
-      {source ? <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: alpha(colors.ink, 0.45)}} /> : null}
+      {source ? <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: alpha(colors.ink, 0.25)}} /> : null}
+      {size.width > 0 ? (
+        <Svg width={size.width} height={size.height} style={{position: 'absolute', left: 0, top: 0}}>
+          <Defs>
+            <LinearGradient id="compactBottom" x1="0" y1="0" x2="0" y2="1">
+              {(phone ? spec.hero.scrim.phoneBottom : spec.hero.scrim.bottom).map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
+            </LinearGradient>
+            <LinearGradient id="compactSide" x1="0" y1="0" x2="1" y2="0">
+              {spec.hero.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
+            </LinearGradient>
+          </Defs>
+          {phone ? null : <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#compactSide)" />}
+          <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#compactBottom)" />
+        </Svg>
+      ) : null}
     </View>
   );
 }

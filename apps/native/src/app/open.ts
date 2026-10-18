@@ -4,27 +4,12 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useCallback} from 'react';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {ContentStackParams} from './routes';
+import {routeForEntry, type EntryRoute} from './entry-route';
 import {usePlayerActions, type EntryOrigin} from './player-actions';
 
 export type OpenIntent = 'open' | 'play' | 'more';
 
-export type EntryRoute = {[K in keyof ContentStackParams]: {name: K; params: ContentStackParams[K]}}[keyof ContentStackParams];
-
-/** The screen an entry's server-given destination opens, or nothing when it only plays. */
-export function routeForEntry(entry: ContentEntry, libraryId?: string): EntryRoute | null {
-  const library = entry.libraryId ?? libraryId ?? '';
-  const target = entry.navigation;
-  if (!target) return null;
-  // Spec — Title Pages §3: an episode opens on its show's page, with that episode's panel open.
-  if (target.view === 'item' && entry.kind === 'episode') return {name: 'Show', params: {libraryId: library, episodeId: target.entityId ?? entry.id, title: entry.title}};
-  if (target.view === 'item') return {name: 'Detail', params: {libraryId: library, itemId: target.entityId ?? entry.id}};
-  if (target.view === 'show') return {name: 'Show', params: {libraryId: library, showId: target.entityId ?? entry.id, title: entry.title}};
-  if (target.view === 'season') return {name: 'Show', params: {libraryId: library, seasonId: target.entityId ?? entry.id, title: entry.title}};
-  if (target.category !== undefined || target.view === 'browse' || target.view === 'discover' || target.view === 'collections' || target.view === 'categories') {
-    return {name: 'Library', params: {libraryId: library, tab: target.view === 'discover' || target.view === 'collections' ? target.view : 'browse', category: target.category}};
-  }
-  return {name: 'Entity', params: {libraryId: library, view: target.view, entityId: target.entityId ?? entry.id, title: entry.title}};
-}
+export {routeForEntry, type EntryRoute} from './entry-route';
 
 /**
  * Where a linked title id (`portico://item/<id>`, a Top Shelf card) opens. A link carries only the

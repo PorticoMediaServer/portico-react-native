@@ -14,6 +14,7 @@ export type ContentStackParams = {
   Library: {libraryId: string; tab?: LibraryTabId; category?: string; genre?: string};
   Entity: {libraryId: string; view: ContentView; entityId: string; title?: string};
   Detail: {libraryId: string; itemId: string};
+  /** `episodeId`: the episode the page is opened for (from a row elsewhere, or a link): its season shows, it is brought into view and marked a moment; nothing is opened. */
   Show: {libraryId: string; showId?: string; seasonId?: string; episodeId?: string; title?: string};
   Search: undefined;
   Person: {personId: string; name?: string};

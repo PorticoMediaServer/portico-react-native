@@ -5,10 +5,11 @@ import {Focusable} from './Focusable';
 import {Text} from './Text';
 import Svg, {Path} from 'react-native-svg';
 import {useTheme} from './theme';
+import {brandViewBox} from './brand-ink';
 
 /** The Play-P mark, as prebuilt paths (PERF-15: no XML parser in the bundle). Geometry and viewBox
- * copied verbatim from `assets/brandSymbol`. */
-const brandViewBox = '206 184 304 405';
+ * copied verbatim from `assets/brandSymbol` (the viewBox in brand-ink.ts). */
+const viewBox = `${brandViewBox.x} ${brandViewBox.y} ${brandViewBox.width} ${brandViewBox.height}`;
 const brandOutline = 'M228.0 567.0V206.0H354.3530578613281Q395.70135498046875 206.0 425.38002014160156 221.2514419555664Q455.0586853027344 236.5028839111328 471.0293426513672 265.1856155395508Q487.0 293.86834716796875 487.0 333.6389465332031Q487.0 372.9089660644531 471.0293426513672 401.5841369628906Q455.0586853027344 430.2593078613281 425.38002014160156 445.51832580566406Q395.70135498046875 460.77734375 354.3530578613281 460.77734375H324.0V408.46429443359375H352.413818359375Q392.6810607910156 408.46429443359375 413.2369079589844 388.8592529296875Q433.7927551269531 369.25421142578125 433.7927551269531 333.6389465332031Q433.7927551269531 297.52313232421875 413.2369079589844 277.91807556152344Q392.6810607910156 258.3130187988281 352.413818359375 258.3130187988281H280.7454833984375V408.46429443359375H281.0V460.77734375H280.7454833984375V567.0Z';
 const brandPlay = 'M324 298 L324 369 Q324 374 329 371 L392 338 Q398 333 392 328 L329 296 Q324 293 324 298 Z';
 
@@ -17,7 +18,7 @@ export function BrandMark({size, color}: {size: number; color?: string}) {
   const {colors} = useTheme();
   const fill = color ?? colors.text;
   return (
-    <Svg viewBox={brandViewBox} width={size * (304 / 405)} height={size}>
+    <Svg viewBox={viewBox} width={size * (brandViewBox.width / brandViewBox.height)} height={size}>
       <Path d={brandOutline} fill={fill} />
       <Path d={brandPlay} fill={fill} />
     </Svg>
