@@ -31,13 +31,23 @@ jobs:
           echo "RUSTUP_TOOLCHAIN=$rust" >> "$GITHUB_ENV"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+      - name: Restore verified media outputs
+        id: media-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: third_party/media-engine/out/android/
+          key: android-media-v1-${{ matrix.abi }}-${{ hashFiles('third_party/media-engine/sources.lock.json', 'third_party/media-engine/*.sh', 'third_party/media-engine/lib/*.sh', 'third_party/media-engine/patches/**', 'third_party/media-engine/verify.py') }}
       - name: Build and verify pinned media sources
+        if: steps.media-cache.outputs.cache-hit != 'true'
         env:
           MEDIA_ENGINE_JOBS: '4'
         run: |
           third_party/media-engine/build-android.sh --abis "${{ matrix.abi }}"
-          mv third_party/media-engine/out/android/manifest.json "third_party/media-engine/out/android/manifest-${{ matrix.abi }}.json"
-          mv third_party/media-engine/out/android/build-info.json "third_party/media-engine/out/android/build-info-${{ matrix.abi }}.json"
+          cp third_party/media-engine/out/android/manifest.json "third_party/media-engine/out/android/manifest-${{ matrix.abi }}.json"
+          cp third_party/media-engine/out/android/build-info.json "third_party/media-engine/out/android/build-info-${{ matrix.abi }}.json"
+      - name: Verify restored media outputs
+        if: steps.media-cache.outputs.cache-hit == 'true'
+        run: python3 -I third_party/media-engine/verify.py android --abis "${{ matrix.abi }}" --ndk "$ANDROID_NDK_HOME"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-media-${{ matrix.abi }}
