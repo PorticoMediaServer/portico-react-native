@@ -19,6 +19,24 @@ static NSString *PorticoTrustKey(NSString *host, NSInteger port) {
   if ([bare hasPrefix:@"["] && [bare hasSuffix:@"]"]) bare = [bare substringWithRange:NSMakeRange(1, bare.length - 2)];
   return [NSString stringWithFormat:@"%@:%ld", bare.lowercaseString, (long)port];
 }
+/**
+ * `host:port` of the Portico Account service (Info.plist's PorticoHostedURL, else production). It is
+ * reached over publicly trusted TLS only: no owner's certificate is ever pinned, remembered or
+ * accepted there (NS-02), whatever the app asks.
+ */
+static NSString *PorticoTrustAccountKey(void) {
+  static NSString *key; static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSString *named = NSBundle.mainBundle.infoDictionary[@"PorticoHostedURL"];
+    NSString *origin = [named isKindOfClass:NSString.class] && named.length && ![named containsString:@"$("] ? named : @"https://web.getportico.tv";
+    NSURLComponents *url = [NSURLComponents componentsWithString:origin];
+    key = [url.scheme.lowercaseString isEqualToString:@"https"] ? PorticoTrustKey(url.host, url.port ? url.port.integerValue : 443) : nil;
+  });
+  return key;
+}
+static BOOL PorticoTrustIsAccount(NSString *key) {
+  return key && [key isEqualToString:PorticoTrustAccountKey()];
+}
 static NSString *PorticoTrustFingerprint(SecTrustRef trust) {
   CFArrayRef chain = SecTrustCopyCertificateChain(trust);
   if (!chain) return nil;
@@ -93,7 +111,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   // Trusted by the system for this name: exactly what happened before.
   if (SecTrustEvaluateWithError(trust, NULL)) { completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
   NSString *key = PorticoTrustKey(space.host, space.port), *fingerprint = PorticoTrustFingerprint(trust);
-  if (key && fingerprint) {
+  if (key && fingerprint && !PorticoTrustIsAccount(key)) {
     NSString *pinned = [self pinnedForKey:key][@"fingerprint"];
     if ([pinned isEqualToString:fingerprint]) { completion(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]); return; }
     @synchronized(self) {
@@ -151,6 +169,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
 }
 
 + (NSDictionary *)pinnedForKey:(NSString *)key {
+  if (PorticoTrustIsAccount(key)) return nil;
   NSString *line = [[PorticoTrustDefaults() dictionaryForKey:PorticoTrustRecord][key] isKindOfClass:NSString.class] ? [PorticoTrustDefaults() dictionaryForKey:PorticoTrustRecord][key] : nil;
   NSArray<NSString *> *parts = [line componentsSeparatedByString:@" "];
   if (parts.count != 2 || !PorticoTrustText(parts[0], @"^[A-Za-z0-9_-]{43}$")) return nil;
@@ -164,7 +183,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
 
 + (BOOL)pin:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId {
   NSString *key = [self keyForOrigin:origin];
-  if (!key || !PorticoTrustText(fingerprint, @"^[A-Za-z0-9_-]{43}$") || ![serverId isKindOfClass:NSString.class] || (serverId.length && !PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$"))) return NO;
+  if (!key || PorticoTrustIsAccount(key) || !PorticoTrustText(fingerprint, @"^[A-Za-z0-9_-]{43}$") || ![serverId isKindOfClass:NSString.class] || (serverId.length && !PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$"))) return NO;
   @synchronized(self) {
     NSUserDefaults *defaults = PorticoTrustDefaults();
     NSMutableDictionary *pins = [[defaults dictionaryForKey:PorticoTrustRecord] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -211,7 +230,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration delegate:delegate delegateQueue:nil];
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
   request.HTTPMethod = @"POST"; request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
-  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"]; [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"]; [request setValue:@"application/json; portico-route-proof=2" forHTTPHeaderField:@"Accept"];
   [[session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
     [session finishTasksAndInvalidate];
     NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;

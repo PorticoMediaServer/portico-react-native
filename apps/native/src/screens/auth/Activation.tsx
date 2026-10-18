@@ -21,6 +21,9 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
   const [state, setState] = useState(service.getSnapshot());
   const [error, setError] = useState('');
   const handled = useRef(false);
+  // The person chose another way in: an approval still being accepted is not adopted behind them.
+  const left = useRef(false);
+  const leave = (go: () => void) => () => { left.current = true; go(); };
   useEffect(() => service.subscribe(() => setState(service.getSnapshot())), [service]);
   useEffect(() => {
     void service.start();
@@ -40,9 +43,8 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
     const grant = state.grant as HostedSession;
     let accepted = true;
     session
-      .activationApproved(grant, () => accepted)
-      .then(() => service.complete(grant))
-      .then(onApproved)
+      .activationApproved(grant, () => accepted && !left.current)
+      .then(adopted => (adopted ? service.complete(grant).then(onApproved) : undefined))
       .catch(e => {
         accepted = false;
         setError(signInMessage(e));
@@ -87,9 +89,9 @@ export function Activation({onApproved, onAccount, onDirect, onSavedServer}: {on
         </View>
       </View>
       <View style={{flexDirection: 'row', justifyContent: 'center', gap: space.md}}>
-        <Button variant="primary" size="lg" label={i18n.t('auth.signInWithAccount')} hasTVPreferredFocus onPress={onAccount} />
-        <Button variant="secondary" size="lg" label={i18n.t('auth.signInDirectly')} onPress={onDirect} />
-        {onSavedServer ? <Button variant="ghost" size="lg" label={i18n.t('auth.backToSavedServer')} onPress={onSavedServer} /> : null}
+        <Button variant="primary" size="lg" label={i18n.t('auth.signInWithAccount')} hasTVPreferredFocus onPress={leave(onAccount)} />
+        <Button variant="secondary" size="lg" label={i18n.t('auth.signInDirectly')} onPress={leave(onDirect)} />
+        {onSavedServer ? <Button variant="ghost" size="lg" label={i18n.t('auth.backToSavedServer')} onPress={leave(onSavedServer)} /> : null}
       </View>
       <Text variant="caption" tone="tertiary" align="center">{i18n.t('activation.termsNote')}</Text>
     </AuthFrame>

@@ -35,7 +35,9 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const passwordField = useRef<FieldHandle>(null);
   const [step, setStep] = useState<DirectStep>(firstDirectStep(isTV));
   // Every move goes through the step model: a handheld never reaches the address or code steps.
-  const go = (event: 'connected' | 'usePassword' | 'back') => { const next = directStepAfter(step, event, isTV); if (next === 'exit') onBack(); else setStep(next); return next; };
+  // Leaving a step (Back, or "Use a password") abandons whatever was under way there, so a late answer
+  // can't sign in behind the person (NS-04); a connection that answered is what moves the step on.
+  const go = (event: 'connected' | 'usePassword' | 'back') => { if (event !== 'connected') edited(); const next = directStepAfter(step, event, isTV); if (next === 'exit') onBack(); else setStep(next); return next; };
   const [connected, setConnected] = useState<HttpLocalApi>();
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
@@ -73,20 +75,31 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   });
   const ready = !!direct.origin.trim() && !!username && !!password;
   const submit = () => { if (ready) void direct.signIn(username, password); };
+  // Changing any detail abandons the attempt under way, so the button is ready for the new one at
+  // once; an answer that arrives for the old details is ignored.
+  const connects = useRef(0);
+  const edited = () => {
+    connects.current++;
+    setConnecting(false);
+    direct.cancel();
+  };
   const connect = async () => {
     if (!direct.origin.trim() || connecting) return;
+    const mine = ++connects.current;
     setConnecting(true);
     setConnectError('');
     try {
       const next = await direct.connect();
+      if (mine !== connects.current) { release(next); return; }
       release(connected);
       setConnected(next);
       go('connected');
     } catch (e) {
+      if (mine !== connects.current) return;
       if (__DEV__) console.warn('[direct] connect failed', (e as {code?: unknown})?.code, (e as {status?: unknown})?.status, String(e), (e as Error)?.stack); // lint-raw-errors-allow: __DEV__-only diagnostics
       setConnectError(signInMessage(e));
     } finally {
-      setConnecting(false);
+      if (mine === connects.current) setConnecting(false);
     }
   };
   if (direct.step) return <DirectStepScreen />;
@@ -94,10 +107,10 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   if (direct.setup && !isTV) return <ServerSetup target={direct.setup} />;
   if (step === 'code' && connected) return <QuickConnect api={connected} onPassword={() => leaveCode('usePassword')} onBack={() => leaveCode('back')} />;
   // TV-AUTH-03: placeholders are examples, never a repeat of the label.
-  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
+  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { edited(); if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
   if (step === 'address') {
     return (
-      <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
+      <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={() => { edited(); onBack(); }} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
         {address}
         <CertificateQuestion origin={direct.origin} shown={!!(connectError || session.error)} connectionFailed={!!connectError} onTrusted={() => { setConnectError(''); session.clearError(); void connect(); }} />
         {/* A sign-in that ended reopens with the address filled in: Continue is the one press. */}
@@ -110,8 +123,8 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
     <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.lead')} onBack={() => go('back')} error={session.error} onDismissError={session.clearError}>
       {address}
       <SetupOffer address={settled} />
-      <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={setUsername} textContentType="username" autoComplete="username" />
-      <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={setPassword} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
+      <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={v => { edited(); setUsername(v); }} textContentType="username" autoComplete="username" />
+      <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={v => { edited(); setPassword(v); }} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
       <CertificateQuestion origin={direct.origin} shown={!!session.error} onTrusted={() => { session.clearError(); submit(); }} />
       <Button variant="primary" size="lg" label={i18n.t('auth.signIn')} fullWidth loading={session.busy} disabled={!ready} onPress={submit} />
       <PlainHttpNote address={settled} />

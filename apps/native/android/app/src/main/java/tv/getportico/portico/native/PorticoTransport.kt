@@ -5,6 +5,12 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.PortUnreachableException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
@@ -118,12 +124,16 @@ internal object PorticoTransport {
       val transport = if (critical) writeClient else client
       call = transport.newCall(request)
       entry.call = call
-      entry.deadline = deadlines.schedule({ finish(entry, "The queue request could not be confirmed.", null) }, 15, TimeUnit.SECONDS)
+      entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, 15, TimeUnit.SECONDS)
     }
     call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) =
           if (PorticoServerTrust.refusedCertificate(e)) finish(entry, "The server's certificate is not trusted yet.", null, CERTIFICATE)
-          else finish(entry, "The queue request could not be confirmed.", null)
+          else when (failureCode(e)) {
+            TIMEOUT -> finish(entry, "The request took too long.", null, TIMEOUT)
+            UNREACHABLE -> finish(entry, "The server could not be reached.", null, UNREACHABLE)
+            else -> finish(entry, "The queue request could not be confirmed.", null)
+          }
 
       override fun onResponse(call: Call, response: Response) {
         response.use { read(entry, it) }
@@ -181,6 +191,23 @@ internal object PorticoTransport {
 
   /** The failure code for a refused certificate: the app can then ask the server to prove itself over it. */
   const val CERTIFICATE = "certificate_untrusted"
+  /** No answer in time: the app says the server took too long. A write's outcome is unknown. */
+  const val TIMEOUT = "timeout"
+  /** Nothing reached the server (refused, no route, unknown name): the app says it can't be reached. */
+  const val UNREACHABLE = "network"
+  /** The app abandoned the request. */
+  const val CANCELLED = "cancelled"
+
+  /**
+   * What a transport failure means to the person, by its kind. Only failures before anything
+   * was sent count as unreachable; anything else keeps the transport's own code.
+   */
+  fun failureCode(e: IOException): String? = when (e) {
+    is SocketTimeoutException -> TIMEOUT
+    is InterruptedIOException -> if (e.message == "timeout") TIMEOUT else null
+    is ConnectException, is NoRouteToHostException, is UnknownHostException, is PortUnreachableException -> UNREACHABLE
+    else -> null
+  }
 
   private fun finish(entry: Entry, failure: String?, result: Any?, code: String = "queue_transport") {
     val promise: Promise?
@@ -203,7 +230,7 @@ internal object PorticoTransport {
 
   fun cancel(identifier: String) {
     val entry = synchronized(entries) { entries[identifier] } ?: return
-    finish(entry, "Queue request cancelled.", null)
+    finish(entry, "Queue request cancelled.", null, CANCELLED)
   }
 
   /**

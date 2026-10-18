@@ -27,6 +27,7 @@ import {
 import { NativeQueueStore } from './queue-storage';
 import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
+import { isAccountAuthority } from './account-authority';
 import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 const storageKey = 'network.selected.v1';
 const store = new NativeQueueStore();
@@ -74,13 +75,20 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
   try {
     const headers: Record<string, string> = {};
     new Headers(options.headers).forEach((v, k) => (headers[k] = v));
-    const raw = await NativeModules.PorticoRuntime.networkRequest(
-      id,
-      input,
-      options.method ?? 'GET',
-      headers,
-      options.body ?? null,
-    );
+    let raw: {status: number; headers: Record<string, string>; body: string};
+    try {
+      raw = await NativeModules.PorticoRuntime.networkRequest(
+        id,
+        input,
+        options.method ?? 'GET',
+        headers,
+        options.body ?? null,
+      );
+    } catch (error) {
+      // The caller gave up on it: that is a cancellation, whatever the transport said as it stopped.
+      if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
+      throw error;
+    }
     if (options.signal?.aborted)
       throw new RouteError('cancelled', 'Connection request cancelled.');
     return new Response(
@@ -101,7 +109,8 @@ export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (inp
   try {
     return await nativeRequest(input, options);
   } catch (error) {
-    const origin = typeof input === 'string' && (error as {code?: unknown})?.code === 'certificate_untrusted' ? certificateOrigin(input) : undefined;
+    // An owner's own certificate is settled only for the owner's server, never the account service (NS-02).
+    const origin = typeof input === 'string' && (error as {code?: unknown})?.code === 'certificate_untrusted' && !isAccountAuthority(input) ? certificateOrigin(input) : undefined;
     if (!origin || !certificateTrustAvailable()) throw error;
     await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, options.signal ?? undefined);
     return nativeRequest(input, options);

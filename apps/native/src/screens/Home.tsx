@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {useUnreadCount} from '../app/inbox';
 import {Image, View, type ImageSourcePropType} from 'react-native';
+import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry, ContentSection} from '../../../../packages/client-core/src/library-content';
 import {captionFor, cardLinesFor, formatDuration, iconFor, lengthFor, progressFor, shapeFor, useArtwork} from '../app/content';
 import {homeHero, isContinueRow as isContinueRowId, type HomeHero} from '../../../../packages/client-core/src/presentation/index';
@@ -18,7 +19,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentStackParams} from '../app/routes';
-import {Artwork, Backdrop, Button, Card, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useScreenTitle, useTheme} from '../ui';
+import {Artwork, Backdrop, Button, Card, Grid, ListRow, Notice, PageList, ProgressBar, Shelf, Skeleton, StateView, Text, useEntryFocus, useInitialFocus, useScreenTitle, useTheme, Wordmark} from '../ui';
 import {indexTitles} from '../bridge/NativeActivity';
 import {ArtworkPlacementContext} from '../ui/ArtworkPipeline';
 import {useInvoker} from '../app/playback-events';
@@ -349,6 +350,10 @@ function LoadingShelves() {
 }
 
 /** The bell: opens Notifications, with a dot while something is unread. */
+/** The root header's search, bell and account icons: a heavier line than the default 1.75, so they
+ * read over any artwork (Justin, 18 Oct). */
+const HEADER_ICON_STROKE = 2.5;
+
 function NotificationsButton() {
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const i18n = useI18n();
@@ -356,7 +361,7 @@ function NotificationsButton() {
   const unread = useUnreadCount();
   return (
     <View>
-      <Button variant="ghost" round icon="bell" accessibilityLabel={unread ? i18n.t('notifications.unreadLabel', {count: unread}) : i18n.t('notifications.title')} onPress={() => navigation.push('Notifications')} />
+      <Button variant="ghost" round icon="bell" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={unread ? i18n.t('notifications.unreadLabel', {count: unread}) : i18n.t('notifications.title')} onPress={() => navigation.push('Notifications')} />
       {unread ? <View pointerEvents="none" style={{position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent}} /> : null}
     </View>
   );
@@ -371,24 +376,44 @@ export function RootHeaderActions({extra}: {extra?: React.ReactNode}) {
   return (
     <>
       {extra}
-      <Button variant="ghost" round icon="search" accessibilityLabel={i18n.t('web.search.title')} onPress={() => navigation.push('Search')} />
+      <Button variant="ghost" round icon="search" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('web.search.title')} onPress={() => navigation.push('Search')} />
       <NotificationsButton />
-      <Button variant="ghost" round icon="account" accessibilityLabel={i18n.t('lib.accountAndSettings')} onPress={() => navigation.push('Settings')} />
+      <Button variant="ghost" round icon="account" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('lib.accountAndSettings')} onPress={() => navigation.push('Settings')} />
     </>
   );
 }
 
-/** Handheld top-right utilities: search and the account/settings avatar. */
+/** How far the header's scrim fades out below the bar, over the artwork. */
+const HEADER_SCRIM_FADE = 48;
+
+/** Handheld Home header: the Portico wordmark where another root shows its title, then search, notifications and account. */
 export function HeaderUtilities({backed = false}: {/** IOS-HOME-01: content has scrolled under the bar, so it gets a backing and a hairline. */ backed?: boolean}) {
   const navigation = useNavigation<NativeStackNavigationProp<ContentStackParams>>();
   const insets = useSafeAreaInsets();
   const {space, colors} = useTheme();
   const i18n = useI18n();
+  const [bar, setBar] = useState({width: 0, height: 0});
+  const barHeight = bar.height;
   return (
-    <View pointerEvents="box-none" style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, paddingTop: insets.top + space.xs, paddingBottom: space.xs, paddingRight: space.sm, flexDirection: 'row', justifyContent: 'flex-end', gap: space.xs, backgroundColor: backed ? colors.ink : 'transparent', borderBottomWidth: backed ? 1 : 0, borderBottomColor: colors.lineSoft}}>
-      <Button variant="ghost" round icon="search" accessibilityLabel={i18n.t('web.search.title')} onPress={() => navigation.push('Search')} />
+    <View pointerEvents="box-none" onLayout={e => setBar({width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height})} style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, paddingTop: insets.top + space.xs, paddingBottom: space.xs, paddingLeft: space.page, paddingRight: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: backed ? colors.ink : 'transparent', borderBottomWidth: backed ? 1 : 0, borderBottomColor: colors.lineSoft}}>
+      {/* Over artwork, a soft shade behind the bar keeps the wordmark and icons legible on any backdrop. */}
+      {!backed && barHeight ? (
+        // The bar's own measured width, padding included ("100%" would stop short by its padding).
+        <Svg pointerEvents="none" width={Math.ceil(bar.width)} height={Math.ceil(barHeight + HEADER_SCRIM_FADE)} style={{position: 'absolute', top: 0, left: 0}}>
+          <Defs>
+            <LinearGradient id="headerScrim" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor={colors.ink} stopOpacity={0.7} />
+              <Stop offset={String(barHeight / (barHeight + HEADER_SCRIM_FADE))} stopColor={colors.ink} stopOpacity={0.45} />
+              <Stop offset="1" stopColor={colors.ink} stopOpacity={0} />
+            </LinearGradient>
+          </Defs>
+          <Rect x={0} y={0} width="100%" height="100%" fill="url(#headerScrim)" />
+        </Svg>
+      ) : null}
+      <View style={{flex: 1}}><Wordmark height={28} /></View>
+      <Button variant="ghost" round icon="search" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('web.search.title')} onPress={() => navigation.push('Search')} />
       <NotificationsButton />
-      <Button variant="ghost" round icon="account" accessibilityLabel={i18n.t('lib.accountAndSettings')} onPress={() => navigation.push('Settings')} />
+      <Button variant="ghost" round icon="account" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('lib.accountAndSettings')} onPress={() => navigation.push('Settings')} />
     </View>
   );
 }
