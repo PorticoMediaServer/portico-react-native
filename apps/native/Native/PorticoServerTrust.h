@@ -6,15 +6,15 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  * The owner's own certificate. A Portico server may present a certificate no public authority
  * signed (self-signed, or from the owner's private authority). The app trusts such a certificate
- * for exactly the address it was seen at, once the server behind it has proved its Portico
- * identity over that very certificate (+prove:…), and keeps it pinned there.
+ * for exactly the address it was seen at, once its fingerprint is bound into a verified
+ * Portico identity proof or the person explicitly accepts it, and keeps it pinned there.
  *
  * Every URLSession delegate in the app answers server-trust challenges through
  * +handleChallenge:completion:, and AVFoundation through +resourceLoaderDelegate:
  *  - a certificate the system trusts for the name gets the default handling, as before;
  *  - otherwise the leaf certificate's SHA-256 must equal the one pinned for that host and port;
  *  - anything else is refused as before, and its fingerprint is remembered (only in memory) so
- *    the app can ask the server to prove who it is over that certificate and then pin it.
+ *    the app can check the signed certificate binding or ask the person before pinning it.
  *
  * Pins live in the app group's defaults, so the Top Shelf extension reads the same ones.
  */

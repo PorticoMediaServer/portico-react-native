@@ -27,18 +27,18 @@ import okhttp3.OkHttpClient
 /**
  * The owner's own certificate. A Portico server may present a certificate no public authority
  * signed (self-signed, or from the owner's private authority). The app trusts such a certificate
- * for exactly the address it was seen at, once the server behind it has proved its Portico
- * identity over that very certificate (`PorticoNetwork.proofRequest`), and keeps it pinned there.
+ * for exactly the address it was seen at, once its fingerprint is bound into a verified
+ * Portico identity proof or the person explicitly accepts it, and keeps it pinned there.
  *
  * Every HTTP client in the app takes its TLS checks from here (`porticoTrust()` on each OkHttp
  * builder, the React Native client factory and the platform default for anything else):
  *  - a certificate the system trusts for the name is accepted as before;
  *  - otherwise the leaf certificate's SHA-256 must equal the one pinned for that host and port;
  *  - anything else is refused, and its fingerprint is remembered (only in memory) so the app can
- *    ask the server to prove who it is over that certificate and then pin it.
+ *    check the signed certificate binding or ask the person before pinning it.
  *
  * A pin is the exact certificate at one address, so it is accepted whatever its dates and names
- * say: the owner chose it, and the server's identity was proved over it.
+ * say: it was authorized by the signed binding or the owner's explicit choice.
  */
 internal object PorticoServerTrust {
   data class Pin(val fingerprint: String, val serverId: String)
