@@ -7,7 +7,8 @@ export {useBrowsePreview} from '../app/browse-preview';
 import {heroText, shelfHeight, stageLayout, type StageLayout} from '../app/browse-stage';
 import {formatDuration, useArtwork} from '../app/content';
 import {useI18n} from '../app/i18n';
-import {Artwork, Backdrop, FocusGroup, ProgressBar, Skeleton, Text, cardFocusKey, parseCardFocusKey, useFocusResolver, useTheme, type FocusResolver} from '../ui';
+import {Artwork, Backdrop, FocusGroup, ProgressBar, Skeleton, Text, useFocusResolver, useTheme, type FocusResolver} from '../ui';
+import {rowsResolver} from '../ui/focus-lists';
 import {ArtworkPlacementContext} from '../ui/ArtworkPipeline';
 
 /**
@@ -96,25 +97,15 @@ export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity,
   const latest = useRef({rows, focusRows});
   latest.current = {rows, focusRows};
   const hasFocusRows = !!focusRows;
-  const resolver = useMemo<FocusResolver | undefined>(() => (!hasFocusRows ? undefined : {
-    reveal: key => {
-      const card = parseCardFocusKey(key);
-      const {rows: now, focusRows: named} = latest.current;
-      if (!card || !named) return false;
-      const index = now.findIndex(row => named.group(row) === card.group);
-      if (index < 0) return false;
-      list.current?.scrollToIndex({index, animated: false});
-      return true;
-    },
-    fallback: (key, place) => {
-      const card = parseCardFocusKey(key);
-      const {rows: now, focusRows: named} = latest.current;
-      if (!card || !named || !now.length || now.some(row => named.group(row) === card.group)) return undefined;
-      const index = Math.min(Math.max(0, (place.row ?? named.base) - named.base), now.length - 1);
-      const first = named.first(now[index]!);
-      return first === undefined ? undefined : cardFocusKey(named.group(now[index]!), first);
-    },
-  }), [hasFocusRows]);
+  // The stage brings a card's row into view and leaves the card to its row (`focus-lists.ts`): a
+  // card that has gone from a row still here is the row's to replace, a row that has gone the stage's.
+  const resolver = useMemo<FocusResolver | undefined>(() => (!hasFocusRows ? undefined : rowsResolver<T>({
+    rows: () => latest.current.rows,
+    group: row => latest.current.focusRows!.group(row),
+    first: row => latest.current.focusRows!.first(row),
+    base: latest.current.focusRows!.base,
+    scrollTo: index => list.current?.scrollToIndex({index, animated: false}),
+  })), [hasFocusRows]);
   useFocusResolver(resolver);
   // Each row comes to rest at the top of the viewport when anything in it takes focus.
   const snapped = useMemo<ListRenderItem<T>>(() => info => (!snaps || snaps(info.item) ? <View collapsable={false} {...({scrollSnapOffset: 0} as object)}>{renderRow(info)}</View> : renderRow(info)), [renderRow, snaps]);

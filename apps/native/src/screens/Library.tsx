@@ -15,7 +15,8 @@ import {requestId} from '../app/detail';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
-import {Button, Dropdown, FocusGroup, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, cardFocusKey, parseCardFocusKey, useFocusResolver, useTheme, type DropdownAnchor, type FocusPlace, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
+import {Button, Dropdown, FocusGroup, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, cardFocusKey, useFocusResolver, useTheme, type DropdownAnchor, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
+import {windowResolver} from '../ui/focus-lists';
 import {LoadingShelves, RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {BrowsePreviewContext, BrowseStage, LibraryStrip, useBrowsePreview, useStageLayout, useStageTop, useStripHeight} from './BrowseStage';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
@@ -414,31 +415,22 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   // For you ranks by taste: it has no letters to jump to.
   const rail = anchors.length > 0 && !filtered && sortField === 'title' && !groups;
   const jumpTo = rail && isTV ? <AlphabetRail index={anchors} current={letter} sortField={sortField} onJump={jump} /> : null;
-  // TV: focus coming back after playback to a card or a song the grid no longer mounts. The grid
-  // is scrolled to where it was; if another title now holds that place, focus goes to that one.
+  // TV: focus coming back after playback to a card or a song in the grid (`focus-lists.ts`). It is
+  // found where it was, close by or in any page held; an unloaded place is read first; a title
+  // that has gone hands over to the one now in its place (the last, when the list got shorter).
   const windowRef = useRef(list);
   windowRef.current = list;
-  const gridResolver = useMemo<FocusResolver>(() => {
-    const at = (key: string, place: FocusPlace) => {
-      const card = parseCardFocusKey(key);
-      const index = place.column;
-      if (!card || (card.group !== 'cards' && card.group !== 'tracks') || index === undefined) return undefined;
-      const slot = windowRef.current?.slotAt(index);
-      return {card, index, slot: slot?.kind === 'item' ? slot.item : undefined};
-    };
-    return {
-      reveal: (key, place) => {
-        const found = at(key, place);
-        if (!found || found.slot?.id !== found.card.entryId) return false;
-        grid.current?.scrollToIndex(found.index);
-        return true;
-      },
-      fallback: (key, place) => {
-        const found = at(key, place);
-        return found?.slot && found.slot.id !== found.card.entryId ? cardFocusKey(found.card.group, found.slot.id) : undefined;
-      },
-    };
-  }, []);
+  const totalRef = useRef(snapshot.total);
+  totalRef.current = snapshot.total;
+  const groupRef = useRef(tracks ? 'tracks' : groups ? undefined : 'cards');
+  groupRef.current = tracks ? 'tracks' : groups ? undefined : 'cards';
+  const gridResolver = useMemo<FocusResolver>(() => windowResolver<ContentEntry>({
+    group: () => groupRef.current,
+    list: () => windowRef.current,
+    total: () => totalRef.current,
+    keyOf: entry => entry.id,
+    scrollTo: index => grid.current?.scrollToIndex(index),
+  }), []);
   useFocusResolver(gridResolver);
   const stageTop = useStageTop();
   const top = (

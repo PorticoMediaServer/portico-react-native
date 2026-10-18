@@ -56,7 +56,7 @@ export function SeasonSwitcher({choices, selected, onSelect, seasonActions, onSe
         {jumpSeasons || jumpEpisodes ? <Button variant="secondary" size={isTV ? 'md' : 'sm'} icon="search" label={i18n.t('title.jumpTo')} onPress={() => setJumping(true)} /> : null}
         {isTV ? null : <View style={{flex: 1}} />}
         {progress ? <Text variant="caption" tone="secondary" lines={1}>{progress}</Text> : null}
-        {seasonActions.length ? <Button variant="ghost" round size={isTV ? 'md' : 'sm'} icon="more" accessibilityLabel={i18n.t('title.seasonOptions', {season: heading})} onPress={() => setOptions(true)} /> : null}
+        {seasonActions.length ? <Button variant="ghost" round size={isTV ? 'md' : 'sm'} icon="more" accessibilityLabel={i18n.t('title.seasonOptions', {season: heading})} focusKey="action:season-options" onPress={() => setOptions(true)} /> : null}
       </View>
       <Menu open={picking} onClose={() => setPicking(false)} title={i18n.t('title.seasons')} items={choices.map(c => ({id: c.id, label: c.label, selected: c.id === selected}))} onSelect={onSelect} />
       <Menu open={options} onClose={() => setOptions(false)} title={heading} items={seasonActions} onSelect={onSeasonAction} />

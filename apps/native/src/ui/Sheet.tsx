@@ -4,8 +4,8 @@ import {Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, TVFocusG
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {Easing, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {Button} from './Button';
-import type {FocusableHandle} from './Focusable';
-import {focusReturn} from './focus-return';
+import {FocusOverlayContext, type FocusableHandle} from './Focusable';
+import {useFocusOverlay} from './focus-binding';
 import {Icon, type IconName} from './Icon';
 import {Field} from './Field';
 import {ListRow, rowPaddingX} from './ListRow';
@@ -145,7 +145,7 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   // While it is up, focus is in the sheet and the control beneath it is the one it was opened from (focus-return.ts).
-  useEffect(() => { if (!mounted) return; focusReturn.overlay(true); return () => focusReturn.overlay(false); }, [mounted]);
+  useFocusOverlay(mounted);
   // Once the Modal has unmounted, give UIKit a moment to finish dismissing before the next one presents.
   useEffect(() => {
     // Never cancelled: a closing mark that outlived its sheet would hold every later overlay back.
@@ -280,12 +280,14 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   );
   return (
     <Modal visible transparent animationType="none" onRequestClose={dismiss} supportedOrientations={['portrait', 'landscape']}>
+      <FocusOverlayContext.Provider value>
       <Animated.View style={[{flex: 1, backgroundColor: alpha(colors[o.scrim.color], o.scrim.alpha[bottom ? 'phone' : platform])}, shade]}>
         <Pressable style={{flex: 1}} onPress={dismiss} accessibilityLabel={uiI18n().t('action.dismiss')} focusable={false} />
       </Animated.View>
       <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, alignItems: side ? 'flex-end' : 'center', justifyContent: bottom ? 'flex-end' : side ? 'flex-start' : 'center'}}>
         {isTV ? <TVFocusGuideView autoFocus trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={side ? {height: '100%'} : undefined}>{body}</TVFocusGuideView> : body}
       </View>
+      </FocusOverlayContext.Provider>
     </Modal>
   );
 }
@@ -440,7 +442,7 @@ export function Dropdown({open, onClose, anchor, items: given, onSelect, width =
     if (wasOpen.current && !open) { overlayClosing(dropdownId, true); setTimeout(() => overlayClosing(dropdownId, false), 120); }
     wasOpen.current = open;
   }, [open, dropdownId]);
-  useEffect(() => { if (!open) return; focusReturn.overlay(true); return () => focusReturn.overlay(false); }, [open]);
+  useFocusOverlay(open);
   const insets = useSafeAreaInsets();
   const progress = useSharedValue(0);
   useEffect(() => {
@@ -454,6 +456,7 @@ export function Dropdown({open, onClose, anchor, items: given, onSelect, width =
   const maxHeight = Math.max(160, window.height - below - insets.bottom - space.lg);
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} supportedOrientations={['portrait', 'landscape']}>
+      <FocusOverlayContext.Provider value>
       <Pressable style={{flex: 1, backgroundColor: alpha(colors.ink, 0.25)}} onPress={onClose} accessibilityLabel={uiI18n().t('action.dismiss')} focusable={false} />
       <Animated.View
         accessibilityRole="menu"
@@ -470,6 +473,7 @@ export function Dropdown({open, onClose, anchor, items: given, onSelect, width =
         </ScrollView>
         </TVFocusGuideView>
       </Animated.View>
+      </FocusOverlayContext.Provider>
     </Modal>
   );
 }

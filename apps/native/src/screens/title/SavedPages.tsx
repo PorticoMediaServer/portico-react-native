@@ -14,7 +14,8 @@ import {useOpenEntry} from '../../app/open';
 import {groupSequence, occurrenceSequence, savedSequence, sequenceContainer, type SequenceContainer} from '../../app/container-play';
 import {usePlayerActions} from '../../app/player-actions';
 import type {ContentStackParams} from '../../app/routes';
-import {cardFocusKey, Card, CardRow, Divider, ListRow, Menu, Notice, PageList, PageRows, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useTheme, type MenuItem, type WindowedGridHandle, type FocusableHandle} from '../../ui';
+import {cardFocusKey, Card, CardRow, Divider, ListRow, Menu, Notice, PageList, PageRows, Ring, Skeleton, StateView, gridColumns, showToast, useEntryFocus, useFocusResolver, useTheme, type MenuItem, type WindowedGridHandle, type FocusableHandle} from '../../ui';
+import {arrayResolver, windowResolver} from '../../ui/focus-lists';
 import {cardRows, type CardRowModel} from '../../app/list-rows';
 import {usePlaylist, useSavedResource} from './saved-hooks';
 import {mosaicPaths} from './layout';
@@ -170,6 +171,7 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
     subtitle: captionFor,
     onPlay: index => { const pressed = sortedList?.itemAt(index); if (!pressed) return; if (pressed.playback) play([pressed], groupSequence(group)); else open(pressed); },
     onMore: entry => open(entry, 'more'),
+    focusGroup: 'sorted',
   }), [sortedList, group, play, open]);
   const renderRow = ({item, index}: {item: PlaylistOccurrence | number; index: number}) =>
     typeof item === 'number' ? (sortedList ? <TrackRow list={sortedList} index={item} height={rowHeight} row={sortedRows} /> : null) : renderOccurrence({item, index});
@@ -186,6 +188,30 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
     if (indices.length) sortedRef.current?.ensureRange(Math.min(...indices), Math.max(...indices));
   }).current;
   useEffect(() => { sortedList?.ensureRange(0, 12); }, [sortedList]);
+  // TV: focus coming back after playback to the entry it was started from (`focus-lists.ts`). The
+  // playlist's own entries are named by occurrence, so the same song twice is two places; one past
+  // what has been read is read on to; one that has gone hands over to the entry now in its place.
+  const focusLists = useRef<{occurrences: readonly PlaylistOccurrence[]; sortedTotal: number | undefined; loading: boolean; more: () => boolean; headerHeight: number; rowHeight: number}>(null!);
+  focusLists.current = {occurrences, sortedTotal: sorted.snapshot.total, loading: snapshot.phase === 'loading' && !occurrences.length, headerHeight, rowHeight,
+    more: () => { if (!pageable) return false; if (snapshot.phase === 'ready') next(pageable.id); return true; }};
+  const ownResolver = useMemo(() => arrayResolver<PlaylistOccurrence>({
+    group: () => (sortedRef.current ? undefined : 'list'),
+    items: () => focusLists.current.occurrences,
+    keyOf: o => o.id,
+    usable: o => !o.hidden,
+    loading: () => focusLists.current.loading,
+    more: () => focusLists.current.more(),
+    scrollTo: index => scroller.current?.scrollToIndex({index, animated: false}),
+  }), []);
+  const sortedResolver = useMemo(() => windowResolver<ContentEntry>({
+    group: () => (sortedRef.current ? 'sorted' : undefined),
+    list: () => sortedRef.current,
+    total: () => focusLists.current.sortedTotal,
+    keyOf: entry => entry.id,
+    scrollTo: index => scroller.current?.scrollToOffset({offset: focusLists.current.headerHeight + index * focusLists.current.rowHeight, animated: false}),
+  }), []);
+  useFocusResolver(ownResolver);
+  useFocusResolver(sortedResolver);
   // Sorted, the rows are the window's positions; otherwise the playlist's own entries as read so far.
   const rowCount = sortedList ? sorted.snapshot.total ?? 0 : group.engaged ? 0 : occurrences.length;
   // The entries are the cells of the page's own list: only the rows near the viewport are
@@ -207,7 +233,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
         {index > 0 ? <Divider inset={space.sm} /> : null}
         <ListRow
           ordinal={ordinal}
-          focusKey={cardFocusKey('list', m.id)}
+          focusKey={cardFocusKey('list', occurrence.id)}
+          focusPlace={{column: index}}
           title={m.title}
           subtitle={captionFor(m)}
           meta={formatDuration(m.duration) || undefined}
@@ -246,6 +273,8 @@ export function PlaylistScreen({route}: {route: RouteProp<ContentStackParams, 'P
         scrollEventThrottle={100}
         onEndReached={loadMore}
         onEndReachedThreshold={1.5}
+        // The playlist's own rows have no fixed height: a row far from the window is reached in two steps.
+        onScrollToIndexFailed={info => scroller.current?.scrollToOffset({offset: info.averageItemLength * info.index, animated: false})}
         ListHeaderComponent={
           <View onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)}>
             <TitleHero

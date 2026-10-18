@@ -1,6 +1,7 @@
 import React, {useCallback, useMemo, useRef} from 'react';
 import {FocusGroup, PreferredFocusContext, useFocusResolver} from './Focusable';
-import {cardFocusKey, parseCardFocusKey, type FocusResolver} from './focus-return';
+import {type FocusResolver} from './focus-return';
+import {arrayResolver} from './focus-lists';
 import {uiI18n} from './i18n';
 import {FlatList, View, type ListRenderItem, type StyleProp, type ViewStyle} from 'react-native';
 import {Button} from './Button';
@@ -57,23 +58,13 @@ export function Shelf<T>({title, subtitle, data, keyExtractor, renderItem, itemW
   const list = useRef<FlatList<T>>(null);
   const items = useRef(data);
   items.current = data;
-  const resolver = useMemo<FocusResolver | undefined>(() => (focusGroup === undefined ? undefined : {
-    reveal: key => {
-      const card = parseCardFocusKey(key);
-      if (!card || card.group !== focusGroup) return false;
-      const index = items.current.findIndex((item, i) => keyOf.current(item, i) === card.entryId);
-      if (index < 0) return false;
-      list.current?.scrollToIndex({index, animated: false});
-      return true;
-    },
-    fallback: (key, place) => {
-      const card = parseCardFocusKey(key);
-      if (!card || card.group !== focusGroup || !items.current.length) return undefined;
-      if (items.current.some((item, i) => keyOf.current(item, i) === card.entryId)) return undefined;
-      const index = Math.min(Math.max(0, place.column ?? 0), items.current.length - 1);
-      return cardFocusKey(focusGroup, keyOf.current(items.current[index]!, index));
-    },
-  }), [focusGroup]);
+  // A card that has gone hands over to the card now nearest its place (`focus-lists.ts`).
+  const resolver = useMemo<FocusResolver | undefined>(() => (focusGroup === undefined ? undefined : arrayResolver({
+    group: focusGroup,
+    items: () => items.current,
+    keyOf: (item, i) => keyOf.current(item, i),
+    scrollTo: index => list.current?.scrollToIndex({index, animated: false}),
+  })), [focusGroup]);
   useFocusResolver(resolver);
   const arrived = useCallback<NonNullable<typeof renderItem>>(info => <Arriving on={arriving(keyOf.current(info.item, info.index))}>{renderItem?.(info) ?? null}</Arriving>, [renderItem, arriving]);
   const snapped = useCallback<NonNullable<typeof renderItem>>(info => (

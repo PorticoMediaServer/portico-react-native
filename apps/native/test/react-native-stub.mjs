@@ -1,3 +1,4 @@
+import * as ReactForStub from 'react';
 /**
  * The smallest `react-native` surface the downloads bridge touches, backed by an
  * in-memory device.
@@ -124,3 +125,18 @@ export const AccessibilityInfo = {
   isReduceMotionEnabled: async () => false,
   addEventListener: () => ({remove: () => {}}),
 };
+
+/** The remote: `pressRemote` delivers a key event to every mounted `useTVEventHandler`, as the TV builds do. */
+const remoteHandlers = new Set();
+export function useTVEventHandler(handler) {
+  const latest = ReactForStub.useRef(handler);
+  latest.current = handler;
+  ReactForStub.useEffect(() => {
+    const listener = event => latest.current(event);
+    remoteHandlers.add(listener);
+    return () => { remoteHandlers.delete(listener); };
+  }, []);
+}
+export function pressRemote(event) {
+  for (const handler of [...remoteHandlers]) handler(event);
+}

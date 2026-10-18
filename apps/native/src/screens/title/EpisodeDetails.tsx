@@ -6,8 +6,8 @@ import {useDetail} from '../../app/detail';
 import {say} from '../../app/errors';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
-import {Button, Notice, PersonCard, Skeleton, Text, spec, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
-import {episodeMeta} from './Episodes';
+import {Button, Notice, PersonCard, Skeleton, Text, spec, useSpecPlatform, useTheme, withinFocusKey, type FocusableHandle} from '../../ui';
+import {episodeFocusKey, episodeMeta} from './Episodes';
 import {PlaybackChoices} from './PlaybackChoices';
 import {usePlayerActions} from '../../app/player-actions';
 import {episodeCode, isActing, namesIn} from './facts';
@@ -157,12 +157,13 @@ export function EpisodeDetails({libraryId, entry, index, showTitle, heading, col
       {overview ? <Text variant="body" tone="secondary" style={{maxWidth: 960}}>{overview}</Text> : !data && snapshot.phase === 'loading' ? <Skeleton height={14} width="90%" /> : null}
       {playable && play?.playback ? <PlaybackChoices libraryId={libraryId} itemId={play.playback.itemId} /> : null}
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs}}>
-        {playable ? <Button ref={first} variant="primary" icon="play" label={primaryLabel} size={size} onPress={() => onPlay({entry, index, startSeconds: resuming ? start : 0})} /> : null}
-        {playable && resuming ? <Button variant="secondary" icon="restart" label={i18n.t('title.playFromStart')} size={size} onPress={() => onPlay({entry, index, startSeconds: 0})} /> : null}
+        {/* TV-PLAYER-03: these belong to the episode's row, where focus goes back when the details have closed. */}
+        {playable ? <Button ref={first} variant="primary" icon="play" label={primaryLabel} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'play')} onPress={() => onPlay({entry, index, startSeconds: resuming ? start : 0})} /> : null}
+        {playable && resuming ? <Button variant="secondary" icon="restart" label={i18n.t('title.playFromStart')} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'restart')} onPress={() => onPlay({entry, index, startSeconds: 0})} /> : null}
         {canList ? <Button variant="secondary" icon={listed ? 'bookmarkFilled' : 'bookmark'} label={i18n.t(listed ? 'title.inWatchlist' : 'title.watchlist')} selected={listed} size={size} onPress={() => mutate({action: 'watchlist', value: !listed})} /> : null}
         {canFavorite ? <Button variant="secondary" icon={favorite ? 'heartFilled' : 'heart'} accessibilityLabel={i18n.t(favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites')} selected={favorite} size={size} onPress={() => mutate({action: 'favorite', value: !favorite})} /> : null}
         {canMarkWatched ? <Button variant="secondary" icon={watched ? 'watched' : 'check'} accessibilityLabel={i18n.t(watched ? 'title.markUnwatched' : 'title.markWatched')} selected={watched} size={size} onPress={() => mutate({action: 'watched', value: !watched})} /> : null}
-        <Button ref={playable ? undefined : first} variant="secondary" icon="more" accessibilityLabel={i18n.t('title.moreActions')} size={size} onPress={() => player.more(entry)} />
+        <Button ref={playable ? undefined : first} variant="secondary" icon="more" accessibilityLabel={i18n.t('title.moreActions')} size={size} focusKey={withinFocusKey(episodeFocusKey(entry), 'more')} onPress={() => player.more(entry)} />
       </View>
       {snapshot.mutationError ? <Notice tone="error" message={say(snapshot.mutationError, 'detail', 'save')} action={i18n.t('title.retry')} onAction={retryMutation} /> : null}
       {/* The episode stays in the library while its files are gone; it says since when, and that it comes back by itself. */}

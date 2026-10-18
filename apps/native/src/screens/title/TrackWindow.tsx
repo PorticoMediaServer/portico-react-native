@@ -1,11 +1,12 @@
-import React, {useCallback, useRef} from 'react';
+import React, {useCallback, useMemo, useRef} from 'react';
 import {View, VirtualizedList, type RefreshControlProps, type ViewToken} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {iconFor, lengthFor, useArtwork} from '../../app/content';
 import {usePlayingItemId} from '../../app/player-actions';
-import {Divider, ListRow, Skeleton, spec, useReportScroll, useSpecPlatform, useTheme} from '../../ui';
+import {Divider, ListRow, Skeleton, cardFocusKey, spec, useFocusResolver, useReportScroll, useSpecPlatform, useTheme} from '../../ui';
+import {windowResolver} from '../../ui/focus-lists';
 import {useSlot} from './Episodes';
 
 export type TrackRowOptions = Readonly<{
@@ -18,7 +19,15 @@ export type TrackRowOptions = Readonly<{
   highlightId?: string;
   onPlay: (index: number) => void;
   onMore?: (entry: ContentEntry) => void;
+  /**
+   * TV: the group in the rows' focus names (`cardFocusKey(group, entry id)`), so focus comes back
+   * to the row playback was started from. Default `tracks`.
+   */
+  focusGroup?: string;
 }>;
+
+/** The group a list of rows is named by on its screen, for focus coming back after playback. */
+export const trackFocusGroup = (row: Pick<TrackRowOptions, 'focusGroup'>) => row.focusGroup ?? 'tracks';
 
 /**
  * PERF-S03: an entity page whose list section (an album's or artist's songs, a book's chapters or
@@ -44,9 +53,24 @@ export function TrackWindowList({list, total, row, header, footer, refreshContro
   }).current;
   React.useEffect(() => { list?.ensureRange(0, 12); }, [list]);
   const count = list ? total : 0;
+  // TV: focus coming back to a row (a song, a chapter, a part) after playback: found where it was
+  // or close by, read first where it is not loaded, or its neighbour when it has gone (`focus-lists.ts`).
+  const scroller = useRef<VirtualizedList<number>>(null);
+  const latest = useRef({count, group: trackFocusGroup(row)});
+  latest.current = {count, group: trackFocusGroup(row)};
+  const resolver = useMemo(() => windowResolver<ContentEntry>({
+    group: () => latest.current.group,
+    list: () => current.current,
+    // No rows yet is not known to be empty (a sorted list's count arrives with its first page).
+    total: () => (current.current && latest.current.count > 0 ? latest.current.count : undefined),
+    keyOf: entry => entry.id,
+    scrollTo: index => { if (index < latest.current.count) scroller.current?.scrollToIndex({index, animated: false}); },
+  }), []);
+  useFocusResolver(resolver);
   const renderItem = useCallback(({index}: {index: number}) => (list ? <TrackRow list={list} index={index} height={height} row={row} /> : null), [list, height, row]);
-  const scroller = (
+  const view = (
     <VirtualizedList<number>
+      ref={scroller}
       data={count}
       getItemCount={() => count}
       getItem={(_, index) => index}
@@ -69,8 +93,8 @@ export function TrackWindowList({list, total, row, header, footer, refreshContro
       keyboardShouldPersistTaps="handled"
     />
   );
-  if (!isTV) return scroller;
-  return <View style={{flex: 1}} onLayout={e => setSlot(e.nativeEvent.layout.height)}>{slot ? scroller : null}</View>;
+  if (!isTV) return view;
+  return <View style={{flex: 1}} onLayout={e => setSlot(e.nativeEvent.layout.height)}>{slot ? view : null}</View>;
 }
 
 /** The one height every windowed row has (a row and its divider), so any row can be reached by offset. */
@@ -96,6 +120,8 @@ export const TrackRow = React.memo(function TrackRow({list, index, height, row}:
     <View style={{height, paddingHorizontal: space.page - space.sm, overflow: 'hidden'}}>
       {index > 0 ? <Divider inset={space.sm} /> : null}
       <ListRow
+        focusKey={cardFocusKey(trackFocusGroup(row), entry.id)}
+        focusPlace={{column: index}}
         ordinal={row.ordinal?.(entry, index)}
         title={entry.title}
         subtitle={row.subtitle?.(entry)}

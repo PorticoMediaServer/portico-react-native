@@ -8,7 +8,8 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import {formatDuration, progressFor, useArtwork} from '../../app/content';
 import {useI18n, type I18n} from '../../app/i18n';
 import {titleTintHue} from '../../../../../packages/client-core/src/presentation/index';
-import {cardFocusKey, Artwork, Button, Focusable, Icon, ProgressBar, ProgressLine, Skeleton, Text, alpha, useReportScroll, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
+import {cardFocusKey, Artwork, Button, Focusable, Icon, ProgressBar, ProgressLine, Skeleton, Text, alpha, useFocusResolver, useReportScroll, useSpecPlatform, useTheme, type FocusableHandle} from '../../ui';
+import {windowResolver} from '../../ui/focus-lists';
 import {ArtworkPlacementContext} from '../../ui/ArtworkPipeline';
 import {episodeCode} from './facts';
 import {episodeArt} from './layout';
@@ -45,6 +46,9 @@ export type EpisodeHandlers = {
 export type EpisodeMarks = {open?: {id: string; index: number}; landingId?: string; nextUpId?: string; /** The chip's words ("Next up", "Continue"). */ tag?: string};
 /** The opened episode's details (`EpisodeDetails`), drawn by the screen that owns its actions. */
 export type RenderDetails = (entry: ContentEntry, index: number, layout: {columns: boolean}) => React.ReactNode;
+
+/** TV-PLAYER-03: an episode's focus name on its show's page (its row, and the Play in its details belongs to it). */
+export const episodeFocusKey = (entry: Pick<ContentEntry, 'id'>) => cardFocusKey('episodes', entry.id);
 
 /** The item at `index`, re-rendering only when its page changes. */
 export function useSlot(list: WindowedCollection<ContentEntry>, index: number): ContentEntry | undefined {
@@ -244,6 +248,19 @@ export function EpisodeBrowser({list, total, initialIndex = 0, jump, marks, hand
   const previewWidth = Math.min(window.width - space.page * 2 - listWidth - space.xxxl, 780);
   const still = shown ? episodeArt(shown) : undefined;
   const meta = shown ? episodeMeta(i18n, shown) : undefined;
+  // TV-PLAYER-03: focus coming back to the episode playback was started from: found where it was
+  // or close by (another season's or a refreshed reading), read first when its page has gone, or
+  // the episode now in its place when it has gone (`focus-lists.ts`).
+  const resolving = useRef({list, total});
+  resolving.current = {list, total};
+  const resolver = useMemo(() => windowResolver<ContentEntry>({
+    group: 'episodes',
+    list: () => resolving.current.list,
+    total: () => (resolving.current.total > 0 ? resolving.current.total : undefined),
+    keyOf: entry => entry.id,
+    scrollTo: index => { if (index < resolving.current.total) listRef.current?.scrollToIndex({index, animated: false}); },
+  }), []);
+  useFocusResolver(resolver);
   const renderItem = useCallback(({index}: {index: number}) => <TvEpisodeRow list={list} index={index} marks={marks} handlers={handlers} onFocused={onFocused} focusRef={index === anchor ? anchorRef : undefined} />, [list, marks, handlers, onFocused, anchor]);
   return (
     <View style={{flexDirection: 'row', gap: space.xxxl, paddingHorizontal: space.page, alignItems: 'flex-start'}}>
@@ -294,7 +311,7 @@ export function EpisodeBrowser({list, total, initialIndex = 0, jump, marks, hand
   );
 }
 
-const TvEpisodeRow = React.memo(function TvEpisodeRow({list, index, marks, handlers, onFocused, focusRef}: {list: WindowedCollection<ContentEntry>; index: number; marks: EpisodeMarks; handlers: EpisodeHandlers; onFocused: (index: number) => void; focusRef?: React.Ref<FocusableHandle>}) {
+export const TvEpisodeRow = React.memo(function TvEpisodeRow({list, index, marks, handlers, onFocused, focusRef}: {list: WindowedCollection<ContentEntry>; index: number; marks: EpisodeMarks; handlers: EpisodeHandlers; onFocused: (index: number) => void; focusRef?: React.Ref<FocusableHandle>}) {
   const {metrics, space, colors} = useTheme();
   const i18n = useI18n();
   const plate = usePlateColors();
@@ -308,6 +325,8 @@ const TvEpisodeRow = React.memo(function TvEpisodeRow({list, index, marks, handl
   return (
     <Focusable
       ref={focusRef}
+      focusKey={entry ? episodeFocusKey(entry) : undefined}
+      focusPlace={{column: index}}
       ring={false}
       scale={1}
       radius={metrics.radius.control}
@@ -482,7 +501,7 @@ export const EpisodeRowView = React.memo(function EpisodeRowView({entry, positio
   return (
     <View style={{height: geometry.height, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: inset ?? space.page}}>
       {landed ? <LandingPlate inset={space.page - space.sm} /> : null}
-      <Focusable ring={false} radius={metrics.radius.card} focusKey={entry ? cardFocusKey('episodes', entry.id) : undefined} focusPlace={{column: position}} accessibilityRole="button" accessibilityLabel={label ? (playable ? i18n.t('card.play', {title: label}) : i18n.t('title.aboutEpisode', {title: label})) : undefined} onPress={entry ? (playable ? onPlay : onDetails) : undefined} onLongPress={entry && onMore ? () => onMore(entry) : undefined}>
+      <Focusable ring={false} radius={metrics.radius.card} focusKey={entry ? episodeFocusKey(entry) : undefined} focusPlace={{column: position}} accessibilityRole="button" accessibilityLabel={label ? (playable ? i18n.t('card.play', {title: label}) : i18n.t('title.aboutEpisode', {title: label})) : undefined} onPress={entry ? (playable ? onPlay : onDetails) : undefined} onLongPress={entry && onMore ? () => onMore(entry) : undefined}>
         {({focused, hovered}) => (
           <View style={{borderRadius: metrics.radius.card, overflow: 'hidden'}}>
             {entry && still ? (

@@ -2,20 +2,32 @@
  * TV-PLAYER-03 / NAV-10.8: when the player closes, focus goes back to the control that started it.
  *
  * The control is named, not held: a card is `card(group, entry id)` within its screen, a button
- * by what it does (`action:play`). Every focusable that has a name tells this registry when it is
- * mounted and when it takes or loses focus, so the player can capture the origin at the moment it
- * is asked to start, wherever that was asked from, and give focus back to the same control when it
- * closes, even if the list has redrawn or moved it meanwhile:
+ * by what it does (`action:play`), and a button that belongs to one card or row (an episode's
+ * Play in its details) by what it does within that row (`withinFocusKey`). Every focusable that
+ * has a name tells this registry when it is mounted and when it takes or loses focus; every other
+ * focusable says only that focus is now on something unnamed. So the player can capture the
+ * origin at the moment it is asked to start, wherever that was asked from, and give focus back to
+ * the same control when it closes, even if the list has redrawn or moved it meanwhile:
  *
  * - The origin belongs to the viewer (server, account, profile) and the screen it was captured on.
- *   It is used once, then forgotten; a viewer change forgets it at once.
- * - A control a list no longer mounts is first brought back into its list (`reveal`), then asked
- *   for focus. Focus counts as returned only once the control reports that it has it; until then
- *   it is asked again, a bounded number of times.
+ *   It is used once, then forgotten; a viewer change forgets it at once, and so does its screen
+ *   going away. A screen that is not the one showing (another was pushed over it, another tab
+ *   was chosen) is never given focus.
+ * - Focus counts as returned only once the control reports that it has it; until then it is asked
+ *   again, a bounded number of times. Before each ask, the lists it is in bring it into view
+ *   (`resolve`), outermost first, whether or not it is mounted: a mounted card can still be off
+ *   screen, and the focus engine may refuse it there.
  * - A title that has gone (finished and left Continue Watching) hands over to its neighbour in the
- *   row, and a row that has gone to the row now in its place (`fallback`).
+ *   row, and a row that has gone to the row now in its place. A list that is still reading where
+ *   the title was says so, and is waited for (a bounded time) rather than taken as "gone".
+ * - The person comes first: a key pressed on the remote while focus is still on its way back
+ *   (`intent`) ends the return there. Focus moving by itself (the screen coming back from under
+ *   the player, the return's own request) does not.
+ * - A sheet or menu belongs to the control focus was on when it opened (the card whose More
+ *   menu it is). Starting from inside one captures that control, and nothing if it was unnamed.
  *
- * Nothing here is React: the screens' controls and lists plug in through `Focusable` and the rows.
+ * Nothing here is React: the screens' controls and lists plug in through `Focusable` and the
+ * resolvers in `focus-lists.ts`.
  */
 
 export type FocusTarget = {focus(): void};
@@ -23,13 +35,57 @@ export type FocusTarget = {focus(): void};
 export type FocusPlace = Readonly<{row?: number; column?: number}>;
 export type FocusOrigin = Readonly<{owner: string; scope: string; key: string; place: FocusPlace}>;
 
-/** A list that can bring one of its controls back into composition. */
+/**
+ * What a list knows about one control while focus is coming back to it.
+ *
+ * - `unknown`: not this list's control.
+ * - `container`: this list holds the list the control is in (a row of cards) and has brought that
+ *   list into view. That inner list decides whether the control itself is there.
+ * - `found`: this list has the control and has brought it into view.
+ * - `loading`: this list may have it, and is reading the part where it was.
+ * - `gone`: this list had it, and it has gone. `next` is the control to go to instead (its
+ *   neighbour); none when there is nothing left to go to.
+ */
+export type FocusLookup =
+  | Readonly<{kind: 'unknown'}>
+  | Readonly<{kind: 'container'}>
+  | Readonly<{kind: 'found'}>
+  | Readonly<{kind: 'loading'}>
+  | Readonly<{kind: 'gone'; next?: string}>;
+
+export const LOOKUP_UNKNOWN: FocusLookup = Object.freeze({kind: 'unknown'});
+export const LOOKUP_CONTAINER: FocusLookup = Object.freeze({kind: 'container'});
+export const LOOKUP_FOUND: FocusLookup = Object.freeze({kind: 'found'});
+export const LOOKUP_LOADING: FocusLookup = Object.freeze({kind: 'loading'});
+export const lookupGone = (next?: string): FocusLookup => ({kind: 'gone', next});
+
+/** A list that can bring one of its controls into view, or say where it went. */
 export type FocusResolver = {
-  /** True when `key` is this list's, and it has scrolled it into the list's window. */
-  reveal(key: string, place: FocusPlace): boolean;
-  /** When `key` was this list's and is gone: the control to go to instead (its neighbour), else undefined. */
-  fallback(key: string, place: FocusPlace): string | undefined;
+  /** Called on every ask: brings `key` (or the list holding it) into view and says what it found. */
+  resolve(key: string, place: FocusPlace): FocusLookup;
 };
+
+/**
+ * What a return does next, from what every list in the screen said about the control:
+ * - `wait`: ask the control (when it is mounted) and look again after the interval;
+ *   `loading` when a list is still reading (a longer, separate budget).
+ * - `switch`: the control has gone; go to `next` instead.
+ * - `abandon`: it has gone and there is nothing to go to.
+ *
+ * The control itself decides over any container, and a list that has it, or is still reading
+ * where it was, decides over one that says it has gone.
+ */
+export type FocusDecision = Readonly<{kind: 'wait'; loading: boolean}> | Readonly<{kind: 'switch'; next: string}> | Readonly<{kind: 'abandon'}>;
+
+export function decideFocusReturn(lookups: readonly FocusLookup[]): FocusDecision {
+  if (lookups.some(l => l.kind === 'found')) return {kind: 'wait', loading: false};
+  if (lookups.some(l => l.kind === 'loading')) return {kind: 'wait', loading: true};
+  const gone = lookups.filter((l): l is Extract<FocusLookup, {kind: 'gone'}> => l.kind === 'gone');
+  const next = gone.find(l => l.next !== undefined)?.next;
+  if (next !== undefined) return {kind: 'switch', next};
+  if (gone.length) return {kind: 'abandon'};
+  return {kind: 'wait', loading: false};
+}
 
 export type FocusReturnTimers = {
   schedule(run: () => void, ms: number): unknown;
@@ -39,6 +95,8 @@ export type FocusReturnTimers = {
 export type FocusReturnOptions = Readonly<{
   /** Asks made before giving up. */
   attempts?: number;
+  /** Further looks allowed while a list is still reading where the control was. */
+  loadingAttempts?: number;
   /** Between asks, ms. */
   interval?: number;
   /** Before the first ask: the screen comes back from under the player first. */
@@ -56,22 +114,55 @@ export function parseCardFocusKey(key: string): {group: string; entryId: string}
   return parts.length === 3 && parts[0] === 'card' ? {group: parts[1]!, entryId: parts[2]!} : undefined;
 }
 
-type Registered = {target: FocusTarget; place: FocusPlace};
-type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; attempt: number; fallbacks: number; timer: unknown};
+/**
+ * A control that belongs to another (an episode's Play in that episode's open details): when it
+ * has gone, focus goes to the control it belongs to.
+ */
+export function withinFocusKey(parent: string, action: string): string {
+  return `within\u001e${action}\u001e${parent}`;
+}
+
+/** The control a `withinFocusKey` control belongs to, or undefined. */
+export function parentFocusKey(key: string): string | undefined {
+  const parts = key.split('\u001e');
+  return parts.length === 3 && parts[0] === 'within' ? parts[2] : undefined;
+}
+
+/**
+ * A remote key that is the person moving or choosing (not focus moving by itself): a direction,
+ * Select, Menu/Back, a page or swipe. A key's release (`eventKeyAction` 1) is the end of a press
+ * already counted, or of the press that closed the player, so it is not counted again.
+ */
+export function isFocusIntent(event: {eventType?: string; eventKeyAction?: number} | null | undefined): boolean {
+  if (!event || typeof event.eventType !== 'string' || event.eventKeyAction === 1) return false;
+  return INTENT_KEYS.has(event.eventType);
+}
+const INTENT_KEYS = new Set(['up', 'down', 'left', 'right', 'select', 'longSelect', 'longUp', 'longDown', 'longLeft', 'longRight', 'menu', 'pageUp', 'pageDown', 'swipeUp', 'swipeDown', 'swipeLeft', 'swipeRight', 'channelUp', 'channelDown']);
+
+type Registered = {target: FocusTarget; place: () => FocusPlace};
+type Named = {scope: string; key: string};
+type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown};
 
 export type FocusReturn = ReturnType<typeof createFocusReturn>;
 
 export function createFocusReturn(timers: FocusReturnTimers, options: FocusReturnOptions = {}) {
   const attempts = options.attempts ?? 12;
+  const loadingAttempts = options.loadingAttempts ?? 25;
   const interval = options.interval ?? 120;
   const delay = options.delay ?? 60;
   let owner = '';
   const scopes = new Map<string, Map<string, Registered>>();
   const resolvers = new Map<string, Set<FocusResolver>>();
-  /** The named control that last took focus, and whether it still has it. */
-  let current: {scope: string; key: string} | undefined;
+  /** Screens that are not the one showing (covered by another, or in another tab). */
+  const inactive = new Set<string>();
+  /**
+   * The control focus was last on outside any sheet or menu: named, or `null` for an unnamed one.
+   * `holding` is whether it still has focus; `inOverlay` whether focus is in a sheet or menu now.
+   */
+  let current: Named | null = null;
   let holding = false;
-  /** Sheets and menus open over the screens: focus is in one, and the control under it opened it. */
+  let inOverlay = false;
+  /** Sheets and menus open over the screens. */
   let overlays = 0;
   let origin: FocusOrigin | undefined;
   let pending: Pending | undefined;
@@ -80,26 +171,46 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     if (pending) timers.cancel(pending.timer);
     pending = undefined;
   };
+  const active = (scope: string) => !inactive.has(scope);
+  const placeOf = (scope: string, key: string): FocusPlace => scopes.get(scope)?.get(key)?.place() ?? {};
 
   const step = () => {
     const p = pending;
     if (!p) return;
-    if (p.origin.owner !== owner) { stop(); return; }
-    p.attempt++;
-    const found = scopes.get(p.origin.scope)?.get(p.key);
-    if (found) found.target.focus();
-    else {
-      let revealed = false;
-      for (const resolver of resolvers.get(p.origin.scope) ?? []) if (resolver.reveal(p.key, p.place)) revealed = true;
-      if (!revealed && p.fallbacks < 2) {
-        for (const resolver of resolvers.get(p.origin.scope) ?? []) {
-          const next = resolver.fallback(p.key, p.place);
-          if (next && next !== p.key) { p.key = next; p.fallbacks++; break; }
-        }
-      }
+    if (p.origin.owner !== owner || !active(p.origin.scope)) { stop(); return; }
+    const scope = p.origin.scope;
+    // The lists bring the control (and the row holding it) into view first, even when it is
+    // mounted, then the control is asked.
+    const lookups = [...(resolvers.get(scope) ?? [])].map(resolver => resolver.resolve(p.key, p.place));
+    const decision = decideFocusReturn(lookups);
+    const found = scopes.get(scope)?.get(p.key);
+    if (found) {
+      p.asks++;
+      found.target.focus();
+    } else if (decision.kind === 'switch' && p.fallbacks < 2) {
+      p.key = decision.next;
+      p.fallbacks++;
+      p.asks++;
+    } else if (decision.kind === 'abandon') {
+      stop();
+      return;
+    } else if (decision.kind === 'wait' && decision.loading) {
+      p.looks++;
+    } else {
+      p.asks++;
+      // A control that belongs to another and is no longer mounted (its details have closed):
+      // after one more look, the control it belongs to.
+      const parent = parentFocusKey(p.key);
+      if (parent !== undefined && p.asks >= 2 && p.fallbacks < 2 && !lookups.some(l => l.kind === 'found')) { p.key = parent; p.fallbacks++; }
     }
-    if (p.attempt >= attempts) { stop(); return; }
+    if (p.asks >= attempts || p.looks >= loadingAttempts) { stop(); return; }
     p.timer = timers.schedule(step, interval);
+  };
+
+  const forgetScope = (scope: string) => {
+    if (origin?.scope === scope) origin = undefined;
+    if (pending?.origin.scope === scope) stop();
+    if (current?.scope === scope) { current = null; holding = false; }
   };
 
   return {
@@ -108,20 +219,26 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
       if (next === owner) return;
       owner = next;
       origin = undefined;
-      current = undefined;
+      current = null;
       holding = false;
+      inOverlay = false;
       stop();
     },
-    register(scope: string, key: string, target: FocusTarget, place: FocusPlace = {}): () => void {
+    /**
+     * A named control is mounted. `place` is read when it is needed, so a control that moves in
+     * its list keeps one registration. Unregistering the control that has focus forgets it.
+     */
+    register(scope: string, key: string, target: FocusTarget, place: FocusPlace | (() => FocusPlace) = {}): () => void {
       let map = scopes.get(scope);
       if (!map) { map = new Map(); scopes.set(scope, map); }
-      const entry: Registered = {target, place};
+      const entry: Registered = {target, place: typeof place === 'function' ? place : () => place};
       map.set(key, entry);
       return () => {
         const now = scopes.get(scope);
         if (now?.get(key) !== entry) return;
         now.delete(key);
         if (!now.size) scopes.delete(scope);
+        if (current && current.scope === scope && current.key === key) { current = null; holding = false; }
       };
     },
     addResolver(scope: string, resolver: FocusResolver): () => void {
@@ -138,39 +255,70 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     focused(scope: string, key: string) {
       current = {scope, key};
       holding = true;
+      inOverlay = false;
       if (pending && pending.origin.scope === scope && pending.key === key) stop();
     },
     blurred(scope: string, key: string) {
       if (current && current.scope === scope && current.key === key) holding = false;
     },
+    /**
+     * A control without a name took focus: outside a sheet or menu, it is now the control focus is
+     * on (so nothing is captured from it); inside one, the control the sheet was opened from stays.
+     */
+    focusedUnnamed(overlay = false) {
+      if (overlay) { inOverlay = true; return; }
+      current = null;
+      holding = false;
+      inOverlay = false;
+    },
     /** A sheet or menu opened (`true`) or closed. */
     overlay(open: boolean) {
       overlays = Math.max(0, overlays + (open ? 1 : -1));
+      if (!overlays) inOverlay = false;
+    },
+    /** The person pressed a key on the remote: a return still under way stops where it is. */
+    intent() {
+      stop();
+    },
+    /** A screen became the one showing (`true`), or another was pushed over it or chosen instead. */
+    setScopeActive(scope: string, isActive: boolean) {
+      if (isActive) { inactive.delete(scope); return; }
+      inactive.add(scope);
+      if (pending?.origin.scope === scope) stop();
+    },
+    /** A screen has gone: its origin, its return and its focused control are forgotten. */
+    disposeScope(scope: string) {
+      inactive.delete(scope);
+      scopes.delete(scope);
+      resolvers.delete(scope);
+      forgetScope(scope);
     },
     /**
      * Playback is starting: remember the control it was started from. That is the named control
-     * with focus, or the one under the sheet or menu it was started from. Nothing is remembered
-     * when focus is on no named control (the rail, a deep link), so an older origin never returns.
+     * with focus, or, from inside a sheet or menu, the control focus was on when it opened.
+     * Nothing is remembered when that is an unnamed control (the rail, a deep link), so an older
+     * origin never returns.
      */
     capture(): FocusOrigin | undefined {
       stop();
-      origin = owner && current && (holding || overlays > 0) ? {owner, scope: current.scope, key: current.key, place: scopes.get(current.scope)?.get(current.key)?.place ?? {}} : undefined;
+      const from = current && (holding || inOverlay || overlays > 0) ? current : null;
+      origin = owner && from ? {owner, scope: from.scope, key: from.key, place: placeOf(from.scope, from.key)} : undefined;
       return origin;
     },
-    /** The player has closed: give focus back to the origin, once. */
+    /** The player has closed: give focus back to the origin, once, if its screen is the one showing. */
     restore() {
       const taken = origin;
       origin = undefined;
       stop();
-      if (!taken || taken.owner !== owner) return;
-      pending = {origin: taken, key: taken.key, place: taken.place, attempt: 0, fallbacks: 0, timer: undefined};
+      if (!taken || taken.owner !== owner || !active(taken.scope)) return;
+      pending = {origin: taken, key: taken.key, place: taken.place, asks: 0, looks: 0, fallbacks: 0, timer: undefined};
       pending.timer = timers.schedule(step, delay);
     },
-    /** Stop a return under way (the screen has gone). */
+    /** Stop a return under way. */
     cancel: stop,
     /** For tests and diagnostics. */
     state() {
-      return {owner, origin, returning: pending ? {key: pending.key, attempt: pending.attempt} : undefined, overlays};
+      return {owner, origin, returning: pending ? {key: pending.key, asks: pending.asks, looks: pending.looks} : undefined, overlays, current: current ? {...current, holding} : null, inOverlay};
     },
   };
 }

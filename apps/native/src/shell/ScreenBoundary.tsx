@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {TVFocusGuideView, View} from 'react-native';
 import {CommonActions, useIsFocused, useNavigation} from '@react-navigation/native';
-import {Button, FocusScopeContext, NavScope, ScreenSpeechContext, ScreenTitleContext, StateView, useTheme} from '../ui';
+import {Button, FocusScopeContext, NavScope, focusReturn, ScreenSpeechContext, ScreenTitleContext, StateView, useTheme} from '../ui';
 import {DestinationAnnouncer, announce} from '../ui/announce';
 import {useConnectionStatus} from '../app/connection-context';
 import {CONNECTION_EXEMPT_SCREENS, connectionView} from '../app/connection-status';
@@ -81,6 +81,10 @@ export function guarded<P extends object>(Screen: React.ComponentType<P>): (prop
     // What the screen says about itself later (a new error, an empty state) is spoken only while
     // it is the current screen; a screen kept alive behind another one stays silent.
     const speak = useCallback((text: string) => { if (focusedNow.current) announce(text); }, []);
+    // TV-PLAYER-03: focus comes back after playback only to the screen showing; a screen covered
+    // by another or left for another tab is never given it, and one that has gone is forgotten.
+    useEffect(() => { if (isTV) focusReturn.setScopeActive(routeKey, focused); }, [isTV, routeKey, focused]);
+    useEffect(() => () => focusReturn.disposeScope(routeKey), [routeKey]);
     const view = connectionView({name: props.route.name, status, mountedGeneration, focused});
     // While the status shows, it replaces the screen's content (which unmounts, so no card shows
     // its own error). Exempt screens (Settings, Servers, Account, About, Downloads, Gallery) keep

@@ -1,5 +1,6 @@
 import {useEffect, useRef} from 'react';
-import {focusReturn} from '../ui/focus-return';
+import {useTVEventHandler} from 'react-native';
+import {focusReturn, isFocusIntent} from '../ui/focus-return';
 
 /**
  * APL-HOME-03 / TV-PLAYER-03: what the player tells the rest of the app.
@@ -45,13 +46,21 @@ export {focusReturn};
  * The player's side of focus coming back (PlayerHost): the origin belongs to `viewer` only (a new
  * server, account or profile forgets it), and focus goes back to it once the player no longer
  * `covering` the screens: closed, ended, or audio sent on to the now-playing pill. Television only.
+ *
+ * A key pressed on the remote while focus is still on its way back ends the return (the person
+ * has moved on), and the host going away forgets the origin and any return it started.
  */
 export function usePlayerFocusReturn(covering: boolean, viewer: string, tv: boolean) {
-  useEffect(() => focusReturn.setOwner(viewer), [viewer]);
+  useEffect(() => {
+    focusReturn.setOwner(viewer);
+  }, [viewer]);
+  // Unmounted: nothing it captured or started outlives it (another host starts from nothing).
+  useEffect(() => () => focusReturn.setOwner(''), []);
   const was = useRef(false);
   useEffect(() => {
     if (!tv) return;
     if (was.current && !covering) focusReturn.restore();
     was.current = covering;
   }, [covering, tv]);
+  useTVEventHandler(event => { if (tv && isFocusIntent(event)) focusReturn.intent(); });
 }
