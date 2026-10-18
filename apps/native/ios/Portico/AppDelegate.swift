@@ -37,6 +37,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       GCKCastContext.setSharedInstanceWith(options)
     }
 
+    // BETA06: the downloads owner is deliberately not started here. Starting it creates the
+    // background session, and on a relaunch for download events Apple's contract is to hold the
+    // completion handler first and create the session after (see
+    // handleEventsForBackgroundURLSession below). A foreground launch starts it from the scene.
+
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -50,11 +55,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   // MARK: Background downloads
 
   /// A download finished while Portico was suspended or not running: iOS relaunches the app in the
-  /// background and waits for this handler to be called once the downloads session has delivered
-  /// its events (PorticoDownloads calls it).
+  /// background (no scene connects, so React Native does not start) and waits for this handler to
+  /// be called once the downloads session has delivered its events. The handler is held first and
+  /// only then is the downloads owner (PorticoDownloads.m) started, which recreates the session
+  /// under the same identifier, files what arrived and then calls `PorticoBackgroundEvents.finish`.
   func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                    completionHandler: @escaping () -> Void) {
-    PorticoBackgroundEvents.completions[identifier] = completionHandler
+    PorticoBackgroundEvents.wake(identifier, completionHandler)
   }
 
   /// When the app launched (PorticoLink uses it to tell a cold-launch link from a later one).
@@ -118,10 +125,36 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
   }
 }
 
-/// Holds the system's completion handlers for background URL sessions until the owning session
-/// has delivered its events.
+/// Holds the system's completion handler for the downloads session until that session has
+/// delivered the events of the wake it belongs to, and calls each exactly once. Main queue only.
+///
+/// There is no matching by time. On a relaunch the session does not exist until `wake` has held
+/// the handler, so no event, and no end of events, can come before it. For a session that already
+/// exists (the app was suspended, or is in front), Apple's contract is that the end of events
+/// follows the handler; an end of events with no handler held belongs to no wake and is not kept
+/// for a later one.
 @objc(PorticoBackgroundEvents) final class PorticoBackgroundEvents: NSObject {
-  static var completions: [String: () -> Void] = [:]
+  private static var completions: [String: () -> Void] = [:]
+
+  /// A wake that needs nothing from the system's handler (a scene coming to the foreground):
+  /// creates the downloads owner and its session if needed, and retries an unread manifest.
+  static func startDownloads() {
+    PorticoDownloadOwner.start()
+  }
+
+  /// The system's background-session callback. Holds the handler, then starts the owner.
+  static func wake(_ identifier: String, _ completion: @escaping () -> Void) {
+    dispatchPrecondition(condition: .onQueue(.main))
+    // Portico creates no other background session, so nothing else would ever call this one.
+    guard identifier == PorticoDownloadOwner.sessionIdentifier else { completion(); return }
+    // A new wake for the same session: the system has moved on from the earlier one.
+    completions.removeValue(forKey: identifier)?()
+    completions[identifier] = completion
+    PorticoDownloadOwner.start()
+  }
+
+  /// Called by the owner from its serial queue once every write queued before the session's
+  /// end of events has finished.
   @objc static func finish(_ identifier: String) {
     DispatchQueue.main.async { completions.removeValue(forKey: identifier)?() }
   }
@@ -136,6 +169,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     guard let scene = scene as? UIWindowScene,
           let app = UIApplication.shared.delegate as? AppDelegate else { return }
     window = app.connect(scene, options: connectionOptions)
+  }
+
+  /// BETA06: an ordinary launch, or a return to the app, starts the downloads owner (a no-op
+  /// after the first time, apart from retrying a manifest that could not be read yet).
+  func sceneWillEnterForeground(_ scene: UIScene) {
+    PorticoBackgroundEvents.startDownloads()
   }
 
   func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
