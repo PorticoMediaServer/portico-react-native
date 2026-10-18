@@ -261,7 +261,7 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
                   <Divider style={{flex: 1}} />
                 </View>
               ) : null}
-              <Field next={passwordField} hasTVPreferredFocus={isTV} label={i18n.t('auth.usernameOrEmail')} placeholder="name@example.com" value={username} onChangeText={v => { edited(); setUsername(v); }} textContentType="username" autoComplete="username" keyboardType="email-address" />
+              <Field next={passwordField} autoFocus={isTV} label={i18n.t('auth.usernameOrEmail')} placeholder="name@example.com" value={username} onChangeText={v => { edited(); setUsername(v); }} textContentType="username" autoComplete="username" keyboardType="email-address" />
               <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={v => { edited(); setPassword(v); }} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
               <Button variant="primary" size="lg" label={i18n.t('action.continue')} fullWidth loading={busy} disabled={!username || !password} onPress={submit} />
             </>

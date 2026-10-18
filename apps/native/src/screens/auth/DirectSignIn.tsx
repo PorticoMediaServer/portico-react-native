@@ -107,7 +107,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   if (direct.setup && !isTV) return <ServerSetup target={direct.setup} />;
   if (step === 'code' && connected) return <QuickConnect api={connected} onPassword={() => leaveCode('usePassword')} onBack={() => leaveCode('back')} />;
   // TV-AUTH-03: placeholders are examples, never a repeat of the label.
-  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { edited(); if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
+  const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { edited(); if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!isTV || (step === 'address' && !prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
   if (step === 'address') {
     return (
       <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={() => { edited(); onBack(); }} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
@@ -123,7 +123,9 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
     <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.lead')} onBack={() => go('back')} error={session.error} onDismissError={session.clearError}>
       {address}
       <SetupOffer address={settled} />
-      <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" value={username} onChangeText={v => { edited(); setUsername(v); }} textContentType="username" autoComplete="username" />
+      {/* TV: the password step opens on the username (on television `autoFocus` only places focus; the
+          keyboard opens on Select), never on Back, whether or not the address was filled in for us. */}
+      <Field ref={userField} next={passwordField} label={i18n.t('auth.username')} placeholder="name@example.com" autoFocus={isTV} value={username} onChangeText={v => { edited(); setUsername(v); }} textContentType="username" autoComplete="username" />
       <Field ref={passwordField} label={i18n.t('auth.password')} value={password} onChangeText={v => { edited(); setPassword(v); }} secure textContentType="password" autoComplete="password" returnKeyType="done" onSubmitEditing={submit} />
       <CertificateQuestion origin={direct.origin} shown={!!session.error} onTrusted={() => { session.clearError(); submit(); }} />
       <Button variant="primary" size="lg" label={i18n.t('auth.signIn')} fullWidth loading={session.busy} disabled={!ready} onPress={submit} />

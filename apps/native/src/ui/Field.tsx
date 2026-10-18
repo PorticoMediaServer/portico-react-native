@@ -70,7 +70,11 @@ export const Field = forwardRef<FieldHandle, FieldProps>(function Field({label, 
   const close = useCallback(() => {
     if (!onDemand) return;
     setEditing(false);
-    requestAnimationFrame(() => { if (!TextInput.State.currentlyFocusedInput()) button.current?.focus(); });
+    // Back hides the keyboard and the input gives focus up, but Android hands focus straight back to
+    // that same (hidden) input: the field would be left half open, and the next Select would open the
+    // keyboard on an input that then loses focus, typing into nothing. So focus returns to the
+    // field's button unless another field has taken the keyboard (Next).
+    requestAnimationFrame(() => { if (!TextInput.State.currentlyFocusedInput() || input.current?.isFocused()) button.current?.focus(); });
   }, [onDemand]);
   useEffect(() => {
     if (!editing) return;

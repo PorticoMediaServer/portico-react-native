@@ -22,7 +22,9 @@ export function AuthFrame({title, lead, children, onBack, error, onDismissError,
       <Atmosphere />
       {/* The atmosphere runs under the status bar; the form scrolls below it, so a form the
           keyboard pushes up never runs under the clock. */}
-      <KeyboardAvoidingView style={{flex: 1, marginTop: insets.top}} behavior={keyboardAvoidance} enabled={keyboardAvoidanceEnabled}>
+      {/* Not on television: the keyboard shows what is typed and the field stays above it, and the
+          form's re-layout as the keyboard appeared took focus off the input, so typing went nowhere. */}
+      <KeyboardAvoidingView style={{flex: 1, marginTop: insets.top}} behavior={keyboardAvoidance} enabled={keyboardAvoidanceEnabled && !isTV}>
         <ScrollView contentContainerStyle={{flexGrow: 1, paddingHorizontal: space.page, paddingTop: Math.max(0, (isTV ? 60 : 0) - insets.top) + (compact ? space.md : space.xl), paddingBottom: insets.bottom + (compact ? space.md : space.xxl), // APL-AUTH-10: centred on television, iPad and landscape phones; left-aligned only on a narrow phone.
           alignItems: isTV || window.width >= 700 ? 'center' : 'flex-start', justifyContent: 'center'}} keyboardShouldPersistTaps="handled">
           <View style={{width, gap: compact ? space.md : space.lg}}>

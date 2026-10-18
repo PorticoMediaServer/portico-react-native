@@ -77,6 +77,10 @@ export type SheetProps = {
   scroll?: boolean;
   /** Called once the open animation has finished and the content is laid out (TV: move focus here, not on timers). */
   onShown?: () => void;
+  /** TV: once shown, focus goes to the footer action that would take it (a confirmation with nothing
+   *  else to focus). Without this the sheet's focus guide keeps whatever it found first while the
+   *  sheet animated in, which can be the scrolling body, where Select does nothing. */
+  focusActionOnShow?: boolean;
 };
 
 /**
@@ -84,7 +88,7 @@ export type SheetProps = {
  * can be dragged down to dismiss, and that rises above the keyboard; television/iPad: a centred
  * panel. Dismissal animates out, then restores focus to the invoking control (the Modal unmounts).
  */
-export function Sheet({open, onClose, title, subtitle, children, width, placement = 'auto', detent = 'full', kind: requestedKind, primary, cancelLabel, leading, footer, style, scroll = true, onShown}: SheetProps) {
+export function Sheet({open, onClose, title, subtitle, children, width, placement = 'auto', detent = 'full', kind: requestedKind, primary, cancelLabel, leading, footer, style, scroll = true, onShown, focusActionOnShow = false}: SheetProps) {
   const {colors, space, isTV, window, motion, metrics} = useTheme();
   const platform = useSpecPlatform();
   const o = spec.overlay;
@@ -114,7 +118,10 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
   const id = useOverlayId();
   const onShownRef = useRef(onShown);
   onShownRef.current = onShown;
-  const shown = useRef(() => onShownRef.current?.()).current;
+  const preferredAction = useRef<FocusableHandle>(null);
+  const focusAction = useRef(focusActionOnShow);
+  focusAction.current = focusActionOnShow;
+  const shown = useRef(() => { onShownRef.current?.(); if (focusAction.current) preferredAction.current?.focus(); }).current;
   useEffect(() => {
     if (open) {
       // iOS drops a modal presented while another is still being dismissed (a menu item that
@@ -196,8 +203,8 @@ export function Sheet({open, onClose, title, subtitle, children, width, placemen
     isTV ? (
       // Television: primary first so it takes focus, then Cancel, leading last.
       <View style={{flexDirection: 'row', justifyContent: 'center', gap: space.md, flex: 1}}>
-        {primary ? <Button variant={primary.tone === 'destructive' ? 'destructive' : 'primary'} label={primary.label} loading={primary.loading} disabled={primary.disabled} onPress={primary.onPress} hasTVPreferredFocus={primary.tone !== 'destructive'} /> : null}
-        {cancel ? <Button variant="ghost" label={cancel} onPress={onClose} hasTVPreferredFocus={destructive} /> : null}
+        {primary ? <Button variant={primary.tone === 'destructive' ? 'destructive' : 'primary'} label={primary.label} loading={primary.loading} disabled={primary.disabled} onPress={primary.onPress} hasTVPreferredFocus={primary.tone !== 'destructive'} ref={destructive ? undefined : preferredAction} /> : null}
+        {cancel ? <Button variant="ghost" label={cancel} onPress={onClose} hasTVPreferredFocus={destructive} ref={destructive ? preferredAction : undefined} /> : null}
         {leading ? <Button variant="ghost" label={leading.label} loading={leading.loading} disabled={leading.disabled} onPress={leading.onPress} /> : null}
       </View>
     ) : (
@@ -322,7 +329,7 @@ export function ConfirmSheet({open, onDismiss, title, consequence, confirmLabel,
   };
   const pad = rowPaddingX(platform);
   return (
-    <Sheet open={open} onClose={onDismiss} title={title} kind="form" placement={isTV ? 'center' : 'auto'}
+    <Sheet open={open} onClose={onDismiss} title={title} kind="form" placement={isTV ? 'center' : 'auto'} focusActionOnShow={!confirmToken && !children}
       primary={{label: confirmLabel, tone: tone === 'destructive' ? 'destructive' : 'default', loading: busy, disabled: !ready || !tokenOk, onPress: () => void confirm()}}>
       <View style={{gap: space.md, paddingHorizontal: pad}}>
         {consequence ? <Text variant="body" tone="secondary">{consequence}</Text> : null}
