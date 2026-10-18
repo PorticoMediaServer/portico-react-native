@@ -1,5 +1,5 @@
 import React, {createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
-import {FlatList, Image, ScrollView, View, type ListRenderItem} from 'react-native';
+import {FlatList, ScrollView, View, type ListRenderItem} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {browsePreview} from '../../../../packages/client-core/src/presentation/index';
 import {type BrowsePreviewStore, type PreviewFocus} from '../app/browse-preview';
@@ -150,7 +150,7 @@ export function BrowseStage<T>({store, layout, strip, stripHeight = 0, identity,
 
 /** The focused card's artwork behind the preview: wide art as it is, a softened cover when that is all there is. */
 function PreviewBackdrop({store, height}: {store: BrowsePreviewStore; height: number}) {
-  const {backdrops, colors} = useTheme();
+  const {backdrops} = useTheme();
   const artwork = useArtwork();
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const art = snapshot.art?.entry;
@@ -158,14 +158,8 @@ function PreviewBackdrop({store, height}: {store: BrowsePreviewStore; height: nu
   if (!backdrops || !art) return null;
   if (art.backdropUrl) return <Backdrop source={artwork(art.backdropUrl)} height={height} align="right" opacity={0.85} />;
   const cover = art.posterUrl ?? art.stillUrl;
-  if (!cover) return null;
-  return (
-    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height, overflow: 'hidden'}}>
-      <Image source={artwork(cover)} blurRadius={40} resizeMode="cover" style={{position: 'absolute', left: -32, right: -32, top: -32, bottom: -32, opacity: 0.45}} />
-      <Backdrop height={height} />
-      <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.4, backgroundColor: colors.ink, opacity: 0.35}} />
-    </View>
-  );
+  // A cover, softened, under the same scrim and the same fade into the page (never a box of its own).
+  return cover ? <Backdrop source={artwork(cover)} height={height} align="right" blur={40} opacity={0.45} /> : null;
 }
 
 /** The words about the focused card, at once; its cover (when it has no wide art) once focus has settled. */

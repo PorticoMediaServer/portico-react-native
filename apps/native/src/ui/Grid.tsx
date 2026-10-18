@@ -129,7 +129,10 @@ export type WindowedGridProps<T> = {
   refreshControl?: React.ReactElement<RefreshControlProps>;
   /** False when something pinned above the grid already clears the status bar (touch only). */
   topInset?: boolean;
-  /** Something pinned above the grid clears the top on every platform (a TV library's strip): no top padding at all. */
+  /**
+   * Something pinned above the grid clears the top on every platform (a TV library's strip): no
+   * inset, only, on TV, room for the focused card to grow without being cut by the grid's top.
+   */
   pinnedAbove?: boolean;
 };
 
@@ -160,7 +163,11 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
   const columnWidth = Math.floor((available - spacing * (columns - 1)) / columns);
   const rows = total === undefined ? 2 : Math.ceil(total / columns);
   const rowStride = rowHeight || columnWidth * aspect + 56 + space.lg;
-  const topPad = pinnedAbove ? 0 : isTV ? Math.max(insets.top, 60) - space.lg : topInset ? insets.top : 0;
+  // TV: a focused card grows (focusScale, its ring and glow) past its row; the first row keeps that
+  // room above it, and a row scrolled to keeps the same room under the grid's top edge (Android's
+  // focus scrolling leaves the fading edge clear), so no card's top is ever cut.
+  const focusRoom = isTV ? space.lg : 0;
+  const topPad = pinnedAbove ? focusRoom : isTV ? Math.max(insets.top, 60) - space.lg : topInset ? insets.top : 0;
   React.useImperativeHandle(ref, () => ({
     scrollToIndex: (index: number) => {
       const row = Math.floor(index / columns);
@@ -203,6 +210,7 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
       renderItem={renderRow}
       getItemLayout={rowHeight ? (_, index) => ({length: rowHeight, offset: headerHeight + rowHeight * index, index}) : undefined}
       onLayout={e => setMeasured(e.nativeEvent.layout.width)}
+      fadingEdgeLength={focusRoom || undefined}
       // The header (with the top inset) is measured so row offsets are exact for letter jumps.
       ListHeaderComponent={<View onLayout={e => setHeaderHeight(e.nativeEvent.layout.height)} style={{paddingTop: topPad}}>{header}</View>}
       ListFooterComponent={footer}

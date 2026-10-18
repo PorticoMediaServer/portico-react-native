@@ -3,7 +3,7 @@ import {Image, View, type ImageSourcePropType} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useI18n} from '../../app/i18n';
-import {Artwork, Backdrop, Button, Focusable, ProgressBar, Sheet, Skeleton, Text, alpha, sourceKey, spec, useNavTitle, useScrolledPast, useSpecPlatform, useTheme, type ArtworkShape, type FocusableHandle, type IconName} from '../../ui';
+import {Artwork, Backdrop, BackdropFade, Button, Focusable, ProgressBar, Sheet, Skeleton, Text, sourceKey, spec, useNavTitle, useScrolledPast, useBackdropFade, useSpecPlatform, useTheme, type ArtworkShape, type FocusableHandle, type IconName} from '../../ui';
 import {heroLayout} from './layout';
 
 export type HeroAction = {
@@ -256,32 +256,15 @@ function InitialCircle({name, size}: {name?: string; size: number}) {
 }
 
 /**
- * M26 compact background: the blurred, darkened art full-bleed, or a quiet tint with no art. It
- * takes a backdrop's scrims (spec.hero.scrim, the phone's on iPhone), so it melts into the page
- * instead of ending on an edge. On iPhone it fills the band only (`height`), as a backdrop does.
+ * M26 compact background: the blurred, darkened art full-bleed, or a quiet tint with no art. It is
+ * a backdrop of the art softened (its scrims, the phone's on iPhone, and its fade into the page),
+ * so it melts into the page instead of ending on an edge. On iPhone it fills the band only
+ * (`height`), as a backdrop does; elsewhere it fades out by the foot of the hero.
  */
 function CompactBackground({source, phone, height}: {source?: ImageSourcePropType; phone: boolean; height?: number}) {
   const {colors} = useTheme();
-  return (
-    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, ...(height ? {height} : {bottom: 0}), overflow: 'hidden', backgroundColor: colors[spec.hero.fallback.to]}}>
-      {source ? <Image source={source} blurRadius={32} resizeMode="cover" style={{position: 'absolute', left: -24, right: -24, top: -24, bottom: -24, opacity: 0.55}} /> : null}
-      {source ? <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: alpha(colors.ink, 0.25)}} /> : null}
-      {/* Sized by percentage, never by a measured size: a measured one is fractional, and Android drew
-          the shade a pixel short of the art (a bright line along the band's foot), as in Backdrop. */}
-      <Svg width="100%" height="100%" style={{position: 'absolute', left: 0, top: 0}}>
-        <Defs>
-          <LinearGradient id="compactBottom" x1="0" y1="0" x2="0" y2="1">
-            {(phone ? spec.hero.scrim.phoneBottom : spec.hero.scrim.bottom).map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
-          </LinearGradient>
-          <LinearGradient id="compactSide" x1="0" y1="0" x2="1" y2="0">
-            {spec.hero.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
-          </LinearGradient>
-        </Defs>
-        {phone ? null : <Rect x={0} y={0} width="100%" height="100%" fill="url(#compactSide)" />}
-        <Rect x={0} y={0} width="100%" height="100%" fill="url(#compactBottom)" />
-      </Svg>
-    </View>
-  );
+  // The art at 0.55 under a quarter of ink, as before: 0.55 × 0.75 over the ink.
+  return <Backdrop source={source} height={height} align={phone ? 'top' : 'right'} blur={32} opacity={0.41} tint={colors[spec.hero.fallback.to]} />;
 }
 
 /** Backdrops use the server's long-edge variants: 1920 on television and iPad, 800 on phones. */
@@ -294,10 +277,11 @@ function sizedBackdrop(source: ImageSourcePropType | undefined, width: number): 
 /** No backdrop: a quiet tinted gradient in its place (spec §1), never an empty box. */
 function Tint({height}: {height: number}) {
   const {colors} = useTheme();
+  const tail = useBackdropFade();
   return (
-    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
-      {/* Sized by percentage (see CompactBackground). */}
-      <Svg width="100%" height="100%">
+    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height: height + tail}}>
+      {/* Sized by percentage (see Backdrop); then faded into the page, never an edge. */}
+      <Svg width="100%" height={height}>
         <Defs>
           <LinearGradient id="tint" x1="0" y1="0" x2="1" y2="1">
             <Stop offset="0" stopColor={colors[spec.hero.fallback.from]} stopOpacity={1} />
@@ -316,6 +300,7 @@ function Tint({height}: {height: number}) {
         <Rect x={0} y={0} width="100%" height="100%" fill="url(#glow)" />
         <Rect x={0} y={0} width="100%" height="100%" fill="url(#fade)" />
       </Svg>
+      <BackdropFade />
     </View>
   );
 }

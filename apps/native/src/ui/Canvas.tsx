@@ -42,9 +42,18 @@ type Layer = {key: number; source: ImageSourcePropType};
  * Artwork backdrop with a consistent scrim so white text stays readable on any
  * poster. Crossfades when the source changes and fades to the atmosphere when
  * cleared. `align` controls where the artwork remains most visible.
+ *
+ * It never ends on an edge (Justin, 18 Oct 2026, every platform): the scrim reaches the ink at the
+ * foot of the art, and below it a fade (`tail`) takes the ink away into the page's own light, so
+ * art, shade and page meet without a line. `height` is the art's; the fade hangs below it. A cover
+ * standing in for wide art (`blur`) is softened and takes the same scrim and fade; `tint` is the
+ * colour behind the art, which fades with it.
  */
-export function Backdrop({source, height, align = 'right', opacity = 1, style}: {source?: ImageSourcePropType; height?: number; /** `top`: a phone title hero (identity below); `overlay`: a phone Home hero (identity over the art). */ align?: 'right' | 'center' | 'top' | 'overlay'; opacity?: number; style?: StyleProp<ViewStyle>}) {
+export function Backdrop({source, height, align = 'right', opacity = 1, blur, tint, style}: {source?: ImageSourcePropType; height?: number; /** `top`: a phone title hero (identity below); `overlay`: a phone Home hero (identity over the art). */ align?: 'right' | 'center' | 'top' | 'overlay'; opacity?: number; /** A cover in place of wide art: blurred by this radius. */ blur?: number; tint?: string; style?: StyleProp<ViewStyle>}) {
   const {colors, motion} = useTheme();
+  const tail = useBackdropFade();
+  const bottom = align === 'top' ? heroSpec.scrim.phoneBottom : align === 'overlay' ? heroSpec.scrim.phoneOverlay : heroSpec.scrim.bottom;
+  const foot = bottom[bottom.length - 1]!.alpha;
   const [layers, setLayers] = useState<Layer[]>([]);
   const uri = sourceKey(source);
   useEffect(() => {
@@ -56,9 +65,10 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
   return (
-    <View pointerEvents="none" style={[{position: 'absolute', left: 0, right: 0, top: 0, height: height ?? '100%', overflow: 'hidden'}, style]}>
+    <View pointerEvents="none" style={[{position: 'absolute', left: 0, right: 0, top: 0, height: height === undefined ? '100%' : height + tail}, style]}>
+      <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: tail, overflow: 'hidden', backgroundColor: tint}}>
       {layers.map((layer, index) => (
-        <FadeLayer key={layer.key} source={layer.source} opacity={opacity} last={index === layers.length - 1} duration={motion.reduce ? 0 : motion.slow} onFaded={() => setLayers(prev => prev.filter(l => l.key !== layer.key))} />
+        <FadeLayer key={layer.key} source={layer.source} opacity={opacity} blur={blur} last={index === layers.length - 1} duration={motion.reduce ? 0 : motion.slow} onFaded={() => setLayers(prev => prev.filter(l => l.key !== layer.key))} />
       ))}
       {/* Sized by percentage, never by a measured size: a measured one is fractional, and Android drew
           the shade a pixel or more short of the artwork it covers (a bright line along the bottom and
@@ -68,7 +78,7 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
             phones a bottom one only (the identity sits below the image). */}
         <Defs>
           <LinearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
-            {(align === 'top' ? heroSpec.scrim.phoneBottom : align === 'overlay' ? heroSpec.scrim.phoneOverlay : heroSpec.scrim.bottom).map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
+            {bottom.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
           </LinearGradient>
           <LinearGradient id="side" x1="0" y1="0" x2="1" y2="0">
             {heroSpec.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
@@ -77,11 +87,40 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
         {align === 'top' || align === 'overlay' ? null : <Rect x={0} y={0} width="100%" height="100%" fill="url(#side)" />}
         <Rect x={0} y={0} width="100%" height="100%" fill="url(#bottom)" />
       </Svg>
+      </View>
+      <BackdropFade from={foot} />
     </View>
   );
 }
 
-function FadeLayer({source, opacity, last, duration, onFaded}: {source: ImageSourcePropType; opacity: number; last: boolean; duration: number; onFaded: () => void}) {
+/** How far below a hero's art its shade takes to fade into the page (`BackdropFade`). */
+export function useBackdropFade(): number {
+  return useTheme().space.xxxl * 2;
+}
+
+/**
+ * Below a hero's art (at the foot of its box, `useBackdropFade` tall): the scrim's ink, at `from`,
+ * fading away into the page. The art stops above it, so nothing of it shows again where the shade
+ * lifts; it starts a pixel inside the art so Android's fractional layout leaves no gap.
+ */
+export function BackdropFade({from = 1}: {from?: number}) {
+  const {colors} = useTheme();
+  const tail = useBackdropFade();
+  return (
+    <Svg width="100%" height={tail + 1} style={{position: 'absolute', left: 0, right: 0, bottom: 0}}>
+      <Defs>
+        <LinearGradient id="tail" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={colors.ink} stopOpacity={from} />
+          <Stop offset="0.45" stopColor={colors.ink} stopOpacity={from * 0.55} />
+          <Stop offset="1" stopColor={colors.ink} stopOpacity={0} />
+        </LinearGradient>
+      </Defs>
+      <Rect x={0} y={0} width="100%" height="100%" fill="url(#tail)" />
+    </Svg>
+  );
+}
+
+function FadeLayer({source, opacity, blur, last, duration, onFaded}: {source: ImageSourcePropType; opacity: number; blur?: number; last: boolean; duration: number; onFaded: () => void}) {
   const value = useSharedValue(0);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -107,7 +146,9 @@ function FadeLayer({source, opacity, last, duration, onFaded}: {source: ImageSou
   const retried = attempt && typeof source === 'object' && !Array.isArray(source) && (source as {uri?: string}).uri
     ? {...(source as object), uri: `${(source as {uri: string}).uri}${(source as {uri: string}).uri.includes('?') ? '&' : '?'}r=${attempt}`}
     : source;
-  return <Animated.Image key={attempt} source={retried as ImageSourcePropType} resizeMode="cover" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} style={[StyleSheet.absoluteFill, animated]} />;
+  // A blurred cover overhangs its box, so its softened edges fall outside it.
+  const box = blur ? {position: 'absolute' as const, left: -blur, right: -blur, top: -blur, bottom: -blur} : StyleSheet.absoluteFill;
+  return <Animated.Image key={attempt} source={retried as ImageSourcePropType} resizeMode="cover" blurRadius={blur} onLoad={() => setLoaded(true)} onError={() => setFailed(true)} style={[box, animated]} />;
 }
 
 /** Quiet slate container with a subtle edge; the only "card chrome" in the app. */

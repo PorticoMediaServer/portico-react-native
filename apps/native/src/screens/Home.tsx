@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {useUnreadCount} from '../app/inbox';
-import {Image, View, type ImageSourcePropType} from 'react-native';
+import {View, type ImageSourcePropType} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {ContentEntry, ContentSection} from '../../../../packages/client-core/src/library-content';
 import {captionFor, cardLinesFor, formatDuration, iconFor, lengthFor, progressFor, shapeFor, useArtwork} from '../app/content';
@@ -240,18 +240,14 @@ const PENDING_SHELVES_MS = 10_000;
 
 /** Behind the hero: wide artwork as it is, or a softened copy of the cover when that is all there is. */
 function HeroArt({hero, source, height}: {hero: HomeHero; source?: ImageSourcePropType; height: number}) {
-  const {colors, backdrops, isTV, window} = useTheme();
+  const {backdrops, isTV, window} = useTheme();
   // "Show backdrops" off: Home keeps its plain lit canvas behind the hero.
   if (!backdrops) return null;
   // Phones: the identity sits over the art, so one top-to-bottom shade and no side shade (heroSpec.scrim.phoneOverlay).
-  if (hero.art === 'backdrop') return <Backdrop source={source} height={height} align={!isTV && window.width < 700 ? 'overlay' : 'right'} opacity={0.85} />;
-  return (
-    <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height, overflow: 'hidden'}}>
-      {source ? <Image source={source} blurRadius={40} resizeMode="cover" style={{position: 'absolute', left: -32, right: -32, top: -32, bottom: -32, opacity: 0.45}} /> : null}
-      <Backdrop height={height} />
-      <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.4, backgroundColor: colors.ink, opacity: 0.35}} />
-    </View>
-  );
+  const align = !isTV && window.width < 700 ? 'overlay' : 'right';
+  if (hero.art === 'backdrop') return <Backdrop source={source} height={height} align={align} opacity={0.85} />;
+  // A cover, softened, under the same scrim and the same fade into the page (never a box of its own).
+  return <Backdrop source={source} height={height} align={align} blur={40} opacity={0.45} />;
 }
 
 /** Home's hero. Every word on it comes from `homeHero` (client-core), so each client says the same. */
