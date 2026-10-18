@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
-import {PersonalSavedService, UNCONFIRMED, savedChange, type PersonalResource, type SavedDefinition} from '../../../../packages/client-core/src/personal-saved';
+import {PersonalSavedService, UNCONFIRMED, retryUnconfirmed, savedChange, type PersonalResource, type SavedDefinition} from '../../../../packages/client-core/src/personal-saved';
 import type {SavedApi, SavedScope} from '../../../../packages/client-core/src/saved';
 
 /**
@@ -28,8 +28,12 @@ export function useLibraryPresets({api, scope, requestId, libraryId, pivot, enab
     save: (name: string, definition: SavedDefinition) => (service ? savedChange(service, {action: 'create', kind: 'view', name, definition}) : Promise.reject(new Error(''))),
     rename: (row: PersonalResource, name: string) => (service ? savedChange(service, {action: 'update', name}, row) : Promise.resolve()),
     remove: (row: PersonalResource) => (service ? savedChange(service, {action: 'delete'}, row) : Promise.resolve()),
-    /** Reads the list again quietly, the pages shown included (the picker opened, another device saved one); never over a change on its way. */
+    /** The unconfirmed change sent again exactly as it was sent (never rebuilt from the screen); a refusal is thrown. */
+    retryHeld: () => (service ? retryUnconfirmed(service) : Promise.reject(new Error(''))),
+    /** Reads the page in view again quietly (another device saved one); never over a change on its way. */
     refresh: (context?: Parameters<PersonalSavedService['revalidate']>[0]) => service?.revalidate(context).catch(() => undefined) ?? Promise.resolve(),
+    /** The picker opened: read again quietly, or, after a failure, the page that failed. */
+    opened: () => { if (!service) return; if (service.getSnapshot().error) void service.retryRead(); else void service.revalidate().catch(() => undefined); },
     /** Sets an unconfirmed change aside (it may still have been made; the list is read again). */
     discard: () => { if (!service) return; service.dismiss(); void service.refresh(); },
   };
