@@ -1,0 +1,133 @@
+name: Sign verified Google Play bundle
+
+on:
+  # Register this branch workflow without building media or accessing signing credentials.
+  push:
+    branches: [main, apple-actions-builds]
+    paths:
+      - '.github/workflows/google-play-upload-sign.yml'
+      - 'scripts/google-play-upload.py'
+      - 'scripts/test-google-play-upload.py'
+      - 'scripts/VerifyGoogleBundle.java'
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed CI run containing the verified Android artifact
+        required: true
+        default: '39173500547'
+      source_artifact_id:
+        description: Exact android-and-fire-os artifact ID
+        required: true
+        default: '12153768328'
+      expected_head_sha:
+        description: Full historical run head SHA (not the current PR head)
+        required: true
+        default: '2b184f162c161992a700ca11369364a35f3008c6'
+      expected_source_sha:
+        description: Full SOURCE_COMMIT SHA inside the artifact (PR merge SHA for PR builds)
+        required: true
+        default: 'af9ae58c24427184f4fe54c0720f5b96dfb5eee8'
+      expected_base_sha:
+        description: Full first parent of the PR merge commit (ignored for main push)
+        required: true
+        default: 'c5eb8ad65998c48329c0008b8f963c2dbb0871fe'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: google-play-upload-sign
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test preparation boundaries and compile signature verifier
+        run: |
+          python3 -I scripts/test-google-play-upload.py
+          javac -d "$RUNNER_TEMP" scripts/VerifyGoogleBundle.java
+
+  prepare:
+    needs: checks
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'PorticoMediaServer/portico-react-native' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/apple-actions-builds')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify provenance and safely prepare existing Google AAB
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_ID: ${{ inputs.source_artifact_id }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          EXPECTED_BASE_SHA: ${{ inputs.expected_base_sha }}
+        run: python3 -I scripts/google-play-upload.py prepare --output prepared
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: prepared
+        with:
+          name: google-upload-prepared
+          path: prepared/
+          if-no-files-found: error
+          retention-days: 3
+    outputs:
+      artifact_id: ${{ steps.prepared.outputs.artifact-id }}
+
+  sign:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'PorticoMediaServer/portico-react-native' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/apple-actions-builds')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Configure main/apple-actions-builds branch rules and Justin as required reviewer.
+    environment: google-play-upload
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with: {distribution: temurin, java-version: '17'}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          path: prepared
+          merge-multiple: true
+      - name: Fetch checksum-pinned official bundletool before exposing secrets
+        run: python3 -I scripts/google-play-upload.py tool
+      - name: Sign with upload key and verify Google bundle
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          ANDROID_APPLICATION_ID: ${{ vars.ANDROID_APPLICATION_ID }}
+          ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          SIGNING_DIR=$(mktemp -d "$RUNNER_TEMP/google-upload-secrets.XXXXXX")
+          export SIGNING_DIR
+          trap 'rm -rf -- "$SIGNING_DIR"' EXIT
+          trap 'exit 1' INT TERM
+          python3 -I scripts/google-play-upload.py sign --input prepared --output signed
+      - name: Ensure temporary signing material is removed
+        if: always()
+        shell: bash
+        run: |
+          find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'google-upload-secrets.*' -exec rm -rf -- {} +
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: google-play-upload-signed
+          path: signed/
+          if-no-files-found: error
+          retention-days: 14
