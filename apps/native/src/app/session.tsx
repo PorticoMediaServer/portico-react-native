@@ -14,6 +14,7 @@ import {directEntryFor} from './known-server-entry';
 import {changeRequiredPassword, completeDirectSignInChallenge, directSignIn, selectDirectProfile, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {setInstallationIdentity, validInstallationId} from '../../../../packages/client-core/src/installation';
 import {LocalSessionRefresher} from '../../../../packages/client-core/src/session-refresh';
+import {HttpCredentialApi} from '../../../../packages/client-core/src/credentials';
 import {deviceIdentity} from '../bridge/setup-codes';
 import {installationPlatform} from '../bridge/device-platform';
 import {forgetNativeConnection, nativeConnectionEnvironment, nativeHostedSource, nativeNetworkFetch, onNetworkChange, restoreNativeConnection, trackNativeConnection} from '../bridge/server-connections';
@@ -29,6 +30,7 @@ import {clearActivity} from '../bridge/NativeActivity';
 import {knownDirectServers} from '../bridge/known-servers';
 import {resumeEnding, savedStateAfter} from './sign-in-ended';
 import {rememberDirectSignIn} from '../bridge/direct-memory';
+import {hostedUrl} from '../bridge/account-authority';
 
 /**
  * Session controller. Owns who is signed in, to which server, as which
@@ -65,8 +67,7 @@ async function keepKnownServer(record: SelectedViewerRecord, name: string): Prom
   await (portico ? knownDirectServers.forget(serverId) : knownDirectServers.remember({serverId, name, address: record.serverUrl, lastProfileId: record.session.viewer.profileId})).catch(() => {});
 }
 
-/** Hosted (Portico Account) origin. Production unless the build injects one. */
-export const hostedUrl: string = (NativeModules.PorticoRuntime?.hostedUrl as string | undefined) ?? 'https://web.getportico.tv';
+export {hostedUrl};
 
 /**
  * C45: a direct sign-in that needs a profile chosen. `accountSession` is the account-tier session
@@ -206,7 +207,8 @@ export type SessionValue = {
     /** When the list was last confirmed with the account service. */
     checkedAt?: number;
   };
-  activationApproved: (session: HostedSession, accept: () => boolean) => Promise<void>;
+  /** Adopts a television activation's account session; false when it was no longer wanted (the session is retired). */
+  activationApproved: (session: HostedSession, accept: () => boolean) => Promise<boolean>;
   signOut: () => void;
 };
 
@@ -298,7 +300,10 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // stop a newer one; abandoning an attempt drops every token at once.
   const [busy, setBusy] = useState(false);
   const operations = useRef(new Set<symbol>());
-  const beginBusy = useCallback(() => { const op = Symbol('busy'); operations.current.add(op); setBusy(true); return op; }, []);
+  // The direct sign-in being attempted, and the busy tokens taken while it runs (its commit's among
+  // them): abandoning it or running out of time releases exactly those. See `cancelAttempt`.
+  const attempt = useRef<{controller: AbortController; ops: Set<symbol>} | undefined>(undefined);
+  const beginBusy = useCallback(() => { const op = Symbol('busy'); operations.current.add(op); attempt.current?.ops.add(op); setBusy(true); return op; }, []);
   const endBusy = useCallback((op: symbol) => { if (operations.current.delete(op) && !operations.current.size) setBusy(false); }, []);
   const dropBusy = useCallback(() => { operations.current.clear(); setBusy(false); }, []);
   const [recovery, setRecovery] = useState<SelectedViewerRecord>();
@@ -768,7 +773,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     stepState.current = undefined;
     setDirectStep(undefined);
     if (!held) return;
-    if (signOutAccount && held.session) void profileAPI(held.connected.api.baseUrl, held.session.accessToken).request('/v1/sessions/current', 'DELETE').catch(() => {});
+    // The step's account session is ended over its own connection, so that connection stays open
+    // until the request has gone (NS-06); disposing it first would drop the request unsent.
+    if (signOutAccount && held.session) {
+      void profileAPI(held.connected.api.baseUrl, held.session.accessToken).request('/v1/sessions/current', 'DELETE').catch(() => {}).finally(() => held.connected.connection.dispose());
+      return;
+    }
     held.connected.connection.dispose();
   }, []);
   /** Returns 'held' when the connection now belongs to a pending step or profile choice, 'issued' when a viewer session was accepted. */
@@ -815,28 +825,28 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [acceptDirect]);
 
   const signInDirectRef = useRef<(username: string, password: string) => Promise<void>>(async () => {});
-  // The direct sign-in being attempted. Changing any detail abandons it (`cancelAttempt`): its
-  // requests are aborted, whatever it answers later is ignored, and Sign in is ready again at once.
-  const attempt = useRef<{controller: AbortController} | undefined>(undefined);
+  // Changing any detail abandons the attempt under way (`cancelAttempt`): its requests are aborted,
+  // whatever it answers later is ignored, and Sign in is ready again at once.
+  const releaseAttempt = useCallback((live: {ops: Set<symbol>}) => { for (const op of live.ops) endBusy(op); live.ops.clear(); }, [endBusy]);
   const cancelAttempt = useCallback(() => {
     const live = attempt.current;
     if (!live) return;
     attempt.current = undefined;
     generation.current++;
     live.controller.abort();
-    dropBusy();
-  }, [dropBusy]);
+    releaseAttempt(live);
+  }, [releaseAttempt]);
   useEffect(() => () => attempt.current?.controller.abort(), []);
 
   const signInDirect = useCallback(
     async (username: string, password: string) => {
       // Signing in again replaces an attempt still under way.
       cancelAttempt();
+      const mine = {controller: new AbortController(), ops: new Set<symbol>()};
+      attempt.current = mine;
       const op = beginBusy();
       setError('');
       const gen = pin ? generation.current : ++generation.current;
-      const mine = {controller: new AbortController()};
-      attempt.current = mine;
       const {signal} = mine.controller;
       // The address lookup bounds each candidate itself; from the moment a server has answered,
       // the rest of the sign-in gets SIGN_IN_DEADLINE_MS to finish or say why it couldn't.
@@ -912,13 +922,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           if (timedOut) {
             if (gen === generation.current) generation.current++;
             mine.controller.abort();
+            releaseAttempt(mine);
           }
         }
         work.catch(() => {});
         endBusy(op);
       }
     },
-    [pin, directOrigin, settleDirect, holdSetup, beginBusy, endBusy, cancelAttempt],
+    [pin, directOrigin, settleDirect, holdSetup, beginBusy, endBusy, cancelAttempt, releaseAttempt],
   );
 
   /** C45: the code for a two-step sign-in (authenticator or recovery code). */
@@ -991,7 +1002,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     cancelAttempt();
     const gen = pin ? generation.current : ++generation.current;
     // It is the attempt under way until it answers, so a changed address abandons it too.
-    const mine = {controller: new AbortController()};
+    const mine = {controller: new AbortController(), ops: new Set<symbol>()};
     attempt.current = mine;
     try {
       const {api, pin: identity, address} = await connectDirectServer({
@@ -1067,13 +1078,18 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       })());
       const op = beginBusy();
       setError('');
+      let issued: LocalSession | undefined;
       try {
         const serverId = snapshot?.serverId ?? viewer.getSnapshot().session?.viewer.serverId ?? pending.api.getRouteConnection()?.pin.serverId ?? '';
         const accountId = snapshot?.account.id ?? viewer.getSnapshot().session?.viewer.accountId ?? '';
         const selection = await inTime(signal => selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin}, signal));
+        issued = selection.session;
         await acceptDirect(pending.api.baseUrl, selection.session, pending, gen);
       } catch (e) {
-        setError(message(e));
+        // The server made a viewer session this device won't use (left, or refused before it was
+        // handed over): end it, unless it is the one now in use (NS-07).
+        if (issued && viewer.getSnapshot().session?.sessionFamilyId !== issued.sessionFamilyId) void profileAPI(pending.api.baseUrl, issued.accessToken).logout().catch(() => {});
+        if (gen === generation.current) setError(message(e));
       } finally {
         endBusy(op);
       }
@@ -1252,12 +1268,17 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   };
 
   const activationApproved = useCallback(
-    async (session: HostedSession, accept: () => boolean) => {
-      if (!credentials || !accept()) return;
+    async (session: HostedSession, accept: () => boolean): Promise<boolean> => {
+      if (!credentials) return false;
+      // Left before it was adopted: the approval is spent, and its session is ended rather than kept.
+      const retire = () => { if (session.refreshToken) void new HttpCredentialApi(hostedUrl, nativeNetworkFetch).revoke(session.refreshToken).catch(() => {}); };
+      if (!accept()) { retire(); return false; }
       try {
         await new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request('/v1/me');
+        if (!accept()) { retire(); return false; }
         await credentials.adopt(session);
-        if (!accept()) await credentials.logoutIfCurrent({accountId: session.account.id, familyId: session.familyId});
+        if (!accept()) { await credentials.logoutIfCurrent({accountId: session.account.id, familyId: session.familyId}); return false; }
+        return true;
       } catch (e) {
         setError(message(e));
         throw e;

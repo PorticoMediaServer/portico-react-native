@@ -174,7 +174,7 @@ static const NSInteger PorticoQueueMaxActive=12;
   PorticoQueueRequests[request.identifier]=request;[PorticoQueueWaiting addObject:request];[self pump];
   // Include queue residence in the operation's deadline. Cancellation releases admission once.
   NSTimeInterval timeout=request.wire.timeoutInterval;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{[request finish:@"The queue request could not be confirmed."];});
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed)request.failureCode=@"timeout";}[request finish:@"The request took too long."];});
  }
 }
 /** Caller holds the class lock. */
@@ -209,6 +209,14 @@ static const NSInteger PorticoQueueMaxActive=12;
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  PorticoQueueRequest *request=[self requestFor:task];
  if([PorticoServerTrust isRefusal:error]){request.failureCode=@"certificate_untrusted";[request finish:@"The server's certificate is not trusted yet."];return;}
+ // What the failure means to the person, as Android reports it: no answer in time, or nothing reached
+ // the server. Anything else keeps the transport's own code (a write's outcome stays unknown).
+ if([error.domain isEqualToString:NSURLErrorDomain])switch(error.code){
+  case NSURLErrorTimedOut:request.failureCode=@"timeout";[request finish:@"The request took too long."];return;
+  case NSURLErrorCannotFindHost:case NSURLErrorCannotConnectToHost:case NSURLErrorDNSLookupFailed:case NSURLErrorNotConnectedToInternet:
+   request.failureCode=@"network";[request finish:@"The server could not be reached."];return;
+  default:break;
+ }
  [request finish:error?@"The queue request could not be confirmed.":nil];
 }
 @end
@@ -444,7 +452,7 @@ RCT_REMAP_METHOD(profileRequest,profileRequest:(NSString *)identifier url:(NSStr
 }
 
 RCT_REMAP_METHOD(cancelQueueRequest,cancelQueueRequest:(NSString *)identifier){
- PorticoQueueRequest *request;@synchronized(PorticoQueueRequest.class){request=PorticoQueueRequests[identifier];}[request finish:@"Queue request cancelled."];
+ PorticoQueueRequest *request;@synchronized(PorticoQueueRequest.class){request=PorticoQueueRequests[identifier];}@synchronized(request){if(!request.completed)request.failureCode=@"cancelled";}[request finish:@"Queue request cancelled."];
 }
 
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(playbackRequestId){return NSUUID.UUID.UUIDString;}

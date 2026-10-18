@@ -35,7 +35,9 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const passwordField = useRef<FieldHandle>(null);
   const [step, setStep] = useState<DirectStep>(firstDirectStep(isTV));
   // Every move goes through the step model: a handheld never reaches the address or code steps.
-  const go = (event: 'connected' | 'usePassword' | 'back') => { const next = directStepAfter(step, event, isTV); if (next === 'exit') onBack(); else setStep(next); return next; };
+  // Leaving a step (Back, or "Use a password") abandons whatever was under way there, so a late answer
+  // can't sign in behind the person (NS-04); a connection that answered is what moves the step on.
+  const go = (event: 'connected' | 'usePassword' | 'back') => { if (event !== 'connected') edited(); const next = directStepAfter(step, event, isTV); if (next === 'exit') onBack(); else setStep(next); return next; };
   const [connected, setConnected] = useState<HttpLocalApi>();
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
@@ -108,7 +110,7 @@ export function DirectSignIn({onBack, backRef}: {onBack: () => void; /** QA (TV)
   const address = <Field label={i18n.t('auth.serverAddress')} placeholder="192.168.1.20:32500" value={direct.origin} onChangeText={v => { edited(); if (direct.pin) direct.resetPin(); direct.setOrigin(v); setSettled(''); release(connected); setConnected(undefined); }} onBlur={() => setSettled(direct.origin.trim())} keyboardType="url" textContentType="URL" returnKeyType={step === 'address' ? 'go' : undefined} next={step === 'address' ? undefined : userField} autoFocus={!(isTV && prefilled)} onSubmitEditing={step === 'address' ? () => void connect() : undefined} />;
   if (step === 'address') {
     return (
-      <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={onBack} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
+      <AuthFrame title={i18n.t('auth.signInToServer')} lead={i18n.t('auth.direct.leadTV')} onBack={() => { edited(); onBack(); }} error={connectError || session.error} onDismissError={() => { setConnectError(''); session.clearError(); }}>
         {address}
         <CertificateQuestion origin={direct.origin} shown={!!(connectError || session.error)} connectionFailed={!!connectError} onTrusted={() => { setConnectError(''); session.clearError(); void connect(); }} />
         {/* A sign-in that ended reopens with the address filled in: Continue is the one press. */}

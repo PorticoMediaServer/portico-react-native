@@ -102,9 +102,12 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
     const current = owner.current;
     if (!credentials || !current) throw new Error('Account services are unavailable.');
     const binding = current.continuation.binding;
-    await credentials.authenticate(signal => work(signal));
-    // The details were changed while this was under way: the old ones don't sign in.
-    if (mine !== runs.current) { void credentials.logout().catch(() => {}); return; }
+    // Abandoned before it got here: it starts nothing (a newer sign-in may already have finished, NS-05).
+    if (mine !== runs.current) return;
+    const signed = await credentials.authenticate(signal => work(signal));
+    // The details were changed (or the person left) while this was under way: the old ones don't sign
+    // in. Only the session this run made is ended, never one a newer sign-in made.
+    if (mine !== runs.current) { void credentials.logoutIfCurrent({accountId: signed.account.id, familyId: signed.familyId}).catch(() => {}); return; }
     await current.update(binding, {});
     setPassword('');
     setCode('');
@@ -120,6 +123,8 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
     runs.current++;
     setBusy(false);
   };
+  // Leaving for another screen abandons the run the same way (NS-04).
+  const away = <A extends unknown[]>(go?: (...args: A) => void) => (go ? (...args: A) => { runs.current++; setBusy(false); go(...args); } : undefined);
   async function run(operation: (current: NativeAccountOwner, mine: number) => Promise<void>) {
     if (busy) return;
     const mine = ++runs.current;
@@ -166,6 +171,7 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
       // would refuse the field).
       const completion = !nativeApple && options?.nativeCompletion === 'code' ? 'code' as const : undefined;
       const started = await current.api.start(id, {mode: 'login', requestId: await ids.current.for('provider', {id, nativeApple: !!nativeApple}), nativeApple: !!nativeApple, ...(completion ? {completion} : {})});
+      if (mine !== runs.current) return;
       await current.update(current.continuation.binding, {transactionId: started.transactionId});
       let transaction: IdentityTransaction | null;
       if (nativeApple) {
@@ -201,7 +207,7 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
   const providers = options?.providers.filter(p => p.enabled && (!isTV || (p.id === 'apple' && p.native && p.nativeClientIds.includes(bridgeNow.bundleId) && bridgeNow.canSignInApple))) ?? [];
   const hiddenProviders = isTV && (options?.providers.filter(p => p.enabled).length ?? 0) > providers.length;
   return (
-    <AuthFrame title={mfa ? i18n.t('auth.enterVerificationCode') : tx?.needsUsername ? i18n.t('auth.chooseUsername') : landing ? (saved ? i18n.t('auth.welcomeBack') : i18n.t('auth.welcomeHome')) : i18n.t('auth.signInWithAccountTitle')} lead={landing && !mfa && !tx?.needsUsername && !saved ? i18n.t('auth.accountLead') : undefined} compact={landing} onBack={mfa || tx?.needsUsername ? undefined : onBack} error={error || (landing && !unreachable ? session.error : '')} onDismissError={() => { setError(''); session.clearError(); }}>
+    <AuthFrame title={mfa ? i18n.t('auth.enterVerificationCode') : tx?.needsUsername ? i18n.t('auth.chooseUsername') : landing ? (saved ? i18n.t('auth.welcomeBack') : i18n.t('auth.welcomeHome')) : i18n.t('auth.signInWithAccountTitle')} lead={landing && !mfa && !tx?.needsUsername && !saved ? i18n.t('auth.accountLead') : undefined} compact={landing} onBack={mfa || tx?.needsUsername ? undefined : away(onBack)} error={error || (landing && !unreachable ? session.error : '')} onDismissError={() => { setError(''); session.clearError(); }}>
       {mfa ? (
         <>
           <Field label={i18n.t('auth.verificationCode')} placeholder="123456" value={code} onChangeText={v => { edited(); setCode(v); }} keyboardType="number-pad" textContentType="oneTimeCode" autoFocus onSubmitEditing={submit} />
@@ -225,7 +231,7 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
                   {unreachable ? <Text variant="caption" tone="tertiary">{i18n.t('auth.savedUnreachable')}</Text> : null}
                   <Button variant="link" size="sm" label={i18n.t('auth.useDifferentAccount')} onPress={session.forgetSaved} style={{alignSelf: 'flex-start', marginLeft: -space.sm}} />
                 </View>
-                <Button variant="primary" label={i18n.t('action.continue')} loading={session.busy} onPress={() => (onSavedServer ? onSavedServer() : void session.resumeSaved())} />
+                <Button variant="primary" label={i18n.t('action.continue')} loading={session.busy} onPress={() => (onSavedServer ? away(onSavedServer)?.() : void session.resumeSaved())} />
               </View>
             </Surface>
           ) : null}
@@ -236,7 +242,7 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
                   <Text variant="bodyStrong" lines={1}>{i18n.t('auth.offlineDownloadsTitle')}</Text>
                   <Text variant="caption" tone="tertiary">{i18n.t('auth.offlineDownloadsBody')}</Text>
                 </View>
-                <Button variant="secondary" icon="download" label={i18n.t('feature.downloads')} onPress={onDownloads} />
+                <Button variant="secondary" icon="download" label={i18n.t('feature.downloads')} onPress={away(onDownloads)} />
               </View>
             </Surface>
           ) : null}
@@ -263,15 +269,15 @@ export function HostedSignIn({onBack, onSignedIn, onUseCode, onDirect, onCreate,
           {landing ? (
             <View style={{alignItems: 'center'}}>
               <View style={{flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap'}}>
-                {onForgot && options?.recovery !== false && !collapsed ? <Button variant="link" size="sm" label={i18n.t('auth.forgotPassword')} onPress={onForgot} /> : null}
+                {onForgot && options?.recovery !== false && !collapsed ? <Button variant="link" size="sm" label={i18n.t('auth.forgotPassword')} onPress={away(onForgot)} /> : null}
                 {onForgot && onCreate && options?.recovery !== false && options?.registration !== false && !collapsed ? <Text variant="caption" tone="tertiary">·</Text> : null}
-                {onCreate && options?.registration !== false ? <Button variant="link" size="sm" label={i18n.t('auth.createAccount')} onPress={onCreate} /> : null}
+                {onCreate && options?.registration !== false ? <Button variant="link" size="sm" label={i18n.t('auth.createAccount')} onPress={away(onCreate)} /> : null}
               </View>
-              <Button variant="link" size="sm" label={i18n.t('auth.signInDirectly')} onPress={onDirect} />
+              <Button variant="link" size="sm" label={i18n.t('auth.signInDirectly')} onPress={away(onDirect)} />
             </View>
           ) : null}
           {hiddenProviders ? <Text variant="caption" tone="tertiary" align="center">{i18n.t('auth.tvGoogleHint')}</Text> : null}
-          {onUseCode || (isTV && onBack) ? <View style={{alignItems: 'center'}}><Button variant="link" label={i18n.t('auth.useCodeFromAnotherDevice')} onPress={onUseCode ?? onBack} /></View> : null}
+          {onUseCode || (isTV && onBack) ? <View style={{alignItems: 'center'}}><Button variant="link" label={i18n.t('auth.useCodeFromAnotherDevice')} onPress={away(onUseCode ?? onBack)} /></View> : null}
           {landing || isTV ? <Legal /> : null}
         </>
       )}

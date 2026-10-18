@@ -403,7 +403,7 @@ export function HeaderUtilities({backed = false}: {/** IOS-HOME-01: content has 
           <Rect x={0} y={0} width="100%" height={barHeight + HEADER_SCRIM_FADE} fill="url(#headerScrim)" />
         </Svg>
       ) : null}
-      <View style={{flex: 1}}><Wordmark height={22} /></View>
+      <View style={{flex: 1}}><Wordmark height={28} /></View>
       <Button variant="ghost" round icon="search" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('web.search.title')} onPress={() => navigation.push('Search')} />
       <NotificationsButton />
       <Button variant="ghost" round icon="account" iconStrokeWidth={HEADER_ICON_STROKE} accessibilityLabel={i18n.t('lib.accountAndSettings')} onPress={() => navigation.push('Settings')} />

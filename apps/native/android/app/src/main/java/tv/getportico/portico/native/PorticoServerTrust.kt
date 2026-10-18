@@ -1,6 +1,7 @@
 package tv.getportico.portico.native
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Base64
 import com.facebook.react.modules.network.OkHttpClientProvider
 import java.net.Socket
@@ -45,6 +46,8 @@ internal object PorticoServerTrust {
   private const val RECORD = "certificates-v1"
   private const val MAX_PINS = 64
   private const val MAX_REFUSED = 32
+  /** The Portico Account service when the build names none (as the JavaScript default). */
+  private const val PRODUCTION_ACCOUNT = "https://web.getportico.tv"
   private val FINGERPRINT = Regex("^[A-Za-z0-9_-]{43}$")
   private val SERVER_ID = Regex("^srv_[A-Za-z0-9_-]{43}$")
 
@@ -60,9 +63,24 @@ internal object PorticoServerTrust {
   }
   private val systemNames: HostnameVerifier = HttpsURLConnection.getDefaultHostnameVerifier()
 
+  /**
+   * `host:port` of the Portico Account service (the build's PorticoHostedURL, else production). It is
+   * reached over publicly trusted TLS only: no owner's certificate is ever pinned, remembered or
+   * accepted there (NS-02), whatever the app asks.
+   */
+  @Volatile private var accountKey: String? = key(PRODUCTION_ACCOUNT)
+
+  private fun accountOrigin(context: Context): String? = try {
+    context.packageManager.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+        .metaData?.getString("PorticoHostedURL")?.takeIf { it.isNotEmpty() }
+  } catch (_: Exception) {
+    null
+  }
+
   /** At application start: load the pins and make every client in the process use them. */
   fun install(context: Context) {
     store = PorticoRecordStore.get(context.applicationContext)
+    accountKey = key(accountOrigin(context) ?: PRODUCTION_ACCOUNT)
     HttpsURLConnection.setDefaultSSLSocketFactory(socketFactory)
     HttpsURLConnection.setDefaultHostnameVerifier(hostnames)
     // React Native's own client: images, and any request the app makes through `fetch`.
@@ -105,12 +123,13 @@ internal object PorticoServerTrust {
 
   fun pinned(origin: String?): Pin? {
     load()
-    return key(origin)?.let { pins[it] }
+    return key(origin)?.takeIf { it != accountKey }?.let { pins[it] }
   }
 
   /** Pins a certificate at an origin, replacing the one pinned there before. */
   fun pin(origin: String?, fingerprint: String?, serverId: String?): Boolean {
     val key = key(origin) ?: return false
+    if (key == accountKey) return false
     if (fingerprint == null || !FINGERPRINT.matches(fingerprint) || serverId == null || (serverId.isNotEmpty() && !SERVER_ID.matches(serverId))) return false
     load()
     synchronized(this) {
@@ -137,7 +156,7 @@ internal object PorticoServerTrust {
   fun refused(origin: String?): String? = key(origin)?.let { refused[it] }
 
   private fun remember(key: String?, fingerprint: String) {
-    if (key == null) return
+    if (key == null || key == accountKey) return
     if (refused.size >= MAX_REFUSED && !refused.containsKey(key)) refused.clear()
     refused[key] = fingerprint
   }
@@ -146,7 +165,7 @@ internal object PorticoServerTrust {
       Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(certificate.encoded), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
   private fun pinnedAt(key: String?, certificate: X509Certificate?): Boolean {
-    if (key == null || certificate == null) return false
+    if (key == null || certificate == null || key == accountKey) return false
     load()
     return pins[key]?.fingerprint == fingerprint(certificate)
   }
