@@ -16,7 +16,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {mediaFamilyIcon} from '../../../../packages/design/src/index';
 import {Button, Dropdown, FocusGroup, FocusScopeContext, ListRow, Notice, Page, PageHeader, Skeleton, StateView, Tabs, WindowedGrid, cardFocusKey, focusReturn, useFocusResolver, useTheme, type DropdownAnchor, type FocusResolver, type IconName, type WindowedGridHandle} from '../ui';
-import {windowResolver} from '../ui/focus-lists';
+import {windowLanding, windowResolver} from '../ui/focus-lists';
 import {LoadingShelves, RootHeaderActions, SectionView, useSectionCards} from './Home';
 import {BrowsePreviewContext, BrowseStage, LibraryStrip, useBrowsePreview, useStageLayout, useStageTop, useStripHeight} from './BrowseStage';
 import {GenreCard, LibraryPlaylists} from './LibraryTabs';
@@ -382,7 +382,9 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   const player = usePlayerActions();
   const grid = useRef<WindowedGridHandle>(null);
   const [letter, setLetter] = useState<string>();
-  useEffect(() => setLetter(undefined), [snapshot.generation]);
+  // TV: the title a letter jumped to, where Left from the letters goes (once).
+  const landing = useRef<number | undefined>(undefined);
+  useEffect(() => { setLetter(undefined); landing.current = undefined; }, [snapshot.generation]);
   const anchors = useMemo(() => Object.entries(snapshot.positionIndex ?? {}).map(([key, index]) => ({key, index})).sort((a, b) => a.index - b.index), [snapshot.positionIndex]);
   const first = list?.slotAt(0);
   const firstEntry = first?.kind === 'item' ? first.item : undefined;
@@ -406,8 +408,6 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   ), [artwork, open, libraryId, playing, playFrom]);
   const renderGroup = useCallback((entry: ContentEntry, w?: number) => <GenreCard libraryId={libraryId} entry={entry} width={w} onPress={() => onOpenGroup?.(entry)} />, [libraryId, onOpenGroup]);
   const aspect = tracks ? 64 / Math.max(1, window.width) : groups ? 1 : shape === 'landscape' ? 9 / 16 : shape === 'square' || shape === 'circle' ? 1 : 1.5;
-  // TV: the title a letter jumped to, where Left from the letters goes (once).
-  const landing = useRef<number | undefined>(undefined);
   const jump = (key: string) => {
     const index = list?.indexOfLetter(key) ?? anchors.find(a => a.key === key)?.index;
     if (index === undefined) return;
@@ -444,13 +444,15 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
   const tvRail = useTvRail();
   const scope = React.useContext(FocusScopeContext);
   // Left from the letters after a jump: the title jumped to (focus would otherwise go back to the
-  // card last used, scrolled away by the jump). Without a jump the grid's own memory decides.
+  // card last used, scrolled away by the jump), once its page has arrived and its card is drawn;
+  // a key, the screen leaving or another viewer ends the wait. Without a jump the grid's own memory
+  // decides. Asked a frame later, after whatever the same press did.
   const leaveLetters = () => {
     const index = landing.current;
     landing.current = undefined;
-    const slot = index === undefined ? undefined : list?.slotAt(index);
-    const group = groupRef.current;
-    if (slot?.kind === 'item' && group) requestAnimationFrame(() => focusReturn.focusNow(scope, cardFocusKey(group, slot.item.id)));
+    if (index === undefined) return;
+    const locate = windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at)});
+    requestAnimationFrame(() => focusReturn.follow(scope, locate));
   };
   const top = (
     <>
@@ -482,7 +484,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
         <View style={{flex: 1}}>
           <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}}>{body}</FocusGroup>
           {letters ? (
-            <View style={{position: 'absolute', top: 0, bottom: 0, right: space.page}}>
+            <View style={{position: 'absolute', top: 0, bottom: 0, right: space.page, width: tvRail.width}}>
               <LetterRail index={anchors} current={letter} sortField={sortField} onJump={jump} onLeave={leaveLetters} />
             </View>
           ) : null}

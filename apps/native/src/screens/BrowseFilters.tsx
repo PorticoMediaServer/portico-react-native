@@ -337,8 +337,10 @@ export function LetterRail({index, current, onJump, onLeave, sortField}: {index:
   const label = (key: string) => formatBrowseAnchor(key, sortField ?? 'title', i18n.t('library.anchorNoValue'));
   const size = metrics.controlSmall;
   return (
-    <FocusGroup style={{width: size}}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.xs}}>
+    // A column as tall as the grid beside it (the guide stretched to it, the list filling the
+    // guide), so the keys that don't fit scroll with focus rather than spilling past the screen.
+    <FocusGroup style={{width: size, flex: 1, alignSelf: 'stretch'}}>
+      <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.xs}}>
         {index.map(a => (
           <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => onJump(a.key)}
             onFocus={() => { inside.current = true; }} onBlur={() => { inside.current = false; left.current = Date.now(); }} style={{width: size, height: size}}>

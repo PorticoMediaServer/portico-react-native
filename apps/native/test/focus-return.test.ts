@@ -410,20 +410,36 @@ test('a control that belongs to a row goes back to the row when it is no longer 
   assert.equal(episode.asked, 1);
 });
 
-test('a list\'s own move (a TV letter jumped to) asks the named control now, and only on a showing screen', () => {
+test('a list\'s own move (a TV letter jumped to) belongs to its viewer and its screen, and a key or another move ends it', () => {
   const c = clock();
   const registry = createFocusReturn(c.timers);
-  registry.setOwner('viewer');
+  registry.setOwner('viewer-a');
   const key = cardFocusKey('cards', 'm1');
-  let still: (() => boolean) | undefined;
-  const off = registry.register('library', key, {focus: s => { still = s; }});
-  assert.equal(registry.focusNow('library', cardFocusKey('cards', 'gone')), false, 'not mounted: nothing to ask');
-  assert.equal(registry.focusNow('library', key), true);
-  assert.equal(still?.(), true);
-  // By the time the request reaches the focus engine the card has left: it does nothing.
-  off();
-  assert.equal(still?.(), false);
-  registry.register('library', key, {focus: () => {}});
-  registry.setScopeActive('library', false);
-  assert.equal(registry.focusNow('library', key), false, 'a covered screen is never given focus');
+  const queued: (() => boolean)[] = [];
+  registry.register('library', key, {focus: still => { queued.push(still); }});
+  const ends: [string, () => void][] = [
+    ['another viewer', () => registry.setOwner('viewer-b')],
+    ['the screen covered', () => registry.setScopeActive('library', false)],
+    ['a key', () => registry.intent()],
+    ['another move', () => registry.follow('library', () => 'loading')],
+    ['the screen gone', () => registry.disposeScope('library')],
+  ];
+  for (const [why, end] of ends) {
+    registry.setOwner('viewer-a');
+    registry.setScopeActive('library', true);
+    if (!registry.state().owner) registry.setOwner('viewer-a');
+    registry.register('library', key, {focus: still => { queued.push(still); }});
+    queued.length = 0;
+    registry.follow('library', () => key);
+    assert.equal(queued.length, 1, `${why}: asked at once`);
+    assert.equal(queued[0]!(), true, `${why}: still wanted before it ends`);
+    end();
+    assert.equal(queued[0]!(), false, `${why}: the queued request no longer lands`);
+    c.drain();
+  }
+  // Without a viewer, or on a screen that is not showing, nothing is followed.
+  registry.setOwner('');
+  registry.follow('library', () => key);
+  assert.equal(registry.state().returning, undefined);
 });
+

@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cardFocusKey, createFocusReturn, type FocusResolver} from '../src/ui/focus-return.ts';
-import {arrayResolver, locateInWindow, rowsResolver, windowResolver} from '../src/ui/focus-lists.ts';
+import {arrayResolver, locateInWindow, rowsResolver, windowLanding, windowResolver} from '../src/ui/focus-lists.ts';
 import {createWindowedCollection, type FetchPage} from '../../../packages/client-core/src/collections/index.ts';
 
 function clock() {
@@ -371,4 +371,53 @@ test('the same song twice, one occurrence hidden: the hidden one hands over to i
   registry.restore();
   c.drain();
   assert.equal(p.cards.get(cardFocusKey('list', 'o1'))?.asked, 1);
+});
+
+test('a TV letter jumped far, Left pressed before its page arrived: the page is read, its card drawn, then focused; a key on the way ends it', async () => {
+  for (const interrupt of [false, true]) {
+    const c = clock();
+    const registry = createFocusReturn(c.timers);
+    registry.setOwner('viewer');
+    let release!: () => void;
+    const slow = new Promise<void>(r => { release = r; });
+    const ids = range(2000);
+    const calls: number[] = [];
+    // A slow server: the jumped-to page answers only when released.
+    const fetchPage: FetchPage<Entry> = async (start, count) => { calls.push(start); if (start >= 1500) await slow; return {items: ids.slice(start, start + count).map(id => ({id})), total: ids.length}; };
+    const list = createWindowedCollection<Entry>({fetchPage, pageSize: 60, maxResidentPages: 5, keyOf: e => e.id});
+    list.ensureRange(0, 17);
+    await settle();
+    const cards = new Map<string, ReturnType<typeof card>>();
+    let first = 0;
+    const layout = () => { for (let i = first; i < first + 18; i++) { const slot = list.slotAt(i); if (slot.kind === 'item' && !cards.has(slot.item.id)) cards.set(slot.item.id, card(registry, 'library', cardFocusKey('cards', slot.item.id), {column: i})); } };
+    list.subscribe(layout);
+    const scrollToIndex = (index: number) => { first = index; list.ensureRange(index, index + 17); layout(); };
+    // Select on "T": the grid jumps to 1530; Left at once.
+    scrollToIndex(1530);
+    registry.follow('library', windowLanding<Entry>({list: () => list, index: 1530, group: () => 'cards', keyOf: e => e.id, ensure: scrollToIndex}));
+    assert.equal(list.slotAt(1530).kind, 'placeholder');
+    c.next(); c.next();
+    assert.ok(registry.state().returning, 'waiting for its page, not given up and not forgotten');
+    if (interrupt) registry.intent();
+    release();
+    await settle();
+    c.drain();
+    assert.ok(calls.some(start => start <= 1530 && 1530 < start + 60), 'its page was asked for');
+    assert.equal(cards.get('t1530')?.asked ?? 0, interrupt ? 0 : 1, interrupt ? 'a key on the way ends it' : 'the title jumped to');
+    assert.equal(registry.state().returning, undefined);
+    list.dispose();
+  }
+});
+
+test('a TV letter landing whose card is loaded but not drawn yet is asked again until it is', () => {
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  const list = {slotAt: (i: number) => ({kind: 'item' as const, item: {id: `t${i}`}}), ensureRange: () => {}};
+  registry.follow('library', windowLanding<Entry>({list: () => list, index: 7, group: () => 'cards', keyOf: e => e.id, ensure: () => {}}));
+  c.next(); c.next();
+  const drawn = card(registry, 'library', cardFocusKey('cards', 't7'), {column: 7});
+  c.drain();
+  assert.equal(drawn.asked, 1);
+  assert.equal(registry.state().returning, undefined);
 });

@@ -90,6 +90,9 @@ test('TV letters: ten-foot keys down the grid\'s right; Select jumps, Left from 
   const index = ['A', 'B', 'C', 'D', 'E'].map((key, i) => ({key, index: i * 10}));
   const keys = all(h.render(() => m.LetterRail({index, onJump: (k: string) => jumped.push(k), onLeave: () => left++}))).filter(n => n.type === 'Focusable');
   assert.equal(keys.length, 5);
+  const tree = all(h.render(() => m.LetterRail({index, onJump: (k: string) => jumped.push(k), onLeave: () => left++})));
+  const guide = tree.find(n => n.type === 'FocusGroup')!, scroller = tree.find(n => n.type === 'ScrollView')!;
+  assert.deepEqual([guide.props.style.flex, guide.props.style.alignSelf, scroller.props.style.flex], [1, 'stretch', 1], 'a column as tall as the grid, so keys that do not fit scroll');
   assert.deepEqual([keys[0]!.props.style.width, keys[0]!.props.style.height], [64, 64], 'the ten-foot minimum, not phone-sized letters');
   keys[2]!.props.onPress();
   assert.deepEqual(jumped, ['C']);

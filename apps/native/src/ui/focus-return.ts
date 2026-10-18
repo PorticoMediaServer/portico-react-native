@@ -152,7 +152,7 @@ const INTENT_KEYS = new Set(['up', 'down', 'left', 'right', 'select', 'longSelec
 type Registered = {target: FocusTarget; place: () => FocusPlace};
 type Named = {scope: string; key: string};
 type Invoker = Named & {place: FocusPlace};
-type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown};
+type Pending = {origin: FocusOrigin; key: string; place: FocusPlace; asks: number; looks: number; fallbacks: number; timer: unknown; locate?: () => string | 'loading' | 'gone'};
 
 export type FocusReturn = ReturnType<typeof createFocusReturn>;
 
@@ -195,6 +195,21 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     if (!p) return;
     if (p.origin.owner !== owner || !active(p.origin.scope)) { stop(); return; }
     const scope = p.origin.scope;
+    if (p.locate) {
+      // A list's own move (`follow`): the list says which control is there now, or that it is still reading.
+      const where = p.locate();
+      if (where === 'gone') { stop(); return; }
+      if (where === 'loading') p.looks++;
+      else {
+        p.key = where;
+        p.asks++;
+        const target = scopes.get(scope)?.get(where);
+        target?.target.focus(() => pending === p && p.key === where && p.origin.owner === owner && active(scope) && scopes.get(scope)?.get(where) === target);
+      }
+      if (p.asks >= attempts || p.looks >= loadingAttempts) { stop(); return; }
+      p.timer = timers.schedule(step, interval);
+      return;
+    }
     // The lists bring the control (and the row holding it) into view first, even when it is
     // mounted, then the control is asked.
     const lookups = [...(resolvers.get(scope) ?? [])].map(resolver => resolver.resolve(p.key, p.place));
@@ -344,15 +359,18 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     /** Stop a return under way. */
     cancel: stop,
     /**
-     * A list's own move (a TV letter jumped to): ask the named control on a showing screen to take
-     * focus now. False when it is not mounted. The request is dropped if the control has left or
-     * been renamed, or the screen is no longer showing, by the time it reaches the focus engine.
+     * A list's own move (a TV letter jumped to): focus goes to the control `locate` names, on this
+     * showing screen, for this viewer. `locate` is asked on every look: the control's name once the
+     * list holds it there (and it is asked for focus until it is mounted and takes it), `loading`
+     * while the list is still reading that part, `gone` to stop. It is a return like any other: the
+     * same bounded looks, and ended by a key, the screen leaving, another viewer, the screen going,
+     * or another return or move.
      */
-    focusNow(scope: string, key: string): boolean {
-      const found = scopes.get(scope)?.get(key);
-      if (!found || !active(scope)) return false;
-      found.target.focus(() => active(scope) && scopes.get(scope)?.get(key) === found);
-      return true;
+    follow(scope: string, locate: () => string | 'loading' | 'gone') {
+      stop();
+      if (!owner || !active(scope)) return;
+      pending = {origin: {owner, scope, key: '', place: {}}, key: '', place: {}, asks: 0, looks: 0, fallbacks: 0, timer: undefined, locate};
+      step();
     },
     /** For tests and diagnostics. */
     state() {
