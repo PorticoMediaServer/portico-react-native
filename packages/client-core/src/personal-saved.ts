@@ -154,6 +154,8 @@ export function savedViewBrowse(r:Pick<PersonalResource,'kind'|'status'|'definit
  const d=r.kind==='view'&&r.status==='ready'?r.definition:undefined;
  return d?{libraryId:d.libraryId,pivot:d.pivot,...(d.query?{query:d.query}:{}),sort:d.sort}:undefined;
 }
+/** Answers that say a change was refused, and so not made. */
+const REFUSED=new Set(['invalid_request','invalid_query','invalid_saved','not_permitted','not_found','unauthorized','forbidden','scope_changed','name_conflict','resource_conflict','revision_mismatch','personal_state_conflict','stale_continuation','operation_expired']);
 export class PersonalSavedService{
  private state:PersonalSavedSnapshot;private listeners=new Set<()=>void>();private generation=0;private readTicket=0;private candidateTicket=0;private disposed=false;private controllers=new Set<AbortController>();private seen=0;
  private command?:{intent:PersonalSavedIntent;path:string;method:string;body:Record<string,unknown>;fence:string;rebased?:boolean;resourceId?:string;listed?:boolean};
@@ -306,6 +308,17 @@ export class PersonalSavedService{
    if(error.conflict&&c.intent.action==='reorder'&&!c.rebased&&this.alive(g)&&this.command===c){this.command=undefined;const again=await this.mutate(c.intent,true);return again;}
    return false;}
  }
+ /**
+  * A change sent whose outcome is not known: no answer came (a timeout, the network), or one that
+  * does not say it was refused. It may have been made. Until it is sent again (`retry`, the same
+  * operation, so it is made at most once) or set aside (`dismiss`), a client offers it as it was
+  * sent, not a new one in its place. A change the server refused is not this: it was not made.
+  */
+ unconfirmed():Readonly<{intent:PersonalSavedIntent;resourceId?:string}>|undefined{
+  const c=this.command,e=this.state.mutationError;
+  if(!c||this.state.pending||!this.state.retryPending||!e||e.conflict||REFUSED.has(e.code))return undefined;
+  return freeze({intent:c.intent,...(c.resourceId?{resourceId:c.resourceId}:{})});
+ }
  /** Network retry is byte-identical. Rebase is a separate, explicit reviewed intent. */
  retry=()=>this.state.pending?Promise.resolve(false):this.send();
  async rebase():Promise<boolean>{const c=this.command;if(!c||this.state.pending||!this.state.mutationError?.conflict)return false;this.command=undefined;
@@ -314,4 +327,25 @@ export class PersonalSavedService{
   return this.mutate(c.intent);}
  dismiss():void{if(this.state.pending)return;this.command=undefined;this.publish({retryPending:false,mutationError:null});}
  dispose():void{this.disposed=true;this.generation++;for(const c of this.controllers)c.abort();this.controllers.clear();this.command=undefined;this.listeners.clear();}
+}
+
+/** The change could not be made now: one sent before is still unconfirmed and differs from it. */
+export const UNCONFIRMED='unconfirmed';
+/**
+ * One change to a library's saved views, as every client makes it: sent once, or, while an earlier
+ * one is unconfirmed (`unconfirmed`), that same one sent again (the same operation) when this is
+ * the same change, and refused with UNCONFIRMED when it differs (the client offers the earlier one
+ * as it was, or sets it aside with `dismiss`). A change the server refused before is set aside
+ * first: it was not made. Resolves once made; throws the server's answer otherwise.
+ */
+export async function savedChange(service:PersonalSavedService,intent:PersonalSavedIntent,listed?:PersonalResource):Promise<void>{
+ const open=service.unconfirmed();
+ const fail=()=>{const e=service.getSnapshot().mutationError;return Object.assign(new Error(e?.message??'The change was not made.'),{code:e?.code??'request_failed'});};
+ if(open){
+  if(JSON.stringify(open.intent)!==JSON.stringify(intent)||(listed&&open.resourceId!==listed.id))throw Object.assign(new Error('An earlier change is unconfirmed.'),{code:UNCONFIRMED});
+  if(!(await service.retry()))throw fail();
+  return;
+ }
+ service.dismiss();
+ if(!(await service.mutate(intent,false,listed)))throw fail();
 }
