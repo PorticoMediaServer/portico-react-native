@@ -392,6 +392,11 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
 const NO_SECTIONS: readonly ContentSection[] = [];
 /** A focus guide with no destination (one that named one passes this to stop: `FocusGroup`). */
 const NO_DESTINATIONS: readonly unknown[] = [];
+/** A grid's list as one reading: the collection itself and its generation (`EngineResults`). */
+type Lifetime = Readonly<{list: unknown; generation: number}>;
+/** The grid guide's destination and the list it was found in. */
+type Toward = Readonly<{nodes: readonly unknown[]; life?: Lifetime}>;
+const NOWHERE: Toward = {nodes: NO_DESTINATIONS};
 const sectionKey = (section: ContentSection) => section.id;
 /** Discover's rows for focus coming back after playback: a row is its section, numbered from 0. */
 const SECTION_FOCUS_ROWS = {group: (section: ContentSection) => section.id, first: (section: ContentSection) => section.entries[0]?.id, base: 0} as const;
@@ -423,9 +428,13 @@ function EngineResults({window: {list, snapshot}, renderHeader, headerActions = 
   const player = usePlayerActions();
   const grid = useRef<WindowedGridHandle>(null);
   const [letter, setLetter] = useState<string>();
+  // TV: a letter's landing belongs to the list it was pressed in: this very collection (another
+  // pivot or query brings another, which may be at the same generation) as it was read then.
+  const lifeRef = useRef<Lifetime>({list, generation: snapshot.generation});
+  if (lifeRef.current.list !== list || lifeRef.current.generation !== snapshot.generation) lifeRef.current = {list, generation: snapshot.generation};
+  const life = lifeRef.current;
   // TV: the title a letter jumped to, where Left from the letters goes (once).
-  const landing = useRef<number | undefined>(undefined);
-  useEffect(() => { setLetter(undefined); landing.current = undefined; }, [snapshot.generation]);
+  const landing = useRef<{index: number; life: Lifetime} | undefined>(undefined);
   const anchors = useMemo(() => Object.entries(snapshot.positionIndex ?? {}).map(([key, index]) => ({key, index})).sort((a, b) => a.index - b.index), [snapshot.positionIndex]);
   const first = list?.slotAt(0);
   const firstEntry = first?.kind === 'item' ? first.item : undefined;
@@ -453,7 +462,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, headerActions = 
     const index = list?.indexOfLetter(key) ?? anchors.find(a => a.key === key)?.index;
     if (index === undefined) return;
     setLetter(key);
-    landing.current = index;
+    landing.current = {index, life};
     grid.current?.scrollToIndex(index);
     if (isTV) watchLanding(index);
   };
@@ -489,35 +498,38 @@ function EngineResults({window: {list, snapshot}, renderHeader, headerActions = 
   // back on the card last used, scrolled away by the jump), once its page has arrived and its card
   // is drawn. It belongs to this viewer and screen from the press on: another key, the screen
   // leaving, another viewer or a new list ends it. Without a jump the grid's own memory decides.
-  const generationRef = useRef(snapshot.generation);
-  generationRef.current = snapshot.generation;
   // The grid's own guide hands Left from the letters straight to that title once its card is
   // drawn (`destinations`), so Android's focus engine never goes back to the card last used first.
-  const [toward, setToward] = useState<readonly unknown[]>(NO_DESTINATIONS);
+  // Only while the list it was found in is the one drawn: another list's grid is told none.
+  const [toward, setToward] = useState<Toward>(NOWHERE);
   const towardWatch = useRef<() => void>(undefined);
   const watchLanding = (index: number) => {
     towardWatch.current?.();
-    setToward(NO_DESTINATIONS);
-    const generation = generationRef.current;
+    setToward(NOWHERE);
+    const from = life;
     towardWatch.current = landingDestination({
-      locate: windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: () => {}, current: () => generationRef.current === generation}),
+      locate: windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: () => {}, current: () => lifeRef.current === from}),
       nodeOf: key => focusReturn.nodeOf(scope, key),
-      found: node => setToward([node]),
+      found: node => { if (lifeRef.current === from) setToward({nodes: [node], life: from}); },
     });
   };
   useEffect(() => () => towardWatch.current?.(), []);
-  useEffect(() => { towardWatch.current?.(); towardWatch.current = undefined; setToward(NO_DESTINATIONS); }, [snapshot.generation]);
+  // Another list, or a new reading of this one: the letter, its landing and the guide's title go.
+  useEffect(() => { towardWatch.current?.(); towardWatch.current = undefined; setToward(NOWHERE); setLetter(undefined); landing.current = undefined; }, [life]);
+  const destinations = toward.life === life ? toward.nodes : NO_DESTINATIONS;
+  /** Whether Left from the letters went to the grid with this landing (false: there was none to go to). */
   const leaveLetters = () => {
-    const index = landing.current;
+    const was = landing.current;
     landing.current = undefined;
-    if (index === undefined) return;
-    const generation = generationRef.current;
+    if (!was || was.life !== lifeRef.current) return false;
+    const {index, life: from} = was;
     // Android has already moved focus for this Left by now (it reports the release); tvOS reports
     // the press first, so the guide keeps its destination a moment longer for the move to use it.
     towardWatch.current?.();
     towardWatch.current = undefined;
-    setTimeout(() => setToward(now => (landing.current === undefined ? NO_DESTINATIONS : now)), 300);
-    focusReturn.follow(scope, windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at), current: () => generationRef.current === generation}));
+    setTimeout(() => setToward(now => (landing.current === undefined ? NOWHERE : now)), 300);
+    focusReturn.follow(scope, windowLanding<ContentEntry>({list: () => windowRef.current, index, group: () => groupRef.current, keyOf: entry => entry.id, ensure: at => grid.current?.scrollToIndex(at), current: () => lifeRef.current === from}));
+    return true;
   };
   const top = (
     <>
@@ -550,7 +562,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, headerActions = 
         {renderStrip!()}
         <View style={{flex: 1}}>
           {reachable
-            ? <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}} destinations={toward}>{body}</FocusGroup>
+            ? <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}} destinations={destinations}>{body}</FocusGroup>
             // Nothing in the grid's place to focus (loading, empty, no action): not a focus region,
             // so Right from the rail and Down from the row above reach the strip and the toolbar.
             : <View style={{flex: 1}}>{body}</View>}

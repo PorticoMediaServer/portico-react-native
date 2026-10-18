@@ -169,3 +169,70 @@ test('TV letters: ten-foot keys down the grid\'s right; Select jumps, Left from 
   reports = 'press';
   assert.equal(all(h.render(() => m.LetterRail({index: index.slice(0, 3), onJump: () => {}}))).length, 0, 'too few letters: no rail');
 });
+
+test('Android TV letters: a Select reaching JS after the Left that followed it still lands that Left on the title', async () => {
+  const h = hooks();
+  const base = {...h.react, memo: (f: unknown) => f, createContext: (value: unknown) => ({value})};
+  let tvEvent: ((e: {eventType: string; eventKeyAction?: number}) => void) | undefined;
+  const m = await screenModule(new URL('../src/screens/BrowseFilters.tsx', import.meta.url), {
+    react: {...base, default: base}, 'react-native': loose({useTVEventHandler: (f: typeof tvEvent) => { tvEvent = f; }}),
+    '../../../../packages/client-core/src/browse': loose({formatBrowseAnchor: (key: string) => key}),
+    '../../../../packages/client-core/src/presentation/index': loose(),
+    '../app/browse': loose(), '../ui': loose({useTheme: () => ({...theme(), metrics: {controlSmall: 64, focusRing: 4, radius: {control: 8}}, colors: {}, type: {bodyStrong: {}}}), isFocusIntent, keyReports: () => reports, alpha: () => ''}),
+    '../app/errors': loose(), '../app/browse-count': loose(), '../app/i18n': loose({useI18n: () => ({t: (id: string) => id})}), './title/RowGuide': loose(),
+  });
+  // EngineResults' answer: Left goes to the title only once a letter has been pressed.
+  const log: string[] = [];
+  let landing: string | undefined;
+  const onJump = (k: string) => { landing = k; log.push(`jump ${k}`); };
+  const onLeave = () => { const to = landing; landing = undefined; log.push(`leave ${to ?? '-'}`); return to !== undefined; };
+  const keys = all(h.render(() => m.LetterRail({index: ['A', 'B', 'C', 'D', 'E'].map((key, i) => ({key, index: i * 10})), onJump, onLeave}))).filter(n => n.type === 'Focusable');
+  reports = 'release';
+  try {
+    // Select then Left at once (seen on the device): the press is a view event, the Left's release
+    // a device event that overtook it, while the key still had focus as far as JS knew.
+    keys[4]!.props.onFocus();
+    tvEvent!({eventType: 'left', eventKeyAction: 1});
+    keys[4]!.props.onPress();
+    keys[4]!.props.onBlur();
+    assert.deepEqual(log, ['leave -', 'jump E', 'leave E'], 'the late press takes the Left that overtook it');
+    // In the usual order the press comes first, and the Left after it is the landing's alone.
+    log.length = 0;
+    keys[3]!.props.onFocus();
+    keys[3]!.props.onPress();
+    keys[3]!.props.onBlur();
+    tvEvent!({eventType: 'left', eventKeyAction: 1});
+    assert.deepEqual(log, ['jump D', 'leave D']);
+    // Left with nothing jumped to, then another key, or back onto the keys: a later press is only a jump.
+    for (const between of [() => tvEvent!({eventType: 'right', eventKeyAction: 1}), () => keys[1]!.props.onFocus()]) {
+      log.length = 0;
+      keys[2]!.props.onFocus();
+      keys[2]!.props.onBlur();
+      tvEvent!({eventType: 'left', eventKeyAction: 1});
+      between();
+      keys[1]!.props.onPress();
+      assert.deepEqual(log, ['leave -', 'jump B']);
+      landing = undefined;
+    }
+    // Bounded: a press long after that Left is not its own.
+    log.length = 0;
+    const now = Date.now;
+    let clock = 1_000_000;
+    Date.now = () => clock;
+    try {
+      keys[2]!.props.onFocus();
+      keys[2]!.props.onBlur();
+      tvEvent!({eventType: 'left', eventKeyAction: 1});
+      clock += 5000;
+      keys[2]!.props.onPress();
+    } finally { Date.now = now; }
+    assert.deepEqual(log, ['leave -', 'jump C']);
+  } finally { reports = 'press'; }
+  // tvOS reports Left while focus is still on the key, before any move: nothing comes late.
+  log.length = 0;
+  landing = undefined;
+  keys[0]!.props.onFocus();
+  tvEvent!({eventType: 'left', eventKeyAction: 0});
+  keys[0]!.props.onPress();
+  assert.deepEqual(log, ['leave -', 'jump A']);
+});

@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
+import React, {createContext, useContext, useMemo, useRef, useSyncExternalStore} from 'react';
 import {FlatList, ScrollView, View, type ListRenderItem} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {browsePreview} from '../../../../packages/client-core/src/presentation/index';

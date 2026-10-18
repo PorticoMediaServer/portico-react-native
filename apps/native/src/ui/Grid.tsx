@@ -177,9 +177,11 @@ function WindowedGridInner<T>({list, total, itemWidth, aspect, renderItem, heade
     scrollToIndex: (index: number) => {
       const row = Math.floor(index / columns);
       list.ensureRange(row * columns, (row + 3) * columns - 1);
-      listRef.current?.scrollToOffset({offset: headerHeight + row * rowStride, animated: false});
+      // The row comes to rest with the focus room above it, as the first row has and as Android's
+      // own focus scrolling leaves it, so the card's ring is not cut by the grid's top edge.
+      listRef.current?.scrollToOffset({offset: Math.max(0, headerHeight + row * rowStride - focusRoom), animated: false});
     },
-  }), [columns, list, headerHeight, rowStride]);
+  }), [columns, list, headerHeight, rowStride, focusRoom]);
   React.useEffect(() => { listRef.current?.scrollToOffset({offset: 0, animated: false}); }, [generation]);
   React.useEffect(() => { list.ensureRange(0, columns * 4 - 1); }, [list, columns, generation]);
   // VirtualizedList keeps the first `onViewableItemsChanged` it is given, so the callback reads the

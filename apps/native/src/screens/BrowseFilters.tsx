@@ -331,13 +331,22 @@ export function AlphabetRail({index, current, onJump, sortField}: {index: readon
  * Left goes back into the grid: to the title jumped to, or else where focus was in it
  * (`onLeave`). Each key is a server anchor; nothing is filtered.
  */
-export function LetterRail({index, current, onJump, onLeave, sortField}: {index: readonly BrowsePositionAnchor[]; current?: string; onJump: (key: string) => void; /** Left from a key: back into the grid. */ onLeave?: () => void; sortField?: string}) {
+/** How late a letter's press may reach JS after the Left that followed it (`LetterRail`). */
+const LATE_PRESS_MS = 1000;
+
+export function LetterRail({index, current, onJump, onLeave, sortField}: {index: readonly BrowsePositionAnchor[]; current?: string; onJump: (key: string) => void; /** Left from a key: back into the grid; false when there was no landing to go to. */ onLeave?: () => boolean | void; sortField?: string}) {
   const {space, colors, metrics, type} = useTheme();
   const i18n = useI18n();
   /** The key with focus, if any (by its letter, so a blur arriving after the next key's focus changes nothing). */
   const focusedKey = useRef<string | null>(null);
   /** Focus has left the keys altogether (no other key took it) and no other key has been pressed since. */
   const leaving = useRef(false);
+  /**
+   * Android: when a Left left the keys with no landing to go to. A key's press (a view event) can
+   * reach JS after the Left that followed it (a device event, `KeyReports`) when the two come close
+   * together, so the press then takes that Left as its own. Any other key or a key's focus ends it.
+   */
+  const early = useRef<number | undefined>(undefined);
   const leave = useRef(onLeave);
   leave.current = onLeave;
   // Left from a key: back into the grid. tvOS reports the press while focus is still on the key.
@@ -348,11 +357,17 @@ export function LetterRail({index, current, onJump, onLeave, sortField}: {index:
     const reports = keyReports();
     if (!isFocusIntent(event, reports)) return;
     const inside = focusedKey.current !== null;
-    if (event?.eventType !== 'left') { if (!inside) leaving.current = false; return; }
+    if (event?.eventType !== 'left') { early.current = undefined; if (!inside) leaving.current = false; return; }
     if (!inside && !(reports === 'release' && leaving.current)) return;
     leaving.current = false;
-    leave.current?.();
+    early.current = leave.current?.() === false && reports === 'release' ? Date.now() : undefined;
   });
+  const press = (key: string) => {
+    onJump(key);
+    const left = early.current;
+    early.current = undefined;
+    if (left !== undefined && Date.now() - left < LATE_PRESS_MS) leave.current?.();
+  };
   if (index.length < 4) return null;
   const label = (key: string) => formatBrowseAnchor(key, sortField ?? 'title', i18n.t('library.anchorNoValue'));
   const size = metrics.controlSmall;
@@ -367,8 +382,8 @@ export function LetterRail({index, current, onJump, onLeave, sortField}: {index:
       {/* Room for a key's focus ring at both ends and both sides, and (Android) when focus scrolls a key to the edge. */}
       <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} fadingEdgeLength={space.md} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.md, paddingHorizontal: ring}}>
         {index.map(a => (
-          <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => onJump(a.key)}
-            onFocus={() => { focusedKey.current = a.key; leaving.current = false; }} onBlur={() => { if (focusedKey.current !== a.key) return; focusedKey.current = null; leaving.current = true; }} style={{width: size, height: size}}>
+          <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => press(a.key)}
+            onFocus={() => { focusedKey.current = a.key; leaving.current = false; early.current = undefined; }} onBlur={() => { if (focusedKey.current !== a.key) return; focusedKey.current = null; leaving.current = true; }} style={{width: size, height: size}}>
             {({focused}) => (
               <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: metrics.radius.control, backgroundColor: focused ? alpha(colors.white, 0.14) : 'transparent'}}>
                 <Text style={[type.bodyStrong, {color: current === a.key ? colors.accent : focused ? colors.text : colors.textSecondary}]}>{label(a.key)}</Text>

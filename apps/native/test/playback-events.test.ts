@@ -1,7 +1,7 @@
 /** APL-HOME-03 / TV-PLAYER-03: progress broadcasts, and focus going back when the player closes. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHookHost, act} from './hook-driver.ts';
+import {createHookHost} from './hook-driver.ts';
 import {Platform, pressRemote} from './react-native-stub.mjs';
 import {emitPlaybackChange, focusReturn, usePlayerFocusReturn, useRefreshOnPlayback} from '../src/app/playback-events.ts';
 
