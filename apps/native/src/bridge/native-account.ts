@@ -26,7 +26,10 @@ export function nativeAccountTransport(origin:string,binding:string,fetcher:type
   const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();const timer=setTimeout(abort,15000);
   try{const response=await fetcher(origin+path,{method,signal:controller.signal,headers:{'Content-Type':'application/json','X-Portico-Continuation':binding,...(token?{Authorization:'Bearer '+token}:{}),...(completion?{'X-Portico-Completion':completion}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
    const raw=await response.text();if(raw.length>262144)throw new Error('The account response is too large.');let value:unknown;try{value=raw?JSON.parse(raw):undefined;}catch{throw new Error('The account service returned unreadable data.');}
-   if(!response.ok){const failure=value&&typeof value==='object'?(value as {error?:unknown}).error:undefined,e=(failure&&typeof failure==='object'?failure:{}) as {code?:unknown;message?:unknown;retryable?:unknown};throw new ApiError(response.status,typeof e.code==='string'?e.code:'request_failed',typeof e.message==='string'?e.message:'The account request did not finish.',e.retryable===true||response.status>=500);}return value;
+   if(!response.ok){const failure=value&&typeof value==='object'?(value as {error?:unknown}).error:undefined,e=(failure&&typeof failure==='object'?failure:{}) as {code?:unknown;message?:unknown;retryable?:unknown};
+    // The shared transport's own fallback text, never shown: screens present this error by its code and status.
+    throw new ApiError(response.status,typeof e.code==='string'?e.code:'request_failed',typeof e.message==='string'?e.message:'The account request did not finish.',e.retryable===true||response.status>=500);} // lint-strings-allow
+   return value;
   }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
  };
 }
