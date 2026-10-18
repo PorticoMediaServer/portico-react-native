@@ -268,6 +268,27 @@ async function inTime<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> 
   }
 }
 
+/**
+ * NS-08: `work` stopped when either signal aborts: its request is cancelled, and it settles as
+ * cancelled at that moment even where a transport answers later (Hermes has no `AbortSignal.any`).
+ */
+function untilEither<T>(work: (signal: AbortSignal) => Promise<T>, own: AbortSignal, abandoned: AbortSignal): Promise<T> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  own.addEventListener('abort', stop, {once: true});
+  abandoned.addEventListener('abort', stop, {once: true});
+  if (own.aborted || abandoned.aborted) stop();
+  return new Promise<T>((resolve, reject) => {
+    const cancelled = () => reject(Object.assign(new Error('Sign-in was abandoned.'), {code: 'cancelled'}));
+    if (controller.signal.aborted) return cancelled();
+    controller.signal.addEventListener('abort', cancelled, {once: true});
+    work(controller.signal).then(resolve, reject);
+  }).finally(() => {
+    own.removeEventListener('abort', stop);
+    abandoned.removeEventListener('abort', stop);
+  });
+}
+
 /** The API before a server is chosen. Never a real destination: nothing may be requested from it. */
 export const PLACEHOLDER_ORIGIN = 'http://127.0.0.1:1';
 export const hasRealOrigin = (api: {baseUrl: string}) => !api.baseUrl.startsWith(PLACEHOLDER_ORIGIN);
@@ -402,6 +423,12 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // The account's server list is kept on the device and version-checked (Spec — Hosted at Scale), so
   // it stays available while signed in to a server: re-admission and Switch server use it.
   const {credentials, hosted, setHosted, servers, directoryStatus, directoryError, refreshServers, dropServer, checkServersNow, serversCheckedAt, attachedServer, setAttachedServer} = useHostedAccount(hostedUrl, 'hosted', !restoring);
+  // Credential exposure is Vega's containment (`apps/vega/src/bridge/credential-boundary.ts`): its
+  // SDK follows a redirect before the app sees it, so the runtime finds afterwards that a request
+  // carrying a credential was answered from another address, revokes what went there, and reports
+  // it here. Android and Apple have no such event by design: their native transports refuse every
+  // redirect before anything more is sent (`PorticoTransport.kt`, `PorticoPlayer.m`), Portico
+  // Account sign-in included (NS-03), so there is nothing to contain afterwards.
   useEffect(() => {
     const runtime = NativeModules.PorticoRuntime;
     if (typeof runtime?.onCredentialExposure !== 'function') return;
@@ -491,7 +518,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   );
 
   const commitSelectedViewer = useCallback(
-    async (url: string, session: LocalSession, result?: {server: HostedServer; context: {sessionId: string; profileId: string}; isCurrent?: () => boolean}, established = false, expectedGeneration = generation.current) => {
+    async (url: string, session: LocalSession, result?: {server: HostedServer; context: {sessionId: string; profileId: string}; isCurrent?: () => boolean}, established = false, expectedGeneration = generation.current, abandoned?: AbortSignal) => {
       const assertCandidate = () => { if (expectedGeneration !== generation.current) throw changedWhileSigningIn(url); };
       assertCandidate();
       const candidate = selectedViewerRecord(url, session);
@@ -546,7 +573,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
             if (!central || live?.account.id !== candidate.session.viewer.accountId || live.familyId !== central.familyId || (result && result.context.sessionId !== live.familyId)) throw new ShownError(activeI18n().t('web.signIn.error.accountChanged'));
           },
           assertCandidateCurrent: assertCandidate,
-          verify: (record, signal) => profileAPI(record.serverUrl, record.session.accessToken).request('/v1/me', 'GET', undefined, signal),
+          // NS-08: a direct sign-in abandoned or out of time (`abandoned`) stops this check at once
+          // instead of leaving it to run on. The commit then rolls back exactly as it does for a late
+          // answer: it never retires a sign-in of the family in use (`sameSignIn`). A restore of the
+          // saved sign-in passes no signal; its own deadline deliberately leaves it running.
+          verify: (record, signal) => {
+            const check = (live: AbortSignal) => profileAPI(record.serverUrl, record.session.accessToken).request<{viewer: LocalSession['viewer']}>('/v1/me', 'GET', undefined, live);
+            return abandoned ? untilEither(check, signal, abandoned) : check(signal);
+          },
           prepareContext: result ? () => credentials!.updateContext({profileId: result.context.profileId, server: result.server}) : undefined,
           publish,
           restore: record => {
@@ -752,14 +786,14 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   }, [busy, directOrigin, beginBusy, endBusy]);
 
   const acceptDirect = useCallback(
-    async (url: string, session: LocalSession, grant?: DirectPending, gen = generation.current) => {
+    async (url: string, session: LocalSession, grant?: DirectPending, gen = generation.current, abandoned?: AbortSignal) => {
       if (session.viewer.authority !== 'local') throw new ShownError(activeI18n().t('signIn.chooseLocalProfile'));
       const cleanup = grant?.accountGrant && grant.accountSession ? profileAPI(grant.api.baseUrl, grant.accountSession.accessToken) : undefined;
       const old = viewer.getSnapshot();
       const routed = grant?.api ?? (old.session && old.serverUrl === url ? profileAPI(url, old.session.accessToken) : new HttpLocalApi(url, session.accessToken, nativeNetworkFetch));
       if (gen !== generation.current) throw changedWhileSigningIn(url);
       await rememberNativeSession(routed, session, nativeConnectionEnvironment, grant?.hosted, () => gen === generation.current);
-      await commitSelectedViewer(url, session, undefined, false, gen);
+      await commitSelectedViewer(url, session, undefined, false, gen, abandoned);
       // C45: the account-tier session is a separate family; it ends once a profile is chosen.
       if (cleanup) void cleanup.request('/v1/sessions/current', 'DELETE').catch(() => {});
     },
@@ -784,7 +818,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     held.connected.connection.dispose();
   }, []);
   /** Returns 'held' when the connection now belongs to a pending step or profile choice, 'issued' when a viewer session was accepted. */
-  const settleDirect = useCallback(async (result: DirectSignIn, connected: Awaited<ReturnType<typeof connectPairedServer>>, username: string, password: string, gen: number, extra: {hosted?: RememberedServer['hosted']; retry?: () => Promise<void>; preferProfileId?: string} = {}): Promise<'held' | 'issued'> => {
+  const settleDirect = useCallback(async (result: DirectSignIn, connected: Awaited<ReturnType<typeof connectPairedServer>>, username: string, password: string, gen: number, extra: {hosted?: RememberedServer['hosted']; retry?: () => Promise<void>; preferProfileId?: string; /** The attempt's signal: abandoning it stops the new viewer's check (NS-08). */ signal?: AbortSignal} = {}): Promise<'held' | 'issued'> => {
     const local = connected.api;
     if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
     const outcome = directOutcome(result);
@@ -813,7 +847,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       if (same) {
         const selection = await selectDirectProfile(local, {authority: 'local', accountId: result.snapshot.account.id, serverId: result.snapshot.serverId}, same.id, {});
         if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
-        await acceptDirect(local.baseUrl, selection.session, grant, gen);
+        await acceptDirect(local.baseUrl, selection.session, grant, gen, extra.signal);
         return 'issued';
       }
       setPending(grant);
@@ -822,7 +856,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     // 'viewer': this session is the viewer; it is kept, never ended.
     await rememberNativeSession(local, result.session, nativeConnectionEnvironment, extra.hosted, () => gen === generation.current);
     if (gen !== generation.current) throw changedWhileSigningIn(local.baseUrl);
-    await acceptDirect(local.baseUrl, result.session, extra.hosted ? {api: local, accountGrant: false, hosted: extra.hosted} : undefined, gen);
+    await acceptDirect(local.baseUrl, result.session, extra.hosted ? {api: local, accountGrant: false, hosted: extra.hosted} : undefined, gen, extra.signal);
     return 'issued';
   }, [acceptDirect]);
 
@@ -896,7 +930,7 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
           void rememberDirectSignIn(directOrigin, username).catch(() => {});
           // A viewer session straight from sign-in is signed out again if accepting it fails.
           if (result.kind === 'signed-in' && directOutcome(result) === 'viewer') issued = result.session;
-          await settleDirect(result, connected, username, password, gen);
+          await settleDirect(result, connected, username, password, gen, {signal});
           offered = true;
         } finally {
           // Whatever wasn't handed on is released, even when the answer came after the attempt was abandoned.

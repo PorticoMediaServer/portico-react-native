@@ -1,5 +1,5 @@
 // Authentication/storage/device boundaries; SessionProvider and ViewerSelectionCommit stay real.
-/** @type {{saved: any, restore: (...args: any[]) => Promise<any>, chosen: any, me?: () => Promise<any>, writes: any[], revoked: string[]}} */
+/** @type {{saved: any, restore: (...args: any[]) => Promise<any>, chosen: any, me?: (signal?: AbortSignal) => Promise<any>, writes: any[], revoked: string[]}} */
 export const auth = {saved: null, restore: async () => undefined, chosen: undefined, writes: [], revoked: []};
 export const nativeViewerStorage = {read: async () => auth.saved, write: async record => {auth.writes.push(record); auth.saved = record;}};
 export const prepareSecureRecords = async () => false;
@@ -21,7 +21,7 @@ export const knownDirectServers = {remember: async () => {}, forget: async () =>
 export const clearActivity = noop;
 export function profileAPI(origin, token) {
   return {baseUrl: origin, getRouteConnection: () => undefined, getRouteSnapshot: () => undefined, subscribeRoute: () => () => {},
-    system: async () => ({name: 'Server'}), request: async path => path === '/v1/me' && auth.me ? auth.me() : ({viewer: auth.chosen?.viewer}),
+    system: async () => ({name: 'Server'}), request: async (path, _method, _body, signal) => path === '/v1/me' && auth.me ? auth.me(signal) : ({viewer: auth.chosen?.viewer}),
     logout: async () => {auth.revoked.push(token);}, setAccessToken() {}, setAuthRecovery() {}};
 }
 

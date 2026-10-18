@@ -99,3 +99,21 @@ for (const late of [false, true]) {
     }
   });
 }
+
+test('Android and Apple report no exposure (their transports refuse redirects): without the hook nothing is ended', async () => {
+  const {NativeModules} = await import('./react-native-stub.mjs');
+  const runtime = NativeModules.PorticoRuntime as any;
+  assert.equal(runtime.onCredentialExposure, undefined);
+  viewer.clear();
+  auth.saved = selectedViewerRecord('http://server.test', session) as any;
+  auth.chosen = session as any; auth.me = undefined; auth.revoked = [];
+  auth.restore = async () => ({api: profileAPI('http://server.test', session.accessToken), session});
+  let current: any;
+  const host = createHookHost(() => {current = (SessionProvider({children: null}) as any).props.value;});
+  try {
+    await act(() => host.mount());
+    assert.equal(viewer.getSnapshot().session?.accessToken, session.accessToken);
+    assert.equal(current.signInNote, undefined);
+    assert.deepEqual(auth.revoked, []);
+  } finally {await act(() => {current.signOut(); host.unmount();}); viewer.clear();}
+});
