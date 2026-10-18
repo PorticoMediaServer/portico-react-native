@@ -106,7 +106,7 @@ function build(type) {
       mirror(path.join(work.app, 'build', entry), path.join(app, 'build', entry));
     }
   }
-  console.log(`Built ${packageFile(type, deviceArchitecture() ?? 'aarch64')}`);
+  console.log(`Built Vega ${type.toLowerCase()} packages in ${path.join(app, 'build')}.`);
 }
 
 function packageFile(type, architecture) {
