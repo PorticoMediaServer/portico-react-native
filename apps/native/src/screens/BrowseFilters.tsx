@@ -1,10 +1,10 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {Pressable, ScrollView, TVFocusGuideView, View} from 'react-native';
+import {Pressable, ScrollView, TVFocusGuideView, View, useTVEventHandler} from 'react-native';
 import type {BrowseCapabilities, BrowseFacetValue, BrowseFieldCapability, BrowsePositionAnchor, BrowseSortSelection} from '../../../../packages/client-core/src/browse';
 import {formatBrowseAnchor} from '../../../../packages/client-core/src/browse';
 import {activeRangePreset, browseValueLabel, fieldSelectionSummary, filterControlOf, filterValuesField, nextToolbarSort, orderFilterValues, rangePresets, toolbarModel, type ToolbarGroupId} from '../../../../packages/client-core/src/presentation/index';
 import {fieldLabel, predicateLabel, quickFilterLabel, useFacets, type Predicate} from '../app/browse';
-import {Button, Divider, Field, Focusable, ListRow, Menu, Notice, Sheet, Surface, Text, alpha, useTheme, type FocusableHandle, type MenuItem} from '../ui';
+import {Button, Divider, Field, FocusGroup, Focusable, ListRow, Menu, Notice, Sheet, Surface, Text, alpha, isFocusIntent, useTheme, type FocusableHandle, type MenuItem} from '../ui';
 import {say} from '../app/errors';
 import {browseCountLabel} from '../app/browse-count';
 import {useI18n, type I18n} from '../app/i18n';
@@ -19,9 +19,11 @@ import {RowGuide} from './title/RowGuide';
  *
  * Filters open as a grouped list with each field's current selection on the right; a field opens
  * its values as a second level. On television that is a panel at the side, two short lists deep,
- * and nothing in it needs typing.
+ * and nothing in it needs typing. On a TV library it is the row under the tabs (Justin, 18 Oct
+ * 2026), as on the web: the same buttons in one row that scrolls sideways with focus, the count at
+ * its end.
  */
-export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, totalIsLowerBound = false, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Television: just Sort and Filter as two buttons for the tabs' row; every filter is in the side panel. */ inline?: boolean; /** Drawn after the buttons in the inline form (Jump to). */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** `total` is a lower bound (a broad filter counted only up to 10,000): "10,000+". */ totalIsLowerBound?: boolean; /** Owners also get the availability filter. */ owner?: boolean}) {
+export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, onSort, total, totalIsLowerBound = false, onSaveView, owner = false, ownOrder, inline = false, trailing, leading}: {/** Just Sort and Filter as two buttons (a group's page, under its hero); every filter is in the panel. */ inline?: boolean; /** Drawn after the buttons in the inline form. */ trailing?: React.ReactNode; /** Drawn before the buttons (the library a group's titles are sorted and filtered in, when it has titles in several). */ leading?: React.ReactNode; /** A group with an order of its own (a collection's, an album's track order, a person's credits): offered first in the Sort menu, and what the group shows until the viewer chooses a sort or a filter. */ ownOrder?: Readonly<{selected: boolean; onSelect: () => void}>; onSaveView?: (name: string) => Promise<void>; libraryId: string; capabilities: BrowseCapabilities; predicates: readonly Predicate[]; onChange: (next: readonly Predicate[]) => void; sort: BrowseSortSelection; onSort: (next: BrowseSortSelection) => void; total?: number; /** `total` is a lower bound (a broad filter counted only up to 10,000): "10,000+". */ totalIsLowerBound?: boolean; /** Owners also get the availability filter. */ owner?: boolean}) {
   const {space, isTV} = useTheme();
   const i18n = useI18n();
   const model = useMemo(() => toolbarModel(capabilities, capabilities.library.kind, predicates, sort, {owner, textEntry: !isTV}), [capabilities, predicates, sort, owner, isTV]);
@@ -116,8 +118,8 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
       </View>
     </Sheet>
   );
-  // Television: two buttons beside the tabs, and Save view after them once a filter is on (as on
-  // touch). Every filter is in the side panel (the list, then one field's values).
+  // Sort and Filter as two buttons (a group's page), and Save view after them once a filter is on.
+  // Every filter is in the panel (the list, then one field's values).
   if (inline) {
     return (
       <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
@@ -131,6 +133,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
       </View>
     );
   }
+  const count = typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={isTV ? {alignSelf: 'center', paddingHorizontal: space.sm} : {paddingHorizontal: space.page}}>{browseCountLabel(i18n.t, total, pivotId, totalIsLowerBound)}</Text> : null;
   return (
     <View style={{gap: space.sm, paddingVertical: space.sm}}>
       {/* TV: a full-width guide that always hands focus to a chip (last used, else the first), so
@@ -143,6 +146,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
         {model.promoted.map(f => { const summary = summaryOf(f); const label = fieldLabel(f.id, f.labelKey); return <Button key={f.id} size="sm" variant="secondary" selected={!!summary} trailingIcon="chevronDown" label={summary ? `${label}: ${summary}` : label} onPress={() => setFilters({field: f, direct: true})} />; })}
         <Button size="sm" variant="secondary" icon="filter" label={i18n.t('filter.add')} onPress={() => setFilters({})} />
         {canSave ? <Button size="sm" variant="ghost" icon="bookmark" label={i18n.t('lib.saveView')} onPress={startSaving} /> : null}
+        {isTV ? count : null}
       </ScrollView>
       </RowGuide>
       {model.applied.length ? (
@@ -153,7 +157,7 @@ export function BrowseBar({libraryId, capabilities, predicates, onChange, sort, 
         </ScrollView>
         </RowGuide>
       ) : null}
-      {typeof total === 'number' ? <Text variant="caption" tone="tertiary" style={{paddingHorizontal: space.page}}>{browseCountLabel(i18n.t, total, pivotId, totalIsLowerBound)}</Text> : null}
+      {isTV ? null : count}
       {saveSheet}
       {overlays}
     </View>
@@ -309,3 +313,43 @@ export function AlphabetRail({index, current, onJump, sortField}: {index: readon
   );
 }
 
+
+/**
+ * TV: the letters down the right of a library's grid (Justin, 18 Oct 2026), as the web's rail is,
+ * in ten-foot keys: Right from the grid reaches them (the letter last used), Up and Down move
+ * through them (the column scrolls when they don't all fit), Select jumps the grid there, and
+ * Left goes back into the grid: to the title jumped to, or else where focus was in it
+ * (`onLeave`). Each key is a server anchor; nothing is filtered.
+ */
+export function LetterRail({index, current, onJump, onLeave, sortField}: {index: readonly BrowsePositionAnchor[]; current?: string; onJump: (key: string) => void; /** Left from a key: back into the grid. */ onLeave?: () => void; sortField?: string}) {
+  const {space, colors, metrics, type} = useTheme();
+  const i18n = useI18n();
+  const inside = useRef(false);
+  const left = useRef(0);
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
+  // The key press arrives as focus leaves the rail, so a Left just after the last key lost focus counts too.
+  useTVEventHandler(event => {
+    if (event?.eventType !== 'left' || !isFocusIntent(event)) return;
+    if (inside.current || Date.now() - left.current < 250) leave.current?.();
+  });
+  if (index.length < 4) return null;
+  const label = (key: string) => formatBrowseAnchor(key, sortField ?? 'title', i18n.t('library.anchorNoValue'));
+  const size = metrics.controlSmall;
+  return (
+    <FocusGroup style={{width: size}}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.xs}}>
+        {index.map(a => (
+          <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => onJump(a.key)}
+            onFocus={() => { inside.current = true; }} onBlur={() => { inside.current = false; left.current = Date.now(); }} style={{width: size, height: size}}>
+            {({focused}) => (
+              <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: metrics.radius.control, backgroundColor: focused ? alpha(colors.white, 0.14) : 'transparent'}}>
+                <Text style={[type.bodyStrong, {color: current === a.key ? colors.accent : focused ? colors.text : colors.textSecondary}]}>{label(a.key)}</Text>
+              </View>
+            )}
+          </Focusable>
+        ))}
+      </ScrollView>
+    </FocusGroup>
+  );
+}

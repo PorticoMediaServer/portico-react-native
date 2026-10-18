@@ -230,22 +230,22 @@ export function previewFocusOf(entry: PreviewFocus['entry'] | undefined, group: 
 }
 
 /**
- * TV: a library's own navigation (Discover, its kind's tabs, and on a grid Sort, Filter and Jump
- * to), one slim strip at the top, in the same place on Discover and on every grid, and kept apart
- * from the preview's words. The library's name and a short line above it (the server, or the
- * grid's count) sit at its start. Up from the first row reaches it; Down goes back to the card last
- * used below. The left rail stays the way between libraries and the app's other places.
+ * TV: a library's own navigation, one slim strip at the top, in the same place on Discover and on
+ * every grid, and kept apart from the preview's words (Justin, 18 Oct 2026): its tabs first, at the
+ * left (Discover and the kind's own, as the library authors them), and its name at the right, with
+ * a running scan said under it. A grid's Sort, filters and Save view are the row below
+ * (`BrowseBar`). Up from the first row reaches it; Down goes back to what was last used below. The
+ * left rail stays the way between libraries and the app's other places.
  */
-export function LibraryStrip({name, eyebrow, tabs, trailing, height}: {name: string; eyebrow?: string; tabs: React.ReactNode; trailing?: React.ReactNode; height: number}) {
+export function LibraryStrip({name, status, tabs, height}: {name: string; /** A running scan. */ status?: string; tabs: React.ReactNode; height: number}) {
   const {space, window} = useTheme();
   return (
     <View style={{height, flexDirection: 'row', alignItems: 'center', gap: space.lg, paddingLeft: space.page, paddingRight: space.page, paddingBottom: space.md}}>
-      <View style={{maxWidth: window.width * 0.2, flexShrink: 0}}>
-        {eyebrow ? <Text variant="label" tone="tertiary" lines={1}>{eyebrow}</Text> : null}
-        <Text variant="heading" lines={1}>{name}</Text>
-      </View>
       <View style={{flex: 1, minWidth: 0}}>{tabs}</View>
-      {trailing ? <View style={{flexDirection: 'row', alignItems: 'center', gap: space.md}}>{trailing}</View> : null}
+      <View style={{maxWidth: window.width * 0.28, flexShrink: 0, alignItems: 'flex-end'}}>
+        <Text variant="heading" lines={1}>{name}</Text>
+        {status ? <Text variant="label" tone="tertiary" lines={1}>{status}</Text> : null}
+      </View>
     </View>
   );
 }

@@ -343,6 +343,17 @@ export function createFocusReturn(timers: FocusReturnTimers, options: FocusRetur
     },
     /** Stop a return under way. */
     cancel: stop,
+    /**
+     * A list's own move (a TV letter jumped to): ask the named control on a showing screen to take
+     * focus now. False when it is not mounted. The request is dropped if the control has left or
+     * been renamed, or the screen is no longer showing, by the time it reaches the focus engine.
+     */
+    focusNow(scope: string, key: string): boolean {
+      const found = scopes.get(scope)?.get(key);
+      if (!found || !active(scope)) return false;
+      found.target.focus(() => active(scope) && scopes.get(scope)?.get(key) === found);
+      return true;
+    },
     /** For tests and diagnostics. */
     state() {
       return {owner, origin, returning: pending ? {key: pending.key, asks: pending.asks, looks: pending.looks} : undefined, overlays, invoker, current: current ? {...current, holding} : null, inOverlay};

@@ -409,3 +409,21 @@ test('a control that belongs to a row goes back to the row when it is no longer 
   c.drain();
   assert.equal(episode.asked, 1);
 });
+
+test('a list\'s own move (a TV letter jumped to) asks the named control now, and only on a showing screen', () => {
+  const c = clock();
+  const registry = createFocusReturn(c.timers);
+  registry.setOwner('viewer');
+  const key = cardFocusKey('cards', 'm1');
+  let still: (() => boolean) | undefined;
+  const off = registry.register('library', key, {focus: s => { still = s; }});
+  assert.equal(registry.focusNow('library', cardFocusKey('cards', 'gone')), false, 'not mounted: nothing to ask');
+  assert.equal(registry.focusNow('library', key), true);
+  assert.equal(still?.(), true);
+  // By the time the request reaches the focus engine the card has left: it does nothing.
+  off();
+  assert.equal(still?.(), false);
+  registry.register('library', key, {focus: () => {}});
+  registry.setScopeActive('library', false);
+  assert.equal(registry.focusNow('library', key), false, 'a covered screen is never given focus');
+});
