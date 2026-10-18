@@ -12,7 +12,7 @@ export type TabItem = {id: string; label: string};
  * an animated accent underline. A tab is chosen by pressing it, on every platform: moving
  * focus across the strip on television changes nothing.
  */
-export function Tabs({items, selected, onSelect, style, entryFocus = true, inset}: {items: readonly TabItem[]; selected: string; onSelect: (id: string) => void; style?: object; /** False where the content below, not the strip, should take focus when the screen opens. */ entryFocus?: boolean; /** The strip's own side padding, where something sits beside it (a library's name); the page's gutter otherwise. */ inset?: number}) {
+export function Tabs({items, selected, onSelect, style, entryFocus = true, inset, rule = true}: {items: readonly TabItem[]; selected: string; onSelect: (id: string) => void; style?: object; /** False where the content below, not the strip, should take focus when the screen opens. */ entryFocus?: boolean; /** The strip's own side padding, where something sits beside it (a library's name); the page's gutter otherwise. */ inset?: number; /** The hairline under the whole strip; the selected tab's underline stays either way. Off in a TV library's strip (Justin, 18 Oct 2026). */ rule?: boolean}) {
   const {colors, space, isTV, motion, metrics} = useTheme();
   const [layouts, setLayouts] = useState<Record<string, {x: number; width: number}>>({});
   const initial = useInitialFocus();
@@ -27,7 +27,7 @@ export function Tabs({items, selected, onSelect, style, entryFocus = true, inset
   }, [current, motion.reduce, motion.standard, x, w]);
   const underline = useAnimatedStyle(() => ({transform: [{translateX: x.value}], width: w.value}));
   return (
-    <View style={[{borderBottomWidth: 1, borderBottomColor: colors.lineSoft}, style]}>
+    <View style={[rule ? {borderBottomWidth: 1, borderBottomColor: colors.lineSoft} : null, style]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: inset ?? space.page - space.sm}}>
         <View style={{flexDirection: 'row'}}>
           {items.map((item, index) => {

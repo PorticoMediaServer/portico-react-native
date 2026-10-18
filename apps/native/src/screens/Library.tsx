@@ -239,7 +239,7 @@ export function LibraryScreen({route}: {route: RouteProp<ContentStackParams, 'Li
   const libraryName = library?.name ?? projection?.heading.fallback ?? i18n.t('lib.fallbackTitle');
   // The tabs take the screen's entry focus only when nothing below them can (`contentless`).
   const strip = (entry = false) => (
-    <RowGuide><LibraryStrip name={libraryName} status={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} tabs={<Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={entry} inset={space.xs} />} height={stripHeight} /></RowGuide>
+    <RowGuide><LibraryStrip name={libraryName} status={scan.scanning ? i18n.t('web.library.scanning', {count: i18n.number(scan.found)}) : undefined} tabs={<Tabs items={tabs} selected={tab} onSelect={id => pickTab(id as Tab)} entryFocus={entry} inset={space.xs} rule={false} />} height={stripHeight} /></RowGuide>
   );
   // Discover on TV is the browsing stage: the focused card's preview above, its rows moved by focus
   // beneath. A Discover made only of grids or lists stays a page, with no preview.
