@@ -387,12 +387,14 @@ export function HeaderUtilities({backed = false}: {/** IOS-HOME-01: content has 
   const insets = useSafeAreaInsets();
   const {space, colors} = useTheme();
   const i18n = useI18n();
-  const [barHeight, setBarHeight] = useState(0);
+  const [bar, setBar] = useState({width: 0, height: 0});
+  const barHeight = bar.height;
   return (
-    <View pointerEvents="box-none" onLayout={e => setBarHeight(e.nativeEvent.layout.height)} style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, paddingTop: insets.top + space.xs, paddingBottom: space.xs, paddingLeft: space.page, paddingRight: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: backed ? colors.ink : 'transparent', borderBottomWidth: backed ? 1 : 0, borderBottomColor: colors.lineSoft}}>
+    <View pointerEvents="box-none" onLayout={e => setBar({width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height})} style={{position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, paddingTop: insets.top + space.xs, paddingBottom: space.xs, paddingLeft: space.page, paddingRight: space.sm, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: backed ? colors.ink : 'transparent', borderBottomWidth: backed ? 1 : 0, borderBottomColor: colors.lineSoft}}>
       {/* Over artwork, a soft shade behind the bar keeps the wordmark and icons legible on any backdrop. */}
       {!backed && barHeight ? (
-        <Svg pointerEvents="none" width="100%" height={barHeight + HEADER_SCRIM_FADE} style={{position: 'absolute', top: 0, left: 0, right: 0}}>
+        // The bar's own measured width, padding included ("100%" would stop short by its padding).
+        <Svg pointerEvents="none" width={Math.ceil(bar.width)} height={Math.ceil(barHeight + HEADER_SCRIM_FADE)} style={{position: 'absolute', top: 0, left: 0}}>
           <Defs>
             <LinearGradient id="headerScrim" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor={colors.ink} stopOpacity={0.7} />
@@ -400,7 +402,7 @@ export function HeaderUtilities({backed = false}: {/** IOS-HOME-01: content has 
               <Stop offset="1" stopColor={colors.ink} stopOpacity={0} />
             </LinearGradient>
           </Defs>
-          <Rect x={0} y={0} width="100%" height={barHeight + HEADER_SCRIM_FADE} fill="url(#headerScrim)" />
+          <Rect x={0} y={0} width="100%" height="100%" fill="url(#headerScrim)" />
         </Svg>
       ) : null}
       <View style={{flex: 1}}><Wordmark height={28} /></View>

@@ -46,7 +46,6 @@ type Layer = {key: number; source: ImageSourcePropType};
 export function Backdrop({source, height, align = 'right', opacity = 1, style}: {source?: ImageSourcePropType; height?: number; align?: 'right' | 'center' | 'top'; opacity?: number; style?: StyleProp<ViewStyle>}) {
   const {colors, motion} = useTheme();
   const [layers, setLayers] = useState<Layer[]>([]);
-  const [size, setSize] = useState({width: 0, height: 0});
   const uri = sourceKey(source);
   useEffect(() => {
     if (!source || !uri) {
@@ -57,11 +56,14 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
   return (
-    <View pointerEvents="none" onLayout={e => setSize({width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height})} style={[{position: 'absolute', left: 0, right: 0, top: 0, height: height ?? '100%', overflow: 'hidden'}, style]}>
+    <View pointerEvents="none" style={[{position: 'absolute', left: 0, right: 0, top: 0, height: height ?? '100%', overflow: 'hidden'}, style]}>
       {layers.map((layer, index) => (
         <FadeLayer key={layer.key} source={layer.source} opacity={opacity} last={index === layers.length - 1} duration={motion.reduce ? 0 : motion.slow} onFaded={() => setLayers(prev => prev.filter(l => l.key !== layer.key))} />
       ))}
-      {size.width > 0 ? <Svg width={size.width} height={size.height} viewBox={`0 0 ${size.width} ${size.height}`} style={StyleSheet.absoluteFill}>
+      {/* Sized by percentage, never by a measured size: a measured one is fractional, and Android drew
+          the shade a pixel or more short of the artwork it covers (a bright line along the bottom and
+          down the right edge). */}
+      <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
         {/* Spec — Title Pages §1 / heroSpec.scrim: wide layouts get a bottom and a left gradient,
             phones a bottom one only (the identity sits below the image). */}
         <Defs>
@@ -72,9 +74,9 @@ export function Backdrop({source, height, align = 'right', opacity = 1, style}: 
             {heroSpec.scrim.left.map(stop => <Stop key={stop.at} offset={String(stop.at)} stopColor={colors.ink} stopOpacity={stop.alpha} />)}
           </LinearGradient>
         </Defs>
-        {align === 'top' ? null : <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#side)" />}
-        <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#bottom)" />
-      </Svg> : null}
+        {align === 'top' ? null : <Rect x={0} y={0} width="100%" height="100%" fill="url(#side)" />}
+        <Rect x={0} y={0} width="100%" height="100%" fill="url(#bottom)" />
+      </Svg>
     </View>
   );
 }
