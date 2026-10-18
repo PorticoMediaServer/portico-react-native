@@ -160,7 +160,7 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
     }
     val client = PorticoServerTrust.proofClient(OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
         .retryOnConnectionFailure(false).callTimeout(5, TimeUnit.SECONDS), origin, fingerprint)
-    val request = Request.Builder().url(target).header("Accept", "application/json")
+    val request = Request.Builder().url(target).header("Accept", "application/json; portico-route-proof=2")
         .post(body.toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType())).build()
     client.newCall(request).enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) = promise.reject("certificate_proof", "The server could not prove its identity.")

@@ -1,47 +1,50 @@
-/**
- * The owner's own certificate: pinned without a question the first time an address is seen and
- * whenever the same server identity proves itself over a new certificate; a question when the
- * identity changed or could not be proved. Drives the real `probeRoute` over a scripted proof.
- */
+/** Drives the real signed proof and certificate decision, including live-relay refusal. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash, generateKeyPairSync, sign, verify} from 'node:crypto';
 import {acceptPendingCertificate, certificateOrigin, onCertificateQuestion, parseSavedCertificates, pendingCertificate, resetCertificateQuestions, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type PendingCertificate, type PinnedCertificate} from '../src/bridge/certificate-trust.ts';
 import {RouteError, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 
 const ORIGIN = 'https://media.example:32500';
-const CERT = 'A'.repeat(43), OTHER_CERT = 'B'.repeat(43);
-const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const sha = (data: Uint8Array) => { const out = new Uint8Array(32); let h = 0x811c9dc5; for (let i = 0; i < data.length; i++) { h ^= data[i]!; h = Math.imul(h, 0x01000193) >>> 0; out[i % 32] = (out[i % 32]! + (h & 0xff)) & 0xff; } out[0] = (out[0]! + data.length) & 0xff; return out; };
-const crypto: RouteCrypto = {random: n => new Uint8Array(n), sha256: async d => sha(d), verify: async () => true};
-function identity(seed: number) {
-  const key = Uint8Array.from({length: 32}, (_, i) => i + seed);
-  const serverId = 'srv_' + b64url(sha(new Uint8Array([...Buffer.from('portico.server.identity.v1\0'), ...key])));
-  return {key: b64url(key), serverId, fingerprint: b64url(sha(key))};
+const CERT = Buffer.alloc(32, 1).toString('base64url'), OTHER_CERT = Buffer.alloc(32, 2).toString('base64url');
+const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
+const crypto: RouteCrypto = {
+  random: n => new Uint8Array(n),
+  sha256: async data => new Uint8Array(createHash('sha256').update(data).digest()),
+  verify: async (key, signature, payload) => verify(null, payload, {key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), key]), format: 'der', type: 'spki'}, signature),
+};
+function identity() {
+  const keys = generateKeyPairSync('ed25519');
+  const key = keys.publicKey.export({format: 'der', type: 'spki'}).subarray(-32);
+  const serverId = 'srv_' + createHash('sha256').update('portico.server.identity.v1\0').update(key).digest('base64url');
+  return {key: b64url(key), serverId, fingerprint: createHash('sha256').update(key).digest('base64url'), privateKey: keys.privateKey};
 }
-const SERVER = identity(1), IMPOSTOR = identity(7);
+const SERVER = identity(), IMPOSTOR = identity();
 
-function platform(options: {refused?: string; pinned?: PinnedCertificate; server?: ReturnType<typeof identity> | 'broken'}) {
+function platform(options: {refused?: string; pinned?: PinnedCertificate; server?: ReturnType<typeof identity> | 'broken'; version?: '1' | '2'; binding?: readonly string[] | null}) {
   const pins: Array<{origin: string; pin: PinnedCertificate}> = [];
   const proofs: string[] = [];
   const p: CertificatePlatform = {
     refused: async () => options.refused,
     pinned: async () => options.pinned,
     pin: async (origin, pin) => { pins.push({origin, pin}); },
-    proofFetcher: (origin, fingerprint) => (async (input: unknown, init: {body?: string} = {}) => {
+    proofFetcher: (origin, fingerprint) => (async (input: unknown, init: RequestInit = {}) => {
       proofs.push(fingerprint);
+      assert.equal(new Headers(init.headers).get('Accept'), 'application/json; portico-route-proof=2');
       assert.equal(String(input), origin + '/v1/networking/identity-proof');
       const asked = JSON.parse(String(init.body)) as {baseUrl: string; nonce: string};
       const who = options.server ?? SERVER;
       const now = Date.now();
-      const doc = who === 'broken' ? {kind: 'something-else'} : {kind: 'portico.route-proof', version: '1', baseUrl: asked.baseUrl, nonce: asked.nonce, serverId: who.serverId, publicKey: who.key, fingerprint: who.fingerprint, issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + 15000).toISOString()};
-      const body = JSON.stringify({payload: b64url(Buffer.from(JSON.stringify(doc))), signature: b64url(new Uint8Array(64))});
+      const doc = who === 'broken' ? {kind: 'something-else'} : {kind: 'portico.route-proof', version: options.version ?? '2', ...(options.binding === null ? {} : {tlsCertificateFingerprints: options.binding ?? [CERT, OTHER_CERT]}), baseUrl: asked.baseUrl, nonce: asked.nonce, serverId: who.serverId, publicKey: who.key, fingerprint: who.fingerprint, issuedAt: new Date(now).toISOString(), expiresAt: new Date(now + 15000).toISOString()};
+      const raw = Buffer.from(JSON.stringify(doc));
+      const body = JSON.stringify({payload: b64url(raw), signature: b64url(sign(null, raw, (who === 'broken' ? SERVER : who).privateKey))});
       return {ok: true, status: 200, headers: {get: (n: string) => n.toLowerCase() === 'content-type' ? 'application/json' : null}, text: async () => body} as unknown as Response;
     }) as typeof fetch,
   };
   return {p, pins, proofs};
 }
 
-test('the first certificate at an address is pinned once the server proves itself over it', async () => {
+test('a listed certificate is pinned once the server signs its binding', async () => {
   resetCertificateQuestions();
   const {p, pins, proofs} = platform({refused: CERT});
   await settleCertificate(ORIGIN, p, crypto);
@@ -110,4 +113,26 @@ test('only https request URLs have a certificate origin', () => {
   assert.equal(certificateOrigin('https://Media.Example:32500/v1/system'), 'https://media.example:32500');
   assert.equal(certificateOrigin('http://192.168.1.20:32500/v1/system'), undefined);
   assert.equal(certificateOrigin('not a url'), undefined);
+});
+
+for (const previous of [false, true]) {
+  for (const mode of ['old server', 'unbound proxy', 'relayed proof'] as const) {
+    test(`${mode}, previous pin ${previous}: ask without pinning a valid server proof`, async () => {
+      resetCertificateQuestions();
+      const {p, pins} = platform({refused: OTHER_CERT, ...(previous ? {pinned: {fingerprint: CERT, serverId: SERVER.serverId}} : {}),
+        version: mode === 'old server' ? '1' : '2', binding: mode === 'relayed proof' ? [CERT] : null});
+      await assert.rejects(settleCertificate(ORIGIN, p, crypto), (e: unknown) => e instanceof RouteError && e.code === (previous ? 'certificate_changed' : 'certificate_unverified'));
+      assert.equal(pins.length, 0);
+      assert.deepEqual(pendingCertificate(ORIGIN), {origin: ORIGIN, fingerprint: OTHER_CERT, serverId: SERVER.serverId, reason: previous ? 'changed' : 'unverified'});
+      assert.equal(await acceptPendingCertificate(ORIGIN, p), true);
+      assert.equal(pins[0]?.pin.fingerprint, OTHER_CERT);
+    });
+  }
+}
+
+test('a previous pin with no server identity cannot authorize a silent replacement', async () => {
+  resetCertificateQuestions();
+  const {p, pins} = platform({refused: OTHER_CERT, pinned: {fingerprint: CERT, serverId: ''}});
+  await assert.rejects(settleCertificate(ORIGIN, p, crypto), (e: unknown) => e instanceof RouteError && e.code === 'certificate_changed');
+  assert.equal(pins.length, 0);
 });
