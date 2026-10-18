@@ -60,3 +60,20 @@ test('expand is idempotent and collapse when already closed does nothing', async
   assert.equal(notes, 2, 'no extra notification when nothing changed');
   stop();
 });
+
+test('collapseNow closes at once for a caller that already waited out its debounce, and cancels a pending collapse', async () => {
+  const shared = {value: 0};
+  const rail = createRailExpansion({shared, collapsedWidth: 112, expandedWidth: 340, collapseDelayMs: 5});
+  let notified = 0;
+  const stop = rail.subscribeA11y(() => notified++);
+  rail.expand();
+  rail.collapse();
+  rail.collapseNow();
+  assert.equal(rail.isExpanded(), false, 'closed without waiting');
+  const after = notified;
+  await settle();
+  assert.equal(notified, after, 'the earlier delayed collapse does not notify a second time');
+  rail.collapseNow();
+  assert.equal(notified, after, 'closing when already closed does nothing');
+  stop();
+});

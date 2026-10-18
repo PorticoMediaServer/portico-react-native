@@ -57,6 +57,14 @@ export function createRailExpansion(options: {
         notifyA11y();
       }, collapseDelayMs);
     },
+    /** Close now: the caller has already waited out its own debounce (one clock owns the decision). */
+    collapseNow: () => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (!expanded) return;
+      expanded = false;
+      notifyA11y();
+    },
     /** Labels and the wordmark subscribe here; rail items must not. */
     subscribeA11y: (fn: () => void) => {
       a11yListeners.add(fn);
