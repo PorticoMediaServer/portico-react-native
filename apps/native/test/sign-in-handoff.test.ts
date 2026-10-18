@@ -11,7 +11,9 @@
  * - an accepted sign-in ends it, even to the same server, account and profile, rendered or not;
  * - Back abandons everything it began, a Portico server being opened included, whatever the
  *   remembered sign-in is doing, and leaves that sign-in's confirmation alone;
- * - a named server opens once: cancelling its profiles lists the account's servers.
+ * - a named server opens once: cancelling its profiles lists the account's servers;
+ * - leaving a server's profiles while the one chosen is checked gives the viewer set aside back,
+ *   into that sign-in, and its Back still returns them where they were; an ending meanwhile doesn't.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,9 +23,9 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {act, createHookHost} from './hook-driver.ts';
-import {auth, profileAPI} from './session-hook-stub.mjs';
+import {auth, nativeViewerStorage, profileAPI} from './session-hook-stub.mjs';
 import {direct} from './session-direct-stub.mjs';
-import {portico} from './session-hosted-stub.mjs';
+import {portico, selection} from './session-hosted-stub.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {signInMode} from '../src/app/sign-in-mode.ts';
 import {linkViewerKey} from '../src/shell/pending-link.ts';
@@ -90,6 +92,7 @@ async function app({saved = 'confirmed'}: {saved?: 'confirmed' | 'offline'} = {}
   auth.chosen = old as any; auth.revoked = []; auth.writes = []; auth.me = undefined;
   auth.restore = saved === 'offline' ? async () => { throw new Error('offline'); } : async () => ({api: profileAPI('http://server.test', old.accessToken), session: old});
   portico.result = undefined; portico.opened = 0; portico.retired = [];
+  selection.session = undefined; selection.signals = [];
   const shown: string[] = [];
   let root: any;
   let chooser: any;
@@ -267,5 +270,149 @@ test('a named Portico server\'s profiles cancelled: back to the account\'s serve
     await a.settle(() => back?.());
     assert.equal(named(a.root), 'Shell');
     assert.equal(current.session?.accessToken, 'old-token');
+  } finally { await a.stop(); }
+});
+
+const second = {id: 'second', name: 'Second', baseUrl: 'http://second.test'};
+const chosen = session('profile-token', 'profile-family', {...person, serverId: 'second'});
+/** Settles promptly, not at a deadline (the step's 15 seconds, the commit's 20). */
+const promptly = <T,>(work: Promise<T>) => Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('still waiting')), 1000))]);
+
+/** Settings › Servers › another Portico server whose account chooses a profile: its faces. */
+async function profiles(a: Awaited<ReturnType<typeof app>>) {
+  portico.result = {kind: 'signed-in', session: session('account-grant', 'account-family', {...person, serverId: 'second'}), accountScoped: true, passwordChangeRequired: false, snapshot: {serverId: 'second', account: {id: 'account'}, profiles: [{id: 'profile', name: 'Profile', pinRequired: false}, {id: 'other', name: 'Other', pinRequired: false}]}};
+  auth.chosen = chosen as any;
+  await a.open({kind: 'switch'});
+  await a.settle(() => current.portico.connect(second));
+  assert.equal(named(a.root), 'DirectProfiles');
+  assert.equal(portico.opened, 1);
+}
+
+/** A profile chosen, its new viewer's `/v1/me` held until `answer`. */
+async function heldProfile(a: Awaited<ReturnType<typeof app>>) {
+  selection.session = chosen;
+  let answer!: (value: unknown) => void, refuse!: (e: unknown) => void;
+  auth.me = () => new Promise((resolve, reject) => { answer = resolve; refuse = reject; });
+  const work = current.direct.chooseProfile('profile') as Promise<void>;
+  await a.settle();
+  assert.equal(viewer.getSnapshot().session, undefined, 'the old viewer is set aside while the new one is checked');
+  assert.equal(named(a.root), 'DirectProfiles', 'the faces, not the sign-in screens and not browsing');
+  return {work, answer: (v: unknown) => answer(v), refuse: (e: unknown) => refuse(e)};
+}
+
+test('Back from a server\'s profiles while the one chosen is checked: the old viewer comes back into the sign-in, and its Back returns them where they were', async () => {
+  const a = await app();
+  try {
+    await profiles(a);
+    const held = await heldProfile(a);
+    // DirectProfiles' Back (the button, the remote), as Root wires it.
+    await a.settle(() => a.root.props.onCancel());
+    await promptly(held.work);
+    assert.equal(current.session?.accessToken, 'old-token', 'the viewer set aside is back, in memory');
+    assert.equal(auth.saved?.session.accessToken, 'old-token', 'and stored');
+    assert.equal(named(a.root), 'SignInElsewhere', 'the sign-in it was chosen from');
+    assert.deepEqual(a.shown, ['SignInElsewhere', 'DirectProfiles', 'SignInElsewhere'], 'never AuthFlow, never the shell');
+    assert.equal(current.direct.pending, undefined);
+    assert.equal(current.busy, false, 'nothing left spinning');
+    assert.equal(current.error, '', 'left silently');
+    assert.deepEqual(signInMode.current(key), {kind: 'switch'}, 'still signing in');
+    assert.equal(signInMode.handingOver(), false);
+    const rows = all(a.chooser).filter(n => n.type === 'ListRow').map(n => n.props.title);
+    assert.deepEqual(rows.sort(), ['Second', 'Server'], 'the account\'s servers, settled');
+    assert.equal(portico.opened, 1, 'nothing opened again');
+    assert.ok(auth.revoked.includes('profile-token'), 'the chosen profile\'s unused sign-in is retired');
+    assert.ok(!auth.revoked.includes('old-token'), 'the old sign-in is not');
+    // Its check answers after all: it cannot sign in now.
+    await a.settle(() => held.answer({viewer: chosen.viewer}));
+    assert.equal(current.session?.accessToken, 'old-token');
+    assert.equal(named(a.root), 'SignInElsewhere');
+    // Back again: the viewer, where they were.
+    await a.settle(() => back?.());
+    assert.equal(named(a.root), 'Shell');
+    assert.equal(current.session?.accessToken, 'old-token');
+    assert.equal(signInMode.takeShell(key), place, 'the shell\'s place, kept through the handoff');
+    assert.equal(signInMode.takeOpener(key), 'opener');
+  } finally { await a.stop(); }
+});
+
+for (const late of ['stops', 'answers anyway'] as const) {
+  test(`Back from a server's profiles before the one chosen is answered (its request ${late}): nothing set aside, nothing left spinning, nothing it issued kept`, async () => {
+    const a = await app();
+    try {
+      await profiles(a);
+      let answer!: (value: unknown) => void;
+      selection.session = (signal: AbortSignal) => new Promise((resolve, reject) => {
+        answer = resolve;
+        if (late === 'stops') signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {name: 'AbortError'})), {once: true});
+      });
+      const work = current.direct.chooseProfile('profile') as Promise<void>;
+      await a.settle();
+      assert.equal(current.busy, true);
+      await a.settle(() => a.root.props.onCancel());
+      assert.equal(selection.signals.at(-1)?.aborted, true, 'its request is stopped');
+      assert.equal(current.busy, false, 'not spinning');
+      assert.equal(named(a.root), 'SignInElsewhere');
+      if (late === 'answers anyway') await a.settle(() => answer(chosen));
+      await promptly(work);
+      assert.equal(current.session?.accessToken, 'old-token', 'the viewer was never set aside');
+      assert.equal(current.error, '');
+      assert.ok(!auth.writes.some(w => w?.session.accessToken === 'profile-token'), 'never stored');
+      if (late === 'answers anyway') assert.deepEqual(auth.revoked, ['profile-token'], 'what it issued anyway is ended');
+      else assert.deepEqual(auth.revoked, []);
+      await a.settle(() => back?.());
+      assert.equal(named(a.root), 'Shell');
+      assert.equal(signInMode.takeShell(key), place);
+    } finally { await a.stop(); }
+  });
+}
+
+test('signed out while leaving a server\'s profiles puts the old viewer back: nobody comes back, and the shell never shows', async () => {
+  const a = await app();
+  const write = nativeViewerStorage.write;
+  try {
+    await profiles(a);
+    const held = await heldProfile(a);
+    // The commit puts the old viewer's record back first; that write is held.
+    let written!: () => void;
+    let rolling = false;
+    nativeViewerStorage.write = async (record: any) => {
+      if (record?.session.accessToken === 'old-token' && !rolling) { rolling = true; await new Promise<void>(resolve => { written = resolve; }); }
+      return write(record);
+    };
+    await a.settle(() => a.root.props.onCancel());
+    assert.equal(rolling, true, 'the rollback is under way');
+    await a.settle(() => current.signOut());
+    assert.equal(named(a.root), 'AuthFlow', 'the sign-in screens at once');
+    await a.settle(() => written());
+    await held.work.catch(() => {});
+    await a.settle(() => held.answer({viewer: chosen.viewer}));
+    assert.equal(viewer.getSnapshot().session, undefined, 'neither viewer is selected');
+    assert.equal(named(a.root), 'AuthFlow');
+    assert.ok(!a.shown.includes('Shell'), 'browsing never came back');
+    assert.equal(auth.saved, null, 'nothing is left stored');
+    assert.equal(signInMode.current(key), undefined);
+    assert.equal(signInMode.takeShell(key), undefined, 'nothing kept for anyone');
+  } finally { nativeViewerStorage.write = write; await a.stop(); }
+});
+
+test('a profile\'s check refused, then another profile chosen: the refusal is said on the faces, and the next choice signs in', async () => {
+  const a = await app();
+  try {
+    await profiles(a);
+    const held = await heldProfile(a);
+    await a.settle(() => held.refuse(new Error('verification refused')));
+    await promptly(held.work);
+    assert.equal(named(a.root), 'DirectProfiles', 'still choosing');
+    assert.equal(current.session?.accessToken, 'old-token', 'the old viewer is back meanwhile');
+    assert.notEqual(current.error, '', 'the faces say why');
+    assert.equal(current.busy, false);
+    const next = session('other-token', 'other-family', {...person, serverId: 'second', profileId: 'other'});
+    selection.session = next; auth.chosen = next as any; auth.me = undefined;
+    await a.settle(() => current.direct.chooseProfile('other'));
+    assert.equal(named(a.root), 'Shell');
+    assert.equal(current.session?.accessToken, 'other-token');
+    assert.equal(signInMode.current(key), undefined, 'over');
+    assert.ok(auth.revoked.includes('old-token'), 'the replaced sign-in is retired');
+    assert.ok(!a.shown.includes('AuthFlow'));
   } finally { await a.stop(); }
 });

@@ -1,7 +1,7 @@
 // Portico Account boundaries for session tests, layered over `session-hook-loader.mjs` and
 // `session-direct-loader.mjs`: the account (its credentials and servers), the route to one of its
-// servers and that server's answer come from `session-hosted-stub.mjs`; everything else, and the
-// commit, stays real.
+// servers, that server's answer and its answer to a chosen profile come from
+// `session-hosted-stub.mjs`; everything else, and the commit, stays real.
 import {fileURLToPath} from 'node:url';
 const session = new URL('../src/app/session.tsx', import.meta.url).href;
 const controls = new URL('./session-hosted-stub.mjs', import.meta.url).href;
@@ -9,6 +9,7 @@ const replaced = new Map([
   ['./session-hook-stub.mjs', ['useHostedAccount']],
   ['../../../packages/client-core/src/server-connections.ts', ['connectHostedServer']],
   ['../../../packages/client-core/src/portico-servers.ts', ['porticoSignIn']],
+  ['../../../packages/client-core/src/profile-management.ts', ['selectDirectProfile']],
 ].map(([path, names]) => [fileURLToPath(new URL(path, import.meta.url)), names]));
 export async function resolve(specifier, context, next) {
   const found = await next(specifier, context);

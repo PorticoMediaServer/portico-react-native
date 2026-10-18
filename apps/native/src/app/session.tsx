@@ -296,6 +296,18 @@ function untilEither<T>(work: (signal: AbortSignal) => Promise<T>, own: AbortSig
   });
 }
 
+/** Aborted as soon as either is (Hermes has no `AbortSignal.any`). */
+function eitherSignal(a: AbortSignal, b: AbortSignal): AbortSignal {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  if (a.aborted || b.aborted) stop();
+  else {
+    a.addEventListener('abort', stop, {once: true});
+    b.addEventListener('abort', stop, {once: true});
+  }
+  return controller.signal;
+}
+
 /** The API before a server is chosen. Never a real destination: nothing may be requested from it. */
 export const PLACEHOLDER_ORIGIN = 'http://127.0.0.1:1';
 export const hasRealOrigin = (api: {baseUrl: string}) => !api.baseUrl.startsWith(PLACEHOLDER_ORIGIN);
@@ -335,6 +347,9 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   // withdraws its authority to sign in, and its busy tokens, without the shared generation: that
   // generation is also the remembered sign-in's confirmation, which leaving must not abandon.
   const begun = useRef<{controller: AbortController; ops: Set<symbol>}>({controller: new AbortController(), ops: new Set()});
+  // The profiles being chosen from (`pending`) and what choosing one began: leaving the faces
+  // (`cancelPending`) withdraws it, its new viewer's check included, and gives the viewer back.
+  const choosing = useRef<{grant: DirectPending; controller: AbortController; ops: Set<symbol>} | undefined>(undefined);
   // The end of the viewer handoff under way (the commit's fence until it publishes or puts the old
   // viewer back), told to the sign-in mode; an ending (sign-out) ends it at once.
   const handoffEnd = useRef<() => void>(() => {});
@@ -1155,21 +1170,28 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
         const current = viewer.getSnapshot();
         return current.session ? undefined : undefined;
       })());
+      // Every choice from these profiles (a wrong PIN and another try, say) belongs to them.
+      if (choosing.current?.grant !== pending) choosing.current = {grant: pending, controller: new AbortController(), ops: new Set()};
+      const owner = choosing.current;
       const op = beginBusy();
+      owner.ops.add(op);
       setError('');
       let issued: LocalSession | undefined;
       try {
         const serverId = snapshot?.serverId ?? viewer.getSnapshot().session?.viewer.serverId ?? pending.api.getRouteConnection()?.pin.serverId ?? '';
         const accountId = snapshot?.account.id ?? viewer.getSnapshot().session?.viewer.accountId ?? '';
-        const selection = await inTime(signal => selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin}, signal));
+        // Left before it answers: the request stops; an answer that comes anyway is ended below.
+        const selection = await inTime(signal => selectDirectProfile(pending.api, {authority: 'local', accountId, serverId}, profileId, {pin: profilePin}, eitherSignal(signal, owner.controller.signal)));
         issued = selection.session;
-        await acceptDirect(pending.api.baseUrl, selection.session, pending, gen);
+        // Left while the new viewer is checked: the check stops and the viewer set aside comes back.
+        await acceptDirect(pending.api.baseUrl, selection.session, pending, gen, owner.controller.signal);
       } catch (e) {
         // The server made a viewer session this device won't use (left, or refused before it was
         // handed over): end it, unless it is the one now in use (NS-07).
         if (issued && viewer.getSnapshot().session?.sessionFamilyId !== issued.sessionFamilyId) void profileAPI(pending.api.baseUrl, issued.accessToken).logout().catch(() => {});
-        if (gen === generation.current) setError(message(e));
+        if (gen === generation.current && !owner.controller.signal.aborted) setError(message(e));
       } finally {
+        owner.ops.delete(op);
         endBusy(op);
       }
     },
@@ -1177,13 +1199,22 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
   );
 
   const cancelPending = useCallback(() => {
+    // Leaving the faces withdraws a profile being chosen: its requests, its spinner and its
+    // authority to sign in. Its commit then puts the viewer it set aside back, unless an ending
+    // came since (sign-out and the rest clear the commit first, which keeps that viewer aside).
+    const choice = choosing.current;
+    choosing.current = undefined;
+    if (choice) {
+      choice.controller.abort();
+      releaseAttempt(choice);
+    }
     generation.current++;
     clearTimeout(resumeRetry.current);
     resumeWake = undefined;
     // C45: the account-tier session is its own family; abandoning the choice signs it out.
     if (pending?.accountGrant && pending.accountSession) void profileAPI(pending.api.baseUrl, pending.accountSession.accessToken).request('/v1/sessions/current', 'DELETE').catch(() => {});
     setPending(undefined);
-  }, [pending]);
+  }, [pending, releaseAttempt]);
 
   const openProfileChooser = useCallback(() => {
     generation.current++;
