@@ -66,22 +66,7 @@ jobs:
         working-directory: apps/vega
 
   android:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
-        with: {distribution: temurin, java-version: '17'}
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/native
-      - name: Assemble the debug builds (phones and televisions, Fire OS)
-        run: ./gradlew --no-daemon assembleDebug
-        working-directory: apps/native/android
-      - name: Kotlin unit tests (JVM, no device)
-        run: ./gradlew --no-daemon :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest
-        working-directory: apps/native/android
+    uses: ./.github/workflows/android-builds.yml
 
   apple-contracts:
     runs-on: macos-15
