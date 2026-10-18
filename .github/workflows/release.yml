@@ -11,8 +11,8 @@ name: Release
 # What stays by hand, because it needs credentials or tools these runners do not have: store
 # signing (Android release builds are signed with the debug key until distribution is decided, see
 # apps/native/android/app/build.gradle; Apple archives are unsigned), notarization and store
-# upload, and the Vega package (`npm run build` in apps/vega needs Amazon's Vega SDK). The release
-# is left as a draft for those to be added before it is published.
+# upload. Vega packages are built by the CI suite using the pinned Amazon SDK. The release
+# is left as a draft for store signing and review before it is published.
 
 on:
   push:
@@ -68,7 +68,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {path: dist, merge-multiple: true}
+        with: {name: android-and-fire-os, path: dist}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: vega-release-packages, path: dist}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with: {name: apple, path: dist}
       - name: Draft the release with every file and its SHA-256
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,5 +81,5 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
             --title "Portico apps $GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA. Android builds are signed with the debug key and Apple archives are unsigned: sign for the stores, add the Vega package, then publish." \
+            --notes "Built from $GITHUB_SHA. Android builds are signed with the debug key and Apple archives are unsigned: sign for the stores and review before publishing." \
             ./*

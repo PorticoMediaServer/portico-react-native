@@ -65,6 +65,9 @@ jobs:
       - run: npm test
         working-directory: apps/vega
 
+  vega-packages:
+    uses: ./.github/workflows/vega-builds.yml
+
   android:
     uses: ./.github/workflows/android-builds.yml
 

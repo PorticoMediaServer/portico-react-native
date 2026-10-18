@@ -3,9 +3,6 @@ name: Vega builds
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [android-vega-actions]
-    paths: ['.github/workflows/vega-builds.yml', 'scripts/install-vega-ci.sh', 'apps/vega/scripts/vega.mjs']
 
 permissions:
   contents: read
