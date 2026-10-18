@@ -340,7 +340,8 @@ export function LetterRail({index, current, onJump, onLeave, sortField}: {index:
     // A column as tall as the grid beside it (the guide stretched to it, the list filling the
     // guide), so the keys that don't fit scroll with focus rather than spilling past the screen.
     <FocusGroup style={{width: size, flex: 1, alignSelf: 'stretch'}}>
-      <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.xs}}>
+      {/* Room for a key's focus ring at both ends, and (Android) when focus scrolls a key to the edge. */}
+      <ScrollView style={{flex: 1}} showsVerticalScrollIndicator={false} fadingEdgeLength={space.md} contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingVertical: space.md}}>
         {index.map(a => (
           <Focusable key={a.key} accessibilityRole="button" accessibilityLabel={i18n.t('lib.jumpToLetterLabel', {letter: label(a.key)})} radius={metrics.radius.control} scale={1} onPress={() => onJump(a.key)}
             onFocus={() => { inside.current = true; }} onBlur={() => { inside.current = false; left.current = Date.now(); }} style={{width: size, height: size}}>

@@ -484,7 +484,7 @@ function EngineResults({window: {list, snapshot}, renderHeader, renderStrip, sor
         <View style={{flex: 1}}>
           <FocusGroup style={{flex: 1, marginRight: letters ? tvRail.width + tvRail.gap : 0}}>{body}</FocusGroup>
           {letters ? (
-            <View style={{position: 'absolute', top: 0, bottom: 0, right: space.page, width: tvRail.width}}>
+            <View style={{position: 'absolute', top: 0, bottom: space.lg, right: space.page, width: tvRail.width}}>
               <LetterRail index={anchors} current={letter} sortField={sortField} onJump={jump} onLeave={leaveLetters} />
             </View>
           ) : null}
