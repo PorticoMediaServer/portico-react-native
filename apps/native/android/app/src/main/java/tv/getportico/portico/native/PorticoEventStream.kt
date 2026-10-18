@@ -18,8 +18,8 @@ import okhttp3.Response
 internal object PorticoEventStream {
   private class Entry(val owner: Any, val call: Call) {
     val startedAt = SystemClock.elapsedRealtime()
-    var response: Response? = null
-    var reading = false
+    /** The response, read on the pool and ended from any thread without a second reader inside it. */
+    val body = PorticoEventStreamBody(call)
     var received = 0L
   }
 
@@ -64,13 +64,11 @@ internal object PorticoEventStream {
         val fields = Arguments.createMap()
         for (name in response.headers.names()) fields.putString(name, response.headers.values(name).joinToString(", "))
         result.putMap("headers", fields)
-        synchronized(entries) {
-          if (entries[id] !== entry) {
-            response.close()
-            promise.reject("event_cancelled", "The event stream was cancelled.")
-            return
-          }
-          entry.response = response
+        val current = synchronized(entries) { entries[id] === entry }
+        if (!current || !entry.body.attach(response)) {
+          response.close()
+          promise.reject("event_cancelled", "The event stream was cancelled.")
+          return
         }
         promise.resolve(result)
       }
@@ -78,23 +76,17 @@ internal object PorticoEventStream {
   }
 
   fun read(id: String?, promise: Promise) {
-    val entry: Entry
-    synchronized(entries) {
-      val found = entries[id]
-      if (found == null || found.response == null || found.reading) {
-        promise.reject("event_local", "The event stream is unavailable."); return
-      }
-      entry = found
-      entry.reading = true
+    val entry = synchronized(entries) { entries[id] }
+    if (entry == null || !entry.body.claim()) {
+      promise.reject("event_local", "The event stream is unavailable."); return
     }
     readers.execute {
       try {
         val bytes = ByteArray(16384)
-        val count = entry.response?.body?.byteStream()?.read(bytes) ?: -1
+        val count = entry.body.read(bytes)
         val ended = synchronized(entries) {
           if (entries[id] !== entry) throw IOException("Event stream cancelled.")
           if (count > 0) entry.received += count
-          entry.reading = false
           count < 0 || entry.received > 1048576
         }
         val result = Arguments.createMap()
@@ -122,15 +114,18 @@ internal object PorticoEventStream {
 
   fun cancel(id: String?) = cancel(id, null)
 
-  /** A late callback can end its own stream, never a replacement with the same identifier. */
+  /**
+   * A late callback can end its own stream, never a replacement with the same identifier. Ending
+   * cancels the call and closes the response only when no read is inside it (`PorticoEventStreamBody`):
+   * this runs on the JS module thread while a reader may be blocked in the same body.
+   */
   private fun cancel(id: String?, expected: Entry?) {
     val entry = synchronized(entries) {
       val current = entries[id] ?: return
       if (expected != null && current !== expected) return
       entries.remove(id)
     } ?: return
-    entry.call.cancel()
-    entry.response?.close()
+    entry.body.end()
   }
 
   fun cancelOwnedBy(owner: Any) {
