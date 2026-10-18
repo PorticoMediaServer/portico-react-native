@@ -1,6 +1,6 @@
 {
   "repository": "PorticoMediaServer/portico-server",
-  "revision": "eec351c2e9d5e3193b44168453ac3920c0ff5151",
+  "revision": "f6878ed1bfcf3af5872aa87dfc2f3d51ce9f5d2c",
   "packages": [
     "packages/client-core",
     "packages/contracts",

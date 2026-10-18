@@ -5,7 +5,10 @@ import {useOffline} from '../../app/downloads';
 import {useI18n} from '../../app/i18n';
 import {useSession} from '../../app/session';
 import {Button, Ring, Surface, Text, useTheme} from '../../ui';
+import {certificateOrigin, onCertificateQuestion, pendingCertificate, type PendingCertificate} from '../../bridge/certificate-trust';
+import {certificateTrustAvailable} from '../../bridge/server-connections';
 import {AuthFrame} from './AuthFrame';
+import {CertificateQuestion} from './CertificateQuestion';
 
 const BACKOFF_SECONDS = [2, 4, 8, 15, 30, 60];
 
@@ -26,9 +29,19 @@ export function SavedServerUnavailable({onDownloads, onElsewhere}: {onDownloads:
   const resume = useRef(session.resumeSaved);
   resume.current = session.resumeSaved;
   const busy = session.busy;
+  // The saved server answered with a certificate that needs the person's decision (it changed, or
+  // a proxy now answers for it): that is not an outage, so the question is asked here, as the
+  // sign-in screen and the signed-in app ask it, and nothing is retried until it is answered.
+  const origin = session.recovery ? certificateOrigin(session.recovery.serverUrl) : undefined;
+  const [question, setQuestion] = useState<PendingCertificate | undefined>(() => (origin && certificateTrustAvailable() ? pendingCertificate(origin) : undefined));
+  useEffect(() => {
+    if (!origin || !certificateTrustAvailable()) return;
+    setQuestion(pendingCertificate(origin));
+    return onCertificateQuestion(asked => { if (asked.origin === origin) setQuestion(asked); });
+  }, [origin]);
   // Count down to the next automatic attempt; each failure waits longer, up to a minute.
   useEffect(() => {
-    if (busy) return;
+    if (busy || question) return;
     const wait = BACKOFF_SECONDS[Math.min(attempt, BACKOFF_SECONDS.length - 1)];
     setRemaining(wait);
     const started = Date.now();
@@ -42,7 +55,7 @@ export function SavedServerUnavailable({onDownloads, onElsewhere}: {onDownloads:
       }
     }, 500);
     return () => clearInterval(timer);
-  }, [attempt, busy]);
+  }, [attempt, busy, question]);
   // Coming back to the app is a good moment to try at once (the network may have changed).
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
@@ -54,6 +67,16 @@ export function SavedServerUnavailable({onDownloads, onElsewhere}: {onDownloads:
     setAttempt(0);
     void resume.current();
   };
+  if (question && origin) {
+    return (
+      <AuthFrame title={i18n.t('connection.certificate.question')} lead={i18n.t(question.reason === 'changed' ? 'connection.certificate.changed' : 'connection.certificate.unverified')} centered={isTV} wide={isTV}>
+        <View style={{gap: space.sm, alignItems: isTV ? 'center' : 'stretch'}}>
+          <CertificateQuestion origin={origin} shown onTrusted={() => { setQuestion(undefined); tryNow(); }} />
+          <Button variant="ghost" label={i18n.t('action.useAnotherServerOrAccount')} fullWidth={!isTV} onPress={onElsewhere} />
+        </View>
+      </AuthFrame>
+    );
+  }
   return (
     <AuthFrame title={host ? i18n.t('savedServer.title', {host}) : i18n.t('savedServer.titleGeneric')} lead={i18n.t('savedServer.lead')} centered={isTV} wide={isTV}>
       <Surface style={{alignItems: 'center', gap: space.md}}>
