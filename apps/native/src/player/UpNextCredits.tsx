@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
 import type {SegmentMarkerSet} from '../../../../packages/client-core/src/segment-markers';
 import {upNextCountdown, upNextOffer, type UpNextOffer} from '../../../../packages/client-core/src/up-next';
+import {followedByScene} from '../../../../packages/client-core/src/segment-skip';
 import {formatClock, useArtwork} from '../app/content';
 import {useI18n} from '../app/i18n';
 import {Artwork, Button, Text, alpha, useTheme} from '../ui';
@@ -91,6 +92,8 @@ export function UpNextCredits({engine, offer, next, postPlay, bottom, onDismiss}
         <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: space.sm}}>
           {/* On TV the card takes focus when it appears (once per offer), so Select plays the next title. */}
           <Button key={offer.id} variant="primary" icon="play" label={i18n.t('player.upNext.playNow')} hasTVPreferredFocus={isTV} onPress={() => leave(false)} />
+          {/* A scene after the credits: skipping them goes to it instead of the next title. */}
+          {offer.marker && followedByScene(offer.marker, state.duration) ? <Button variant="secondary" icon="forward" label={i18n.t('player.skip', {kind: offer.marker.kind})} onPress={() => { const marker = offer.marker!; engine.service.markerSkipped(marker.id, 'manual', engine.state.positionSeconds); onDismiss(); engine.seekTo(marker.endSeconds); }} /> : null}
           <Button variant="ghost" label={i18n.t(offer.marker ? 'player.upNext.watchCredits' : 'player.upNext.notNow')} onPress={onDismiss} />
         </View>
       </View>

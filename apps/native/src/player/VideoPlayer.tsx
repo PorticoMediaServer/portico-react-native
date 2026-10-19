@@ -1,7 +1,7 @@
 import {Lyrics} from './Lyrics';
 import {FeedbackSheet} from '../screens/Notifications';
 import {DestinationSheet} from './Destinations';
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 
 const noSubscribe = () => () => {};
 /** The volume slider needs a native build that has it; older builds simply don't show one. */
@@ -70,6 +70,8 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   // While the closing credits run, the next title is offered in a corner; its card stands in for the "Skip credits" button.
   const upNext = useUpNextDuringCredits(engine, markers, skipModes.credits ?? 'ask', !isAudio && !state.channel);
   const promptModes = upNext.offer?.marker ? {...skipModes, credits: 'off' as SkipMode, outro: 'off' as SkipMode} : skipModes;
+  // Intro, recap and credits on the seek bar, as on the web.
+  const segmentMarks = useMemo(() => markers?.markers.filter(m => m.kind === 'intro' || m.kind === 'recap' || m.kind === 'credits' || m.kind === 'outro').map(m => ({start: m.startSeconds, end: m.endSeconds})), [markers]);
   const [chrome, setChrome] = useState(true);
   const [option, setOptionNow] = useState<OptionKey | null>(null);
   const [anchor, setAnchor] = useState<OptionAnchor>();
@@ -421,7 +423,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       {pictureInPicture}
       {!isTV && !isAudio ? <Pressable style={StyleSheet.absoluteFill} onPress={() => (chrome && playing ? setChrome(false) : reveal())} accessibilityLabel={chrome ? i18n.t('player.hideControls') : i18n.t('player.showControls')} /> : null}
       {!isAudio && !state.channel ? <PostPlay engine={engine} /> : null}
-      {!isAudio && !state.channel && state.phase === 'ready' ? <SkipPrompt markers={markers} position={state.positionSeconds} sessionId={state.session?.id} modes={promptModes} onSeek={engine.seekTo} onSkipped={(id, mode, at) => engine.service.markerSkipped(id, mode, at)} bottom={bottomInset + (isTV ? 260 : 190)} /> : null}
+      {!isAudio && !state.channel && state.phase === 'ready' ? <SkipPrompt markers={markers} position={state.positionSeconds} duration={state.duration} sessionId={state.session?.id} modes={promptModes} onSeek={engine.seekTo} onSkipped={(id, mode, at) => engine.service.markerSkipped(id, mode, at)} bottom={bottomInset + (isTV ? 260 : 190)} /> : null}
       {upNext.offer && upNext.next ? <UpNextCredits engine={engine} offer={upNext.offer} next={upNext.next} postPlay={upNext.postPlay} bottom={bottomInset + (isTV ? 260 : 190)} onDismiss={upNext.dismiss} /> : null}
       {route.external && !isAudio ? (
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, {alignItems: 'center', justifyContent: 'center', backgroundColor: colors.black}]}>
@@ -504,7 +506,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
         <View style={{position: 'absolute', left: side, right: side, bottom: bottomInset, gap: isTV ? space.lg : space.md}}>
           <TVFocusGuideView trapFocusLeft trapFocusRight>
             <Timeline position={state.positionSeconds} duration={state.duration} pending={scrub ?? state.pendingSeek?.positionSeconds} live={!!state.channel} onSeek={engine.seekTo} focused={timelineFocused} onFocusChange={setTimelineFocused} hasTVPreferredFocus={isTV && !overlayUp && !returnedFromOverlay.current} programmeLabel={liveProgrammeLabel} behindLabel={liveBehindLabel}
-              chapters={state.channel || isAudio ? undefined : engine.chapters} trickplay={state.channel || isAudio ? null : engine.trickplay} artwork={artwork} scrubbing={scrub !== undefined || (isTV && timelineFocused && state.pendingSeek !== undefined)} />
+              chapters={state.channel || isAudio ? undefined : engine.chapters} segments={state.channel || isAudio ? undefined : segmentMarks} trickplay={state.channel || isAudio ? null : engine.trickplay} artwork={artwork} scrubbing={scrub !== undefined || (isTV && timelineFocused && state.pendingSeek !== undefined)} />
           </TVFocusGuideView>
           <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isTV ? space.lg : space.md}}>
             {queueModes ? <QueueToggle engine={engine} kind="shuffle" size={controlSize} /> : null}
