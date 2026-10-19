@@ -1,52 +1,162 @@
 name: Release
 
-# Run the same complete platform suite, then collect its exact artifacts into a
-# draft on version tags. Signing, notarization and store upload remain separate.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: Stable X.Y.Z version embedded in every package (no v prefix)
+        required: true
+        type: string
+      source_run_id:
+        description: Exact completed successful ci.yml run at this dispatch SHA
+        required: true
+        type: string
+      source_base_sha:
+        description: Approved full base SHA (required when reusing a pull_request CI run)
+        required: false
+        type: string
+      google_signing_run_id:
+        description: Optional successful Google upload signing run at the same head
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # One publication at a time, including manual/tag routes for the same version.
+  group: native-release-publication
   cancel-in-progress: false
 
 jobs:
-  checks:
-    uses: ./.github/workflows/ci.yml
-
-  draft:
-    needs: checks
-    if: startsWith(github.ref, 'refs/tags/v')
+  gate:
+    if: github.repository == 'PorticoMediaServer/portico-react-native'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      run_id: ${{ steps.validate.outputs.run_id }}
+      android_id: ${{ steps.validate.outputs.android_id }}
+      vega_id: ${{ steps.validate.outputs.vega_id }}
+      ios_id: ${{ steps.validate.outputs.ios_id }}
+      tvos_id: ${{ steps.validate.outputs.tvos_id }}
+      signing_id: ${{ steps.validate.outputs.signing_id }}
+      state_id: ${{ steps.state.outputs.artifact-id }}
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: android-and-fire-os, path: inputs/android}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: vega-release-packages, path: inputs/vega}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: Portico-ios-unsigned, path: inputs/ios}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {name: Portico-tvos-unsigned, path: inputs/tvos}
-      - name: Preserve each platform's source, notices and checksums
-        run: |
-          mkdir -p dist
-          for platform in android vega ios tvos; do
-            test -n "$(find "inputs/$platform" -type f -print -quit)"
-            tar -czf "dist/Portico-$platform-$GITHUB_REF_NAME.tar.gz" -C "inputs/$platform" .
-          done
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
-      - name: Create the draft release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test publisher trust and package boundaries
+        run: python3 -I scripts/test-release-publish.py
+      - name: Validate context, complete CI and exact source head
+        id: validate
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          cd dist
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "Portico apps $GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA. Android/Fire OS use development signing; Apple archives are unsigned. Platform bundles preserve corresponding source, notices and checksums. Review store signing and device acceptance before publishing." \
-            ./*
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_BASE_SHA: ${{ inputs.source_base_sha }}
+          GOOGLE_SIGNING_RUN_ID: ${{ inputs.google_signing_run_id }}
+        run: python3 -I scripts/release-publish.py gate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: state
+        with:
+          name: native-release-validation-${{ github.run_attempt }}
+          path: release-state.json
+          if-no-files-found: error
+          retention-days: 14
+
+  checks:
+    needs: gate
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [gate, checks]
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && needs.checks.result == 'skipped') ||
+       (github.event_name == 'push' && needs.checks.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      SOURCE_BASE_SHA: ${{ inputs.source_base_sha }}
+      GOOGLE_SIGNING_RUN_ID: ${{ inputs.google_signing_run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with: {distribution: temurin, java-version: '17'}
+      - name: Install the fixed Android manifest inspection tool
+        run: sdkmanager 'build-tools;35.0.0' > /dev/null
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.gate.outputs.state_id }}
+          path: .
+          merge-multiple: true
+      # Empty artifact-ids on tag runs selects each name in the current run.
+      # Manual runs use the exact API-validated immutable artifact IDs from gate.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'android-and-fire-os' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.android_id }}
+          path: inputs/android
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'vega-release-packages' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.vega_id }}
+          path: inputs/vega
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'Portico-ios-unsigned' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.ios_id }}
+          path: inputs/ios
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'Portico-tvos-unsigned' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.tvos_id }}
+          path: inputs/tvos
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.gate.outputs.signing_id != ''
+        with:
+          artifact-ids: ${{ needs.gate.outputs.signing_id }}
+          path: inputs/google-upload
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.google_signing_run_id }}
+      - name: Verify embedded versions, source, notices, checksums and optional upload signature
+        run: python3 -I scripts/release-publish.py prepare
+      - name: Publish all verified assets with an immutable version tag
+        # Stages uploads as a draft, then publishes only after exact asset readback.
+        # GITHUB_TOKEN-created tags do not trigger a recursive push workflow.
+        run: python3 -I scripts/release-publish.py publish
