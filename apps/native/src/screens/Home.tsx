@@ -298,11 +298,12 @@ export function useSectionCards(entries: readonly ContentEntry[], libraryId?: st
 /** Renders one authored section as a shelf, grid or list. */
 /**
  * A section's title. A heading whose key is a row title code (`home.row.*`: a Home row, a Discover
- * personal row, a title page's More like X) is the catalogue message with its params, else the
- * server's words (P7).
+ * personal row, a title page's More like X) or a fixed section name (`section.*`: Seasons, Songs,
+ * Chapters) is the catalogue message with its params, else the server's words (P7): a section
+ * named for its library or playlist has no catalogue message.
  */
 export function sectionTitle(i18n: Pick<I18n, 't' | 'has'>, heading: ContentSection['heading']): string {
-  return heading.key.startsWith('home.row.') ? serverTextLabel(i18n, heading, heading.fallback) : heading.fallback;
+  return heading.key.startsWith('home.row.') || heading.key.startsWith('section.') ? serverTextLabel(i18n, heading, heading.fallback) : heading.fallback;
 }
 
 export function SectionView({section, onSeeAll, onMore, hideTitle = false, libraryId, entryFocus = false, loadingMore = false, row, origin, alwaysSeeAll = false, sequence}: {/** The list as the server's query: a pressed row plays it whole on from there, not just what is loaded. */ sequence?: SequenceContainer; /** See all even when the row shows everything it has (a saved view's page holds more). */ alwaysSeeAll?: boolean; /** Position on the screen, for artwork order. */ row?: number; /** X-12: the cards' place, for their long-press menu. */ origin?: EntryOrigin; /** The first card takes focus when the screen opens. */ entryFocus?: boolean; section: ContentSection; onSeeAll?: () => void; onMore?: () => void; hideTitle?: boolean; /** The library this section belongs to, for entries the server did not stamp (engine results). */ libraryId?: string; loadingMore?: boolean}) {
