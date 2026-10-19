@@ -72,6 +72,20 @@ jobs:
   android:
     uses: ./.github/workflows/android-builds.yml
 
+  # Branch protection requires this exact check name. Reusable jobs report
+  # their individual names; this aggregate covers every ABI and package job.
+  android-status:
+    name: android
+    needs: android
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the complete Android workflow
+        env:
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: test "$ANDROID_RESULT" = success
+
   apple:
     uses: ./.github/workflows/apple-builds.yml
 
