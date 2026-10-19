@@ -1,113 +1,162 @@
 name: Release
 
-# Builds the apps for a release from one commit and drafts a GitHub release with them:
-#
-#  - the whole CI suite on that commit first (ci.yml, with portico-server at the recorded commit);
-#  - Android: the media engine from pinned source, then release APKs and the App Bundle;
-#  - Apple: the media engine, then unsigned iPhone/iPad and Apple TV archives;
-#  - each platform's media-engine corresponding source bundle and notices (the LGPL asks for them
-#    beside the app), and a SHA-256 list of everything attached.
-#
-# What stays by hand, because it needs credentials or tools these runners do not have: store
-# signing (Android release builds are signed with the debug key until distribution is decided, see
-# apps/native/android/app/build.gradle; Apple archives are unsigned), notarization and store
-# upload, and the Vega package (`npm run build` in apps/vega needs Amazon's Vega SDK). The release
-# is left as a draft for those to be added before it is published.
-
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: Stable X.Y.Z version embedded in every package (no v prefix)
+        required: true
+        type: string
+      source_run_id:
+        description: Exact completed successful ci.yml run at this dispatch SHA
+        required: true
+        type: string
+      source_base_sha:
+        description: Approved full base SHA (required when reusing a pull_request CI run)
+        required: false
+        type: string
+      google_signing_run_id:
+        description: Optional successful Google upload signing run at the same head
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # One publication at a time, including manual/tag routes for the same version.
+  group: native-release-publication
   cancel-in-progress: false
 
 jobs:
-  checks:
-    uses: ./.github/workflows/ci.yml
-
-  android:
-    needs: checks
+  gate:
+    if: github.repository == 'PorticoMediaServer/portico-react-native'
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
-        with: {distribution: temurin, java-version: '17'}
-      - name: The NDK the app and the media engine are built with
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
-      - name: Media engine from pinned source
-        run: MEDIA_ENGINE_JOBS=4 third_party/media-engine/build-android.sh
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/native
-      - name: Release APKs and App Bundle
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
-        working-directory: apps/native/android
-      - name: Collect
-        run: |
-          mkdir -p dist
-          find apps/native/android/app/build/outputs/apk/release -name '*.apk' -exec cp {} dist/ \;
-          find apps/native/android/app/build/outputs/bundle/release -name '*.aab' -exec cp {} dist/ \;
-          cp third_party/media-engine/out/android/source/*.tar dist/
-          cp third_party/media-engine/out/android/notices/THIRD-PARTY-NOTICES.txt dist/media-engine-android-THIRD-PARTY-NOTICES.txt
-          ls dist/*.apk dist/*.aab > /dev/null
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with: {name: android, path: dist/, if-no-files-found: error}
-
-  apple:
-    needs: checks
-    runs-on: macos-15
-    timeout-minutes: 240
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
-      - name: Media engine from pinned source
-        run: |
-          brew list pkgconf > /dev/null 2>&1 || brew install pkgconf
-          third_party/media-engine/build-apple.sh
-      - run: npm ci --no-audit --no-fund --legacy-peer-deps
-        working-directory: apps/native
-      - name: Unsigned archives (iPhone and iPad, Apple TV)
-        run: |
-          mkdir -p dist
-          for platform in ios tvos; do
-            sdk=iphoneos; [ "$platform" = tvos ] && sdk=appletvos
-            (cd "apps/native/$platform" && pod install)
-            xcodebuild -workspace "apps/native/$platform/Portico.xcworkspace" -scheme Portico -configuration Release \
-              -sdk "$sdk" -archivePath "$RUNNER_TEMP/Portico-$platform.xcarchive" archive \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-            ditto -c -k --keepParent "$RUNNER_TEMP/Portico-$platform.xcarchive" "dist/Portico-$platform-unsigned.xcarchive.zip"
-          done
-          cp third_party/media-engine/out/apple/source/*.tar dist/
-          cp third_party/media-engine/out/apple/notices/THIRD-PARTY-NOTICES.txt dist/media-engine-apple-THIRD-PARTY-NOTICES.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with: {name: apple, path: dist/, if-no-files-found: error}
-
-  draft:
-    needs: [android, apple]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      run_id: ${{ steps.validate.outputs.run_id }}
+      android_id: ${{ steps.validate.outputs.android_id }}
+      vega_id: ${{ steps.validate.outputs.vega_id }}
+      ios_id: ${{ steps.validate.outputs.ios_id }}
+      tvos_id: ${{ steps.validate.outputs.tvos_id }}
+      signing_id: ${{ steps.validate.outputs.signing_id }}
+      state_id: ${{ steps.state.outputs.artifact-id }}
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with: {path: dist, merge-multiple: true}
-      - name: Draft the release with every file and its SHA-256
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test publisher trust and package boundaries
+        run: python3 -I scripts/test-release-publish.py
+      - name: Validate context, complete CI and exact source head
+        id: validate
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          cd dist
-          sha256sum * > SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "Portico apps $GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA. Android builds are signed with the debug key and Apple archives are unsigned: sign for the stores, add the Vega package, then publish." \
-            ./*
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_BASE_SHA: ${{ inputs.source_base_sha }}
+          GOOGLE_SIGNING_RUN_ID: ${{ inputs.google_signing_run_id }}
+        run: python3 -I scripts/release-publish.py gate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: state
+        with:
+          name: native-release-validation-${{ github.run_attempt }}
+          path: release-state.json
+          if-no-files-found: error
+          retention-days: 14
+
+  checks:
+    needs: gate
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [gate, checks]
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && needs.checks.result == 'skipped') ||
+       (github.event_name == 'push' && needs.checks.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      SOURCE_BASE_SHA: ${{ inputs.source_base_sha }}
+      GOOGLE_SIGNING_RUN_ID: ${{ inputs.google_signing_run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with: {distribution: temurin, java-version: '17'}
+      - name: Install the fixed Android manifest inspection tool
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;35.0.0" > /dev/null'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.gate.outputs.state_id }}
+          path: .
+          merge-multiple: true
+      # Empty artifact-ids on tag runs selects each name in the current run.
+      # Manual runs use the exact API-validated immutable artifact IDs from gate.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'android-and-fire-os' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.android_id }}
+          path: inputs/android
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'vega-release-packages' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.vega_id }}
+          path: inputs/vega
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'Portico-ios-unsigned' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.ios_id }}
+          path: inputs/ios
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ github.event_name == 'push' && 'Portico-tvos-unsigned' || '' }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.gate.outputs.tvos_id }}
+          path: inputs/tvos
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.gate.outputs.run_id }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.gate.outputs.signing_id != ''
+        with:
+          artifact-ids: ${{ needs.gate.outputs.signing_id }}
+          path: inputs/google-upload
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.google_signing_run_id }}
+      - name: Verify embedded versions, source, notices, checksums and optional upload signature
+        run: python3 -I scripts/release-publish.py prepare
+      - name: Publish all verified assets with an immutable version tag
+        # Stages uploads as a draft, then publishes only after exact asset readback.
+        # GITHUB_TOKEN-created tags do not trigger a recursive push workflow.
+        run: python3 -I scripts/release-publish.py publish

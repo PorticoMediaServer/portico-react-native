@@ -1,0 +1,18 @@
+From: Justin Ehler <justin@justinehler.com>
+Subject: [PATCH] Search the Vulkan target prefix for the glslang archive
+
+Use the same explicit target library directory as SPIRV and the remaining
+static glslang dependencies. Meson cannot infer static archive directories
+from the target link arguments on Apple cross builds.
+
+--- a/src/glsl/meson.build
++++ b/src/glsl/meson.build
+@@ -59,7 +59,7 @@
+ 
+     # Glslang 15.0.0 moved some code around, add also linking to glslang, while
+     # this is not needed for older versions, it will still work.
+-    glslang_deps += cxx.find_library('glslang', required: required, static: static)
++    glslang_deps += cxx.find_library('glslang', required: required, static: static, dirs: vulkan_lib_dirs)
+ 
+     if static
+       glslang_deps += [

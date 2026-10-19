@@ -1,0 +1,18 @@
+From: Justin Ehler <justin@justinehler.com>
+Subject: [PATCH] Omit desktop mount classification on sandboxed Apple mobile
+
+--- a/meson.build
++++ b/meson.build
+@@ -571,7 +571,11 @@
+                                                               prefix: '#include <pthread.h>\n#include <pthread_np.h>')}
+ endif
+ 
+-features += {'bsd-fstatfs': cc.has_function('fstatfs', prefix: '#include <sys/mount.h>\n#include <sys/param.h>')}
++# Sandboxed iOS/tvOS file streams do not need desktop network-mount detection.
++# fstatfs reads a disk-space API merely to classify the mount, which has no
++# matching required-API reason here. Use stream_file.c's ordinary local fallback.
++mobile_apple = darwin and host_machine.subsystem() in ['ios', 'ios-simulator', 'tvos', 'tvos-simulator']
++features += {'bsd-fstatfs': not mobile_apple and cc.has_function('fstatfs', prefix: '#include <sys/mount.h>\n#include <sys/param.h>')}
+ 
+ features += {'linux-fstatfs': cc.has_function('fstatfs', prefix: '#include <sys/vfs.h>')}
+ 

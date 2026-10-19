@@ -527,14 +527,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.1;
 				OTHER_LDFLAGS = (
 					"-lsqlite3",
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico;
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -557,14 +557,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.1;
 				OTHER_LDFLAGS = (
 					"-lsqlite3",
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico;
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -726,7 +726,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TopShelf/Info.plist;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-Xlinker",
@@ -734,7 +734,7 @@
 					"-Xlinker",
 					_NSExtensionMain,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv.TopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
@@ -751,7 +751,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TopShelf/Info.plist;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.0.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-Xlinker",
@@ -759,7 +759,7 @@
 					"-Xlinker",
 					_NSExtensionMain,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.tv.TopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.TopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;

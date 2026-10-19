@@ -234,6 +234,7 @@ class MachO:
         self.id, self.dylibs, self.rpaths = None, [], []
         self.platform, self.minos = None, None
         self.symbols = []
+        aliases = []
         off = offset + 32
         for _ in range(ncmds):
             cmd, cmdsize = struct.unpack_from("<II", data, off)
@@ -253,13 +254,29 @@ class MachO:
             elif cmd == LC_SYMTAB:
                 symoff, nsyms, stroff, _ = struct.unpack_from("<IIII", data, off + 8)
                 for i in range(nsyms):
-                    n_strx, n_type, _, _, _ = struct.unpack_from("<IBBHQ", data, offset + symoff + i * 16)
+                    n_strx, n_type, _, _, n_value = struct.unpack_from("<IBBHQ", data, offset + symoff + i * 16)
                     if not n_type & 0x01 or n_type & 0xE0:  # external, not a debugging entry
                         continue
                     start = offset + stroff + n_strx
                     name = data[start:data.index(b"\0", start)].decode(errors="replace")
-                    self.symbols.append((name, (n_type & 0x0E) != 0))
+                    kind = n_type & 0x0E
+                    if kind == 0x0A:  # N_INDR: value indexes another symbol's name
+                        target = offset + stroff + n_value
+                        aliases.append((name, data[target:data.index(b"\0", target)].decode(errors="replace")))
+                    else:
+                        # N_UNDF and N_PBUD are imports; only N_ABS/N_SECT
+                        # establish a definition in this image.
+                        self.symbols.append((name, kind in (0x02, 0x0E)))
             off += cmdsize
+        defined = {name for name, local in self.symbols if local}
+        while True:
+            resolved = {name for name, target in aliases if target in defined}
+            if resolved <= defined:
+                break
+            defined.update(resolved)
+        # Imported aliases (including self aliases emitted by Apple's linker)
+        # are not embedded implementations. Aliases of local code still are.
+        self.symbols.extend((name, name in defined) for name, _ in aliases)
 
 
 def _ver(v: int) -> str:
@@ -490,6 +507,11 @@ def verify_apple(args, r: Report) -> dict:
     # on tvOS devices, x86_64 in the tvOS simulator, which Rust and so libdovi do not support).
     needles = path_needles(args.work)
     wanted_slices = {"ios": {"arm64"}, "ios-simulator": {"arm64", "x86_64"}, "tvos": {"arm64"}, "tvos-simulator": {"arm64"}}
+    if args.slices:
+        requested = args.slices.split()
+        if not requested or len(set(requested)) != len(requested) or set(requested) - set(wanted_slices):
+            raise ValueError(f"invalid Apple slices: {args.slices}")
+        wanted_slices = {name: wanted_slices[name] for name in requested}
     inventory = {}
     for xc in sorted(root.glob("*.xcframework")):
         name = xc.stem
@@ -607,6 +629,7 @@ def main() -> int:
     parser.add_argument("platform", choices=["android", "apple"])
     parser.add_argument("--out", type=pathlib.Path, default=HERE / "out")
     parser.add_argument("--abis", default="")
+    parser.add_argument("--slices", default="", help="Apple slices selected by build-apple.sh; default: all")
     parser.add_argument("--work", type=pathlib.Path,
                         default=pathlib.Path(os.environ.get("MEDIA_ENGINE_WORK_DIR") or HERE / "work"),
                         help="the build's work directory, which no library may name (default: MEDIA_ENGINE_WORK_DIR or ./work)")

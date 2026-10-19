@@ -26,3 +26,6 @@ xcuserdata/
 local.properties
 *.keystore
 !debug.keystore
+
+# Xcode machine-specific Node selection
+.xcode.env.local

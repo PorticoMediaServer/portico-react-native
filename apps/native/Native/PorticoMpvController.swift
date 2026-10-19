@@ -143,7 +143,10 @@ final class PorticoMpvController: NSObject, PorticoEngineClockSource {
         }
         subtitleOverlay.onStatus = { [weak self] error in self?.emit("subtitleStatus", error: error) }
         // A downloaded title's plain subtitles are a WebVTT file beside it, inside Downloads.
-        subtitleOverlay.allowsLocalFile = { url in PorticoMpvSupport.allowedLocalSource(url) }
+        subtitleOverlay.allowsLocalFile = { url in
+            guard let url = url else { return false }
+            return PorticoMpvSupport.allowedLocalSource(url)
+        }
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(enteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(enteringForeground), name: UIApplication.willEnterForegroundNotification, object: nil)

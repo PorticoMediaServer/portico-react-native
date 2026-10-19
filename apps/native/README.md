@@ -20,8 +20,8 @@ The React Native (react-native-tvos) client for Portico. It builds on:
 | `src/shell` | Authenticated frame: television rail, handheld bottom tabs, navigation stack, Menu-key policy. |
 | `src/screens` | Destinations: auth flow, Home, Library, Detail, Show, Entity, Search, Saved, Live TV, Channels, Settings. |
 | `src/player` | Player engine binding + full-screen chrome, handheld mini bar, television now-playing pill. |
-| `ios/` | iPhone/iPad Xcode project (`tv.getportico.portico.ios`). |
-| `tvos/` | Apple TV Xcode project (`tv.getportico.portico.tv`). |
+| `ios/` | iPhone/iPad Xcode project (`tv.getportico.portico`). |
+| `tvos/` | Apple TV Xcode project (`tv.getportico.portico`). |
 | `android/` | Android project (`tv.getportico.portico`): phones, tablets, Android TV, and Fire TV as the `firetv` flavor. |
 
 ## Product rules baked in

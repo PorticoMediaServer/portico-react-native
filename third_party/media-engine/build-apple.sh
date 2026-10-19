@@ -21,14 +21,27 @@
 # rustup, python3, perl, pkg-config (brew install pkgconf), curl. meson, ninja, cmake, nasm and
 # cargo-c are installed into the work directory at their pinned versions.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+set -E
+trap 'me_say "Command failed at line $LINENO (status $?): $BASH_COMMAND"' ERR
+trap 'me_say "Command failed at line $LINENO (status $?): $BASH_COMMAND"' ERR
 
 CLEAN=0
+SLICES="ios ios-simulator tvos tvos-simulator"
 while (( $# )); do
     case "$1" in
         --clean) CLEAN=1; shift ;;
+        --slices) (( $# >= 2 )) || me_die "--slices needs a space-separated list"; SLICES="$2"; shift 2 ;;
         -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) me_die "Unknown argument $1 (see --help)" ;;
     esac
+done
+
+[[ -n "$SLICES" ]] || me_die "Select at least one Apple slice"
+seen=" "
+for slice in $SLICES; do
+    case "$slice" in ios|ios-simulator|tvos|tvos-simulator) ;; *) me_die "Unknown Apple slice: $slice" ;; esac
+    [[ "$seen" != *" $slice "* ]] || me_die "Duplicate Apple slice: $slice"
+    seen+="$slice "
 done
 
 PLATFORM=apple
@@ -74,8 +87,11 @@ me_tools
 # ---------------------------------------------------------------------------------------------
 # Per-target toolchain settings. A target is one slice and one architecture.
 
-TARGETS="ios:arm64 ios-simulator:arm64 ios-simulator:x86_64 tvos:arm64 tvos-simulator:arm64"
-SLICES="ios ios-simulator tvos tvos-simulator"
+TARGETS=""
+for slice in $SLICES; do
+    TARGETS+="$slice:arm64 "
+    [[ "$slice" != ios-simulator ]] || TARGETS+="$slice:x86_64 "
+done
 
 set_target() {
     SLICE="${1%%:*}"; ARCH="${1##*:}"
@@ -155,13 +171,32 @@ cpu_family = '$CPU_FAMILY'
 cpu = '$ARCH'
 endian = 'little'
 EOF
+    # Generators such as FriBidi's Unicode tables run on the build Mac. The
+    # exported SDKROOT/CC describe the Apple device, so configure native tools
+    # explicitly with the macOS SDK and target instead of inheriting them.
+    local host_sdk host_cc host_cxx host_target
+    host_sdk=$(xcrun --sdk macosx --show-sdk-path)
+    host_cc=$(xcrun --sdk macosx -f clang)
+    host_cxx=$(xcrun --sdk macosx -f clang++)
+    host_target="$(uname -m)-apple-macos11.0"
+    cat > "$BUILD/native.ini" <<EOF
+[binaries]
+c = '$host_cc'
+cpp = '$host_cxx'
+
+[built-in options]
+c_args = ['--target=$host_target', '-isysroot$host_sdk']
+cpp_args = ['--target=$host_target', '-isysroot$host_sdk']
+c_link_args = ['--target=$host_target', '-isysroot$host_sdk']
+cpp_link_args = ['--target=$host_target', '-isysroot$host_sdk']
+EOF
 }
 
 meson_build() {
     local name="$1"; shift
     local dir="$BUILD/$name"
     rm -rf "$dir"
-    meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" \
+    meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" --native-file "$BUILD/native.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
     # mpv writes its configure command line and config folder into config.h.
@@ -209,7 +244,9 @@ build_openssl() {
 
 build_fribidi() { meson_build fribidi $(me_fribidi_common_flags); }
 
-build_freetype() { meson_build freetype $(me_freetype_common_flags); }
+# Avoid auto-linking Xcode 27's optional HVF font library; the shipped fonts
+# use the existing FreeType rasterizer and the apps retain their iOS/tvOS 15.1 floor.
+build_freetype() { meson_build freetype $(me_freetype_common_flags) -Dhvf=disabled; }
 
 build_harfbuzz() { meson_build harfbuzz $(me_harfbuzz_common_flags); }
 
@@ -401,6 +438,17 @@ done
 # ---------------------------------------------------------------------------------------------
 # Frameworks.
 
+# A restored component cache contains prefixes/build trees, while out/ is
+# regenerated. Restore inspection metadata even when every compile is up to date.
+mkdir -p "$ME_OUT/$PLATFORM"
+for slice in $SLICES; do
+    meta="$ME_OUT/$PLATFORM/meta/$slice"
+    cached_build="$ME_WORK/build/$PLATFORM/$slice-arm64"
+    mkdir -p "$meta"
+    cp "$cached_build/ffmpeg/config.h" "$meta/ffmpeg-config.h"
+    cp "$cached_build/ffmpeg/config_components.h" "$meta/ffmpeg-config_components.h"
+    cp "$cached_build/mpv/config.h" "$meta/mpv-config.h"
+done
 me_write_build_info "$PLATFORM" "$ME_OUT/$PLATFORM/build-info.json"
 "$ME_ROOT/collect-notices.sh" "$PLATFORM"
 
@@ -426,6 +474,9 @@ stem_of_install_name() {  # an install name of one of our libraries -> its stem,
     local base; base=$(basename "$1")
     base=${base#lib}; base=${base%%.*}
     for pair in $STEMS; do [[ "${pair%%:*}" == "$base" ]] && { echo "$base"; return; }; done
+    # System libraries are intentionally not rewritten. An empty successful
+    # result lets the caller continue under set -e while preserving their names.
+    return 0
 }
 
 platform_names() {  # <slice> -> CFBundleSupportedPlatforms value and UIDeviceFamily
@@ -529,7 +580,7 @@ for slice in $SLICES; do
         otool -l "$fw/$name" | awk '/cmd LC_RPATH/ {getline; getline; print $2}' | sort -u | while read -r rp; do
             install_name_tool -delete_rpath "$rp" "$fw/$name"
         done
-        links=$(otool -L "$fw/$name")
+        links=$(otool -L "$fw/$name" | awk '/^[[:space:]]/ {print $1}')
         [[ "$links" != *"$ME_WORK"* ]] || me_die "$name still refers to the build directory: $links"
         # -S as well: the debug map's object-file paths (N_OSO) name the build folders.
         strip -x -S "$fw/$name"
@@ -574,5 +625,5 @@ done
 rm -rf "$ME_ROOT/apple/Frameworks"; mkdir -p "$ME_ROOT/apple/Frameworks"
 cp -R "$XC"/*.xcframework "$ME_ROOT/apple/Frameworks/"
 
-python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --write-manifest
+python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --slices "$SLICES" --write-manifest
 me_say "Done. Open the Xcode workspaces; the PorticoMediaEngine package now resolves from apple/Frameworks."
