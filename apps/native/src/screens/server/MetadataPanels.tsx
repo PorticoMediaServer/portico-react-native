@@ -1,18 +1,20 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {View} from 'react-native';
+import {Linking, View} from 'react-native';
 import {dependsOn} from '../../../../../packages/client-core/src/freshness-hub';
 import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
 import {metadataAttentionService, serverMetadataAttentionService, type AttentionEntry} from '../../../../../packages/client-core/src/metadata-attention';
-import {artworkLimitBytes, artworkLimitText, metadataSettingsService, type MetadataSettings} from '../../../../../packages/client-core/src/metadata-settings';
+import {artworkLimitBytes, artworkLimitText, metadataSettingsService, openSubtitlesSummary, type MetadataSettings, type OpenSubtitlesStatus} from '../../../../../packages/client-core/src/metadata-settings';
 import {attentionInProgress, attentionOffers, attentionReason, candidateFacts, candidateLine, hasAttentionList, providerName, typedProviderId} from '../../../../../packages/client-core/src/server-admin/attention-words';
 import {useSession} from '../../app/session';
 import {useI18n} from '../../app/i18n';
 import {findInPages, problem, sendFresh, useAction, usePagedList, useRead} from '../../app/server-console';
-import {Field, ListRow, Menu, Notice, RowGroup, Sheet, ToggleRow, useTheme, type MenuItem} from '../../ui';
+import {Field, ListRow, Menu, Notice, RowGroup, Sheet, ToggleRow, showToast, useTheme, type MenuItem} from '../../ui';
 import {PickRow, TypedRow, useInlineForm} from '../settings/ServerForms';
 import {attentionChoices, keyChange, keyUntouched, metadataSave, subtitleChanges, type AttentionChoice, type KeyEdit} from './owner-rules';
 
 type Api = ReturnType<typeof useSession>['api'];
+/** Where an OpenSubtitles API key comes from: Portico ships none, so it is the owner's, saved here or in the server's environment. */
+const openSubtitlesConsumers = 'https://www.opensubtitles.com/en/consumers';
 const requestOf = (api: Api) => <T,>(path: string, method?: string, body?: unknown) => api.request<T>(path, method, body);
 
 /**
@@ -36,7 +38,12 @@ export function MetadataSettingsPanel() {
   const [subtitleKey, setSubtitleKey] = useState<KeyEdit>(keyUntouched);
   const [subtitleUser, setSubtitleUser] = useState('');
   const [subtitlePassword, setSubtitlePassword] = useState('');
-  const reset = (d: MetadataSettings) => { setLimit(artworkLimitText(d.localArtworkLimitBytes)); setAdult(d.includeAdult); setTmdb(keyUntouched); setTvdb(keyUntouched); setSubtitleKey(keyUntouched); setSubtitleUser(d.openSubtitlesUsername); setSubtitlePassword(''); };
+  // Test connection's answer, until the settings are read again.
+  const [checked, setChecked] = useState<OpenSubtitlesStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<unknown>(null);
+  const {isTV} = useTheme();
+  const reset = (d: MetadataSettings) => { setLimit(artworkLimitText(d.localArtworkLimitBytes)); setAdult(d.includeAdult); setTmdb(keyUntouched); setTvdb(keyUntouched); setSubtitleKey(keyUntouched); setSubtitleUser(d.openSubtitlesUsername); setSubtitlePassword(''); setChecked(null); setCheckError(null); };
   useEffect(() => { if (doc) reset(doc); }, [doc]);
   const bytes = artworkLimitBytes(limit);
   const subtitles = {key: subtitleKey, username: subtitleUser, password: subtitlePassword};
@@ -67,7 +74,19 @@ export function MetadataSettingsPanel() {
     <TypedRow key={id} secure title={label} help={edit.remove ? t('server.metadata.keyRemoving') : keyChange(edit) !== undefined ? t('server.metadata.keyUnsaved') : set ? t('server.metadata.keySet') : t('server.metadata.keyOurs')} value={edit.typed} shown="" placeholder={set ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => change({typed, remove: false})} />,
     ...(set ? [<ListRow key={id + ':own'} tone="action" title={edit.remove ? t('server.metadata.keyKeep') : t('server.metadata.keyRemove')} onPress={() => change({typed: '', remove: !edit.remove})} />] : []),
   ];
+  const testConnection = async () => {
+    setChecking(true);
+    setCheckError(null);
+    try { setChecked(await service.checkOpenSubtitles()); }
+    catch (e) { setCheckError(e); }
+    finally { setChecking(false); }
+  };
   if (!doc) return read.error ? <Notice tone="error" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null;
+  const subtitleStatus = checked ?? doc.openSubtitles;
+  const summary = openSubtitlesSummary(subtitleStatus, i18n);
+  // Test connection tests what is saved, so unsaved OpenSubtitles changes are saved first.
+  const subtitleDirty = Object.keys(subtitleChanges(doc, subtitles)).length > 0;
+  const keySource = subtitleStatus.keySource === 'owner' ? t('server.metadata.openSubtitlesKeyOwn') : subtitleStatus.keySource === 'environment' ? t('server.metadata.openSubtitlesKeyEnvironment') : t('server.metadata.openSubtitlesKeyNone');
   return (
     <>
       {read.error ? <Notice tone="warning" message={read.error} action={t('action.tryAgain')} onAction={read.reload} /> : null}
@@ -79,12 +98,18 @@ export function MetadataSettingsPanel() {
         <ToggleRow title={t('metadata.settings.includeAdult')} subtitle={t('server.metadata.adultHelp')} value={adult} onChange={setAdult} />
       </RowGroup>
       <RowGroup title={t('server.metadata.subtitles')} footer={t('server.metadata.subtitlesLede')}>
-        <TypedRow secure title={t('server.metadata.openSubtitlesKey')} help={subtitleKey.remove ? t('server.metadata.keyRemoving') : keyChange(subtitleKey) !== undefined ? t('server.metadata.keyUnsaved') : doc.openSubtitlesKeyConfigured ? t('server.metadata.openSubtitlesKeyOwn') : t('server.metadata.openSubtitlesKeyServer')} value={subtitleKey.typed} shown="" placeholder={doc.openSubtitlesKeyConfigured ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => setSubtitleKey({typed, remove: false})} />
-        {doc.openSubtitlesKeyConfigured ? <ListRow tone="action" title={subtitleKey.remove ? t('server.metadata.keyKeep') : t('server.metadata.openSubtitlesUseServer')} onPress={() => setSubtitleKey({typed: '', remove: !subtitleKey.remove})} /> : null}
-        <TypedRow title={t('server.metadata.openSubtitlesUser')} value={subtitleUser} shown={subtitleUser} maxLength={512} onDone={setSubtitleUser} />
+        <TypedRow secure title={t('server.metadata.openSubtitlesKey')} help={subtitleKey.remove ? t('server.metadata.keyRemoving') : keyChange(subtitleKey) !== undefined ? t('server.metadata.keyUnsaved') : keySource} value={subtitleKey.typed} shown="" placeholder={doc.openSubtitlesKeyConfigured ? t('server.metadata.keyReplace') : t('server.metadata.keyPaste')} maxLength={2048} onDone={typed => setSubtitleKey({typed, remove: false})} />
+        {doc.openSubtitlesKeyConfigured ? <ListRow tone="action" title={subtitleKey.remove ? t('server.metadata.keyKeep') : t('server.metadata.openSubtitlesRemoveKey')} onPress={() => setSubtitleKey({typed: '', remove: !subtitleKey.remove})} />
+          // A television has no browser: the address, to type elsewhere.
+          : isTV ? <ListRow readable icon="globe" title={t('server.metadata.openSubtitlesGetKey')} subtitle={openSubtitlesConsumers.replace(/^https:\/\//, '')} />
+          : <ListRow icon="globe" title={t('server.metadata.openSubtitlesGetKey')} trailingIcon="external" onPress={() => { Linking.openURL(openSubtitlesConsumers).catch(() => showToast({message: t('link.openFailed', {address: openSubtitlesConsumers.replace(/^https:\/\//, '')}), icon: 'warning'})); }} />}
+        <TypedRow title={t('server.metadata.openSubtitlesUser')} help={!doc.openSubtitlesUsername && !subtitleUser.trim() && subtitleStatus.accountSource === 'environment' ? t('server.metadata.openSubtitlesAccountEnvironment') : t('server.metadata.openSubtitlesAccountHelp')} value={subtitleUser} shown={subtitleUser} maxLength={512} onDone={setSubtitleUser} />
         {subtitleUser.trim() ? <TypedRow secure title={t('server.metadata.openSubtitlesPassword')} help={doc.openSubtitlesPasswordConfigured && !subtitlePassword && subtitleUser.trim() === doc.openSubtitlesUsername ? t('server.metadata.openSubtitlesPasswordSaved') : undefined} value={subtitlePassword} shown="" maxLength={512} onDone={setSubtitlePassword} /> : null}
         {doc.openSubtitlesUsername ? <ListRow tone="action" title={t('server.metadata.openSubtitlesSignOut')} onPress={() => { setSubtitleUser(''); setSubtitlePassword(''); }} /> : null}
+        <ListRow title={t('server.metadata.openSubtitlesConnection')} subtitle={[summary.text, summary.downloads].filter(Boolean).join(' · ')} subtitleLines={4} readable />
+        {subtitleStatus.keySource !== 'none' || subtitleDirty ? <ListRow tone="action" icon="refresh" title={checking ? t('server.metadata.openSubtitlesTesting') : t('server.metadata.openSubtitlesTest')} subtitle={subtitleDirty ? t('server.metadata.openSubtitlesTestUnsaved') : undefined} disabled={checking || subtitleDirty} onPress={() => void testConnection()} /> : null}
       </RowGroup>
+      {checkError ? <Notice tone="error" message={problem(checkError, 'action')} /> : null}
       <RowGroup title={t('server.metadata.artwork')} footer={t('server.metadata.artworkHelp')}>
         <TypedRow decimal title={t('metadata.settings.artworkLimit')} help={bytes === undefined ? t('server.metadata.limitProblem') : t('server.metadata.artworkUsed', {used: i18n.bytes(doc.localArtworkUsedBytes), limit: i18n.bytes(doc.localArtworkLimitBytes)})} value={limit} shown={`${limit} ${t('settings.unit.gb')}`} onDone={setLimit} />
       </RowGroup>

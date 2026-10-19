@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Animated, Pressable, ScrollView, StyleSheet, TVFocusGuideView, View} from 'react-native';
+import {Animated, Linking, Pressable, ScrollView, StyleSheet, TVFocusGuideView, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {MediaItem} from '../../../../packages/client-core/src/index';
 import {useSession} from '../app/session';
@@ -7,6 +7,8 @@ import {say} from '../app/errors';
 import {useI18n} from '../app/i18n';
 import {defaultI18n} from '../../../../packages/i18n/src/index';
 import {Button, ListRow, Notice, Sheet, StateView, Text, ToggleRow, alpha, showToast, useTheme, type IconName} from '../ui';
+
+const openSubtitlesSite = 'https://www.opensubtitles.com';
 import type {PlayerEngine} from './usePlayer';
 import {bitmapWarningNeeded, isBitmapResource, mediaVersionNames, ownerPlaybackSwitches, subtitleTrackNames, textTrackForLanguage} from '../../../../packages/client-core/src/presentation/index';
 import {playbackInfoRows, qualityNetworkFooter} from '../../../../packages/client-core/src/presentation/index';
@@ -323,7 +325,7 @@ function OfflineSubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngi
 function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onClose: () => void; closeRow: React.ReactNode}) {
   const {service, snapshot} = engine.subtitles;
   const i18n = useI18n();
-  const {space} = useTheme();
+  const {space, isTV} = useTheme();
   const plan = snapshot.plan;
   const [searching, setSearching] = useState(false);
   if (engine.subtitles.offline) return <OfflineSubtitleChoices engine={engine} onClose={onClose} closeRow={closeRow} />;
@@ -400,10 +402,17 @@ function SubtitleChoices({engine, onClose, closeRow}: {engine: PlayerEngine; onC
       {!plan.resources.length && !addable.length ? <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitles')}</Text> : null}
       {provider?.enabled ? (
         searching ? (
-          snapshot.busy && !snapshot.candidates.length ? <StateView loading title={i18n.t('player.opt.lookingForSubtitles')} /> : snapshot.candidates.length ? snapshot.candidates.map(c => (
-            <ListRow key={c.id} icon="download" title={c.title} subtitle={`${c.language.toUpperCase()} · ${c.attribution}`} disabled={snapshot.busy} onPress={() => void service.apply(c, 'personal', 'Downloaded by the viewer for personal viewing').then(() => setSearching(false), () => {})} />
-          )) : <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitlesFound')}</Text>
-        ) :  <ListRow icon="search" title={i18n.t('player.opt.findSubtitles')} onPress={() => { setSearching(true); void service.search(language).catch(() => {}); }} />
+          <>
+            {snapshot.busy && !snapshot.candidates.length ? <StateView loading title={i18n.t('player.opt.lookingForSubtitles')} /> : snapshot.candidates.length ? snapshot.candidates.map(c => (
+              <ListRow key={c.id} icon="download" title={c.title} subtitle={`${c.language.toUpperCase()} · ${c.attribution}`} disabled={snapshot.busy} onPress={() => void service.apply(c, 'personal', 'Downloaded by the viewer for personal viewing').then(() => setSearching(false), () => {})} />
+            // A refused search says why below (the quota, the owner's key), never "nothing found".
+            )) : snapshot.error ? (snapshot.canRetry ? <ListRow icon="refresh" tone="action" title={i18n.t('action.tryAgain')} onPress={() => void service.search(language).catch(() => {})} /> : null)
+              : <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.noSubtitlesFound')}</Text>}
+            {/* OpenSubtitles' terms: the attribution, linked where a browser can open it, wherever its subtitles are searched or picked. */}
+            {isTV ? <Text variant="caption" tone="tertiary" style={{padding: space.md}}>{i18n.t('player.opt.providedByOpenSubtitles')}</Text>
+              : <ListRow title={i18n.t('player.opt.providedByOpenSubtitles')} trailingIcon="external" onPress={() => { Linking.openURL(openSubtitlesSite).catch(() => showToast({message: i18n.t('link.openFailed', {address: 'opensubtitles.com'}), icon: 'warning'})); }} />}
+          </>
+        ) :  <ListRow icon="search" title={i18n.t('player.opt.findSubtitles')} subtitle={i18n.t('player.opt.providedByOpenSubtitles')} onPress={() => { setSearching(true); void service.search(language).catch(() => {}); }} />
       ) : null}
       {plan.selected ? (
         <ListRow title={i18n.t('player.opt.timing')} subtitle={i18n.t('player.opt.timingHelp')} meta={i18n.t('player.opt.offsetSeconds', {seconds: (Number(plan.offsetUs) / 1e6).toFixed(1)})} trailing={<View style={{flexDirection: 'row', gap: space.sm}}><Button size="sm" variant="outline" label="−0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) - 500000)).catch(() => {})} /><Button size="sm" variant="outline" label="+0.5" onPress={() => void engine.subtitles.choose(plan.selected!, String(Number(plan.offsetUs) + 500000)).catch(() => {})} /></View>} />
