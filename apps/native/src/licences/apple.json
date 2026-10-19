@@ -1177,7 +1177,7 @@
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
   "apps/native/licences/assets.json": "68ca19fea182a00c1a326130336350ed701a54ac5c5c09b508e04cd35fa73781",
   "apps/native/licences/js-ios.txt": "c4b6511bc949ec57c0ede945b7fd94e5454b37797d19aecb19cc1ffe9b440b79",
-  "apps/native/package-lock.json": "1adc8beeac7e3bffc2ae46e6b15eeb068a07e7cdc0210ae0825513132a2944f5",
+  "apps/native/package-lock.json": "2d17f0f9f3fa6e8d26e63066d5358f8c0cea55657a4d6aba15dd22c9c425faba",
   "apps/native/tvos/Podfile.lock": "d7764c7627c8cbb59a15b9a1d586fd3b0fdfc4f7abb66a14708e27e3c199ccfe",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
