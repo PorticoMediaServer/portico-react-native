@@ -107,7 +107,9 @@ test('a time of day is read as people type it, and nothing else is', () => {
 
 // ── Metadata ──
 
-const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false, openSubtitlesKeyConfigured: false, openSubtitlesUsername: 'sam', openSubtitlesPasswordConfigured: true};
+const settings: MetadataSettings = {revision: 4, localArtworkLimitBytes: 10 * 2 ** 30, localArtworkUsedBytes: 1, includeAdult: false, tmdbCredentialConfigured: true, tvdbCredentialConfigured: false, openSubtitlesKeyConfigured: false, openSubtitlesUsername: 'sam', openSubtitlesPasswordConfigured: true,
+  openSubtitles: {keySource: 'none', accountSource: 'owner', account: 'not_checked', problem: '', checkedAt: '', retryAt: '', downloadsRemaining: -1, downloadsAllowed: -1, downloadsResetAt: ''},
+};
 
 test('the subtitle provider’s key and account are sent only as edited', () => {
   const base = {limitBytes: settings.localArtworkLimitBytes, includeAdult: false, tmdb: {typed: '', remove: false}, tvdb: {typed: '', remove: false}};
