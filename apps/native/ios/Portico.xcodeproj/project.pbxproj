@@ -52,6 +52,7 @@
 		A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000207 /* PorticoMpvRelay.swift */; };
 		A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000208 /* PorticoMpvSupport.swift */; };
 		A6B0000000000000000003A2 /* PorticoMediaEngine in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* PorticoMediaEngine */; };
+		A57AC1000000000000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = A57AC1000000000000000000 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -108,6 +109,10 @@
 		A6B000000000000000000209 /* PorticoEngineClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoEngineClock.h"; sourceTree = "<group>"; };
 		A6E000000000000000000003 /* PorticoServerTrust.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoServerTrust.h"; sourceTree = "<group>"; };
 		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
+		A57AC1600CCD1B71569232D0 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = "de.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		A57AC109CD68A2A77B22A312 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = "es.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		A57AC1B858A87C07B04C4568 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = "fr.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		A57AC167B8B1C4FEDB2E38E2 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = "ru.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -131,6 +136,7 @@
 		13B07FAE1A68108700A75B9A /* Portico */ = {
 			isa = PBXGroup;
 			children = (
+				A57AC1000000000000000000 /* InfoPlist.strings */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -271,6 +277,10 @@
 			knownRegions = (
 				en,
 				Base,
+				de,
+				es,
+				fr,
+				ru,
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
@@ -290,6 +300,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A57AC1000000000000000001 /* InfoPlist.strings in Resources */,
 				A57AB0000000000000000003 /* manrope-700.ttf in Resources */,
 				A57AB0000000000000000002 /* manrope-600.ttf in Resources */,
 				A57AB0000000000000000001 /* manrope-500.ttf in Resources */,
@@ -417,6 +428,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		A57AC1000000000000000000 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A57AC1600CCD1B71569232D0 /* de */,
+				A57AC109CD68A2A77B22A312 /* es */,
+				A57AC1B858A87C07B04C4568 /* fr */,
+				A57AC167B8B1C4FEDB2E38E2 /* ru */,
+			);
+			name = InfoPlist.strings;
+			path = Portico;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {

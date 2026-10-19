@@ -76,7 +76,7 @@
 		<string>_googlecast._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Find your Portico servers, nearby TVs and Chromecast devices. Manual addresses and TV codes also work without local network discovery.</string>
+	<string>Find your Portico servers, nearby TVs and Google Cast devices. Manual addresses and TV codes also work without local network discovery.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>tv.getportico.portico.title</string>
