@@ -1,4 +1,5 @@
 import {createI18n, resolveRegion} from '../../../../packages/i18n/src/index';
+import '../../../../packages/i18n/src/catalog/bundled';
 
 type TransportNotice = 'vega.connection.redirectLimit' | 'vega.connection.credentialExposed';
 

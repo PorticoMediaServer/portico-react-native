@@ -1,6 +1,8 @@
 import {useEffect, useMemo} from 'react';
 import {I18nManager, NativeModules, Platform} from 'react-native';
 import {createI18n, resolveRegion, type DeviceRegion, type I18n} from '../../../../packages/i18n/src/index';
+// Every language is in the bundle, so the first screen already reads the viewer's (the web loads them on demand).
+import '../../../../packages/i18n/src/catalog/bundled';
 import {setActiveI18n} from './errors';
 import {setServiceI18n} from '../../../../packages/client-core/src/presentation/service-text';
 import {useServerPreferences} from './server-preferences';

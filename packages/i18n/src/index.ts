@@ -13,11 +13,11 @@
  * "1 234,5". Region preferences use `auto` to mean "follow this device".
  * Times are always shown in the device's own time zone: it is never a preference.
  */
-import {catalogue as catalogueFor, enUS, sourceLocale, supportedLocales, type MessageId, type SupportedLocale} from './catalog/index.ts';
+import {catalogue as catalogueFor, catalogueReady, enUS, pseudoLocale, sourceLocale, supportedLocales, type MessageId, type SupportedLocale} from './catalog/index.ts';
 import {formatMessage, type MessageValues} from './messageformat.ts';
 
-export {enUS, supportedLocales, sourceLocale, catalogue, type MessageId, type SupportedLocale} from './catalog/index.ts';
-export {formatMessage, parseMessage, messageArguments, MessageSyntaxError, type MessageValue, type MessageValues} from './messageformat.ts';
+export {enUS, supportedLocales, selectableLocales, translatedLocales, pseudoLocale, sourceLocale, catalogue, catalogueReady, loadCatalogue, provideCatalogue, type MessageId, type SupportedLocale, type TranslatedLocale} from './catalog/index.ts';
+export {formatMessage, parseMessage, messageArguments, messageStructure, mapMessageText, MessageSyntaxError, type ArgumentKind, type MessageStructure, type MessageValue, type MessageValues} from './messageformat.ts';
 
 /**
  * The server's `region.*` profile preferences. Every field accepts `auto` (follow the device).
@@ -66,17 +66,48 @@ function englishFor(tag: string): SupportedLocale {
   return region === 'CA' ? 'en-CA' : 'en-GB';
 }
 
-/** Pick the best supported catalogue: exact → the region's English → same language → en-US (A11Y-14.1). */
+/**
+ * The regional variant a tag reads when there is no exact catalogue: Canadian French, Spanish
+ * anywhere but Spain as Latin American Spanish, Portuguese anywhere but Brazil as Portugal's.
+ */
+function regionalVariant(tag: string): SupportedLocale | undefined {
+  const [first, ...rest] = tag.split('-');
+  const region = rest.find(part => /^([a-z]{2}|\d{3})$/i.test(part))?.toUpperCase();
+  if (!region) return undefined;
+  switch (first!.toLowerCase()) {
+    case 'fr': return region === 'CA' ? 'fr-CA' : undefined;
+    case 'es': return region !== 'ES' ? 'es-419' : undefined;
+    case 'pt': return region !== 'BR' ? 'pt-PT' : undefined;
+    default: return undefined;
+  }
+}
+
+/**
+ * Pick the best supported catalogue: exact → the region's English → same language → en-US (A11Y-14.1).
+ * French in Canada reads the French catalogue; the pseudo-locale is only ever an exact choice.
+ */
 export function resolveLocale(requested: string | readonly string[] | undefined): SupportedLocale {
   const list = (typeof requested === 'string' ? [requested] : requested ?? []).map(canonical).filter((x): x is string => !!x);
+  const exact = (tag: string) => supportedLocales.find(l => l.toLowerCase() === tag.toLowerCase());
+  // Norwegian in any form reads Bokmål. Chinese reads by script: Traditional when the tag says so
+  // or names Taiwan, Hong Kong or Macao; Simplified otherwise.
+  const language = (tag: string) => {
+    const [first, ...rest] = tag.toLowerCase().split('-');
+    if (first === 'no' || first === 'nn') return 'nb';
+    if (first === 'zh') return rest.includes('hant') || (!rest.includes('hans') && rest.some(p => p === 'tw' || p === 'hk' || p === 'mo')) ? 'zh-hant' : 'zh-hans';
+    return first!;
+  };
+  // In the viewer's order: a first choice of French beats a second choice that matches exactly.
   for (const tag of list) {
-    const exact = supportedLocales.find(l => l.toLowerCase() === tag.toLowerCase());
-    if (exact) return exact;
-  }
-  for (const tag of list) {
-    const language = tag.split('-')[0]!.toLowerCase();
-    if (language === 'en') return englishFor(tag);
-    const sameLanguage = supportedLocales.find(l => l.split('-')[0]!.toLowerCase() === language);
+    const found = exact(tag);
+    if (found) return found;
+    // A bare "en" followed by "en-CA" means Canadian English: a later exact match of the same language wins.
+    const sameLater = tag.includes('-') ? undefined : list.map(exact).find(l => l && l !== pseudoLocale && language(l) === language(tag));
+    if (sameLater) return sameLater;
+    const variant = regionalVariant(tag);
+    if (variant) return variant;
+    if (language(tag) === 'en') return englishFor(tag);
+    const sameLanguage = supportedLocales.find(l => l !== pseudoLocale && language(l) === language(tag));
     if (sameLanguage) return sameLanguage;
   }
   return sourceLocale;
@@ -99,7 +130,12 @@ function validTimeZone(zone: string | undefined): string | undefined {
 export function resolveRegion(preferences: RegionPreferences | undefined, device: DeviceRegion): ResolvedRegion {
   const preferred = canonical(preferences?.locale);
   const deviceLocales = device.locales.map(canonical).filter((x): x is string => !!x);
-  const formatLocale = preferred ?? deviceLocales[0] ?? sourceLocale;
+  // A profile that chose a language without a region ("fr") keeps the device's region for dates
+  // and numbers when the device speaks that language too: French chosen in Quebec still writes
+  // Quebec dates. The pseudo-locale formats as US English.
+  const language = (tag: string) => tag.split('-')[0]!.toLowerCase();
+  const regional = preferred && !preferred.includes('-') ? deviceLocales.find(tag => language(tag) === preferred.toLowerCase()) : undefined;
+  const formatLocale = preferred === pseudoLocale ? sourceLocale : regional ?? preferred ?? (deviceLocales[0] === pseudoLocale ? sourceLocale : deviceLocales[0]) ?? sourceLocale;
   // Words follow the region like dates do: a device set to Canada or Britain reads its own spelling.
   const uiLocale = resolveLocale(preferred ? [preferred, ...deviceLocales] : deviceLocales);
   const hourCycle = preferences?.hourCycle;
@@ -126,6 +162,8 @@ export type DurationStyle = 'short' | 'long';
 export type I18n = Readonly<{
   region: ResolvedRegion;
   locale: SupportedLocale;
+  /** False while a translated catalogue is still loading (`loadCatalogue`): its messages read en-US until then. */
+  ready: boolean;
   /** A catalogue message. Missing translations fall back to en-US; never returns a raw ID. */
   t: (id: MessageId, values?: MessageValues) => string;
   has: (id: string) => id is MessageId;
@@ -160,11 +198,17 @@ const toDate = (value: Date | number | string): Date => (value instanceof Date ?
 /** Build the formatter set for a resolved region. Cheap; memoise per region in the app. */
 export function createI18n(region: ResolvedRegion = resolveRegion(undefined, {locales: [sourceLocale]})): I18n {
   const catalogue = catalogueFor(region.uiLocale);
-  const fmt = {locale: region.formatLocale, timeZone: region.timeZone, hour12: region.hour12};
+  // Plural forms follow the words, not the formats: a French catalogue read with British dates.
+  const fmt = {locale: region.formatLocale, pluralLocale: region.uiLocale === pseudoLocale ? sourceLocale : region.uiLocale, timeZone: region.timeZone, hour12: region.hour12};
+  // A message the catalogue lacks reads en-US, so it keeps English plural rules: Japanese has no
+  // "one", and an untranslated "{n, plural, one {# title} other {# titles}}" must still say "1 title".
+  const fallbackFmt = {...fmt, pluralLocale: sourceLocale};
   const t = (id: MessageId, values?: MessageValues): string => {
-    const source = catalogue[id] ?? enUS[id];
+    const own = catalogue[id];
+    if (own !== undefined) return formatMessage(own, values, fmt);
+    const source = enUS[id];
     if (source === undefined) return '';
-    return formatMessage(source, values, fmt);
+    return formatMessage(source, values, fallbackFmt);
   };
   const safe = <T>(fn: () => T, fallback: T): T => { try { return fn(); } catch { return fallback; } };
   const number = (value: number, options?: Intl.NumberFormatOptions) => (Number.isFinite(value) ? safe(() => new Intl.NumberFormat(region.formatLocale, options).format(value), String(value)) : '');
@@ -265,7 +309,7 @@ export function createI18n(region: ResolvedRegion = resolveRegion(undefined, {lo
   };
   const percent = (ratio: number, fractionDigits = 0) => number(ratio, {style: 'percent', maximumFractionDigits: fractionDigits});
   return Object.freeze({
-    region, locale: region.uiLocale, t,
+    region, locale: region.uiLocale, ready: catalogueReady(region.uiLocale), t,
     has: (id: string): id is MessageId => Object.prototype.hasOwnProperty.call(enUS, id),
     number, percent, bytes, date, time, dateTime, formatDate, languageName, duration, clock, relativeTime, list,
   });
