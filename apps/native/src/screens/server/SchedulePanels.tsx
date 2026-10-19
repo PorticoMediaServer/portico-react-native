@@ -6,6 +6,7 @@ import {jobName} from '../../../../../packages/client-core/src/server-admin/cons
 import {TASK_LABELS, clockMinutes, clockText} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import {scheduledJobs, type MaintenanceDocument, type MaintenanceSettings, type MaintenanceWindow} from '../../../../../packages/client-core/src/server-admin/server-forms';
 import {useI18n} from '../../app/i18n';
+import {maintenanceCadenceName} from '../../../../../packages/client-core/src/presentation/index';
 import {useAction, useConsole, useRead} from '../../app/server-console';
 import {Field, ListRow, Notice, RowGroup, Sheet, ToggleRow, useTheme} from '../../ui';
 import {FormLoadNotice, PickRow, TypedRow, useServerForm} from '../settings/ServerForms';
@@ -17,7 +18,8 @@ function useTaskLabel() {
 
 /** Schedule › Maintenance windows: when the server does its heavier background work and what runs in each. Saved with the page. */
 export function WindowsPanel() {
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const task = useTaskLabel();
   const {form, state} = useServerForm<MaintenanceSettings, MaintenanceDocument>('maintenance');
   const draft = state.draft, doc = state.status;
@@ -29,7 +31,7 @@ export function WindowsPanel() {
         <RowGroup key={w.id} title={i === 0 ? t('settings.server.windows') : undefined} footer={i === draft.windows.length - 1 ? t('settings.server.windowsLede') : undefined}>
           <TypedRow title={t('web.maintenance.windowName')} value={w.name} maxLength={80} onDone={name => change(i, {name})} />
           <ToggleRow title={t('web.dvr.on')} value={w.enabled} onChange={enabled => change(i, {enabled})} />
-          <PickRow title={t('web.maintenance.days')} value={w.cadence} options={doc.cadences.map(c => ({id: c.id, label: c.name}))} onChange={id => { const c = doc.cadences.find(x => x.id === id); change(i, {cadence: id, days: c ? [...c.days] : w.days}); }} />
+          <PickRow title={t('web.maintenance.days')} value={w.cadence} options={doc.cadences.map(c => ({id: c.id, label: maintenanceCadenceName(i18n, c)}))} onChange={id => { const c = doc.cadences.find(x => x.id === id); change(i, {cadence: id, days: c ? [...c.days] : w.days}); }} />
           <TypedRow title={t('web.maintenance.startsAt')} value={clockText(w.startMinute)} placeholder="02:00" onDone={text => change(i, {startMinute: clockMinutes(text)})} />
           <TypedRow numeric title={t('web.maintenance.hours')} value={String(Math.round(w.durationMinutes / 60))} onDone={text => change(i, {durationMinutes: Math.min(24, Math.max(1, Number(text) || 1)) * 60})} />
           {doc.tasks.map(id => <ToggleRow key={id} title={task(id)} value={w.tasks.includes(id)} onChange={v => change(i, {tasks: v ? [...w.tasks, id] : w.tasks.filter(x => x !== id)})} />)}

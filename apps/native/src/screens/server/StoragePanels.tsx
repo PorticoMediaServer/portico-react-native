@@ -6,7 +6,7 @@ import {deleteBackup, getBackups, isAuthenticationFailure, restoreBackup, startB
 import {StorageManagementService, type StorageManagementSnapshot, type StorageMount} from '../../../../../packages/client-core/src/storage-management';
 import {RemoteSourceService, type RemoteSource} from '../../../../../packages/client-core/src/remote-sources';
 import type {LogSettings} from '../../../../../packages/client-core/src/server-administration';
-import {viewerScope} from '../../../../../packages/client-core/src/presentation/index';
+import {storageCategoryWords, viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {formatBytes} from '../../../../../packages/client-core/src/presentation/content';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
 import {davCommandSucceeded, davConfiguration, mountCommandSucceeded, retentionRows, sendMountCommand, stableStorageOperationId, type WebDavDraft} from '../../../../../packages/client-core/src/server-admin/panel-logic';
@@ -30,7 +30,8 @@ const dateTime = (iso: string) => (iso ? new Date(iso).toLocaleString(undefined,
 /** Storage & backups › Disk usage: what the server's own files take, with clean-up. Anything that destroys data asks for a typed confirmation. */
 export function DiskUsagePanel() {
   const admin = useAdmin();
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const read = useRead(() => admin.get('/v1/admin/storage-usage', parseStorageReport), [admin]);
   const [opIds] = useState(() => createOperationIds(operationId));
   const [chosen, setChosen] = useState<StorageUsage>();
@@ -50,11 +51,12 @@ export function DiskUsagePanel() {
           <ListRow title={t('web.maintenance.totalLabel')} meta={formatBytes(report.totalBytes)} subtitle={report.truncated ? t('web.maintenance.truncatedHelp') : undefined} />
           {report.categories.filter(c => c.present).map(c => {
             const cleanable = c.cleanable && c.bytes > 0;
-            return <ListRow key={c.id} title={c.name} subtitle={c.regenerable ? t('web.maintenance.regenerableHelp', {description: c.description}) : c.description} meta={formatBytes(c.bytes)} {...(cleanable ? {accessory: 'navigation' as const, onPress: () => { setChosen(c); setDays('30'); }} : {})} />;
+            const words = storageCategoryWords(i18n, c);
+            return <ListRow key={c.id} title={words.name} subtitle={c.regenerable ? t('web.maintenance.regenerableHelp', {description: words.description}) : words.description} meta={formatBytes(c.bytes)} {...(cleanable ? {accessory: 'navigation' as const, onPress: () => { setChosen(c); setDays('30'); }} : {})} />;
           })}
         </RowGroup>
       ) : null}
-      <ConfirmSheet open={!!chosen} onDismiss={() => setChosen(undefined)} title={t('web.maintenance.cleanUpTitle', {name: chosen?.name ?? ''})} consequence={t('web.maintenance.cleanUpBody', {canRecreate: chosen?.regenerable ? 'yes' : 'no', id: chosen?.id ?? ''})} confirmLabel={t('server.cleanUp')} confirmToken={chosen?.id} onConfirm={cleanUp} describeError={e => problem(e, 'action')}>
+      <ConfirmSheet open={!!chosen} onDismiss={() => setChosen(undefined)} title={t('web.maintenance.cleanUpTitle', {name: chosen ? storageCategoryWords(i18n, chosen).name : ''})} consequence={t('web.maintenance.cleanUpBody', {canRecreate: chosen?.regenerable ? 'yes' : 'no', id: chosen?.id ?? ''})} confirmLabel={t('server.cleanUp')} confirmToken={chosen?.id} onConfirm={cleanUp} describeError={e => problem(e, 'action')}>
         <Field label={t('web.maintenance.olderThan')} keyboardType="number-pad" value={days} onChangeText={setDays} />
       </ConfirmSheet>
     </>
@@ -63,14 +65,15 @@ export function DiskUsagePanel() {
 
 /** Storage & backups › What Portico keeps: the rows whose keys the server names at run time. They save with the page. */
 export function RetentionRows() {
-  const t = useI18n().t;
+  const i18n = useI18n();
+  const t = i18n.t;
   const maintenance = useServerForm<MaintenanceSettings, MaintenanceDocument>('maintenance');
   const logs = useServerForm<LogsDraft, LogSettings>('logs');
   const days = (n: number) => `${n} ${t('settings.unit.days')}`;
   const draft = maintenance.state.draft, doc = maintenance.state.status;
   return (
     <>
-      {draft && doc ? retentionRows(Object.keys(draft.retention), key => doc.storageCategories.find(c => c.retentionKey === key)?.name, t).map(({key, label}) => {
+      {draft && doc ? retentionRows(Object.keys(draft.retention), key => { const c = doc.storageCategories.find(x => x.retentionKey === key); return c ? storageCategoryWords(i18n, c).name : undefined; }, t).map(({key, label}) => {
         const max = doc.retentionMaxima[key] ?? 3650;
         return <TypedRow key={key} numeric title={label} value={String(draft.retention[key])} shown={days(draft.retention[key] ?? 0)}
           onDone={text => maintenance.form.set(d => ({...d, retention: {...d.retention, [key]: Math.min(max, Math.max(0, Number(text) || 0))}}))} />;
