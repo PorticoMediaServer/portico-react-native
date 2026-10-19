@@ -1,4 +1,6 @@
-# DO NOT MERGE until Justin decides
+# ⚠️ DO NOT MERGE until Justin decides ⚠️
+
+> **🚨 Do not merge me until you're sure! 🚨** Unreviewed machine translations, untested on every device.
 
 This branch (`feature/i18n-languages-20261018`) is an **unreviewed, untested multi-language branch**.
 It adds French, Spanish, German and Russian (machine-translated; no native speaker has reviewed them).
@@ -15,3 +17,6 @@ It is not ready to ship:
 Merging it into `main` needs a deliberate decision by Justin. Until then, keep it current by rebasing
 onto `main` and translating new English strings (see `packages/i18n/TRANSLATING.md` in portico-server).
 Delete this file only as part of that decision.
+
+The full status, the font choice, the text-length and test plan, and the right-to-left investigation are in
+`DO-NOT-MERGE.md` and `docs/i18n/` on the same branch of portico-server.
