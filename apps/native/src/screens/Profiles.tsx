@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {NativeModules, View} from 'react-native';
 import {IdentityClient, type PINRecoveryMethods, type ProfileAvatar} from '../../../../packages/client-core/src/index';
 import {ManagedProfilesClient, PROFILE_ART, parseDirectSnapshot, type DirectSnapshot, type ManagedProfile} from '../../../../packages/client-core/src/profile-management';
@@ -8,6 +8,7 @@ import {useI18n} from '../app/i18n';
 import {ShownError, say} from '../app/errors';
 import {ConfirmSheet, Field, ListRow, Menu, Notice, PinEntry, RowGroup, Sheet, StateView, Text, rowPaddingX, showToast, useSpecPlatform, useTheme, type MenuItem} from '../ui';
 import {Avatar} from '../ui';
+import {profileAvatarUpload, profilePictureSource, useAvatarRoute} from '../bridge/profile-avatars';
 
 const picker = NativeModules.PorticoImagePicker as undefined | {pick(): Promise<null | {base64: string; contentType: string; bytes: number}>};
 function bytesOf(base64: string): Uint8Array {
@@ -61,15 +62,17 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
   const {api, session} = useSession();
   const i18n = useI18n();
   const {snapshot, client, reload} = account;
-  const token = useRef('');
-  token.current = session?.accessToken ?? '';
-  const identity = useMemo(() => new IdentityClient(api!, async (path, body, contentType) => {
-    const response = await fetch(api!.baseUrl + path, {method: 'POST', headers: {Authorization: 'Bearer ' + token.current, 'Content-Type': contentType}, body: body as never});
-    const value = await response.json().catch(() => null);
-    if (response.status === 415) throw new ShownError(i18n.t('profile.pictureRejected'));
-    if (!response.ok) throw Object.assign(new Error('avatar upload failed'), {status: response.status, code: value?.error?.code});
-    return value;
-  }), [api, i18n]);
+  useAvatarRoute(api);
+  const identity = useMemo(() => {
+    const upload = profileAvatarUpload(api!);
+    return new IdentityClient(api!, async (...args) => {
+      try { return await upload(...args); }
+      catch (error) {
+        if ((error as {status?: number})?.status === 415) throw new ShownError(i18n.t('profile.pictureRejected'));
+        throw error;
+      }
+    });
+  }, [api, i18n]);
   const [avatars, setAvatars] = useState<readonly ProfileAvatar[]>([]);
   const [chosen, setChosen] = useState<ManagedProfile>();
   const [sheet, setSheet] = useState<Sheet>();
@@ -134,7 +137,7 @@ export function LocalProfilesSection({account, onLimits}: {account: ReturnType<t
           return (
             <ListRow
               key={p.id}
-              leadingView={<Avatar name={p.name} art={p.art} size={40} source={avatar ? {uri: api!.baseUrl + avatar.url + (avatar.url.includes('?') ? '&' : '?') + 'size=160', headers: {Authorization: 'Bearer ' + token.current}} : undefined} />}
+              leadingView={<Avatar name={p.name} art={p.art} size={40} source={profilePictureSource(api, session?.accessToken, avatar, 160)} />}
               title={p.name} subtitle={subtitle} meta={p.id === current ? i18n.t('profile.current') : undefined}
               accessory="menu" accessibilityState={{busy: busy === p.id}} onPress={() => setChosen(p)} />
           );

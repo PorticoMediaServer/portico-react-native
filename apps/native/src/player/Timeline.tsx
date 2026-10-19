@@ -11,12 +11,13 @@ import {chapterAt, type PlayerChapter} from './engine-media';
  * release. Television: the track is a single focusable element; the player
  * routes left/right presses to seek while it holds focus.
  *
+ * Detected segments (an intro, a recap, the credits) are tinted on the track, as on the web.
  * Where the title has chapters the track carries a mark at each one, and while the viewer scrubs
  * a small card above the knob shows where they would land: the picture there (the server's scrub
  * previews, where it has made them), the chapter's name, and the time.
  */
-export function Timeline({position, duration, pending, live, onSeek, focused, onFocusChange, hasTVPreferredFocus, programmeLabel, behindLabel, chapters, trickplay, artwork, scrubbing}: {position: number; duration: number; pending?: number; live?: boolean; onSeek: (seconds: number) => void; focused?: boolean; onFocusChange?: (focused: boolean) => void; hasTVPreferredFocus?: boolean; /** MU4 FEAT-07: the programme's wall-clock times ("7:30 – 8:30 PM"). */ programmeLabel?: string; /** MU4 FEAT-07: how far behind live ("2:15 behind live"). */ behindLabel?: string;
-  /** The title's chapters, in order. */ chapters?: readonly PlayerChapter[]; /** The server's scrub previews for the title. */ trickplay?: TrickplaySet | null; /** An authorised image source for a server path. */ artwork?: (path?: string) => ImageSourcePropType | undefined; /** Television: the viewer is scrubbing (the remote's surface), so the card shows. */ scrubbing?: boolean}) {
+export function Timeline({position, duration, pending, live, onSeek, focused, onFocusChange, hasTVPreferredFocus, programmeLabel, behindLabel, chapters, segments, trickplay, artwork, scrubbing}: {position: number; duration: number; pending?: number; live?: boolean; onSeek: (seconds: number) => void; focused?: boolean; onFocusChange?: (focused: boolean) => void; hasTVPreferredFocus?: boolean; /** MU4 FEAT-07: the programme's wall-clock times ("7:30 – 8:30 PM"). */ programmeLabel?: string; /** MU4 FEAT-07: how far behind live ("2:15 behind live"). */ behindLabel?: string;
+  /** The title's chapters, in order. */ chapters?: readonly PlayerChapter[]; /** Detected segments to tint, in seconds. */ segments?: readonly Readonly<{start: number; end: number}>[]; /** The server's scrub previews for the title. */ trickplay?: TrickplaySet | null; /** An authorised image source for a server path. */ artwork?: (path?: string) => ImageSourcePropType | undefined; /** Television: the viewer is scrubbing (the remote's surface), so the card shows. */ scrubbing?: boolean}) {
   const {colors, space, isTV, metrics} = useTheme();
   const [width, setWidth] = useState(0);
   const [preview, setPreview] = useState<number>();
@@ -54,6 +55,7 @@ export function Timeline({position, duration, pending, live, onSeek, focused, on
   const knob = isTV ? 22 : 14;
   // A mark at each chapter's start (never at the very start or end, and never for a channel).
   const marks = useMemo(() => (live || duration <= 0 || !chapters || chapters.length < 2 ? [] : chapters.map(c => c.startSeconds).filter(at => at > 1 && at < duration - 1).slice(0, 200)), [chapters, duration, live]);
+  const tints = useMemo(() => (live || duration <= 0 || !segments ? [] : segments.filter(t => t.end > t.start && t.start < duration).slice(0, 64)), [segments, duration, live]);
   // The card over the knob: while a finger drags the track, or the remote's surface scrubs.
   const cardAt = !live && duration > 0 ? (preview ?? (scrubbing ? pending : undefined)) : undefined;
   const frame = cardAt !== undefined && trickplay ? trickplayFrameAt(trickplay, cardAt) : null;
@@ -80,6 +82,7 @@ export function Timeline({position, duration, pending, live, onSeek, focused, on
       style={{height: isTV ? 64 : 32, justifyContent: 'center'}} /* QA: a 64 pt focus target on TV */
       {...(isTV ? {} : {...responder.panHandlers, accessible: true, accessibilityRole: 'adjustable' as const, accessibilityLabel: activeI18n().t('player.position'), accessibilityValue: {text: formatClock(shown)}, ...accessibility})}>
       <View style={{height: trackHeight, borderRadius: trackHeight / 2, backgroundColor: alpha(colors.white, 0.28), overflow: 'hidden'}}>
+        {tints.map(t => <View key={`${t.start}:${t.end}`} pointerEvents="none" style={{position: 'absolute', left: (t.start / duration) * width, width: Math.max(2, ((t.end - t.start) / duration) * width), top: 0, height: trackHeight, backgroundColor: alpha(colors.white, 0.18)}} />)}
         <View style={{width: `${ratio * 100}%`, height: '100%', backgroundColor: live ? colors.record : colors.accent}} />
         {marks.map(at => <View key={at} pointerEvents="none" style={{position: 'absolute', left: (at / duration) * width - 1, top: 0, width: 2, height: trackHeight, backgroundColor: alpha(colors.black, 0.6)}} />)}
       </View>

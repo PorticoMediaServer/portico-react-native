@@ -2,8 +2,10 @@
 #import <React/RCTEventEmitter.h>
 #import <React/RCTUtils.h>
 #import <AVFoundation/AVFoundation.h>
+#import <UIKit/UIKit.h>
 #import <CommonCrypto/CommonDigest.h>
 #import "PorticoDownloadAttempt.h"
+#import "PorticoDownloadOwner.h"
 #import "PorticoServerTrust.h"
 
 // Offline downloads for iPhone and iPad.
@@ -32,41 +34,132 @@
 //
 // This module knows nothing about accounts, receipts or what may be played; that is decided in
 // JavaScript from the server's signed receipt. It moves, stores and verifies files, and hands a finished one to Portico's own player.
+//
+// BETA06: the session, the manifest and the filing of finished files belong to the app, not to
+// React Native. When the system ends a suspended Portico and later relaunches it only to deliver
+// download events, no window scene connects and React Native never starts, so the owner below is
+// started natively: by the background-session callback, after it has stored the system's
+// completion handler (Apple: store the handler, then create the session with the same
+// identifier), and by the scene coming to the foreground. Creating the owner creates the session,
+// so on a background relaunch no session exists, and no event can be delivered, before the
+// handler is held. The owner verifies and files what arrived, writes the manifest, and only then
+// lets the system suspend the app again. The `PorticoDownloads` module attaches to that owner
+// when (and if) React Native starts, and only relays its calls and events.
+//
+// Every wake (the background-session callback, the foreground, protected data becoming
+// available, each finished transfer and the end of a wake's events) tries again to read a
+// manifest that could not be read yet: a notification posted while the app was suspended is not
+// delivered later.
+//
+// A person swiping Portico away is not the same thing: the system then cancels the transfers and
+// does not relaunch the app for them. Their tasks report at the next ordinary launch, cancelled
+// with resume data, and become paused but still meant to run, so the app continues them.
 
 static NSString *const PorticoDownloadsSession = @"tv.getportico.portico.downloads";
 static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 
-@interface PorticoDownloads : RCTEventEmitter <RCTBridgeModule, NSURLSessionDownloadDelegate>
+@interface PorticoDownloads : RCTEventEmitter <RCTBridgeModule>
+@property (atomic, readonly) BOOL porticoObserving;
 @end
 
-@implementation PorticoDownloads {
+@interface PorticoDownloadOwner () <NSURLSessionDownloadDelegate>
+@property (atomic, weak) PorticoDownloads *emitter;
+@property (nonatomic, readonly) dispatch_queue_t queue;
+// Set on the main queue once the device has been unlocked since it started (it then stays so:
+// the manifest is protected until first unlock only).
+@property (atomic) BOOL protectedDataAvailable;
++ (instancetype)shared;
+- (void)whenLoaded:(dispatch_block_t)work;
+- (void)whenLoaded:(dispatch_block_t)work otherwise:(dispatch_block_t)refused;
+- (void)retryLoad;
+// What JavaScript may ask, relayed by the module below.
+- (void)list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)readExtra:(NSString *)identifier name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)fetchExtra:(NSString *)identifier name:(NSString *)name url:(NSString *)address resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)storage:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+@end
+
+@implementation PorticoDownloadOwner {
   NSURLSession *_session;
   NSMutableDictionary<NSString *, NSMutableDictionary *> *_entries;
   NSMutableDictionary<NSString *, NSNumber *> *_lastEmit;
   NSMutableDictionary<NSString *, NSURLSessionDownloadTask *> *_activeTasks;
   dispatch_queue_t _queue;
-  BOOL _observing;
   BOOL _cellular;
+  // Whether the manifest on disk has been read. Before the first unlock after a restart it
+  // cannot be: nothing may then be decided from, or written over, an empty list.
+  BOOL _loaded;
+  // The manifest exists and could not be read although the device has been unlocked: calls from
+  // JavaScript are refused instead of waiting for it. Every wake still tries again.
+  BOOL _unreadable;
+  // Work waiting for the manifest, in arrival order: each is @[work, refused or NSNull].
+  NSMutableArray<NSArray *> *_pending;
+  id _protectedDataObserver;
 }
 
-RCT_EXPORT_MODULE()
-+ (BOOL)requiresMainQueueSetup { return NO; }
-- (dispatch_queue_t)methodQueue { return _queue; }
-- (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
-- (void)startObserving { _observing = YES; }
-- (void)stopObserving { _observing = NO; }
++ (instancetype)shared {
+  static PorticoDownloadOwner *owner; static dispatch_once_t once;
+  dispatch_once(&once, ^{ owner = [PorticoDownloadOwner new]; });
+  return owner;
+}
++ (NSString *)sessionIdentifier { return PorticoDownloadsSession; }
+// On the main queue, at every native wake. Creating the owner creates the session.
++ (void)start {
+  PorticoDownloadOwner *owner = [self shared];
+  if (UIApplication.sharedApplication.isProtectedDataAvailable) owner.protectedDataAvailable = YES;
+  [owner retryLoad];
+}
 
 - (instancetype)init {
   if ((self = [super init])) {
     _queue = dispatch_queue_create("tv.getportico.downloads", DISPATCH_QUEUE_SERIAL);
     _lastEmit = [NSMutableDictionary new];
     _activeTasks = [NSMutableDictionary new];
+    _pending = [NSMutableArray new];
     _cellular = [[NSUserDefaults standardUserDefaults] boolForKey:@"PorticoDownloadsCellular"];
-    [self loadManifest];
+    // The manifest is read on the downloads queue, ahead of every delegate callback (which all
+    // queue behind it), and the session is created now, while the system is waiting for it.
+    dispatch_async(_queue, ^{ [self loadManifest]; });
+    __weak PorticoDownloadOwner *weakSelf = self;
+    _protectedDataObserver = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationProtectedDataDidBecomeAvailable object:nil queue:nil usingBlock:^(NSNotification *note) {
+      weakSelf.protectedDataAvailable = YES;
+      [weakSelf retryLoad];
+    }];
     [self session];
     [self reconcile];
   }
   return self;
+}
+
+// Runs `work` on the downloads queue once the manifest has been read, trying to read it first if
+// it has not been yet. Call on the downloads queue. Work with no `refused` waits for as long as
+// the manifest cannot be read (a later wake may read it); work with one is refused instead once
+// the manifest is known to be unreadable rather than still locked.
+- (void)whenLoaded:(dispatch_block_t)work { [self whenLoaded:work otherwise:nil]; }
+- (void)whenLoaded:(dispatch_block_t)work otherwise:(dispatch_block_t)refused {
+  if (!_loaded) [self loadManifest];
+  if (_loaded) { work(); return; }
+  if (_unreadable && refused) { refused(); return; }
+  // Copied: a block literal passed in may still be on the caller's stack.
+  [_pending addObject:@[[work copy], refused ? [refused copy] : (id)NSNull.null]];
+}
+// Progress and waiting reports describe a moment; one that arrives before the manifest has been
+// read is let go rather than queued, so the queue stays bounded by the transfers themselves.
+- (void)ifLoaded:(dispatch_block_t)work {
+  if (_loaded) work();
+}
+- (void)retryLoad {
+  dispatch_async(_queue, ^{ if (!self->_loaded) [self loadManifest]; });
 }
 
 #pragma mark - Storage
@@ -121,18 +214,46 @@ static NSString *PorticoSafeFileName(NSString *value) {
   return name;
 }
 
+// On the downloads queue. A manifest that exists but cannot be read leaves the owner unloaded:
+// work waits in `_pending`, nothing is written, and the read is tried again at the next wake.
+// Before the first unlock that is all. After it, the read is not going to succeed by waiting, so
+// what JavaScript asked is refused instead of left hanging; the manifest is still never written
+// over, and the system's events stay queued for a later wake that can read it.
 - (void)loadManifest {
-  _entries = [NSMutableDictionary new];
+  NSError *error = nil;
+  NSData *raw = [NSData dataWithContentsOfURL:[self manifestURL] options:0 error:&error];
+  if (!raw && [[NSFileManager defaultManager] fileExistsAtPath:[self manifestURL].path]) {
+    if (self.protectedDataAvailable) [self refusePending];
+    return;
+  }
+  NSMutableDictionary<NSString *, NSMutableDictionary *> *entries = [NSMutableDictionary new];
   // An extra that was being filed when the app stopped leaves its holding file behind.
   for (NSURL *file in [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[self root] includingPropertiesForKeys:nil options:0 error:nil])
     if ([file.pathExtension isEqualToString:@"extra"]) [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
-  NSData *raw = [NSData dataWithContentsOfURL:[self manifestURL]];
   NSDictionary *stored = raw ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:nil] : nil;
-  if (![stored isKindOfClass:NSDictionary.class]) return;
-  for (NSString *key in stored) {
-    NSDictionary *entry = stored[key];
-    if (PorticoSafeIdentifier(key) && [entry isKindOfClass:NSDictionary.class]) _entries[key] = [entry mutableCopy];
+  if ([stored isKindOfClass:NSDictionary.class]) {
+    for (NSString *key in stored) {
+      NSDictionary *entry = stored[key];
+      if (PorticoSafeIdentifier(key) && [entry isKindOfClass:NSDictionary.class]) entries[key] = [entry mutableCopy];
+    }
   }
+  _entries = entries;
+  _loaded = YES;
+  _unreadable = NO;
+  // Callbacks that arrived first are settled in the order they arrived.
+  NSArray<NSArray *> *waiting = [_pending copy];
+  [_pending removeAllObjects];
+  for (NSArray *item in waiting) ((dispatch_block_t)item[0])();
+}
+- (void)refusePending {
+  _unreadable = YES;
+  NSMutableArray<NSArray *> *kept = [NSMutableArray new];
+  NSMutableArray<dispatch_block_t> *refused = [NSMutableArray new];
+  for (NSArray *item in _pending) {
+    if (item[1] == NSNull.null) [kept addObject:item]; else [refused addObject:item[1]];
+  }
+  [_pending setArray:kept];
+  for (dispatch_block_t refuse in refused) refuse();
 }
 
 // What the last run left unfinished is settled once at launch.
@@ -148,7 +269,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 // looking sooner would find an entry with no running task and call it paused a moment before its
 // finished file arrives.
 - (void)reconcile {
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), _queue, ^{ [self reconcileNow]; });
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), _queue, ^{ [self whenLoaded:^{ [self reconcileNow]; }]; });
 }
 - (void)reconcileNow {
   [[self session] getTasksWithCompletionHandler:^(NSArray *data, NSArray *uploads, NSArray<NSURLSessionDownloadTask *> *downloads) {
@@ -198,6 +319,8 @@ static NSString *PorticoSafeFileName(NSString *value) {
   return entry;
 }
 - (BOOL)saveManifest {
+  // An unread manifest is never replaced by what little this launch knows.
+  if (!_loaded) return NO;
   NSData *raw = [NSJSONSerialization dataWithJSONObject:_entries options:0 error:nil];
   // SEC-22: the manifest names titles and, while a transfer runs, its grant address; it is only
   // readable once the device has been unlocked after boot (background sessions still work).
@@ -208,7 +331,10 @@ static NSString *PorticoSafeFileName(NSString *value) {
   NSTimeInterval now = NSDate.date.timeIntervalSince1970;
   if (!force && now - _lastEmit[identifier].doubleValue < 0.5) return;
   _lastEmit[identifier] = @(now);
-  if (_observing) [self sendEventWithName:PorticoDownloadChanged body:[self published:identifier]];
+  // Without React Native (a background relaunch) the manifest is the record; the app reads it
+  // when it next lists its downloads.
+  PorticoDownloads *emitter = self.emitter;
+  if (emitter.porticoObserving) [emitter sendEventWithName:PorticoDownloadChanged body:[self published:identifier]];
 }
 
 #pragma mark - Session
@@ -242,7 +368,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didWriteData:(int64_t)written totalBytesWritten:(int64_t)total totalBytesExpectedToWrite:(int64_t)expected {
   NSString *identifier = task.taskDescription;
   if (!PorticoSafeIdentifier(identifier)) return;
-  dispatch_async(_queue, ^{
+  dispatch_async(_queue, ^{ [self ifLoaded:^{
     NSMutableDictionary *entry = self->_entries[identifier];
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
     entry[@"bytesDone"] = @(total);
@@ -251,7 +377,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     BOOL waited = [entry[@"waiting"] length] > 0;
     entry[@"waiting"] = @"";
     [self changed:identifier force:waited];
-  });
+  }]; });
 }
 
 // The system is holding the task until it has a connection the task may use: no connection at
@@ -259,12 +385,12 @@ static NSString *PorticoSafeFileName(NSString *value) {
 - (void)URLSession:(NSURLSession *)session taskIsWaitingForConnectivity:(NSURLSessionTask *)task {
   NSString *identifier = task.taskDescription;
   if (!PorticoSafeIdentifier(identifier)) return;
-  dispatch_async(_queue, ^{
+  dispatch_async(_queue, ^{ [self ifLoaded:^{
     NSMutableDictionary *entry = self->_entries[identifier];
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
     entry[@"waiting"] = self->_cellular ? @"network" : @"wifi";
     [self changed:identifier force:YES];
-  });
+  }]; });
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)task didFinishDownloadingToURL:(NSURL *)location {
@@ -282,7 +408,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     [[NSFileManager defaultManager] removeItemAtURL:holding error:nil];
     moved = [[NSFileManager defaultManager] moveItemAtURL:location toURL:holding error:nil];
   }
-  dispatch_async(_queue, ^{
+  dispatch_async(_queue, ^{ [self whenLoaded:^{
     NSMutableDictionary *entry = self->_entries[identifier];
     // An attempt that was replaced, or a download that was removed, has nothing to file.
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) {
@@ -305,11 +431,27 @@ static NSString *PorticoSafeFileName(NSString *value) {
       return;
     }
     [self finish:identifier from:holding];
-  });
+  }]; });
 }
 
 // Verifies the bytes waiting in a download's folder and files them. On the downloads queue.
+//
+// Checking a large file takes a while, and a background relaunch only lasts as long as the
+// system allows, so the work asks for time of its own. If that runs out the app is suspended with
+// the bytes still in the download's folder, and the work carries on when it resumes, or the next
+// launch's reconcile finishes it.
 - (void)finish:(NSString *)identifier from:(NSURL *)holding {
+  UIApplication *app = UIApplication.sharedApplication;
+  __block UIBackgroundTaskIdentifier time = UIBackgroundTaskInvalid;
+  time = [app beginBackgroundTaskWithName:@"PorticoDownloadFiling" expirationHandler:^{
+    if (time != UIBackgroundTaskInvalid) { [app endBackgroundTask:time]; time = UIBackgroundTaskInvalid; }
+  }];
+  [self file:identifier from:holding];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (time != UIBackgroundTaskInvalid) { [app endBackgroundTask:time]; time = UIBackgroundTaskInvalid; }
+  });
+}
+- (void)file:(NSString *)identifier from:(NSURL *)holding {
   NSMutableDictionary *entry = self->_entries[identifier];
   if (!entry || [entry[@"state"] isEqual:@"ready"]) { [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; return; }
   NSString *expected = [entry[@"sha256"] isKindOfClass:NSString.class] ? entry[@"sha256"] : @"";
@@ -344,7 +486,12 @@ static NSString *PorticoSafeFileName(NSString *value) {
 - (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session {
   NSString *identifier = session.configuration.identifier ?: @"";
   dispatch_async(_queue, ^{
-    // Manifest writes queued by the delegate calls above finish first (same serial queue).
+    // Verification, filing and manifest writes queued by the delegate calls above finish first
+    // (same serial queue), and this wake is one more chance to read a manifest that could not be
+    // read yet, which settles what waited for it. If it still cannot be read, the bytes are
+    // already in the download's own folder, where a later load settles them, so the system is
+    // still told now: holding its completion handler would not make the manifest readable.
+    if (!self->_loaded) [self loadManifest];
     Class events = NSClassFromString(@"PorticoBackgroundEvents");
     SEL finish = NSSelectorFromString(@"finish:");
     if ([events respondsToSelector:finish]) { ((void (*)(id, SEL, NSString *))[events methodForSelector:finish])(events, finish, identifier); }
@@ -356,7 +503,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   NSString *identifier = task.taskDescription;
   if (!PorticoSafeIdentifier(identifier)) return;
   NSData *resume = error.userInfo[NSURLSessionDownloadTaskResumeData];
-  dispatch_async(_queue, ^{
+  dispatch_async(_queue, ^{ [self whenLoaded:^{
     NSMutableDictionary *entry = self->_entries[identifier];
     if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
     [self->_activeTasks removeObjectForKey:identifier];
@@ -376,7 +523,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
     BOOL network = [error.domain isEqual:NSURLErrorDomain] && error.code != NSURLErrorCannotWriteToFile && error.code != NSURLErrorCannotCreateFile;
     entry[@"error"] = cancelled ? @"" : (network ? @"network" : @"transfer_failed");
     [self saveManifest]; [self changed:identifier force:YES];
-  });
+  }]; });
 }
 
 - (NSString *)digestOf:(NSURL *)file {
@@ -397,7 +544,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
 
 #pragma mark - JavaScript interface
 
-RCT_EXPORT_METHOD(list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSMutableArray *all = [NSMutableArray new];
     for (NSString *identifier in self->_entries) [all addObject:[self published:identifier]];
@@ -405,7 +552,7 @@ RCT_EXPORT_METHOD(list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectB
   });
 }
 
-RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSString *identifier = request[@"id"];
   NSURL *url = [request[@"url"] isKindOfClass:NSString.class] ? [NSURL URLWithString:request[@"url"]] : nil;
   if (!PorticoSafeIdentifier(identifier) || !url || !([url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"])) { reject(@"invalid_download", @"The download request is invalid.", nil); return; }
@@ -491,7 +638,7 @@ RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)
   }];
 }
 
-RCT_EXPORT_METHOD(pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [self taskFor:identifier then:^(NSURLSessionDownloadTask *task) {
     // The person paused it: it stays paused until they continue it, with or without a task
     // behind it right now.
@@ -507,7 +654,7 @@ RCT_EXPORT_METHOD(pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)r
   }];
 }
 
-RCT_EXPORT_METHOD(remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   if (!PorticoSafeIdentifier(identifier)) { reject(@"invalid_download", @"The download is invalid.", nil); return; }
   [self taskFor:identifier then:^(NSURLSessionDownloadTask *task) {
     [task cancel];
@@ -522,7 +669,7 @@ RCT_EXPORT_METHOD(remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)
   }];
 }
 
-RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     // The caller's bookkeeping (a receipt, its owner) is only acknowledged once it is on disk.
     NSMutableDictionary *entry = self->_entries[identifier];
@@ -540,7 +687,7 @@ RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(
 }
 
 // Several entries' details in one write of the manifest (a day's receipt renewals).
-RCT_EXPORT_METHOD(setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     // Validate the whole batch before changing any entry. A later invalid value must not
     // leave earlier receipts changed in memory and saved by an unrelated progress update.
@@ -575,7 +722,7 @@ RCT_EXPORT_METHOD(setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock
 }
 
 // One small text file kept beside the download (its description, chapters and markers).
-RCT_EXPORT_METHOD(writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSURL *file = [self extraURL:identifier name:name];
     NSData *data = [text isKindOfClass:NSString.class] ? [text dataUsingEncoding:NSUTF8StringEncoding] : nil;
@@ -585,7 +732,7 @@ RCT_EXPORT_METHOD(writeExtra:(NSString *)identifier name:(NSString *)name text:(
     resolve(nil);
   });
 }
-RCT_EXPORT_METHOD(readExtra:(NSString *)identifier name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)readExtra:(NSString *)identifier name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSURL *file = [self extraURL:identifier name:name];
     NSNumber *size = file ? [[NSFileManager defaultManager] attributesOfItemAtPath:file.path error:nil][NSFileSize] : nil;
@@ -597,7 +744,7 @@ RCT_EXPORT_METHOD(readExtra:(NSString *)identifier name:(NSString *)name resolve
 // "saved", "missing" (the server has no such file for this title, which is an ordinary answer),
 // "later" (not ready yet, or the connection failed) or "invalid". These are small and fetched
 // while the app is in front, so they use an ordinary session, under the same Wi-Fi rule.
-RCT_EXPORT_METHOD(fetchExtra:(NSString *)identifier name:(NSString *)name url:(NSString *)address resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)fetchExtra:(NSString *)identifier name:(NSString *)name url:(NSString *)address resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSURL *file = [self extraURL:identifier name:name];
     NSURL *url = [address isKindOfClass:NSString.class] ? [NSURL URLWithString:address] : nil;
@@ -628,7 +775,7 @@ RCT_EXPORT_METHOD(fetchExtra:(NSString *)identifier name:(NSString *)name url:(N
   });
 }
 
-RCT_EXPORT_METHOD(storage:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)storage:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSDictionary *values = [[self root] resourceValuesForKeys:@[NSURLVolumeAvailableCapacityForImportantUsageKey] error:nil];
     long long used = 0;
@@ -637,7 +784,7 @@ RCT_EXPORT_METHOD(storage:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseReje
   });
 }
 
-RCT_EXPORT_METHOD(setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [[NSUserDefaults standardUserDefaults] setBool:allowed forKey:@"PorticoDownloadsCellular"];
   BOOL tightened = self->_cellular && !allowed;
   _cellular = allowed;
@@ -652,14 +799,14 @@ RCT_EXPORT_METHOD(setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)reso
       NSString *identifier = task.taskDescription;
       if (!PorticoSafeIdentifier(identifier)) continue;
       [task cancelByProducingResumeData:^(NSData *bytes) {
-        dispatch_async(self->_queue, ^{
+        dispatch_async(self->_queue, ^{ [self whenLoaded:^{
           NSMutableDictionary *entry = self->_entries[identifier];
           if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
           if (bytes.length) [bytes writeToURL:[self resumeURLFor:identifier] options:NSDataWritingAtomic error:nil];
           entry[@"state"] = @"paused";
           [self saveManifest];
           [self changed:identifier force:YES];
-        });
+        }]; });
       }];
     }
     resolve(nil);
@@ -669,13 +816,13 @@ RCT_EXPORT_METHOD(setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)reso
 // One small JSON document for the JavaScript side's own bookkeeping (settings and the queue of
 // viewing progress made while offline). Kept beside the files so removing the app's data
 // removes both.
-RCT_EXPORT_METHOD(readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSData *raw = [NSData dataWithContentsOfURL:[self stateURL]];
     resolve(raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : @"");
   });
 }
-RCT_EXPORT_METHOD(writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     if (json.length >= 1048576) { reject(@"too_large", @"Download settings are too large to keep.", nil); return; }
     NSError *error = nil;
@@ -690,7 +837,7 @@ RCT_EXPORT_METHOD(writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)re
 
 // OS-07: the file of a finished download, for Portico's own player (PorticoPlaybackController
 // accepts a file source only inside this module's root).
-RCT_EXPORT_METHOD(localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+- (void)localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSDictionary *entry = self->_entries[identifier];
     NSString *file = entry[@"file"];
@@ -704,6 +851,83 @@ RCT_EXPORT_METHOD(localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlo
       resolve(@{@"url": url.absoluteString, @"durationSeconds": @(isfinite(seconds) && seconds > 0 ? seconds : 0)});
     }];
   });
+}
+
+@end
+
+#pragma mark - React Native
+
+// The JavaScript side of the owner above. It holds nothing of its own: every call runs on the
+// owner's queue, those about downloads once the manifest has been read (or are refused if it
+// cannot be read although the device is unlocked), and the owner's changes reach JavaScript
+// through it while JavaScript is listening. The settings document, the cellular preference
+// (whose per-transfer bookkeeping waits for the manifest inside the owner) and nothing else are
+// independent of the manifest. Free space is too, but the space downloads use comes from it.
+static void PorticoRefuseUnreadable(RCTPromiseRejectBlock reject) {
+  reject(@"manifest_unreadable", @"Downloads on this device can't be read right now.", nil);
+}
+
+@implementation PorticoDownloads {
+  PorticoDownloadOwner *_owner;
+}
+
+RCT_EXPORT_MODULE()
++ (BOOL)requiresMainQueueSetup { return NO; }
+- (instancetype)init {
+  if ((self = [super init])) {
+    _owner = [PorticoDownloadOwner shared];
+    _owner.emitter = self;
+    // Another wake: the owner reads whether the device is unlocked on the main queue.
+    dispatch_async(dispatch_get_main_queue(), ^{ [PorticoDownloadOwner start]; });
+  }
+  return self;
+}
+- (dispatch_queue_t)methodQueue { return _owner.queue; }
+- (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
+- (void)startObserving { _porticoObserving = YES; }
+- (void)stopObserving { _porticoObserving = NO; }
+
+RCT_EXPORT_METHOD(list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner list:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner start:request resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner pause:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner remove:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(setMeta:(NSString *)identifier meta:(NSString *)meta resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner setMeta:identifier meta:meta resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(setMetas:(NSDictionary *)metas resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner setMetas:metas resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(writeExtra:(NSString *)identifier name:(NSString *)name text:(NSString *)text resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner writeExtra:identifier name:name text:text resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(readExtra:(NSString *)identifier name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner readExtra:identifier name:name resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(fetchExtra:(NSString *)identifier name:(NSString *)name url:(NSString *)address resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner fetchExtra:identifier name:name url:address resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(storage:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner storage:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner setCellular:allowed resolve:resolve reject:reject];
+}
+RCT_EXPORT_METHOD(readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner readState:resolve reject:reject];
+}
+RCT_EXPORT_METHOD(writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner writeState:json resolve:resolve reject:reject];
+}
+RCT_EXPORT_METHOD(localFile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner localFile:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
 
 @end

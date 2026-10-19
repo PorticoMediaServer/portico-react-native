@@ -1,8 +1,9 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Image, View, type ImageSourcePropType} from 'react-native';
-import {IdentityClient, type ProfileAvatar as AvatarRecord} from '../../../../../packages/client-core/src/index';
+import {IdentityClient, type HttpLocalApi, type ProfileAvatar as AvatarRecord} from '../../../../../packages/client-core/src/index';
 import {profileArtColors} from '../../../../../packages/design/src/index';
 import {Text, useTheme} from '../../ui';
+import {profilePictureSource, useAvatarRoute} from '../../bridge/profile-avatars';
 
 type Art = keyof typeof profileArtColors;
 const isArt = (value: unknown): value is Art => typeof value === 'string' && value in profileArtColors;
@@ -29,21 +30,24 @@ export function ProfileAvatar({name, art, source, size, focused, dimmed}: {name:
  * token the server accepts for the account (the account grant while choosing, or the profile
  * session when switching); without one the chooser shows initials.
  */
-export function useProfilePictures(api: ConstructorParameters<typeof IdentityClient>[0] | undefined, token: string | undefined, size: number): ReadonlyMap<string, ImageSourcePropType> {
-  const [avatars, setAvatars] = useState<readonly AvatarRecord[]>([]);
+export function useProfilePictures(api: HttpLocalApi | undefined, token: string | undefined, size: number): ReadonlyMap<string, ImageSourcePropType> {
+  const route = useAvatarRoute(api);
+  const [pictures, setPictures] = useState<{api: HttpLocalApi; avatars: readonly AvatarRecord[]}>();
   useEffect(() => {
     if (!api || !token) return;
     let live = true;
     const abort = new AbortController();
-    new IdentityClient(api).avatars(abort.signal).then(list => { if (live) setAvatars(list); }, () => {});
+    new IdentityClient(api).avatars(abort.signal).then(list => { if (live) setPictures({api, avatars: list}); }, () => {});
     return () => { live = false; abort.abort(); };
   }, [api, token]);
-  const base = (api as {baseUrl?: string} | undefined)?.baseUrl ?? '';
   return useMemo(() => {
     const out = new Map<string, ImageSourcePropType>();
-    if (!token || !base) return out;
+    if (!api || !token || pictures?.api !== api || (route && route.phase !== 'ready')) return out;
     const pixels = Math.round(size * 2);
-    for (const a of avatars) out.set(a.profileId, {uri: `${base}${a.url}${a.url.includes('?') ? '&' : '?'}size=${pixels}`, headers: {Authorization: `Bearer ${token}`}});
+    for (const a of pictures.avatars) {
+      const source = profilePictureSource(api, token, a, pixels);
+      if (source) out.set(a.profileId, source);
+    }
     return out;
-  }, [avatars, token, base, size]);
+  }, [pictures, token, api, size, route]);
 }

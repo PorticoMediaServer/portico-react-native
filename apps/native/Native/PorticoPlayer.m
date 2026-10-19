@@ -333,6 +333,18 @@ static OSStatus PorticoPrepareInstallationStorage(void) {
  });
 }
 
+// HttpLocalApi's avatar upload is JSON only across the JS/native bridge. Decode at this
+// fixed endpoint so the existing redirect-refusing transport sends the original image bytes.
+static BOOL PorticoAvatarUploadPath(NSString *path, NSString *method) {
+ return [method isEqualToString:@"POST"]&&[path rangeOfString:@"^/v1/direct/profiles/[A-Za-z0-9_-]{1,128}/avatar$" options:NSRegularExpressionSearch].location!=NSNotFound;
+}
+static NSData *PorticoAvatarUploadBody(NSString *body) {
+ if(![body isKindOfClass:NSString.class]||body.length>5592448)return nil;
+ id envelope=[NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+ if(![envelope isKindOfClass:NSDictionary.class]||[envelope count]!=1||![envelope[@"nativeAvatarBase64"] isKindOfClass:NSString.class])return nil;
+ NSData *data=[[NSData alloc]initWithBase64EncodedString:envelope[@"nativeAvatarBase64"] options:0];
+ return data.length>0&&data.length<=4194304?data:nil;
+}
 @interface PorticoRuntime : NSObject<RCTBridgeModule,RCTInvalidating> @end
 @implementation PorticoRuntime
 RCT_EXPORT_MODULE()
@@ -432,8 +444,8 @@ RCT_REMAP_METHOD(networkRequest,networkRequest:(NSString *)identifier url:(NSStr
 }
 - (void)boundedRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body fullAPI:(BOOL)fullAPI resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
 
- NSURL *target=[NSURL URLWithString:url];NSData *data=[body dataUsingEncoding:NSUTF8StringEncoding];
- if(!target||![@[@"http",@"https"] containsObject:target.scheme]||target.user.length||target.password.length||target.fragment.length||url.length>8192||(fullAPI ? (![target.path hasPrefix:@"/v1/"]&&![target.path hasPrefix:@"/v2/"]) : (![target.path hasPrefix:@"/v2/"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/playback/[A-Za-z0-9_-]+/subtitles$" options:NSRegularExpressionSearch].location==NSNotFound))||![ (fullAPI ? @[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE",@"HEAD"] : @[@"GET",@"POST",@"PUT"]) containsObject:method]||data.length>1048576||identifier.length>128){reject(@"queue_transport",@"Invalid queue request.",nil);return;}
+ NSURL *target=[NSURL URLWithString:url];BOOL avatar=PorticoAvatarUploadPath(target.path,method);NSData *data=avatar?PorticoAvatarUploadBody(body):[body dataUsingEncoding:NSUTF8StringEncoding];
+ if(!target||![@[@"http",@"https"] containsObject:target.scheme]||target.user.length||target.password.length||target.fragment.length||url.length>8192||(fullAPI ? (![target.path hasPrefix:@"/v1/"]&&![target.path hasPrefix:@"/v2/"]) : (![target.path hasPrefix:@"/v2/"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/playback/[A-Za-z0-9_-]+/subtitles$" options:NSRegularExpressionSearch].location==NSNotFound))||![ (fullAPI ? @[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE",@"HEAD"] : @[@"GET",@"POST",@"PUT"]) containsObject:method]||(avatar?!data:data.length>1048576)||identifier.length>128){reject(@"queue_transport",@"Invalid queue request.",nil);return;}
  PorticoQueueRequest *request=[PorticoQueueRequest new];request.identifier=identifier;request.resolve=resolve;request.reject=reject;request.data=[NSMutableData data];request.owner=self;
  // PERF-S18: API reads that grow with the library (Home rows, queue views, admin pages) get 8 MB;
  // writes and the narrow queue-control surface keep the 1 MB bound.
@@ -443,8 +455,8 @@ RCT_REMAP_METHOD(networkRequest,networkRequest:(NSString *)identifier url:(NSStr
  request.wire=wire;[PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"Too many queue requests."];
 }
 RCT_REMAP_METHOD(profileRequest,profileRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
- NSURL *target=[NSURL URLWithString:url];NSData *data=[body isKindOfClass:NSString.class]?[body dataUsingEncoding:NSUTF8StringEncoding]:nil;
- if(!target||![@[@"https",@"http"] containsObject:target.scheme]||!target.host.length||target.user||target.password||target.fragment||url.length>8192||!identifier.length||![target.path hasPrefix:@"/v1/"]||![@[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE"]containsObject:method]||data.length>65536||identifier.length>128){reject(@"profile_transport",@"A bounded profile request is required.",nil);return;}
+ NSURL *target=[NSURL URLWithString:url];BOOL avatar=PorticoAvatarUploadPath(target.path,method);NSData *data=avatar?PorticoAvatarUploadBody(body):([body isKindOfClass:NSString.class]?[body dataUsingEncoding:NSUTF8StringEncoding]:nil);
+ if(!target||![@[@"https",@"http"] containsObject:target.scheme]||!target.host.length||target.user||target.password||target.fragment||url.length>8192||!identifier.length||![target.path hasPrefix:@"/v1/"]||![@[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE"]containsObject:method]||(avatar?!data:data.length>65536)||identifier.length>128){reject(@"profile_transport",@"A bounded profile request is required.",nil);return;}
  PorticoQueueRequest *request=[PorticoQueueRequest new];request.identifier=identifier;request.resolve=resolve;request.reject=reject;request.data=[NSMutableData data];request.owner=self;
  NSMutableURLRequest *wire=[NSMutableURLRequest requestWithURL:target];wire.HTTPMethod=method;wire.HTTPBody=data;wire.cachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
  for(id name in headers){if([name isKindOfClass:NSString.class]&&[headers[name] isKindOfClass:NSString.class])[wire setValue:headers[name] forHTTPHeaderField:name];}

@@ -1,6 +1,7 @@
 package tv.getportico.portico.native
 
 import android.content.pm.PackageManager
+import android.util.Base64
 import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -146,13 +147,27 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   @ReactMethod
   fun cancelNetworkStream(identifier: String?) = PorticoEventStream.cancel(identifier)
 
+  // The JSON envelope exists only on the JS/native bridge, never on the wire.
+  private fun avatarUploadPath(path: String, method: String?) =
+      method == "POST" && Regex("^/v1/direct/profiles/[A-Za-z0-9_-]{1,128}/avatar$").matches(path)
+
+  private fun avatarUploadBody(body: String?): ByteArray? = try {
+    if (body == null || body.length > 5592448) null else {
+      val envelope = JSONObject(body)
+      val encoded = envelope.opt("nativeAvatarBase64")
+      if (envelope.length() != 1 || encoded !is String) null else
+        Base64.decode(encoded, Base64.NO_WRAP).takeIf { it.isNotEmpty() && it.size <= 4194304 }
+    }
+  } catch (_: Exception) { null }
+
   private fun boundedRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, fullAPI: Boolean, promise: Promise) {
     val target = PorticoTransport.target(url)
-    val data = body?.toByteArray(Charsets.UTF_8)
     val path = target?.encodedPath ?: ""
+    val avatar = avatarUploadPath(path, method)
+    val data = if (avatar) avatarUploadBody(body) else body?.toByteArray(Charsets.UTF_8)
     val pathAllowed = if (fullAPI) path.startsWith("/v1/") || path.startsWith("/v2/") else path.startsWith("/v2/") || SUBTITLES.matches(path)
     val methodAllowed = method in (if (fullAPI) API_METHODS else QUEUE_METHODS)
-    val request = if (target != null && pathAllowed && methodAllowed && (data?.size ?: 0) <= 1048576 && identifier != null && identifier.length <= 128)
+    val request = if (target != null && pathAllowed && methodAllowed && (if (avatar) data != null else (data?.size ?: 0) <= 1048576) && identifier != null && identifier.length <= 128)
       PorticoTransport.request(target, method!!, headers, data) else null
     if (request == null || identifier == null) {
       promise.reject("queue_transport", "Invalid queue request.")
@@ -168,10 +183,11 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   @ReactMethod
   fun profileRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, promise: Promise) {
     val target = PorticoTransport.target(url)
-    val data = body?.toByteArray(Charsets.UTF_8)
+    val avatar = avatarUploadPath(target?.encodedPath ?: "", method)
+    val data = if (avatar) avatarUploadBody(body) else body?.toByteArray(Charsets.UTF_8)
     val secure = target != null && (target.isHttps || target.host in LOOPBACK)
     val request = if (target != null && secure && target.encodedPath.startsWith("/v1/") && method in PROFILE_METHODS &&
-        (data?.size ?: 0) <= 65536 && identifier != null && identifier.length <= 128)
+        (if (avatar) data != null else (data?.size ?: 0) <= 65536) && identifier != null && identifier.length <= 128)
       PorticoTransport.request(target, method!!, headers, data) else null
     if (request == null || identifier == null) {
       promise.reject("profile_transport", "A secure, bounded profile request is required.")
