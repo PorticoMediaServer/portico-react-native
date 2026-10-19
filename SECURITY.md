@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Portico is prerelease software. Security fixes are normally provided only in the newest release or development version. Older builds may not receive patches.
+Portico is prerelease software. When security fixes are published, they normally target the newest release or development version. Older builds may not receive patches. Support, responses, and fixes are voluntary and not guaranteed. See [SUPPORT.md](SUPPORT.md).
 
 ## Reporting a vulnerability
 
@@ -16,6 +16,6 @@ Use GitHub's private vulnerability reporting feature from the **Security** tab o
 - The likely impact.
 - Any suggested mitigations.
 
-Do not access other people's systems or data, degrade a service, or publish sensitive details while the report is being reviewed. Good-faith reports will be acknowledged as promptly as practical, but the project does not currently promise a formal response-time service level.
+Do not access other people's systems or data, degrade a service, or publish sensitive details while the report is being reviewed. Good-faith reports are welcome, but acknowledgement, investigation, and fixes are voluntary; no response, resolution, or patch schedule is guaranteed.
 
 Operational details, credentials, personal information, access tokens, media filenames, and server addresses should be removed from logs before submission.
