@@ -8,7 +8,7 @@ import {hasAttentionList} from '../../../../../packages/client-core/src/server-a
 import {LibraryManagementService, fetchEpisodeIssues, type EpisodeIssue, type LibraryManagementSnapshot, type ManagedLibrary} from '../../../../../packages/client-core/src/library-management';
 import {LibraryInventoryService, type LibraryInventorySnapshot, type ScanTier, type SourceSettings} from '../../../../../packages/client-core/src/library-inventory';
 import {parseFilesystemPage, parseLibraryDocument, providerChoices, type FilesystemPage, type LibrarySettings} from '../../../../../packages/client-core/src/administration';
-import {iconFor, viewerScope} from '../../../../../packages/client-core/src/presentation/index';
+import {iconFor, metadataAgentWords, viewerScope} from '../../../../../packages/client-core/src/presentation/index';
 import {sentence} from '../../../../../packages/client-core/src/server-admin/console-words';
 import {isMetadataConflict, metadataAgentPath, parseMetadataAgent, saveMetadataAgent, type MetadataAgentId} from '../../../../../packages/client-core/src/server-admin/metadata-agent';
 import {addSourceSettings, canAddSource, createLibraryAndScan, filesystemPath, mergeFilesystemPages} from '../../../../../packages/client-core/src/server-admin/panel-logic';
@@ -188,7 +188,8 @@ function LibrarySheet({libraryId, service, snapshot, waiting, onClose, onOpenTit
 
 function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAttentionChanged, onRemoved}: {api: ReturnType<typeof useSession>['api']; library: ManagedLibrary; section: Section; service: LibraryManagementService; waiting: number; onOpenTitle: (target: TitleTarget) => void; onAttentionChanged: () => void; onRemoved: () => void}) {
   const {session} = useSession();
-  const {t, has} = useI18n();
+  const i18n = useI18n();
+  const {t, has} = i18n;
   const admin = useAdmin();
   const {viewerId, serverId} = viewerScope(session, api);
   const inventory = useService<LibraryInventoryService, LibraryInventorySnapshot>(() => new LibraryInventoryService({api, scope: {viewerId, serverId}, libraryId: library.id}), [api, viewerId, serverId, library.id]);
@@ -270,8 +271,8 @@ function LibraryBody({api, library, section, service, waiting, onOpenTitle, onAt
           ) : null}
           {agent.error ? <Notice tone="error" message={agent.error} action={t('action.tryAgain')} onAction={agent.reload} /> : null}
           {agent.data ? (
-            <RowGroup title={t('web.metadataSource.title')} footer={agent.data.agents.find(a => a.id === agent.data!.agent)?.description}>
-              <PickRow title={t('web.metadataSource.title')} value={agent.data.agent} options={agent.data.agents.map(a => ({id: a.id, label: a.name}))} onChange={id => { if (id !== agent.data!.agent) setPending(id); }} />
+            <RowGroup title={t('web.metadataSource.title')} footer={(c => (c ? metadataAgentWords(i18n, c, library.kind).description : undefined))(agent.data.agents.find(a => a.id === agent.data!.agent))}>
+              <PickRow title={t('web.metadataSource.title')} value={agent.data.agent} options={agent.data.agents.map(a => ({id: a.id, label: metadataAgentWords(i18n, a, library.kind).name}))} onChange={id => { if (id !== agent.data!.agent) setPending(id); }} />
             </RowGroup>
           ) : null}
           {agent.data?.agent !== 'local' && settings.data?.settings.providers.length ? (
