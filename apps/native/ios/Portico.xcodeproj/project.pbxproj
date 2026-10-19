@@ -111,7 +111,9 @@
 		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
 		A57AC1600CCD1B71569232D0 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = "de.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		A57AC109CD68A2A77B22A312 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = "es.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		A57AC16B163FA3BAD47A6247 /* fi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fi; path = "fi.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		A57AC1B858A87C07B04C4568 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = "fr.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		A57AC106B08B32563194C5D8 /* hu */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hu; path = "hu.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		A57AC167B8B1C4FEDB2E38E2 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = "ru.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -279,7 +281,9 @@
 				Base,
 				de,
 				es,
+				fi,
 				fr,
+				hu,
 				ru,
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
@@ -435,7 +439,9 @@
 			children = (
 				A57AC1600CCD1B71569232D0 /* de */,
 				A57AC109CD68A2A77B22A312 /* es */,
+				A57AC16B163FA3BAD47A6247 /* fi */,
 				A57AC1B858A87C07B04C4568 /* fr */,
+				A57AC106B08B32563194C5D8 /* hu */,
 				A57AC167B8B1C4FEDB2E38E2 /* ru */,
 			);
 			name = InfoPlist.strings;
