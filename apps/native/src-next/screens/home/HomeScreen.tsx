@@ -129,7 +129,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: bottomInset + (theme.isTV ? 96 : 24)}}>
     <View style={{height: theme.isTV ? preview && !railExpanded ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
       {theme.isTV && preview && !railExpanded ? <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
-        renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1}]}>{part.text}</Text>)}</View>}
+        renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1, includeFontPadding: false}]}>{part.text}</Text>)}</View>}
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>
@@ -148,7 +148,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
       const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(row, rowIndex, first, last, shown); if (shown && pageAtVisibleEnd(row, last)) void runtime.home.more(row.id);};
-      return <HomeWindow key={row.id} runtime={runtime} row={row} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {rowPositions.current.set(row.id, event.nativeEvent.layout); updateViewport(offset.current);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
+      return <HomeWindow key={row.id} runtime={runtime} row={row} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {const box = event.nativeEvent.layout;
+        rowPositions.current.set(row.id, box); updateViewport(offset.current);
+        // Initial focus can precede the compact hero layout. Re-anchor against
+        // this measured box rather than retaining the previous hero's offset.
+        if (theme.isTV && active && !railExpanded && focus?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
         {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} current={current}/>
           : row.collection ? <View style={{paddingHorizontal: theme.gutter}}><CollectionBanner title={row.collection.collection.name} kindLabel={t('next.home.collection')} covers={row.collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
             body={homeCollectionCaption(row.collection, runtime.text)[0]?.text}

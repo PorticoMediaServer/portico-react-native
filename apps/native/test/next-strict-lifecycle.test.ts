@@ -335,7 +335,8 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {}, '../../kit/layout': {}, '../../kit/layout/types': {},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => anchor}, '../../kit/states': {HomeSkeleton: 'HomeSkeleton'},
     '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},
-    '../../shell/model': shellModel, './model': {authorizedHome: () => undefined, initialHomeFocus: () => undefined},
+    '../../shell/model': shellModel, './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
+    './model': {authorizedHome: () => undefined, initialHomeFocus: () => undefined},
   });
   const first = port('first'), second = port('second'), home = mount(HomeScreen, {runtime: first.runtime, authority});
   try {
