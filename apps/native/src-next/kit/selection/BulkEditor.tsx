@@ -99,7 +99,7 @@ export function BulkEditor(props: BulkEditorProps) {
       </View>)}</View>
       {!fields.length ? <SelectionText>{selectionText('next.selection.native.noBulkFields')}</SelectionText> : null}
       <View style={styles.notice}><SelectionText size={12.5}>{selectionText('next.selection.native.oneAtTime', {fields: props.singleItemFields})}</SelectionText></View>
-      <Switch checked={props.lockEdited} onCheckedChange={props.onLockEditedChange} disabled={props.pending} description={selectionText('next.selection.native.lockDescription')}>{selectionText('next.selection.native.lock')}</Switch>
+      <Switch variant="selection" checked={props.lockEdited} onCheckedChange={props.onLockEditedChange} disabled={props.pending} description={selectionText('next.selection.native.lockDescription')}>{selectionText('next.selection.native.lock')}</Switch>
     </>}
   </SelectionSurface>;
 }
