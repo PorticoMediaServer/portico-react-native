@@ -15,10 +15,11 @@ export type TabsProps = {
   disabled?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
+  contentContainerStyle?: StyleProp<ViewStyle>;
   itemProps?: (item: TabItem) => Omit<FocusableProps, 'children'>;
   testID?: string;
 };
-export type SegmentedProps = TabsProps & {variant?: 'glass' | 'browse' | 'phone'};
+export type SegmentedProps = Omit<TabsProps, 'contentContainerStyle'> & {variant?: 'glass' | 'browse' | 'phone'};
 
 /** Native icon/custom labels live in a View; plain text receives the kit typography. */
 function ChoiceLabel({children, style}: {children: React.ReactNode; style: StyleProp<TextStyle>}) {
@@ -26,14 +27,14 @@ function ChoiceLabel({children, style}: {children: React.ReactNode; style: Style
   return <View style={{flexDirection: 'row', alignItems: 'center', flexShrink: 1}}>{children}</View>;
 }
 
-export function Tabs({items, value, defaultValue, onValueChange, disabled, accessibilityLabel, style, itemProps, testID}: TabsProps) {
+export function Tabs({items, value, defaultValue, onValueChange, disabled, accessibilityLabel, style, contentContainerStyle, itemProps, testID}: TabsProps) {
   const theme = useTheme();
   const id = useId();
   const [current, setCurrent] = useControlValue(value, defaultValue ?? enabledChoice(items) ?? '', onValueChange);
   const active = items.find(item => item.value === current);
   return <View style={style} testID={testID}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{overflow: 'visible'}}
-      contentContainerStyle={[styles.tabs, {gap: tabsSpec.gap[theme.platform], paddingHorizontal: theme.gutter, borderBottomColor: theme.colors.line}]}
+      contentContainerStyle={[styles.tabs, {gap: tabsSpec.gap[theme.platform], paddingHorizontal: theme.gutter, borderBottomColor: theme.colors.line}, contentContainerStyle]}
       accessibilityRole="tablist" accessibilityLabel={accessibilityLabel}>
       {items.map(item => {
         const childProps = itemProps?.(item);

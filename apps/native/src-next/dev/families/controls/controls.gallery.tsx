@@ -21,6 +21,7 @@ function Count({value}: {value: number}) {
 }
 
 export function ButtonsGallery() {
+  const theme = useTheme();
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const press = () => setCount(value => value + 1);
@@ -38,6 +39,9 @@ export function ButtonsGallery() {
     <Button testID="controls-button-loading-toggle" variant="glass" size="small" onPress={() => setLoading(value => !value)}>{t('action.tryAgain')}</Button>
     <Button testID="controls-button-long" variant="glass" onPress={press} style={{maxWidth: 250}}>{longTitle}</Button>
     <Button testID="controls-button-full50" onPress={press} style={{height: 50, alignSelf: 'stretch'}}>{t('action.tryAgain')}</Button>
+    <Button testID="controls-button-trailing" trailingIcon="i-ext" iconSize={18} onPress={press}>{t('action.view')}</Button>
+    <Button testID="controls-button-player40" icon="i-retry" iconSize={18} onPress={press}
+      style={{height: 40, paddingHorizontal: 16, borderRadius: 10, gap: 7}} textStyle={{fontSize: 14.5 * theme.textScale}}>{t('action.tryAgain')}</Button>
     <Count value={count} />
   </Frame>;
 }
@@ -85,6 +89,8 @@ export function TabsGallery() {
   return <Frame title="next.controls.native.tabsTitle">
     <Tabs items={items} value={value} onValueChange={setValue} testID="controls-tabs-controlled" />
     <Tabs items={items} defaultValue="details" testID="controls-tabs-uncontrolled" />
+    {theme.isTV ? <Tabs items={items} value={value} onValueChange={setValue}
+      contentContainerStyle={{paddingHorizontal: 0, borderBottomWidth: 0}} testID="controls-tabs-inline" /> : null}
   </Frame>;
 }
 
