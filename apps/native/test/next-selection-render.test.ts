@@ -12,7 +12,9 @@ import type {BulkEditorProps, DeleteMediaDialogProps, SelectionBarProps} from '.
 // Exercise the actual family, controls and overlay composition. Only native
 // hosts, animation/gesture drivers and the theme context are replaced. This
 // element/hook harness cannot establish native layout or physical D-pad focus.
-const state = {theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType};
+const keyboardListeners = new Map<string, (event?: any) => void>();
+Object.assign(globalThis, {__porticoSelectionKeyboard: keyboardListeners});
+const state = {viewport: {width: 1920, height: 1080, scale: 1, fontScale: 1}, theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType};
 const stateKey = '__porticoSelectionRenderTest';
 Object.assign(globalThis, {[stateKey]: state});
 const moduleURL = (source: string) => `data:text/javascript,${encodeURIComponent(source)}`;
@@ -20,8 +22,9 @@ const nativeStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const Platform={OS:'android',isTV:true};
   export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
+  export const Keyboard={addListener:(name,callback)=>{const m=globalThis.__porticoSelectionKeyboard;m.set(name,callback);return {remove(){m.delete(name);}};}};
   export const BackHandler={addEventListener:()=>({remove(){}})};
-  export const useWindowDimensions=()=>({width:1920,height:1080,scale:1,fontScale:1});
+  export const useWindowDimensions=()=>globalThis.__porticoSelectionRenderTest.viewport;
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0}};`);
 const theme = moduleURL(`const s=globalThis.${stateKey}; export const useTheme=()=>s.theme; export const fontFamilies=s.fontFamilies; export const nativeType=s.nativeType;`);
@@ -191,7 +194,7 @@ test('TV partial receipts retain actual rows and retry only actual failures, inc
     const surface = editor.tree as Element;
     assert.equal(surface.props.returnFocusRef, returnFocusRef);
     assert.match(text(surface), /Actual saved title/); assert.match(text(surface), /Actual failed title/);
-    assert.match(text(surface), /Changed while you were editing/);
+    assert.match(text(surface), /Someone else changed this title while you were editing/);
     ofType(surface, Button).find(button => text(button.props.children) === 'Try again')!.props.onPress();
     const footerRetry = ofType(surface.props.footer, Button).at(-1)!;
     footerRetry.props.onPress(); assert.deepEqual(calls, [['b'], ['b']]);
@@ -325,8 +328,8 @@ test('selection actions and their internal menu carry the authority fence to act
     const menu = mount(menuNode.type, menuNode.props);
     try {
       assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'));
-      const shared = mount(Menu, (menu.tree as Element).props);
-      try {assert.deepEqual(ofType(shared.tree, MenuRow).map(nativeControlID), ['playNext', 'playLater'].map(action => `${controlID(prefix, 'menu', 'queue')}-item-${action}`));} finally {shared.host.unmount();}
+      const shared = mount((menu.tree as Element).type, (menu.tree as Element).props);
+      try {assert.deepEqual(ofType((menu.tree as Element).props.children, MenuRow).map(nativeControlID), ['playNext', 'playLater'].map(action => `${controlID(prefix, 'menu', 'queue')}-item-${action}`));} finally {shared.host.unmount();}
       assert.equal((menu.tree as Element).props.returnFocusRef, buttons[1]!.props.ref);
       menu.update({...menuNode.props, menu: null, returnFocusRef: undefined});
       assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'), 'closing animation retains its semantic surface identity');
@@ -386,4 +389,62 @@ test('bulk field/value/result IDs use schema and entity keys while native lock/s
     const retries = ofType(editor.tree, Button).filter(button => button.props.testID?.includes('result'));
     assert.deepEqual(retries.map(nativeControlID), [controlID(prefix, 'result', 'item', 'same', 'retry'), controlID(prefix, 'result', 'person', 'same', 'retry')]);
   } finally {editor.host.unmount();}
+});
+
+
+test('phone text-entry sheet moves body and footer together for keyboard events and restores refs', t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.theme = createTheme({isTV: false, width: 390});
+  state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
+  const calls: string[] = [];
+  const initial = {current: {focus() {calls.push('input');}}};
+  const returning = {current: {focus() {calls.push('opener');}}};
+  const props = {open: true, onOpenChange() {}, title: 'Actual entry', children: React.createElement('TextInput', {testID: 'actual-input'}), footer: React.createElement('Button', {testID: 'actual-footer'}), initialFocusRef: initial, returnFocusRef: returning, testID: 'phone.entry', detents: [800], keyboardAvoiding: true};
+  const sheet = mount(BottomSheet, props);
+  try {
+    const boundary = () => elements(sheet.tree).find(element => element.props.testID === 'phone.entry-keyboard-boundary')!;
+    const flatten = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style ?? {};
+    const getSheet = () => elements(sheet.tree).find(element => element.props.testID === 'phone.entry')!;
+    t.mock.timers.tick(500);
+    assert.deepEqual(calls, ['input']);
+    assert.equal(flatten(boundary().props.style).marginBottom, 0);
+    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); sheet.host.rerender();
+    assert.equal(flatten(boundary().props.style).marginBottom, 300);
+    assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-footer'));
+    assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-input'));
+    assert.ok(flatten(getSheet().props.style).height <= 544);
+    assert.deepEqual(calls, ['input'], 'keyboard movement must not steal focus');
+    keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender();
+    assert.equal(flatten(boundary().props.style).marginBottom, 0);
+    assert.equal(flatten(getSheet().props.style).height, 800);
+    sheet.host.unmount();
+    assert.deepEqual(calls, ['input', 'opener']);
+    assert.equal(keyboardListeners.size, 0);
+    const regular = mount(BottomSheet, {...props, keyboardAvoiding: false});
+    try {assert.equal(keyboardListeners.size, 0, 'default sheets do not opt into keyboard handling');} finally {regular.host.unmount();}
+  } finally {state.theme = previousTheme; state.viewport = previousViewport; sheet.host.unmount();}
+});
+
+
+test('phone queue uses the supplied kind, unboxed rows, denial copy and original authority IDs', () => {
+  const previousTheme = state.theme;
+  state.theme = createTheme({isTV: false, width: 390});
+  const calls: unknown[] = [];
+  const props: SelectionBarProps = {testID: 'phone.authority.queue', count: 3, selectionLabel: '3 episodes', selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction: action => calls.push(action), menu: 'queue', onMenuChange: menu => calls.push(menu), actions: [{id: 'playNext'}, {id: 'playLater', disabled: true, reason: 'Actual unavailable reason'}]};
+  const bar = mount(SelectionBar, props);
+  try {
+    const node = elements(bar.tree).find(element => element.props.menu === 'queue' && element.type !== SelectionBar)!;
+    const menu = mount(node.type, node.props);
+    try {
+      const surface = menu.tree as Element;
+      assert.equal(surface.type, SelectionSurface); assert.equal(surface.props.title, 'Add 3 episodes to the queue');
+      assert.equal(surface.props.description, 'In the order you picked them');
+      const rows = ofType(surface, MenuRow);
+      assert.equal(rows[0].props.description, 'After what’s playing now');
+      assert.equal(rows[1].props.description, 'Actual unavailable reason'); assert.equal(rows[1].props.disabled, true);
+      assert.equal(nativeControlID(rows[0]), `${controlID('phone.authority.queue', 'menu', 'queue')}-item-playNext`);
+      rows[0].props.onPress(); assert.deepEqual(calls, ['playNext', null]);
+    } finally {menu.host.unmount();}
+  } finally {bar.host.unmount(); state.theme = previousTheme;}
 });

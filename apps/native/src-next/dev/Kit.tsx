@@ -23,7 +23,7 @@ export function KitHost({shell: Shell}: {shell?: ComponentType}) {
 }
 
 /** Dev-only host. Families render in the same theme, gesture root and safe-area providers. */
-export function Kit({initialGallery}: {initialGallery?: string}) {
+export function Kit({initialGallery, presentation = 'catalogue'}: {initialGallery?: string; presentation?: 'catalogue' | 'window'}) {
   const theme = useTheme();
   const [selected, setSelected] = useState<string | undefined>(initialGallery);
   const [focused, setFocused] = useState<string>();
@@ -31,6 +31,10 @@ export function Kit({initialGallery}: {initialGallery?: string}) {
   const current = available.find(gallery => gallery.id === selected);
   const Screen = current?.render;
   const t = defaultI18n.t;
+  // The private compiled evidence entry injects this Kit through App's normal
+  // KitHost shell slot. Families keep the catalogue gutter they were authored in;
+  // Canvas's negative gutter therefore cancels exactly once, at the window edge.
+  if (presentation === 'window' && Screen) return <SafeAreaView testID="native-kit-window" edges={[]} style={{flex: 1}}><View style={{flex: 1, paddingHorizontal: theme.gutter}}><Screen /></View></SafeAreaView>;
   return <SafeAreaView testID="native-kit" style={{flex: 1}}>
     <ScrollView contentContainerStyle={{padding: theme.gutter, gap: theme.space.md}}>
       <Text accessibilityRole="header" style={[theme.type.heading, {color: theme.colors.text}]}>{t('next.platform.kitTitle')}</Text>

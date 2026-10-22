@@ -53,6 +53,8 @@ export type BottomSheetProps = SurfaceProps & {
   scrollable?: boolean;
   showClose?: boolean;
   fitContent?: boolean;
+  /** Text-entry sheets move content and footer together above the native keyboard. */
+  keyboardAvoiding?: boolean;
   headerAction?: React.ReactNode;
 };
 export type PopoverProps = SurfaceProps & {

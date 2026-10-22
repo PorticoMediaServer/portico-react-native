@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Modal, ScrollView, StyleSheet, View, useWindowDimensions} from 'react-native';
+import {Keyboard, Modal, ScrollView, StyleSheet, View, useWindowDimensions} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -12,18 +12,29 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false}: BottomSheetProps) {
   const theme = useTheme();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
   const motion = useMotion();
   const viewport = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [windowHeight, setWindowHeight] = useState(viewport.height);
+  const [keyboardTop, setKeyboardTop] = useState<number>();
+  const avoidKeyboard = keyboardAvoiding && !side;
+  useEffect(() => {
+    if (!avoidKeyboard || !open) {setKeyboardTop(undefined); return;}
+    const show = Keyboard.addListener('keyboardDidShow', event => setKeyboardTop(event.endCoordinates.screenY));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(undefined));
+    return () => {show.remove(); hide.remove();};
+  }, [avoidKeyboard, open]);
+  const keyboardInset = avoidKeyboard && keyboardTop !== undefined ? Math.max(0, windowHeight - keyboardTop) : 0;
+  const availableHeight = Math.min(viewport.height, windowHeight - keyboardInset);
   const [bodyHeight, setBodyHeight] = useState(0);
   const [headerHeight, setHeaderHeight] = useState(64);
   const [footerHeight, setFooterHeight] = useState(0);
   const naturalHeight = bodyHeight + headerHeight + footerHeight + (footer == null ? insets.bottom : 0) + 8;
-  const heights = useMemo(() => sheetHeights(fitContent ? [naturalHeight] : detents, viewport.height, insets.top), [fitContent, naturalHeight, detents, viewport.height, insets.top]);
+  const heights = useMemo(() => sheetHeights(fitContent ? [naturalHeight] : detents, availableHeight, insets.top), [fitContent, naturalHeight, detents, availableHeight, insets.top]);
   const [internal, setInternal] = useState(defaultDetent);
   const index = Math.max(0, Math.min(heights.length - 1, detent ?? internal));
   const [settled, setSettled] = useState(index);
@@ -82,7 +93,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
   const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
-    <View style={styles.root} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
+    <View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', 0.64)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {side ? <Animated.View testID={testID} style={[styles.tv, {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20, backgroundColor: theme.colors.raised}, tvStyle, style]}>
@@ -97,9 +108,9 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
           </Animated.View></GestureDetector>
           {body}
         </Animated.View>
-        {footer != null && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footer, {backgroundColor: theme.colors.raised, paddingBottom: insets.bottom + 16, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer}</Animated.View>}
+        {footer != null && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footer, {backgroundColor: theme.colors.raised, paddingBottom: (keyboardInset > 0 ? 0 : insets.bottom) + 16, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer}</Animated.View>}
       </>}
-    </View>
+    </View></View>
   </Modal>;
 }
 const styles = StyleSheet.create({

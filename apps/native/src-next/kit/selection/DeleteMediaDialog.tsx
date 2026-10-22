@@ -30,7 +30,7 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
     <Button testID={controlID(props.testID, 'dismiss')} ref={cancelRef} size="compact" variant={result ? 'primary' : 'glass'} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}} onPress={close}>{selectionText(result || restricted ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
     {!result ? <Button testID={controlID(props.testID, 'delete')} size="compact" variant="text" disabled={gate !== null || !!props.error} loading={props.pending} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch', backgroundColor: colors.record}} textStyle={{color: '#2a0808'}} onPress={() => {if (preview && gate === null && !props.error) props.onDelete(preview, props.confirmation, props.removeFiles);}}>{props.selectionCount === 1 || restricted ? selectionText('next.selection.native.delete') : selectionText('next.selection.native.deleteCount', {count: props.selectionCount})}</Button> : null}
   </View>;
-  return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} title={title} headerContext={props.ownerHeader} footer={footer} initialFocusRef={props.initialFocusRef ?? cancelRef} returnFocusRef={props.returnFocusRef} testID={props.testID}>
+  return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} title={title} headerContext={props.ownerHeader} footer={footer} initialFocusRef={props.initialFocusRef ?? cancelRef} returnFocusRef={props.returnFocusRef} testID={props.testID} contentStyle={{paddingHorizontal: isTV ? 0 : 20}}>
     <View style={[styles.stack, isTV ? {gap: 22, paddingTop: 26} : undefined]}>
       {result ? <>
         <SelectionText>{selectionText('next.selection.native.deleteResult', {removed: result.removed, failed: result.failed})}</SelectionText>
@@ -40,7 +40,7 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
         </View>)}
         {kept.length > 5 ? <SelectionText secondary>{selectionText('next.selection.native.andMore', {count: kept.length - 5})}</SelectionText> : null}
       </> : restricted ? <View style={styles.warning} accessibilityLiveRegion="polite"><Icon name="i-warn" size={isTV ? 28 : 18} color={gate === 'limit' ? colors.record : colors.amber} /><SelectionText size={isTV ? 22 : 13.5} style={{flex: 1}}>{selectionText(gate === 'limit' ? 'next.selection.native.deleteLimit' : gate === 'libraries' ? 'next.selection.native.deleteLibraries' : 'next.selection.native.deleteBlocked', {library: preview?.targets.find(target => !target.allowMediaDeletion)?.libraryName ?? preview?.blocked[0] ?? ''})}</SelectionText></View>
-        : props.loading || !preview ? <SelectionText secondary>{selectionText('next.selection.native.checking')}</SelectionText> : <>
+        : !preview && props.error ? null : props.loading || !preview ? <SelectionText secondary>{selectionText('next.selection.native.checking')}</SelectionText> : <>
           {preview.targets.some(target => target.titles > 1) ? <>
             <SelectionText weight={700}>{selectionText('next.selection.native.descendants', {count: preview.targets.reduce((sum, target) => sum + target.titles, 0)})}</SelectionText>
             <SelectionText secondary>{selectionText('next.selection.native.everythingBeneath')}</SelectionText>
