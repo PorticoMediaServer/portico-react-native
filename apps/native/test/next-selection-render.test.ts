@@ -67,7 +67,7 @@ const {SelectionBar} = await import('../src-next/kit/selection/SelectionBar.tsx'
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
 const {Dialog, FocusBoundary} = await import('../src-next/kit/overlays/surface.tsx');
-const {Menu} = await import('../src-next/kit/overlays/Menu.tsx');
+const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
 const {SelectionCircle} = await import('../src-next/kit/selection/SelectionCircle.tsx');
@@ -325,6 +325,8 @@ test('selection actions and their internal menu carry the authority fence to act
     const menu = mount(menuNode.type, menuNode.props);
     try {
       assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'));
+      const shared = mount(Menu, (menu.tree as Element).props);
+      try {assert.deepEqual(ofType(shared.tree, MenuRow).map(nativeControlID), ['playNext', 'playLater'].map(action => `${controlID(prefix, 'menu', 'queue')}-item-${action}`));} finally {shared.host.unmount();}
       assert.equal((menu.tree as Element).props.returnFocusRef, buttons[1]!.props.ref);
       menu.update({...menuNode.props, menu: null, returnFocusRef: undefined});
       assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'), 'closing animation retains its semantic surface identity');
