@@ -448,3 +448,9 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
     } finally {menu.host.unmount();}
   } finally {bar.host.unmount(); state.theme = previousTheme;}
 });
+
+
+test('content-fit Selection surfaces do not reserve an empty footer or default Done control', () => {
+  const surface = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual queue', children: null});
+  try {const sheet = surface.tree as Element; assert.equal(sheet.props.footer, undefined); assert.equal(sheet.props.showClose, false); assert.equal(sheet.props.fitContent, true);} finally {surface.host.unmount();}
+});
