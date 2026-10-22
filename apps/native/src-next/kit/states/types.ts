@@ -8,6 +8,8 @@ export type StateAction = Readonly<{
   label: React.ReactNode;
   onPress: NonNullable<PressableProps['onPress']>;
   icon?: IconName;
+  trailingIcon?: IconName;
+  iconSize?: number;
   accessibilityLabel?: string;
   disabled?: boolean;
   loading?: boolean;

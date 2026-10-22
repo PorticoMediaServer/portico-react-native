@@ -17,7 +17,7 @@ export function StateView({title, body, icon, tone = 'neutral', primaryAction, s
   const bodySize = tv ? centered ? 26 : panel ? 22 : 24 : 15;
   const iconSize = tv ? centered ? 112 : 88 : 54;
   const color = tone === 'warning' ? theme.colors.amber : tone === 'error' ? theme.colors.record : tone === 'accent' ? theme.colors.accentStrong : theme.colors.text;
-  return <View testID={testID} style={[{alignItems: 'center', paddingHorizontal: panel ? tv ? 48 : 24 : theme.gutter, paddingVertical: tv ? panel ? 40 : 48 : 28,
+  return <View testID={testID} style={[{alignItems: 'center', justifyContent: 'center', paddingHorizontal: panel ? tv ? 48 : 24 : theme.gutter, paddingVertical: tv ? panel ? 40 : 48 : 28,
     backgroundColor: panel ? theme.colors.raised : undefined, borderRadius: panel ? tv ? 26 : 14 : undefined}, style]}>
     {icon && <View style={{width: iconSize, height: iconSize, borderRadius: panel ? tv ? 24 : 14 : theme.baseRadii.pill, backgroundColor: panel ? theme.colors.raisedHigh : `${theme.colors.text}14`, alignItems: 'center', justifyContent: 'center', marginBottom: tv ? centered ? 30 : 22 : 18}}>
       <Icon name={icon} size={tv ? centered ? 54 : panel ? 44 : 38 : 26} color={color} />
@@ -26,7 +26,7 @@ export function StateView({title, body, icon, tone = 'neutral', primaryAction, s
     {body != null && <Text style={[nativeType({size: bodySize, lineHeight: bodySize * (panel ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale), {color: panel ? theme.colors.textTertiary : theme.colors.textSecondary, textAlign: 'center', maxWidth: tv ? panel ? 560 : 900 : 440, marginBottom: tv ? centered ? 40 : 26 : 20}]}>{body}</Text>}
     {children}
     <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: tv ? 18 : 10}}>
-      {primaryAction && <StateActionButton action={primaryAction} size="hero" variant="primary" />}
+      {primaryAction && <StateActionButton action={primaryAction} size="hero" variant={panel ? 'glass' : 'primary'} />}
       {secondaryAction && <StateActionButton action={secondaryAction} size="hero" variant="glass" />}
       {additionalActions?.map(action => <StateActionButton key={action.id} action={action} size="compact" variant="text" />)}
     </View>

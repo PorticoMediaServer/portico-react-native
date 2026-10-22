@@ -1,14 +1,17 @@
 import React from 'react';
 import {Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
+import Svg, {Defs, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import {AmbientArt, type AmbientArtProps} from '../artwork';
+import {AmbientArt, type AmbientArtProps} from '../artwork/index';
 import {useTheme} from '../theme';
+import {Lockup} from '../layout/index';
 import {GridSkeleton} from './GridSkeleton';
 import {SkeletonBlock} from './SkeletonBlock';
-import {showSkeleton, skeletonTiming} from './model';
+import {isSlowLoading, showSkeleton, skeletonTiming} from './model';
 
 export type PressedSkeletonContent = Readonly<{
-  title: React.ReactNode;
+  title: string;
+  longTitle?: boolean;
   subtitle?: React.ReactNode;
   art?: AmbientArtProps;
 }>;
@@ -19,12 +22,13 @@ export type HomeSkeletonProps = Readonly<{
   slowNotice?: React.ReactNode;
   rowTitle?: React.ReactNode;
   renderArrived?: (index: number) => React.ReactNode;
+  visible?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }>;
 
 /** Home's real loading geometry. It never composes a Home response or supplies sample cards. */
-export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, renderArrived, style, testID}: HomeSkeletonProps) {
+export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, renderArrived, visible = true, style, testID}: HomeSkeletonProps) {
   const theme = useTheme();
   const {width, height} = useWindowDimensions();
   const tv = theme.isTV;
@@ -36,11 +40,17 @@ export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, r
   const rowTop = tv ? 588 : 586;
   return <View testID={testID} accessibilityState={{busy: true}} accessibilityLabel={defaultI18n.t('status.loading')}
     style={[{flex: 1, overflow: 'hidden', backgroundColor: theme.colors.ink}, style]}>
-    {pressed?.art && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 0, width, height: tv ? 900 : 560}}><AmbientArt {...pressed.art} treatment={tv ? 'hero' : 'phone'} /></View>}
+    {!pressed?.art && <Svg pointerEvents="none" accessible={false} width="100%" height={560} viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', left: 0, top: 0}}>
+      <Defs><RadialGradient id="home-loading-glow" gradientUnits="userSpaceOnUse" cx={500} cy={300} rx={800} ry={600}><Stop offset={0} stopColor={theme.colors.raisedBright} stopOpacity={.6} /><Stop offset={.72} stopColor={theme.colors.raisedBright} stopOpacity={0} /></RadialGradient></Defs>
+      <Rect width={1000} height={1000} fill="url(#home-loading-glow)" />
+    </Svg>}
+    {pressed?.art && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 0, width, height: tv ? 900 : 560}}><AmbientArt {...pressed.art} visible={visible && pressed.art.visible !== false} arrivalDurationMs={skeletonTiming.pictureFadeMs} treatment={tv ? 'hero' : 'phone'} /></View>}
     {shell}
     {tv && pressed ? <View style={{position: 'absolute', left: gutter, top: 150, width: 960}}>
-      {pressed.subtitle != null && <Text style={[theme.type.meta, {fontSize: 24 * theme.textScale, color: theme.colors.accentStrong, marginBottom: 16}]}>{pressed.subtitle}</Text>}
-      <Text style={[theme.type.lockup, {color: theme.colors.text, marginBottom: 22}]}>{pressed.title}</Text>
+      {pressed.subtitle != null && <View style={{marginBottom: 16}}>{typeof pressed.subtitle === 'string' || typeof pressed.subtitle === 'number'
+        ? <Text style={[theme.type.meta, {fontSize: 24 * theme.textScale, color: theme.colors.accentStrong}]}>{pressed.subtitle}</Text>
+        : pressed.subtitle}</View>}
+      <Lockup title={pressed.title} long={pressed.longTitle} style={{marginBottom: 22}} />
       {show && <>
         <SkeletonBlock width={420} height={24} radius={12} />
         <SkeletonBlock width={780} height={22} radius={11} style={{marginTop: 30}} />
@@ -71,6 +81,6 @@ export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, r
           cardWidth={tv ? 214 : 118} columns={Math.ceil((width - gutter) / ((tv ? 214 : 118) + wideGap))} gap={wideGap} captions={false} />
       </View>}
     </View>
-    {elapsedMs >= skeletonTiming.slowMs && slowNotice}
+    {isSlowLoading(elapsedMs) && slowNotice}
   </View>;
 }

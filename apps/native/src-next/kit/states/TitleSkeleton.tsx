@@ -1,12 +1,13 @@
 import React from 'react';
-import {Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
+import {View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import {AmbientArt} from '../artwork';
+import {AmbientArt} from '../artwork/index';
 import {useTheme} from '../theme';
+import {Lockup} from '../layout/index';
 import type {PressedSkeletonContent} from './HomeSkeleton';
 import {GridSkeleton} from './GridSkeleton';
 import {SkeletonBlock} from './SkeletonBlock';
-import {showSkeleton, skeletonTiming} from './model';
+import {isSlowLoading, showSkeleton, skeletonTiming} from './model';
 import type {StateAction} from './types';
 import {StateActionButton} from './StateActionButton';
 
@@ -20,22 +21,23 @@ export type TitleSkeletonProps = Readonly<{
   playAction?: StateAction;
   slowNotice?: React.ReactNode;
   children?: React.ReactNode;
+  visible?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }>;
 
 /** Keep the pressed title and sharp artwork while its remaining details load. */
-export function TitleSkeleton({elapsedMs, pressed, shell, tabs, playAction, slowNotice, children, style, testID}: TitleSkeletonProps) {
+export function TitleSkeleton({elapsedMs, pressed, shell, tabs, playAction, slowNotice, children, visible = true, style, testID}: TitleSkeletonProps) {
   const theme = useTheme();
   const {width, height} = useWindowDimensions();
   const tv = theme.isTV;
   const show = showSkeleton(elapsedMs);
   return <View testID={testID} accessibilityLabel={defaultI18n.t('status.loading')} accessibilityState={{busy: true}}
     style={[{flex: 1, overflow: 'hidden', backgroundColor: theme.colors.ink}, style]}>
-    {pressed.art && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 0, width, height: tv ? 900 : 396}}><AmbientArt {...pressed.art} treatment={tv ? 'title' : 'phone'} priority /></View>}
+    {pressed.art && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 0, width, height: tv ? 900 : 396}}><AmbientArt {...pressed.art} visible={visible && pressed.art.visible !== false} arrivalDurationMs={skeletonTiming.pictureFadeMs} treatment={tv ? 'title' : 'phone'} priority /></View>}
     {shell}
     <View style={{position: 'absolute', left: tv ? theme.gutter : 20, right: tv ? 96 : 20, top: tv ? 150 : 300, alignItems: tv ? 'flex-start' : 'center'}}>
-      <Text accessibilityRole="header" style={[theme.type.lockup, {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginBottom: tv ? 26 : 12}]}>{pressed.title}</Text>
+      <Lockup title={pressed.title} long={pressed.longTitle} style={{textAlign: tv ? 'left' : 'center', marginBottom: tv ? 26 : 12}} />
       {show && <>
         <SkeletonBlock width={tv ? 460 : 210} height={tv ? 24 : 11} radius={tv ? 12 : 6} />
         {tv && <>
@@ -68,6 +70,6 @@ export function TitleSkeleton({elapsedMs, pressed, shell, tabs, playAction, slow
       <View style={{position: 'absolute', left: theme.gutter, right: 96, top: 742}}>{tabs}</View>
       <View style={{position: 'absolute', left: theme.gutter, right: 0, top: 826}}>{children ?? <GridSkeleton elapsedMs={elapsedMs} scrollOffset={0} viewportHeight={Math.max(0, height - 826)} width={width - theme.gutter} columns={7} cardWidth={214} gap={28} captions={false} />}</View>
     </>}
-    {elapsedMs >= skeletonTiming.slowMs && slowNotice}
+    {isSlowLoading(elapsedMs) && slowNotice}
   </View>;
 }

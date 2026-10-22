@@ -12,6 +12,9 @@ export const skeletonTiming = {delayMs: 300, slowMs: 8000, pictureFadeMs: 240} a
 export function showSkeleton(elapsedMs: number): boolean {
   return Number.isFinite(elapsedMs) && elapsedMs >= skeletonTiming.delayMs;
 }
+export function isSlowLoading(elapsedMs: number): boolean {
+  return Number.isFinite(elapsedMs) && elapsedMs >= skeletonTiming.slowMs;
+}
 
 export type GridWindowOptions = Readonly<{
   columns: number;
