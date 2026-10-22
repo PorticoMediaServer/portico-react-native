@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
+import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
 import {bindNativeDock, type NativeDockAdapter} from '../src-next/kit/dock/native-binding.ts';
 
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
-const fence: PlaybackFence = {playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
+const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 const local: DockPlayback = {fence, kind: 'video', queue: null, positionSeconds: 30, playing: true, expanded: false};
 function port() {
   const dock = new PlaybackDock(scope), calls: string[] = [];
