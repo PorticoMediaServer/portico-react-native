@@ -1,4 +1,4 @@
-import {AppState, NativeModules, Platform} from 'react-native';
+import {AppState, Platform} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
@@ -12,7 +12,8 @@ import {runEventFeed} from '../../../../packages/client-core/src/event-feed';
 import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork';
 import {parseNotificationSummary} from '../../../../packages/client-core/src/notifications';
 import type {HttpLocalApi, LocalSession, Library, CredentialSessionService} from '../../../../packages/client-core/src';
-import {readNativeSession, restoreNativeConnection, createCredentials, nativeViewerStorage, nativeConnectionEnvironment, trackNativeConnection} from '../platform/session';
+import {restoreNativeConnection, createCredentials, nativeViewerStorage, nativeConnectionEnvironment, trackNativeConnection} from '../platform/session';
+import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
@@ -55,8 +56,9 @@ function cancelled(): Error {return Object.assign(new Error('native_shell_cancel
 const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).every(key => a.viewer[key] === b.viewer[key]);
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
- * It creates no account, installation identity, credential or authentication UI. */
+ * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
 export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
+  const installation = beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
   let playback: ReturnType<typeof createNativeShellPlaybackAdapter> | undefined;
@@ -65,7 +67,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
   const dispose = () => {
-    alive = false; signal.abort(); refresher?.stop(); home?.dispose();
+    alive = false; installation.dispose(); signal.abort(); refresher?.stop(); home?.dispose();
     playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
@@ -76,12 +78,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const abort = () => dispose();
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
-  const assertCurrent = () => {if (!alive || options.signal?.aborted || signal.signal.aborted) throw cancelled();};
+  const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) throw cancelled();};
   try {
     assertCurrent();
-    const saved = await readNativeSession(); assertCurrent();
+    const {saved, connection, identity: installed} = await installation.prepare(); assertCurrent();
     if (!saved.viewer) {dispose(); return undefined;}
-    const original = saved.viewer, connection = await nativeConnectionEnvironment.storage.read(); assertCurrent();
+    const original = saved.viewer;
     let credentials: CredentialSessionService | undefined;
     if (connection?.hosted) {credentials = createCredentials(connection.hosted.origin); await credentials.synchronize(); assertCurrent();}
     const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, credentials, original.session); assertCurrent();
@@ -96,13 +98,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     home = new HomeService(local);
     const documentService = home;
     const identities = new IdentityClient(local);
-    const [librariesResult, accountRaw, initialAvatars, preferencesRaw, notificationsRaw, nativeFacts] = await Promise.all([
+    const [librariesResult, accountRaw, initialAvatars, preferencesRaw, notificationsRaw] = await Promise.all([
       local.libraries(),
       local.request<RouteResponse<'get_direct_account'>>(routePath('get_direct_account'), 'GET', undefined, signal.signal),
       identities.avatars(signal.signal),
       local.request<RouteResponse<'get_preferences'>>(routePath('get_preferences'), 'GET', undefined, signal.signal),
       local.request<RouteResponse<'get_notifications_unread_count'>>(routePath('get_notifications_unread_count'), 'GET', undefined, signal.signal),
-      NativeModules.PorticoCapabilities.facts() as Promise<{appVersion?: unknown}>,
       documentService.load(),
     ]);
     assertCurrent();
@@ -122,7 +123,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
       epoch: JSON.stringify([session.sessionFamilyId, session.authorizationHorizon, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
     const scopeIdentity = authorityKey(authority);
-    const current = () => alive && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
+    const current = () => alive && installation.current() && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
     const profileOption: ProfileOption = Object.freeze({id: profile.id, name: profile.name, initial: [...profile.name.trim()][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: profile.pinRequired});
     let libraries: readonly Library[] = Object.freeze(librariesResult.items);
     // The source directory checks the current profile permission; no admin/source lookup and no
@@ -140,7 +141,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const contextBase: Omit<NativeShellBootstrapContext, 'playback'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: () => preferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
-      appVersion: typeof nativeFacts?.appVersion === 'string' ? nativeFacts.appVersion : require('../../package.json').version, current,
+      appVersion: installed.appVersion, current,
       get account() {return account;}, libraries: () => libraries, navigation};
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       settings: () => nativePlaybackSettings(preferences.effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
