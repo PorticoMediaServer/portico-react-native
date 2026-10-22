@@ -9,7 +9,7 @@ import {Artwork, AmbientArt, type AmbientArtSource} from '../../../kit/artwork';
 import {Button, Tabs} from '../../../kit/controls';
 import {BottomSheet, Dialog, Menu, OverlaysProvider, SidePanel} from '../../../kit/overlays';
 import {SelectionCircle} from '../../../kit/selection';
-import {BrowseToolbar, FilterBuilder, FilteredEmpty, LibraryHeader, LibraryMenu, LibrarySwitcher, SongRow, SortMenu, StickyBrowseHeader, TrackTable, type BrowseLabels, type FilterFieldState, type FilterFieldValue, type TrackRowData, type TrackSelection} from '../../../kit/browse';
+import {BrowseToolbar, FilterBuilder, FilteredEmpty, LibraryHeader, LibraryMenu, LibrarySwitcher, SongRow, SortMenu, StickyBrowseHeader, TrackTable, type BrowseLabels, type FilterFieldState, type FilterFieldValue, type TrackColumn, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {useTheme} from '../../../kit/theme';
 import type {Gallery} from '../../gallery-registry';
 
@@ -22,8 +22,33 @@ const counts = [21, 24, 16, 14, 12, 30, 13, 15, 6, 22];
 const afterHours = fixture('album.afterHours'), weeknd = fixture('artist.weeknd');
 const songNames = (['song.aloneAgain', 'song.tooLate', 'song.hardestToLove', 'song.scaredToLive'] as const).map(fixture);
 const chapterNames = (['chapter.boy', 'chapter.glass', 'chapter.letters', 'chapter.keeper', 'chapter.diagon', 'chapter.journey'] as const).map(fixture);
+type SongReference = Readonly<{title: keyof typeof browseNativeFixtures; artist: keyof typeof browseNativeFixtures; album: keyof typeof browseNativeFixtures; asset: string; seconds: number; plays: number}>;
+const songReferences: readonly SongReference[] = [
+  {title: 'song.aloneAgain', artist: 'artist.weeknd', album: 'album.afterHours', asset: 'after-hours', seconds: 250, plays: 18},
+  {title: 'song.anotherBrick', artist: 'artist.pinkFloyd', album: 'album.wall', asset: 'the-wall', seconds: 201, plays: 6},
+  {title: 'song.babyBeMine', artist: 'artist.michaelJackson', album: 'album.thriller', asset: 'thriller', seconds: 260, plays: 4},
+  {title: 'song.birds', artist: 'artist.billieEilish', album: 'album.hitMe', asset: 'hit-me-hard-and-soft', seconds: 210, plays: 27},
+  {title: 'song.blankSpace', artist: 'artist.taylorSwift', album: 'album.1989', asset: '1989-taylor-s-version-deluxe', seconds: 231, plays: 15},
+  {title: 'song.blood', artist: 'artist.kendrick', album: 'album.damn', asset: 'damn', seconds: 118, plays: 7},
+  {title: 'song.chihiro', artist: 'artist.billieEilish', album: 'album.hitMe', asset: 'hit-me-hard-and-soft', seconds: 303, plays: 11},
+  {title: 'song.comeTogether', artist: 'artist.beatles', album: 'album.abbeyRoad', asset: 'abbey-road-2019-mix', seconds: 259, plays: 21},
+  {title: 'song.dna', artist: 'artist.kendrick', album: 'album.damn', asset: 'damn', seconds: 185, plays: 24},
+  {title: 'song.dontStop', artist: 'artist.fleetwoodMac', album: 'album.rumours', asset: 'rumours', seconds: 191, plays: 9},
+  {title: 'song.dontYouRemember', artist: 'artist.adele', album: 'album.21', asset: '21', seconds: 243, plays: 5},
+  {title: 'song.dreams', artist: 'artist.fleetwoodMac', album: 'album.rumours', asset: 'rumours', seconds: 254, plays: 26},
+  {title: 'song.element', artist: 'artist.kendrick', album: 'album.damn', asset: 'damn', seconds: 208, plays: 12},
+  {title: 'song.gameOfLove', artist: 'artist.daftPunk', album: 'album.randomAccess', asset: 'random-access-memories', seconds: 321, plays: 8},
+  {title: 'song.giorgio', artist: 'artist.daftPunk', album: 'album.randomAccess', asset: 'random-access-memories', seconds: 544, plays: 19},
+  {title: 'song.girlIsMine', artist: 'artist.michaelJackson', album: 'album.thriller', asset: 'thriller', seconds: 222, plays: 3},
+  {title: 'song.giveLife', artist: 'artist.daftPunk', album: 'album.randomAccess', asset: 'random-access-memories', seconds: 274, plays: 10},
+  {title: 'song.happiestDays', artist: 'artist.pinkFloyd', album: 'album.wall', asset: 'the-wall', seconds: 106, plays: 5},
+  {title: 'song.hardestToLove', artist: 'artist.weeknd', album: 'album.afterHours', asset: 'after-hours', seconds: 211, plays: 31},
+  {title: 'song.inTheFlesh', artist: 'artist.pinkFloyd', album: 'album.wall', asset: 'the-wall', seconds: 196, plays: 4},
+  {title: 'song.lunch', artist: 'artist.billieEilish', album: 'album.hitMe', asset: 'hit-me-hard-and-soft', seconds: 179, plays: 13},
+  {title: 'song.maxwell', artist: 'artist.beatles', album: 'album.abbeyRoad', asset: 'abbey-road-2019-mix', seconds: 207, plays: 6},
+  {title: 'song.neverGoingBack', artist: 'artist.fleetwoodMac', album: 'album.rumours', asset: 'rumours', seconds: 134, plays: 8},
+];
 const sourceOrigin = 'http://100.120.50.24:8787';
-const art = {uri: `${sourceOrigin}/assets/pool/albums/after-hours.jpg`, cacheKey: 'approved-reference:after-hours'};
 const libraryChoices = [
   {id: 'movies', name: movies, count: t('lib.count', {count: 80, pivot: 'movies'})},
   {id: 'shows', name: shows, count: t('lib.count', {count: 24, pivot: 'shows'})},
@@ -68,7 +93,7 @@ function HeaderCase({initial = 'movies', switchOpen = false, menuOpen = false, o
   const pivotLabel = (id: string) => t(`library.tab.${id}` as MessageId);
   if (owner && !ownerTag) throw new Error('The owner reference case requires the real shell OwnerTag.');
   const sources = globalThis.__porticoBrowseEvidence?.ambient;
-  const props = {name, ambient: sources?.length ? <AmbientArt sources={sources} treatment="library"/> : undefined, switcher: <LibrarySwitcher libraries={libraryChoices} value={value} onValueChange={setValue} open={switcherOpen} onOpenChange={setSwitcherOpen} trigger={theme.isTV ? 'chevron' as const : 'name' as const}/>, menu: <LibraryMenu {...(owner ? {owner: true as const, ownerTag, onLibrarySettings: () => setAction(t('next.browse.native.librarySettings')), onScan: () => setAction(t('next.browse.native.scan'))} : {owner: false as const})} open={optionsOpen} onOpenChange={setOptionsOpen} onSaveView={() => setAction(t('next.browse.native.saveThisView'))} onMarkAll={() => setAction(t('next.browse.native.markAllWatched'))} onEditPins={() => setAction(t('next.browse.native.editPins'))} count={libraryChoices.find(choice => choice.id === value)?.count} viewSummary={t('web.filters.direction', {kind: 'alpha', dir: 'asc'})}/>, children: <Tabs value={pivot} onValueChange={setPivot} items={pivots.map(id => ({value: id, label: pivotLabel(id)}))}/>};
+  const props = {name, ambient: sources?.length ? <AmbientArt sources={sources} treatment="library"/> : undefined, switcher: <LibrarySwitcher libraries={libraryChoices} value={value} onValueChange={setValue} open={switcherOpen} onOpenChange={setSwitcherOpen} trigger={theme.isTV ? 'chevron' as const : 'name' as const}/>, menu: <LibraryMenu {...(owner ? {owner: true as const, ownerTag, onLibrarySettings: () => setAction(t('next.browse.native.librarySettings')), onScan: () => setAction(t('next.browse.native.scan'))} : {owner: false as const})} open={optionsOpen} onOpenChange={setOptionsOpen} onSaveView={() => setAction(t('next.browse.native.saveThisView'))} onMarkAll={() => setAction(t('next.browse.native.markAllWatched'))} onEditPins={() => setAction(t('next.browse.native.editPins'))} count={libraryChoices.find(choice => choice.id === value)?.count} viewSummary={t('web.filters.direction', {kind: 'alpha', dir: 'asc'})}/>, children: <Tabs value={pivot} onValueChange={setPivot} contentContainerStyle={theme.isTV ? {paddingHorizontal: 0, borderBottomWidth: 0, gap: 34} : undefined} items={pivots.map(id => ({value: id, label: pivotLabel(id)}))}/>};
   return <BrowseStage>{theme.isTV ? <LibraryHeader {...props}/> : <StickyBrowseHeader {...props} safeArea={false} onLibraries={() => setAction(t('next.browse.native.libraries'))} style={{paddingTop: 48}}/>}{action && <Dialog open onOpenChange={open => {if (!open) setAction(undefined);}} title={action} footer={<Button onPress={() => setAction(undefined)}>{t('action.done')}</Button>}><Text style={{color: theme.colors.text}}>{action}</Text></Dialog>}</BrowseStage>;
 }
 
@@ -178,29 +203,36 @@ function TrackCase({chapters = false, compact = false, songs = false, topSongs =
   chapters?: boolean; compact?: boolean; songs?: boolean; topSongs?: boolean; renderSelectionControl: TrackSelection['renderControl'];
 }) {
   const theme = useTheme();
-  const [playing, setPlaying] = useState(chapters ? 'chapter-5' : theme.isTV && !topSongs ? 'song-1' : 'song-0');
+  const [sort, setSort] = useState<{column: TrackColumn; direction: 'asc' | 'desc'}>({column: 'title', direction: 'asc'});
+  const [playing, setPlaying] = useState<string | undefined>(chapters ? 'chapter-5' : songs ? 'song-18' : topSongs && theme.platform !== 'phone' ? undefined : theme.isTV ? 'song-1' : 'song-2');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set()), [selecting, setSelecting] = useState(false), [menuId, setMenuId] = useState<string>();
-  const [favorite, setFavorite] = useState<ReadonlySet<string>>(new Set([theme.isTV ? 'song-1' : 'song-0']));
+  const [favorite, setFavorite] = useState<ReadonlySet<string>>(new Set(songs ? ['song-3', 'song-8', 'song-11', 'song-18'] : topSongs && theme.platform !== 'phone' ? [] : [theme.isTV ? 'song-1' : 'song-2']));
   const rows = useMemo(() => {
-    const tvNames = topSongs
+    const beatles = topSongs && theme.platform !== 'phone';
+    const tvNames = beatles
       ? (['song.comeTogether', 'song.something', 'song.ohDarling', 'song.maxwell'] as const).map(fixture)
       : (['song.blood', 'song.dna', 'song.yah', 'song.element'] as const).map(fixture);
-    const names = chapters ? chapterNames : theme.isTV ? tvNames : songNames;
+    const names = chapters ? chapterNames : songs ? songReferences.map(row => fixture(row.title)) : beatles || theme.isTV ? tvNames : songNames;
     return names.map((title, index): TrackRowData => {
       const id = `${chapters ? 'chapter' : 'song'}-${index}`;
-      const durationSeconds = chapters ? [1663, 1810, 2412, 2339, 2847, 3120][index]
-        : theme.isTV ? (topSongs ? [259, 183, 207, 207] : [118, 185, 160, 208])[index] : [250, 240, 211, 191][index];
+      const reference = songs ? songReferences[index] : undefined;
+      const durationSeconds = reference?.seconds ?? (chapters ? [1663, 1335, 1510, 1598, 2387, 2119][index]
+        : beatles ? [259, 183, 207, 207][index] : theme.isTV ? [118, 185, 160, 208][index] : [250, 239, 211, 191][index]);
       const subject: CardSubject = {id, title, kind: chapters ? 'chapter' : 'song', durationSeconds,
-        artist: chapters || theme.isTV && !topSongs ? undefined : theme.isTV ? undefined : weeknd,
-        album: chapters || theme.isTV && !topSongs ? undefined : theme.isTV ? fixture('album.abbeyRoad') : afterHours};
-      const cover = theme.isTV ? {uri: `${sourceOrigin}/assets/pool/albums/${topSongs ? 'abbey-road-2019-mix' : 'damn'}.jpg`, cacheKey: `approved-reference:${topSongs ? 'abbey-road' : 'damn'}`} : art;
-      return {id, text: cardText(subject, 'song-row', {t}), number: index + 1,
+        artist: reference ? fixture(reference.artist) : chapters || theme.isTV ? undefined : beatles ? fixture('artist.beatles') : weeknd,
+        album: reference ? fixture(reference.album) : chapters || theme.isTV && !topSongs ? undefined : beatles ? fixture('album.abbeyRoad') : afterHours};
+      const asset = reference?.asset ?? (beatles ? 'abbey-road-2019-mix' : theme.isTV ? 'damn' : 'after-hours');
+      const cover = {uri: `${sourceOrigin}/assets/pool/albums/${asset}.jpg`, cacheKey: `approved-reference:${asset}`};
+      const text = cardText(subject, 'song-row', {t});
+      const current = chapters && id === playing;
+      const timeline = current ? cardText({...subject, positionSeconds: index === 5 ? durationSeconds * .52 : 0}, 'continuation', {t}) : undefined;
+      return {id, text: timeline ? {...text, detail: timeline.detail} : text, number: index + 1,
         duration: chapters ? {id: 'duration', text: defaultI18n.clock(durationSeconds), role: 'value'} : undefined,
-        plays: chapters || theme.isTV ? undefined : [24, 18, 12, 8][index], playing: id === playing, favorite: chapters ? undefined : favorite.has(id),
-        done: chapters && index < 5, current: chapters && index === 5, progress: chapters && index === 5 ? .4 : undefined,
-        artwork: chapters || theme.isTV && !topSongs ? undefined : <Artwork source={cover}/>};
+        plays: chapters || theme.isTV ? undefined : reference?.plays ?? (beatles ? [21, 17, 11, 6] : [18, 9, 31, 12])[index], addedAt: songs ? defaultI18n.date('2026-10-17T12:00:00Z') : undefined, playing: chapters ? undefined : id === playing, favorite: chapters ? undefined : favorite.has(id),
+        done: chapters && index < 5 && !current, current, progress: current ? index === 5 ? .52 : 0 : undefined,
+        artwork: chapters || theme.isTV && !topSongs && !songs ? undefined : <Artwork source={cover}/>};
     });
-  }, [chapters, topSongs, theme.isTV, playing, favorite]);
+  }, [chapters, songs, topSongs, theme.isTV, theme.platform, playing, favorite]);
   const selection: TrackSelection = {active: selecting, isSelected: id => selected.has(id),
     onToggle: id => setSelected(previous => {const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next;}),
     onEnter: id => {setSelecting(true); setSelected(new Set([id]));}, renderControl: renderSelectionControl};
@@ -213,7 +245,7 @@ function TrackCase({chapters = false, compact = false, songs = false, topSongs =
     {compact ? rows.map(item => <SongRow key={item.id} row={item} {...actions} onLongPress={() => selection.onEnter(item.id)} selected={selected.has(item.id)}
       selection={selecting ? renderSelectionControl(item, selected.has(item.id), () => selection.onToggle(item.id)) : undefined}
       onSelectionChange={selecting ? () => selection.onToggle(item.id) : undefined}/>)
-      : songs ? <TrackTable variant="songs" collection={collection} selection={selection} {...actions}/>
+      : songs ? <TrackTable variant="songs" collection={collection} selection={selection} sort={sort} sortable={['title', 'artist', 'album', 'duration', 'plays', 'added']} onSort={column => setSort(previous => ({column, direction: previous.column === column && previous.direction === 'asc' ? 'desc' : 'asc'}))} {...actions}/>
       : <TrackTable variant={chapters ? 'chapters' : topSongs ? 'top-songs' : 'album'} rows={rows} selection={selection} {...actions}/>}
   </View><Menu open={row !== undefined} onOpenChange={open => {if (!open) setMenuId(undefined);}} title={row?.text.title}
     items={row ? [{id: 'play', label: t('action.play'), onSelect: () => setPlaying(row.id)},
