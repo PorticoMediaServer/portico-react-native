@@ -4,6 +4,7 @@ import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
+import {ArtworkAlphaMask} from '../../platform/ArtworkAlphaMask';
 import {Artwork} from './Artwork';
 import {artworkArrivalDuration} from './model';
 import type {AmbientArtProps, ArtworkPalette, ColourBackdropProps} from './types';
@@ -50,7 +51,7 @@ export function PaletteWash({palette, generated = false}: {palette: ArtworkPalet
   ]}/>;
 }
 
-function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false}: {phone: boolean; side: boolean; bottomAt: number; top?: boolean; phoneOverlay?: boolean}) {
+function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false, tvSide = false}: {phone: boolean; side: boolean; bottomAt: number; top?: boolean; phoneOverlay?: boolean; tvSide?: boolean}) {
   const {colors, spec} = useTheme();
   return <Svg accessible={false} pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
     <Defs>
@@ -58,11 +59,13 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false}: {
       <LinearGradient id="art-side"><Stop offset="0" stopColor={colors.ink}/><Stop offset={phone ? 0.48 : 0.38} stopColor={colors.ink} stopOpacity={0}/></LinearGradient>
       <LinearGradient id="art-top" x1="0" y1="0" x2="0" y2="100%"><Stop offset="0" stopColor={colors.ink} stopOpacity={0.4}/><Stop offset="0.35" stopColor={colors.ink} stopOpacity={0}/></LinearGradient>
       <LinearGradient id="phone-overlay" x1="0" y1="0" x2="0" y2="100%">{spec.hero.scrim.phoneOverlay.map(stop => <Stop key={stop.at} offset={stop.at} stopColor={colors.ink} stopOpacity={stop.alpha}/>)}</LinearGradient>
+      <LinearGradient id="art-tv-side" x1="0%" y1="0%" x2="100%" y2="0%">{spec.hero.scrim.tvLeft.map(stop => <Stop key={stop.at} offset={stop.at} stopColor={colors.ink} stopOpacity={stop.alpha}/>)}</LinearGradient>
     </Defs>
     <Rect width="100%" height="100%" fill="url(#art-bottom)"/>
     {side ? <Rect width="100%" height="100%" fill="url(#art-side)"/> : null}
     {top ? <Rect width="100%" height="100%" fill="url(#art-top)"/> : null}
     {phoneOverlay ? <Rect width="100%" height="100%" fill="url(#phone-overlay)"/> : null}
+    {tvSide ? <Rect width="100%" height="100%" fill="url(#art-tv-side)"/> : null}
   </Svg>;
 }
 
@@ -76,6 +79,7 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
   const foregroundWidth = desktop ? treatment === 'title' ? theme.spec.hero.backdrop.titleWidthFraction.web : theme.spec.hero.backdrop.widthFraction.web : theme.spec.hero.backdrop.widthFraction.tv;
   const wash = treatment === 'wash' || treatment === 'library';
   const cover = treatment === 'cover' || treatment === 'artist';
+  const maskedHero = theme.isTV && treatment === 'hero';
   const list = (sources ?? (source ? [source] : [])).slice(0, 3);
   const sourceIdentity = JSON.stringify(list.map(item => item.cacheKey));
   useEffect(() => {fallbackOpacity.stopAnimation(); fallbackOpacity.setValue(1);}, [sourceIdentity, fallbackOpacity]);
@@ -84,6 +88,10 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
   const defaultPalette = {first: theme.colors.accentDeep, second: theme.colors.generatedGreen};
   // ambient-v1 is already blurred by the server. Android TV never runs a live blur filter.
   const allowLiveBlur = !theme.isTV;
+  const sharp = <Reanimated.View style={[StyleSheet.absoluteFillObject, foregroundStyle]}>
+    <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? (desktop && treatment === 'title' ? {x: 0.3, y: 0.25} : {x: phone ? 0.38 : 0.5, y: 0.3})}
+      onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
+  </Reanimated.View>;
   return <View pointerEvents="none" accessible={false} testID={testID} style={[StyleSheet.absoluteFillObject, {overflow: 'hidden', width, height}, style]}>
     <Animated.View style={[StyleSheet.absoluteFillObject, {backgroundColor: theme.colors.ink, opacity: fallbackOpacity}]}>
       <PaletteWash palette={palette ?? defaultPalette}/>
@@ -108,12 +116,9 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
         blurRadius={allowLiveBlur ? wash ? 12 : 8 : undefined}/>
     </View>)}
     {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%', width: phone ? '100%' : `${foregroundWidth * 100}%`}, foregroundFrameStyle]}>
-      <Reanimated.View style={[StyleSheet.absoluteFillObject, foregroundStyle]}>
-        <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? (desktop && treatment === 'title' ? {x: 0.3, y: 0.25} : {x: phone ? 0.38 : 0.5, y: 0.3})}
-          onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
-      </Reanimated.View>
-      <ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/>
+      {maskedHero ? <ArtworkAlphaMask leftOpaqueAt={theme.spec.hero.mask.leftOpaqueAt} bottomOpaqueAt={theme.spec.hero.mask.bottomOpaqueAt}>{sharp}</ArtworkAlphaMask>
+        : <>{sharp}<ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/></>}
     </View> : null}
-    <ArtScrims phone={phone} side={false} bottomAt={wash ? 1 : cover ? 0.7 : 0.42}/>
+    <ArtScrims phone={phone} side={false} bottomAt={wash ? 1 : cover ? 0.7 : 0.42} tvSide={maskedHero}/>
   </View>;
 }

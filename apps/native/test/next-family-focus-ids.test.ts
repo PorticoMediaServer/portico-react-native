@@ -39,6 +39,7 @@ const gesture = moduleURL(`const pan=()=>new Proxy({}, {get:()=>()=>pan()}); exp
 const svg = moduleURL(`export default 'Svg'; export const Defs='Defs',LinearGradient='LinearGradient',RadialGradient='RadialGradient',Rect='Rect',Stop='Stop',Path='Path',Circle='Circle',Ellipse='Ellipse',Line='Line',Polyline='Polyline',Polygon='Polygon',G='G',ClipPath='ClipPath',Mask='Mask',Use='Use',Text='SvgText';`);
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '@react-native-masked-view/masked-view') return {url: moduleURL(`export default 'MaskedView';`), shortCircuit: true};
     if (specifier === 'react-native') return {url: native, shortCircuit: true};
     if (specifier === 'react-native-reanimated') return {url: reanimated, shortCircuit: true};
     if (specifier === 'react-native-gesture-handler') return {url: gesture, shortCircuit: true};
