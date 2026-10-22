@@ -57,7 +57,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
         <View accessible={false} style={{height: 40, marginLeft: 16, marginBottom: 64}}>
           {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 130, height: 30, marginTop: 5}}/> : <RailBrandSymbol/>}
         </View>
-        <ScrollView style={{flex: 1}} contentContainerStyle={{gap: spec.itemGap, paddingVertical: 10}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
+        <ScrollView style={{flex: 1, marginLeft: -24}} contentContainerStyle={{gap: spec.itemGap, paddingLeft: 24}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
         <View style={{gap: spec.itemGap, paddingTop: 8}}>
           {item({key: 'settings', label: defaultI18n.t('settings.title'), icon: 'i-settings', destination: {kind: 'settings'}})}
           <Focusable ref={profileRef} testID="tv-rail-profile" accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={14}
