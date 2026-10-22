@@ -25,7 +25,7 @@ export type NativePlaybackSettings = Readonly<{
   subtitleSize: 'small' | 'medium' | 'large' | 'extra-large';
   subtitleBackground: 'none' | 'translucent' | 'opaque';
 }>;
-export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; subtitlesCanHide: boolean}>;
+export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
 export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;

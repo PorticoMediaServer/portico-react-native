@@ -1,4 +1,4 @@
-import {PlaybackService, type PlaybackSnapshot} from '../../../../../packages/client-core/src/index';
+import {PlaybackService} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
@@ -341,6 +341,9 @@ export class NativePlaybackRuntime {
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, retired: this.retired,
       capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && playback.duration > 0,
         previous: ready && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && !!view && view.next.reason !== 'end', cast: ready && !!this.o.openDestinations,
+        quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
+        audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
+        subtitleTrack: ready && !playback.nativeListening && !!this.subtitleService?.getSnapshot().plan,
         subtitlesCanHide: session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
   }
   private publish(): void { this.snapshot = this.makeSnapshot(this.snapshot.sequence + 1); for (const listener of [...this.listeners]) listener(); }
@@ -408,7 +411,11 @@ export class NativePlaybackRuntime {
   }
 
   toggle = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) { const state = this.playback.getSnapshot(); if (state.intent === 'playing') this.playback.pause(); else this.playback.resume(); } };
-  replay = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) await this.queue.playItem(fence.itemId, 0); };
+  replay = async (fence: PlaybackFence): Promise<void> => {
+    if (!this.matches(fence)) return;
+    if (this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
+    else await this.queue.playItem(fence.itemId, 0);
+  };
   seek = async (fence: PlaybackFence, seconds: number): Promise<void> => { if (this.matches(fence) && Number.isFinite(seconds) && seconds >= 0 && this.snapshot.capabilities.seek) this.playback.seek(seconds); };
   skip = async (fence: PlaybackFence, seconds: number): Promise<void> => { if (this.matches(fence) && Number.isFinite(seconds)) await this.seek(fence, Math.max(0, this.playback.getSnapshot().positionSeconds + seconds)); };
   previous = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.snapshot.capabilities.previous) await this.queue.previous(); };
@@ -421,13 +428,16 @@ export class NativePlaybackRuntime {
 
   change = async (fence: PlaybackFence, choice: PlaybackChoices): Promise<void> => {
     if (!this.matches(fence)) return;
+    if (this.playback.hasNativeOwner()) throw new Error(serviceText('player.opt.unavailable'));
     const options = this.options, version = options?.versions.find(value => value.id === this.currentSession()?.versionId);
     if (choice.quality && !options?.qualities.some(value => value.mode === choice.quality!.mode && (value.mode !== 'fixed' || value.id === ('id' in choice.quality! ? choice.quality!.id : undefined)))) throw new Error('Invalid playback quality.');
     if (!options || choice.versionId && !options.versions.some(value => value.id === choice.versionId) || choice.audioTrackId && !version?.audio.some(value => value.id === choice.audioTrackId) || choice.subtitleTrackId && !version?.subtitles.some(value => value.id === choice.subtitleTrackId) && !this.subtitleService?.getSnapshot().plan?.resources.some(value => value.id === choice.subtitleTrackId && value.enabled)) throw new Error('Invalid playback choice.');
     await this.playback.changePlayback(choice);
   };
   chooseQuality = async (fence: PlaybackFence, choice: QualityOption): Promise<void> => {
-    if (!this.matches(fence) || !this.options?.qualities.some(value => value.mode === choice.mode && value.id === choice.id)) return;
+    if (!this.matches(fence)) return;
+    if (this.playback.hasNativeOwner()) throw new Error(serviceText('player.opt.unavailable'));
+    if (!this.options?.qualities.some(value => value.mode === choice.mode && value.id === choice.id)) return;
     this.path.forgetAutomaticStep(); await this.playback.changePlayback({quality: qualityOptionRequest(choice)});
   };
   setRate = (fence: PlaybackFence, rate: number): void => {
