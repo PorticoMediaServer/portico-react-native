@@ -23,7 +23,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
       '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
       '../../../../../packages/client-core/src/presentation/home-spotlight': {homeRowPresentation: () => ({cards: [{entry}], title: 'Continue'}), homeSpotlightModels: () => [], homeTitleFactParts: () => []},
-      '../../../../../packages/client-core/src/home-selection': {},
+      '../../../../../packages/client-core/src/home-selection': {homeEntryCapabilities: () => ({playable: true, details: true, watchlisted: false})},
       '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_: unknown, text: string) => text},
       '../../../../../packages/client-core/src/presentation/kit-model': {},
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
@@ -35,11 +35,23 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     const render = (props = {}) => h.render(() => HomeScreen({runtime, authority, ...props}));
     const rowBox = (tree: any) => descendants(tree).find(node => node.type === 'View' && node.props.onLayout);
     let tree = render();
+    const hero = descendants(tree).find(node => node.type === 'Hero');
+    const candidate = {entry, target: {...entry, playback: {itemId: entry.id}}};
+    let actions = descendants(hero.props.renderActions(candidate)).filter(node => node.type === 'Button');
+    assert.equal(actions[0].props.hasTVPreferredFocus, true, 'Home starts on genuine spotlight Play, never a Continue card');
+    const renderedRow = descendants(tree).find(node => node.type === 'Row');
+    assert.equal(renderedRow.props.renderItem({entry}, {index: 0}).props.preferred, false);
+    actions[0].props.onFocus();
+    tree = render();
+    actions = descendants(descendants(tree).find(node => node.type === 'Hero').props.renderActions(candidate)).filter(node => node.type === 'Button');
+    assert.equal(actions[0].props.hasTVPreferredFocus, false, 'late content cannot reissue preferred focus after entry');
     rowBox(tree).props.onLayout({nativeEvent: {layout: {y: 820, height: 300}}});
     descendants(tree).find(node => node.type === 'Row').props.onItemFocus({entry});
     frames.shift()!(0); // Focus may see the old, expanded hero box.
     assert.equal(anchors.at(-1)?.[0], 820);
     tree = render();
+    assert.ok(descendants(tree).some(node => node.type === 'Hero'), 'spotlight controls stay mounted as the native Up destination');
+    assert.ok(descendants(tree).some(node => node.type === 'FocusPreviewHero'));
     rowBox(tree).props.onLayout({nativeEvent: {layout: {y: 588, height: 300}}});
     assert.deepEqual(anchors.at(-1), [588, 300, 1080, 1080, 588, 96]);
     const count = anchors.length;

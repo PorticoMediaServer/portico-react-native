@@ -1,4 +1,5 @@
 import React, {useRef} from 'react';
+import {motionRules} from '@portico/design';
 import {Image, ScrollView, Text, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop, Path} from 'react-native-svg';
 import Animated, {useAnimatedStyle, useSharedValue, withDelay, withTiming} from 'react-native-reanimated';
@@ -23,8 +24,9 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   const change = (value: boolean) => {
     if (pendingBlur.current) clearTimeout(pendingBlur.current);
     setOpen(value); onExpandedChange(value);
+    // motion.html 4.2: panel/page share standard/out; labels use token delay.
     expanded.value = motion.transforms ? withTiming(value ? 1 : 0, motion.timing('standard')) : value ? 1 : 0;
-    labelOpacity.value = value ? withDelay(motion.transforms ? 60 : 0, withTiming(1, motion.timing('standard'))) : withTiming(0, motion.timing('quick'));
+    labelOpacity.value = value ? withDelay(motion.transforms ? motionRules.staggerMs[0] : 0, withTiming(1, motion.timing('standard'))) : withTiming(0, motion.timing('quick'));
   };
   React.useEffect(() => () => {if (pendingBlur.current) clearTimeout(pendingBlur.current);}, []);
   React.useEffect(() => {if (!motion.transforms) expanded.value = open ? 1 : 0;}, [expanded, motion.transforms, open]);

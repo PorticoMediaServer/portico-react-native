@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import * as homeSelection from '../../../packages/client-core/src/home-selection/index';
+import * as homeCapabilities from '../../../packages/client-core/src/home-selection';
+import {HomeService} from '../../../packages/client-core/src/home-service';
+import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
+import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
+import {homePlayTarget} from '../src-next/screens/home/model';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
+
+test('actual assembly sends Back to topmost Home menu before player, then TV page, then OS', async () => {
+  const h = hooks(), authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
+  const entry = {id: 'movie', libraryId: 'movies', kind: 'movie', title: 'Movie', available: true,
+    navigation: {view: 'item', entityId: 'movie'}, playback: {itemId: 'movie'}};
+  const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry, {...entry, id: 'second'}, {...entry, id: 'third'}],
+    privacySensitivity: '', policyState: '', priority: 1, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false,
+    total: 3, start: 0, limit: 20, hasMore: false, nextCursor: '', endpoint: '', revision: {catalog: 1, viewer: 1}};
+  const raw = {serverId: 'server', viewerFence: 'fence', rows: [row], spotlight: [], layout: {revision: 1, rowOrder: ['continue'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-22T19:00:00Z'};
+  // A real HomeService parses and owns the in-memory document; no transport/API call occurs.
+  const home = new HomeService({request: async () => JSON.parse(JSON.stringify(raw))});
+  await home.load();
+  let back: () => boolean = () => false, expanded = false, pageCalls = 0, pageConsumes = true;
+  const {createNativeShellBindings} = await screenModule(new URL('../src-next/shell/assembly.tsx', import.meta.url), {
+    react: h.react, 'react-native': {BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back = fn; return {remove() {}};}}, NativeModules: {}, Platform: {isTV: true}, View: 'View'},
+    '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
+    '../../../../packages/client-core/src/home-selection/index': homeSelection,
+    '../../../../packages/client-core/src/home-selection': homeCapabilities,
+    '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true})},
+    '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': {},
+    '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
+    './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
+    './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': {homePlayTarget},
+  });
+  const navigation = new NativeShellNavigation(authority, () => authority);
+  const bindings = createNativeShellBindings({home, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}), current: () => true,
+    authority: () => authority, navigation, api: {request() {throw new Error('unexpected request');}}, events: {on: () => () => {}},
+    account: {account: {role: 'member'}}, playback: {selectionPlayback: () => ({play() {throw new Error('unused playback');}, enqueue() {throw new Error('unused enqueue');}, playChannel() {throw new Error('unused channel');}}), getSnapshot: () => ({dock: {local: {expanded}}})}});
+  bindings.attach({getSnapshot: () => ({authority})});
+  const cleanup = bindings.registerTVPageBack(() => {pageCalls++; return pageConsumes;});
+  bindings.setHomeWindow(home.getSnapshot().document!.rows[0], 0, 0, 0, true, ['third', 'movie', 'second']);
+  bindings.actions.more(home.getSnapshot().document!.rows[0].entries[2], 'continue');
+  const controller = bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.controller;
+  assert.ok(controller.getSnapshot().menu, 'the genuine registered member opened the controller menu');
+  assert.equal(controller.getSnapshot().menu.member.entry.id, 'third', 'physical first slot is admitted through its genuine source index');
+  assert.equal(bindings.homeMenuRow(controller.getSnapshot().menu.windowId), home.getSnapshot().document!.rows[0]);
+  expanded = true;
+  assert.equal(back(), true);
+  assert.equal(controller.getSnapshot().menu, null, 'menu closes before expanded player handles Back');
+  assert.equal(pageCalls, 0);
+  assert.equal(back(), false, 'expanded player retains its own Back handling');
+  expanded = false;
+  assert.equal(back(), true); assert.equal(pageCalls, 1);
+  pageConsumes = false;
+  assert.equal(back(), false, 'Home opening state falls through to OS on second Back');
+  cleanup(); bindings.dispose(); navigation.dispose(); home.dispose();
+});

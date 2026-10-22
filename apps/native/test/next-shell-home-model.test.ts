@@ -127,13 +127,15 @@ test('Home plays the explicit server-selected episode target rather than a show 
   assert.equal(homePlayTarget(row('no-target'), show), undefined);
 });
 
-test('Home focus starts on the real first continuation; pagination only requests near the bounded tail', () => {
+test('Home row fallback and bounded pagination preserve real continuation identity', () => {
   const rows = [row('recent'), row('continue', {kind: 'continue', entries: [entry('resume')]})];
   assert.deepEqual(initialHomeFocus(rows), {rowId: 'continue', entryId: 'resume'});
   assert.equal(initialHomeFocus([]), undefined);
   const paged = row('more', {entries: Array.from({length: 20}, (_, index) => entry(String(index))), nextCursor: 'opaque-server-cursor', hasMore: true});
   assert.equal(pageAtVisibleEnd(paged, 3), false);
   assert.equal(pageAtVisibleEnd(paged, 17), true);
+  assert.equal(pageAtVisibleEnd(paged, 9, 10), false);
+  assert.equal(pageAtVisibleEnd(paged, 10, 10), true);
   assert.equal(pageAtVisibleEnd({...paged, nextCursor: ''}, 19), false);
 });
 

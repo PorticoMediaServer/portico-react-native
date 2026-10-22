@@ -26,9 +26,9 @@ export function platformRows(document: HomeDocument, platform: 'phone' | 'tv', r
   return document.rows.filter(row => (!row.platforms || row.platforms.includes(platform)) && (platform !== 'tv' || !row.libraryId || !readLibraryIds.has(row.libraryId)));
 }
 
-export function pageAtVisibleEnd(row: HomeRow, last: number): boolean {
+export function pageAtVisibleEnd(row: HomeRow, last: number, preload = 3): boolean {
   const count = row.live?.channels.length ?? row.collection?.members.length ?? row.entries.length;
-  return !!row.nextCursor && last >= Math.max(0, count - 3);
+  return !!row.nextCursor && last >= Math.max(0, count - preload);
 }
 
 /** A continuation may be a show with an explicit server-selected episode target. */
