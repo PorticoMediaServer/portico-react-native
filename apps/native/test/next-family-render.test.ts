@@ -43,6 +43,7 @@ registerHooks({resolve(specifier, context, next) {
   if (specifier === 'react-native-gesture-handler') return {url: gesture, shortCircuit: true};
   if (specifier === 'react-native-svg') return {url: svg, shortCircuit: true};
   if (specifier === '@react-native-community/blur') return {url: data(`export const BlurView='BlurView';`), shortCircuit: true};
+  if (specifier === '@react-native-masked-view/masked-view') return {url: data(`export default 'MaskedView';`), shortCircuit: true};
   if (specifier === 'react-native-safe-area-context') return {url: data(`export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});`), shortCircuit: true};
   if (specifier.startsWith('.') && context.parentURL?.startsWith('file:')) {
     const pathname = new URL(specifier, context.parentURL).pathname;
@@ -69,6 +70,7 @@ const {WideCard} = await import('../src-next/kit/cards/MediaCards.tsx');
 const {SelectionHoldFeedback} = await import('../src-next/kit/selection/SelectionHoldFeedback.tsx');
 const {Artwork} = await import('../src-next/kit/artwork/Artwork.tsx');
 const {AmbientArt} = await import('../src-next/kit/artwork/Surfaces.tsx');
+const {ArtworkAlphaMask} = await import('../src-next/platform/ArtworkAlphaMask.tsx');
 const {default: browseGalleries} = await import('../src-next/dev/families/browse/browse.gallery.tsx');
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {Focusable, Tabs, Segmented} = await import('../src-next/kit/controls/index.ts');
@@ -191,15 +193,61 @@ test('scheduled native Image callbacks reject an old retry and an unmounted sour
 test('ambient staging forwards visibility independently and only the actual sharp foreground reveals a hero', () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const foreground = {uri: 'https://current.example/sharp', cacheKey: 'sharp'}, ambient = {uri: 'https://current.example/tiny', url: '/tiny', cacheKey: 'tiny', variant: 'ambient-v1' as const, version: 'v1', maxEdge: 64 as const};
-  const ready: unknown[] = [];
-  const surface = mount(AmbientArt, {foreground, source: ambient, visible: false, onReady: (value: unknown) => ready.push(value)});
+  const ready: unknown[] = [], errors: unknown[] = [], statuses: unknown[] = [];
+  const authenticated = {...foreground, headers: {Authorization: 'Bearer fixture_only'}};
+  const onError = (value: unknown) => errors.push(value), onStatusChange = (value: unknown) => statuses.push(value);
+  const surface = mount(AmbientArt, {foreground: authenticated, source: ambient, visible: false, priority: true, arrivalDurationMs: 240, onError, onStatusChange, onReady: (value: unknown) => ready.push(value)});
   try {
     const art = nodes(surface.tree).filter(node => node.type === Artwork);
     assert.equal(art.length, 2); assert.ok(art.every(node => node.props.visible === false));
     assert.equal(art[0]!.props.sized, true); assert.equal(art[0]!.props.blurRadius, undefined);
     art[0]!.props.onReady(ambient); assert.deepEqual(ready, []);
-    art[1]!.props.onReady(foreground); assert.deepEqual(ready, [foreground]);
+    assert.equal(art[1]!.props.source, authenticated, 'mask wraps the actual authenticated Artwork; no URI/header copy or SVG image');
+    assert.equal(art[1]!.props.onError, onError); assert.equal(art[1]!.props.onStatusChange, onStatusChange);
+    assert.equal(art[1]!.props.priority, true); assert.equal(art[1]!.props.arrivalDurationMs, 240);
+    art[1]!.props.onReady(authenticated); assert.deepEqual(ready, [authenticated]);
   } finally {surface.host.unmount();}
+});
+
+test('TV Home uses an alpha mask at the fixed sharp frame and the authored scrim over the whole canvas', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const surface = mount(AmbientArt, {foreground: {uri: 'https://current.example/sharp', cacheKey: 'sharp'}, treatment: 'hero', width: 1920, height: 900});
+  try {
+    const mask = nodes(surface.tree).find(node => node.props.leftOpaqueAt !== undefined);
+    assert.ok(mask, 'sharp artwork must reveal ambient at its left edge instead of painting opaque ink at x420');
+    assert.equal(mask.props.leftOpaqueAt, state.theme.spec.hero.mask.leftOpaqueAt);
+    assert.equal(mask.props.bottomOpaqueAt, state.theme.spec.hero.mask.bottomOpaqueAt);
+    const frame = nodes(surface.tree).find(node => node.props.style?.[0]?.width === '78.125%');
+    assert.equal(frame!.props.style[0].right, 0); assert.equal(frame!.props.style[0].height, '100%');
+    const scrim = nodes(surface.tree).find(node => node.props.tvSide === true);
+    assert.ok(scrim, 'TV left scrim spans the full canvas after the foreground frame');
+    const actualScrim = mount(scrim.type, scrim.props);
+    try {
+      const gradient = nodes(actualScrim.tree).find(node => node.props.id === 'art-tv-side');
+      assert.deepEqual(nodes(gradient!.props.children).map(stop => [stop.props.offset, stop.props.stopOpacity]), [[0, .86], [.3, .62], [.56, .12], [.7, 0]]);
+    } finally {actualScrim.host.unmount();}
+  } finally {surface.host.unmount();}
+});
+
+test('actual maskElement intersects exact left/bottom alpha ramps, stationary outside foreground drift', () => {
+  const child = React.createElement('ActualAuthenticatedArtwork', {headers: {Authorization: 'Bearer fixture_only'}});
+  const mask = mount(ArtworkAlphaMask, {leftOpaqueAt: .38, bottomOpaqueAt: .42, children: child});
+  try {
+    const native = mask.tree as Element;
+    assert.equal(native.type, 'MaskedView'); assert.equal(native.props.androidRenderingMode, 'hardware');
+    assert.equal(native.props.children, child); assert.equal(native.props.style.transform, undefined);
+    const svg = native.props.maskElement;
+    assert.equal(svg.type, 'Svg'); assert.equal(svg.props.preserveAspectRatio, 'none');
+    const gradients = nodes(svg).filter(node => node.type === 'LinearGradient');
+    assert.deepEqual(gradients.map(gradient => nodes(gradient.props.children).map(stop => [stop.props.offset, stop.props.stopOpacity])), [[[0, 0], [.38, 1]], [[0, 0], [.42, 1]]]);
+    assert.equal(gradients[0]!.props.x2, '100%'); assert.equal(gradients[1]!.props.y1, '100%'); assert.equal(gradients[1]!.props.y2, '0%');
+    const intersection = nodes(svg).find(node => node.type === 'Mask')!;
+    assert.equal(intersection.props.maskType, 'alpha');
+    assert.equal(nodes(intersection.props.children)[0]!.props.fill, 'url(#alpha-left)');
+    const final = nodes(svg).find(node => node.props.mask === 'url(#alpha-intersection)')!;
+    assert.equal(final.props.fill, 'url(#alpha-bottom)', 'applying one ramp as a mask to the other multiplies alpha instead of stacking opaque scrims');
+    assert.equal(nodes(svg).some(node => node.type === 'Image'), false);
+  } finally {mask.host.unmount();}
 });
 
 test('registered browse filters use real controlled search/facet actions and preserve excluded values', () => {

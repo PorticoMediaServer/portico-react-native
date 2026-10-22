@@ -12,6 +12,18 @@
     "url": "https://github.com/react-native-community/react-native-blur"
   },
   {
+    "name": "@react-native-masked-view/masked-view",
+    "version": "0.3.2",
+    "platforms": [
+      "android",
+      "apple"
+    ],
+    "licence": "MIT",
+    "licenceFile": "LICENSE",
+    "licenceSHA256": "22a28f29cff8f5ecf9f463301d9c03b8245a2952ebae0bcab633fd654c0792fb",
+    "url": "https://github.com/react-native-masked-view/masked-view"
+  },
+  {
     "name": "react-native-gesture-handler",
     "version": "2.30.0",
     "platforms": [

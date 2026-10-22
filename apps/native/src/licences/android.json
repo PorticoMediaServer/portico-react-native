@@ -768,6 +768,18 @@
    ]
   },
   {
+   "id": "native-npm:@react-native-masked-view/masked-view@0.3.2",
+   "name": "@react-native-masked-view/masked-view",
+   "version": "0.3.2",
+   "licence": "MIT",
+   "group": "android",
+   "url": "https://github.com/react-native-masked-view/masked-view",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
+   ]
+  },
+  {
    "id": "google-notice:AndroidX lifecycle common library",
    "name": "AndroidX lifecycle common library (in Google Play services)",
    "licence": "Apache-2.0",
@@ -2570,8 +2582,8 @@
   "apps/native/licences/android-google.txt": "b895d89caa625e1a4e7f1ace0356a30313fae61500040cfe2ef1fb6582cdef54",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-android.txt": "02fc1dd52f8da8afd35f10293a65d038dfd404ed05cfea6d4b4bd185f556fea6",
-  "apps/native/licences/native-npm.json": "9a972cf65e1dce589d5809f8be4ccd604b1fd1ff5fae5b6484fb3b64294d1c2f",
-  "apps/native/package-lock.json": "7879ab1dc8de952e75ece081fa6a4ae5c12f19d5e2c31ed585571254e2129e0e",
+  "apps/native/licences/native-npm.json": "f84a1e04c23bd8197f4449640b16a8c072b586602635460da21f3e077cd8f35f",
+  "apps/native/package-lock.json": "2ad5e45d374e282cb94a5a3d7c01d9325ed0c7e800df8a586ecdb5fddb131fd3",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
   "third_party/media-engine/sources.lock.json": "fd6476e21d868db83f65cb4402c336a1473831a34dbfbaa76c6f7a1dde8bd745"

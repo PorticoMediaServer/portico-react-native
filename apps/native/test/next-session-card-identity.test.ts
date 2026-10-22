@@ -40,6 +40,7 @@ registerHooks({resolve(specifier, context, next) {
   if (specifier === 'react-native-reanimated') return {url: animated, shortCircuit: true};
   if (specifier === 'react-native-gesture-handler') return {url: gesture, shortCircuit: true};
   if (specifier === 'react-native-svg') return {url: svg, shortCircuit: true};
+  if (specifier === '@react-native-masked-view/masked-view') return {url: data(`export default 'MaskedView';`), shortCircuit: true};
   if (specifier === '@react-native-community/blur') return {url: data(`export const BlurView='BlurView';`), shortCircuit: true};
   if (specifier === 'react-native-safe-area-context') return {url: data(`export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});`), shortCircuit: true};
   if (specifier.startsWith('.') && context.parentURL?.startsWith('file:')) {

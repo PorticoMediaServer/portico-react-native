@@ -777,6 +777,18 @@
    ]
   },
   {
+   "id": "native-npm:@react-native-masked-view/masked-view@0.3.2",
+   "name": "@react-native-masked-view/masked-view",
+   "version": "0.3.2",
+   "licence": "MIT",
+   "group": "apple",
+   "url": "https://github.com/react-native-masked-view/masked-view",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
+   ]
+  },
+  {
    "id": "pod:boost@1.84.0",
    "name": "boost",
    "version": "1.84.0",
@@ -962,8 +974,8 @@
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-ios.txt": "e9d48f139ff0b13e65dcc430c0ba89b8d1859ca283bcf2423779ac9d665f1d35",
-  "apps/native/licences/native-npm.json": "9a972cf65e1dce589d5809f8be4ccd604b1fd1ff5fae5b6484fb3b64294d1c2f",
-  "apps/native/package-lock.json": "7879ab1dc8de952e75ece081fa6a4ae5c12f19d5e2c31ed585571254e2129e0e",
+  "apps/native/licences/native-npm.json": "f84a1e04c23bd8197f4449640b16a8c072b586602635460da21f3e077cd8f35f",
+  "apps/native/package-lock.json": "2ad5e45d374e282cb94a5a3d7c01d9325ed0c7e800df8a586ecdb5fddb131fd3",
   "apps/native/tvos/Podfile.lock": "d7764c7627c8cbb59a15b9a1d586fd3b0fdfc4f7abb66a14708e27e3c199ccfe",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
