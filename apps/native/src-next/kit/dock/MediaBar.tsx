@@ -12,19 +12,21 @@ import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView} from '../../platform/native-blur';
-import {commandAllowed, dockCommand, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo} from './model';
+import {commandAllowed, dockCommand, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
-import type {DockAction, DockRect, DockRenderProps, PlayerMorphController} from './types';
+import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
 
 export type MediaBarProps = DockRenderProps & {
   onVideoSlot?: (rect: DockRect) => void;
+  /** Host closes this while its ancestor moves; standalone bars have no presence transform. */
+  slotAdmission?: DockSlotAdmission | null;
   onMenuOpenChange?: (open: boolean) => void;
   morph?: PlayerMorphController;
   menuOpen?: boolean;
 };
 
 /** This chrome has no video element, segment input, prompt slot, queue preview, or volume. */
-export function MediaBar({occupant, onAction, visible = true, onVideoSlot, onMenuOpenChange, morph, menuOpen, style, testID}: MediaBarProps) {
+export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotAdmission, onMenuOpenChange, morph, menuOpen, style, testID}: MediaBarProps) {
   const theme = useTheme(), motion = useMotion(), t = defaultI18n.t;
   const bar = useRef<View>(null), art = useRef<View>(null), opener = useRef<View>(null), firstMenu = useRef<View>(null);
   const [internalMenu, setMenu] = useState(false);
@@ -77,9 +79,33 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, onMen
   const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.gesture) : aside, [aside, morph]);
   const animated = useAnimatedStyle(() => ({opacity: fade.value, transform: [{translateX: x.value}, {scale: held.value}]}));
   const textMotion = useAnimatedStyle(() => ({opacity: words.value, transform: [{translateY: motion.transforms ? 6 * (1 - words.value) : 0}]}));
+  const slotSource = useRef(playback.fence);
+  if (!sameFence(slotSource.current, playback.fence)) slotSource.current = playback.fence;
+  const measuredFence = slotSource.current;
+  const measurement = useRef(0), measuring = useRef(false);
+  const slotNow = useRef({video, visible, onVideoSlot, slotAdmission, fence: playback.fence});
+  slotNow.current = {video, visible, onVideoSlot, slotAdmission, fence: playback.fence};
+  useEffect(() => {
+    const request = measurement, live = measuring;
+    live.current = true;
+    return () => {live.current = false; request.current++;};
+  }, []);
   const measureArt = useCallback(() => {
-    if (video && onVideoSlot) art.current?.measureInWindow((ax, ay, w, h) => onVideoSlot({x: ax, y: ay, width: w, height: h}));
-  }, [video, onVideoSlot]);
+    const version = ++measurement.current, node = art.current;
+    if (!measuring.current || !video || !visible || !onVideoSlot || !node || slotAdmission === null || slotAdmission?.isCurrent() === false) return;
+    node.measureInWindow((ax, ay, w, h) => {
+      const now = slotNow.current, rect = {x: ax, y: ay, width: w, height: h};
+      if (measuring.current && version === measurement.current && node === art.current && now.video && now.visible &&
+        now.onVideoSlot === onVideoSlot && now.slotAdmission === slotAdmission && sameFence(now.fence, measuredFence) &&
+        slotAdmission?.isCurrent() !== false && validRect(rect)) onVideoSlot(rect);
+    });
+  }, [video, visible, onVideoSlot, slotAdmission, measuredFence]);
+  // Ancestor transforms do not produce a child onLayout at animation completion.
+  useEffect(() => {
+    const request = measurement;
+    measureArt();
+    return () => {request.current++;};
+  }, [measureArt]);
   const onLayout = useCallback((event: LayoutChangeEvent) => {width.value = event.nativeEvent.layout.width; measureArt();}, [width, measureArt]);
   const label = remote ? t('next.dock.native.openRemote', {title: p.identity.title, device: p.device ?? t('cast.theTV')}) : t('next.dock.native.openPlayerLabel', {title: p.identity.title});
   const button = (type: DockAction, icon: IconName, name: string, size = 22, close = false, skip = false) => {
