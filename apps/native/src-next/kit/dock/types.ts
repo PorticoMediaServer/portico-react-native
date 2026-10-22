@@ -7,6 +7,8 @@ import type {FactPart, PlaybackIdentityModel} from '../../../../../packages/clie
 import type {ArtworkSource, AmbientArtSource, ArtworkPalette} from '../artwork';
 
 export type DockRect = Readonly<{x: number; y: number; width: number; height: number}>;
+/** A settled ancestor transform, valid only for its current presence lifetime. */
+export type DockSlotAdmission = Readonly<{isCurrent: () => boolean}>;
 export type DockAction = 'expand' | 'collapse' | 'close' | 'stop' | 'play' | 'pause' | 'replay' | 'seek' | 'previous' | 'next' | 'cast' | 'open-remote' | 'continue-here' | 'dismiss-remote' | 'restore-audio' | 'restore-video';
 export type DockCommand = Readonly<{
   type: DockAction;
