@@ -400,8 +400,18 @@ test('short windows scroll only genuine libraries with measured edge fades and k
     assert.equal(byID(f, 'touch-nav-library-fade-top').length, 0); assert.equal(byID(f, 'touch-nav-library-fade-bottom').length, 0, 'shrinking content clamps stale native scroll offset');
     await f.update({libraries});
     await f.resize({width: 1024, height: 626}, {bottom: 20, top: 24});
-    await act(async () => byID(f, 'touch-nav-libraries')[0].props.onContentSizeChange(224, 314)); captureChrome(f, 1024, 'expanded-short-1024', 626);
-    await f.press('touch-nav-toggle'); captureChrome(f, 1024, 'collapsed-short-1024', 626);
+    await act(async () => {
+      byID(f, 'touch-nav-libraries')[0].props.onContentSizeChange(224, 314);
+      byID(f, 'touch-nav-library-viewport')[0].props.onLayout({nativeEvent: {layout: {height: 54}}});
+      byID(f, 'touch-nav-libraries')[0].props.onScroll({nativeEvent: {contentOffset: {y: 0}}});
+    }); captureChrome(f, 1024, 'expanded-short-1024', 626);
+    await f.press('touch-nav-toggle');
+    assert.equal(f.flatten(byID(f, 'touch-nav-brand')[0].props.style).height, 72, 'short collapsed brand spacing leaves a full library target visible');
+    await act(async () => {
+      byID(f, 'touch-nav-libraries')[0].props.onContentSizeChange(72, 350);
+      byID(f, 'touch-nav-library-viewport')[0].props.onLayout({nativeEvent: {layout: {height: 53}}});
+    });
+    captureChrome(f, 1024, 'collapsed-short-1024', 626);
     for (const node of f.root.findAllByType('Focusable')) assert.ok(f.flatten(node.props.style).minHeight >= 44, node.props.testID);
     await f.resize({width: 466, height: 678}); await f.resize({width: 626, height: 890});
     assert.strictEqual(f.root.findByType('Page'), page); assert.strictEqual(f.pageRef.current, ref); assert.equal(ref.topVisibleItem, 'item-17');

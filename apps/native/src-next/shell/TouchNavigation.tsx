@@ -1,5 +1,5 @@
 import React, {useId, useState} from 'react';
-import {Image, ScrollView, Text, View} from 'react-native';
+import {Image, ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop, SvgXml} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {libraryNavigationIcon, type Library} from '../../../../packages/client-core/src';
@@ -25,6 +25,7 @@ export function TouchNavigation({sizeClass, collapsed, onCollapsedChange, librar
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), gradientId = useId();
   const sidebar = sizeClass === 'expanded' && !collapsed;
+  const shortWindow = useWindowDimensions().height < 800;
   const [viewport, setViewport] = useState(0), [contentHeight, setContentHeight] = useState(0), [offset, setOffset] = useState(0);
   const rowStyle = {minHeight: 44, width: sidebar ? '100%' as const : 72, flexShrink: 0,
     paddingHorizontal: sidebar ? 12 : 0, paddingTop: sidebar ? 0 : 6, paddingBottom: sidebar ? 0 : 5,
@@ -72,10 +73,10 @@ export function TouchNavigation({sizeClass, collapsed, onCollapsedChange, librar
       gap: sidebar ? 1 : 2, zIndex: theme.layers.navigation, borderRightWidth: 1, borderRightColor: theme.colors.line, overflow: 'hidden'}}>
     <BlurView pointerEvents="none" style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={18} reducedTransparencyFallbackColor={theme.colors.ink}/>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: .72}}/>
-    {sizeClass === 'expanded' && <View testID="touch-nav-brand" style={{height: sidebar ? 48 : 88, flexShrink: 0, paddingLeft: sidebar ? 12 : 0,
+    {sizeClass === 'expanded' && <View testID="touch-nav-brand" style={{height: sidebar ? 48 : shortWindow ? 72 : 88, flexShrink: 0, paddingLeft: sidebar ? 12 : 0,
       flexDirection: sidebar ? 'row' : 'column', alignItems: 'center', justifyContent: 'center'}}>
       {sidebar ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 74, height: 17}} accessible={false}/>
-        : <SvgXml xml={brandSymbol} width={19} height={28} style={{marginVertical: 8}} accessible={false}/>}
+        : <SvgXml xml={brandSymbol} width={19} height={28} style={{marginVertical: shortWindow ? 0 : 8}} accessible={false}/>}
       <Focusable testID="touch-nav-toggle" accessibilityRole="button" accessibilityLabel={toggleLabel} accessibilityState={{expanded: sidebar}}
         onPress={() => onCollapsedChange(!collapsed)} style={{minWidth: 44, minHeight: 44, width: 44, height: 44, marginLeft: sidebar ? 'auto' : 0,
           borderRadius: 12, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-panels" size={22}/></Focusable>
