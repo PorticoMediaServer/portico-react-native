@@ -242,12 +242,13 @@ test('TV More presents only supplied owner commands and preserves denial explana
 
 test('TV mixed Edit offers genuine Keep-only callbacks and an actual initial focus row', () => {
   const calls: unknown[] = [];
-  const mixed = mount(MixedEditExplainer, {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 2, description: 'Actual mixed-type reason', groups: [{kind: 'movie', label: 'Movies', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episodes', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)});
+  const props = {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 2, description: 'Actual mixed-type reason', groups: [{kind: 'movie', label: 'Movies', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episodes', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)};
+  const mixed = mount(MixedEditExplainer, props);
   try {
     const surface = mixed.tree as Element; assert.equal(surface.type, SelectionSurface); assert.equal(surface.props.description, 'Actual mixed-type reason');
     const rows = ofType(surface, Focusable); assert.equal(rows.length, 2); assert.equal(rows[0]!.props.ref, surface.props.initialFocusRef);
     rows[1]!.props.onPress(); assert.deepEqual(calls, ['episode', [false, 'action']]);
-    mixed.update({...surface.props, groups: [{kind: 'season', label: 'Seasons', count: 2, icon: 'i-tv'}], description: 'Actual no-fields reason'});
+    mixed.update({...props, groups: [{kind: 'season', label: 'Seasons', count: 2, icon: 'i-tv'}], description: 'Actual no-fields reason'});
     const single = mixed.tree as Element;
     assert.equal(single.props.title, 'These fields are edited one title at a time.');
     assert.equal(single.props.description, 'Actual no-fields reason'); assert.equal(ofType(single, Focusable).length, 0);

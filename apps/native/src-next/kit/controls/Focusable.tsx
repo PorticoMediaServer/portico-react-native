@@ -55,7 +55,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
     onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
-    style={state => [typeof style === 'function' ? style(state) : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
+    style={(state: PressableStateCallbackType) => [typeof style === 'function' ? style(state) : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
     {(state: PressableStateCallbackType) => <>
       {focusTreatment === 'default' && isTV && !focusInset ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -focusSpec.offsetOuter.tv, borderRadius: focusRadius + focusSpec.offsetOuter.tv,

@@ -7,6 +7,16 @@ import type {ContentEntry} from '../../../packages/client-core/src/library-conte
 
 const authority: ShellAuthority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
 
+test('navigation starts on Home with the same destination used by the initial shell route', () => {
+  const routes = new NativeShellNavigation(authority, () => authority);
+  const initial = routes.getSnapshot();
+  assert.deepEqual(initial, {authority, route: {kind: 'shell', destination: {kind: 'home'}}, destination: {kind: 'home'}, revision: 0});
+  assert.equal(initial.route.kind, 'shell');
+  if (initial.route.kind === 'shell') assert.strictEqual(initial.route.destination, initial.destination);
+  assert.equal(routes.back(authority), false);
+  assert.strictEqual(routes.getSnapshot(), initial);
+});
+
 test('title requests preserve actual aggregate identity and authoritative nested navigation', () => {
   const entry: ContentEntry = {id: 'show', libraryId: 'l', kind: 'show', title: 'show', navigation: {view: 'show', entityId: 'show'}, playback: {itemId: 'episode'}};
   const route = titleRoute(entry);

@@ -16,6 +16,7 @@ import {OwnerTag} from '../kit/shell';
 import {HomeSelectionBars} from './HomeSelectionBars';
 import {HomeSelectionOverlays} from './HomeSelectionOverlays';
 import {nativeAccountMenu} from './account';
+import {nativeHomeSelectionScope} from './selection-scope';
 import {titleRoute, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
@@ -31,7 +32,7 @@ type Window = {row: HomeRow; order: number; first: number; last: number; cleanup
 export function createNativeShellBindings(context: NativeShellBootstrapContext): NativeShellBindings {
   const initial = context.home.getSnapshot().document, session = context.session();
   if (!initial || !session || !context.current()) throw failure('native_home_authority_required');
-  const scope = {serverId: session.viewer.serverId, authority: session.viewer.authority, accountId: session.viewer.accountId, profileId: session.viewer.profileId, viewId: 'home'};
+  const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
