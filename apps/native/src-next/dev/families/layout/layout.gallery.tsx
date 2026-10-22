@@ -65,6 +65,7 @@ function ReferenceArtwork({entry, context, phone}: {entry: ReferenceEntry; conte
   const theme = useTheme();
   const real = globalThis.__porticoLayoutArtworkEvidence?.[entry.id];
   return <AmbientArt foreground={real?.foreground ?? entry.art} source={real?.ambient} palette={real?.palette ?? {first: theme.colors.ink, second: theme.colors.ambient}} treatment={phone ? 'phone' : 'hero'}
+    foregroundFrameStyle={phone ? undefined : {width: 1500, height: 900}}
     arrivalDurationMs={0} foregroundStyle={context.foregroundStyle} visible={context.visible} priority onReady={() => context.onReady()} onError={() => context.onError()}
     position={phone ? {x: .38, y: .3} : undefined} style={{position: 'absolute', inset: 0}} />;
 }
