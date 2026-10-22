@@ -81,66 +81,6 @@
    "text": 2
   },
   {
-   "id": "npm:@react-navigation/core@7.22.1",
-   "name": "@react-navigation/core",
-   "version": "7.22.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://reactnavigation.org",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2017 React Navigation Contributors"
-   ]
-  },
-  {
-   "id": "npm:@react-navigation/elements@2.9.42",
-   "name": "@react-navigation/elements",
-   "version": "2.9.42",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://reactnavigation.org",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2017 React Navigation Contributors"
-   ]
-  },
-  {
-   "id": "npm:@react-navigation/native@7.4.1",
-   "name": "@react-navigation/native",
-   "version": "7.4.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://reactnavigation.org",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2017 React Navigation Contributors"
-   ]
-  },
-  {
-   "id": "npm:@react-navigation/native-stack@7.19.1",
-   "name": "@react-navigation/native-stack",
-   "version": "7.19.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/software-mansion/react-native-screens#readme",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2017 React Navigation Contributors"
-   ]
-  },
-  {
-   "id": "npm:@react-navigation/routers@7.6.4",
-   "name": "@react-navigation/routers",
-   "version": "7.6.4",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://reactnavigation.org/docs/custom-routers/",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2017 React Navigation Contributors"
-   ]
-  },
-  {
    "id": "npm:abort-controller@3.0.0",
    "name": "abort-controller",
    "version": "3.0.0",
@@ -165,96 +105,27 @@
    ]
   },
   {
-   "id": "npm:color@4.2.3",
-   "name": "color",
-   "version": "4.2.3",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "Qix-/color",
-   "text": 4,
-   "copyright": [
-    "Copyright (c) 2012 Heather Arthur"
-   ]
-  },
-  {
-   "id": "npm:color-convert@2.0.1",
-   "name": "color-convert",
-   "version": "2.0.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "Qix-/color-convert",
-   "text": 4,
-   "copyright": [
-    "Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>"
-   ]
-  },
-  {
-   "id": "npm:color-name@1.1.4",
-   "name": "color-name",
-   "version": "1.1.4",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/colorjs/color-name",
-   "text": 5,
-   "copyright": [
-    "Copyright (c) 2015 Dmitry Ivanov"
-   ]
-  },
-  {
-   "id": "npm:color-string@1.9.1",
-   "name": "color-string",
-   "version": "1.9.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "Qix-/color-string",
-   "text": 4,
-   "copyright": [
-    "Copyright (c) 2011 Heather Arthur <fayearthur@gmail.com>"
-   ]
-  },
-  {
-   "id": "npm:dijkstrajs@1.0.3",
-   "name": "dijkstrajs",
-   "version": "1.0.3",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/tcort/dijkstrajs",
-   "text": 6
-  },
-  {
-   "id": "npm:escape-string-regexp@4.0.0",
-   "name": "escape-string-regexp",
-   "version": "4.0.0",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "sindresorhus/escape-string-regexp",
-   "text": 7,
-   "copyright": [
-    "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-   ]
-  },
-  {
    "id": "npm:event-target-shim@5.0.1",
    "name": "event-target-shim",
    "version": "5.0.1",
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/mysticatea/event-target-shim",
-   "text": 8,
+   "text": 4,
    "copyright": [
     "Copyright (c) 2015 Toru Nagashima"
    ]
   },
   {
-   "id": "npm:fast-deep-equal@3.1.3",
-   "name": "fast-deep-equal",
-   "version": "3.1.3",
-   "licence": "MIT",
+   "id": "npm:hoist-non-react-statics@3.3.2",
+   "name": "hoist-non-react-statics",
+   "version": "3.3.2",
+   "licence": "BSD-3-Clause",
    "group": "packages",
-   "url": "https://github.com/epoberezkin/fast-deep-equal#readme",
-   "text": 2,
+   "url": "https://github.com/mridgway/hoist-non-react-statics",
+   "text": 5,
    "copyright": [
-    "Copyright (c) 2017 Evgeny Poberezkin"
+    "Copyright (c) 2015, Yahoo! Inc. All rights reserved."
    ]
   },
   {
@@ -267,18 +138,6 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2013-present, Facebook, Inc."
-   ]
-  },
-  {
-   "id": "npm:is-arrayish@0.2.1",
-   "name": "is-arrayish",
-   "version": "0.2.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/qix-/node-is-arrayish",
-   "text": 3,
-   "copyright": [
-    "Copyright (c) 2015 JD Ballard"
    ]
   },
   {
@@ -303,25 +162,13 @@
    "text": 2
   },
   {
-   "id": "npm:nanoid@3.3.19",
-   "name": "nanoid",
-   "version": "3.3.19",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "ai/nanoid",
-   "text": 9,
-   "copyright": [
-    "Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>"
-   ]
-  },
-  {
    "id": "npm:nullthrows@1.1.1",
    "name": "nullthrows",
    "version": "1.1.1",
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/zertosh/nullthrows",
-   "text": 5,
+   "text": 6,
    "copyright": [
     "Copyright (c) 2016 Andres Suarez"
    ]
@@ -333,21 +180,9 @@
    "licence": "MIT",
    "group": "packages",
    "url": "https://github.com/then/promise",
-   "text": 10,
+   "text": 7,
    "copyright": [
     "Copyright (c) 2014 Forbes Lindesay"
-   ]
-  },
-  {
-   "id": "npm:qrcode@1.5.4",
-   "name": "qrcode",
-   "version": "1.5.4",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "http://github.com/soldair/node-qrcode",
-   "text": 5,
-   "copyright": [
-    "Copyright (c) 2012 Ryan Day"
    ]
   },
   {
@@ -363,18 +198,6 @@
    ]
   },
   {
-   "id": "npm:react-freeze@1.0.4",
-   "name": "react-freeze",
-   "version": "1.0.4",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "software-mansion/react-freeze",
-   "text": 8,
-   "copyright": [
-    "Copyright (c) 2021 Software Mansion"
-   ]
-  },
-  {
    "id": "npm:react-is@19.3.0",
    "name": "react-is",
    "version": "19.3.0",
@@ -384,6 +207,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) Meta Platforms, Inc. and affiliates."
+   ]
+  },
+  {
+   "id": "npm:react-native-gesture-handler@2.30.0",
+   "name": "react-native-gesture-handler",
+   "version": "2.30.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://docs.swmansion.com/react-native-gesture-handler/",
+   "text": 4,
+   "copyright": [
+    "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
   },
   {
@@ -399,25 +234,13 @@
    ]
   },
   {
-   "id": "npm:react-native-qrcode-svg@6.3.22",
-   "name": "react-native-qrcode-svg",
-   "version": "6.3.22",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/Expensify/react-native-qrcode-svg#readme",
-   "text": 8,
-   "copyright": [
-    "Copyright (c) 2016 JerryShen"
-   ]
-  },
-  {
    "id": "npm:react-native-reanimated@4.6.0",
    "name": "react-native-reanimated",
    "version": "4.6.0",
    "licence": "MIT",
    "group": "packages",
    "url": "https://docs.swmansion.com/react-native-reanimated",
-   "text": 8,
+   "text": 4,
    "copyright": [
     "Copyright (c) 2016 Software Mansion <swmansion.com>"
    ]
@@ -432,30 +255,6 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2019 Th3rd Wave"
-   ]
-  },
-  {
-   "id": "npm:react-native-screens@4.23.0",
-   "name": "react-native-screens",
-   "version": "4.23.0",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/software-mansion/react-native-screens#readme",
-   "text": 8,
-   "copyright": [
-    "Copyright (c) 2018 Software Mansion <swmansion.com>"
-   ]
-  },
-  {
-   "id": "npm:react-native-svg@15.15.5",
-   "name": "react-native-svg",
-   "version": "15.15.5",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/software-mansion/react-native-svg",
-   "text": 8,
-   "copyright": [
-    "Copyright (c) [2015-2016] [Horcrux]"
    ]
   },
   {
@@ -519,18 +318,6 @@
    ]
   },
   {
-   "id": "npm:simple-swizzle@0.2.4",
-   "name": "simple-swizzle",
-   "version": "0.2.4",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "qix-/node-simple-swizzle",
-   "text": 3,
-   "copyright": [
-    "Copyright (c) 2015 Josh Junon"
-   ]
-  },
-  {
    "id": "npm:stacktrace-parser@0.1.11",
    "name": "stacktrace-parser",
    "version": "0.1.11",
@@ -543,49 +330,13 @@
    ]
   },
   {
-   "id": "npm:use-latest-callback@0.2.6",
-   "name": "use-latest-callback",
-   "version": "0.2.6",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/satya164/use-latest-callback",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2023 Satyajit Sahoo"
-   ]
-  },
-  {
-   "id": "npm:use-sync-external-store@1.7.0",
-   "name": "use-sync-external-store",
-   "version": "1.7.0",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/react/react",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) Meta Platforms, Inc. and affiliates."
-   ]
-  },
-  {
-   "id": "npm:warn-once@0.1.1",
-   "name": "warn-once",
-   "version": "0.1.1",
-   "licence": "MIT",
-   "group": "packages",
-   "url": "https://github.com/satya164/warn-once",
-   "text": 2,
-   "copyright": [
-    "Copyright (c) 2022 Satyajit Sahoo"
-   ]
-  },
-  {
    "id": "npm:whatwg-fetch@3.6.20",
    "name": "whatwg-fetch",
    "version": "3.6.20",
    "licence": "MIT",
    "group": "packages",
    "url": "github/fetch",
-   "text": 4,
+   "text": 8,
    "copyright": [
     "Copyright (c) 2014-2023 GitHub, Inc."
    ]
@@ -597,7 +348,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/anyhow",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:bitstream-io-4.10.0",
@@ -606,7 +357,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/bitstream-io",
-   "text": 12
+   "text": 10
   },
   {
    "id": "crate:bitvec-1.0.1",
@@ -639,7 +390,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/crc",
-   "text": 13
+   "text": 11
   },
   {
    "id": "crate:crc-catalog-2.5.0",
@@ -657,7 +408,7 @@
    "licence": "BSD-2-Clause",
    "group": "engine",
    "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
-   "text": 14,
+   "text": 12,
    "copyright": [
     "Copyright © 2018-2025, VideoLAN and dav1d authors All rights reserved."
    ]
@@ -669,7 +420,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/equivalent",
-   "text": 15
+   "text": 13
   },
   {
    "id": "engine:ffmpeg@8.1.2",
@@ -678,7 +429,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-   "text": 16
+   "text": 14
   },
   {
    "id": "engine:freetype@2.15.0",
@@ -687,7 +438,7 @@
    "licence": "FTL",
    "group": "engine",
    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
-   "text": 17
+   "text": 15
   },
   {
    "id": "engine:fribidi@1.0.17",
@@ -696,7 +447,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz",
-   "text": 18
+   "text": 16
   },
   {
    "id": "crate:funty-2.0.0",
@@ -717,7 +468,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz",
-   "text": 19
+   "text": 17
   },
   {
    "id": "crate:hashbrown-0.17.1",
@@ -726,7 +477,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/hashbrown",
-   "text": 20
+   "text": 18
   },
   {
    "id": "crate:indexmap-2.14.0",
@@ -735,7 +486,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/indexmap",
-   "text": 21
+   "text": 19
   },
   {
    "id": "crate:itoa-1.0.18",
@@ -744,7 +495,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/itoa",
-   "text": 11
+   "text": 9
   },
   {
    "id": "engine:libass@0.17.5",
@@ -753,7 +504,7 @@
    "licence": "ISC",
    "group": "engine",
    "url": "https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz",
-   "text": 22,
+   "text": 20,
    "copyright": [
     "Copyright (C) 2006-2016 libass contributors"
    ]
@@ -765,7 +516,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/libc",
-   "text": 23
+   "text": 21
   },
   {
    "id": "engine:libdovi@3.4.0",
@@ -786,7 +537,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.19.tar.gz",
-   "text": 24
+   "text": 22
   },
   {
    "id": "engine:libplacebo@7.360.1",
@@ -795,7 +546,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/haasn/libplacebo/archive/refs/tags/v7.360.1.tar.gz",
-   "text": 25
+   "text": 23
   },
   {
    "id": "engine:libunibreak@8.0",
@@ -804,7 +555,7 @@
    "licence": "Zlib",
    "group": "engine",
    "url": "https://github.com/adah1972/libunibreak/releases/download/libunibreak_8_0/libunibreak-8.0.tar.gz",
-   "text": 26,
+   "text": 24,
    "copyright": [
     "Copyright (C) Wu Yongwei <wuyongwei at gmail dot com>",
     "Copyright (C) Tom Hacohen <tom at stosb dot com>",
@@ -819,7 +570,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://github.com/mm2/Little-CMS/releases/download/lcms2.19.1/lcms2-2.19.1.tar.gz",
-   "text": 27,
+   "text": 25,
    "copyright": [
     "Copyright (c) 2023 Marti Maria Saguer"
    ]
@@ -831,7 +582,7 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://crates.io/crates/memchr",
-   "text": 28
+   "text": 26
   },
   {
    "id": "engine:mpv@0.41.0",
@@ -840,7 +591,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz",
-   "text": 29
+   "text": 27
   },
   {
    "id": "crate:no_std_io2-0.9.4",
@@ -849,7 +600,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/no_std_io2",
-   "text": 30
+   "text": 28
   },
   {
    "id": "engine:openssl@3.5.9",
@@ -858,7 +609,7 @@
    "licence": "Apache-2.0",
    "group": "engine",
    "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
-   "text": 31
+   "text": 29
   },
   {
    "id": "crate:proc-macro2-1.0.106",
@@ -867,7 +618,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/proc-macro2",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:quote-1.0.45",
@@ -876,7 +627,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/quote",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:radium-0.7.0",
@@ -897,7 +648,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/roxmltree",
-   "text": 32
+   "text": 30
   },
   {
    "id": "crate:serde-1.0.228",
@@ -906,7 +657,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:serde_core-1.0.228",
@@ -915,7 +666,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_core",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:serde_derive-1.0.228",
@@ -924,7 +675,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_derive",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:serde_json-1.0.149",
@@ -933,7 +684,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/serde_json",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:syn-2.0.117",
@@ -942,7 +693,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/syn",
-   "text": 11
+   "text": 9
   },
   {
    "id": "crate:tap-1.0.1",
@@ -963,7 +714,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/tinyvec",
-   "text": 33
+   "text": 31
   },
   {
    "id": "engine:uchardet@0.0.8",
@@ -972,7 +723,7 @@
    "licence": "LGPL-2.1-or-later",
    "group": "engine",
    "url": "https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz",
-   "text": 34
+   "text": 32
   },
   {
    "id": "crate:unicode-ident-1.0.24",
@@ -981,7 +732,7 @@
    "licence": "MIT OR Apache-2.0",
    "group": "engine",
    "url": "https://crates.io/crates/unicode-ident",
-   "text": 35
+   "text": 33
   },
   {
    "id": "crate:wyz-0.5.1",
@@ -1002,7 +753,19 @@
    "licence": "MIT",
    "group": "engine",
    "url": "https://crates.io/crates/zmij",
-   "text": 36
+   "text": 34
+  },
+  {
+   "id": "native-npm:@react-native-community/blur@4.4.1",
+   "name": "@react-native-community/blur",
+   "version": "4.4.1",
+   "licence": "MIT",
+   "group": "android",
+   "url": "https://github.com/react-native-community/react-native-blur",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2022 React Native Community"
+   ]
   },
   {
    "id": "google-notice:AndroidX lifecycle common library",
@@ -1012,7 +775,7 @@
    "only": [
     "google"
    ],
-   "text": 37,
+   "text": 35,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -1025,7 +788,7 @@
    "only": [
     "google"
    ],
-   "text": 37,
+   "text": 35,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -1038,7 +801,7 @@
    "only": [
     "google"
    ],
-   "text": 37,
+   "text": 35,
    "copyright": [
     "Copyright (c) 2005-2011, The Android Open Source Project"
    ]
@@ -1050,7 +813,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/activity#1.8.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.activity:activity-ktx:1.8.0",
@@ -1059,7 +822,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/activity#1.8.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.annotation:annotation:1.8.1",
@@ -1068,7 +831,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.8.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.annotation:annotation-experimental:1.4.1",
@@ -1077,7 +840,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.4.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.annotation:annotation-jvm:1.8.1",
@@ -1086,7 +849,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.8.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.appcompat:appcompat:1.7.0",
@@ -1095,7 +858,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/appcompat#1.7.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.appcompat:appcompat-resources:1.7.0",
@@ -1104,7 +867,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/appcompat#1.7.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.arch.core:core-common:2.2.0",
@@ -1113,7 +876,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/arch-core#2.2.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.arch.core:core-runtime:2.2.0",
@@ -1122,7 +885,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/arch-core#2.2.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.autofill:autofill:1.1.0",
@@ -1131,7 +894,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/autofill#1.1.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.browser:browser:1.8.0",
@@ -1140,7 +903,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/browser#1.8.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.cardview:cardview:1.0.0",
@@ -1149,7 +912,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.collection:collection:1.4.2",
@@ -1158,7 +921,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.collection:collection-jvm:1.4.2",
@@ -1167,7 +930,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.collection:collection-ktx:1.4.2",
@@ -1176,7 +939,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/collection#1.4.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.concurrent:concurrent-futures:1.2.0",
@@ -1185,7 +948,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/concurrent#1.2.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.constraintlayout:constraintlayout:2.1.0",
@@ -1194,7 +957,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://tools.android.com",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.constraintlayout:constraintlayout-core:1.0.0",
@@ -1203,7 +966,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://tools.android.com",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.coordinatorlayout:coordinatorlayout:1.2.0",
@@ -1212,7 +975,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/coordinatorlayout#1.2.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.core:core:1.18.0",
@@ -1221,7 +984,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.18.0",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.core:core-ktx:1.18.0",
@@ -1230,7 +993,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.18.0",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.core:core-viewtree:1.0.0",
@@ -1239,7 +1002,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/core#1.0.0",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.cursoradapter:cursoradapter:1.0.0",
@@ -1248,7 +1011,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.customview:customview:1.1.0",
@@ -1257,7 +1020,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.documentfile:documentfile:1.0.0",
@@ -1269,7 +1032,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.drawerlayout:drawerlayout:1.1.1",
@@ -1278,7 +1041,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.dynamicanimation:dynamicanimation:1.1.0",
@@ -1287,7 +1050,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/dynamicanimation#1.1.0",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.emoji2:emoji2:1.3.0",
@@ -1296,7 +1059,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/emoji2#1.3.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.emoji2:emoji2-views-helper:1.3.0",
@@ -1305,7 +1068,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/emoji2#1.3.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.exifinterface:exifinterface:1.3.6",
@@ -1314,7 +1077,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/exifinterface#1.3.6",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.fragment:fragment:1.6.1",
@@ -1323,7 +1086,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/fragment#1.6.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.fragment:fragment-ktx:1.6.1",
@@ -1332,7 +1095,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/fragment#1.6.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.graphics:graphics-shapes:1.0.1",
@@ -1341,7 +1104,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/graphics#1.0.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.graphics:graphics-shapes-android:1.0.1",
@@ -1350,7 +1113,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/graphics#1.0.1",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.interpolator:interpolator:1.0.0",
@@ -1359,7 +1122,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.legacy:legacy-support-core-utils:1.0.0",
@@ -1371,7 +1134,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-common:2.6.2",
@@ -1380,7 +1143,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata:2.6.2",
@@ -1389,7 +1152,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata-core:2.6.2",
@@ -1398,7 +1161,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-livedata-core-ktx:2.6.2",
@@ -1407,7 +1170,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-process:2.6.2",
@@ -1416,7 +1179,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-runtime:2.6.2",
@@ -1425,7 +1188,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-runtime-ktx:2.6.2",
@@ -1434,7 +1197,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-service:2.6.2",
@@ -1443,7 +1206,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel:2.6.2",
@@ -1452,7 +1215,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2",
@@ -1461,7 +1224,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2",
@@ -1470,7 +1233,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/lifecycle#2.6.2",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.loader:loader:1.0.0",
@@ -1479,7 +1242,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.localbroadcastmanager:localbroadcastmanager:1.0.0",
@@ -1491,7 +1254,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media:media:1.7.0",
@@ -1500,7 +1263,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/media#1.7.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-common:1.10.1",
@@ -1508,7 +1271,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-container:1.10.1",
@@ -1516,7 +1279,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-database:1.10.1",
@@ -1524,7 +1287,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-datasource:1.10.1",
@@ -1532,7 +1295,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-datasource-okhttp:1.10.1",
@@ -1540,7 +1303,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-decoder:1.10.1",
@@ -1548,7 +1311,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-exoplayer:1.10.1",
@@ -1556,7 +1319,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-exoplayer-hls:1.10.1",
@@ -1564,7 +1327,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-extractor:1.10.1",
@@ -1572,7 +1335,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.media3:media3-session:1.10.1",
@@ -1580,7 +1343,7 @@
    "version": "1.10.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.mediarouter:mediarouter:1.8.0-beta01",
@@ -1592,7 +1355,7 @@
    "only": [
     "google"
    ],
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.palette:palette:1.0.0",
@@ -1604,7 +1367,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.print:print:1.0.0",
@@ -1616,7 +1379,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.profileinstaller:profileinstaller:1.3.1",
@@ -1625,7 +1388,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/profileinstaller#1.3.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.recyclerview:recyclerview:1.2.1",
@@ -1634,7 +1397,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/recyclerview#1.2.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.resourceinspection:resourceinspection-annotation:1.0.1",
@@ -1643,7 +1406,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/resourceinspection#1.0.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.savedstate:savedstate:1.2.1",
@@ -1652,7 +1415,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/savedstate#1.2.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.savedstate:savedstate-ktx:1.2.1",
@@ -1661,7 +1424,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/savedstate#1.2.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.startup:startup-runtime:1.1.1",
@@ -1670,7 +1433,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/startup#1.1.1",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.swiperefreshlayout:swiperefreshlayout:1.1.0",
@@ -1679,7 +1442,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.tracing:tracing:1.2.0",
@@ -1688,7 +1451,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/tracing#1.2.0",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.transition:transition:1.6.0",
@@ -1697,7 +1460,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx/releases/transition#1.6.0",
-   "text": 39
+   "text": 37
   },
   {
    "id": "maven:androidx.vectordrawable:vectordrawable:1.1.0",
@@ -1706,7 +1469,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.vectordrawable:vectordrawable-animated:1.1.0",
@@ -1715,7 +1478,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.versionedparcelable:versionedparcelable:1.1.1",
@@ -1724,7 +1487,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.viewpager:viewpager:1.0.0",
@@ -1733,7 +1496,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://developer.android.com/tools/extras/support-library.html",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:androidx.viewpager2:viewpager2:1.0.0",
@@ -1742,7 +1505,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:Animal Sniffer",
@@ -1752,7 +1515,7 @@
    "only": [
     "google"
    ],
-   "text": 40,
+   "text": 38,
    "copyright": [
     "Copyright (c) 2008 Kohsuke Kawaguchi and codehaus.org."
    ]
@@ -1765,7 +1528,7 @@
    "only": [
     "google"
    ],
-   "text": 37,
+   "text": 35,
    "copyright": [
     "Copyright (c) 2005-2008, The Android Open Source Project"
    ]
@@ -1787,7 +1550,7 @@
    "only": [
     "google"
    ],
-   "text": 41
+   "text": 39
   },
   {
    "id": "google-notice:Checker Framework Annotations",
@@ -1797,7 +1560,7 @@
    "only": [
     "google"
    ],
-   "text": 42
+   "text": 40
   },
   {
    "id": "maven:com.facebook.fbjni:fbjni:0.7.0",
@@ -1806,7 +1569,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebookincubator/fbjni",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.facebook.fresco:drawee:3.6.0",
@@ -1995,7 +1758,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.facebook.soloader:nativeloader:0.12.1",
@@ -2004,7 +1767,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.facebook.soloader:soloader:0.12.1",
@@ -2013,7 +1776,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/facebook/soloader",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.facebook.yoga:proguard-annotations:1.19.0",
@@ -2025,6 +1788,15 @@
    "text": 2
   },
   {
+   "id": "maven:com.github.Dimezis:BlurView:version-2.0.4",
+   "name": "com.github.Dimezis:BlurView",
+   "version": "version-2.0.4",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://github.com/Dimezis/BlurView/tree/version-2.0.4",
+   "text": 36
+  },
+  {
    "id": "maven:com.google.android.datatransport:transport-api:3.0.0",
    "name": "com.google.android.datatransport:transport-api",
    "version": "3.0.0",
@@ -2033,7 +1805,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.android.datatransport:transport-backend-cct:3.1.3",
@@ -2044,7 +1816,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.android.datatransport:transport-runtime:3.1.3",
@@ -2055,7 +1827,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.android.gms:play-services-base:18.5.0",
@@ -2136,7 +1908,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/material-components/material-components-android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.code.findbugs:jsr305:3.0.2",
@@ -2145,7 +1917,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://findbugs.sourceforge.net/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.errorprone:error_prone_annotations:2.15.0",
@@ -2153,7 +1925,7 @@
    "version": "2.15.0",
    "licence": "Apache-2.0",
    "group": "android",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders:17.0.0",
@@ -2164,7 +1936,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders-json:18.0.0",
@@ -2175,7 +1947,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.firebase:firebase-encoders-proto:16.0.0",
@@ -2186,7 +1958,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.guava:failureaccess:1.0.2",
@@ -2195,7 +1967,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.guava:guava:33.3.1-android",
@@ -2204,7 +1976,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
@@ -2213,7 +1985,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/google/guava",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.parse.bolts:bolts-tasks:1.4.0",
@@ -2231,7 +2003,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://square.github.io/okhttp/",
-   "text": 43
+   "text": 41
   },
   {
    "id": "maven:com.squareup.okhttp3:okhttp-urlconnection:4.9.2",
@@ -2240,7 +2012,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://square.github.io/okhttp/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.squareup.okio:okio:3.6.0",
@@ -2249,7 +2021,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/square/okio/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:com.squareup.okio:okio-jvm:3.6.0",
@@ -2258,7 +2030,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/square/okio/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:Dagger",
@@ -2268,7 +2040,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "rn-native:DoubleConversion@1.1.6",
@@ -2287,7 +2059,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "rn-native:fast_float@8.0.0",
@@ -2306,7 +2078,7 @@
    "only": [
     "google"
    ],
-   "text": 44
+   "text": 42
   },
   {
    "id": "rn-native:fmt@12.1.0",
@@ -2334,7 +2106,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:gsfclient",
@@ -2344,7 +2116,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:Guava JDK5",
@@ -2354,7 +2126,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:Guava JDK7",
@@ -2364,7 +2136,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:HighwayHash",
@@ -2374,7 +2146,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:io.github.react-native-tvos:react-android:0.83.10-1",
@@ -2393,7 +2165,7 @@
    "only": [
     "google"
    ],
-   "text": 45
+   "text": 43
   },
   {
    "id": "google-notice:Jakarta Inject",
@@ -2403,7 +2175,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:java_annotations",
@@ -2413,7 +2185,7 @@
    "only": [
     "google"
    ],
-   "text": 46
+   "text": 44
   },
   {
    "id": "maven:javax.inject:javax.inject:1",
@@ -2422,7 +2194,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://code.google.com/p/atinject/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:JsInterop Annotations",
@@ -2432,7 +2204,7 @@
    "only": [
     "google"
    ],
-   "text": 47
+   "text": 45
   },
   {
    "id": "google-notice:JSpecify",
@@ -2442,7 +2214,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:JSR 250",
@@ -2452,7 +2224,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:JSR 305",
@@ -2462,7 +2234,7 @@
    "only": [
     "google"
    ],
-   "text": 48,
+   "text": 46,
    "copyright": [
     "Copyright (c) 2007-2009, JSR305 expert group All rights reserved."
    ]
@@ -2475,7 +2247,7 @@
    "only": [
     "google"
    ],
-   "text": 49
+   "text": 47
   },
   {
    "id": "google-notice:kotlin",
@@ -2485,7 +2257,7 @@
    "only": [
     "google"
    ],
-   "text": 50,
+   "text": 48,
    "copyright": [
     "Copyright 2008 Google Inc.  All rights reserved."
    ]
@@ -2498,7 +2270,7 @@
    "only": [
     "google"
    ],
-   "text": 51
+   "text": 49
   },
   {
    "id": "google-notice:Kotlin coroutines",
@@ -2508,7 +2280,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:kotlinx_atomicfu",
@@ -2518,7 +2290,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:kotlinx_serialization",
@@ -2528,7 +2300,7 @@
    "only": [
     "google"
    ],
-   "text": 52
+   "text": 50
   },
   {
    "id": "google-notice:mobiledatadownload",
@@ -2538,7 +2310,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.bouncycastle:bcprov-jdk18on:1.86",
@@ -2547,7 +2319,7 @@
    "licence": "MIT (Bouncy Castle Licence)",
    "group": "android",
    "url": "https://www.bouncycastle.org/download/bouncy-castle-java/",
-   "text": 53,
+   "text": 51,
    "copyright": [
     "Copyright (c) 2000-2026 The Legion of the Bouncy Castle Inc. (https://www.bouncycastle.org)."
    ]
@@ -2559,7 +2331,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/JetBrains/java-annotations",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-annotations-jvm:1.3.72",
@@ -2568,7 +2340,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib:2.1.20",
@@ -2577,7 +2349,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-common:2.1.20",
@@ -2586,7 +2358,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10",
@@ -2595,7 +2367,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10",
@@ -2604,7 +2376,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://kotlinlang.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0",
@@ -2613,7 +2385,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0",
@@ -2622,7 +2394,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0",
@@ -2631,7 +2403,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "https://github.com/Kotlin/kotlinx.coroutines",
-   "text": 38
+   "text": 36
   },
   {
    "id": "maven:org.jspecify:jspecify:1.0.0",
@@ -2640,7 +2412,7 @@
    "licence": "Apache-2.0",
    "group": "android",
    "url": "http://jspecify.org/",
-   "text": 38
+   "text": 36
   },
   {
    "id": "google-notice:Protocol Buffers for Go v2",
@@ -2650,7 +2422,7 @@
    "only": [
     "google"
    ],
-   "text": 54,
+   "text": 52,
    "copyright": [
     "Copyright (c) 2018 The Go Authors. All rights reserved."
    ]
@@ -2663,7 +2435,7 @@
    "only": [
     "google"
    ],
-   "text": 50,
+   "text": 48,
    "copyright": [
     "Copyright 2008 Google Inc.  All rights reserved."
    ]
@@ -2678,6 +2450,30 @@
    "textPending": true
   },
   {
+   "id": "native-npm:react-native-screens@4.23.0",
+   "name": "react-native-screens",
+   "version": "4.23.0",
+   "licence": "MIT",
+   "group": "android",
+   "url": "https://github.com/software-mansion/react-native-screens",
+   "text": 4,
+   "copyright": [
+    "Copyright (c) 2018 Software Mansion <swmansion.com>"
+   ]
+  },
+  {
+   "id": "native-npm:react-native-svg@15.15.5",
+   "name": "react-native-svg",
+   "version": "15.15.5",
+   "licence": "MIT",
+   "group": "android",
+   "url": "https://github.com/software-mansion/react-native-svg",
+   "text": 4,
+   "copyright": [
+    "Copyright (c) [2015-2016] [Horcrux]"
+   ]
+  },
+  {
    "id": "google-notice:SafeParcelable library",
    "name": "SafeParcelable library (in Google Play services)",
    "licence": "Apache-2.0",
@@ -2685,7 +2481,7 @@
    "only": [
     "google"
    ],
-   "text": 38
+   "text": 36
   },
   {
    "id": "icons:lucide",
@@ -2693,7 +2489,7 @@
    "licence": "ISC",
    "group": "fonts",
    "url": "https://lucide.dev",
-   "text": 55,
+   "text": 53,
    "copyright": [
     "Copyright (c) 2026 Lucide Icons and Contributors"
    ]
@@ -2704,7 +2500,7 @@
    "licence": "OFL-1.1",
    "group": "fonts",
    "url": "https://github.com/googlefonts/manrope",
-   "text": 56,
+   "text": 54,
    "copyright": [
     "Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope)"
    ]
@@ -2715,13 +2511,11 @@
   "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
-  "Permission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
-  "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
-  "```\nDijkstra path-finding functions. Adapted from the Dijkstar Python project.\n\nCopyright (C) 2008\n  Wyatt Baldwin <self@wyattbaldwin.com>\n  All rights reserved\n\nLicensed under the MIT license.\n\n  http://www.opensource.org/licenses/mit-license.php\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n```",
-  "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
-  "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+  "Software License Agreement (BSD License)\n========================================\n\n----------------------------------------------------\n\nRedistribution and use of this software in source and binary forms, with or\nwithout modification, are permitted provided that the following conditions are\nmet:\n\n  * Redistributions of source code must retain the above copyright notice, this\n    list of conditions and the following disclaimer.\n  * Redistributions in binary form must reproduce the above copyright notice,\n    this list of conditions and the following disclaimer in the documentation\n    and/or other materials provided with the distribution.\n  * Neither the name of Yahoo! Inc. nor the names of YUI's contributors may be\n    used to endorse or promote products derived from this software without\n    specific prior written permission of Yahoo! Inc.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
+  "The MIT License (MIT)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "Permission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.",
+  "Permission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
   "Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
   "Apache License\n                        Version 2.0, January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright [yyyy] [name of copyright owner]\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttp://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\nCopyright (c) 2017 Brian Langenberger\n\nPermission is hereby granted, free of charge, to any\nperson obtaining a copy of this software and associated\ndocumentation files (the \"Software\"), to deal in the\nSoftware without restriction, including without\nlimitation the rights to use, copy, modify, merge,\npublish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software\nis furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice\nshall be included in all copies or substantial portions\nof the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF\nANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A\nPARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT\nSHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR\nIN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\nDEALINGS IN THE SOFTWARE.",
   "Apache License\n                        Version 2.0 January 2004\n                     http://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n   \"License\" shall mean the terms and conditions for use, reproduction,\n   and distribution as defined by Sections 1 through 9 of this document.\n\n   \"Licensor\" shall mean the copyright owner or entity authorized by\n   the copyright owner that is granting the License.\n\n   \"Legal Entity\" shall mean the union of the acting entity and all\n   other entities that control, are controlled by, or are under common\n   control with that entity. For the purposes of this definition,\n   \"control\" means (i) the power, direct or indirect, to cause the\n   direction or management of such entity, whether by contract or\n   otherwise, or (ii) ownership of fifty percent (50%) or more of the\n   outstanding shares, or (iii) beneficial ownership of such entity.\n\n   \"You\" (or \"Your\") shall mean an individual or Legal Entity\n   exercising permissions granted by this License.\n\n   \"Source\" form shall mean the preferred form for making modifications,\n   including but not limited to software source code, documentation\n   source, and configuration files.\n\n   \"Object\" form shall mean any form resulting from mechanical\n   transformation or translation of a Source form, including but\n   not limited to compiled object code, generated documentation,\n   and conversions to other media types.\n\n   \"Work\" shall mean the work of authorship, whether in Source or\n   Object form, made available under the License, as indicated by a\n   copyright notice that is included in or attached to the work\n   (an example is provided in the Appendix below).\n\n   \"Derivative Works\" shall mean any work, whether in Source or Object\n   form, that is based on (or derived from) the Work and for which the\n   editorial revisions, annotations, elaborations, or other modifications\n   represent, as a whole, an original work of authorship. For the purposes\n   of this License, Derivative Works shall not include works that remain\n   separable from, or merely link (or bind by name) to the interfaces of,\n   the Work and Derivative Works thereof.\n\n   \"Contribution\" shall mean any work of authorship, including\n   the original version of the Work and any modifications or additions\n   to that Work or Derivative Works thereof, that is intentionally\n   submitted to Licensor for inclusion in the Work by the copyright owner\n   or by an individual or Legal Entity authorized to submit on behalf of\n   the copyright owner. For the purposes of this definition, \"submitted\"\n   means any form of electronic, verbal, or written communication sent\n   to the Licensor or its representatives, including but not limited to\n   communication on electronic mailing lists, source code control systems,\n   and issue tracking systems that are managed by, or on behalf of, the\n   Licensor for the purpose of discussing and improving the Work, but\n   excluding communication that is conspicuously marked or otherwise\n   designated in writing by the copyright owner as \"Not a Contribution.\"\n\n   \"Contributor\" shall mean Licensor and any individual or Legal Entity\n   on behalf of whom a Contribution has been received by Licensor and\n   subsequently incorporated within the Work.\n\n2. Grant of Copyright License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   copyright license to reproduce, prepare Derivative Works of,\n   publicly display, publicly perform, sublicense, and distribute the\n   Work and such Derivative Works in Source or Object form.\n\n3. Grant of Patent License. Subject to the terms and conditions of\n   this License, each Contributor hereby grants to You a perpetual,\n   worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n   (except as stated in this section) patent license to make, have made,\n   use, offer to sell, sell, import, and otherwise transfer the Work,\n   where such license applies only to those patent claims licensable\n   by such Contributor that are necessarily infringed by their\n   Contribution(s) alone or by combination of their Contribution(s)\n   with the Work to which such Contribution(s) was submitted. If You\n   institute patent litigation against any entity (including a\n   cross-claim or counterclaim in a lawsuit) alleging that the Work\n   or a Contribution incorporated within the Work constitutes direct\n   or contributory patent infringement, then any patent licenses\n   granted to You under this License for that Work shall terminate\n   as of the date such litigation is filed.\n\n4. Redistribution. You may reproduce and distribute copies of the\n   Work or Derivative Works thereof in any medium, with or without\n   modifications, and in Source or Object form, provided that You\n   meet the following conditions:\n\n   (a) You must give any other recipients of the Work or\n       Derivative Works a copy of this License; and\n\n   (b) You must cause any modified files to carry prominent notices\n       stating that You changed the files; and\n\n   (c) You must retain, in the Source form of any Derivative Works\n       that You distribute, all copyright, patent, trademark, and\n       attribution notices from the Source form of the Work,\n       excluding those notices that do not pertain to any part of\n       the Derivative Works; and\n\n   (d) If the Work includes a \"NOTICE\" text file as part of its\n       distribution, then any Derivative Works that You distribute must\n       include a readable copy of the attribution notices contained\n       within such NOTICE file, excluding those notices that do not\n       pertain to any part of the Derivative Works, in at least one\n       of the following places: within a NOTICE text file distributed\n       as part of the Derivative Works; within the Source form or\n       documentation, if provided along with the Derivative Works; or,\n       within a display generated by the Derivative Works, if and\n       wherever such third-party notices normally appear. The contents\n       of the NOTICE file are for informational purposes only and\n       do not modify the License. You may add Your own attribution\n       notices within Derivative Works that You distribute, alongside\n       or as an addendum to the NOTICE text from the Work, provided\n       that such additional attribution notices cannot be construed\n       as modifying the License.\n\n   You may add Your own copyright statement to Your modifications and\n   may provide additional or different license terms and conditions\n   for use, reproduction, or distribution of Your modifications, or\n   for any such Derivative Works as a whole, provided Your use,\n   reproduction, and distribution of the Work otherwise complies with\n   the conditions stated in this License.\n\n5. Submission of Contributions. Unless You explicitly state otherwise,\n   any Contribution intentionally submitted for inclusion in the Work\n   by You to the Licensor shall be under the terms and conditions of\n   this License, without any additional terms or conditions.\n   Notwithstanding the above, nothing herein shall supersede or modify\n   the terms of any separate license agreement you may have executed\n   with Licensor regarding such Contributions.\n\n6. Trademarks. This License does not grant permission to use the trade\n   names, trademarks, service marks, or product names of the Licensor,\n   except as required for reasonable and customary use in describing the\n   origin of the Work and reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty. Unless required by applicable law or\n   agreed to in writing, Licensor provides the Work (and each\n   Contributor provides its Contributions) on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n   implied, including, without limitation, any warranties or conditions\n   of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n   PARTICULAR PURPOSE. You are solely responsible for determining the\n   appropriateness of using or redistributing the Work and assume any\n   risks associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability. In no event and under no legal theory,\n   whether in tort (including negligence), contract, or otherwise,\n   unless required by applicable law (such as deliberate and grossly\n   negligent acts) or agreed to in writing, shall any Contributor be\n   liable to You for damages, including any direct, indirect, special,\n   incidental, or consequential damages of any character arising as a\n   result of this License or out of the use or inability to use the\n   Work (including but not limited to damages for loss of goodwill,\n   work stoppage, computer failure or malfunction, or any and all\n   other commercial damages or losses), even if such Contributor\n   has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability. While redistributing\n   the Work or Derivative Works thereof, You may choose to offer,\n   and charge a fee for, acceptance of support, warranty, indemnity,\n   or other liability obligations and/or rights consistent with this\n   License. However, in accepting such obligations, You may act only\n   on Your own behalf and on Your sole responsibility, not on behalf\n   of any other Contributor, and only if You agree to indemnify,\n   defend, and hold each Contributor harmless for any liability\n   incurred by, or claims asserted against, such Contributor by reason\n   of your accepting any such warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work.\n\n   To apply the Apache License to your work, attach the following\n   boilerplate notice, with the fields enclosed by brackets \"[]\"\n   replaced with your own identifying information. (Don't include\n   the brackets!)  The text should be enclosed in the appropriate\n   comment syntax for the file format. We also recommend that a\n   file or class name and description of purpose be included on the\n   same \"printed page\" as the copyright notice for easier\n   identification within third-party archives.\n\nCopyright [yyyy] [name of copyright owner]\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n\thttp://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\nMIT License\n\nCopyright (c) 2017 crc-rs Developers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
@@ -2772,11 +2566,12 @@
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
-  "apps/native/licences/android-firetv.txt": "c323b4addc5e9440965e813b498c8c4c29dae865b9c2f81c2ecda7670a34e153",
-  "apps/native/licences/android-google.txt": "23f27bc228126578051cc7220075eb9ffc5f867c10c6c5e9e366e06682fd8f92",
+  "apps/native/licences/android-firetv.txt": "c8a92b37f144815e08c42313700f3e52fe01a09d75dccdf00e8ce1668c0368f1",
+  "apps/native/licences/android-google.txt": "b895d89caa625e1a4e7f1ace0356a30313fae61500040cfe2ef1fb6582cdef54",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
-  "apps/native/licences/js-android.txt": "b865dfabc1e629f0b079f73f5abfac77bdc9cec95c1ad599b64cb4f24bdb6cf8",
-  "apps/native/package-lock.json": "1adc8beeac7e3bffc2ae46e6b15eeb068a07e7cdc0210ae0825513132a2944f5",
+  "apps/native/licences/js-android.txt": "02fc1dd52f8da8afd35f10293a65d038dfd404ed05cfea6d4b4bd185f556fea6",
+  "apps/native/licences/native-npm.json": "9a972cf65e1dce589d5809f8be4ccd604b1fd1ff5fae5b6484fb3b64294d1c2f",
+  "apps/native/package-lock.json": "7879ab1dc8de952e75ece081fa6a4ae5c12f19d5e2c31ed585571254e2129e0e",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
   "third_party/media-engine/sources.lock.json": "fd6476e21d868db83f65cb4402c336a1473831a34dbfbaa76c6f7a1dde8bd745"

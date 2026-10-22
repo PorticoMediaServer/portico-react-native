@@ -1,5 +1,5 @@
 /** CON-18 (MU7): Apple StateView and Notice match web — one primary action
- * with an optional ghost secondary, one glyph per tone (`error`, not
+ * with an optional glass secondary, one glyph per tone (`error`, not
  * `danger`), and the loading/empty copy keys resolve to the §4.4 wording. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,13 +46,13 @@ function all(node: unknown, out: {type?: unknown; props?: any}[] = []): {type?: 
 const buttons = (root: unknown) => all(root).filter(n => n.type === 'Button').map(n => n.props);
 const icons = (root: unknown) => all(root).filter(n => n.type === 'Icon').map(n => n.props);
 
-test('CON-18: StateView renders one primary action and an optional ghost secondary', async () => {
+test('CON-18: StateView renders one primary action and an optional glass secondary', async () => {
   const m = await load();
   const view = m.StateView({title: 'This library couldn’t load', action: 'Try again', onAction: () => {}, secondaryAction: 'Go back', onSecondaryAction: () => {}});
   const found = buttons(view);
   assert.equal(found.length, 2);
   assert.equal(found[0].variant, 'primary');
-  assert.equal(found[1].variant, 'ghost');
+  assert.equal(found[1].variant, 'secondary');
 });
 
 test('CON-18: StateView with a single action renders only the primary', async () => {

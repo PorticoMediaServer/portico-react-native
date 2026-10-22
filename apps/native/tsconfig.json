@@ -9,11 +9,20 @@
     "types": [
       "react"
     ],
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@portico/design": [
+        "../../packages/design/src/index.ts"
+      ],
+      "@/*": [
+        "./src-next/*"
+      ]
+    }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx"
+    "App.tsx",
+    "src-next/**/*.ts",
+    "src-next/**/*.tsx"
   ],
   "exclude": [
     "node_modules",
