@@ -19,6 +19,7 @@ const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, ses
 const initial = {fence, kind: 'video', queue: null, positionSeconds: 75, playing: true, expanded: true} satisfies DockPlayback;
 const channelFence: ChannelPlaybackFence = {kind: 'channel', playback: {scope, run: 1}, sessionId: 'live-session', channelId: 'channel', channelGeneration: '1', channelKind: 'live-source', sourceId: 'live-source', generation: 1};
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 1, viewerFence: 'viewer'};
+const linear = (value: number) => value;
 type Animation = {to: any; config?: any; complete?: (finished: boolean) => void; apply?: () => void; sample?: (value: any) => void; owner?: any; cancelled?: boolean};
 function elements(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(elements);
@@ -65,7 +66,9 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     return result;
   };
   const Gesture = {Pan: pan, Race: (...gestures: any[]) => ({gestures})};
-  const motion = {reduce: reduced, transforms: !reduced, timing: () => ({duration: reduced ? 160 : 180}), spring: () => reduced ? undefined : {damping: 20}};
+  let motion = {reduce: reduced, transforms: !reduced,
+    timing: () => reduced ? {duration: 160, easing: linear, reduceMotion: 'never'} : {duration: 180},
+    spring: () => reduced ? undefined : {damping: 20}};
   const theme = {isTV: tv, layers: {player: 30}, colors: {text: '#fff', shadow: '#000'}, layout: {gutter: {tvRight: 96}}};
   const react = {...React, default: React};
   const native = {View: 'View', Text: 'Text', Image: 'Image', ActivityIndicator: 'ActivityIndicator', Platform: {OS: os, isTV: tv},
@@ -160,6 +163,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     get parentRenders() {return parentRenders;},
     get tree() {return tree;}, get hostTree() {return hostTree;}, get barTree() {return barTree;}, get pictureTree() {return pictureTree;},
     async render() {refresh(); layerHost.rerender(); await sync();},
+    async refreshMotion() {motion = {...motion}; layerHost.rerender(); await sync();},
     async replace(render = true) {
       const replacement = playback.kind === 'live'
         ? {...playback, fence: {...playback.fence, sourceId: 'replacement', generation: 2}}
@@ -209,6 +213,28 @@ test('ACTIVE unsuccessful vertical pan restores its goal without releasing, incl
   for (const reduced of [false, true]) {const r = await rig({reduced});
     try {const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); pan.callbacks.onEnd(vertical, false); pan.callbacks.onFinalize(vertical, false); await r.flushJS();
       assert.equal(r.transitions.length, 0); assert.equal(r.dock.getSnapshot().local?.expanded, true); assert.equal(r.controller().dragging.value, false); assert.equal(r.animations.at(-1)!.to, 0, 'cancel returns to the current expanded goal');
+    } finally {r.close();}
+  }
+});
+for (const success of [true, false]) test(`reduced vertical ${success ? 'release' : 'ACTIVE cancel'} uses the current memoized timing policy`, async () => {
+  for (const docked of [false, true]) for (const refresh of [false, true]) {
+    const r = await rig({reduced: true, docked});
+    try {
+      const initialTiming = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!.config;
+      if (refresh) await r.refreshMotion();
+      const timing = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!.config;
+      if (refresh) assert.notStrictEqual(timing, initialTiming, 'a refreshed policy creates a new memoized config');
+      const pan = docked ? elements(r.barTree).find(node => node.type === 'GestureDetector').props.gesture.gestures[1] : r.fullPan();
+      const event = docked ? {translationY: -600, velocityY: -1000} : vertical;
+      pan.callbacks.onBegin(); pan.callbacks.onUpdate(event);
+      pan.callbacks.onEnd(event, success); pan.callbacks.onFinalize(event, success);
+      const animation = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
+      assert.equal(animation.to, Number(success ? !docked : docked));
+      assert.strictEqual(animation.config, timing, 'the gesture receives the hook memoized config, including after policy refresh');
+      assert.deepEqual(animation.config, {duration: 160, easing: linear, reduceMotion: 'never'});
+      assert.equal(animation.config.easing(.25), .25, 'reduced progress uses linear easing');
+      assert.equal(typeof animation.complete, 'function', 'timing keeps the guarded completion');
+      await r.flushJS(); assert.equal(r.transitions.length, success ? 1 : 0);
     } finally {r.close();}
   }
 });
@@ -389,10 +415,10 @@ async function pausedCancel() {
   pan().callbacks.onEnd(event, false); pan().callbacks.onFinalize(event, false); await r.motionTick(32);
   const returning = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
   assert.equal(returning.to, 1); assert.equal(returning.config.duration, 160);
-  // Default installed timing is in/out quadratic: .8 -> 1 at 80/144/160ms.
+  // Shared reduced timing is linear: .8 -> 1 at 80/144/160ms.
   returning.sample?.(.9); await r.motionTick(112);
-  returning.sample?.(.996); await r.motionTick(176);
-  assert.ok(Math.abs(r.controller().velocity.value - 1.5) < 1e-10, 'real controller reaction keeps nonzero return velocity');
+  returning.sample?.(.98); await r.motionTick(176);
+  assert.ok(Math.abs(r.controller().velocity.value - 1.25) < 1e-10, 'real controller reaction keeps nonzero return velocity');
   assert.equal(fades().length, before, 'no fade while the return is in flight');
   assert.equal(r.presentations.at(-1).moving, true);
   assert.ok(elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'));
@@ -406,7 +432,7 @@ for (const ordering of ['completion-before-derivative', 'derivative-before-compl
     returning.apply?.();
     if (ordering === 'derivative-before-completion') {
       await r.motionTick(192);
-      assert.ok(Math.abs(r.controller().velocity.value - .25) < 1e-10, 'last finite difference exceeds the settlement threshold');
+      assert.ok(Math.abs(r.controller().velocity.value - 1.25) < 1e-10, 'last finite difference exceeds the settlement threshold');
       assert.equal(r.presentations.at(-1).moving, true); assert.equal(fades().length, before);
       returning.complete?.(false); await r.motionTick(192);
       assert.ok(r.controller().velocity.value > .02, 'an unsuccessful finish cannot settle');

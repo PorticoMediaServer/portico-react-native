@@ -112,18 +112,18 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
         dragging.value = false;
         releaseVelocity.value = velocity.value;
         const finish = completionFor(target);
-        progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}, finish) : withTiming(target, {duration: 160}, finish);
+        progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}, finish) : withTiming(target, timing, finish);
         runOnJS(released)(target === 1, source.fence, source.epoch, started.value);
       })
       .onFinalize((_event, success) => {
         if (!success && dragging.value && epoch.value === source.epoch && started.value === run.value) {
           run.value++; dragging.value = false; cancelAnimation(progress);
           const finish = completionFor(source.docked ? 1 : 0);
-          progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, {duration: 160}, finish);
+          progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, timing, finish);
         }
       });
     return {gesture: pan(false), dockGesture: pan(true)};
-  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, released, source, epoch, run, started, completionFor]);
+  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor]);
   return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, gestures]);
 }
 
