@@ -1,0 +1,127 @@
+import type {RouteSnapshot} from '../../../../../packages/client-core/src/route-connection';
+import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../../packages/client-core/src/playback/native-listening.ts';
+import {parseQueue,parseSession,parseSessionEnd} from '../../../../../packages/client-core/src/playback-v1/types.ts';
+import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
+import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
+/** Whose listening this is: the server and viewer (the native owner scopes its Keychain records by
+ * `principalKey`). */
+export type ListeningPrincipal = Readonly<{origin:string;serverId:string;authority:'local'|'hosted';accountId:string;profileId:string}>;
+const wireID=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v);
+function listeningPrincipal(value:ListeningPrincipal):ListeningPrincipal{
+ const url=new URL(value.origin);
+ if(url.username||url.password||url.search||url.hash||url.pathname!=='/'||!['http:','https:'].includes(url.protocol)||!wireID(value.serverId)||!wireID(value.accountId)||!wireID(value.profileId)||!['local','hosted'].includes(value.authority))throw new Error('This device’s listening owner could not be verified.');
+ routeOrigin(value.origin);
+ return Object.freeze({origin:url.origin,serverId:value.serverId,authority:value.authority,accountId:value.accountId,profileId:value.profileId});
+}
+const principalKey=(p:ListeningPrincipal)=>JSON.stringify([p.origin,p.serverId,p.authority,p.accountId,p.profileId]);
+export interface NativeListeningBridge {
+ listeningRoute?(owner:string,route:{ready:boolean;origin:string|null;revision:number}):Promise<unknown>;
+ listeningSnapshot(owner:string):Promise<unknown>;
+ acknowledgeListening(owner:string,sequence:number):Promise<unknown>;
+ listeningAction(owner:string,action:string,value:number|null):Promise<unknown>;
+ listeningDeadlines(owner:string,deadlines:ListeningDeadlines):Promise<unknown>;
+ listeningCredentials(owner:string,token:string):Promise<unknown>;
+ listeningPolicy?(owner:string,policy:NativeListeningPolicy):Promise<unknown>;
+ retireListening(owner:string,stop:boolean):Promise<unknown>;
+ /** Playback v1 (plan §9.3 C3). */
+ adoptListeningSession?(context:Record<string,unknown>):Promise<unknown>;
+ listeningAdvance?(owner:string,reason:string,entryId:string|null):Promise<unknown>;
+ listeningSessionUpdated?(owner:string,sessionId:string):Promise<unknown>;
+}
+// Keep the bridge capability bounds aligned with the Apple and Android producers.
+const nativeListeningRates: readonly number[] = [.5,.75,1,1.25,1.5,1.75,2,2.5,3];
+/** The checks every native listening snapshot passes. */
+function checkNativeStatus(raw:any,owner:string){
+ if(!raw||raw.owner!==owner||!Number.isSafeInteger(raw.sequence)||raw.sequence<1||!['playing','paused'].includes(raw.intent)||!Number.isFinite(raw.positionSeconds)||raw.positionSeconds<0||!Number.isFinite(raw.rate)||raw.rate<=0||!Number.isSafeInteger(raw.commandRevision)||raw.commandRevision<0||typeof raw.route!=='string'||raw.route.length>4096||![raw.observed,raw.ready,raw.seeking,raw.ended,raw.terminal].every(v=>typeof v==='boolean')||raw.error!==null&&typeof raw.error!=='string'||!listeningDeadline(raw.deadlines?.sleepAtMs)||!listeningDeadline(raw.deadlines?.passoutAtMs))throw new Error('Invalid native listening snapshot.');
+ for(const key of ['rendering','timerStopped','rateWaiting'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
+ if(raw.effectiveRate!==undefined&&(!Number.isFinite(raw.effectiveRate)||raw.effectiveRate<0||raw.effectiveRate>3))throw new Error('Invalid native effective rate.');
+ if(raw.supportedRates!==undefined&&(!Array.isArray(raw.supportedRates)||raw.supportedRates.length>nativeListeningRates.length||raw.supportedRates.some((rate:unknown)=>typeof rate!=='number'||!nativeListeningRates.includes(rate))))throw new Error('Invalid native supported rates.');
+ if(raw.rateError!==undefined&&(typeof raw.rateError!=='string'||raw.rateError.length>4096))throw new Error('Invalid native rate error.');
+ for(const key of ['expiredTimerRevision','policyRevision'] as const)if(raw[key]!==undefined&&(!Number.isSafeInteger(raw[key])||raw[key]<(key==='expiredTimerRevision'?-1:0)))throw new Error('Invalid native policy revision.');
+}
+/**
+ * A v1 native snapshot (plan §9.3 C3): the status every owner reports, plus the v1 session the
+ * owner reports for now. A different session than JS knows must come with a `transition` from the
+ * session JS knows (or from the root of transitions JS has not acknowledged yet).
+ */
+export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:string,ancestor?:string):NativeListeningV1Event {
+ checkNativeStatus(raw,owner);
+ const session=parseSession(raw.session);
+ if(session.kind!=='audio')throw new Error('Not a native audio session.');
+ let transition:NativeListeningV1Event['transition'];
+ if(raw.transition!==undefined&&raw.transition!==null){
+  const previous=raw.transition.previousSessionId;
+  if(typeof previous!=='string'||previous!==sessionId&&previous!==ancestor&&session.id!==sessionId)throw new Error('Native queue handover did not match.');
+  transition=Object.freeze({previousSessionId:previous,queue:raw.transition.queue?parseQueue(raw.transition.queue):null});
+ }
+ if(session.id!==sessionId&&!transition)throw new Error('Native listening session changed without a queue move.');
+ const queue=raw.queue===null||raw.queue===undefined?null:(typeof raw.queue?.id==='string'&&typeof raw.queue?.revision==='string'&&raw.queue.revision.length<=256?Object.freeze({id:raw.queue.id,revision:raw.queue.revision}):undefined);
+ if(queue===undefined)throw new Error('Invalid native queue.');
+ if(!Number.isSafeInteger(raw.lastSeq)||raw.lastSeq<0||!Number.isFinite(raw.durationSeconds)||raw.durationSeconds<0)throw new Error('Invalid native timeline.');
+ if(raw.notice!==undefined&&(typeof raw.notice!=='string'||raw.notice.length>4096))throw new Error('Invalid native notice.');
+ const b=raw.binding;
+ if(b!==null&&(!b||!wireID(b.lease)||!Number.isSafeInteger(b.intentId)||b.intentId<1||b.sessionId!==session.id||b.generation!==session.presentation.generation||b.itemId!==session.itemId))throw new Error('Native engine binding changed.');
+ const end=raw.terminal?parseSessionEnd(raw.end):undefined;
+ return Object.freeze({...raw,session,queue,transition,end,deadlines:Object.freeze({...raw.deadlines})});
+}
+
+/** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are
+ * acknowledged, which lets the owner forget a transition JS has seen. */
+export class NativeListeningV1Adapter implements NativeListeningV1Control {
+ private bridge:NativeListeningBridge;private principal:ListeningPrincipal;private bearer:()=>string;private id:()=>string;private subscribe:(sink:(event:unknown)=>void)=>()=>void;
+ private route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};
+ private epoch=0;private policy?:NativeListeningPolicy;
+ private current?:{owner:string;sessionId:string;sink:(event:NativeListeningV1Event)=>void;sequence:number;last?:NativeListeningV1Event;ancestor?:string;unsubscribe:()=>void};
+ constructor(options:{route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};bridge:NativeListeningBridge;principal:ListeningPrincipal;bearer:()=>string;id:()=>string;subscribe:(sink:(event:unknown)=>void)=>()=>void}){this.route=options.route;this.bridge=options.bridge;this.principal=listeningPrincipal(options.principal);this.bearer=options.bearer;this.id=options.id;this.subscribe=options.subscribe;}
+ async adopt(context:NativeListeningV1Context,sink:(event:NativeListeningV1Event)=>void){
+  if(!this.bridge.adoptListeningSession)throw new Error('This app version can’t hand audio to the system player.');
+  const epoch=++this.epoch,previous=this.current;this.current=undefined;
+  if(previous){previous.unsubscribe();await this.bridge.retireListening(previous.owner,false);}
+  if(this.epoch!==epoch)return;
+  const active:NonNullable<NativeListeningV1Adapter['current']>={owner:this.id(),sessionId:context.session.id,sink,sequence:0,unsubscribe:()=>{}};this.current=active;
+  active.unsubscribe=this.subscribe(raw=>{if(this.current!==active||(raw as any)?.owner!==active.owner)return;try{this.accept(active,raw);}catch(error){this.fail(active,error);}});
+  const route=this.route?.getSnapshot();
+  try{
+   const raw=await this.bridge.adoptListeningSession({owner:active.owner,origin:this.principal.origin,transport:route?{ready:route.phase==='ready',origin:route.origin,revision:route.revision}:undefined,principalKey:principalKey(this.principal),
+    session:context.session,queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
+   if(this.current!==active)return;
+   this.accept(active,raw);
+   if(this.route){const update=()=>{if(this.current!==active)return;const r=this.route!.getSnapshot();if(!this.bridge.listeningRoute){this.fail(active,new Error('Native route handoff is unavailable.'));return;}void this.bridge.listeningRoute(active.owner,{ready:r.phase==='ready',origin:r.origin,revision:r.revision}).catch(error=>this.fail(active,error));};const off=this.route.subscribe(update),offEvent=active.unsubscribe;active.unsubscribe=()=>{off();offEvent();};update();}
+   await this.bridge.acknowledgeListening(active.owner,active.sequence);
+  }catch(error){if(this.current===active)await this.detach(false);throw error;}
+ }
+ private accept(active:NonNullable<NativeListeningV1Adapter['current']>,raw:unknown){
+  if(this.current!==active)return;
+  const candidate=raw as any;
+  if(candidate?.owner===active.owner&&Number.isSafeInteger(candidate.sequence)&&candidate.sequence<=active.sequence)return;
+  const value=parseNativeListeningV1Event(raw,active.owner,active.sessionId,active.ancestor);
+  if(value.transition)active.ancestor=value.transition.previousSessionId;
+  active.sequence=value.sequence;active.sessionId=value.session.id;active.last=value;active.sink(value);
+  void this.bridge.acknowledgeListening(active.owner,active.sequence).catch(()=>{});
+ }
+ private fail(active:NonNullable<NativeListeningV1Adapter['current']>,_error:unknown){
+  if(this.current!==active)return;
+  if(active.last)active.sink({...active.last,sequence:active.sequence+1,terminal:true,intent:'paused',error:serviceText('player.nativeHandoverFailed')});
+  void this.detach(true);
+ }
+ async refresh(){const active=this.current;if(!active)return;await this.bridge.listeningCredentials(active.owner,this.bearer());if(this.current!==active)return;const raw=await this.bridge.listeningSnapshot(active.owner);if(this.current!==active)return;this.accept(active,raw);await this.bridge.acknowledgeListening(active.owner,active.sequence);}
+ async action(action:ListeningAction,value?:number){
+  const active=this.current;if(!active)return;
+  // Pause is local safety first (no credential round trip); anything else runs on fresh credentials.
+  if(action==='pause'){await this.bridge.listeningAction(active.owner,action,null);if(this.current===active)await this.refresh();return;}
+  await this.refresh();if(this.current===active)await this.bridge.listeningAction(active.owner,action,value??null);
+ }
+ async advance(reason:NativeQueueAdvance,entryId?:string){
+  const active=this.current;if(!active)return;
+  if(!this.bridge.listeningAdvance)throw new Error('This app version can’t move the queue from the system player.');
+  await this.refresh();if(this.current===active)await this.bridge.listeningAdvance(active.owner,reason,entryId??null);
+ }
+ async deadlines(value:ListeningDeadlines){const active=this.current;if(!active)return;await this.refresh();if(this.current===active)await this.bridge.listeningDeadlines(active.owner,value);}
+ async configure(policy:NativeListeningPolicy){
+  this.policy=policy;const active=this.current;if(!active)return;
+  if(!this.bridge.listeningPolicy)throw new Error('This native host does not implement unified listening policy.');
+  await this.bridge.listeningPolicy(active.owner,policy);
+ }
+ async detach(stop:boolean){++this.epoch;const active=this.current;this.current=undefined;if(active){active.unsubscribe();await this.bridge.retireListening(active.owner,stop);}}
+ async sessionUpdated(sessionId:string){const active=this.current;if(!active||active.sessionId!==sessionId||!this.bridge.listeningSessionUpdated)return;await this.bridge.listeningSessionUpdated(active.owner,sessionId);}
+}
