@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {mock} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {PlaybackDock, sameFence, type ChannelPlaybackFence, type DockPlayback, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
@@ -19,15 +19,18 @@ const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, ses
 const initial = {fence, kind: 'video', queue: null, positionSeconds: 75, playing: true, expanded: true} satisfies DockPlayback;
 const channelFence: ChannelPlaybackFence = {kind: 'channel', playback: {scope, run: 1}, sessionId: 'live-session', channelId: 'channel', channelGeneration: '1', channelKind: 'live-source', sourceId: 'live-source', generation: 1};
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 1, viewerFence: 'viewer'};
-type Animation = {to: any; complete?: (finished: boolean) => void; apply?: () => void; sample?: (value: any) => void; owner?: any; cancelled?: boolean};
+type Animation = {to: any; config?: any; complete?: (finished: boolean) => void; apply?: () => void; sample?: (value: any) => void; owner?: any; cancelled?: boolean};
 function elements(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(elements);
   return React.isValidElement<any>(node) ? [node, ...elements(node.props.children)] : [];
 }
-async function rig({reduced = false, docked = false, kind = 'video', os = 'android', tv = false}: {reduced?: boolean; docked?: boolean; kind?: 'video' | 'live' | 'music'; os?: string; tv?: boolean} = {}) {
+async function rig({reduced = false, docked = false, kind = 'video', os = 'android', tv = false, paused = false, controlledClock = false}: {reduced?: boolean; docked?: boolean; kind?: 'video' | 'live' | 'music'; os?: string; tv?: boolean; paused?: boolean; controlledClock?: boolean} = {}) {
   const animations: Animation[] = [], cancelled: any[] = [], js: (() => void)[] = [], actions: any[] = [], transitions: any[] = [], requests: number[] = [];
-  const reactions: any[] = [], measurements: any[] = [];
-  let now = 0;
+  const reactions: any[] = [], measurements: any[] = [], ui: (() => void)[] = [];
+  const flushUI = () => {while (ui.length) ui.shift()!();};
+  let now = 0, parentRenders = 0;
+  const clock = controlledClock ? mock.method(performance, 'now', () => now) : undefined;
+  const presentations: any[] = [];
   const shared = (initialValue: any) => {
     const ref = React.useRef<any>(null);
     if (!ref.current) {
@@ -43,10 +46,11 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     }
     return ref.current;
   };
-  const animate = (to: any, _config: any, complete?: Animation['complete']) => {const value = {__animation: true, to, complete}; animations.push(value); return value;};
+  const animate = (to: any, config: any, complete?: Animation['complete']) => {const value = {__animation: true, to, config, complete}; animations.push(value); return value;};
   const animated = {default: {View: 'AnimatedView'}, useSharedValue: shared, useAnimatedStyle: (read: () => any) => ({read}),
     withTiming: animate, withSpring: animate, withDelay: (_: any, animation: any) => animation,
     cancelAnimation: (value: any) => {cancelled.push(value); value.cancel?.();},
+    runOnUI: (fn: (...args: any[]) => void) => (...args: any[]) => ui.push(() => fn(...args)),
     runOnJS: (fn: (...args: any[]) => void) => (...args: any[]) => js.push(() => fn(...args)),
     useAnimatedReaction: (read: () => any, callback: (next: any, previous: any) => void) => {
       const cell = React.useRef<any>({previous: null}); cell.current.read = read; cell.current.callback = callback;
@@ -81,13 +85,13 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const {DockHost} = await screenModule(new URL('../src-next/kit/dock/DockHost.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, './MediaBar': {MediaBar}, './NowPlayingCard': {NowPlayingCard: 'NowPlayingCard'},
     './DockNotice': {DockNotice: 'DockNotice'}, './useDockPresence': {useDockPresence}});
-  const playback: DockPlayback = kind === 'live' ? {...initial, kind, fence: channelFence} : {...initial, kind};
+  const playback: DockPlayback = kind === 'live' ? {...initial, kind, fence: channelFence, playing: !paused} : {...initial, kind, playing: !paused};
   const dock = new PlaybackDock(scope); dock.start({...playback, expanded: !docked});
   let snapshot: any;
   const Surface = () => null;
   const adapter = {dock, Surface, subscribe: () => () => {}, getSnapshot: () => snapshot, onTransition: async (transition: any) => {transitions.push(transition);}, captureVideoSnapshot: async () => undefined};
   const refresh = () => {const local = dock.getSnapshot().local; snapshot = {authority, dock: dock.getSnapshot(), fence: local?.fence,
-    subject: {}, playback: {duration: 100, phase: 'playing'}, capabilities: {play: true, pause: true, stop: true, seek: true, previous: false, next: false, cast: false}};};
+    subject: {}, playback: {duration: 100, phase: paused ? 'paused' : 'playing'}, capabilities: {play: true, pause: true, stop: true, seek: true, previous: false, next: false, cast: false}};};
   refresh();
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
@@ -100,15 +104,17 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   let tree: any, hostTree: any, barTree: any, pictureTree: any, hostProps: any, barProps: any, pictureProps: any;
   let barHost: ReturnType<typeof createHookHost> | undefined, closed = false;
   let extraPicture: any = {}, extraBar: any = {};
-  const layerHost = createHookHost(() => {tree = NativePlaybackLayer({adapter, runtime, authority});
+  const layerHost = createHookHost(() => {parentRenders++; tree = NativePlaybackLayer({adapter, runtime, authority});
     elements(tree).find(node => node.props.testID === 'native-persistent-playback').props.ref.current = {measureInWindow: (cb: any) => cb(0, 0)};
   });
   const dockHost = createHookHost(() => {hostTree = DockHost(hostProps);});
-  const pictureHost = createHookHost(() => {pictureTree = PlayerMorph({...pictureProps, ...extraPicture});});
+  const onPresentationChange = (state: any) => {presentations.push(state); pictureProps.onPresentationChange?.(state);};
+  const pictureHost = createHookHost(() => {pictureTree = PlayerMorph({...pictureProps, ...extraPicture, onPresentationChange});});
   layerHost.mount();
   hostProps = elements(tree).find(node => node.type === DockHost).props; dockHost.mount();
   pictureProps = elements(tree).find(node => node.type === PlayerMorph).props; pictureHost.mount();
   async function sync() {
+    flushUI();
     await act(() => {});
     if (closed) return;
     hostProps = elements(tree).find(node => node.type === DockHost).props; dockHost.rerender();
@@ -130,7 +136,28 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const complete = async (animation: Animation, force = false) => {if (!animation.cancelled || force) {animation.apply?.(); animation.complete?.(true);} await flushJS();};
   const tickPicture = async () => {const reaction = reactions.at(-1); const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next; await flushJS();};
   const tick = async () => {for (const reaction of reactions) {const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next;} await flushJS();};
-  return {dock, adapter, Surface, animations, cancelled, requests, actions, transitions, controller, fullPan, aside, opener, flushJS, complete, tick, tickPicture, measurements,
+  // Reanimated mappers are input-driven. No unchanged-progress tick may invent
+  // a zero derivative, and only state updates scheduled by actual callbacks may
+  // render here: sync() would rerender the parent and mask paused settlement.
+  const flushMotionJS = () => act(() => {flushUI(); while (js.length) js.shift()!();});
+  const motionTick = async (timestamp: number) => {
+    now = timestamp; flushUI();
+    const same = (a: any, b: any) => Object.is(a, b) || a && b && typeof a === 'object' && typeof b === 'object'
+      && Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(key => Object.is(a[key], b[key]));
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (const reaction of reactions) {
+        const next = reaction.read();
+        if (same(next, reaction.previous)) continue;
+        reaction.callback(next, reaction.previous); reaction.previous = next; changed = true;
+      }
+      await flushMotionJS();
+      if (!changed) return;
+    }
+    throw new Error('motion reactions did not settle');
+  };
+  return {dock, adapter, Surface, animations, cancelled, requests, actions, transitions, presentations, controller, fullPan, aside, opener, flushJS, complete, tick, tickPicture, motionTick, flushMotionJS, measurements,
+    get parentRenders() {return parentRenders;},
     get tree() {return tree;}, get hostTree() {return hostTree;}, get barTree() {return barTree;}, get pictureTree() {return pictureTree;},
     async render() {refresh(); layerHost.rerender(); await sync();},
     async replace(render = true) {
@@ -143,7 +170,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     async picture(extra: any) {extraPicture = extra; pictureHost.rerender(); await act(() => {});},
     async layout() {const slot = elements(barTree).find(node => node.props.collapsable === false); slot.props.ref.current = {measureInWindow: (cb: any) => {measurements.push(true); cb(24, 700, 80, 45);}}; slot.props.onLayout(); await sync();},
     time(value: number) {now = value;},
-    close() {if (closed) return; closed = true; barHost?.unmount(); pictureHost.unmount(); dockHost.unmount(); layerHost.unmount();},
+    close() {if (closed) return; closed = true; barHost?.unmount(); pictureHost.unmount(); dockHost.unmount(); layerHost.unmount(); clock?.mock.restore();},
   };
 }
 const vertical = {translationY: 600, velocityY: 1000}, horizontal = {translationX: 300, velocityX: 1000};
@@ -341,6 +368,93 @@ test('genuine reduced drag during its goal timing remains a new fade run, includ
       const fades = r.animations.filter(value => value.owner === fade.owner);
       assert.equal(fades.length, count + 1, `success=${success}: a drag interrupting goal progress is a genuine new run`);
       assert.equal(r.dock.getSnapshot().local?.expanded, true);
+    } finally {r.close();}
+  }
+});
+
+async function pausedCancel() {
+  const r = await rig({reduced: true, docked: true, paused: true, controlledClock: true});
+  await r.layout();
+  for (const animation of r.animations) if (!animation.cancelled) animation.apply?.();
+  await r.motionTick(0);
+  await r.picture({androidSnapshot: {fence, image: 'paused-current-frame'}});
+  const parentRenders = r.parentRenders, presentations = r.presentations.length;
+  const surface = elements(r.pictureTree).find(node => node.type === r.Surface);
+  const pan = () => elements(r.barTree).find(node => node.type === 'GestureDetector').props.gesture.gestures[1];
+  const fades = () => r.animations.filter(value => value.owner !== r.controller().progress && !value.complete && value.to === 1);
+  const before = fades().length;
+  const event = {translationY: -160, velocityY: -100};
+  pan().callbacks.onBegin(); pan().callbacks.onUpdate(event); await r.motionTick(16);
+  assert.equal(r.controller().velocity.value, -.125, 'the actual drag velocity is retained');
+  pan().callbacks.onEnd(event, false); pan().callbacks.onFinalize(event, false); await r.motionTick(32);
+  const returning = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
+  assert.equal(returning.to, 1); assert.equal(returning.config.duration, 160);
+  // Default installed timing is in/out quadratic: .8 -> 1 at 80/144/160ms.
+  returning.sample?.(.9); await r.motionTick(112);
+  returning.sample?.(.996); await r.motionTick(176);
+  assert.ok(Math.abs(r.controller().velocity.value - 1.5) < 1e-10, 'real controller reaction keeps nonzero return velocity');
+  assert.equal(fades().length, before, 'no fade while the return is in flight');
+  assert.equal(r.presentations.at(-1).moving, true);
+  assert.ok(elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'));
+  assert.equal(r.dock.getSnapshot().local?.playing, false);
+  assert.equal(r.parentRenders, parentRenders, 'the paused parent has remained frozen');
+  return {r, returning, pan, fades, before, parentRenders, presentations, surface};
+}
+for (const ordering of ['completion-before-derivative', 'derivative-before-completion']) test(`paused reduced ACTIVE cancel settles after the final sample without parent rescue (${ordering})`, async () => {
+  const {r, returning, fades, before, parentRenders, presentations, surface} = await pausedCancel();
+  try {
+    returning.apply?.();
+    if (ordering === 'derivative-before-completion') {
+      await r.motionTick(192);
+      assert.ok(Math.abs(r.controller().velocity.value - .25) < 1e-10, 'last finite difference exceeds the settlement threshold');
+      assert.equal(r.presentations.at(-1).moving, true); assert.equal(fades().length, before);
+      returning.complete?.(false); await r.motionTick(192);
+      assert.ok(r.controller().velocity.value > .02, 'an unsuccessful finish cannot settle');
+    }
+    returning.complete?.(true); await r.motionTick(192);
+    assert.equal(r.controller().velocity.value, 0, 'only current completion supplies terminal zero after the endpoint');
+    assert.equal(fades().length, before + 1, 'the cancelled drag consumes exactly one return fade');
+    assert.equal(r.presentations.at(-1).moving, false);
+    assert.equal(r.presentations.slice(presentations).filter(value => !value.moving).length, 1);
+    assert.ok(!elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'), 'retained preview is retired');
+    assert.strictEqual(elements(r.pictureTree).find(node => node.type === r.Surface).type, surface.type);
+    assert.deepEqual(elements(r.pictureTree).find(node => node.type === r.Surface).props.dockBounds, surface.props.dockBounds);
+    const fade = fades().at(-1)!; fade.sample?.(.6);
+    returning.complete?.(true); await r.motionTick(208); await r.motionTick(224);
+    assert.equal(fades().length, before + 1); assert.equal(fade.owner.value, .6, 'duplicate completion cannot replay opacity');
+    assert.equal(r.parentRenders, parentRenders, 'no layer sync/render or playback fact update rescued settlement');
+    assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
+  } finally {r.close();}
+});
+test('obsolete progress completion cannot settle a newer drag, source, goal, retarget or unmounted picture', async () => {
+  for (const stop of ['new-drag', 'source', 'goal', 'retarget', 'unmount']) {
+    const {r, returning, pan, fades, before} = await pausedCancel();
+    try {
+      if (stop === 'new-drag') {
+        pan().callbacks.onBegin(); pan().callbacks.onUpdate({translationY: 3.2, velocityY: 100}); await r.motionTick(184);
+        assert.equal(r.controller().velocity.value, .125);
+        pan().callbacks.onEnd({}, false); pan().callbacks.onFinalize({}, false);
+      } else if (stop === 'source') await r.replace();
+      else if (stop === 'goal') {r.dock.expand(fence); await r.render();}
+      else if (stop === 'retarget') {r.controller().request(true); await r.motionTick(184);}
+      else r.close();
+      const current = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
+      if (stop !== 'unmount') {current.sample?.(1); await r.motionTick(192);}
+      const velocity = r.controller().velocity.value, count = fades().length, states = r.presentations.length;
+      assert.ok(Math.abs(velocity) > .02, `${stop}: there is real velocity for an old finish to corrupt`);
+      assert.equal(returning.cancelled, true);
+      // Force late true as well as the normal false cancellation callback,
+      // without allowing the obsolete animation to overwrite current progress.
+      returning.complete?.(false); returning.complete?.(true); await r.motionTick(192);
+      assert.equal(r.controller().velocity.value, velocity, `${stop}: old completion cannot zero current velocity`);
+      assert.equal(fades().length, count); assert.equal(r.presentations.length, states);
+      if (stop === 'new-drag') {
+        assert.equal(r.presentations.at(-1).moving, true); assert.equal(fades().length, before);
+        current.complete?.(true); await r.motionTick(192);
+        assert.equal(r.controller().velocity.value, 0); assert.equal(r.presentations.at(-1).moving, false);
+        assert.equal(fades().length, before + 1, 'the newer run can still complete once');
+      }
+      assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
     } finally {r.close();}
   }
 });

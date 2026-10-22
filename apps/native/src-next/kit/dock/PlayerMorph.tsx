@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Platform, View} from 'react-native';
 import {Gesture} from 'react-native-gesture-handler';
-import Animated, {cancelAnimation, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, runOnJS, runOnUI, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {type PlaybackFence} from '../../../../../packages/player-core/src/index';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
@@ -32,6 +32,8 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
   }
   const source = intent.current;
   const epoch = useSharedValue(source.epoch), run = useSharedValue(0), started = useSharedValue(0);
+  const animationRun = useSharedValue(0);
+  const completed = useSharedValue<{epoch: number; run: number; animation: number; goal: number} | null>(null);
   const callback = useRef(onRelease), mounted = useRef(false), consumed = useRef(0);
   callback.current = onRelease;
   const released = useCallback((target: boolean, original: PlaybackFence, version: number, gestureRun: number) => {
@@ -43,12 +45,28 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
   }, [epoch, run]);
   useEffect(() => {span.value = Math.max(1, travel);}, [travel, span]);
   const spring = useMemo(() => motion.spring('player'), [motion]);
+  const timing = useMemo(() => motion.timing(), [motion]);
+  const completionFor = useCallback((goal: number) => {
+    'worklet';
+    const completion = {epoch: epoch.value, run: run.value, animation: ++animationRun.value, goal};
+    completed.value = null;
+    return (finished?: boolean) => {
+      'worklet';
+      if (finished && epoch.value === completion.epoch && run.value === completion.run
+        && animationRun.value === completion.animation && !dragging.value) completed.value = completion;
+    };
+  }, [epoch, run, animationRun, completed, dragging]);
   const request = useCallback((target: boolean, speed?: number) => {
-    const inherited = speed ?? velocity.value;
-    releaseVelocity.value = inherited;
-    // Reanimated inherits the running spring's instantaneous velocity on retarget.
-    progress.value = spring ? withSpring(target ? 1 : 0, {...spring, velocity: inherited}) : withTiming(target ? 1 : 0, motion.timing());
-  }, [progress, velocity, releaseVelocity, spring, motion]);
+    // Capture the ticket on UI after preceding source/goal retirement writes.
+    runOnUI((goal: number, requestedSpeed?: number) => {
+      'worklet';
+      const inherited = requestedSpeed ?? velocity.value;
+      releaseVelocity.value = inherited;
+      const finish = completionFor(goal);
+      // Reanimated inherits the running spring's instantaneous velocity on retarget.
+      progress.value = spring ? withSpring(goal, {...spring, velocity: inherited}, finish) : withTiming(goal, timing, finish);
+    })(target ? 1 : 0, speed);
+  }, [progress, velocity, releaseVelocity, spring, timing, completionFor]);
   useEffect(() => {
     epoch.value = source.epoch; run.value++; dragging.value = false;
     cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
@@ -62,10 +80,15 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
       cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
     };
   }, [epoch, run, dragging, progress, dockX, dockFade]);
-  useAnimatedReaction(() => progress.value, (value, previous) => {
+  useAnimatedReaction(() => ({p: progress.value, completed: completed.value}), (value, previous) => {
     const now = performance.now(), elapsed = now - lastTime.value;
-    if (!dragging.value && previous !== null && elapsed > 0 && elapsed < 100) velocity.value = (value - previous) * 1000 / elapsed;
-    lastTime.value = now;
+    const changed = previous === null || value.p !== previous.p, completion = value.completed;
+    // A later completion corrects the last derivative; an earlier completion
+    // is consumed by the endpoint reaction itself. Neither leaves stale speed.
+    if (completion && completion.epoch === epoch.value && completion.run === run.value
+      && completion.animation === animationRun.value && !dragging.value && value.p === completion.goal) velocity.value = 0;
+    else if (!dragging.value && previous !== null && changed && elapsed > 0 && elapsed < 100) velocity.value = (value.p - previous.p) * 1000 / elapsed;
+    if (changed) lastTime.value = now;
   });
   const gestures = useMemo(() => {
     // RNGH mutates handler identity on attachment. Each physical detector gets
@@ -88,17 +111,19 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
         const target = releaseDock(progress.value, event.velocityY);
         dragging.value = false;
         releaseVelocity.value = velocity.value;
-        progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}) : withTiming(target, {duration: 160});
+        const finish = completionFor(target);
+        progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}, finish) : withTiming(target, {duration: 160}, finish);
         runOnJS(released)(target === 1, source.fence, source.epoch, started.value);
       })
       .onFinalize((_event, success) => {
         if (!success && dragging.value && epoch.value === source.epoch && started.value === run.value) {
           run.value++; dragging.value = false; cancelAnimation(progress);
-          progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}) : withTiming(source.docked ? 1 : 0, {duration: 160});
+          const finish = completionFor(source.docked ? 1 : 0);
+          progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, {duration: 160}, finish);
         }
       });
     return {gesture: pan(false), dockGesture: pan(true)};
-  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, released, source, epoch, run, started]);
+  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, released, source, epoch, run, started, completionFor]);
   return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, gestures]);
 }
 
