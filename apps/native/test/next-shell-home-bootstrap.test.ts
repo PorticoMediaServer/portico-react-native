@@ -121,9 +121,10 @@ for (const deviceClass of ['mobile', 'television'] as const) test(`native ${devi
     assert.equal(request.url.searchParams.get('deviceClass'), deviceClass);
     assert.equal(request.headers.get(deviceClassHeader), deviceClass);
     assert.equal(request.headers.get('Authorization'), 'Bearer in_memory_access');
-    assert.equal(request.headers.get('X-Portico-Installation-Id'), 'native_bootstrap_0123456789abcdef01234567');
+    assert.equal(request.headers.get('X-Portico-Installation-Id'), null, 'ordinary reads use the bearer; the installation claim accompanies credential exchanges');
     assert.equal(request.method, 'GET'); assert.equal(request.body, null);
   }
+  assert.equal(installationIdentity()?.installationId, 'native_bootstrap_0123456789abcdef01234567', 'reading preferences preserves the actual registered claim');
   assert.ok(f.state.calls.filter(value => value.url.pathname === routePath('get_guide_sources')).every(value => value.url.searchParams.get('timezone') === Intl.DateTimeFormat().resolvedOptions().timeZone));
 });
 
