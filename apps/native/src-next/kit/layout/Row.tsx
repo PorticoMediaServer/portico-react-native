@@ -67,9 +67,9 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: theme.spec.shelf.headingGap[theme.platform], paddingLeft: leading, paddingRight: trailing, marginBottom: theme.spec.shelf.headingMargin[theme.platform]}}>
       {onSeeAll && !theme.isTV ? <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={defaultI18n.t('shelf.seeAll')} onPress={onSeeAll}
         onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{minHeight: 24, flexDirection: 'row', alignItems: 'center', flexShrink: 1}, controlStyle(arrowFocus === 'all')]}>
-        <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary} />
-      </Pressable> : <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1}]}>{title}</Text>}
-      {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary}]}>{subtitle}</Text> : subtitle}</View>}
+        <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary} />
+      </Pressable> : <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text>}
+      {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text> : subtitle}</View>}
       {onSeeAll && theme.isTV && <Pressable onPress={onSeeAll} accessibilityRole="button" onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{marginLeft: 'auto', minHeight: theme.targets.tenFoot, justifyContent: 'center'}, controlStyle(arrowFocus === 'all')]}>
         <Text style={[theme.type.seeAll, {color: theme.colors.textTertiary}]}>{defaultI18n.t('shelf.seeAll')}</Text>
       </Pressable>}
