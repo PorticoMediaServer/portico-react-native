@@ -88,10 +88,14 @@ async function controls(isTV = false, reduce = false) {
     },
     withTiming: (value: number, config: {duration: number}) => {timings.push({value, ...config}); return value;},
   };
+  const focusModule = await screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {
+    react, 'react-native': {...native, findNodeHandle: () => null, TVFocusGuideView: 'TVFocusGuideView'},
+    '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
+  });
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
     react, 'react-native': native, 'react-native-reanimated': animated, '@portico/design': {focusSpec},
     '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
-    './control-model': controlModel, './useFocusedMenu': {useFocusedMenu},
+    './control-model': controlModel, './useFocusedMenu': {useFocusedMenu}, '../focus': focusModule,
   });
   const {Button} = await screenModule(new URL('../src-next/kit/controls/Button.tsx', import.meta.url), {
     react, 'react-native': native, '@portico/design': {buttonSpec}, './Focusable': {Focusable},
@@ -146,7 +150,8 @@ test('actual hero Button and every PhoneTabBar item deliver their geometry acros
 
 test('nested static styles and both native ref forms reach the same sole Pressable host', async () => {
   const {Focusable} = await controls(true);
-  for (const ref of [React.createRef(), (_value: unknown) => {}]) {
+  const callbacks: unknown[] = [];
+  for (const ref of [React.createRef(), (value: unknown) => {callbacks.push(value);}]) {
     const press = () => {}, layout = () => {};
     const control = mount(Focusable, {ref, style: [{height: 72}, [false, {paddingHorizontal: 28, flex: 1}]],
       onPress: press, onLayout: layout, hasTVPreferredFocus: true, nextFocusDown: 12, focusRadius: 14,
@@ -154,7 +159,12 @@ test('nested static styles and both native ref forms reach the same sole Pressab
     try {
       const node = control.native(), style = nativeStyle(node);
       assert.equal(style.height, 72); assert.equal(style.paddingHorizontal, 28); assert.equal(style.flex, 1);
-      assert.equal(node.props.ref, ref); assert.equal(node.props.onPress, press); assert.equal(node.props.onLayout, layout);
+      const nativeHost = {requestTVFocus() {}};
+      node.props.ref(nativeHost);
+      assert.equal(typeof ref === 'function' ? callbacks.at(-1) : ref.current, nativeHost, 'merged binding forwards the actual sole native host');
+      node.props.ref(null);
+      assert.equal(typeof ref === 'function' ? callbacks.at(-1) : ref.current, null);
+      assert.equal(node.props.onPress, press); assert.equal(node.props.onLayout, layout);
       assert.equal(node.props.hasTVPreferredFocus, true); assert.equal(node.props.nextFocusDown, 12);
       assert.deepEqual(node.props.tvParallaxProperties, {shiftDistanceX: 4, enabled: false});
       assert.equal(node.props.accessibilityLabel, 'Actual native control'); assert.equal(node.props.accessibilityState.selected, true);

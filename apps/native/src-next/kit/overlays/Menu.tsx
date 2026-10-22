@@ -44,7 +44,7 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
   const [anchor, setAnchor] = useState<{x: number; y: number; width: number; height: number}>();
   const [height, setHeight] = useState(1);
   const dismiss = useCallback((reason: OverlayReason) => onOpenChange(false, reason), [onOpenChange]);
-  useOverlayLifecycle(animation.present, modal, dismiss, initialFocusRef, returnFocusRef ?? anchorRef, animation.enterMs);
+  useOverlayLifecycle(animation.present, modal, dismiss, initialFocusRef, returnFocusRef ?? anchorRef, animation.enterMs, testID);
   useEffect(() => {
     if (open) anchorRef.current?.measureInWindow((x, y, w, h) => setAnchor({x, y, width: w, height: h}));
   }, [open, anchorRef, viewport.width, viewport.height]);
@@ -53,7 +53,7 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
   const material = glassRecipe();
   const surface = <Animated.View testID={testID} accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityViewIsModal={modal} onAccessibilityEscape={() => dismiss('escape')} style={[{position: 'absolute', left: rect.x - (modal ? 0 : hostFrame.x), top: rect.y - (modal ? 0 : hostFrame.y), width: rect.width, maxHeight: viewport.height - insets.top - insets.bottom - 16, borderRadius: 14, backgroundColor: alpha(theme.colors.raisedBright, material.nativeBlur ? 0.96 : 1), borderWidth: 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.8, shadowOffset: {width: 0, height: 16}, shadowRadius: 30}, animation.style, style]}>
     {material.nativeBlur && <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={30} reducedTransparencyFallbackColor={theme.colors.raisedBright} pointerEvents="none"/>}
-    <FocusBoundary modal={modal}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[{paddingVertical: 6}, contentStyle]}>
+    <FocusBoundary modal={modal} testID={testID}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[{paddingVertical: 6}, contentStyle]}>
       {headerContext}
       {showTitle && title != null && <Text accessibilityRole="header" style={[titleType ? nativeType(titleType, theme.textScale) : theme.type.bodyStrong, {color: theme.colors.text, paddingHorizontal: 14, paddingVertical: 8}, titleTextStyle]}>{title}</Text>}
       {description != null && <Text style={[theme.type.caption, {color: theme.colors.textSecondary, paddingHorizontal: 14}, descriptionTextStyle]}>{description}</Text>}
@@ -82,7 +82,7 @@ export function Menu({items, open, onOpenChange, title, description, footer, ini
     const groupEnd = !next || 'separator' in next || 'section' in next;
     const corners = {borderTopLeftRadius: groupStart ? 14 : 0, borderTopRightRadius: groupStart ? 14 : 0, borderBottomLeftRadius: groupEnd ? 14 : 0, borderBottomRightRadius: groupEnd ? 14 : 0};
     return <View key={entry.id} style={[{marginHorizontal: grouped ? 16 : 0, marginBottom: actualPresentation === 'sideSheet' && theme.isTV ? 12 : 0, overflow: grouped ? 'hidden' : 'visible', backgroundColor: grouped ? theme.colors.raisedHigh : undefined}, corners]}>
-      <MenuRow ref={initial ? first : undefined} variant={grouped ? 'grouped' : actualPresentation === 'sideSheet' ? 'tv' : 'compact'} label={entry.label} description={entry.description} icon={entry.icon} disabled={entry.disabled} selected={entry.selected} destructive={entry.destructive} tone={entry.tone} onMenu={() => onOpenChange(false, 'back')} hasTVPreferredFocus={initial} onPress={() => {entry.onSelect(); if (entry.closeOnSelect !== false) onOpenChange(false, 'action');}}/>
+      <MenuRow testID={testID ? `${testID}-item-${entry.id}` : undefined} focusId={entry.id} ref={initial ? first : undefined} variant={grouped ? 'grouped' : actualPresentation === 'sideSheet' ? 'tv' : 'compact'} label={entry.label} description={entry.description} icon={entry.icon} disabled={entry.disabled} selected={entry.selected} destructive={entry.destructive} tone={entry.tone} onMenu={() => onOpenChange(false, 'back')} hasTVPreferredFocus={initial} onPress={() => {entry.onSelect(); if (entry.closeOnSelect !== false) onOpenChange(false, 'action');}}/>
       {grouped && !groupStart && <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 56, right: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, 0.45)}}/>}
       {grouped && entry.tone === 'owner' && <View pointerEvents="none" style={[StyleSheet.absoluteFill, corners, {borderColor: alpha(theme.colors.accentStrong, 0.28), borderLeftWidth: 1, borderRightWidth: 1, borderTopWidth: groupStart ? 1 : 0, borderBottomWidth: groupEnd ? 1 : 0}]}/>}
     </View>;

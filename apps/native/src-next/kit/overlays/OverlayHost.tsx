@@ -2,6 +2,7 @@ import React, {createContext, useCallback, useContext, useId, useLayoutEffect, u
 import {BackHandler, Platform, StyleSheet, View, type GestureResponderEvent} from 'react-native';
 import {registerOverlayKeys} from '../../platform/overlay-keys';
 import {useTheme} from '../theme';
+import {FocusProvider, useOptionalFocusRegistry} from '../focus';
 import {containsPoint, type Rect} from './geometry';
 import {createOverlayStack} from './overlay-stack';
 import type {FocusRef, FocusTarget, OverlayReason} from './types';
@@ -31,12 +32,12 @@ export function OverlaysProvider({children}: {children: React.ReactNode}) {
     if (top?.outside && top.rect && !containsPoint(top.rect, event.nativeEvent.pageX, event.nativeEvent.pageY)) top.outside();
     return false;
   }, []);
-  return <HostContext.Provider value={portal}><View ref={root} onLayout={measure} style={styles.root} onStartShouldSetResponderCapture={outside}>
+  return <FocusProvider><HostContext.Provider value={portal}><View ref={root} onLayout={measure} style={styles.root} onStartShouldSetResponderCapture={outside}>
     {children}
     <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {zIndex: layers.menu}]}>
       {entries.map(entry => <React.Fragment key={entry.id}>{entry.node}</React.Fragment>)}
     </View>
-  </View></HostContext.Provider>;
+  </View></HostContext.Provider></FocusProvider>;
 }
 export function OverlayPortal({children, rect, onOutsidePress}: {children: React.ReactNode; rect?: Rect; onOutsidePress?: () => void}) {
   const host = useContext(HostContext);
@@ -76,7 +77,8 @@ export function dispatchOverlayKey(key: 'escape' | 'tab' | 'menu', _shift = fals
   // Native windows own Tab and Shift-Tab traversal, including modal containment.
   return false;
 }
-export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (reason: OverlayReason) => void, initialFocusRef?: FocusRef, returnFocusRef?: FocusRef, focusDelay = 0) {
+export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (reason: OverlayReason) => void, initialFocusRef?: FocusRef, returnFocusRef?: FocusRef, focusDelay = 0, regionId?: string) {
+  const registry = useOptionalFocusRegistry();
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
   const initial = useRef(initialFocusRef);
@@ -87,6 +89,9 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
   delay.current = focusDelay;
   useLayoutEffect(() => {
     if (!open) return;
+    const opener = registry?.capture();
+    const releaseReturn = regionId ? registry?.registerReturn(regionId, opener) : undefined;
+    const releaseOpener = opener ? registry?.retain(opener) : undefined;
     const registration = {};
     const remove = stack.register(registration, reason => dismissRef.current(reason));
     const releaseKeys = retainOverlayKeys();
@@ -101,8 +106,13 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
       back.remove();
       const wasTop = remove();
       releaseKeys();
-      if (wasTop) focusTarget(restore.current?.current);
+      releaseReturn?.();
+      releaseOpener?.();
+      if (wasTop) {
+        if (restore.current?.current) focusTarget(restore.current.current);
+        else registry?.restore(opener);
+      }
     };
-  }, [open, modal]);
+  }, [open, modal, registry, regionId]);
 }
 const styles = StyleSheet.create({root: {flex: 1}});

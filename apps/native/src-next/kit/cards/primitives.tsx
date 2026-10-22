@@ -9,11 +9,13 @@ import {Icon, type IconName} from '../Icon';
 import {SelectionHoldFeedback} from '../selection/index';
 import {nativeType, useTheme, type Theme} from '../theme';
 import {useMotion} from '../useMotion';
+import {useFocusTarget, useFocusWaiting} from '../focus';
 import {activateCard, cardProgress, holdCard, type CardActions} from './model';
 
 export const alpha = (color: string, opacity: number) => `${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
 
 export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPress' | 'onLongPress' | 'onFocus' | 'onBlur' | 'onPressIn' | 'onPressOut' | 'onHoverIn' | 'onHoverOut'> & {
+  focusId?: string;
   title: string;
   caption?: readonly FactPart[];
   detail?: readonly FactPart[];
@@ -34,13 +36,14 @@ type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holdin
 const selectionHoldMs = 500;
 
 /** One root TV focus target. Images and secondary affordances never register Menu. */
-export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
+export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
   const theme = useTheme(), motion = useMotion();
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !!disabled});
   const [focused, setFocused] = useState(false), [hovered, setHovered] = useState(false), [pressed, setPressed] = useState(false);
   const [holdFeedback, setHoldFeedback] = useState<{x: number; y: number; progress: number} | null>(null);
   const holdFrame = useRef<number | undefined>(undefined);
   const owner = useRef({}), menuRegistration = useRef<(() => void) | undefined>(undefined), held = useRef(false), scale = useSharedValue(1);
-  const canHoldSelect = !disabled && !theme.isTV && !!selection && !selection.active;
+  const canHoldSelect = !disabled && !waiting && !theme.isTV && !!selection && !selection.active;
   const holding = holdFeedback !== null && canHoldSelect;
   const actions = {primaryAction, onNavigate, onPlay, onMore, selection} as CardActions;
   const clearHold = () => {
@@ -57,35 +60,35 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   }, [canHoldSelect]);
   useEffect(() => {
     menuRegistration.current?.();
-    menuRegistration.current = focused && !disabled && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
+    menuRegistration.current = focused && !disabled && !waiting && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
     return () => {menuRegistration.current?.(); menuRegistration.current = undefined;};
-  }, [focused, disabled, onMore, theme.isTV]);
+  }, [focused, disabled, waiting, onMore, theme.isTV]);
   useEffect(() => {
     const next = !motion.transforms || disabled ? 1 : theme.isTV && focused ? theme.spec.focus.scale.card.tv : pressed && !holding && !held.current ? 0.97 : 1;
     scale.value = withTiming(next, motion.timing('quick'));
   }, [focused, pressed, holding, disabled, theme.isTV, theme.spec.focus.scale.card.tv, motion, scale]);
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
-  const label = accessibilityLabel ?? title;
+  const label = waiting ? defaultI18n.t('next.selection.native.loading') : accessibilityLabel ?? title;
   return <Animated.View style={[{width, zIndex: holding ? 4 : undefined}, style, animated]}>
-    <Pressable {...nativePressableProps(native)} testID={testID} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}
-      accessibilityState={{...native.accessibilityState, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
-      accessibilityActions={[
+    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} testID={binding.testID} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}
+      accessibilityState={{...native.accessibilityState, busy: waiting || native.accessibilityState?.busy, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
+      accessibilityActions={waiting ? [] : [
         ...(native.accessibilityActions ?? []),
         ...(onPlay && primaryAction !== 'play' ? [{name: 'play', label: defaultI18n.t('card.play', {title})}] : []),
         ...(onMore ? [{name: 'more', label: defaultI18n.t('card.more', {title})}] : []),
         ...(selection ? [{name: 'select', label: defaultI18n.t('card.select', {title})}] : []),
       ]}
       onAccessibilityAction={event => {
-        if (disabled) return;
+        if (disabled || waiting) return;
         const name = event.nativeEvent.actionName;
         if (name === 'play') onPlay?.();
         else if (name === 'more') onMore?.();
         else if (name === 'select') selection?.active ? selection.onToggle() : selection?.onEnter();
         else native.onAccessibilityAction?.(event);
       }}
-      onPress={() => {if (!held.current) activateCard(actions);}}
+      onPress={() => {if (!waiting && !held.current) activateCard(actions);}}
       delayLongPress={!theme.isTV && selection ? selectionHoldMs : native.delayLongPress}
-      onLongPress={() => {held.current = true; clearHold(); holdCard(actions, theme.isTV);}}
+      onLongPress={() => {if (waiting) return; held.current = true; clearHold(); holdCard(actions, theme.isTV);}}
       onPressIn={event => {
         held.current = false; setPressed(true); clearHold();
         if (!canHoldSelect) return;
@@ -105,15 +108,16 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
         native.onTouchMove?.(event);
       }}
       onFocus={() => {
+        binding.onFocus();
         menuRegistration.current?.();
-        menuRegistration.current = !disabled && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
+        menuRegistration.current = !disabled && !waiting && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
         setFocused(true); onFocus?.();
       }}
-      onBlur={() => {menuRegistration.current?.(); menuRegistration.current = undefined; setFocused(false); onBlur?.();}}
+      onBlur={() => {binding.onBlur(); menuRegistration.current?.(); menuRegistration.current = undefined; setFocused(false); onBlur?.();}}
       onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       {children({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled, holding})}
     </Pressable>
-    {overlay?.({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled, holding})}
+    {!waiting && overlay?.({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled, holding})}
     {holding && holdFeedback && <SelectionHoldFeedback active progress={holdFeedback.progress} style={{position: 'absolute', left: holdFeedback.x - 42.5, top: holdFeedback.y - 42.5, zIndex: 10}} />}
   </Animated.View>;
 }
@@ -122,6 +126,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
 export function ArtFrame({children, width, height, radius, focused, selected, hovered = false, holding = false, hoverScale, circle = false, style}: {
   children: ReactNode; width?: number; height: number; radius?: number; focused: boolean; selected?: boolean; hovered?: boolean; holding?: boolean; hoverScale?: number; circle?: boolean; style?: StyleProp<ViewStyle>;
 }) {
+  const waiting = useFocusWaiting();
   const t = useTheme(), motion = useMotion(), scale = useSharedValue(1), focusOpacity = useSharedValue(0), selectionOpacity = useSharedValue(0);
   useEffect(() => {
     scale.value = withTiming(motion.transforms && holding ? 1.07 : motion.transforms && hovered && !selected ? hoverScale ?? t.spec.card.hover.artScale : 1, motion.timing('hover'));
@@ -134,7 +139,7 @@ export function ArtFrame({children, width, height, radius, focused, selected, ho
   const r = circle ? height / 2 : radius ?? t.spec.card.radius[t.platform];
   const offset = t.spec.focus.offsetOuter[t.platform], ring = t.spec.focus.ringWidth[t.platform];
   return <Animated.View style={[{width, height, borderRadius: r, backgroundColor: t.colors.raised}, style, artStyle]}>
-    <View style={[StyleSheet.absoluteFill, {overflow: 'hidden', borderRadius: r}]}>{children}</View>
+    <View style={[StyleSheet.absoluteFill, {overflow: 'hidden', borderRadius: r}]}>{waiting ? <View style={[StyleSheet.absoluteFill, {backgroundColor: t.colors.raisedHigh}]} /> : children}</View>
     <Animated.View pointerEvents="none" style={[{position: 'absolute', top: -3, left: -3, right: -3, bottom: -3, borderRadius: r + 3, borderWidth: 3, borderColor: holding ? t.colors.text : t.colors.accentStrong,
       ...(holding ? {shadowColor: t.colors.ink, shadowOpacity: 0.9, shadowOffset: {width: 0, height: 24}, shadowRadius: 20, elevation: 8} : {})}, selectionStyle]} />
     <Animated.View pointerEvents="none" style={[{position: 'absolute', top: -offset - ring, left: -offset - ring, right: -offset - ring, bottom: -offset - ring, borderRadius: r + offset + ring, borderWidth: ring, borderColor: t.colors.focus,
@@ -152,9 +157,9 @@ export function Parts({parts = [], style, gap = 8, strong = false}: {parts?: rea
 }
 
 export function Caption({title, caption, detail, density, titleTextStyle, captionTextStyle, selected, centered, lines = 1}: Pick<CardProps, 'title' | 'caption' | 'detail' | 'density' | 'titleTextStyle' | 'captionTextStyle'> & {selected?: boolean; centered?: boolean; lines?: number}) {
-  const t = useTheme();
+  const t = useTheme(), waiting = useFocusWaiting();
   const compact = density === 'grid' && !t.isTV;
-  return <View style={{marginTop: compact ? 7 : t.spec.card.titleMargin[t.platform], gap: t.spec.card.subtitleMargin[t.platform], alignItems: centered ? 'center' : undefined}}>
+  return <View accessibilityElementsHidden={waiting} importantForAccessibility={waiting ? 'no-hide-descendants' : 'auto'} style={{opacity: waiting ? 0 : 1, marginTop: compact ? 7 : t.spec.card.titleMargin[t.platform], gap: t.spec.card.subtitleMargin[t.platform], alignItems: centered ? 'center' : undefined}}>
     <Text numberOfLines={lines} ellipsizeMode="tail" style={[t.type.cardTitle, compact && titleStyle(t, 12.5, 600), {color: selected ? t.colors.accentStrong : t.colors.text, textAlign: centered ? 'center' : 'left'}, titleTextStyle]}>{title}</Text>
     <Parts parts={caption} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} /><Parts parts={detail} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} />
   </View>;
@@ -183,9 +188,10 @@ export function Badge({children, kind = 'plain'}: {children?: ReactNode; kind?: 
 }
 
 /** A separate phone/pointer action; TV keeps its one root focus and real hold-OK menu. */
-export function CardAction({name, label, onPress, size = 40, style, color}: {name: IconName; label: string; onPress: () => void; size?: number; style?: StyleProp<ViewStyle>; color?: string}) {
+export function CardAction({name, label, onPress, size = 40, style, color, testID, focusId}: {testID?: string; focusId?: string; name: IconName; label: string; onPress: () => void; size?: number; style?: StyleProp<ViewStyle>; color?: string}) {
   const t = useTheme();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={Math.max(0, (44 - size) / 2)} onPress={event => {event.stopPropagation(); onPress();}} style={({pressed}) => [{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
+  const {waiting: _waiting, ...binding} = useFocusTarget({focusId, testID});
+  return <Pressable {...binding} accessibilityRole="button" accessibilityLabel={label} hitSlop={Math.max(0, (44 - size) / 2)} onPress={event => {event.stopPropagation(); onPress();}} style={({pressed}) => [{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
     <Icon name={name} size={20} color={color ?? t.colors.ink} />
   </Pressable>;
 }
