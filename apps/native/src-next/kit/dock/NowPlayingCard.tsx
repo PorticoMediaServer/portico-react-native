@@ -40,7 +40,7 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   const fade = useSharedValue(1);
   const {presentation: p, playback} = occupant;
   const progress = progressOf(occupant);
-  const wasExpanded = useRef(false);
+  const wasExpanded = useRef(false), restoringOpener = useRef(false);
   const fold = useCallback(() => onExpandedChange(false), [onExpandedChange]);
   useEffect(() => {
     const leaving = wasExpanded.current && !expanded;
@@ -54,8 +54,13 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
     const frame = requestAnimationFrame(() => {
       release.current?.(); release.current = undefined;
       // Resolve after the quiet opener has reattached, never before its remount.
-      if (returnFocusRef?.current) returnFocusRef.current.requestTVFocus?.();
-      else if (!registry?.restore(saved.current)) opener.current?.requestTVFocus?.();
+      if (returnFocusRef?.current) {
+        restoringOpener.current = returnFocusRef.current === opener.current;
+        returnFocusRef.current.requestTVFocus?.();
+      } else {
+        restoringOpener.current = saved.current?.childId === controlID(testID, 'open');
+        if (!registry?.restore(saved.current) && opener.current) {restoringOpener.current = true; opener.current.requestTVFocus?.();}
+      }
       saved.current = undefined;
     });
     return () => cancelAnimationFrame(frame);
@@ -86,7 +91,7 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   if (occupant.mode !== 'music' && occupant.mode !== 'audiobook') return null;
   if (!expanded) return <Animated.View style={[animated, style]} testID={testID}>
     <Focusable testID={controlID(testID, 'open')} ref={opener} disabled={!visible} focusRadius={18} focusKind="card" focusTreatment="none" accessibilityRole="button" accessibilityLabel={t('player.nowPlayingTitle', {title: p.identity.title})}
-      onFocus={open} onPress={open} style={[s.tvQuiet, {backgroundColor: alpha(sourceSurfaces.quiet, .8), borderWidth: 1, borderColor: alpha(theme.colors.text, .1)}]}>
+      onFocus={() => {if (restoringOpener.current) restoringOpener.current = false; else open();}} onPress={open} style={[s.tvQuiet, {backgroundColor: alpha(sourceSurfaces.quiet, .8), borderWidth: 1, borderColor: alpha(theme.colors.text, .1)}]}>
       {glassRecipe().nativeBlur && <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={sourceSurfaces.quiet}/>}
       <Artwork source={p.artwork} width={64} height={64} visible={visible} priority style={{borderRadius: 10, overflow: 'hidden'}}/>
       <View style={s.text}><Text numberOfLines={1} ellipsizeMode="tail" style={[dockType(theme, 24, 700, -.01), {color: theme.colors.text}]}>{p.identity.title}</Text>
