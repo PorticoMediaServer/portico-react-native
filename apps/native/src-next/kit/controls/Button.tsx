@@ -13,6 +13,7 @@ export type ButtonProps = Omit<FocusableProps, 'children'> & {
   children?: React.ReactNode;
   icon?: IconName;
   iconOnly?: boolean;
+  /** Providing a loading state reserves its icon slot, keeping both label and width stable. */
   loading?: boolean;
   textStyle?: StyleProp<TextStyle>;
 };
@@ -21,7 +22,7 @@ export type ResumeButtonProps = ButtonProps & {progress: number; remaining?: Rea
 type ButtonContentProps = ButtonProps & {progress?: number; remaining?: React.ReactNode};
 
 const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonContent({
-  variant = 'primary', size = 'hero', children, icon, iconOnly = variant === 'icon', loading = false,
+  variant = 'primary', size = 'hero', children, icon, iconOnly = variant === 'icon', loading,
   disabled, style, textStyle, accessibilityState, hitSlop, progress, remaining, ...props
 }, ref) {
   const theme = useTheme();
@@ -44,13 +45,15 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
     {state => <>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, {borderRadius: iconOnly ? geometry.height / 2 : geometry.radius, overflow: 'hidden'}]}>
         {glass && recipe.nativeBlur ? <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh} /> : null}
-        <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />
+        <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />
       </View>
       <View pointerEvents="none" style={[styles.content, {gap: geometry.gap}]}>
-        {loading ? <ActivityIndicator size={geometry.icon} color={foreground} /> : icon ? <Icon name={icon} size={geometry.icon} color={foreground} /> : null}
+        {icon || loading !== undefined ? <View style={{width: geometry.icon, height: geometry.icon, alignItems: 'center', justifyContent: 'center'}}>
+          {loading ? <ActivityIndicator size={geometry.icon} color={foreground} /> : icon ? <Icon name={icon} size={geometry.icon} color={foreground} /> : null}
+        </View> : null}
         {!iconOnly ? <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle]}>{children}</Text> : null}
+        {inline && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction! * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
         {remaining !== undefined && !iconOnly ? <>
-          {inline ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(theme.colors.ink, .16)}]}><View style={[styles.fill, {width: `${fraction! * 100}%`, backgroundColor: theme.colors.accent}]} /></View> : null}
           <Text numberOfLines={1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary}, textStyle]}>{remaining}</Text>
         </> : null}
       </View>

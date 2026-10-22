@@ -10,4 +10,6 @@ export {Switch} from './Switch';
 export type {SwitchProps} from './Switch';
 export {TextField} from './TextField';
 export type {TextFieldProps} from './TextField';
+export {Select, RichSelect} from './Select';
+export type {SelectOption, SelectProps, RichSelectProps} from './Select';
 export type {ButtonVariant, ButtonSize, ChipVariant, FocusKind} from './control-model';

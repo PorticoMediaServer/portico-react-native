@@ -56,9 +56,13 @@ export function enabledChoice(items: readonly ChoiceValue[], current?: string): 
   return items.find(item => item.value === current && !item.disabled)?.value ?? items.find(item => !item.disabled)?.value;
 }
 
-export function adjacentChoice(items: readonly ChoiceValue[], current: string | undefined, direction: 1 | -1): string | undefined {
-  const enabled = items.filter(item => !item.disabled);
-  if (!enabled.length) return undefined;
-  const index = enabled.findIndex(item => item.value === current);
-  return enabled[(index < 0 ? direction === 1 ? 0 : enabled.length - 1 : (index + direction + enabled.length) % enabled.length)]?.value;
+export function switchDragFraction(start: number, translation: number, travel: number): number {
+  'worklet';
+  return Math.max(0, Math.min(1, start + translation / Math.max(1, travel)));
+}
+
+/** Release chooses the nearest resting state after the shared 200ms gesture coast. */
+export function switchReleaseValue(position: number, velocity: number, travel: number): boolean {
+  'worklet';
+  return position + velocity * .2 / Math.max(1, travel) >= .5;
 }

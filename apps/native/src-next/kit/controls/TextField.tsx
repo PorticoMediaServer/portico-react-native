@@ -12,10 +12,11 @@ export type TextFieldProps = TextInputProps & {
   leadingIcon?: IconName;
   variant?: 'field' | 'search';
   containerStyle?: StyleProp<ViewStyle>;
+  fieldStyle?: StyleProp<ViewStyle>;
 };
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
-  label, description, error, leadingIcon, variant = 'field', containerStyle,
+  label, description, error, leadingIcon, variant = 'field', containerStyle, fieldStyle,
   editable = true, style, onFocus, onBlur, accessibilityLabel, accessibilityState,
   placeholderTextColor, nativeID, multiline, ...props
 }, ref) {
@@ -24,17 +25,19 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   const id = useId();
   const search = variant === 'search';
   const height = search ? fieldSpec.search.height[theme.platform] : fieldSpec.height[theme.platform];
+  const suppliedHeight = StyleSheet.flatten(fieldStyle)?.height;
+  const inputHeight = typeof suppliedHeight === 'number' ? suppliedHeight : height;
   const radius = search ? fieldSpec.search.radius[theme.platform] : fieldSpec.radius[theme.platform];
   const color = error ? theme.colors.danger : focused ? theme.colors.accent : theme.colors.lineControl;
   const labelID = `${id}-label`;
   return <View style={[styles.container, containerStyle]}>
     {label !== undefined ? <Text nativeID={labelID} style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{label}</Text> : null}
-    <View style={[styles.field, {minHeight: height, height: multiline ? undefined : height, borderRadius: radius,
+    <View style={[styles.field, {minHeight: inputHeight, height: multiline ? undefined : inputHeight, borderRadius: radius,
       paddingHorizontal: search ? fieldSpec.search.paddingX[theme.platform] : fieldSpec.paddingX[theme.platform],
       gap: search ? fieldSpec.search.gap[theme.platform] : 10,
       backgroundColor: search || focused ? theme.colors.raisedHigh : theme.colors.raised,
       borderWidth: search && !error ? 0 : fieldSpec.borderWidth[theme.platform], borderColor: color,
-      opacity: editable ? 1 : .45}]}>
+      opacity: editable ? 1 : .45}, fieldStyle]}>
       {leadingIcon ? <Icon name={leadingIcon} size={theme.isTV ? 30 : 20} color={theme.colors.textTertiary} /> : null}
       <TextInput {...props} ref={ref} nativeID={nativeID ?? id} editable={editable} multiline={multiline}
         accessibilityLabel={accessibilityLabel ?? (typeof label === 'string' ? label : undefined)}
@@ -46,7 +49,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         onBlur={event => {setFocused(false); onBlur?.(event);}}
         style={[theme.type.body, styles.input, {fontFamily: search ? fontFamilies[500] : fontFamilies[400],
           fontSize: search && !theme.isTV ? 15.5 * theme.textScale : theme.type.body.fontSize,
-          color: theme.colors.text, minHeight: height - 2 * fieldSpec.borderWidth[theme.platform]}, style]} />
+          color: theme.colors.text, minHeight: inputHeight - 2 * fieldSpec.borderWidth[theme.platform]}, style]} />
       {focused ? <View pointerEvents="none" style={[styles.ring, {borderColor: search ? colorAlpha(theme.colors.accent, fieldSpec.search.focusAlpha) : theme.colors.focus,
         borderWidth: theme.isTV ? 4 : 3, borderRadius: radius + 4}]} /> : null}
     </View>
