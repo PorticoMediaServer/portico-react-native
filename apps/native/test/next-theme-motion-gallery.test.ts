@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createTheme, fontFamilies, nativeType} from '../src-next/kit/theme.ts';
 import {motionPolicy} from '../src-next/platform/motion-policy.ts';
 import {collectGalleries, kitSelectionFromURL, type Gallery, type GalleryContext} from '../src-next/dev/gallery-registry.ts';
-import {colors, platformRadii, typeScale, springs} from '@portico/design';
+import {colors, layout, platformRadii, typeScale, springs} from '@portico/design';
 
 test('theme maps every accepted role, normal metrics and exact family registration', () => {
   assert.equal(fontFamilies[800], 'Manrope-ExtraBold');
@@ -18,6 +18,31 @@ test('theme maps every accepted role, normal metrics and exact family registrati
   assert.equal(phone.type.lockup.letterSpacing, -2.07); assert.equal(tv.type.lockup.letterSpacing, -.045 * 120);
   assert.equal('lineHeight' in phone.type.nav, false);
   for (const [name, style] of Object.entries(typeScale.handheld)) assert.deepEqual(phone.type[name as keyof typeof phone.type], nativeType(style));
+});
+test('native windows change layout and type at the canonical boundaries without changing TV', () => {
+  for (const width of [390, layout.breakpoint.phone - 1, layout.breakpoint.phone, 768, layout.breakpoint.desktop - 1]) {
+    const theme = createTheme({isTV: false, width});
+    assert.equal(theme.width, width);
+    assert.equal(theme.platform, width < layout.breakpoint.phone ? 'phone' : 'tablet');
+    assert.equal(theme.layoutMode, 'phone');
+    assert.equal(theme.gutter, layout.gutter.phone);
+    assert.deepEqual(theme.type.lockup, nativeType(typeScale.handheld.lockup));
+  }
+  for (const width of [layout.breakpoint.desktop, 1280, layout.designWidth.desktop - 1, layout.designWidth.desktop, 1920]) {
+    const theme = createTheme({isTV: false, width, textScale: 1.25, reduceMotion: true});
+    assert.equal(theme.platform, 'web');
+    assert.equal(theme.layoutMode, 'desktop');
+    assert.equal(theme.spec.card.width.poster[theme.platform], theme.spec.card.width.poster.web);
+    assert.equal(theme.gutter, width < layout.designWidth.desktop ? layout.gutter.desktopNarrow : layout.gutter.desktop);
+    assert.equal(theme.reduceMotion, true);
+    for (const [role, style] of Object.entries(typeScale.desktop)) assert.deepEqual(theme.type[role as keyof typeof theme.type], nativeType(style, 1.25));
+  }
+  for (const width of [390, 1024, 1440, 1920]) {
+    const theme = createTheme({isTV: true, width});
+    assert.equal(theme.platform, 'tv'); assert.equal(theme.layoutMode, 'tv'); assert.equal(theme.gutter, layout.gutter.tv);
+    assert.equal(theme.radii, platformRadii.tv);
+    assert.deepEqual(theme.type.lockup, nativeType(typeScale.tenFoot.lockup));
+  }
 });
 test('motion uses the physical token springs and 160ms transform-free reduced states', () => {
   const normal = motionPolicy(false), reduced = motionPolicy(true);

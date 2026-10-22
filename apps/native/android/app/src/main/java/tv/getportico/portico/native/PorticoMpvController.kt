@@ -64,6 +64,14 @@ internal class PorticoMpvController(private val context: Context) {
   /** The engine as the system's media session sees it. */
   val sessionPlayer: PorticoMpvSessionPlayer by lazy { PorticoMpvSessionPlayer(this) }
 
+  /** Read-only fence for the exact surface currently lent by this view. No source is exported. */
+  fun snapshotIdentity(owner: Any, target: Surface, expected: Map<String, Any?>): List<Any?>? {
+    if (invalidated || lease.isNullOrEmpty() || expected["lease"] != lease || !PorticoSnapshotBinding.matches(expected, binding) ||
+        surfaceOwner !== owner || surface !== target || !ready() || !hasPlayed || !PorticoMpvSupport.hasVideo(tracks) ||
+        snapshot.vid == "no" || seeking || routeSuspended || routeSeeking || source.isNullOrEmpty() || sourceRange() != "sdr") return null
+    return listOf(instanceId, lease, binding?.toMap(), itemInstanceId, source, loadEpoch, core)
+  }
+
   private val main = Handler(Looper.getMainLooper())
   private var invalidated = false
   private var owner: String? = null

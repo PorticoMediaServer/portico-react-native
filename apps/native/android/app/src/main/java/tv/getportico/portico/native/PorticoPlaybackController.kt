@@ -85,6 +85,18 @@ internal class PorticoPlaybackController(private val context: Context) {
   val hasVideo: Boolean get() = player?.currentTracks?.isTypeSelected(C.TRACK_TYPE_VIDEO) == true
   val listeningActive: Boolean get() = listeningOwner != null
 
+  /** Read-only capture fence. Private source/frame identity never crosses the bridge. */
+  fun snapshotIdentity(expected: Map<String, Any?>): List<Any?>? {
+    val engine = player ?: return null
+    if (invalidated || lease.isNullOrEmpty() || !PorticoSnapshotBinding.matches(expected, currentBinding) ||
+        expected["lease"] != lease || source.isNullOrEmpty() || !hasVideo || !hasPlayed || seeking || routeSuspended || routeSeeking ||
+        firstFrameItem != itemInstanceId || itemInstanceId.isEmpty() || engine.currentMediaItem?.localConfiguration?.drmConfiguration != null) return null
+    if (engine.currentTracks.groups.any { group -> (0 until group.length).any { group.getTrackFormat(it).drmInitData != null } }) return null
+    val transfer = engine.videoFormat?.colorInfo?.colorTransfer
+    if (transfer == C.COLOR_TRANSFER_ST2084 || transfer == C.COLOR_TRANSFER_HLG) return null
+    return listOf(instanceId, lease, currentBinding?.toMap(), itemInstanceId, source, engine, firstFrameItem)
+  }
+
   private val main = Handler(Looper.getMainLooper())
   private val subtitles = PorticoSubtitleSelection()
   private val audioSelection = PorticoAudioSelection()
