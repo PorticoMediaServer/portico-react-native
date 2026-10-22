@@ -13,7 +13,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {addressFailure, addressNeedsSetup, connectDirectServer, findDirectServer, firstAnsweringAtOnce, serverAddress} from '../src/app/direct-connect.ts';
 import {ShownError} from '../src/app/errors.ts';
-import {RouteError, routeBase64, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
+import {RouteError, type RouteCrypto} from '../../../packages/client-core/src/route-identity.ts';
 import {RouteConnection} from '../../../packages/client-core/src/route-connection.ts';
 import type {ConnectionEnvironment} from '../../../packages/client-core/src/server-connections.ts';
 
