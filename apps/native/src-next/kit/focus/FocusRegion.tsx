@@ -2,6 +2,7 @@ import React, {createContext, forwardRef, useCallback, useContext, useLayoutEffe
 import {findNodeHandle, TVFocusGuideView, View, type FocusGuideMethods, type ViewProps} from 'react-native';
 import {useTheme} from '../theme';
 import {createFocusRegistry, focusTestID, type FocusAddress, type FocusHost, type FocusRegionConfig, type FocusRegistry} from './registry';
+import {useHostRef} from './useHostRef';
 
 const RegistryContext = createContext<FocusRegistry | null>(null);
 const RegionContext = createContext<string | undefined>(undefined);
@@ -30,17 +31,21 @@ export const FocusRegion = forwardRef<View, FocusRegionProps>(function FocusRegi
     : <FocusProvider><Region {...props} onFocusChange={onFocusChange} ref={ref}>{children}</Region></FocusProvider>;
 });
 const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, entryPolicy = 'memory', order, neighbors, screenStart, edges, orientation = 'free', hold = false, enabled = true, onFocusChange, children, testID, ...view}, ref) {
-  const registry = useFocusRegistry(), {isTV} = useTheme(), native = useRef<Guide | null>(null);
+  const registry = useFocusRegistry(), {isTV} = useTheme(), owner = useRef({});
+  const onHost = useCallback((host: Guide | null) => {registry.attachRegion(id, host, owner.current);}, [id, registry]);
+  const {native, ref: setRef} = useHostRef<View, Guide>(ref, onHost);
   const revision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const config = {id, entry, entryPolicy, order, neighbors, screenStart, edges, orientation, hold, enabled};
-  registry.configure(config);
+  useLayoutEffect(() => {registry.configure(config);});
+  useLayoutEffect(() => {
+    const registrationOwner = owner.current;
+    const release = registry.mountRegion(id, registrationOwner);
+    registry.attachRegion(id, native.current, registrationOwner);
+    return () => {registry.attachRegion(id, null, registrationOwner); release();};
+  }, [id, native, registry]);
   if (isTV && !id.trim()) throw new Error('A TV focus region requires a stable caller identity.');
   const ownsFocus = registry.isRegionActive(id);
   useLayoutEffect(() => {onFocusChange?.(ownsFocus);}, [ownsFocus, onFocusChange]);
-  const setRef = useCallback((host: Guide | null) => {
-    native.current = host; registry.attachRegion(id, host);
-    if (typeof ref === 'function') ref(host); else if (ref) ref.current = host;
-  }, [id, ref, registry]);
   useLayoutEffect(() => {
     if (!isTV) return;
     const childId = entryPolicy === 'entry' ? entry : registry.remembered(id) ?? entry;
@@ -48,11 +53,11 @@ const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, en
     // Imperative destination API accepts real host handles (installed RN TV types).
     const handle = target ? findNodeHandle(target as View) : null;
     native.current?.setDestinations(handle == null ? [] : [handle]);
-  }, [entry, entryPolicy, id, isTV, registry, revision]);
+  }, [entry, entryPolicy, id, isTV, native, registry, revision]);
   const body = <RegionContext.Provider value={id}>{children}</RegionContext.Provider>;
   return isTV ? <TVFocusGuideView {...view} testID={testID ?? `portico.region.${encodeURIComponent(id)}`} ref={setRef} autoFocus
     focusable={enabled} trapFocusUp={hold} trapFocusDown={hold} trapFocusLeft={hold} trapFocusRight={hold || orientation === 'horizontal'}>{body}</TVFocusGuideView>
-    : <View {...view} testID={testID} ref={ref}>{body}</View>;
+    : <View {...view} testID={testID} ref={setRef}>{body}</View>;
 });
 
 export type FocusTargetOptions<T extends FocusHost = View> = {focusId?: string; testID?: string; disabled?: boolean; ref?: React.ForwardedRef<T>};
@@ -62,22 +67,23 @@ export function useFocusTarget<T extends FocusHost = View>({focusId, testID, dis
   const childId = focusId ?? item?.focusId ?? testID;
   const stableTestID = testID ?? item?.testID ?? (regionId && childId ? focusTestID(regionId, childId) : undefined);
   if (regionId && !childId && !disabled) throw new Error('A region child requires a stable focusId or testID from its caller.');
-  const native = useRef<T | null>(null), current = useRef({registry, regionId, childId, disabled});
-  current.current = {registry, regionId, childId, disabled};
+  const owner = useRef({});
+  const committed = useRef({registry, regionId, childId, disabled});
+  const onHost = useCallback((host: T | null) => {
+    const c = committed.current;
+    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host, owner.current);
+  }, []);
+  const {native, ref: setRef} = useHostRef<T>(ref ?? null, onHost);
   const emptySubscribe = useCallback(() => () => {}, []), zero = useCallback(() => 0, []);
   useSyncExternalStore(registry?.subscribe ?? emptySubscribe, registry?.getSnapshot ?? zero, registry?.getSnapshot ?? zero);
-  const setRef = useCallback((host: T | null) => {
-    const c = current.current;
-    native.current = host;
-    if (c.registry && c.regionId && c.childId) c.registry.attach({regionId: c.regionId, childId: c.childId}, c.disabled ? null : host);
-    if (typeof ref === 'function') ref(host); else if (ref) ref.current = host;
-  }, [ref]);
   useLayoutEffect(() => {
+    committed.current = {registry, regionId, childId, disabled};
     if (!registry || !regionId || !childId) return;
     const address = {regionId, childId};
-    registry.attach(address, disabled ? null : native.current);
-    return () => {registry.attach(address, null);};
-  }, [childId, disabled, regionId, registry]);
+    registry.attach(address, disabled ? null : native.current, owner.current);
+    const registrationOwner = owner.current;
+    return () => {registry.attach(address, null, registrationOwner);};
+  }, [childId, disabled, native, regionId, registry]);
   const config = regionId ? registry?.config(regionId) : undefined;
   const edgeProps: Pick<ViewProps, 'nextFocusUp' | 'nextFocusDown' | 'nextFocusLeft' | 'nextFocusRight'> = {};
   const order = regionId ? registry?.order(regionId) : undefined;

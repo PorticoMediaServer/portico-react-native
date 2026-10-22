@@ -65,8 +65,8 @@ export function LibrarySwitcher({libraries, value, onValueChange, open: supplied
         <Icon name="i-down" size={theme.isTV ? 30 : trigger === 'chevron' ? 22 : 16} color={theme.isTV ? theme.colors.textTertiary : theme.colors.text} style={{transform: [{rotate: open ? '180deg' : '0deg'}]}}/>
       </View>
     </Focusable>
-    <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.switchLibrary')} accessibilityLabel={t('next.browse.native.switchLibrary')} placement="bottom-center" width={theme.isTV ? 520 : 252} offset={4} modal backdropOpacity={.62}>
-      {libraries.filter(library => !theme.isTV || library.tv !== false).map(library => <MenuRow key={library.id} label={library.name} trailing={library.count} selected={library.id === value} accessibilityRole="radio" accessibilityState={{checked: library.id === value}} variant={theme.isTV ? 'tv' : 'compact'} onPress={() => {onValueChange(library.id); setOpen(false);}}/>)}
+    <Popover testID={testID ? `${testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.switchLibrary')} accessibilityLabel={t('next.browse.native.switchLibrary')} placement="bottom-center" width={theme.isTV ? 520 : 252} offset={4} modal backdropOpacity={.62}>
+      {libraries.filter(library => !theme.isTV || library.tv !== false).map(library => <MenuRow focusId={library.id} testID={testID ? `${testID}-library-${encodeURIComponent(library.id)}` : undefined} key={library.id} label={library.name} trailing={library.count} selected={library.id === value} accessibilityRole="radio" accessibilityState={{checked: library.id === value}} variant={theme.isTV ? 'tv' : 'compact'} onPress={() => {onValueChange(library.id); setOpen(false);}}/>)}
     </Popover>
   </>;
 }
@@ -88,17 +88,17 @@ export function LibraryMenu(props: LibraryMenuProps) {
   const action = (run: () => void) => () => {setOpen(false); run();};
   return <>
     <Button ref={anchorRef} testID={props.testID} variant="icon" icon="i-more" size="compact" iconOnly onPress={() => setOpen(!open)} accessibilityLabel={t('next.browse.native.libraryOptions')} accessibilityState={{expanded: open}}/>
-    <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.libraryOptions')} accessibilityLabel={t('next.browse.native.libraryOptions')} placement="bottom-end" width={theme.isTV ? 560 : 282} offset={2} modal backdropOpacity={.62}>
-      <MenuRow label={t('next.browse.native.saveThisView')} icon="i-filter" trailing={props.viewSummary} variant="compact" onPress={action(props.onSaveView)}/>
-      <MenuRow label={t(props.read ? 'next.browse.native.markAllRead' : 'next.browse.native.markAllWatched')} icon="i-check" trailing={props.count} variant="compact" onPress={action(props.onMarkAll)}/>
-      <MenuRow label={t('next.browse.native.editPins')} icon="i-updown" variant="compact" onPress={action(props.onEditPins)}/>
+    <Popover testID={props.testID ? `${props.testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.libraryOptions')} accessibilityLabel={t('next.browse.native.libraryOptions')} placement="bottom-end" width={theme.isTV ? 560 : 282} offset={2} modal backdropOpacity={.62}>
+      <MenuRow focusId="save-view" testID={props.testID ? `${props.testID}-save-view` : undefined} label={t('next.browse.native.saveThisView')} icon="i-filter" trailing={props.viewSummary} variant="compact" onPress={action(props.onSaveView)}/>
+      <MenuRow focusId="mark-all" testID={props.testID ? `${props.testID}-mark-all` : undefined} label={t(props.read ? 'next.browse.native.markAllRead' : 'next.browse.native.markAllWatched')} icon="i-check" trailing={props.count} variant="compact" onPress={action(props.onMarkAll)}/>
+      <MenuRow focusId="edit-pins" testID={props.testID ? `${props.testID}-edit-pins` : undefined} label={t('next.browse.native.editPins')} icon="i-updown" variant="compact" onPress={action(props.onEditPins)}/>
       {props.owner && !theme.isTV && <>
         <View style={{height: 34, marginTop: 6, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: alpha(theme.colors.accentStrong, .22), backgroundColor: alpha(theme.colors.accent, .16)}}>
           <Text style={[browseType(theme, 12, 700), {color: theme.colors.accentStrong}]}>{t('next.browse.native.server')}</Text>
           <View style={{marginLeft: 'auto'}}>{props.ownerTag}</View>
         </View>
-        <MenuRow label={t('next.browse.native.librarySettings')} icon="i-cog" tone="owner" variant="compact" onPress={action(props.onLibrarySettings)}/>
-        <MenuRow label={t('next.browse.native.scan')} icon="i-reload" tone="owner" variant="compact" onPress={action(props.onScan)}/>
+        <MenuRow focusId="settings" testID={props.testID ? `${props.testID}-settings` : undefined} label={t('next.browse.native.librarySettings')} icon="i-cog" tone="owner" variant="compact" onPress={action(props.onLibrarySettings)}/>
+        <MenuRow focusId="scan" testID={props.testID ? `${props.testID}-scan` : undefined} label={t('next.browse.native.scan')} icon="i-reload" tone="owner" variant="compact" onPress={action(props.onScan)}/>
       </>}
     </Popover>
   </>;
