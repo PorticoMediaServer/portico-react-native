@@ -141,6 +141,10 @@ dependencies {
     googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
     // The provider sign-in browser (PorticoAccountAuth).
     implementation("androidx.browser:browser:1.8.0")
+    // Real window-local fold/hinge posture; Java adapter has removable Activity callbacks.
+    // Apache-2.0 (upstream Google Maven POMs); no extra JNI or device-name heuristics.
+    implementation("androidx.window:window:1.5.1")
+    implementation("androidx.window:window-java:1.5.1")
     // Curve25519 and byte-oriented PBKDF2/HKDF, used through the lightweight API only (no JCA
     // provider is registered): the platform has neither on the Android versions Portico supports.
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
