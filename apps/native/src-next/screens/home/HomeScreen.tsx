@@ -21,7 +21,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
-import {authorizedHome, homeCardText, homePlayTarget, initialHomeFocus, pageAtVisibleEnd, platformRows} from './model';
+import {authorizedHome, homeCardText, homePlayTarget, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const t = defaultI18n.t;
@@ -41,7 +41,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const [focus, setFocus] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const scrolled = useRef(false);
+  const scrolled = useRef(false), spotlightEntered = useRef(false);
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
@@ -77,7 +77,6 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     setVisibleRows(previous => previous.size === visible.size && [...visible].every(id => previous.has(id)) ? previous : visible);
   }, [bottomInset, heroHeight, onScrolledChange, viewportHeight]);
   const onScroll = useAnimatedScrollHandler(event => {vertical.offset.value = event.contentOffset.y; runOnJS(updateViewport)(event.contentOffset.y);});
-  const initialFocus = initialHomeFocus(rows);
   const focusedRow = rows.find(row => row.id === focus?.rowId), focusedEntry = focusedRow?.entries.find(entry => entry.id === focus?.entryId);
   const preview = focusedEntry ? {
     id: focusedEntry.id, title: homeCardText(focusedEntry, true, runtime.text).title, entry: focusedEntry,
@@ -98,11 +97,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const heroActions = (candidate: HomeCandidate) => {
     const offers = homeEntryCapabilities(candidate.entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
     return <>
-      {offers.playable && candidate.target?.playback && <Button icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !initialFocus} onFocus={() => setHeroFocused(true)} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
-      {offers.watchlisted !== undefined && <Button icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => setHeroFocused(true)} onBlur={() => setHeroFocused(false)} onPress={() => {
+      {offers.playable && candidate.target?.playback && <Button icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
+      {offers.watchlisted !== undefined && <Button icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
-      {theme.isTV && offers.details && <Button variant="glass" size="hero" onFocus={() => setHeroFocused(true)} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
+      {theme.isTV && offers.details && <Button variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
     </>;
   };
   const onRowFocus = (row: HomeRow, entry: ContentEntry) => {
@@ -114,6 +113,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       if (box) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);
     });
   };
+  const spotlight = <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
+    active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
+    renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   if (!document) return snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
     : <HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>;
@@ -127,15 +129,15 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
     showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: bottomInset + (theme.isTV ? 96 : 24)}}>
-    <View style={{height: theme.isTV ? preview && !railExpanded ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
-      {theme.isTV && preview && !railExpanded ? <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
+    <View style={{height: theme.isTV ? preview ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
+      {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
+          Up guides while the preview covers them. Focus restores the spotlight. */}
+      {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0, opacity: preview ? 0 : 1}}>{spotlight}</View> : spotlight}
+      {theme.isTV && preview && <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1, includeFontPadding: false}]}>{part.text}</Text>)}</View>}
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds}/>}
-        onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>
-        : <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
-          active={heroActive} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
-          renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
+        onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
     </View>
     {rows.map((row, rowIndex) => {
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);
@@ -147,7 +149,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
-      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(row, rowIndex, first, last, shown); if (shown && pageAtVisibleEnd(row, last)) void runtime.home.more(row.id);};
+      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(row, rowIndex, first, last, shown); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
       return <HomeWindow key={row.id} runtime={runtime} row={row} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {const box = event.nativeEvent.layout;
         rowPositions.current.set(row.id, box); updateViewport(offset.current);
         // Initial focus can precede the compact hero layout. Re-anchor against
@@ -163,7 +165,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
             gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
             onItemFocus={item => onRowFocus(row, item.entry)} renderItem={(item, context) => <HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
-              width={width} rowIndex={rowIndex} visible={shown} preferred={theme.isTV && initialFocus?.rowId === row.id && initialFocus.entryId === item.entry.id}
+              width={width} rowIndex={rowIndex} visible={shown} preferred={false}
               current={current}/>}/>} 
       </View></HomeWindow>;
     })}

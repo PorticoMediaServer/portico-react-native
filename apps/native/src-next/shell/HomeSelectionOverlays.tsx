@@ -5,6 +5,7 @@ import type {HomeSelectionController} from '../../../../packages/client-core/src
 import type {EntryActionId} from '../../../../packages/client-core/src/presentation/entry-actions';
 import type {SelectionKind} from '../../../../packages/client-core/src/selection-model/index';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
+import {serverTextLabel} from '../../../../packages/client-core/src/presentation/server-text';
 import {Menu, Dialog, type MenuEntry} from '../kit/overlays';
 import {DeleteMediaDialog, MixedEditExplainer} from '../kit/selection';
 import {Button} from '../kit/controls/Button';
@@ -17,6 +18,7 @@ import {memberTitle} from './selection-display';
 import {HomeDestinationPicker} from './HomeDestinationPicker';
 import {HomeBulkEditor} from './HomeBulkEditor';
 import type {NativeShellRuntime} from './runtime';
+import {tvFocusIds} from './tv-focus';
 
 const t = defaultI18n.t;
 const icons: Record<EntryActionId, IconName> = {play: 'i-play', resume: 'i-play', playFromStart: 'i-restart', playNext: 'i-listplus', addToQueue: 'i-queue',
@@ -49,6 +51,14 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
       if (result.ok && !before && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
     }});
   }
+  // tv-focus F-HOME-46..49: headings are not TV focus stops. See all is
+  // the last action of the actual row member's Hold OK menu.
+  if (theme.isTV && state.menu) {
+    const menu = state.menu;
+    const row = runtime.home.getSnapshot().document?.rows.find(value => `home-row:${value.id}` === menu.windowId);
+    if (row?.seeAll) items.push({id: 'see-all', label: `${t('shelf.seeAll')} ${serverTextLabel(defaultI18n, row.titleText, row.title)}`, icon: 'i-grid',
+      onSelect: () => {controller.closeMenu(); runtime.actions.seeAll(row.seeAll!);}});
+  }
   const typeCounts = new Map<SelectionKind, number>();
   for (const member of members) typeCounts.set(member.item.kind, (typeCounts.get(member.item.kind) ?? 0) + 1);
   const groups = [...typeCounts].map(([kind, total]) => ({kind, count: total, label: t('next.home.native.selectionType', {kind}), icon: kindIcon(kind)}));
@@ -59,7 +69,8 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   const ratingTitle = members[0] && memberTitle(members[0], runtime);
   const mutation = (value: number | null) => {controller.setRatingValue(value); void controller.submitRating().catch(reportError);};
   return <>
-    <Menu open={!!state.menu} onOpenChange={open => {if (!open) controller.closeMenu();}} title={state.menu ? memberTitle(state.menu.member, runtime) : undefined}
+    <Menu testID={theme.isTV && state.menu ? tvFocusIds(runtime.getSnapshot().authority).menu(state.menu.windowId, state.menu.key) : undefined}
+      open={!!state.menu} onOpenChange={open => {if (!open) controller.closeMenu();}} title={state.menu ? memberTitle(state.menu.member, runtime) : undefined}
       items={items} presentation={theme.isTV ? 'sideSheet' : 'sheet'}/>
     <HomeDestinationPicker controller={controller} runtime={runtime} reportError={reportError}/>
     <HomeBulkEditor controller={controller} runtime={runtime} reportError={reportError}/>

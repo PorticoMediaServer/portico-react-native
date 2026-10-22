@@ -63,6 +63,8 @@ export interface NativeShellRuntime {
   onDestination: (destination: ShellDestination) => void;
   scrollToTop: (destination: ShellDestination) => void;
   registerScrollToTop: (destination: ShellDestination, handler: () => void) => () => void;
+  /** Registered by the TV shell; assembly dispatches only after topmost holds/player. */
+  registerTVPageBack?: (handler: () => boolean) => () => void;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
   /** The effective server preference, expressed in seconds by the assembly. */

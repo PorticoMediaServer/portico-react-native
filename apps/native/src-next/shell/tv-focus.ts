@@ -14,8 +14,23 @@ export function tvFocusIds(authority: ShellAuthority) {
     collection: (collection: HomeCollection) => JSON.stringify(['collection', collection.collection.libraryId, collection.collection.id]),
     destination: tvRailDestinationId,
     profile: `profile:${authority.profileId}`,
+    profileMenu: `${prefix}.rail.profile-menu`,
+    menu: (windowId: string, key: string) => `${prefix}.home.menu.${JSON.stringify([windowId, key])}`,
+    page: (rowId: string, cursor: string) => JSON.stringify(['page', rowId, cursor]),
     start: {regionId: spotlight, childId: 'play'},
     last: {regionId: customize, childId: 'customize'},
+  };
+}
+
+/** Declarative region boundaries only. Native focus engines choose every move inside. */
+export function tvHomeRegionMap(authority: ShellAuthority, rowIds: readonly string[]) {
+  const ids = tvFocusIds(authority), regions = rowIds.map(ids.row);
+  const region = (id: string, previous?: string, next?: string) => ({id, neighbors: {previous, next}, screenStart: ids.start,
+    edges: {left: ids.rail, up: previous, down: next}});
+  return {
+    spotlight: {...region(ids.spotlight, undefined, regions[0] ?? ids.customize), entry: 'play'},
+    rows: new Map(rowIds.map((id, index) => [id, region(regions[index], regions[index - 1] ?? ids.spotlight, regions[index + 1] ?? ids.customize)])),
+    customize: {...region(ids.customize, regions.at(-1) ?? ids.spotlight), entry: 'customize'},
   };
 }
 

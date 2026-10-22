@@ -34,6 +34,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   if (!initial || !session || !context.current()) throw failure('native_home_authority_required');
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
+  let tvPageBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
   const publish = () => {if (alive) for (const listener of [...listeners]) listener();};
@@ -115,7 +116,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     publish();
   }), nativeShellRoutes.subscribe(publish)];
   const back = BackHandler.addEventListener('hardwareBackPress', () => {
-    if (!alive || !context.current() || context.playback.getSnapshot().dock.local?.expanded) return false;
+    if (!alive || !context.current()) return false;
     const state = controller.getSnapshot();
     if (state.rating) controller.closeRating();
     else if (state.deletion) controller.closeDelete();
@@ -123,7 +124,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     else if (state.picker) controller.closePicker();
     else if (state.menu) controller.closeMenu();
     else if (state.selection.active) controller.clear();
-    else return context.navigation.back(context.authority());
+    else {
+      if (context.playback.getSnapshot().dock.local?.expanded) return false;
+      // Menus/selection own Back first, then the player, then the page.
+      if (Platform.isTV && currentHome() && tvPageBack) return tvPageBack();
+      return context.navigation.back(context.authority());
+    }
     return true;
   });
   cleanups.push(() => back.remove());
@@ -133,7 +139,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const render = (route: NativeShellRoute) => runtime && context.current() ? nativeShellRoutes.get(route.kind)?.render(route, runtime) : null;
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
-  return {get account() {return nativeAccountMenu(context.account, open);}, attach: value => {runtime = value;},
+  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(); return {destination: context.navigation.getSnapshot().destination, selectionActive: state.selection.active,
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
@@ -202,6 +208,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; nativeShellRoutes.get(route.kind)?.scrollToTop?.(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
+    registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error),
     dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
   };

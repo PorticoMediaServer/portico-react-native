@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {HomeRow} from '../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
-import {tvFocusIds, sameDestination} from '../src-next/shell/tv-focus';
+import {tvFocusIds, sameDestination, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
@@ -21,6 +21,18 @@ test('TV semantic addresses preserve entity identity across reorder and isolate 
   }
   assert.equal(ids.destination({kind: 'library', libraryId: 'real-library'}), 'library:real-library');
   assert.equal(sameDestination({kind: 'library', libraryId: 'a'}, {kind: 'library', libraryId: 'b'}), false);
+});
+
+test('Home declarative native guides connect spotlight, each remembered row and the last stop without resetting memory', () => {
+  const ids = tvFocusIds(authority), map = tvHomeRegionMap(authority, ['continue', 'recent']);
+  assert.equal(map.spotlight.entry, 'play');
+  assert.equal(map.spotlight.edges.down, ids.row('continue'));
+  assert.deepEqual(map.rows.get('continue')?.edges, {left: ids.rail, up: ids.spotlight, down: ids.row('recent')});
+  assert.deepEqual(map.rows.get('recent')?.neighbors, {previous: ids.row('continue'), next: ids.customize});
+  assert.equal(map.customize.edges.up, ids.row('recent'));
+  assert.equal(map.customize.edges.down, undefined);
+  assert.equal(tvHomeRegionMap(authority, []).spotlight.edges.down, ids.customize);
+  assert.equal(ids.page('recent', 'cursor/1'), JSON.stringify(['page', 'recent', 'cursor/1']));
 });
 
 test('focused and retained rows defer reranking, preserve actual updated objects, and allow deletion fallback', () => {
