@@ -1,6 +1,7 @@
 import React, {useId} from 'react';
 import {ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle} from 'react-native';
 import {tabsSpec} from '@portico/design';
+import {focusTestID} from '../focus';
 import {useTheme} from '../theme';
 import {Focusable, type FocusableProps} from './Focusable';
 import {colorAlpha, enabledChoice, minimumHitSlop} from './control-model';
@@ -40,7 +41,7 @@ export function Tabs({items, value, defaultValue, onValueChange, disabled, acces
         const childProps = itemProps?.(item);
         const blocked = disabled || item.disabled;
         const selected = item.value === current;
-        return <Focusable {...childProps} testID={childProps?.testID ?? (testID ? `${testID}-item-${item.value}` : undefined)} focusId={childProps?.focusId ?? item.value} key={item.value} nativeID={`${id}-${item.value}`} accessibilityRole="tab"
+        return <Focusable {...childProps} testID={childProps?.testID ?? (testID ? `${testID}-item-${item.value}` : undefined)} focusId={childProps?.focusId ?? (testID ? focusTestID(testID, item.value) : childProps?.testID)} key={item.value} nativeID={`${id}-${item.value}`} accessibilityRole="tab"
           disabled={blocked} accessibilityState={{...childProps?.accessibilityState, selected}}
           focusRadius={4} focusInset focusKind="row" onPress={event => {if (!blocked) {setCurrent(item.value); childProps?.onPress?.(event);}}}
           style={state => [{paddingTop: tabsSpec.paddingTop[theme.platform], paddingBottom: tabsSpec.paddingBottom[theme.platform], opacity: blocked ? .45 : 1},
@@ -68,7 +69,7 @@ export function Segmented({items, value, defaultValue, onValueChange, variant = 
       const childProps = itemProps?.(item);
       const blocked = disabled || item.disabled;
       const selected = item.value === current;
-      return <Focusable {...childProps} testID={childProps?.testID ?? (testID ? `${testID}-item-${item.value}` : undefined)} focusId={childProps?.focusId ?? item.value} key={item.value} accessibilityRole="radio" accessibilityState={{...childProps?.accessibilityState, checked: selected}}
+      return <Focusable {...childProps} testID={childProps?.testID ?? (testID ? `${testID}-item-${item.value}` : undefined)} focusId={childProps?.focusId ?? (testID ? focusTestID(testID, item.value) : childProps?.testID)} key={item.value} accessibilityRole="radio" accessibilityState={{...childProps?.accessibilityState, checked: selected}}
         disabled={blocked} focusKind="row" focusRadius={theme.isTV ? 12 : phone ? 7 : 8} focusInset
         hitSlop={childProps?.hitSlop ?? {top: slop, bottom: slop}}
         onPress={event => {if (!blocked) {setCurrent(item.value); childProps?.onPress?.(event);}}}

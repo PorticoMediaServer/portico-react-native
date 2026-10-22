@@ -36,9 +36,10 @@ type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holdin
 const selectionHoldMs = 500;
 
 /** One root TV focus target. Images and secondary affordances never register Menu. */
-export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
+export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, focusable, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
   const theme = useTheme(), motion = useMotion();
-  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !!disabled});
+  const eligible = !disabled && focusable !== false;
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !eligible});
   const [focused, setFocused] = useState(false), [hovered, setHovered] = useState(false), [pressed, setPressed] = useState(false);
   const [holdFeedback, setHoldFeedback] = useState<{x: number; y: number; progress: number} | null>(null);
   const holdFrame = useRef<number | undefined>(undefined);
@@ -70,7 +71,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const label = waiting ? defaultI18n.t('next.selection.native.loading') : accessibilityLabel ?? title;
   return <Animated.View style={[{width, zIndex: holding ? 4 : undefined}, style, animated]}>
-    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} testID={binding.testID} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}
+    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} testID={binding.testID} disabled={disabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{...native.accessibilityState, busy: waiting || native.accessibilityState?.busy, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
       accessibilityActions={waiting ? [] : [
         ...(native.accessibilityActions ?? []),
@@ -190,8 +191,8 @@ export function Badge({children, kind = 'plain'}: {children?: ReactNode; kind?: 
 /** A separate phone/pointer action; TV keeps its one root focus and real hold-OK menu. */
 export function CardAction({name, label, onPress, size = 40, style, color, testID, focusId}: {testID?: string; focusId?: string; name: IconName; label: string; onPress: () => void; size?: number; style?: StyleProp<ViewStyle>; color?: string}) {
   const t = useTheme();
-  const {waiting: _waiting, ...binding} = useFocusTarget({focusId, testID});
-  return <Pressable {...binding} accessibilityRole="button" accessibilityLabel={label} hitSlop={Math.max(0, (44 - size) / 2)} onPress={event => {event.stopPropagation(); onPress();}} style={({pressed}) => [{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
+  const {waiting, ...binding} = useFocusTarget({focusId, testID});
+  return <Pressable {...binding} accessibilityRole="button" accessibilityLabel={label} hitSlop={Math.max(0, (44 - size) / 2)} onPress={event => {event.stopPropagation(); if (!waiting) onPress();}} style={({pressed}) => [{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
     <Icon name={name} size={20} color={color ?? t.colors.ink} />
   </Pressable>;
 }

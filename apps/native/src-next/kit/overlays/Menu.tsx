@@ -33,7 +33,7 @@ export const MenuRow = forwardRef<View, MenuRowProps>(function MenuRow({label, i
     </Focusable>;
 });
 
-export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, dismissOnOutsidePress = true}: PopoverProps) {
+export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, holdFocus = modal, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, dismissOnOutsidePress = true}: PopoverProps) {
   const theme = useTheme();
   const viewport = useWindowDimensions();
   const hostFrame = useOverlayFrame();
@@ -53,7 +53,7 @@ export function Popover({open, onOpenChange, anchorRef, title, headerContext, de
   const material = glassRecipe();
   const surface = <Animated.View testID={testID} accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityViewIsModal={modal} onAccessibilityEscape={() => dismiss('escape')} style={[{position: 'absolute', left: rect.x - (modal ? 0 : hostFrame.x), top: rect.y - (modal ? 0 : hostFrame.y), width: rect.width, maxHeight: viewport.height - insets.top - insets.bottom - 16, borderRadius: 14, backgroundColor: alpha(theme.colors.raisedBright, material.nativeBlur ? 0.96 : 1), borderWidth: 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.8, shadowOffset: {width: 0, height: 16}, shadowRadius: 30}, animation.style, style]}>
     {material.nativeBlur && <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={30} reducedTransparencyFallbackColor={theme.colors.raisedBright} pointerEvents="none"/>}
-    <FocusBoundary modal={modal} testID={testID}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[{paddingVertical: 6}, contentStyle]}>
+    <FocusBoundary modal={holdFocus} testID={testID}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[{paddingVertical: 6}, contentStyle]}>
       {headerContext}
       {showTitle && title != null && <Text accessibilityRole="header" style={[titleType ? nativeType(titleType, theme.textScale) : theme.type.bodyStrong, {color: theme.colors.text, paddingHorizontal: 14, paddingVertical: 8}, titleTextStyle]}>{title}</Text>}
       {description != null && <Text style={[theme.type.caption, {color: theme.colors.textSecondary, paddingHorizontal: 14}, descriptionTextStyle]}>{description}</Text>}
@@ -88,7 +88,7 @@ export function Menu({items, open, onOpenChange, title, description, footer, ini
     </View>;
   });
   const heading = secondaryTitle == null ? title : <>{title}{'  '}<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{secondaryTitle}</Text></>;
-  if (actualPresentation === 'anchored') return <Popover open={open} onOpenChange={onOpenChange} anchorRef={anchorRef!} width={width} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} footer={footer} initialFocusRef={initialFocusRef ?? first} returnFocusRef={returnFocusRef ?? anchorRef} accessibilityLabel={accessibilityLabel} testID={testID} style={style} contentStyle={contentStyle}><ScrollView keyboardShouldPersistTaps="handled">{rows}</ScrollView></Popover>;
+  if (actualPresentation === 'anchored') return <Popover holdFocus={theme.isTV} open={open} onOpenChange={onOpenChange} anchorRef={anchorRef!} width={width} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} footer={footer} initialFocusRef={initialFocusRef ?? first} returnFocusRef={returnFocusRef ?? anchorRef} accessibilityLabel={accessibilityLabel} testID={testID} style={style} contentStyle={contentStyle}><ScrollView keyboardShouldPersistTaps="handled">{rows}</ScrollView></Popover>;
   return <BottomSheet open={open} onOpenChange={onOpenChange} title={heading} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} width={width} footer={footer ?? (theme.isTV ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}><Text style={{color: theme.colors.text}}>{defaultI18n.t('action.back')}</Text>{'  '}{defaultI18n.t('action.close')}</Text> : undefined)} headerContext={context} initialFocusRef={initialFocusRef ?? first} returnFocusRef={returnFocusRef} accessibilityLabel={accessibilityLabel} testID={testID} style={style} contentStyle={contentStyle} fitContent>
     {rows}
   </BottomSheet>;

@@ -1,12 +1,13 @@
-import React, {useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 import {Pressable, Text, View, type StyleProp, type ViewStyle} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
-import {FocusItem, FocusRegion, focusTestID, useOptionalFocusRegistry, type FocusRegionProps} from '../focus';
+import {FocusItem, FocusProvider, FocusRegion, focusTestID, useOptionalFocusRegistry, type FocusRegionProps} from '../focus';
 import {reconcileRowSlots, indexRowSlots, visibleRowSlots, rowNeedsPage, type RowPage} from './row-state';
+import {useRowPageBoundary} from '../focus/page-boundary';
 import {useFocusAnchor} from './FocusAnchor';
 import {MotionItem} from './MotionItem';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
@@ -27,6 +28,8 @@ export type RowProps<T> = {
   onSeeAll?: () => void;
   selection: LayoutSelection;
   onVisibleRange?: (first: number, last: number) => void;
+  /** Raw data keys for intersecting real slots only; excludes overscan, waiting and separately pinned focus. */
+  onVisibleKeys?: (keys: readonly string[]) => void;
   onItemFocus?: (item: T, index: number) => void;
   onRepeatingChange?: (repeating: boolean) => void;
   style?: StyleProp<ViewStyle>;
@@ -46,19 +49,28 @@ function ArrowBackdrop({back}: {back: boolean}) {
   </Svg>;
 }
 
-export function Row<T>({title, subtitle, items, getKey, getFocusId = getKey, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
+export function Row<T>(props: RowProps<T>) {
+  return <FocusProvider><RowContent {...props} /></FocusProvider>;
+}
+
+function RowContent<T>({title, subtitle, items, getKey, getFocusId = getKey, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
   const theme = useTheme();
   const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
   const registry = useOptionalFocusRegistry();
   const subscribe = registry?.subscribe ?? noopSubscribe, getSnapshot = registry?.getSnapshot ?? zeroSnapshot;
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const owned = focus ? !!registry?.isRegionActive(focus.id) : focused !== undefined;
-  const previous = useRef<{items: readonly T[]; owned: boolean; page?: RowPage<T>; index: ReturnType<typeof indexRowSlots<T>>} | undefined>(undefined);
-  const before = previous.current;
-  if (!before || before.items !== items || before.owned !== owned || before.page?.waitingId !== paging?.waitingId || before.page?.waitingItem !== paging?.waitingItem || before.page?.hasMore !== paging?.hasMore || before.page?.failed !== paging?.failed) {
-    previous.current = {items, owned, page: paging, index: indexRowSlots(reconcileRowSlots(before?.index.slots ?? [], items, getKey, theme.isTV && owned, paging, getFocusId))};
-  }
-  const rowIndex = previous.current!.index;
+  const regionId = focus?.id;
+  const previous = useRef<{regionId?: string; index: ReturnType<typeof indexRowSlots<T>>} | undefined>(undefined);
+  const fulfilledId = paging?.fulfilled?.waitingId, fulfilledItem = paging?.fulfilled?.firstItemId;
+  const waitingId = paging?.waitingId, waitingItem = paging?.waitingItem, hasMore = paging?.hasMore, failed = paging?.failed;
+  const rowIndex = useMemo(() => {
+    const before = previous.current?.regionId === regionId ? previous.current?.index.slots ?? [] : [];
+    return indexRowSlots(reconcileRowSlots(before, items, getKey, theme.isTV && owned,
+      waitingId && waitingItem !== undefined ? {waitingId, waitingItem, hasMore: !!hasMore, failed, loading: false, requestNext: noop,
+        fulfilled: fulfilledId ? {waitingId: fulfilledId, firstItemId: fulfilledItem} : undefined} : undefined, getFocusId));
+  }, [failed, fulfilledId, fulfilledItem, getFocusId, getKey, hasMore, items, owned, regionId, theme.isTV, waitingId, waitingItem]);
+  useLayoutEffect(() => {previous.current = {regionId, index: rowIndex};}, [regionId, rowIndex]);
   const focusedSlot = focused ? rowIndex.byFocus.get(focused) : undefined;
   const remembered = focus ? registry?.remembered(focus.id) : focused;
   const [arrowFocus, setArrowFocus] = useState<'back' | 'forward' | 'all'>();
@@ -73,8 +85,18 @@ export function Row<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
   const extent = leading + Math.max(0, rowIndex.length * stride - (stride - itemWidth)) + trailing;
   const first = Math.max(0, Math.floor((offset - leading) / stride));
   const last = Math.min(rowIndex.length - 1, Math.max(first, Math.ceil((offset + width - leading) / stride) - 1));
-  const visible = visibleRowSlots(rowIndex, first, last, focused, remembered);
+  const recovery = focus ? registry?.recovery(focus.id) ?? [] : focused ? [{childId: focused, order: previous.current?.index.order ?? []}] : [];
+  const visible = visibleRowSlots(rowIndex, first, last, focused, remembered, recovery);
   useEffect(() => {if (width && last >= first) onVisibleRange?.(first, Math.min(items.length - 1, last));}, [first, items.length, last, onVisibleRange, width]);
+  const visibleKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (width) for (let position = first; position <= last; position++) {
+      const slot = rowIndex.byPosition.get(position);
+      if (slot && !slot.waiting && leading + position * stride < offset + width && leading + position * stride + itemWidth > offset) keys.push(slot.id);
+    }
+    return keys;
+  }, [first, itemWidth, last, leading, offset, rowIndex, stride, width]);
+  useEffect(() => {onVisibleKeys?.(visibleKeys);}, [onVisibleKeys, visibleKeys]);
   const anchorIntent = useRef('');
   useEffect(() => {
     const intent = `${focused}:${focusedSlot?.position}:${width}:${itemWidth}:${leading}:${trailing}:${stride}`;
@@ -85,12 +107,14 @@ export function Row<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
   }, [anchorItem, extent, focused, focusedSlot, itemWidth, leading, stride, trailing, width]);
   const requestedPage = useRef<string | undefined>(undefined);
   useEffect(() => {
-    const waitingId = paging?.waitingId;
-    if (!waitingId || requestedPage.current === waitingId || !rowNeedsPage(focusedSlot?.position ?? last, items.length, paging)) return;
-    requestedPage.current = waitingId;
+    const requestId = paging?.waitingId;
+    if (!requestId || requestedPage.current === requestId || !rowNeedsPage(focusedSlot?.position ?? last, items.length, paging)) return;
+    requestedPage.current = requestId;
     paging?.requestNext();
   }, [focusedSlot?.position, items.length, last, paging]);
   useEffect(() => {onRepeatingChange?.(anchor.repeating);}, [anchor.repeating, onRepeatingChange]);
+  // Native boundary notifications request data only; the native guide still chooses every target.
+  useRowPageBoundary(theme.isTV && !!focus, registry, focus?.id, rowIndex.slots.filter(slot => !slot.waiting).at(-1)?.focusId, paging);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
@@ -142,6 +166,7 @@ export function Row<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
 function RowRegion({focus, order, children}: {focus?: RowProps<unknown>['focus']; order: readonly string[]; children: ReactNode}) {
   return focus ? <FocusRegion {...focus} orientation="horizontal" order={order} entry={focus.entry ?? order[0]}>{children}</FocusRegion> : <>{children}</>;
 }
+const noop = () => {};
 const noopSubscribe = () => () => {};
 const zeroSnapshot = () => 0;
 export type {RowPage} from './row-state';
