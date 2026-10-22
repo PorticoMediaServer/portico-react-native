@@ -29,12 +29,12 @@ async function rig(reduced = false) {
   const theme = {isTV: false, layers: {player: 30}, colors: {text: '#fff', shadow: '#000'}, layout: {gutter: {tvRight: 96}}};
   const animated = {
     default: {View: 'AnimatedView'},
-    useSharedValue: (initial: number) => {
+    useSharedValue: (initial: number | boolean) => {
       const ref = React.useRef<any>(null);
       if (!ref.current) {
         let current = initial;
-        ref.current = {get value() {return current;}, set value(next: number | Timing) {
-          if (typeof next === 'number') current = next;
+        ref.current = {get value() {return current;}, set value(next: number | boolean | Timing) {
+          if (typeof next !== 'object') current = next;
           else next.apply = () => {current = next.to;};
         }};
       }
@@ -58,7 +58,7 @@ async function rig(reduced = false) {
     '../../../../../packages/i18n/src/index': {defaultI18n}, '../../../../../packages/player-core/src/index': {sameFence},
     '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: () => ''},
     '../artwork': {Artwork: 'Artwork'}, '../controls': {Button: 'Button', Focusable: 'Focusable'}, '../overlays': {Popover: 'Popover'}, '../Icon': {Icon: 'Icon'},
-    '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion}, '../../platform/native-blur': {BlurView: 'BlurView'}, './model': model,
+    '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion}, '../../platform/native-blur': {BlurView: 'BlurView'}, '../../platform/haptics': {selectionHaptic: async () => false}, './model': model,
     './visual': {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {}, dockType: () => ({})},
   });
   const {DockHost} = await screenModule(new URL('../src-next/kit/dock/DockHost.tsx', import.meta.url), {

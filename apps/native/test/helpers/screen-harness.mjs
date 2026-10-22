@@ -16,7 +16,7 @@ export async function screenModule(file, modules) {
       return `const ${bind.slice(0, comma)} = modules[${JSON.stringify(source)}].default; const ${bind.slice(comma + 1)} = modules[${JSON.stringify(source)}];`;
     }
     return `const ${bind} = modules[${JSON.stringify(source)}];`;
-  }).replace(/export (const|function|class) (\w+)/g, (_, kind, name) => { exported.push(name); return `${kind} ${name}`; })
+  }).replace(/export (async )?(const|function|class) (\w+)/g, (_, asyncPrefix, kind, name) => { exported.push(name); return `${asyncPrefix ?? ''}${kind} ${name}`; })
     .replaceAll('import.meta.env', '({DEV:false})');
   return new Function('modules', (/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};')(modules);
 }

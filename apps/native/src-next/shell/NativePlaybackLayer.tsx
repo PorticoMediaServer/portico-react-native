@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, Image, Platform, View, useWindowDimensions} from 'react-native';
 import {GestureDetector} from 'react-native-gesture-handler';
+import Animated, {useAnimatedStyle} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../packages/player-core/src';
 import {useTheme} from '../kit/theme';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
@@ -23,11 +24,13 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   }), [adapter, authority, runtime]);
   const local = snapshot.dock.local, docked = !!local && !local.expanded;
   const action = useMemo(() => bindNativeDock(adapter), [adapter]);
-  const morph = usePlayerMorph({docked, travel: height, onRelease: collapse => {
+  const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
-    if (!sameAuthority(current.authority, authority) || !current.fence) return;
-    void adapter.onTransition(collapse ? adapter.dock.collapse(current.fence) : adapter.dock.expand(current.fence)).catch(runtime.reportError);
+    if (!alive.current || !sameAuthority(current.authority, authority) || !sameFence(current.fence, original)
+      || !current.dock.local || (!current.dock.local.expanded) !== fromDocked) return;
+    void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
+  const {dockX, dockFade} = morph;
   const preparePicture = useCallback(() => {
     const current = adapter.getSnapshot();
     if (Platform.OS !== 'android' || theme.isTV || !alive.current || !sameAuthority(current.authority, authority) || !current.fence
@@ -72,12 +75,14 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     // can include edge-to-edge insets; the persistent overlay uses local bounds.
     node.measureInWindow((x, y) => {
       const current = adapter.getSnapshot();
-      if (!alive.current || host.current !== node || revision !== slotRevision.current || !sameAuthority(current.authority, authority)
+      if (!alive.current || dockX.value !== 0 || dockFade.value !== 1 || host.current !== node || revision !== slotRevision.current || !sameAuthority(current.authority, authority)
         || !sameFence(current.fence, source) || !Number.isFinite(x) || !Number.isFinite(y)) return;
       const next = {...bounds, x: bounds.x - x, y: bounds.y - y};
       setDockBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds]) ? previous : next);
     });
-  }, [adapter, authority]);
+  }, [adapter, authority, dockX, dockFade]);
+  const horizontalVideo = docked && (local?.kind === 'video' || local?.kind === 'live');
+  const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
   const fence = snapshot.fence;
@@ -88,16 +93,18 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
   const fullFrame = {x: 0, y: 0, width, height};
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current);}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
-    <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
-      onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
-      {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
-    </PlayerMorph>
-    {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
-      <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>
-    </GestureDetector>}
-    <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-      <DockHost dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
-        onAction={command => {void action(command).catch(runtime.reportError);}}/>
-    </View>
+    <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
+      <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
+        onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
+        {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
+      </PlayerMorph>
+      {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
+        <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>
+      </GestureDetector>}
+      <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
+        <DockHost dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
+          onAction={command => {void action(command).catch(runtime.reportError);}}/>
+      </View>
+    </Animated.View>
   </View>;
 }
