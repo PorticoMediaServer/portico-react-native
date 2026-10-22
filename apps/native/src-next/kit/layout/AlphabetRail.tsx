@@ -1,10 +1,12 @@
 import React, {useCallback, useMemo, useRef, useState} from 'react';
-import {Pressable, Text, View, type StyleProp, type ViewStyle} from 'react-native';
+import {Text, View, type StyleProp, type ViewStyle} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {runOnJS} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {fontFamilies, useTheme} from '../theme';
 import {alphabetAnchors, alphabetBand} from './model';
+import {Focusable} from '../controls/Focusable';
+import {focusTestID} from '../focus/registry';
 
 export type AlphabetRailProps = {
   positionIndex: Readonly<Record<string, number>>;
@@ -37,7 +39,7 @@ export function AlphabetRail({positionIndex, total, firstVisible, lastVisible, c
     {band && <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: band.first * pitch, height: (band.last - band.first + 1) * pitch, borderRadius: 14, backgroundColor: `${theme.colors.text}13`}} />}
     {anchors.map(anchor => {
       const selected = current === anchor.key, empty = anchor.index === undefined, isFocused = focused === anchor.key;
-      return <Pressable key={anchor.key} disabled={empty} focusable={!empty} accessibilityRole="button"
+      return <Focusable testID={testID ? focusTestID(testID, JSON.stringify(['bucket', anchor.key])) : undefined} focusTreatment="none" key={anchor.key} disabled={empty} focusable={!empty} accessibilityRole="button"
         accessibilityState={{disabled: empty, selected}} accessibilityLabel={defaultI18n.t('web.filters.jumpToKey', {key: anchor.key})}
         onPress={() => {if (anchor.index !== undefined) onJump(anchor.index, anchor.key);}}
         onHoverIn={() => setHovered(anchor.key)} onHoverOut={() => setHovered(undefined)}
@@ -48,7 +50,7 @@ export function AlphabetRail({positionIndex, total, firstVisible, lastVisible, c
           backgroundColor: selected ? theme.colors.accentStrong : undefined, borderWidth: isFocused ? theme.spec.focus.ringWidth.tv : 0, borderColor: theme.colors.focus}}>
           <Text style={{fontFamily: fontFamilies[700], fontSize: theme.isTV ? 20 : 10, color: empty ? `${theme.colors.textTertiary}4D` : selected ? theme.colors.ink : theme.colors.textTertiary}}>{anchor.key}</Text>
         </View>
-      </Pressable>;
+      </Focusable>;
     })}
     {bubble && <View pointerEvents="none" style={{position: 'absolute', right: theme.isTV ? 84 : 32, top: Math.max(0, Math.min(height - 58, bubbleIndex * pitch - 21)), width: 58, height: 58, borderRadius: 16, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'}}>
       <Text style={{fontFamily: fontFamilies[800], fontSize: 30, color: theme.colors.text}}>{bubble}</Text>

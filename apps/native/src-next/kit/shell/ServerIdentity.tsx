@@ -6,6 +6,7 @@ import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {Button} from '../controls/Button';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
+import {focusTestID} from '../focus/registry';
 import {alpha, shellType} from './visual';
 import {canSeeServerPage, serverVisibilityKey, type ServerAudience, type ServerRole} from './authority';
 
@@ -77,7 +78,7 @@ export function EditorHeader({audience, layout = 'desktop', title, titleId, desc
     </Svg>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 10 : 12, marginTop: phone ? 4 : 0}}>
       <ServerAudienceTag audience={audience} layout={layout} t={t} />
-      <Button variant="icon" size="xs" icon="i-x" accessibilityLabel={t('next.shell.close')} onPress={onClose} style={{marginLeft: 'auto', marginRight: phone ? 0 : -8, width: phone ? 34 : 40, height: phone ? 34 : 40, borderRadius: 20, backgroundColor: phone ? alpha(colors.text, .1) : 'transparent'}} />
+      <Button testID={controlID(testID, 'dismiss')} variant="icon" size="xs" icon="i-x" accessibilityLabel={t('next.shell.close')} onPress={onClose} style={{marginLeft: 'auto', marginRight: phone ? 0 : -8, width: phone ? 34 : 40, height: phone ? 34 : 40, borderRadius: 20, backgroundColor: phone ? alpha(colors.text, .1) : 'transparent'}} />
     </View>
     <Text nativeID={titleId} accessibilityRole="header" style={[shellType(phone ? 24 : 30, 800, 'normal', phone ? -.03 : -.035, textScale), {color: colors.text, marginTop: phone ? 10 : 16, marginBottom: phone ? 4 : 6}]}>{title}</Text>
     {description !== undefined ? <Text style={[shellType(phone ? 13 : 14.5, 400, phone ? 18.85 : 21.75, 0, textScale), {color: colors.textSecondary, maxWidth: 470}]}>{description}</Text> : null}
@@ -177,3 +178,5 @@ const styles = StyleSheet.create({
   pill: {alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', marginBottom: 14},
   facts: {flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap'},
 });
+
+const controlID = (prefix: string | undefined, ...parts: readonly string[]) => prefix ? focusTestID(prefix, JSON.stringify(parts)) : undefined;

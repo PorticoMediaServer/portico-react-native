@@ -14,6 +14,7 @@ import {focusTarget} from '../overlays/OverlayHost';
 import type {FocusTarget} from '../overlays/types';
 import {useTheme} from '../theme';
 import {selectionText} from './copy';
+import {selectionControlID as controlID} from './focus-ids';
 import {changeList, changeScalar, failedSelectionIds, removeFieldChange, setListChange} from './presentation';
 import {SelectionSurface, SelectionText} from './surface';
 import type {BulkEditorProps} from './types';
@@ -29,7 +30,7 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
   const add = () => {const value = draft.trim(); if (validBulkListEntry(value) && !props.pending) {props.onChangesChange(changeList(props.changes, field.field, value, 'add')); setDraft('');}};
   return <View style={{gap: 6}}>
     <View style={styles.chips}>
-      {values.map(entry => {const removed = list.remove.includes(entry.value); const added = list.add.includes(entry.value);return <Focusable key={entry.value} accessibilityRole="button" accessibilityLabel={selectionText(removed ? 'next.selection.native.restoreValue' : 'next.selection.native.removeValue', {value: entry.value})} disabled={props.pending}
+      {values.map(entry => {const removed = list.remove.includes(entry.value); const added = list.add.includes(entry.value);return <Focusable key={entry.value} testID={controlID(props.testID, 'field', field.field, 'value-toggle', entry.value)} accessibilityRole="button" accessibilityLabel={selectionText(removed ? 'next.selection.native.restoreValue' : 'next.selection.native.removeValue', {value: entry.value})} disabled={props.pending}
         focusKind="chip" focusRadius={isTV ? 12 : 15} onPress={() => {
           if (entry.added) props.onChangesChange(setListChange(props.changes, field.field, list.add.filter(value => value !== entry.value), list.remove));
           else if (removed) props.onChangesChange(setListChange(props.changes, field.field, list.add, list.remove.filter(value => value !== entry.value)));
@@ -39,8 +40,8 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
         <SelectionText size={isTV ? 22 : 12.5} weight={700} numberOfLines={1} style={{flexShrink: 1, textDecorationLine: removed ? 'line-through' : 'none', color: removed ? colors.textTertiary : colors.text}}>{entry.value}</SelectionText>
         <SelectionText size={isTV ? 20 : 12} secondary>{added ? selectionText('next.selection.native.new') : entry.count}</SelectionText><Icon name={removed ? 'i-undo' : 'i-x'} size={isTV ? 22 : 12} color={colors.textTertiary} />
       </Focusable>;})}
-      <View style={{minWidth: 100, flex: 1, ...(isTV ? {width: '100%', flexBasis: '100%'} as const : {})}}><TextField ref={fieldRef} accessibilityLabel={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} value={draft} onChangeText={setDraft} onSubmitEditing={add} editable={!props.pending} placeholder={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} maxLength={field.maxLength} returnKeyType="done" fieldStyle={isTV ? {backgroundColor: colors.ink} : {height: 28, minHeight: 28, borderWidth: 0, paddingHorizontal: 4, backgroundColor: 'transparent'}} style={isTV ? {fontSize: type.body.fontSize} : {fontSize: 12.5}} /></View>
-      {draft.trim() ? <Button variant="text" size="small" disabled={!validBulkListEntry(draft.trim()) || props.pending} onPress={add}>{selectionText('next.selection.native.add')}</Button> : null}
+      <View style={{minWidth: 100, flex: 1, ...(isTV ? {width: '100%', flexBasis: '100%'} as const : {})}}><TextField testID={controlID(props.testID, 'field', field.field, 'add-input')} ref={fieldRef} accessibilityLabel={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} value={draft} onChangeText={setDraft} onSubmitEditing={add} editable={!props.pending} placeholder={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} maxLength={field.maxLength} returnKeyType="done" fieldStyle={isTV ? {backgroundColor: colors.ink} : {height: 28, minHeight: 28, borderWidth: 0, paddingHorizontal: 4, backgroundColor: 'transparent'}} style={isTV ? {fontSize: type.body.fontSize} : {fontSize: 12.5}} /></View>
+      {draft.trim() ? <Button testID={controlID(props.testID, 'field', field.field, 'add')} variant="text" size="small" disabled={!validBulkListEntry(draft.trim()) || props.pending} onPress={add}>{selectionText('next.selection.native.add')}</Button> : null}
     </View>
   </View>;
 }
@@ -53,10 +54,10 @@ function ScalarField({field, fieldRef, ...props}: FieldProps) {
   const value = changed ? change.value : current?.state === 'shared' ? current.value ?? '' : '';
   const hint = changed ? current?.state === 'mixed' ? selectionText('next.selection.native.wasMixed') : '' : current?.state === 'shared' && current.value !== undefined ? selectionText('next.selection.native.all', {count: props.count}) : current?.state === 'mixed' ? selectionText('next.selection.native.distinct', {count: current.distinctCount}) : '';
   const update = (next: string) => {if (!props.pending) props.onChangesChange(changeScalar(props.changes, field.field, next));};
-  if (field.type === 'enum' || props.fieldOptions?.[field.field]) return <Select ref={fieldRef} value={value} onValueChange={update} disabled={props.pending} accessibilityLabel={props.fieldLabel(field)} placeholder={current?.state === 'mixed' && !changed ? selectionText('next.selection.native.mixed') : changed || current?.value !== undefined ? selectionText('next.selection.native.notSet') : ''}
+  if (field.type === 'enum' || props.fieldOptions?.[field.field]) return <Select testID={controlID(props.testID, 'field', field.field, 'input')} ref={fieldRef} value={value} onValueChange={update} disabled={props.pending} accessibilityLabel={props.fieldLabel(field)} placeholder={current?.state === 'mixed' && !changed ? selectionText('next.selection.native.mixed') : changed || current?.value !== undefined ? selectionText('next.selection.native.notSet') : ''}
     description={isTV && hint ? hint : undefined} error={props.fieldErrors?.[field.field]} options={props.fieldOptions?.[field.field] ?? (field.allowed ?? []).map(option => ({value: option, label: props.fieldValueLabel?.(field, option) ?? option}))} />;
   return <View>
-    <TextField ref={fieldRef} error={props.fieldErrors?.[field.field]} value={value} onChangeText={update} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} editable={!props.pending}
+    <TextField testID={controlID(props.testID, 'field', field.field, 'input')} ref={fieldRef} error={props.fieldErrors?.[field.field]} value={value} onChangeText={update} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} editable={!props.pending}
       accessibilityLabel={props.fieldLabel(field)} keyboardType={field.type === 'integer' || field.type === 'number' ? 'numbers-and-punctuation' : 'default'} maxLength={field.maxLength}
       placeholder={changed || current?.state === 'shared' && current.value !== undefined ? selectionText('next.selection.native.notSet') : undefined}
       fieldStyle={{height: isTV ? fieldSpec.height[platform] : 44, borderRadius: isTV ? fieldSpec.radius[platform] : 10, backgroundColor: colors.ink, paddingHorizontal: isTV ? fieldSpec.paddingX[platform] : 12, borderWidth: changed || isTV ? 2 : 1, borderColor: changed ? colors.accentStrong : colors.line}}
@@ -93,12 +94,12 @@ export function BulkEditor(props: BulkEditorProps) {
       {props.summary.map(line => <View key={line.id} style={{flexDirection: 'row', gap: 8}}><View style={{width: 6, height: 6, marginTop: isTV ? 14 : 6, borderRadius: 3, backgroundColor: colors.accentStrong}} /><SelectionText size={isTV ? 20 : 12.5} style={{flex: 1}}>{line.text}</SelectionText></View>)}
     </View> : null}
     <View style={[styles.buttons, isTV ? {flexDirection: 'column', gap: 12} : undefined]}>
-      <Button ref={cancelRef} variant="glass" size="compact" style={isTV ? {alignSelf: 'stretch'} : undefined} onPress={close}>{selectionText(result ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
-      {result ? failed.length ? <Button ref={retryRef} size="compact" loading={props.pending} onPress={() => props.onRetry(failed)} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: props.resultEntries.find(row => row.id === failed[0])?.title ?? ''}) : selectionText('next.selection.native.retry')}</Button> : null
-        : <Button size="compact" loading={props.pending} disabled={!changes.length || !fields.length || changes.some(([key]) => !fields.some(field => field.field === key))} onPress={props.onSave} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{props.saveLabel}</Button>}
+      <Button testID={controlID(props.testID, 'dismiss')} ref={cancelRef} variant="glass" size="compact" style={isTV ? {alignSelf: 'stretch'} : undefined} onPress={close}>{selectionText(result ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
+      {result ? failed.length ? <Button testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} onPress={() => props.onRetry(failed)} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: props.resultEntries.find(row => row.id === failed[0])?.title ?? ''}) : selectionText('next.selection.native.retry')}</Button> : null
+        : <Button testID={controlID(props.testID, 'save')} size="compact" loading={props.pending} disabled={!changes.length || !fields.length || changes.some(([key]) => !fields.some(field => field.field === key))} onPress={props.onSave} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{props.saveLabel}</Button>}
     </View>
   </View>;
-  return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} fullHeight headerAction={<Button variant="icon" size="xs" icon="i-x" accessibilityLabel={selectionText('next.selection.native.close')} onPress={close} style={{width: isTV ? 64 : 34, height: isTV ? 64 : 34}} />} headerContext={props.ownerHeader} title={props.title}
+  return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} fullHeight headerAction={<Button testID={controlID(props.testID, 'header-dismiss')} variant="icon" size="xs" icon="i-x" accessibilityLabel={selectionText('next.selection.native.close')} onPress={close} style={{width: isTV ? 64 : 34, height: isTV ? 64 : 34}} />} headerContext={props.ownerHeader} title={props.title}
     description={selectionText('next.selection.native.bulkDescription', {count: props.count})} initialFocusRef={failed.length ? retryRef : props.initialFocusRef ?? (firstField && !result && !props.pending ? firstFieldRef : cancelRef)} returnFocusRef={props.returnFocusRef} testID={props.testID}
     footer={footer} contentStyle={{paddingHorizontal: isTV ? 0 : 18}}>
     {props.artwork}
@@ -108,17 +109,17 @@ export function BulkEditor(props: BulkEditorProps) {
       {result.results.map(row => {const entry = props.resultEntries.find(item => item.id === row.id);return <View key={`${row.kind}-${row.id}`} style={styles.resultRow}>
         {entry?.artwork ? <View pointerEvents="none" style={{width: 30, height: 45}}>{entry.artwork}</View> : null}
         <View style={{flex: 1, gap: 3}}><SelectionText size={isTV ? 24 : 14} weight={700}>{entry?.title}</SelectionText><SelectionText size={isTV ? 20 : 12} secondary>{row.ok ? selectionText('next.selection.native.saved') : selectionText(row.code === 'metadata_conflict' ? 'next.selection.native.conflict' : row.code === 'invalid_metadata_repair' ? 'next.selection.native.invalidValue' : row.code === 'unsupported_item_kind' ? 'next.selection.native.unsupportedKind' : row.code === 'not_found' ? 'next.selection.native.notFound' : 'next.selection.native.saveFailed')}</SelectionText></View>
-        {!row.ok ? <Button variant="text" size="small" disabled={props.pending} onPress={() => props.onRetry([row.id])}>{selectionText('next.selection.native.retry')}</Button> : null}
+        {!row.ok ? <Button testID={controlID(props.testID, 'result', row.kind, row.id, 'retry')} variant="text" size="small" disabled={props.pending} onPress={() => props.onRetry([row.id])}>{selectionText('next.selection.native.retry')}</Button> : null}
         <Icon name={row.ok ? 'i-check' : 'i-warn'} color={row.ok ? colors.healthy : colors.danger} size={isTV ? 28 : 18} />
       </View>;})}
     </View> : <>
       <View style={[styles.fieldGrid, isTV ? {rowGap: 22, paddingTop: 22} : undefined]}>{fields.map(field => <View key={field.field} style={{width: isTV || field.type === 'list' || field.type === 'multiline' ? '100%' : '48.5%', gap: isTV ? 8 : 5}}>
-        <View style={styles.label}><SelectionText size={isTV ? 20 : 12.5} weight={700} secondary>{props.fieldLabel(field)}</SelectionText>{props.changes[field.field] ? <Button variant="text" size="small" disabled={props.pending} onPress={() => props.onChangesChange(removeFieldChange(props.changes, field.field))} style={isTV ? undefined : {height: 20, paddingHorizontal: 0}} textStyle={isTV ? undefined : {fontSize: 12.5}}>{selectionText('next.selection.native.changed')}</Button> : null}</View>
+        <View style={styles.label}><SelectionText size={isTV ? 20 : 12.5} weight={700} secondary>{props.fieldLabel(field)}</SelectionText>{props.changes[field.field] ? <Button testID={controlID(props.testID, 'field', field.field, 'reset')} variant="text" size="small" disabled={props.pending} onPress={() => props.onChangesChange(removeFieldChange(props.changes, field.field))} style={isTV ? undefined : {height: 20, paddingHorizontal: 0}} textStyle={isTV ? undefined : {fontSize: 12.5}}>{selectionText('next.selection.native.changed')}</Button> : null}</View>
         {field.type === 'list' ? <ListField {...props} field={field} fieldRef={field === firstField ? node => {firstFieldRef.current = node;} : undefined} /> : <ScalarField {...props} field={field} fieldRef={field === firstField ? node => {firstFieldRef.current = node;} : undefined} />}
       </View>)}</View>
       {!fields.length ? <SelectionText>{selectionText('next.selection.native.noBulkFields')}</SelectionText> : null}
       <View style={styles.notice}><SelectionText size={isTV ? 20 : 12.5}>{selectionText('next.selection.native.oneAtTime', {fields: defaultI18n.list(props.singleItemFields.filter(field => !field.bulk).map(props.fieldLabel))})}</SelectionText></View>
-      <Switch variant="selection" checked={props.lockEdited} onCheckedChange={props.onLockEditedChange} disabled={props.pending} description={selectionText('next.selection.native.lockDescription')}>{selectionText('next.selection.native.lock')}</Switch>
+      <Switch testID={controlID(props.testID, 'lock-edited')} variant="selection" checked={props.lockEdited} onCheckedChange={props.onLockEditedChange} disabled={props.pending} description={selectionText('next.selection.native.lockDescription')}>{selectionText('next.selection.native.lock')}</Switch>
     </>}
   </SelectionSurface>;
 }

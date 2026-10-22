@@ -51,7 +51,7 @@ function HeroCase({arrivalDurationMs}: {arrivalDurationMs?: number}) {
         foregroundFrameStyle={theme.isTV ? {width: 1500, height: 900} : undefined}
         treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority arrivalDurationMs={arrivalDurationMs} onReady={() => {setReady(true); setFailed(false);}} onError={() => {setReady(false); setFailed(true);}}/>
     </View>
-    <Button variant="glass" onPress={() => {setReady(false); setFailed(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
+    <Button testID="dev.artwork.skeleton.visibility" variant="glass" onPress={() => {setReady(false); setFailed(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
     {ready || failed ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(failed ? 'next.artwork.native.noArtwork' : 'next.artwork.native.backdrop')}</Text> : null}
   </View>;
 }
@@ -77,7 +77,7 @@ function CircleCases() {
   const real = suppliedEvidence();
   const [chosen, setChosen] = useState(3);
   return <View style={{gap: 28}}><View style={{flexDirection: 'row', flexWrap: theme.isTV ? 'nowrap' : 'wrap', width: theme.isTV ? 1580 : undefined, gap: theme.isTV ? 100 : 28}}>
-    {[1, 2, 3, 4].map(count => <Focusable key={count} accessibilityRole="button" accessibilityLabel={t('next.kit.albums', {count})} focusKind="card" focusRadius={size / 2} hasTVPreferredFocus={theme.isTV && count === 3} onPress={() => setChosen(count)} style={{width: size, height: size}}><ArtistCircle covers={albums.slice(0, count)} size={size}/></Focusable>)}
+    {[1, 2, 3, 4].map(count => <Focusable testID={`dev.artwork.circles.album-count-${count}`} key={count} accessibilityRole="button" accessibilityLabel={t('next.kit.albums', {count})} focusKind="card" focusRadius={size / 2} hasTVPreferredFocus={theme.isTV && count === 3} onPress={() => setChosen(count)} style={{width: size, height: size}}><ArtistCircle covers={albums.slice(0, count)} size={size}/></Focusable>)}
   </View><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.kit.albums', {count: chosen})}</Text><View style={{flexDirection: 'row', gap: 28}}>
     <ArtistCircle covers={[]} initials="TK" size={96}/>
     <PersonCircle initials="JK" size={size} covers={albums.slice(0, 2)} ambientCovers={real?.ambient ? [real.ambient] : undefined} palette={palette}/>
@@ -124,7 +124,7 @@ function MediaCases() {
         <MediaArt kind="newspaper" source={reference('read/newspapers/nyt-1918-10-21-page.jpg')} width={108} visible={visible}/>
       </> : null}
     </View>
-    <Button variant="glass" onPress={() => setVisible(value => !value)}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
+    <Button testID="dev.artwork.media.visibility" variant="glass" onPress={() => setVisible(value => !value)}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
   </View>;
 }
 
@@ -151,8 +151,8 @@ function PickerCase() {
   const [items, setItems] = useState(profiles);
   const [managing, setManaging] = useState(false);
   return <View style={{width: theme.isTV ? 1640 : theme.platform === 'phone' ? 346 : 1100, gap: 24}}>
-    <ProfilePicker profiles={items} selectedId={selected} preferredProfileId="alex" onSelect={setSelected}
-      onAdd={() => {setItems(value => [...value, {id: `added-${value.length}`, name: t('profile.add'), initial: '+', color: 'sky'}]);}}
+    <ProfilePicker testID="dev.artwork.profiles" profiles={items} selectedId={selected} preferredProfileId="alex" onSelect={setSelected}
+      onAdd={() => {setItems(value => value.some(profile => profile.id === 'added-profile') ? value : [...value, {id: 'added-profile', name: t('profile.add'), initial: '+', color: 'sky'}]);}}
       onManage={() => setManaging(value => !value)}/>
     {selected || managing ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(managing ? 'profiles.title' : 'profile.current')}{selected ? ` ${items.find(item => item.id === selected)?.name ?? ''}` : ''}</Text> : null}
   </View>;
@@ -162,11 +162,11 @@ function ProfileStatesCase() {
   const real = suppliedEvidence();
   const [selected, setSelected] = useState<number>();
   return <View style={{gap: 30}}>
-    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 28}}>{[30, 48, 64, 84].map(size => <Focusable key={size} accessibilityRole="button" accessibilityLabel={fixture('next.artwork.native.fixture.alex')} focusTreatment="none" onPress={() => setSelected(size)} style={{width: size, height: size}}>
+    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 28}}>{[30, 48, 64, 84].map(size => <Focusable testID={`dev.artwork.profile-states.size-${size}`} key={size} accessibilityRole="button" accessibilityLabel={fixture('next.artwork.native.fixture.alex')} focusTreatment="none" onPress={() => setSelected(size)} style={{width: size, height: size}}>
       {state => <ProfileFace initial="A" color="violet" size={size} locked focused={state.focused} selected={selected === size}/>}
     </Focusable>)}</View>
     <ProfileFace initial="D" source={real?.avatar} size={90}/>
-    <ProfilePicker showTitle={false} profiles={[{id: 'removed', name: fixture('next.artwork.native.fixture.jules'), initial: 'J', color: 'coral', unavailableReason: 'access-removed'}]} onSelect={() => setSelected(90)}/>
+    <ProfilePicker testID="dev.artwork.profile-states.removed" showTitle={false} profiles={[{id: 'removed', name: fixture('next.artwork.native.fixture.jules'), initial: 'J', color: 'coral', unavailableReason: 'access-removed'}]} onSelect={() => setSelected(90)}/>
   </View>;
 }
 
