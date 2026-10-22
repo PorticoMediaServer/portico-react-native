@@ -62,11 +62,10 @@ function ScalarField({field, ...props}: BulkEditorProps & {field: RepairFieldSpe
   </View>;
 }
 export function BulkEditor(props: BulkEditorProps) {
-  const {isTV, colors} = useTheme();
+  const {colors} = useTheme();
   const retryRef = useRef<View>(null);
-  // select.html TV frames omit Edit/Delete; notes/select.md explicitly excludes TV owner actions.
-  // No TV metadata editor is drawn in owner-metadata.html; admission belongs to the caller.
-  if (isTV) return null;
+  // Authorized Edit offers are supplied by the controller on every platform.
+  // The shared surface remains real on TV; its exact TV geometry/proof awaits the approved recipe.
   const fields = props.schema.filter(field => field.bulk);
   const changes = Object.entries(props.changes);
   const failed = props.result ? failedSelectionIds(props.result.results) : [];

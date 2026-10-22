@@ -4,6 +4,7 @@ import Svg, {Text as SvgText} from 'react-native-svg';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {MediaArt, CircleArt, PersonCircle, type ArtworkProps, type ArtworkSource, type CircleArtProps, type PersonCircleProps} from '../artwork/index';
+import {Focusable} from '../controls/Focusable';
 import {SelectionCircle} from '../selection/index';
 import {useTheme} from '../theme';
 import {ArtFrame, Badge, Caption, CardAction, CardFrame, Parts, Progress, Scrim, titleStyle, type CardProps} from './primitives';
@@ -28,9 +29,12 @@ function Overlays({props, hovered, height, holding = false, playSize = 40, cente
   if (props.disabled || holding) return null;
   const circleInset = t.isTV ? 12 : t.layoutMode === 'desktop' ? 10 : episode ? 6 : 7;
   return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {height}]}>
-    {selection && (selection.active || hovered && t.layoutMode === 'desktop') && <View style={{position: 'absolute', left: circleInset, top: circleInset}}>
-      <SelectionCircle selected={selection.selected} selecting={selection.active || hovered} size={t.isTV ? 44 : t.layoutMode === 'desktop' ? 26 : 24} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
-    </View>}
+    {selection && t.layoutMode === 'desktop' && (selection.active || hovered) ? <Focusable accessibilityRole="checkbox" accessibilityLabel={defaultI18n.t('card.select', {title})} accessibilityState={{checked: selection.selected}} focusRadius={13}
+      onPress={() => selection.active ? selection.onToggle() : selection.onEnter()} style={{position: 'absolute', left: circleInset, top: circleInset}}>
+      <SelectionCircle selected={selection.selected} selecting interactive={false} size={26} accessibilityLabel={defaultI18n.t('card.select', {title})} />
+    </Focusable> : selection?.active ? <View style={{position: 'absolute', left: circleInset, top: circleInset}}>
+      <SelectionCircle selected={selection.selected} selecting size={t.isTV ? 44 : 24} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
+    </View> : null}
     {!t.isTV && !selection?.active && hovered && (onPlay || pause) && <CardAction name={pause ? 'i-pause' : 'i-play'} label={pause ? defaultI18n.t('next.cards.pause') : defaultI18n.t('card.play', {title})} onPress={pause ?? onPlay!} size={playSize}
       style={centered ? {position: 'absolute', left: '50%', top: height / 2 - playSize / 2, marginLeft: -playSize / 2} : {position: 'absolute', bottom: 10, right: 10}} />}
     {!t.isTV && !selection?.active && (hovered || props.menuVisibility === 'always') && onMore && <CardAction name="i-more" label={defaultI18n.t('card.more', {title})} onPress={onMore} color={t.colors.text}

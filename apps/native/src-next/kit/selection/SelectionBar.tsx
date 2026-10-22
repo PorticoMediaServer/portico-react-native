@@ -18,7 +18,7 @@ const mainTV: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList
 const phoneMain: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'more'];
 const label = (id: SelectionAction) => selectionText(`next.selection.native.action.${id}`);
 
-function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || !ownerActions.includes(action.id) && action.id !== 'download');}
+function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'refresh' && action.id !== 'delete' && action.id !== 'download');}
 function SelectionMenus(props: SelectionBarProps) {
   const {isTV} = useTheme();
   const actions = permitted(props.actions, isTV);
