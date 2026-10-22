@@ -1,3 +1,4 @@
+import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -55,7 +56,7 @@ async function fixture() {
     '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {}, '../../kit/focus': {...focus, useFocusRegistry: () => registry},
     '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Hero: 'Hero'}, '../../kit/layout/FocusAnchor': {useFocusAnchor}, '../../kit/layout/types': {},
-    '../../kit/states': {HomeSkeleton: 'HomeSkeleton'}, '../../kit/theme': {useTheme: () => theme}, '../../shell/model': shellModel,
+    '../../kit/states': {HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../shell/model': shellModel,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   let props: any = {}, tree: any, guide: any, target: any, requests = 0;

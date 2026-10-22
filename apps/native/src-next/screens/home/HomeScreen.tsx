@@ -22,6 +22,7 @@ import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/typ
 import {itemSelection} from '../../kit/layout/types';
 import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
+import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
@@ -257,7 +258,7 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   const theme = useTheme(), text = homeCardText(entry, row.kind === 'continue' || row.id === 'continue_books', runtime.text), target = homePlayTarget(row, entry);
   const navigate = () => {if (current()) runtime.actions.navigate(entry);};
   const offers = homeEntryCapabilities(entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
-  const play = offers.playable && target?.playback ? () => {if (current()) runtime.actions.play(entry, target.playback!);} : undefined;
+  const play = offers.playable && target?.playback ? () => {homeActionDiagnostics.action('home-card', 'primary-play'); if (current()) runtime.actions.play(entry, target.playback!);} : undefined;
   const actions = play && (theme.isTV || row.kind === 'continue') ? {primaryAction: 'play' as const, onPlay: play, onNavigate: navigate}
     : {primaryAction: 'navigate' as const, onNavigate: navigate, ...(play ? {onPlay: play} : {})};
   const props: CardProps = {...text, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,

@@ -1,3 +1,4 @@
+import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as homeSelection from '../../../packages/client-core/src/home-selection/index';
@@ -28,7 +29,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../../../../packages/client-core/src/home-selection': homeCapabilities,
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true})},
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': {},
-    '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
+    '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows},
     './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': {homePlayTarget},

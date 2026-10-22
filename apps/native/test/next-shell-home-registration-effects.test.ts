@@ -1,3 +1,4 @@
+import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -54,7 +55,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../../packages/client-core/src/presentation/server-text': serverText, '../../../../../packages/client-core/src/presentation/kit-model': {},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
     '../../kit/layout': {Row, Hero: 'Hero', FocusPreviewHero: 'Preview'}, '../../kit/layout/types': {}, '../../kit/layout/FocusAnchor': {useFocusAnchor},
-    '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../kit/theme': {useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
+    '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
   });
   const {createNativeShellBindings} = await screenModule(source('shell/assembly.tsx'), {
@@ -62,7 +63,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../packages/i18n/src': {defaultI18n}, '../../../../packages/client-core/src/home-selection/index': homeSelection,
     '../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true})},
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
-    '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
+    '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute},
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': homeModel,

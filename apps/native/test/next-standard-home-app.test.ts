@@ -52,7 +52,11 @@ test('standard index/App Home actions use restored authority, current documents 
       'an HTTP boundary failure reaches the real Home toast and creates no session',
       async () => {
         app.fault({status: 500, code: 'r25_boundary_options_failure'});
-        await app.tap();
+        const warning = console.warn;
+        try {
+          console.warn = () => {throw Error('throwing Home diagnostic sink');};
+          await app.tap();
+        } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
             receipt =>
@@ -93,7 +97,11 @@ test('standard index/App Home actions use restored authority, current documents 
     await t.test(
       'current native Continue onPress traverses real playback options and creates a protocol session',
       async () => {
-        await app.tap();
+        const warning = console.warn;
+        try {
+          console.warn = () => {throw Error('throwing Home diagnostic sink');};
+          await app.tap();
+        } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
             receipt =>

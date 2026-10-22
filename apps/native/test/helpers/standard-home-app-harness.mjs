@@ -715,7 +715,7 @@ export async function standardHomeApp() {
     errors = [];
   const settle = async (count = 25) => {
     for (let n = 0; n < count; n++)
-      await new Promise(done => setImmediate(done));
+      await new Promise(done => setTimeout(done, 0));
     if (errors.length) throw errors[0];
   };
   const mount = async () => {

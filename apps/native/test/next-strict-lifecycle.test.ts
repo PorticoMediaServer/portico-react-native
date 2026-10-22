@@ -1,3 +1,4 @@
+import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
@@ -345,7 +346,7 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {}, '../../kit/layout': {}, '../../kit/layout/types': {},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => anchor}, '../../kit/states': {HomeSkeleton: 'HomeSkeleton'},
-    '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},
+    '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},
     '../../shell/model': shellModel, './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
     './model': {authorizedHome: () => undefined, initialHomeFocus: () => undefined},
   });

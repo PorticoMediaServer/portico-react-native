@@ -28,6 +28,7 @@ import { NativeQueueStore } from './queue-storage';
 import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
 import { isAccountAuthority } from './account-authority';
+import {homeActionDiagnostics} from './home-action-diagnostics';
 import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 const storageKey = 'network.selected.v1';
 const store = new NativeQueueStore();
@@ -76,6 +77,7 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
     const headers: Record<string, string> = {};
     new Headers(options.headers).forEach((v, k) => (headers[k] = v));
     let raw: {status: number; headers: Record<string, string>; body: string};
+    const diagnostic = homeActionDiagnostics.request(options.method ?? 'GET', input);
     try {
       raw = await NativeModules.PorticoRuntime.networkRequest(
         id,
@@ -85,10 +87,12 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
         options.body ?? null,
       );
     } catch (error) {
+      homeActionDiagnostics.rejected(diagnostic, error);
       // The caller gave up on it: that is a cancellation, whatever the transport said as it stopped.
       if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
       throw error;
     }
+    homeActionDiagnostics.response(diagnostic, raw.status);
     if (options.signal?.aborted)
       throw new RouteError('cancelled', 'Connection request cancelled.');
     return new Response(
