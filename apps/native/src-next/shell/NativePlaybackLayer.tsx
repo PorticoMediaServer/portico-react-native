@@ -81,7 +81,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       setDockBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds]) ? previous : next);
     });
   }, [adapter, authority, dockX, dockFade]);
-  const horizontalVideo = docked && local?.kind === 'video';
+  const horizontalVideo = docked && (local?.kind === 'video' || local?.kind === 'live');
   const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;

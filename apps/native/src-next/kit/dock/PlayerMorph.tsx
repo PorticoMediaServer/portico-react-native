@@ -126,11 +126,11 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   const moving = currentMorphFence(movingFor, fence);
   const full = useSharedValue(fullFrame), dock = useSharedValue(dockFrame), base = useSharedValue(frame);
   const target = useSharedValue(docked ? 1 : 0), surfaceFade = useSharedValue(fence ? 1 : 0);
-  const active = useSharedValue(fence !== undefined);
+  const active = useSharedValue(fence !== undefined), dragRun = useSharedValue(0);
   const lifetime = useRef({fence, docked});
   if (lifetime.current.docked !== docked || (lifetime.current.fence !== fence && !currentMorphFence(lifetime.current.fence, fence))) lifetime.current = {fence, docked};
   const transition = lifetime.current;
-  const settledTransition = useRef(transition), wasMoving = useRef(false), mounted = useRef(false);
+  const settledTransition = useRef(transition), settledDragRun = useRef(0), wasMoving = useRef(false), mounted = useRef(false);
   useEffect(() => {mounted.current = true; return () => {mounted.current = false; cancelAnimation(surfaceFade);};}, [surfaceFade]);
   const currentFence = useRef(fence), previousFence = useRef<PlaybackFence | undefined>(undefined);
   currentFence.current = fence;
@@ -141,39 +141,45 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     previousFence.current = fence;
     active.value = fence !== undefined;
     cancelAnimation(surfaceFade);
-    setMovingFor(undefined); wasMoving.current = false; settledTransition.current = transition;
+    setMovingFor(undefined); wasMoving.current = false; settledTransition.current = transition; settledDragRun.current = dragRun.value;
     surfaceFade.value = fence ? 1 : 0;
     // A new source starts at its own actual layout; an idle gap retains no previous fence.
     const nextFrame = docked && validRect(dockFrame) ? dockFrame : fullFrame;
     if (validRect(nextFrame)) {setFrame(nextFrame); base.value = nextFrame;}
-  }, [fence, docked, dockFrame, fullFrame, active, surfaceFade, base, transition]);
-  const settle = useCallback((value: number) => {
-    if (!mounted.current || lifetime.current !== transition || !currentMorphFence(currentFence.current, fence)) return;
+  }, [fence, docked, dockFrame, fullFrame, active, surfaceFade, base, transition, dragRun]);
+  const settle = useCallback((value: number, observedDragRun: number) => {
+    if (!mounted.current || lifetime.current !== transition || !currentMorphFence(currentFence.current, fence)
+      || dragging.value || dragRun.value !== observedDragRun) return;
     const finalFrame = value === 1 ? dockFrame : fullFrame;
     if (!validRect(finalFrame)) return;
     setFrame(previous => previous.x === finalFrame.x && previous.y === finalFrame.y && previous.width === finalFrame.width && previous.height === finalFrame.height ? previous : finalFrame);
     base.value = finalFrame;
     setMovingFor(undefined);
-    if (settledTransition.current !== transition || wasMoving.current) {
+    // Reduced layout settles immediately, before its progress timing finishes.
+    // That timing's intermediate samples must not re-arm its consumed fade;
+    // a genuine new drag can still fade once on return to the same goal.
+    if (settledTransition.current !== transition || (motion.reduce ? settledDragRun.current !== observedDragRun : wasMoving.current)) {
       cancelAnimation(surfaceFade);
       surfaceFade.value = 0;
       surfaceFade.value = withTiming(1, motion.timing());
     }
-    settledTransition.current = transition; wasMoving.current = false;
-  }, [fence, fullFrame, dockFrame, base, surfaceFade, motion, transition]);
-  const updateMoving = useCallback((value: boolean) => {
-    if (mounted.current && lifetime.current === transition && currentMorphFence(currentFence.current, fence)) {
+    settledTransition.current = transition; settledDragRun.current = observedDragRun; wasMoving.current = false;
+  }, [fence, fullFrame, dockFrame, base, surfaceFade, motion, transition, dragging, dragRun]);
+  const updateMoving = useCallback((value: boolean, observedDragRun: number) => {
+    if (mounted.current && lifetime.current === transition && currentMorphFence(currentFence.current, fence) && dragRun.value === observedDragRun) {
       wasMoving.current = value; setMovingFor(value ? fence : undefined);
     }
-  }, [fence, transition]);
-  useEffect(() => {if (motion.reduce && !dragging.value) settle(docked ? 1 : 0);}, [docked, motion.reduce, dragging, settle]);
+  }, [fence, transition, dragRun]);
+  useEffect(() => {if (motion.reduce && !dragging.value) settle(docked ? 1 : 0, dragRun.value);}, [docked, motion.reduce, dragging, settle, dragRun]);
   useAnimatedReaction(() => ({active: active.value, p: progress.value, v: velocity.value, drag: dragging.value, goal: target.value}), (now, previous) => {
     if (!now.active) return;
+    const beganDrag = now.drag && !previous?.drag;
+    if (beganDrag) dragRun.value++;
     const settled = !now.drag && Math.abs(now.p - now.goal) < .002 && Math.abs(now.v) < .02;
     const wasSettled = previous && !previous.drag && Math.abs(previous.p - previous.goal) < .002 && Math.abs(previous.v) < .02;
-    if (settled && !wasSettled) runOnJS(settle)(now.goal);
-    else if (!settled && wasSettled) runOnJS(updateMoving)(true);
-  }, [settle, updateMoving]);
+    if (settled && !wasSettled) runOnJS(settle)(now.goal, dragRun.value);
+    else if (!settled && (wasSettled || beganDrag)) runOnJS(updateMoving)(true, dragRun.value);
+  }, [settle, updateMoving, dragRun]);
   useEffect(() => {if (fence && currentMorphFence(currentFence.current, fence)) onPresentationChange?.({fence, docked, moving, hideSubtitles: docked || moving});}, [fence, docked, moving, onPresentationChange]);
   const interpolateFrame = () => {
     'worklet';

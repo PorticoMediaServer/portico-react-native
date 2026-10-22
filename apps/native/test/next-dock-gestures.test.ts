@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {PlaybackDock, sameFence, type DockPlayback, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
+import {PlaybackDock, sameFence, type ChannelPlaybackFence, type DockPlayback, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
@@ -17,13 +17,14 @@ const screenModule = (file: URL, modules: any) => transformModule(process.env.NA
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
 const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 const initial = {fence, kind: 'video', queue: null, positionSeconds: 75, playing: true, expanded: true} satisfies DockPlayback;
+const channelFence: ChannelPlaybackFence = {kind: 'channel', playback: {scope, run: 1}, sessionId: 'live-session', channelId: 'channel', channelGeneration: '1', channelKind: 'live-source', sourceId: 'live-source', generation: 1};
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 1, viewerFence: 'viewer'};
-type Animation = {to: any; complete?: (finished: boolean) => void; apply?: () => void; owner?: any; cancelled?: boolean};
+type Animation = {to: any; complete?: (finished: boolean) => void; apply?: () => void; sample?: (value: any) => void; owner?: any; cancelled?: boolean};
 function elements(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(elements);
   return React.isValidElement<any>(node) ? [node, ...elements(node.props.children)] : [];
 }
-async function rig({reduced = false, docked = false, kind = 'video', os = 'android', tv = false}: {reduced?: boolean; docked?: boolean; kind?: 'video' | 'music'; os?: string; tv?: boolean} = {}) {
+async function rig({reduced = false, docked = false, kind = 'video', os = 'android', tv = false}: {reduced?: boolean; docked?: boolean; kind?: 'video' | 'live' | 'music'; os?: string; tv?: boolean} = {}) {
   const animations: Animation[] = [], cancelled: any[] = [], js: (() => void)[] = [], actions: any[] = [], transitions: any[] = [], requests: number[] = [];
   const reactions: any[] = [], measurements: any[] = [];
   let now = 0;
@@ -35,7 +36,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
         if (pending) pending.cancelled = true;
         pending = undefined;
         if (next && typeof next === 'object' && '__animation' in next) {
-          pending = next; next.owner = cell; next.apply = () => {value = next.to;};
+          pending = next; next.owner = cell; next.apply = () => {value = next.to;}; next.sample = (sample: any) => {value = sample;};
         } else value = next;
       }, cancel() {if (pending) pending.cancelled = true; pending = undefined;}};
       ref.current = cell;
@@ -80,7 +81,8 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const {DockHost} = await screenModule(new URL('../src-next/kit/dock/DockHost.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, './MediaBar': {MediaBar}, './NowPlayingCard': {NowPlayingCard: 'NowPlayingCard'},
     './DockNotice': {DockNotice: 'DockNotice'}, './useDockPresence': {useDockPresence}});
-  const dock = new PlaybackDock(scope); dock.start({...initial, kind, expanded: !docked});
+  const playback: DockPlayback = kind === 'live' ? {...initial, kind, fence: channelFence} : {...initial, kind};
+  const dock = new PlaybackDock(scope); dock.start({...playback, expanded: !docked});
   let snapshot: any;
   const Surface = () => null;
   const adapter = {dock, Surface, subscribe: () => () => {}, getSnapshot: () => snapshot, onTransition: async (transition: any) => {transitions.push(transition);}, captureVideoSnapshot: async () => undefined};
@@ -131,7 +133,12 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   return {dock, adapter, Surface, animations, cancelled, requests, actions, transitions, controller, fullPan, aside, opener, flushJS, complete, tick, tickPicture, measurements,
     get tree() {return tree;}, get hostTree() {return hostTree;}, get barTree() {return barTree;}, get pictureTree() {return pictureTree;},
     async render() {refresh(); layerHost.rerender(); await sync();},
-    async replace(render = true) {dock.start({...initial, kind, expanded: !docked, fence: {...fence, sourceId: 'replacement', generation: 2}}); refresh(); if (render) {layerHost.rerender(); await sync();}},
+    async replace(render = true) {
+      const replacement = playback.kind === 'live'
+        ? {...playback, fence: {...playback.fence, sourceId: 'replacement', generation: 2}}
+        : {...playback, fence: {...playback.fence, sourceId: 'replacement', generation: 2}};
+      dock.start({...replacement, expanded: !docked}); refresh(); if (render) {layerHost.rerender(); await sync();}
+    },
     async media(extra: any) {extraBar = extra; barHost!.rerender(); await act(() => {});},
     async picture(extra: any) {extraPicture = extra; pictureHost.rerender(); await act(() => {});},
     async layout() {const slot = elements(barTree).find(node => node.props.collapsable === false); slot.props.ref.current = {measureInWindow: (cb: any) => {measurements.push(true); cb(24, 700, 80, 45);}}; slot.props.onLayout(); await sync();},
@@ -140,6 +147,13 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   };
 }
 const vertical = {translationY: 600, velocityY: 1000}, horizontal = {translationX: 300, velocityX: 1000};
+async function measuredPicture(r: Awaited<ReturnType<typeof rig>>, docked: boolean) {
+  await r.layout();
+  if (!docked) {r.dock.expand(fence); await r.render();}
+  for (const animation of r.animations) if (!animation.cancelled) animation.apply?.();
+  r.controller().velocity.value = 0; await r.tickPicture();
+  for (const animation of r.animations) if (!animation.cancelled) animation.apply?.();
+}
 
 test('queued real morph release cannot collapse/expand replacement B in the same authority, with or without rerender', async () => {
   for (const docked of [false, true]) for (const render of [false, true]) {
@@ -233,6 +247,102 @@ test('steady reduced snapshot/fullFrame object churn never restarts the picture 
     r.controller().progress.value = 1; r.controller().velocity.value = 0; await r.tickPicture(); await r.tickPicture();
     assert.equal(r.animations.length, after, 'settlement reaction does not replay the reduced transition fade');
   } finally {r.close();}
+});
+for (const reduced of [false, true]) test(`actual live channel collapse hosts horizontal x/fade once around the same Surface and chrome (reduced=${reduced})`, async () => {
+  const r = await rig({kind: 'live', reduced});
+    try {
+      assert.equal(r.dock.getSnapshot().local?.kind, 'live');
+      assert.ok(sameFence(r.dock.getSnapshot().local?.fence, channelFence));
+      const surface = elements(r.pictureTree).find(node => node.type === r.Surface);
+      const movingHost = () => elements(r.tree).find(node => node.type === 'AnimatedView' && elements(node).some(child => child.type?.name === 'PlayerMorph') && elements(node).some(child => child.type?.name === 'DockHost'));
+      const originalHostType = movingHost().type;
+      r.dock.collapse(channelFence); await r.render(); await r.layout();
+      assert.equal(r.dock.occupant()?.mode, 'video', 'the real live channel uses hosted video chrome');
+      const read = () => movingHost().props.style.find((style: any) => style?.read).read();
+      const chrome = () => elements(r.barTree).find(node => node.type === 'AnimatedView').props.style.find((style: any) => style?.read).read();
+      const pan = r.aside(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(horizontal);
+      assert.equal(read().transform[0].translateX, 300, `${reduced}: common host follows the live drag`);
+      assert.equal(read().opacity, 1); assert.equal(chrome().transform[0].translateX, 0); assert.equal(chrome().opacity, 1);
+      const measured = r.measurements.length; await r.layout(); assert.equal(r.measurements.length, measured);
+      pan.callbacks.onEnd(horizontal, true);
+      const dismiss = r.animations.filter(value => value.complete).at(-1)!;
+      dismiss.apply?.();
+      assert.equal(read().transform[0].translateX, reduced ? 0 : dismiss.to);
+      assert.equal(read().opacity, reduced ? 0 : 1);
+      assert.equal(chrome().transform[0].translateX, 0); assert.equal(chrome().opacity, 1);
+      assert.strictEqual(movingHost().type, originalHostType);
+      assert.strictEqual(elements(r.pictureTree).find(node => node.type === r.Surface).type, surface.type);
+      await r.complete(dismiss); assert.equal(r.actions.length, 1); assert.ok(sameFence(r.actions[0].fence, channelFence));
+    } finally {r.close();}
+});
+for (const docked of [false, true]) for (const snapshotDuringProgress of [false, true]) test(`reduced goal consumes one picture fade across actual intermediate progress (fromDocked=${docked}, snapshot=${snapshotDuringProgress})`, async () => {
+  const r = await rig({reduced: true, docked: true});
+    try {
+      await measuredPicture(r, docked); // Persist the previous settled sample before changing the goal.
+      const before = r.animations.length;
+      if (docked) r.dock.expand(fence); else r.dock.collapse(fence);
+      await r.render();
+      const progress = r.animations.slice(before).find(value => value.owner === r.controller().progress)!;
+      const fade = r.animations.slice(before).find(value => value.owner !== r.controller().progress && !value.complete && value.to === 1)!;
+      assert.ok(progress && fade); assert.equal(fade.owner.value, 0, 'the actual reduced effect starts the picture fade');
+      const fadeCount = () => r.animations.filter(value => value.owner === fade.owner).length;
+      const count = fadeCount();
+      fade.sample?.(.65); progress.sample?.(docked ? .6 : .4); await r.tickPicture();
+      assert.equal(progress.owner.value, docked ? .6 : .4, 'first transition reaction observes intermediate progress, never the endpoint');
+      if (snapshotDuringProgress) {
+        r.dock.update({...r.dock.getSnapshot().local!, positionSeconds: 81}); await r.render();
+        await r.picture({androidSnapshot: {fence, image: 'actual-source-last-frame'}});
+      }
+      assert.equal(fadeCount(), count, `snapshot=${snapshotDuringProgress}: intermediate progress cannot reset opacity`);
+      assert.equal(fade.owner.value, .65);
+      progress.apply?.(); r.controller().velocity.value = 0; await r.tickPicture(); await r.tickPicture(); await r.render();
+      assert.equal(fadeCount(), count, 'the final reaction and later snapshots cannot consume a second fade');
+      assert.equal(fade.owner.value, .65); await r.complete(fade); assert.equal(fade.owner.value, 1);
+    } finally {r.close();}
+});
+test('genuine reduced drag and ACTIVE cancel returning to the same goal each fade once after transition consumption', async () => {
+  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true});
+    try {
+      await measuredPicture(r, false);
+      r.dock.collapse(fence); const before = r.animations.length; await r.render();
+      const transitionProgress = r.animations.slice(before).find(value => value.owner === r.controller().progress)!;
+      const fade = r.animations.slice(before).find(value => value.owner !== r.controller().progress && !value.complete && value.to === 1)!;
+      transitionProgress.sample?.(.5); await r.tickPicture(); transitionProgress.apply?.(); await r.tickPicture(); await r.complete(fade);
+      for (let run = 0; run < 2; run++) {
+        const count = r.animations.filter(value => value.owner === fade.owner).length;
+        const pan = elements(r.barTree).find(node => node.type === 'GestureDetector').props.gesture.gestures[1];
+        pan.callbacks.onBegin(); pan.callbacks.onUpdate({translationY: -80, velocityY: 0}); await r.tickPicture();
+        pan.callbacks.onEnd({translationY: -80, velocityY: 0}, success); pan.callbacks.onFinalize({}, success); await r.flushJS();
+        const settleProgress = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
+        settleProgress.sample?.(.95); await r.tickPicture(); await r.render();
+        settleProgress.apply?.(); r.controller().velocity.value = 0; await r.tickPicture(); await r.tickPicture(); await r.render();
+        const fades = r.animations.filter(value => value.owner === fade.owner);
+        assert.equal(fades.length, count + 1, `success=${success}/run=${run}: one fade per genuine return to the same goal`);
+        await r.complete(fades.at(-1)!);
+        assert.equal(r.dock.getSnapshot().local?.expanded, false);
+      }
+    } finally {r.close();}
+  }
+});
+test('genuine reduced drag during its goal timing remains a new fade run, including ACTIVE cancel', async () => {
+  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true});
+    try {
+      await measuredPicture(r, true);
+      const before = r.animations.length; r.dock.expand(fence); await r.render();
+      const progress = r.animations.slice(before).find(value => value.owner === r.controller().progress)!;
+      const fade = r.animations.slice(before).find(value => value.owner !== r.controller().progress && !value.complete && value.to === 1)!;
+      progress.sample?.(.6); await r.tickPicture(); await r.complete(fade);
+      const count = r.animations.filter(value => value.owner === fade.owner).length;
+      const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate({translationY: -400, velocityY: 0}); await r.tickPicture();
+      pan.callbacks.onEnd({translationY: -400, velocityY: 0}, success); pan.callbacks.onFinalize({}, success); await r.flushJS();
+      const returning = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
+      returning.sample?.(.05); await r.tickPicture(); await r.render();
+      returning.apply?.(); r.controller().velocity.value = 0; await r.tickPicture(); await r.render();
+      const fades = r.animations.filter(value => value.owner === fade.owner);
+      assert.equal(fades.length, count + 1, `success=${success}: a drag interrupting goal progress is a genuine new run`);
+      assert.equal(r.dock.getSnapshot().local?.expanded, true);
+    } finally {r.close();}
+  }
 });
 test('actual 500ms local hold requests policy-respecting selection haptic once and opens its menu', async () => {
   for (const kind of ['music', 'video'] as const) {const r = await rig({docked: true, kind});
