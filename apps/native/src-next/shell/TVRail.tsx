@@ -23,12 +23,13 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   const change = (value: boolean) => {
     if (pendingBlur.current) clearTimeout(pendingBlur.current);
     setOpen(value); onExpandedChange(value);
-    expanded.value = withTiming(value ? 1 : 0, motion.timing('standard'));
+    expanded.value = motion.transforms ? withTiming(value ? 1 : 0, motion.timing('standard')) : value ? 1 : 0;
     labelOpacity.value = value ? withDelay(motion.transforms ? 60 : 0, withTiming(1, motion.timing('standard'))) : withTiming(0, motion.timing('quick'));
   };
   React.useEffect(() => () => {if (pendingBlur.current) clearTimeout(pendingBlur.current);}, []);
-  const panel = useAnimatedStyle(() => ({transform: [{translateX: motion.transforms ? (expanded.value - 1) * (spec.openWidth - spec.width) : 0}]}));
-  const counter = useAnimatedStyle(() => ({transform: [{translateX: motion.transforms ? (1 - expanded.value) * (spec.openWidth - spec.width) : 0}]}));
+  React.useEffect(() => {if (!motion.transforms) expanded.value = open ? 1 : 0;}, [expanded, motion.transforms, open]);
+  const panel = useAnimatedStyle(() => ({transform: [{translateX: (expanded.value - 1) * (spec.openWidth - spec.width)}]}));
+  const counter = useAnimatedStyle(() => ({transform: [{translateX: (1 - expanded.value) * (spec.openWidth - spec.width)}]}));
   const labels = useAnimatedStyle(() => ({opacity: labelOpacity.value}));
   const entries: RailEntry[] = [
     {key: 'search', icon: 'i-search', label: defaultI18n.t('web.shell.search'), destination: {kind: 'search'}},
