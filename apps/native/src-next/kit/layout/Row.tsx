@@ -43,6 +43,7 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
   const [width, setWidth] = useState(0), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<number>();
   const [arrowFocus, setArrowFocus] = useState<'back' | 'forward' | 'all'>();
   const anchor = useFocusAnchor(true, focused !== undefined);
+  const anchorItem = anchor.anchor;
   const stride = itemWidth + (gap ?? theme.spec.shelf.gap[theme.platform]);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
   // The TV track starts directly below the heading margin. Reserve room above
@@ -56,6 +57,9 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
   for (let index = Math.max(0, first - 2); index <= Math.min(items.length - 1, last + 2); index++) indices.push(index);
   if (focused !== undefined && focused < items.length && !indices.includes(focused)) indices.push(focused);
   useEffect(() => {if (width && last >= first) onVisibleRange?.(first, last);}, [first, last, onVisibleRange, width]);
+  useEffect(() => {
+    if (width > 0 && focused !== undefined && focused < items.length) anchorItem(leading + focused * stride, itemWidth, width, extent, leading, trailing);
+  }, [anchorItem, extent, focused, itemWidth, items.length, leading, stride, trailing, width]);
   useEffect(() => {onRepeatingChange?.(anchor.repeating);}, [anchor.repeating, onRepeatingChange]);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
@@ -86,7 +90,7 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
           const item = items[index], id = getKey(item);
           return <MotionItem key={id} style={{position: 'absolute', left: leading + index * stride, top, width: itemWidth, height: itemHeight}}>
             {renderItem(item, {id, index, selection: itemSelection(selection, id), onFocus: () => {
-              setFocused(index); anchor.anchor(leading + index * stride, itemWidth, width, extent, leading, trailing); onItemFocus?.(item, index);
+              setFocused(index); onItemFocus?.(item, index);
             }, onBlur: () => setFocused(current => current === index ? undefined : current)})}
           </MotionItem>;
         })}

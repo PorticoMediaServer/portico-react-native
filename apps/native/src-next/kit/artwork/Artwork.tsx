@@ -8,6 +8,9 @@ import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './mode
 import type {ArtworkProps, ArtworkSource} from './types';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
+// RN 0.83's ImageProps.js and Android native Image both support this decode
+// option; its bundled Image.d.ts omits it. This aliases the same Image host.
+const DecodedImage = Image as React.ComponentType<React.ComponentProps<typeof Image> & {resizeMultiplier?: number}>;
 
 function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, arrivalDurationMs, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
   const placement = useArtworkPlacement();
@@ -59,8 +62,12 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     Animated.timing(opacity, {toValue: 1, duration: artworkArrivalDuration(arrivalDurationMs, theme.motion.standard, reduced, slot.cached), useNativeDriver: true}).start();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
-    <Image key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}
+    <DecodedImage key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}
       accessible={Boolean(alt)} accessibilityLabel={alt} fadeDuration={0} blurRadius={blurRadius}
+      // Decode oversized sharp art near twice its displayed dimensions before
+      // GPU scaling; the Android full-size scaling path visibly aliases detail.
+      // Already-sized ambient64 keeps its original decoded representation.
+      resizeMethod={sized ? 'scale' : 'resize'} resizeMultiplier={2}
       resizeMode={intrinsic && crop ? 'stretch' : mode}
       style={[{position: 'absolute'}, frame, !intrinsic && zoom !== 1 ? {transform: [{scale: zoom}]} : undefined, imageStyle]}
       onLoad={loaded} onError={() => {
