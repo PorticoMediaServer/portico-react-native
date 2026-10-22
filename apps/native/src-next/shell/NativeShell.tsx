@@ -19,6 +19,7 @@ import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
 import {TouchNavigation} from './TouchNavigation';
 import {WindowPostureProvider} from './WindowPosture';
+import {useNavigationTools} from './useNavigationTools';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -65,6 +66,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       pending.current++;
     };
   }, [runtime]);
+  const navigationTools = useNavigationTools(runtime, snapshot, current, !theme.isTV && sizeClass !== 'compact' && !snapshot.selectionActive && !snapshot.mediaExpanded);
   useEffect(() => {
     let pending = true;
     void runtime.memory.read(snapshot.authority).then(id => {if (pending && current()) {setRemembered(id); setMemoryReady(true);}}, error => {if (pending && current()) {setMemoryReady(true); runtime.reportError(error);}});
@@ -134,7 +136,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {!snapshot.selectionActive && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => {if (sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
-        {sizeClass !== 'compact' ? <TouchNavigation sizeClass={sizeClass} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} profileRef={avatarRef} onProfile={() => setAccountOpen(true)}
+        {sizeClass !== 'compact' ? <TouchNavigation sizeClass={sizeClass} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} username={snapshot.account.accountLine} serverName={snapshot.serverName} tools={navigationTools} profileRef={avatarRef} onProfile={() => setAccountOpen(true)}
           onNavigate={next => {if (sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}/>
           : destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}

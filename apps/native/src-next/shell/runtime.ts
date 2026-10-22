@@ -12,6 +12,7 @@ import type {StateViewProps} from '../kit/states';
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
+import type {createNavigationActivity} from './navigation-tools';
 
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
@@ -24,6 +25,8 @@ export type NativeShellSnapshot = Readonly<{
   hasLiveTV: boolean;
   profile: ProfileOption;
   unreadNotifications: boolean;
+  unreadNotificationCount?: number;
+  serverName?: string;
   account: Pick<AccountMenuProps, 'accountLine' | 'actions' | 'profiles' | 'viewerRole' | 'serverAction'>;
 }>;
 
@@ -74,4 +77,5 @@ export interface NativeShellRuntime {
   /** Only installed when a real device destination control exists. */
   castControl?: ReactNode;
   desktopActivity?: ReactNode;
+  navigationActivity?: ReturnType<typeof createNavigationActivity>;
 }

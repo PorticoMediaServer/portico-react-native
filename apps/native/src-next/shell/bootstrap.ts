@@ -25,6 +25,7 @@ import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import type {NativeShellPlaybackAdapter} from './playback';
 import {NativeShellNavigation} from './routes';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
+import {createNavigationActivity, navigationServerName} from './navigation-tools';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -64,6 +65,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
   let playback: ReturnType<typeof createNativeShellPlaybackAdapter> | undefined;
   let navigation: NativeShellNavigation | undefined;
+  let navigationActivity: ReturnType<typeof createNavigationActivity>;
   let session: LocalSession | undefined;
   let services: NativeShellBootstrapServices | undefined;
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
@@ -73,7 +75,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const signal = new AbortController();
   const dispose = () => {
     alive = false; installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
-    playback?.dispose(); bindings?.dispose(); navigation?.dispose();
+    navigationActivity?.service.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
     snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; installationSettings = undefined;
@@ -111,11 +113,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     home = readers.home;
     const documentService = home;
     const identities = new IdentityClient(readers);
-    const [librariesResult, initialAccount, initialAvatars, initialFacts] = await Promise.all([
+    const [librariesResult, initialAccount, initialAvatars, initialFacts, serverName] = await Promise.all([
       readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList),
       readers.readAccount(),
       identities.avatars(signal.signal),
       readers.read(),
+      readers.request(routePath('get_system'), 'GET', undefined, signal.signal).then(raw => navigationServerName(raw, session!.viewer.serverId)).catch(() => undefined),
       documentService.load(),
     ]);
     assertCurrent();
@@ -152,6 +155,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
     const context: NativeShellBootstrapContext = {...contextBase, playback, get account() {return currentAccount();}};
+    if (!Platform.isTV) navigationActivity = createNavigationActivity(context);
     bindings = await makeBindings(context); assertCurrent();
     const selectedBeforePublish = await nativeViewerStorage.read(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
@@ -159,7 +163,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const publish = () => {
       if (!current()) return;
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
-      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, account: bound.account});
+      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, unreadNotificationCount: unread, serverName, account: bound.account});
       for (const listener of [...listeners]) listener();
     };
     publish();
@@ -215,7 +219,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, navigationActivity, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;

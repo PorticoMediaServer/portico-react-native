@@ -1,4 +1,4 @@
-import {sizeClassForWidth, type SizeClass, type Library} from '../../../../packages/client-core/src/index';
+import {libraryNavigationIcon, sizeClassForWidth, type SizeClass, type Library} from '../../../../packages/client-core/src/index';
 import type {IconName} from '../kit/Icon';
 
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
@@ -28,13 +28,8 @@ export function phoneTabs(hasLiveTV: boolean): readonly ShellTab[] {
   ];
 }
 
-export function libraryIcon(kind: string): IconName {
-  if (kind === 'movie') return 'i-film';
-  if (kind === 'tv') return 'i-tvlib';
-  if (kind === 'music') return 'i-music';
-  if (kind === 'audiobook' || kind === 'books') return 'i-book';
-  return 'i-category';
-}
+/** TV glyph semantics come from the same checked canonical presentation mapping. */
+export const libraryIcon = (kind: string): IconName => libraryNavigationIcon(kind, 'tv');
 
 /** First use and a removed/unauthorized remembered id open the overview, even with one library. */
 export function librariesDestination(remembered: string | undefined, libraries: readonly Library[]): ShellDestination {
