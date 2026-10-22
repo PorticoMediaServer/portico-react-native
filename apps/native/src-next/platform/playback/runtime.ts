@@ -94,6 +94,8 @@ export class NativePlaybackRuntime {
   private options?: PlaybackOptions;
   private bookmarks = new Map<string, Bookmark>();
   private updating = false;
+  private factDepth = 0;
+  private factPublication = false;
   private preparing = false;
   private transitionEpoch?: number;
   private expanded = false;
@@ -624,7 +626,13 @@ export class NativePlaybackRuntime {
   }
 
   private makeSnapshot(sequence: number): NativePlaybackRuntimeSnapshot {
-    const playback = this.playback.getSnapshot(), fence = this.retired ? undefined : this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
+    const playback = this.playback.getSnapshot(), nextFence = this.retired ? undefined : this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
+    const previousFence = this.snapshot?.fence;
+    // Progress is a new observation, not a new Surface/source lifetime. Metadata
+    // can change within the same playback fence and must still reach consumers.
+    const fence = nextFence && sameFence(previousFence, nextFence)
+      && (nextFence.kind !== 'queue' || previousFence?.kind === 'queue' && previousFence.showId === nextFence.showId && previousFence.seasonId === nextFence.seasonId)
+      ? previousFence : nextFence;
     const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
@@ -638,10 +646,27 @@ export class NativePlaybackRuntime {
         subtitleTrack: ready && !playback.nativeListening && !!this.subtitleService?.getSnapshot().plan,
         subtitlesCanHide: fence?.kind === 'queue' && session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
   }
-  private publish(): void { this.snapshot = this.makeSnapshot(this.snapshot.sequence + 1); for (const listener of [...this.listeners]) listener(); }
+  private publish(): void {
+    // A native fact can synchronously publish through the path, service and
+    // queue before its observation is settled. React must see that transaction
+    // once, after all those listeners have run, rather than re-enter their fanout.
+    if (this.factDepth) { this.factPublication = true; return; }
+    this.snapshot = this.makeSnapshot(this.snapshot.sequence + 1);
+    for (const listener of [...this.listeners]) listener();
+  }
 
   private acceptFact(fact: any): void {
     if (!this.active()) return;
+    this.factDepth++;
+    try { this.applyFact(fact); }
+    finally {
+      if (--this.factDepth === 0 && this.factPublication) {
+        this.factPublication = false;
+        this.publish();
+      }
+    }
+  }
+  private applyFact(fact: any): void {
     this.path.engineFact(fact);
     const before = this.playback.getSnapshot();
     if (typeof fact.effectiveRate === 'number') this.effectiveRate = fact.effectiveRate;
