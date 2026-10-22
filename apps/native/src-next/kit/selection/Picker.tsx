@@ -25,12 +25,12 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
   const retry = () => {if (!props.pending && failed.length) props.onRetry(failed);};
   const close = () => props.onOpenChange(false, 'action');
   const title = props.creating ? newLabel : selectionText(`next.selection.native.picker.${kind}`);
-  const row = (item: PickerEntry) => <Focusable ref={item.id === preferredId ? entryRef : undefined} hasTVPreferredFocus={isTV && item.id === preferredId} accessibilityRole="button" accessibilityLabel={item.title} focusRadius={isTV ? 16 : 10} focusKind="row"
+  const row = (item: PickerEntry) => <Focusable ref={item.id === preferredId ? entryRef : undefined} hasTVPreferredFocus={isTV && !failed.length && item.id === preferredId} accessibilityRole="button" accessibilityLabel={item.title} focusRadius={isTV ? 16 : 10} focusKind="row"
     disabled={props.pending} onPress={() => props.onAdd(item.id)} style={styles.entry}>
     {state => <View style={[styles.entryContent, {minHeight: isTV ? 104 : 64, paddingHorizontal: isTV ? 16 : 20, gap: isTV ? 24 : 14, borderRadius: isTV ? 16 : 10, backgroundColor: isTV ? state.focused ? colors.text : 'rgba(237,245,250,.07)' : 'transparent'}]}>
       <View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants" style={{width: isTV ? 76 : 48, height: isTV ? 76 : 48, overflow: 'hidden', borderRadius: isTV ? 12 : 10}}>{item.artwork}</View>
       <View style={{flex: 1, minWidth: 0}}>
-        <SelectionText size={isTV ? 28 : 16} weight={700} style={{color: isTV && state.focused ? colors.ink : colors.text}}>{item.title}</SelectionText>
+        <SelectionText numberOfLines={1} size={isTV ? 28 : 16} weight={700} style={{color: isTV && state.focused ? colors.ink : colors.text}}>{item.title}</SelectionText>
         <SelectionText size={isTV ? 20 : 12.5} secondary style={{marginTop: 3, color: isTV && state.focused ? 'rgba(7,16,24,.66)' : colors.textTertiary}}>{selectionText('next.selection.native.titles', {count: item.size})}</SelectionText>
       </View>
       {item.alreadyIn > 0 ? <SelectionText size={isTV ? 20 : 12.5} weight={700} style={{color: isTV && state.focused ? 'rgba(7,16,24,.66)' : colors.accentStrong}}>{selectionText('next.selection.native.alreadyIn', {count: item.alreadyIn})}</SelectionText> : null}

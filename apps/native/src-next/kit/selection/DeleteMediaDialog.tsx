@@ -33,11 +33,11 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
       {result ? <>
         <SelectionText>{selectionText('next.selection.native.deleteResult', {removed: result.removed, failed: result.failed})}</SelectionText>
         {kept.slice(0, 5).map(receipt => <View key={receipt.itemId} style={styles.warning}>
-          <Icon name="i-warn" size={18} color={colors.warning} />
+          <Icon name="i-warn" size={18} color={colors.amber} />
           <View style={{flex: 1, gap: 3}}><SelectionText weight={700}>{receipt.title}</SelectionText><SelectionText size={12} secondary>{selectionText(receipt.code === 'file_changed' ? 'next.selection.native.fileChanged' : 'next.selection.native.fileNotRemoved')}</SelectionText></View>
         </View>)}
         {kept.length > 5 ? <SelectionText secondary>{selectionText('next.selection.native.andMore', {count: kept.length - 5})}</SelectionText> : null}
-      </> : restricted ? <View style={styles.warning} accessibilityLiveRegion="polite"><Icon name="i-warn" size={18} color={gate === 'limit' ? colors.record : colors.warning} /><SelectionText size={13.5} style={{flex: 1}}>{selectionText(gate === 'limit' ? 'next.selection.native.deleteLimit' : gate === 'libraries' ? 'next.selection.native.deleteLibraries' : 'next.selection.native.deleteBlocked', {library: preview?.targets.find(target => !target.allowMediaDeletion)?.libraryName ?? preview?.blocked[0] ?? ''})}</SelectionText></View>
+      </> : restricted ? <View style={styles.warning} accessibilityLiveRegion="polite"><Icon name="i-warn" size={18} color={gate === 'limit' ? colors.record : colors.amber} /><SelectionText size={13.5} style={{flex: 1}}>{selectionText(gate === 'limit' ? 'next.selection.native.deleteLimit' : gate === 'libraries' ? 'next.selection.native.deleteLibraries' : 'next.selection.native.deleteBlocked', {library: preview?.targets.find(target => !target.allowMediaDeletion)?.libraryName ?? preview?.blocked[0] ?? ''})}</SelectionText></View>
         : props.loading || !preview ? <SelectionText secondary>{selectionText('next.selection.native.checking')}</SelectionText> : <>
           {preview.targets.some(target => target.titles > 1) ? <>
             <SelectionText weight={700}>{selectionText('next.selection.native.descendants', {count: preview.targets.reduce((sum, target) => sum + target.titles, 0)})}</SelectionText>

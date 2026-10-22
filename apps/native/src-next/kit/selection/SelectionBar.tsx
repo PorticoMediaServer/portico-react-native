@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useId} from 'react';
 import {BackHandler, StyleSheet, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
@@ -51,6 +51,7 @@ function activate(props: SelectionBarProps, id: SelectionAction) {
 export function SelectionBar(props: SelectionBarProps) {
   const {isTV, colors} = useTheme();
   useSelectionBack(props.onCancel, props.menu);
+  const tintId = useId().replace(/:/g, '');
   const actions = permitted(props.actions, isTV);
   if (!isTV) return <>
     <View style={{paddingTop: props.topInset ?? 0, backgroundColor: 'rgba(7,16,24,.9)', borderBottomWidth: 1, borderBottomColor: 'rgba(92,179,226,.25)'}}>
@@ -65,7 +66,7 @@ export function SelectionBar(props: SelectionBarProps) {
   </>;
   return <>
     <View style={styles.tv}>
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessible={false} pointerEvents="none"><Defs><LinearGradient id="selection-bar-tint" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={colors.accent} stopOpacity={.22}/><Stop offset="1" stopColor={colors.accent} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" rx={22} fill="url(#selection-bar-tint)"/></Svg>
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessible={false} pointerEvents="none"><Defs><LinearGradient id={tintId} x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={colors.accent} stopOpacity={.22}/><Stop offset="1" stopColor={colors.accent} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" rx={22} fill={`url(#${tintId})`}/></Svg>
       <SelectionText size={28} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText>
       {props.subtitle ? <SelectionText size={20} weight={600} secondary>{props.subtitle}</SelectionText> : null}
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
