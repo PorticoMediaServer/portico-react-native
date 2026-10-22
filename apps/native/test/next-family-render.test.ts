@@ -73,13 +73,25 @@ const {default: browseGalleries} = await import('../src-next/dev/families/browse
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
+// Include the conditional DEV registrations, without installing a platform adapter.
+// Individual tests supply controlled callbacks and never claim an OS side effect.
+const previousStateActions = globalThis.__PORTICO_NATIVE_STATES_ACTIONS__;
+const previousStateOwner = globalThis.__PORTICO_NATIVE_STATES_OWNER__;
+globalThis.__PORTICO_NATIVE_STATES_ACTIONS__ = {copyDetails() {}, openAppStore() {}, openServerUpdateHelp() {}};
+globalThis.__PORTICO_NATIVE_STATES_OWNER__ = {ownerMark: null, ownerTag: null, updateTag: null};
 const {default: stateGalleries} = await import('../src-next/dev/families/states/states.gallery.tsx');
+globalThis.__PORTICO_NATIVE_STATES_ACTIONS__ = previousStateActions;
+globalThis.__PORTICO_NATIVE_STATES_OWNER__ = previousStateOwner;
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
+const {StateActionButton} = await import('../src-next/kit/states/StateActionButton.tsx');
+const {HomeSkeleton} = await import('../src-next/kit/states/HomeSkeleton.tsx');
 const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {default: overlayGalleries} = await import('../src-next/dev/families/overlays/overlays.gallery.tsx');
+const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
+const {dispatchRegisteredOverlayKey} = await import('../src-next/platform/overlay-keys.ts');
 type Element = ReactElement<Record<string, any>>;
 function nodes(node: ReactNode): Element[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
@@ -361,4 +373,201 @@ test('real state galleries request initial TV focus only on TV, preserving the n
       finally {gallery.host.unmount();}
     }
   }
+});
+
+test('affected selection registrations mount every applicable default case without Intl.ListFormat', t => {
+  const descriptor = Object.getOwnPropertyDescriptor(Intl, 'ListFormat')!;
+  Object.defineProperty(Intl, 'ListFormat', {...descriptor, value: undefined});
+  t.after(() => Object.defineProperty(Intl, 'ListFormat', descriptor));
+  for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    const applicable = selectionGalleries.filter(value => value.platforms?.includes(isTV ? 'tv' : 'phone'));
+    assert.ok(applicable.length >= (isTV ? 9 : 19));
+    for (const entry of applicable) {
+      const gallery = mount(entry.render, {});
+      const exampleNode = (gallery.tree as Element).props.children as Element;
+      const example = mount(exampleNode.type, exampleNode.props);
+      try {assert.ok(example.tree, entry.id);}
+      finally {example.host.unmount(); gallery.host.unmount();}
+    }
+  }
+});
+
+test('affected selection uses the current evidence callbacks and unsubscribes the actual mounted example', () => {
+  state.theme = createTheme({isTV: false, width: 390});
+  const previous = globalThis.__porticoNativeSelectionEvidence;
+  globalThis.__porticoNativeSelectionEvidence = undefined;
+  const gallery = mount(selectionGalleries.find(value => value.id === 'selection-playlist')!.render, {});
+  const exampleNode = (gallery.tree as Element).props.children as Element;
+  const baseline = mount(exampleNode.type, exampleNode.props);
+  const original = find(baseline.tree, PlaylistPicker).props;
+  baseline.host.unmount();
+  const calls: string[] = [], listeners = new Set<() => void>();
+  let snapshot = {picker: {...original, onAdd: (id: string) => calls.push(`first:${id}`)}};
+  globalThis.__porticoNativeSelectionEvidence = {
+    getSnapshot: () => snapshot as ReturnType<NonNullable<typeof globalThis.__porticoNativeSelectionEvidence>['getSnapshot']>,
+    subscribe: changed => {listeners.add(changed); return () => {listeners.delete(changed);};},
+  };
+  const example = mount(exampleNode.type, exampleNode.props);
+  const pickerNode = find(example.tree, PlaylistPicker);
+  const picker = mount(PlaylistPicker, pickerNode.props);
+  const destinationNode = picker.tree as Element;
+  const destination = mount(destinationNode.type, destinationNode.props);
+  const pressRow = (index = 0) => {
+    const list = find(destination.tree, 'FlatList');
+    const row = list.props.renderItem({item: list.props.data[index]}) as Element;
+    row.props.onPress();
+    return row;
+  };
+  try {
+    assert.equal(listeners.size, 1);
+    pressRow(); assert.deepEqual(calls, ['first:0']);
+    snapshot = {picker: {...snapshot.picker, onAdd: (id: string) => calls.push(`current:${id}`)}};
+    for (const changed of listeners) changed(); example.host.flush();
+    picker.update(find(example.tree, PlaylistPicker).props);
+    destination.update((picker.tree as Element).props);
+    pressRow(); assert.deepEqual(calls, ['first:0', 'current:0']);
+    destination.update({...((picker.tree as Element).props), pending: true});
+    assert.equal(pressRow().props.disabled, true);
+    destination.update({...((picker.tree as Element).props), entries: [{...original.entries[0], canAdd: false}]});
+    assert.equal(pressRow().props.disabled, true);
+    assert.deepEqual(calls, ['first:0', 'current:0']);
+    example.host.unmount(); assert.equal(listeners.size, 0);
+    destination.update(destinationNode.props);
+    assert.throws(() => original.onAdd('0'), /actual fenced controller evidence adapter/);
+  } finally {
+    destination.host.unmount(); picker.host.unmount(); example.host.unmount(); gallery.host.unmount();
+    globalThis.__porticoNativeSelectionEvidence = previous;
+  }
+});
+
+test('affected actual Dialog Cancel waits for presence exit, restores its opener once and releases keys', t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  for (const isTV of [false, true]) for (const reduceMotion of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390, reduceMotion});
+    const gallery = mount(overlayGalleries.find(value => value.id === 'overlays-dialog')!.render, {});
+    const sceneNode = gallery.tree as Element;
+    const scene = mount(sceneNode.type, sceneNode.props);
+    let dialogNode = find(scene.tree, Dialog);
+    const focused: string[] = [];
+    dialogNode.props.initialFocusRef.current = {focus: () => focused.push('cancel')};
+    dialogNode.props.returnFocusRef.current = {focus: () => focused.push('opener')};
+    const dialog = mount(Dialog, dialogNode.props);
+    const surfaceNode = dialog.tree as Element;
+    const surface = mount(surfaceNode.type, surfaceNode.props);
+    try {
+      assert.equal(nodes(scene.tree).filter(node => node.type === 'Modal').length, 0, 'gallery adds no native window');
+      assert.equal(find(surface.tree, 'Modal').props.visible, true, 'actual surface owns the sole native window');
+      const enter = reduceMotion ? 160 : isTV ? 180 : 500;
+      t.mock.timers.tick(enter - 1); assert.deepEqual(focused, []);
+      t.mock.timers.tick(1); assert.deepEqual(focused, ['cancel']);
+      find(dialogNode.props.footer, Button).props.onPress(); gallery.host.flush();
+      scene.update((gallery.tree as Element).props);
+      dialogNode = find(scene.tree, Dialog);
+      assert.equal(dialogNode.props.open, false);
+      dialog.update(dialogNode.props); surface.update((dialog.tree as Element).props);
+      const exit = reduceMotion ? 160 : isTV ? 120 : 500;
+      t.mock.timers.tick(exit - 1); surface.host.flush();
+      assert.ok(surface.tree); assert.deepEqual(focused, ['cancel']);
+      t.mock.timers.tick(1); surface.host.flush();
+      assert.equal(surface.tree, null); assert.deepEqual(focused, ['cancel', 'opener']);
+      assert.equal(dispatchRegisteredOverlayKey('escape'), false);
+      surface.host.unmount(); t.mock.timers.tick(1000);
+      assert.deepEqual(focused, ['cancel', 'opener']);
+    } finally {surface.host.unmount(); dialog.host.unmount(); scene.host.unmount(); gallery.host.unmount();}
+  }
+});
+
+test('affected phone Dialog reopen cancels an old exit and unmount cancels delayed initial focus', t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  state.theme = createTheme({isTV: false, width: 390});
+  const calls: string[] = [];
+  const props = {open: true, onOpenChange() {}, title: 'Dialog', initialFocusRef: {current: {focus: () => calls.push('initial')}}, returnFocusRef: {current: {focus: () => calls.push('old-return')}}};
+  const dialog = mount(Dialog, props), surfaceNode = dialog.tree as Element;
+  const surface = mount(surfaceNode.type, surfaceNode.props);
+  const update = (next: typeof props) => {dialog.update(next); surface.update((dialog.tree as Element).props);};
+  try {
+    t.mock.timers.tick(100);
+    update({...props, open: false}); t.mock.timers.tick(100);
+    update({...props, returnFocusRef: {current: {focus: () => calls.push('current-return')}}});
+    t.mock.timers.tick(400); surface.host.flush();
+    assert.ok(surface.tree); assert.deepEqual(calls, ['initial']);
+    assert.equal(dispatchRegisteredOverlayKey('tab'), false, 'native owns modal traversal');
+    surface.host.unmount(); assert.deepEqual(calls, ['initial', 'current-return']);
+    t.mock.timers.tick(1000); assert.deepEqual(calls, ['initial', 'current-return']);
+  } finally {surface.host.unmount(); dialog.host.unmount();}
+  const earlyDialog = mount(Dialog, props), earlyNode = earlyDialog.tree as Element;
+  const early = mount(earlyNode.type, earlyNode.props);
+  early.host.unmount(); earlyDialog.host.unmount();
+  t.mock.timers.tick(1000);
+  assert.deepEqual(calls, ['initial', 'current-return', 'old-return']);
+  assert.equal(dispatchRegisteredOverlayKey('escape'), false);
+});
+
+test('affected phone State actions reach real buttons with no foreign TV preference and controlled callbacks', () => {
+  state.theme = createTheme({isTV: false, width: 390});
+  const previous = globalThis.__PORTICO_NATIVE_STATES_ACTIONS__, calls: string[] = [], copied: string[] = [];
+  globalThis.__PORTICO_NATIVE_STATES_ACTIONS__ = {copyDetails: text => copied.push(text), openAppStore: platform => calls.push(`store:${platform}`), openServerUpdateHelp: () => calls.push('help')};
+  const open = (id: string) => {
+    const hosts = [mount(stateGalleries.find(value => value.id === id)!.render, {})];
+    while (!find(hosts.at(-1)!.tree, StateLayout)) {
+      const node = hosts.at(-1)!.tree as Element;
+      assert.ok(hosts.length < 4 && typeof node.type === 'function', id);
+      hosts.push(mount(node.type, node.props));
+    }
+    const owner = hosts.at(-1)!;
+    const layout = mount(StateLayout, find(owner.tree, StateLayout).props);
+    return {owner, layout, close() {layout.host.unmount(); for (const host of hosts.reverse()) host.host.unmount();}};
+  };
+  try {
+    for (const id of ['states-connection', 'states-page-failure', 'states-crash', 'states-player-failure', 'states-title-removed', 'states-title-restricted', 'states-update-app', 'states-update-server', 'states-recordings-empty', 'states-member-empty']) {
+      const example = open(id);
+      try {
+        const actions = nodes(example.layout.tree).filter(node => node.type === StateActionButton);
+        assert.ok(actions.length, id);
+        const nativeActions = new Map<string, () => void>();
+        for (const node of actions) {
+          const action = mount(StateActionButton, node.props);
+          const controls: ReturnType<typeof mount>[] = [];
+          try {
+            const button = action.tree as Element;
+            assert.equal(button.type, Button);
+            assert.notEqual(button.props.hasTVPreferredFocus, true, `${id}:${node.props.action.id}`);
+            assert.equal(button.props.onPress, node.props.action.onPress);
+            assert.equal(button.props.ref, node.props.action.ref);
+            assert.equal(button.props.id, undefined); assert.equal(button.props.label, undefined);
+            let controlNode = button;
+            while (controlNode.type !== 'Pressable') {
+              assert.ok(controls.length < 6);
+              const control = mount(controlNode.type, controlNode.props);
+              controls.push(control); controlNode = control.tree as Element;
+            }
+            assert.notEqual(controlNode.props.hasTVPreferredFocus, true, `${id}:native:${node.props.action.id}`);
+            assert.equal(controlNode.props.onPress, node.props.action.onPress);
+            nativeActions.set(node.props.action.id, controlNode.props.onPress);
+          } finally {for (const control of controls.reverse()) control.host.unmount(); action.host.unmount();}
+        }
+        const props = find(example.owner.tree, StateLayout).props;
+        if (id === 'states-connection') {
+          nativeActions.get(props.primaryAction.id)!(); example.owner.host.flush();
+          assert.equal(find(example.owner.tree, StateLayout).props.retry.progress, null);
+        } else if (id === 'states-crash') {
+          nativeActions.get(props.secondaryAction.id)!(); assert.equal(copied.length, 1);
+          assert.ok(copied[0]!.includes('\n')); assert.ok(!copied[0]!.includes('undefined'));
+          nativeActions.get(props.primaryAction.id)!(); example.owner.host.flush(); assert.ok(find(example.owner.tree, HomeSkeleton));
+        } else if (id === 'states-page-failure') {
+          nativeActions.get(props.primaryAction.id)!(); example.owner.host.flush(); assert.ok(find(example.owner.tree, HomeSkeleton));
+        } else if (id === 'states-update-app' || id === 'states-update-server') nativeActions.get(props.primaryAction.id)!();
+      } finally {example.close();}
+    }
+    assert.deepEqual(calls, ['store:android', 'help']);
+    const visible = mount(StateLayout, {title: 'Controlled state', visible: true});
+    try {
+      visible.update({title: 'Controlled state', visible: false});
+      const hidden = nodes(visible.tree).find(node => node.props.accessibilityElementsHidden === true)!;
+      assert.equal(hidden.props.pointerEvents, 'none'); assert.equal(hidden.props.importantForAccessibility, 'no-hide-descendants');
+      visible.update({title: 'Controlled state', visible: true});
+      assert.equal(nodes(visible.tree).find(node => node.props.accessibilityElementsHidden === false)!.props.pointerEvents, 'box-none');
+    } finally {visible.host.unmount();}
+  } finally {globalThis.__PORTICO_NATIVE_STATES_ACTIONS__ = previous;}
 });
