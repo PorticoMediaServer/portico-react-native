@@ -16,6 +16,7 @@ const state = {
   theme: createTheme({isTV: false, width: 390}), fontFamilies, nativeType,
   slot: {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded() {}, failed() {}},
   timings: [] as {toValue: number; duration: number}[],
+  workletTargets: [] as number[],
 };
 Object.assign(globalThis, {__porticoFamilyRenderTest: state});
 const data = (value: string) => `data:text/javascript,${encodeURIComponent(value)}`;
@@ -29,7 +30,7 @@ const native = data(`export * from ${JSON.stringify(rnStub)};
   class Value {constructor(value){this.value=value} setValue(value){this.value=value} stopAnimation(){}}
   export const Animated={View:'AnimatedView',Value,timing:(_,config)=>{globalThis.__porticoFamilyRenderTest.timings.push(config);return {start(){}}}};`);
 const animated = data(`import {useRef} from ${JSON.stringify(import.meta.resolve('react'))};
-  export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),cancelAnimation=()=>{},withTiming=value=>value,withSpring=value=>value,withDelay=(_,value)=>value,runOnJS=fn=>fn,runOnUI=fn=>fn,useAnimatedRef=()=>useRef(null),useAnimatedScrollHandler=()=>{},useAnimatedReaction=()=>{},scrollTo=()=>{};
+  export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),cancelAnimation=()=>{},withTiming=value=>{globalThis.__porticoFamilyRenderTest.workletTargets.push(value);return value;},withSpring=value=>value,withDelay=(_,value)=>value,runOnJS=fn=>fn,runOnUI=fn=>fn,useAnimatedRef=()=>useRef(null),useAnimatedScrollHandler=()=>{},useAnimatedReaction=()=>{},scrollTo=()=>{};
   export const Easing={bezier:()=>v=>v,linear:v=>v},ReduceMotion={Never:'never'};
   export default {View:'AnimatedView',ScrollView:'AnimatedScrollView',createAnimatedComponent:c=>c};`);
 const theme = data(`const s=globalThis.__porticoFamilyRenderTest;export const useTheme=()=>s.theme,fontFamilies=s.fontFamilies,nativeType=s.nativeType,ThemeProvider='ThemeProvider';`);
@@ -236,6 +237,7 @@ test('phone continuation facts stay on one quiet line while TV retains its full 
 
 test('TV shelves reserve focus overflow without shifting the card edge and preserve all native actions', () => {
   state.theme = createTheme({isTV: true, width: 1920});
+  state.workletTargets = [];
   const items = [{id: 'first'}, {id: 'second'}], focused: string[] = [], ranges: number[][] = [];
   let seeAll = 0;
   const row = mount(Row, {title: 'Continue Watching', items, getKey: (item: {id: string}) => item.id,
@@ -245,14 +247,17 @@ test('TV shelves reserve focus overflow without shifting the card edge and prese
     renderItem: (item: {id: string}, context: any) => React.createElement('View', {key: item.id, testID: item.id, onFocus: context.onFocus})});
   try {
     let scroll = find(row.tree, 'AnimatedScrollView');
+    nodes(scroll).find(node => node.props.testID === 'first')!.props.onFocus(); row.host.flush();
+    assert.deepEqual(state.workletTargets, [], 'preferred native focus can arrive before viewport measurement without scrolling against zero width');
     scroll.props.onLayout({nativeEvent: {layout: {width: 1920}}}); row.host.flush();
+    assert.deepEqual(state.workletTargets, [0], 'the measured viewport re-anchors the already focused first card at its200px safe edge');
     scroll = find(row.tree, 'AnimatedScrollView');
     const first = nodes(scroll).find(node => node.props.testID === 'first')!;
     const placed = nodes(scroll).find(node => node.props.style?.position === 'absolute')!;
     assert.equal(placed.props.style.left, 200);
     assert.equal(placed.props.style.top + scroll.props.style.marginTop, 0, 'ring clearance does not add space below the heading');
     assert.ok(placed.props.style.top >= 18, 'the 1.08 scale and 8px outer ring fit above the track');
-    first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first']);
+    first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first', 'first']);
     assert.deepEqual(ranges.at(-1), [0, 1]);
     const all = find(row.tree, 'Pressable'); all.props.onPress(); assert.equal(seeAll, 1);
     assert.ok(all.props.hitSlop.top + all.props.hitSlop.bottom >= 44, 'the compact label retains the expanded target');
