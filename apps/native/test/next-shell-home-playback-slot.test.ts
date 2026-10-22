@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {PlaybackDock, playbackFence} from '../../../packages/player-core/src';
+import {focusTestID} from '../src-next/kit/focus/registry';
+import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme} from '../src-next/kit/theme';
 import {sameAuthority} from '../src-next/shell/model';
 import {sameFence} from '../../../packages/player-core/src';
@@ -18,6 +20,7 @@ test('actual playback layer converts measured window slot to its own origin and 
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     react: h.react, 'react-native': {BackHandler: {}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
+    '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
     '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => ({dragging: {value: false}})},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},

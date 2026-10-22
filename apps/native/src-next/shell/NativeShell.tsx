@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {View, useWindowDimensions} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -7,6 +7,8 @@ import {AccountMenu} from '../kit/shell';
 import {LibraryMenu, LibrarySwitcher, StickyBrowseHeader} from '../kit/browse';
 import {useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
+import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
+import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
 import {authorityKey, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
@@ -20,19 +22,38 @@ import {DesktopHeader} from './DesktopHeader';
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   // Permission/profile/server changes cannot reuse component state, focus, selections or images.
-  return <OverlaysProvider><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></OverlaysProvider>;
+  return <OverlaysProvider key={authorityKey(snapshot.authority)}><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></OverlaysProvider>;
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
-  const destination = snapshot.destination;
+  const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
+  const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {const remember = () => {const saved = registry.capture();
+    if (saved && (saved.regionId === ids.spotlight || saved.regionId === ids.customize || saved.regionId.startsWith(ids.row('').slice(0, -2)))) pageFocus.current = saved;
+  }; remember(); return registry.subscribe(remember);}, [ids, registry]);
+  const pageHold = snapshot.mediaExpanded || !snapshot.homeVisible;
+  const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
+  useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
   const current = useCallback(() => alive.current?.runtime === runtime && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
+  useLayoutEffect(() => {
+    if (!theme.isTV) return;
+    if (pageHold && !heldPage.current && pageFocus.current) heldPage.current = {opener: pageFocus.current, release: registry.retain(pageFocus.current)};
+    if (pageHold || !heldPage.current) return;
+    const held = heldPage.current; heldPage.current = undefined; held.release();
+    const frame = requestAnimationFrame(() => {
+      if (!current()) return;
+      const now = runtime.getSnapshot();
+      if (now.homeVisible && !now.homeObscured && !now.mediaExpanded) registry.restore(held.opener);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [current, pageHold, registry, runtime, theme.isTV]);
   useEffect(() => {
     const lifetime = alive, pending = opening, session = {runtime};
     lifetime.current = session;
@@ -73,12 +94,24 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     if (!current() || mine !== opening.current) return;
     navigate(librariesDestination(id, runtime.getSnapshot().libraries));
   };
-  const expanded = (value: boolean) => {
+  const expanded = useCallback((value: boolean) => {
     setRailExpanded(value);
+    if (value && !railRelease.current && pageFocus.current) railRelease.current = registry.retain(pageFocus.current);
+    if (!value) {railRelease.current?.(); railRelease.current = undefined;}
     // tv.html f2 moves the copy's left edge from200 to470. The frame wins the stale220 token.
     shift.value = motion.transforms ? withTiming(value ? 270 : 0, motion.timing('standard')) : value ? 270 : 0;
     dim.value = withTiming(value ? .42 : 0, motion.timing('standard'));
-  };
+  }, [dim, motion, registry, shift]);
+  useEffect(() => {
+    if (!theme.isTV) return;
+    return runtime.registerTVRailBack?.(() => {
+      if (registry.capture()?.regionId !== ids.rail) return false;
+      const saved = pageFocus.current;
+      expanded(false);
+      if (!registry.restore(saved)) registry.focus(ids.start);
+      return true;
+    });
+  }, [runtime, registry, ids, theme.isTV, expanded]);
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
   const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
@@ -95,7 +128,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
         </View>}
     </Animated.View>
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {!snapshot.selectionActive && (theme.isTV ? <TVRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)}
+    {!snapshot.selectionActive && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => {if (sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>

@@ -1,4 +1,6 @@
-import {focusTestID} from '../src-next/kit/focus/registry.ts';
+import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
+import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
+import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import test, {type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -244,10 +246,12 @@ function shellRuntime() {
   return {runtime, reads, destinations, authority(next: shellModel.ShellAuthority) {snapshot = {...snapshot, authority: next};}};
 }
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime) {
+  const registry = createFocusRegistry();
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
+    '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds},
     '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'}, '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {},
     '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'},
     './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './DesktopHeader': {},
@@ -277,7 +281,7 @@ test('shell library-opening epochs reject navigation interrupted by a later dest
 
 test('shell lifetime replay keeps the newer opening alive while retiring its previous memory read', async () => {
   const state = lifecycle(), port = shellRuntime(), session = await shellSession(state, port.runtime);
-  const lifetime = state.effects[0]!, memory = state.effects[1]!;
+  const lifetime = state.effects[2]!, memory = state.effects[3]!; // Registry subscription and retained-opener cleanup precede the session lifetime.
   let newLifetime: void | (() => void) = undefined, newMemory: void | (() => void) = undefined;
   try {
     lifetime.cleanup!(); memory.cleanup!();
@@ -317,6 +321,7 @@ test('replacing a shell runtime in the same authority retires its pending openin
 });
 
 test('Home scroll registration follows the move function and runtime rather than the transient anchor object', async () => {
+  const registry = createFocusRegistry();
   const state = lifecycle(), moves: string[] = [], events: string[] = [];
   const a = (offset: number) => moves.push(`a:${offset}`), b = (offset: number) => moves.push(`b:${offset}`);
   let anchor = {move: a};
@@ -336,6 +341,7 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../../packages/client-core/src/presentation/home-spotlight': {}, '../../../../../packages/client-core/src/home-selection': {},
     '../../../../../packages/client-core/src/presentation/server-text': {}, '../../../../../packages/client-core/src/presentation/kit-model': {},
+    '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {}, '../../kit/layout': {}, '../../kit/layout/types': {},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => anchor}, '../../kit/states': {HomeSkeleton: 'HomeSkeleton'},
     '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},

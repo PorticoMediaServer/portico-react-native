@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {createFocusRegistry} from '../src-next/kit/focus/registry';
+import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
+import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {createTheme} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : node?.props ? [node, ...descendants(node.props.children)] : [];
 
 test('initial TV focus reanchors when the compact hero measurement arrives and ignores inactive or foreign layout', async () => {
+  const registry = createFocusRegistry();
   const h = hooks(), frames: FrameRequestCallback[] = [], anchors: number[][] = [];
   const previousFrame = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = callback => {frames.push(callback); return frames.length;};
@@ -27,6 +31,8 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_: unknown, text: string) => text},
       '../../../../../packages/client-core/src/presentation/kit-model': {},
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
+      '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
+      '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows},
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
       '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {},
       '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},

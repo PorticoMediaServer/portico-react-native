@@ -11,6 +11,9 @@ import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../..
 import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
 import {AmbientArt} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
+import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
+import {tvFocusIds, tvHomeRegionMap} from '../../shell/tv-focus';
+import {tvHomeRows} from './tv-presentation';
 import {CollectionBanner, LiveCard, PosterCard, RankedCard, SquareCard, WideCard, type CardProps} from '../../kit/cards';
 import {Hero, FocusPreviewHero, Row, type HeroCandidate} from '../../kit/layout';
 import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
@@ -30,6 +33,9 @@ const t = defaultI18n.t;
 export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {
   runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
 }) {
+  const registry = useFocusRegistry();
+  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
+  const ids = useMemo(() => tvFocusIds(authority), [authority]);
   const theme = useTheme(), dimensions = useWindowDimensions();
   const desktop = theme.layoutMode === 'desktop';
   const heroHeight = theme.isTV ? 820 : theme.spec.hero.homeHeight[theme.platform];
@@ -45,11 +51,22 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
-  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => moveToTop(0)), [runtime, moveToTop]);
+  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => {moveToTop(0, true); if (theme.isTV) {setFocus(undefined); registry.focus(ids.start);}}), [runtime, moveToTop, theme.isTV, registry, ids.start]);
+  useEffect(() => {if (!theme.isTV) return; return runtime.registerTVPageBack?.(() => {
+    const selected = registry.capture();
+    if (vertical.offset.value <= 0 && selected?.regionId === ids.spotlight && selected.childId === 'play') return false;
+    moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
+  });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, theme.isTV, vertical.offset]);
   const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
-  const rows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries) : [];
+  const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries) : [];
+  const previousRows = useRef<readonly HomeRow[]>([]);
+  const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
+  const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
+  previousRows.current = rows;
+  const regionMap = tvHomeRegionMap(authority, rows.map(row => row.id));
+  const ranges = useRef(new Map<string, {first: number; last: number; keys?: readonly string[]}>());
   const viewportHeight = theme.isTV ? 1080 : dimensions.height;
   const viewportWidth = theme.isTV ? 1920 : dimensions.width;
 
@@ -96,18 +113,20 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   });
   const heroActions = (candidate: HomeCandidate) => {
     const offers = homeEntryCapabilities(candidate.entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
-    return <>
-      {offers.playable && candidate.target?.playback && <Button icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
+    const order = [...(offers.playable && candidate.target?.playback ? ['play'] : []), ...(offers.watchlisted !== undefined ? ['my-list'] : []), ...(offers.details ? ['details'] : [])];
+    return <HomeRegion focus={theme.isTV ? {...regionMap.spotlight, entry: order[0], orientation: 'horizontal', order} : undefined}>
+      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
         onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
-      {offers.watchlisted !== undefined && <Button icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => {
+      {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
-      {theme.isTV && offers.details && <Button variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
-    </>;
+      {theme.isTV && offers.details && <Button focusId="details" variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
+    </HomeRegion>;
   };
-  const onRowFocus = (row: HomeRow, entry: ContentEntry) => {
+  const onRowFocus = (row: HomeRow, entryId: string) => {
     if (theme.isTV) spotlightEntered.current = true;
-    setFocus({rowId: row.id, entryId: entry.id}); setHeroFocused(false);
+    setFocus({rowId: row.id, entryId}); setHeroFocused(false);
+    if (focus?.rowId === row.id && focus.entryId === entryId) return;
     // Focus changes the TV hero/row geometry. Anchor after that real layout has landed.
     requestAnimationFrame(() => {
       if (!current()) return;
@@ -116,7 +135,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     });
   };
   const spotlight = <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
-    active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
+    testID={theme.isTV ? ids.surface('hero') : undefined} active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
     renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   if (!document) return snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
@@ -154,31 +173,38 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
-      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
-      return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {const box = event.nativeEvent.layout;
+      const retainedIds = theme.isTV && registry.isRegionActive(ids.row(row.id)) && focus?.rowId === row.id ? [focus.entryId] : undefined;
+      const range = (first: number, last: number) => {if (!current()) return; const keys = ranges.current.get(row.id)?.keys; ranges.current.set(row.id, {first, last, keys}); runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds, retainedIds, keys); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
+      const visibleKeys = (keys: readonly string[]) => {if (!current()) return; const before = ranges.current.get(row.id) ?? {first: 0, last: -1};
+        ranges.current.set(row.id, {...before, keys}); runtime.setHomeWindow(sourceRow, rowIndex, before.first, before.last, shown, physicalIds, retainedIds, keys);};
+      return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown} physicalIds={physicalIds} retainedIds={retainedIds} range={ranges.current.get(row.id)}><View onLayout={event => {const box = event.nativeEvent.layout;
         rowPositions.current.set(row.id, box); updateViewport(offset.current);
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
         if (theme.isTV && active && !railExpanded && focus?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
-        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} current={current}/>
-          : row.collection ? <View style={{paddingHorizontal: theme.gutter}}><CollectionBanner title={row.collection.collection.name} kindLabel={t('next.home.collection')} covers={row.collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
+        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth}/>
+          : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><CollectionBanner onFocus={() => onRowFocus(row, row.collection!.collection.id)} title={row.collection.collection.name} kindLabel={t('next.home.collection')} covers={row.collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
             body={homeCollectionCaption(row.collection, runtime.text)[0]?.text}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} backdrop={runtime.artwork(row.collection.backdropUrl)} ambient={runtime.ambient(row.collection.backdropUrl)} visible={shown}
             selection={itemSelection(runtime.selection(row.id), row.collection.collection.id)} onMore={() => guarded(() => runtime.actions.collectionMore(row.collection!, row.id))}
-            primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/></View>
-          : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} itemWidth={width} itemHeight={height}
-            gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range}
+            primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/></View></FocusItem></HomeRegion>
+          : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
+            gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
-            onItemFocus={item => onRowFocus(row, item.entry)} renderItem={(item, context) => <HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
+            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false}
               current={current}/>}/>} 
       </View></HomeWindow>;
     })}
-    <View style={{paddingHorizontal: theme.gutter, paddingVertical: 24}}><Button variant="text" size="compact" onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button></View>
+    <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={{paddingHorizontal: theme.gutter, paddingVertical: 24}}><Button focusId="customize" variant="text" size="compact" onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button></View></HomeRegion>
   </Animated.ScrollView>;
 }
 
-function HomeWindow({runtime, row, sectionOrder, visible, children}: {runtime: NativeShellRuntime; row: HomeRow; sectionOrder: number; visible: boolean; children: React.ReactNode}) {
+function HomeRegion({focus, children}: {focus?: Omit<FocusRegionProps, 'children'>; children: React.ReactNode}) {
+  return focus ? <FocusRegion {...focus}>{children}</FocusRegion> : <>{children}</>;
+}
+
+function HomeWindow({runtime, row, sectionOrder, visible, physicalIds, retainedIds, range, children}: {runtime: NativeShellRuntime; row: HomeRow; sectionOrder: number; visible: boolean; physicalIds?: readonly string[]; retainedIds?: readonly string[]; range?: {first: number; last: number; keys?: readonly string[]}; children: React.ReactNode}) {
   const {isTV} = useTheme(), rowId = row.id, latest = useRef(row);
   latest.current = row;
   useEffect(() => {
@@ -186,13 +212,8 @@ function HomeWindow({runtime, row, sectionOrder, visible, children}: {runtime: N
       runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
       return () => runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
     }
-    // Rows report their real measured window. A parent effect must not overwrite
-    // it with the first128 entries when the focused card is farther down a row.
-    if (row.collection) runtime.setHomeWindow(row, sectionOrder, 0, 0, visible);
-  }, [isTV, runtime, row, sectionOrder, visible]);
-  useEffect(() => {
-    if (isTV && !visible) runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
-  }, [isTV, runtime, row, sectionOrder, visible]);
+    runtime.setHomeWindow(row, sectionOrder, range?.first ?? 0, range?.last ?? (row.collection ? 0 : -1), visible, physicalIds, retainedIds, range?.keys);
+  }, [isTV, runtime, row, sectionOrder, visible, physicalIds, retainedIds, range]);
   useEffect(() => {if (isTV) return () => runtime.setHomeWindow(latest.current, sectionOrder, 0, -1, false);}, [isTV, runtime, rowId, sectionOrder]);
   return children;
 }
@@ -206,7 +227,7 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   const play = offers.playable && target?.playback ? () => {if (current()) runtime.actions.play(entry, target.playback!);} : undefined;
   const actions = play && (theme.isTV || row.kind === 'continue') ? {primaryAction: 'play' as const, onPlay: play, onNavigate: navigate}
     : {primaryAction: 'navigate' as const, onNavigate: navigate, ...(play ? {onPlay: play} : {})};
-  const props: CardProps = {...text, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred,
+  const props: CardProps = {...text, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,
     onMore: () => {if (current()) runtime.actions.more(entry, row.id);}};
   const art = runtime.artwork(row.artworkShape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl);
   return <ArtworkPlacementContext.Provider value={{row: rowIndex + 1, column: context.index, group: row.id}}>
@@ -217,19 +238,19 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   </ArtworkPlacementContext.Provider>;
 }
 
-function HomeLiveRow({row, runtime, visible, itemWidth, onRange, current}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; current: () => boolean}) {
+function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number}) {
   const theme = useTheme(), live = row.live!;
   // Projection time, expiry and server-issued marks define the bounded row. No lineup scan.
   const observed = Date.parse(live.observedAt);
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
-  return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])}
-    itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange}
+  return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
+    itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}
     renderItem={(item: HomeChannel, context) => {
       const channel = item.channel, programme = channel.programmes.find(value => Date.parse(value.start) <= observed && Date.parse(value.end) > observed);
       const parts: readonly FactPart[] = programme ? programmeFactParts({startMs: Date.parse(programme.start), endMs: Date.parse(programme.end), subtitle: programme.subtitle, flags: programme.flags, recording: !!programme.recordingId}, runtime.text, observed) : [];
       const range = programme && programmeTimeRange(Date.parse(programme.start), Date.parse(programme.end), runtime.text);
-      return <LiveCard title={programme?.title ?? channel.name} channel={channel.name} number={channel.number} sourceName={item.source.name}
+      return <LiveCard testID={context.testID} title={programme?.title ?? channel.name} channel={channel.name} number={channel.number} sourceName={item.source.name}
         mark={{id: channel.id, sourceId: channel.sourceId, ...channel.mark}} logo={runtime.artwork(channel.logoPath)} width={itemWidth} visible={visible}
         flags={parts.filter(part => part.role === 'status')} caption={parts.filter(part => part.id === 'remaining')} range={range?.text}
         progress={programme ? (observed - Date.parse(programme.start)) / (Date.parse(programme.end) - Date.parse(programme.start)) : undefined}
