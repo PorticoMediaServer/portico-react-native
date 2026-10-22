@@ -39,7 +39,7 @@ test('TV library order is server-owned and Read never enters the rail', () => {
 test('native breakpoint and safe area geometry retains the drawn bar and scales TV as a unit', () => {
   assert.equal(shellLayout(599, 844, false).panel, 'bottom');
   assert.equal(shellLayout(600, 1024, false).kind, 'tablet');
-  assert.equal(shellLayout(1023, 1366, false).tabs, true);
+  assert.equal(shellLayout(1023, 1366, false).tabs, false);
   assert.equal(shellLayout(1024, 1366, false).kind, 'desktop');
   assert.equal(phoneBarHeight(0), 84);
   assert.equal(phoneBarHeight(34), 84);

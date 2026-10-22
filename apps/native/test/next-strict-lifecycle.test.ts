@@ -251,11 +251,11 @@ async function shellSession(state: ReturnType<typeof lifecycle>, runtime: Native
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
-    '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
+    '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}}), useSizeClass: () => 'compact'}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds},
     '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'}, '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {},
     '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'},
-    './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './DesktopHeader': {},
+    './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './TouchNavigation': {},
   });
   const shell = mount(NativeShell, {runtime});
   try {

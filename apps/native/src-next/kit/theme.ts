@@ -1,6 +1,9 @@
 import React, {createContext, useContext, useMemo} from 'react';
 import {Platform, useWindowDimensions, type TextStyle} from 'react-native';
 import {colors, componentSpec, layers, layout, motion, platformRadii, radii, spacing, targets, typography, typeScale, type TypeRole, type TypeStyle} from '@portico/design';
+import {sizeClassForWidth} from '../../../../packages/client-core/src';
+
+export {useSizeClass, type SizeClass} from './useSizeClass';
 
 export const fontFamilies = {
   400: typography.regular,
@@ -23,12 +26,13 @@ export function nativeType(style: TypeStyle, textScale = 1): TextStyle {
 export type ThemeOptions = {isTV: boolean; width: number; reduceMotion?: boolean; textScale?: number};
 export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: ThemeOptions) {
   // componentSpec names its desktop column web; layoutMode names the actual shell layout.
-  const platform: 'phone' | 'tablet' | 'web' | 'tv' = isTV ? 'tv' : width >= layout.breakpoint.desktop ? 'web' : width < layout.breakpoint.phone ? 'phone' : 'tablet';
+  const sizeClass = sizeClassForWidth(width);
+  const platform: 'phone' | 'tablet' | 'web' | 'tv' = isTV ? 'tv' : sizeClass === 'expanded' ? 'web' : sizeClass === 'compact' ? 'phone' : 'tablet';
   const layoutMode: 'phone' | 'desktop' | 'tv' = isTV ? 'tv' : platform === 'web' ? 'desktop' : 'phone';
   const scale = typeScale[isTV ? 'tenFoot' : layoutMode === 'desktop' ? 'desktop' : 'handheld'];
   const type = Object.fromEntries(Object.entries(scale).map(([role, value]) => [role, nativeType(value, textScale)])) as Record<TypeRole, TextStyle>;
   return {
-    platform, layoutMode, width, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
+    platform, layoutMode, sizeClass, width, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
     radii: isTV ? platformRadii.tv : platformRadii.phone, baseRadii: radii,
     gutter: isTV ? layout.gutter.tv : layoutMode === 'desktop' ? width >= layout.designWidth.desktop ? layout.gutter.desktop : layout.gutter.desktopNarrow : layout.gutter.phone,
     motion, reduceMotion, textScale,

@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:hooks": "eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src src-next App.tsx ../vega/src",
-    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/*.test.ts",
+    "test": "node --experimental-strip-types --import ./test/register.mjs --test test/*.test.ts test/next-size-shell-host.test.mjs",
     "typecheck:test": "tsc -p test/tsconfig.json --noEmit",
     "lint:strings": "node ../../packages/i18n/scripts/lint-strings.mjs src ../../packages/i18n/baselines/apple.json --all --strict && node ../../packages/i18n/scripts/lint-raw-errors.mjs src && node ../../packages/i18n/scripts/lint-glossary.mjs && node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict && node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict",
     "lint:boundary": "node scripts/lint-boundary.mjs",
@@ -48,6 +48,7 @@
     "@types/react": "^19.2.0",
     "eslint": "^8.19.0",
     "prettier": "2.8.8",
+    "react-test-renderer": "19.2.8",
     "rolldown": "1.2.11",
     "typescript": "^5.8.3"
   },

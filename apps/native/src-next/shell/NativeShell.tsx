@@ -5,19 +5,19 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
 import {AccountMenu} from '../kit/shell';
 import {LibraryMenu, LibrarySwitcher, StickyBrowseHeader} from '../kit/browse';
-import {useTheme} from '../kit/theme';
+import {useSizeClass, useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
-import {authorityKey, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
+import {authorityKey, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, touchNavigationWidth, type ShellDestination, type ShellTab} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
 import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
-import {DesktopHeader} from './DesktopHeader';
+import {TouchNavigation} from './TouchNavigation';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -26,7 +26,7 @@ export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
-  const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
+  const theme = useTheme(), sizeClass = useSizeClass(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
@@ -39,6 +39,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
   const current = useCallback(() => alive.current?.runtime === runtime && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
@@ -117,8 +118,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const library = destination.kind === 'library' ? snapshot.libraries.find(item => item.id === destination.libraryId) : undefined;
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
+  const navigationWidth = theme.isTV ? 0 : touchNavigationWidth(sizeClass, sidebarCollapsed);
   const content = <>
-    <Animated.View style={[{flex: 1}, pageStyle]}>
+    <Animated.View testID="native-shell-content" style={[{flex: 1, marginLeft: navigationWidth ? navigationWidth + insets.left : 0}, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
         : <View style={{flex: 1, paddingBottom: barHeight}}>
           {!theme.isTV && library && <StickyBrowseHeader name={library.name} onLibraries={() => navigate({kind: 'libraries'})}
@@ -131,7 +133,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {!snapshot.selectionActive && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={pageFocus.current} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => {if (sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
-        {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>
+        {sizeClass !== 'compact' ? <TouchNavigation sizeClass={sizeClass} collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} profileRef={avatarRef} onProfile={() => setAccountOpen(true)}
+          onNavigate={next => {if (sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}/>
           : destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
       </>)}

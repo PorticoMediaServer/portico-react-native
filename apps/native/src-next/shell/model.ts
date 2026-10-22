@@ -1,4 +1,4 @@
-import type {Library} from '../../../../packages/client-core/src/index';
+import {sizeClassForWidth, type SizeClass, type Library} from '../../../../packages/client-core/src/index';
 import type {IconName} from '../kit/Icon';
 
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
@@ -53,7 +53,13 @@ export function shellLayout(width: number, height: number, isTV: boolean): Shell
     const scale = Math.min(width / 1920, height / 1080);
     return {kind: 'tv', panel: 'side', tabs: false, scale, left: (width - 1920 * scale) / 2, top: (height - 1080 * scale) / 2, width: 1920, height: 1080};
   }
-  return {kind: width < 600 ? 'phone' : width < 1024 ? 'tablet' : 'desktop', panel: width < 600 ? 'bottom' : 'side', tabs: width < 1024, scale: 1, left: 0, top: 0, width, height};
+  const sizeClass = sizeClassForWidth(width);
+  return {kind: sizeClass === 'compact' ? 'phone' : sizeClass === 'medium' ? 'tablet' : 'desktop', panel: sizeClass === 'compact' ? 'bottom' : 'side', tabs: sizeClass === 'compact', scale: 1, left: 0, top: 0, width, height};
+}
+
+/** tablet-kit.css navigation geometry; collapsing changes chrome, never the page tree. */
+export function touchNavigationWidth(sizeClass: SizeClass, collapsed: boolean): number {
+  return sizeClass === 'compact' ? 0 : sizeClass === 'medium' || collapsed ? 84 : 248;
 }
 
 /** The 84-point drawn bar includes the ordinary bottom safe area. Larger insets extend it. */
