@@ -15,7 +15,7 @@ export function MixedEditExplainer(props: MixedEditExplainerProps) {
   const closeRef = useRef<View>(null);
   const mixed = props.groups.length > 1;
   return <SelectionSurface {...props} title={selectionText(mixed ? 'next.selection.native.mixedTitle' : 'next.selection.native.noBulkFields')} description={props.description}
-    initialFocusRef={props.initialFocusRef ?? (mixed ? firstRef : closeRef)}
+    contentStyle={{paddingHorizontal: isTV ? 0 : 20}} initialFocusRef={props.initialFocusRef ?? (mixed ? firstRef : closeRef)}
     footer={<Button testID={controlID(props.testID, 'dismiss')} ref={closeRef} variant="glass" size="compact" style={{alignSelf: 'stretch'}} onPress={() => props.onOpenChange(false, 'action')}>{selectionText('next.selection.native.close')}</Button>}>
     {mixed ? <SelectionText size={isTV ? 20 : 12.5} weight={700} secondary style={{marginVertical: isTV ? 22 : 16}}>{selectionText('next.selection.native.keepOnly')}</SelectionText> : null}
     {mixed ? props.groups.map((group, index) => <Focusable key={group.kind} testID={controlID(props.testID, 'keep-only', group.kind)} ref={index === 0 ? firstRef : undefined} accessibilityRole="button" accessibilityLabel={group.label}

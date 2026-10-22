@@ -17,7 +17,8 @@ const t = defaultI18n.t;
 const fixture = {...statesNativeFixtures,
   available: [{id: 'home', path: 'pool/movies/12-angry-men.jpg', title: statesNativeFixtures.filmOne, year: 1957}, {id: 'alien', path: 'pool/movies/alien.jpg', title: statesNativeFixtures.filmTwo, year: 1979}],
 };
-const asset = (path: string): ArtworkSource => ({uri: `http://100.120.50.24:8787/assets/${path}`, cacheKey: `native-states-reference:${path}`});
+declare global {var __PORTICO_NATIVE_FAMILY_ASSET_BASE__: string | undefined;}
+const asset = (path: string): ArtworkSource => ({uri: `${globalThis.__PORTICO_NATIVE_FAMILY_ASSET_BASE__ ?? 'http://100.120.50.24:8787/assets/'}${path}`, cacheKey: `native-states-reference:${path}`});
 const titleArt = asset('pool/tv/slow-horses--bd.jpg');
 const movieArt = asset('pool/movies/dune-part-two--bd.jpg');
 const wideArt = asset('bd-tlou.jpg');

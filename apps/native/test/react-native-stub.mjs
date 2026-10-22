@@ -133,3 +133,6 @@ export const TVEventHandler = {addListener: handler => new NativeEventEmitter().
 
 /** Only explicitly attached controlled hosts have native handles in source tests. */
 export const findNodeHandle = host => host?.nativeTag ?? null;
+
+// BottomSheet subscribes only for explicitly opted-in native text-entry sheets.
+export const Keyboard = {addListener: () => ({remove() {}})};

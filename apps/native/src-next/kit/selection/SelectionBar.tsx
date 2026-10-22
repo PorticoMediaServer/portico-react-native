@@ -5,12 +5,12 @@ import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {Button} from '../controls/Button';
 import {Focusable} from '../controls/Focusable';
 import {Icon, type IconName} from '../Icon';
-import {Menu} from '../overlays/Menu';
+import {Menu, MenuRow} from '../overlays/Menu';
 import type {FocusRef, MenuEntry} from '../overlays/types';
 import {useTheme} from '../theme';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
-import {SelectionText} from './surface';
+import {SelectionSurface, SelectionText} from './surface';
 import type {SelectionAction, SelectionActionOffer, SelectionBarProps} from './types';
 
 const icons: Record<SelectionAction, IconName> = {play: 'i-play', queue: 'i-queue', playlist: 'i-listplus', myList: 'i-plus', watched: 'i-check', unwatched: 'i-eyeoff', collection: 'i-layers', favorite: 'i-heart', removeMyList: 'i-x', download: 'i-download', edit: 'i-edit', refresh: 'i-refresh', delete: 'i-trash', playNext: 'i-listplus', playLater: 'i-queue', more: 'i-more'};
@@ -23,6 +23,7 @@ const label = (id: SelectionAction) => selectionText(`next.selection.native.acti
 function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'download');}
 function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
   const {isTV} = useTheme();
+  const queueFirst = useRef<View>(null);
   const retainedMenu = useRef(props.menu ?? 'more'), retainedReturn = useRef(props.returnFocusRef);
   if (props.menu !== null) {retainedMenu.current = props.menu; retainedReturn.current = props.returnFocusRef;}
   const menu = props.menu ?? retainedMenu.current;
@@ -36,8 +37,13 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
     items.push({id, label: id === 'watched' ? selectionText('next.selection.native.markWatched') : label(id), icon: icons[id], description: offer.reason, disabled: offer.disabled,
       tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => props.onAction(id)});
   }
+  if (menu === 'queue') return <SelectionSurface testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
+    title={selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}
+    description={selectionText('next.selection.native.queueOrder')} initialFocusRef={queueFirst} returnFocusRef={props.returnFocusRef ?? retainedReturn.current}>
+    {items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry).map((entry, index) => <MenuRow key={entry.id} testID={`${controlID(props.testID, 'menu', menu)}-item-${entry.id}`} ref={index === 0 ? queueFirst : undefined} label={entry.label} icon={entry.icon} disabled={entry.disabled} description={entry.description ?? selectionText(entry.id === 'playNext' ? 'next.selection.native.queueNextDescription' : 'next.selection.native.queueLaterDescription')} onPress={() => {entry.onSelect(); props.onMenuChange(null);}} style={{minHeight: isTV ? 84 : 56, paddingHorizontal: isTV ? 0 : 22}} />)}
+  </SelectionSurface>;
   return <Menu testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
-    title={menu === 'queue' ? selectionText('next.selection.native.queueTitle', {count: props.count}) : props.menuTitle ?? selectionText('next.selection.native.selected', {count: props.count})}
+    title={props.menuTitle ?? selectionText('next.selection.native.selected', {count: props.count})}
     items={items} returnFocusRef={props.returnFocusRef ?? retainedReturn.current} presentation={isTV ? 'sideSheet' : 'sheet'} />;
 }
 function useSelectionBack(onCancel: () => void, menu: SelectionBarProps['menu']) {

@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {View} from 'react-native';
+import {View, useWindowDimensions} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {Gallery} from '../../gallery-registry';
 import {selectionNativeFixtures as fixture} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/selection-native-fixtures';
 import {defaultI18n, formatMessage} from '../../../../../../packages/i18n/src/index';
@@ -10,8 +11,8 @@ import {CoverMosaic, Artwork, type ArtworkSource} from '../../../kit/artwork/ind
 import {PosterCard} from '../../../kit/cards/index';
 import {Button} from '../../../kit/controls/Button';
 import {OverlaysProvider} from '../../../kit/overlays/index';
-import {OwnerTag} from '../../../kit/shell/index';
-import {SelectionCircle, SelectionBar, SelectionPhoneActionBar, BulkEditor, PlaylistPicker, CollectionPicker, DeleteMediaDialog, MixedEditExplainer, bulkReceiptView, type BulkChanges, type BulkEditorProps, type DeleteMediaDialogProps, type DestinationPickerProps, type PickerEntry, type PickerResult, type SelectionAction, type SelectionActionOffer} from '../../../kit/selection/index';
+import {OwnerTag, ServerAudienceTag} from '../../../kit/shell/index';
+import {SelectionBar, SelectionPhoneActionBar, BulkEditor, PlaylistPicker, CollectionPicker, DeleteMediaDialog, MixedEditExplainer, bulkReceiptView, type BulkChanges, type BulkEditorProps, type DeleteMediaDialogProps, type DestinationPickerProps, type PickerEntry, type PickerResult, type SelectionAction, type SelectionActionOffer} from '../../../kit/selection/index';
 import {SelectionText} from '../../../kit/selection/surface';
 import {useTheme} from '../../../kit/theme';
 import {referenceFields, referenceSingleItemFields} from './reference-fields';
@@ -23,7 +24,7 @@ declare global {var __porticoNativeSelectionEvidence: SelectionGalleryEvidence |
 function requireSelectionEvidence(): never {
   throw new Error('Selection gallery mutations require complete props from the actual fenced controller evidence adapter.');
 }
-const reference = 'http://100.120.50.24:8787/assets/pool/movies/';
+const reference = `${globalThis.__PORTICO_NATIVE_FAMILY_ASSET_BASE__ ?? 'http://100.120.50.24:8787/assets/'}pool/movies/`;
 const art = (index: number): ArtworkSource => ({uri: `${reference}${['toy-story.jpg', 'toy-story-2.jpg', 'toy-story-3.jpg', 'toy-story-5.jpg'][index]}`, cacheKey: `selection-reference-${index}`});
 const schemas: readonly RepairFieldSpec[] = [
   {field: 'contentRating', label: fixture.fields.contentRating, group: 'general', type: 'text', bulk: true},
@@ -47,7 +48,7 @@ const actionIds: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myL
 const actions: readonly SelectionActionOffer[] = actionIds.map(id => ({id}));
 type Scenario = keyof typeof fixture.scenarios;
 function SelectionExample({scenario, deniedDestination = false}: {scenario: Scenario; deniedDestination?: boolean}) {
-  const theme = useTheme();
+  const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const prefix = `dev.selection.${deniedDestination ? 'picker-admission' : scenario}`;
   const [evidence, setEvidence] = useState(() => globalThis.__porticoNativeSelectionEvidence?.getSnapshot());
   useEffect(() => {
@@ -58,7 +59,7 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     update();
     return unsubscribe;
   }, []);
-  const [selected, setSelected] = useState<readonly string[]>(scenario === 'circles' ? [] : theme.isTV ? movieEntries.slice(0, 3).map(movie => movie.id) : movieEntries.map(movie => movie.id));
+  const [selected, setSelected] = useState<readonly string[]>(scenario === 'circles' ? [movieEntries[0].id] : theme.isTV ? movieEntries.slice(0, 3).map(movie => movie.id) : movieEntries.map(movie => movie.id));
   const [menu, setMenu] = useState<'queue' | 'watched' | 'more' | null>(scenario === 'queue' ? 'queue' : scenario === 'more' ? 'more' : null);
   const [open, setOpen] = useState(true);
   const [creating, setCreating] = useState(scenario === 'newPlaylist');
@@ -83,11 +84,12 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
   const suppliedResult: PickerResult | undefined = pickerResult ?? (scenario === 'partialPlaylist' && destination ? {destination, inserted: pickerCount - 1, failed: 1, total: pickerCount, failures: [referenceFailure], complete: true} : undefined);
   // Bounded in-memory reference directory, not the current-page search or a server receipt.
   const matching = entries.filter(entry => entry.title.toLocaleLowerCase('en-US').includes(query.toLocaleLowerCase('en-US')));
-  const windowStart = page * 2, windowEntries = matching.slice(windowStart, windowStart + 2);
+  const pageSize = theme.isTV ? 2 : 8;
+  const windowStart = page * pageSize, windowEntries = matching.slice(windowStart, windowStart + pageSize);
   const bulkResult = bulkReceipts.length ? bulkReceiptView(bulkReceipts) : undefined;
   const close = (next: boolean) => setOpen(next);
   const onAction = (action: SelectionAction) => {setLastAction(action);};
-  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, ownerTag: <OwnerTag compact variant="badge" />};
+  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: fixture.selectionLabel, selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: <OwnerTag compact variant="badge" />};
   const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 8}}><OwnerTag compact /></View>};
   const isPicker = ['playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario);
   const isEditor = ['editor', 'episodes', 'tracks', 'editResult'].includes(scenario);
@@ -104,20 +106,19 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
       ...(change.remove.length ? [{id: `${id}-remove`, text: t('next.selection.listRemove', {field: field.label, values: defaultI18n.list(change.remove), count: editorCount})}] : []),
     ];
   });
-  return <View style={{backgroundColor: theme.colors.ink, width: theme.isTV ? 1724 : 390, minHeight: theme.isTV ? 700 : 844, gap: 20}}>
-    <SelectionText weight={700}>{fixture.scenarios[scenario]}</SelectionText>
-    {['bar', 'queue', 'more', 'circles'].includes(scenario) ? <>
+  return <View testID={`${prefix}.frame`} accessibilityLabel={fixture.scenarios[scenario]} style={{backgroundColor: theme.colors.ink, width: theme.isTV ? 1724 : dimensions.width, height: theme.isTV ? 700 : dimensions.height, marginLeft: -theme.gutter}}>
+    <>
       <SelectionBar {...barProps} />
       <View style={{flexDirection: 'row', gap: 18, padding: 20, flexWrap: 'wrap'}}>{movieEntries.map(movie => <PosterCard testID={`${prefix}.movie.${movie.id}`} key={movie.id} title={movie.title} width={theme.isTV ? 200 : 108} artwork={art(movie.artworkIndex)} density="grid"
         onNavigate={() => setLastAction('navigate')} onMore={() => setMenu('more')}
         selection={{active: selected.length > 0, selected: selected.includes(movie.id), onEnter: () => setSelected([movie.id]), onToggle: () => setSelected(current => current.includes(movie.id) ? current.filter(id => id !== movie.id) : [...current, movie.id])}} />)}</View>
-      {scenario === 'circles' ? <View style={{flexDirection: 'row', gap: 24, padding: 20}}>{[false, true].map(value => <SelectionCircle testID={`${prefix}.circle.${value ? 'selected' : 'empty'}`} key={String(value)} selecting selected={value} accessibilityLabel={fixture.movieTitles[value ? 1 : 0]} onSelectedChange={next => setSelected(next ? [movieEntries[0].id] : [])} />)}</View> : null}
-      <SelectionPhoneActionBar {...barProps} />
-    </> : null}
+
+      <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...barProps} bottomInset={Math.max(34, insets.bottom)} /></View>
+    </>
     {!open && !pickerResult ? <Button testID={`${prefix}.open`} size="compact" onPress={() => setOpen(true)}>{fixture.scenarios[scenario]}</Button> : null}
     {lastAction ? <SelectionText>{formatMessage(fixture.lastAction, {action: lastAction}, {locale: 'en-US'})}</SelectionText> : null}
     {isPicker ? React.createElement(collection ? CollectionPicker : PlaylistPicker, {
-      ...base, count: pickerCount, selectionLabel: theme.isTV ? fixture.tvSelectionLabel : fixture.selectionLabel, entries: windowEntries, query, onQueryChange: value => {setQuery(value); setPage(0);}, showFind: true,
+      ...base, count: pickerCount, selectionLabel: theme.isTV ? fixture.tvSelectionLabel : fixture.selectionLabel, entries: windowEntries, query, onQueryChange: value => {setQuery(value); setPage(0);}, showFind: theme.isTV || matching.length > pageSize,
       creating, onCreatingChange: setCreating, name, onNameChange: setName,
       hasNext: windowStart + windowEntries.length < matching.length, hasPrevious: page > 0,
       onNext: windowStart + windowEntries.length < matching.length ? () => setPage(current => current + 1) : undefined,
@@ -128,13 +129,13 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
       ...evidence?.picker,
     }) : null}
     {isEditor ? <BulkEditor {...base} title={scenario === 'episodes' ? fixture.episodeTitle : scenario === 'tracks' ? fixture.trackTitle : fixture.editTitle} count={editorCount} saveLabel={t('next.selection.save', {items: t(editorKind === 'episode' ? 'next.selection.episode' : editorKind === 'song' ? 'next.selection.track' : 'next.selection.movie', {count: editorCount})})}
-      schema={editorSchema}
+      ownerHeader={<ServerAudienceTag audience={{authority: 'owner'}} layout={theme.isTV ? 'desktop' : 'phone'} />} schema={editorSchema}
       fieldLabel={field => field.label} values={referenceFields(editorKind)}
       changes={changes} onChangesChange={setChanges} lockEdited={lockEdited} onLockEditedChange={setLockEdited} onSave={requireSelectionEvidence} result={bulkResult}
       resultEntries={movieEntries.map(movie => ({id: movie.id, title: movie.title, artwork: <Artwork source={art(movie.artworkIndex)} width={30} height={45} />}))}
       onRetry={requireSelectionEvidence}
       singleItemFields={referenceSingleItemFields(editorKind)} summary={summary} {...evidence?.editor} /> : null}
-    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-disk', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
+    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
     {scenario.startsWith('delete') ? <DeleteMediaDialog {...base} owner selectionCount={scenario === 'deleteLimit' ? 240 : scenario === 'deleteOne' || scenario === 'deleteShow' || scenario === 'deleteBlocked' ? 1 : 4}
       preview={deletionPreview(scenario)} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
       onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(movieEntries.find(movie => movie.id === id)?.artworkIndex ?? 0)} width={24} height={36} />} {...evidence?.deletion} /> : null}
