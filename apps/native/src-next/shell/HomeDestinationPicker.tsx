@@ -31,7 +31,7 @@ export function HomeDestinationPicker({controller, runtime, reportError}: {
     return {id: row.itemId, title: homeCardText(entry, false, runtime.text).title, reason: presentError({code: row.code}, 'home', {operation: 'action'}).body};
   });
   const counts = nativePickerCounts(picker);
-  const result: PickerResult | undefined = receipt && destination ? {destination: {id: destination.id, title: destination.name, artwork: art(destination.artwork)},
+  const result: PickerResult | undefined = receipt && destination ? {destination: {id: destination.id, title: destination.name, size: destination.count, artwork: art(destination.artwork)},
     ...counts!, failures} : undefined;
   const Picker = picker.kind === 'playlist' ? PlaylistPicker : CollectionPicker;
   return <Picker open onOpenChange={open => {if (!open) controller.closePicker();}} count={state.displayMembers.length}
@@ -48,7 +48,8 @@ export function HomeDestinationPicker({controller, runtime, reportError}: {
       const expected = receipt?.failures.map(row => row.itemId) ?? [];
       if (ids.length !== expected.length || new Set(ids).size !== expected.length || ids.some(id => !expected.includes(id))) {reportError(new Error('invalid_picker_retry_targets')); return;}
       run(controller.retryPicker());
-    }} onRetryOperation={picker.phase === 'uncertain' ? () => run(controller.retryPicker()) : undefined}
+    }} onRetryError={picker.phase === 'error' ? () => run(controller.retryPicker()) : undefined}
+    onRetryOperation={picker.phase === 'uncertain' ? () => run(controller.retryPicker()) : undefined}
     result={result} onViewDestination={id => {if (controller.getSnapshot().picker?.destination?.id === id) run(controller.viewDestination());}}
     onResultDismiss={() => controller.closePicker()}/>;
 }
