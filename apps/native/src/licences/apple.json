@@ -1175,7 +1175,7 @@
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
-  "apps/native/licences/assets.json": "68ca19fea182a00c1a326130336350ed701a54ac5c5c09b508e04cd35fa73781",
+  "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-ios.txt": "c4b6511bc949ec57c0ede945b7fd94e5454b37797d19aecb19cc1ffe9b440b79",
   "apps/native/package-lock.json": "1adc8beeac7e3bffc2ae46e6b15eeb068a07e7cdc0210ae0825513132a2944f5",
   "apps/native/tvos/Podfile.lock": "d7764c7627c8cbb59a15b9a1d586fd3b0fdfc4f7abb66a14708e27e3c199ccfe",

@@ -19,6 +19,7 @@
 		A57AB0000000000000000001 /* manrope-500.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A57AF0000000000000000001 /* manrope-500.ttf */; };
 		A57AB0000000000000000002 /* manrope-600.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A57AF0000000000000000002 /* manrope-600.ttf */; };
 		A57AB0000000000000000003 /* manrope-700.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A57AF0000000000000000003 /* manrope-700.ttf */; };
+		A57AB0000000000000000004 /* manrope-800.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A57AF0000000000000000004 /* manrope-800.ttf */; };
 		A57B00000000000000000001 /* PorticoAudioSelection.m in Sources */ = {isa = PBXBuildFile; fileRef = A57B00000000000000000002 /* PorticoAudioSelection.m */; };
 		A57C00000000000000000001 /* PorticoPlaybackController.m in Sources */ = {isa = PBXBuildFile; fileRef = A57C00000000000000000002 /* PorticoPlaybackController.m */; };
 		A57D00000000000000000001 /* PorticoPlaybackModule.m in Sources */ = {isa = PBXBuildFile; fileRef = A57D00000000000000000002 /* PorticoPlaybackModule.m */; };
@@ -73,6 +74,7 @@
 		A57AF0000000000000000001 /* manrope-500.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "../assets/manrope-500.ttf"; sourceTree = "<group>"; };
 		A57AF0000000000000000002 /* manrope-600.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "../assets/manrope-600.ttf"; sourceTree = "<group>"; };
 		A57AF0000000000000000003 /* manrope-700.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "../assets/manrope-700.ttf"; sourceTree = "<group>"; };
+		A57AF0000000000000000004 /* manrope-800.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "../assets/manrope-800.ttf"; sourceTree = "<group>"; };
 		A57B00000000000000000002 /* PorticoAudioSelection.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioSelection.m; sourceTree = "<group>"; };
 		A57C00000000000000000002 /* PorticoPlaybackController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoPlaybackController.m; sourceTree = "<group>"; };
 		A57D00000000000000000002 /* PorticoPlaybackModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoPlaybackModule.m; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A57AB0000000000000000003 /* manrope-700.ttf in Resources */,
+				A57AB0000000000000000004 /* manrope-800.ttf in Resources */,
 				A57AB0000000000000000002 /* manrope-600.ttf in Resources */,
 				A57AB0000000000000000001 /* manrope-500.ttf in Resources */,
 				A57AB0000000000000000000 /* manrope-400.ttf in Resources */,
