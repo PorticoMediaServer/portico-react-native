@@ -1,0 +1,157 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
+
+test('standard index/App Home actions use restored authority, current documents and real registered controller lifetimes', async t => {
+  const app = await standardHomeApp();
+  const sessions = () =>
+    app.receipts.filter(
+      receipt =>
+        receipt.path === '/v1/playback/sessions' &&
+        receipt.method === 'POST' &&
+        receipt.status === 201,
+    );
+  const genericToast = () =>
+    app
+      .hosts()
+      .some(
+        host =>
+          host.name === 'Text' &&
+          host.children === 'Something went wrong. Try again.',
+      );
+  try {
+    await t.test(
+      'standard App reaches real Home after secure-record and verified-route restore',
+      () => {
+        assert.ok(
+          app.hosts().some(host => host.props.testID === 'native-home'),
+        );
+        assert.ok(
+          app.receipts.some(
+            receipt =>
+              receipt.path === '/v1/networking/identity-proof' &&
+              receipt.status === 200,
+          ),
+        );
+        assert.ok(
+          app.receipts.some(
+            receipt => receipt.path === '/v1/me' && receipt.status === 200,
+          ),
+        );
+        assert.ok(
+          app.receipts.some(
+            receipt =>
+              receipt.path === '/v1/me/devices/current/capabilities' &&
+              receipt.status === 204,
+          ),
+        );
+        assert.equal(sessions().length, 0);
+      },
+    );
+    await t.test(
+      'an HTTP boundary failure reaches the real Home toast and creates no session',
+      async () => {
+        app.fault({status: 500, code: 'r25_boundary_options_failure'});
+        await app.tap();
+        assert.ok(
+          app.receipts.some(
+            receipt =>
+              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.status === 500 &&
+              receipt.errorCode === 'r25_boundary_options_failure',
+          ),
+        );
+        assert.equal(sessions().length, 0);
+        assert.ok(
+          genericToast(),
+          'the same generic text alone cannot identify the failed call',
+        );
+        app.fault(undefined);
+      },
+    );
+    await t.test(
+      'real Home subscription refresh replaces callbacks and refuses an unoffered retained entry',
+      async () => {
+        const previous = app.card().props.onPress;
+        await app.refresh();
+        assert.notEqual(app.card().props.onPress, previous);
+        const count = app.requests.length;
+        previous();
+        await app.settle();
+        assert.equal(
+          app.requests.length,
+          count,
+          'a deliberately retained stale callback cannot dispatch playback',
+        );
+        assert.equal(sessions().length, 0);
+        assert.ok(
+          genericToast(),
+          'a second distinct guarded failure also has generic text',
+        );
+      },
+    );
+    await t.test(
+      'current native Continue onPress traverses real playback options and creates a protocol session',
+      async () => {
+        await app.tap();
+        assert.ok(
+          app.receipts.some(
+            receipt =>
+              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.status === 200,
+          ),
+        );
+        assert.equal(sessions().length, 1);
+        assert.equal(
+          app.errors.length,
+          0,
+          'real production Fabric commits have no rendering or nested-update error',
+        );
+      },
+    );
+    await t.test(
+      'App unmount/restoration registers a genuine More menu whose Resume creates a second session',
+      async () => {
+        await app.unmount();
+        // server-connections intentionally keeps one app-global native monitor. Runtime subscriptions must retire.
+        assert.deepEqual(app.subscriptions(), {
+          listeners: 1,
+          appState: 1,
+          pending: 0,
+          frames: 0,
+        });
+        await app.mount();
+        await app.more();
+        assert.ok(
+          app
+            .hosts()
+            .some(
+              host =>
+                host.name === 'Pressable' &&
+                host.props.accessibilityLabel === 'Resume',
+            ),
+        );
+        await app.menuResume();
+        assert.equal(
+          sessions().length,
+          2,
+          'actual HomeWindow membership, controller menu and guarded playback port succeed',
+        );
+      },
+    );
+    await t.test(
+      'changed server Home fence retires the real authority and removes Home',
+      async () => {
+        await app.retireHome();
+        assert.equal(
+          app.hosts().some(host => host.props.testID === 'native-home'),
+          false,
+        );
+        assert.equal(sessions().length, 2);
+      },
+    );
+  } finally {
+    await app.unmount();
+    app.disposeLoader();
+  }
+});
