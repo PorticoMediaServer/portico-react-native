@@ -92,7 +92,7 @@ function DockCase({kind}: {kind: Case}) {
     setSnapshot(dock.getSnapshot());
   }, [injected, dock]);
   const localFence = presentation.local?.fence;
-  const morph = usePlayerMorph({docked, travel: 690, onRelease: value => {if (localFence) action({type: value ? 'collapse' : 'expand', fence: localFence});}});
+  const morph = usePlayerMorph({docked, fence: localFence, travel: 690, onRelease: value => {if (localFence) action({type: value ? 'collapse' : 'expand', fence: localFence});}});
   const occupant = currentOccupant(dock, external, presentation);
   const parked = !injected && snapshot.parkedAudio?.kind !== 'live' ? snapshot.parkedAudio : null;
   const notice = injected ? injected.notice : !noticeDismissed && parked ? {id: 'gallery-paused-audio', kind: 'paused-audio' as const, fence: parked.fence, identity: playbackIdentity({kind: 'music', item: {id: parked.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), positionSeconds: parked.positionSeconds} : undefined;

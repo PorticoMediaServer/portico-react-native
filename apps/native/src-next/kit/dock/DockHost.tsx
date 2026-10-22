@@ -29,6 +29,11 @@ export function DockHost({dock, snapshot, presentation, onAction, bottomInset, v
     const restoring = command.type === 'restore-audio' || command.type === 'restore-video';
     if (commandIsCurrent(dock, command) && (restoring || (latest && commandAllowed(latest, command.type)))) onAction(command);
   }, [dock, presentation, onAction]);
+  const interactionCurrent = useCallback(() => {
+    const latest = currentOccupant(dock, dock.getSnapshot(), presentation);
+    return visible && !!wanted && !!latest && latest.mode === wanted.mode && sameFence(latest.playback.fence, wanted.playback.fence)
+      && latest.remote?.id === wanted.remote?.id && latest.remote?.sequence === wanted.remote?.sequence;
+  }, [dock, presentation, visible, wanted]);
   const setTVExpanded = useCallback((value: boolean) => {setExpanded(value); onTVExpandedChange?.(value);}, [onTVExpandedChange]);
   const shown = presence.shown;
   if (!shown) return null;
@@ -37,7 +42,7 @@ export function DockHost({dock, snapshot, presentation, onAction, bottomInset, v
     {(theme.isTV ? tvOpen : menu) && <View pointerEvents="none" style={[dockStyles.fill, {backgroundColor: alpha(theme.colors.ink, .5)}]}/>}
     <Animated.View pointerEvents={wanted ? 'box-none' : 'none'} style={[dockStyles.fill, presence.style]}>{theme.isTV ? <NowPlayingCard occupant={shown} onAction={action} visible={!!wanted && visible} expanded={!!wanted && tvOpen} onExpandedChange={setTVExpanded} returnFocusRef={returnFocusRef}
       style={{position: 'absolute', top: 44, right: theme.layout.gutter.tvRight}}/> :
-      <MediaBar occupant={shown} onAction={action} visible={!!wanted && visible} onMenuOpenChange={setMenu} onVideoSlot={reportVideoSlot} slotAdmission={presence.slotAdmission} morph={morph}
+      <MediaBar occupant={shown} onAction={action} visible={!!wanted && visible} onMenuOpenChange={setMenu} onVideoSlot={reportVideoSlot} slotAdmission={presence.slotAdmission} isCurrent={interactionCurrent} morph={morph}
         style={{position: 'absolute', left: 8, right: 8, bottom: bottomInset ?? Math.max(84, safe.bottom) + 8}}/>}</Animated.View>
     {!theme.isTV && notice && onNoticeDismiss && <DockNotice notice={notice} onAction={action} onDismiss={onNoticeDismiss} bottomOffset={(bottomInset ?? 92) + 62 + 10}/>}
   </View>;

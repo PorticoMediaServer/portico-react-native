@@ -14,17 +14,33 @@ import type {DockRect, PlayerMorphController} from './types';
 export type PlayerMorphOptions = {
   docked: boolean;
   travel: number;
-  onRelease: (docked: boolean) => void;
+  fence?: PlaybackFence;
+  /** Caller supplies the single animated ancestor around picture and chrome. */
+  dockMotionHosted?: boolean;
+  onRelease: (docked: boolean, fence: PlaybackFence, fromDocked: boolean) => void;
 };
 
 /** One continuous value is retargeted, including during a reversal. It is never reset to an endpoint. */
-export function usePlayerMorph({docked, travel, onRelease}: PlayerMorphOptions): PlayerMorphController {
+export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false, onRelease}: PlayerMorphOptions): PlayerMorphController {
   const motion = useMotion();
   const progress = useSharedValue(docked ? 1 : 0), velocity = useSharedValue(0), dragging = useSharedValue(false), releaseVelocity = useSharedValue(0);
+  const dockX = useSharedValue(0), dockFade = useSharedValue(1);
   const origin = useSharedValue(0), span = useSharedValue(travel), lastTime = useSharedValue(0);
-  const callback = useRef(onRelease);
+  const intent = useRef({fence, docked, epoch: 1});
+  if (intent.current.docked !== docked || (intent.current.fence !== fence && !currentMorphFence(intent.current.fence, fence))) {
+    intent.current = {fence, docked, epoch: intent.current.epoch + 1};
+  }
+  const source = intent.current;
+  const epoch = useSharedValue(source.epoch), run = useSharedValue(0), started = useSharedValue(0);
+  const callback = useRef(onRelease), mounted = useRef(false), consumed = useRef(0);
   callback.current = onRelease;
-  const released = useCallback((target: boolean) => callback.current(target), []);
+  const released = useCallback((target: boolean, original: PlaybackFence, version: number, gestureRun: number) => {
+    const current = intent.current;
+    if (!mounted.current || current.epoch !== version || epoch.value !== version || run.value !== gestureRun
+      || consumed.current === gestureRun || !currentMorphFence(current.fence, original)) return;
+    consumed.current = gestureRun;
+    callback.current(target, original, current.docked);
+  }, [epoch, run]);
   useEffect(() => {span.value = Math.max(1, travel);}, [travel, span]);
   const spring = useMemo(() => motion.spring('player'), [motion]);
   const request = useCallback((target: boolean, speed?: number) => {
@@ -33,33 +49,57 @@ export function usePlayerMorph({docked, travel, onRelease}: PlayerMorphOptions):
     // Reanimated inherits the running spring's instantaneous velocity on retarget.
     progress.value = spring ? withSpring(target ? 1 : 0, {...spring, velocity: inherited}) : withTiming(target ? 1 : 0, motion.timing());
   }, [progress, velocity, releaseVelocity, spring, motion]);
-  useEffect(() => {request(docked);}, [docked, request]);
+  useEffect(() => {
+    epoch.value = source.epoch; run.value++; dragging.value = false;
+    cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
+    dockX.value = 0; dockFade.value = 1;
+    request(source.docked);
+  }, [source, request, epoch, run, dragging, progress, dockX, dockFade]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false; epoch.value++; run.value++; dragging.value = false;
+      cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
+    };
+  }, [epoch, run, dragging, progress, dockX, dockFade]);
   useAnimatedReaction(() => progress.value, (value, previous) => {
     const now = performance.now(), elapsed = now - lastTime.value;
     if (!dragging.value && previous !== null && elapsed > 0 && elapsed < 100) velocity.value = (value - previous) * 1000 / elapsed;
     lastTime.value = now;
   });
-  const gesture = useMemo(() => Gesture.Pan().activeOffsetY([-10, 10]).failOffsetX([-12, 12])
-    .onBegin(() => {cancelAnimation(progress); origin.value = progress.value; dragging.value = true;})
-    .onUpdate(event => {
-      const value = origin.value + event.translationY / span.value;
-      progress.value = value < 0 ? value * .18 : value > 1 ? 1 + (value - 1) * .18 : value;
-      velocity.value = event.velocityY / span.value;
-    })
-    .onEnd(event => {
-      const target = releaseDock(progress.value, event.velocityY);
-      dragging.value = false;
-      releaseVelocity.value = velocity.value;
-      progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}) : withTiming(target, {duration: 160});
-      runOnJS(released)(target === 1);
-    })
-    .onFinalize((_event, success) => {
-      if (!success && dragging.value) {
+  const gestures = useMemo(() => {
+    // RNGH mutates handler identity on attachment. Each physical detector gets
+    // its own instance, even while the outgoing dock chrome remains mounted.
+    const pan = (forDock: boolean) => Gesture.Pan().enabled(!!source.fence && source.docked === forDock).activeOffsetY([-10, 10]).failOffsetX([-12, 12])
+      .onBegin(() => {
+        if (epoch.value !== source.epoch || source.docked !== forDock) return;
+        run.value++; started.value = run.value;
+        cancelAnimation(progress); origin.value = progress.value; dragging.value = true;
+      })
+      .onUpdate(event => {
+        if (!dragging.value || epoch.value !== source.epoch || started.value !== run.value) return;
+        const value = origin.value + event.translationY / span.value;
+        progress.value = value < 0 ? value * .18 : value > 1 ? 1 + (value - 1) * .18 : value;
+        velocity.value = event.velocityY / span.value;
+      })
+      .onEnd((event, success) => {
+        // RNGH calls onEnd(false) BEFORE onFinalize(false) for ACTIVE cancellation.
+        if (!success || !dragging.value || epoch.value !== source.epoch || started.value !== run.value || !source.fence) return;
+        const target = releaseDock(progress.value, event.velocityY);
         dragging.value = false;
-        progress.value = spring ? withSpring(docked ? 1 : 0, {...spring, velocity: velocity.value}) : withTiming(docked ? 1 : 0, {duration: 160});
-      }
-    }), [progress, origin, dragging, span, velocity, releaseVelocity, spring, released, docked]);
-  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, gesture}), [progress, velocity, dragging, releaseVelocity, request, gesture]);
+        releaseVelocity.value = velocity.value;
+        progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}) : withTiming(target, {duration: 160});
+        runOnJS(released)(target === 1, source.fence, source.epoch, started.value);
+      })
+      .onFinalize((_event, success) => {
+        if (!success && dragging.value && epoch.value === source.epoch && started.value === run.value) {
+          run.value++; dragging.value = false; cancelAnimation(progress);
+          progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}) : withTiming(source.docked ? 1 : 0, {duration: 160});
+        }
+      });
+    return {gesture: pan(false), dockGesture: pan(true)};
+  }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, released, source, epoch, run, started]);
+  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, gestures]);
 }
 
 export type PlayerMorphProps = {
@@ -87,6 +127,11 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   const full = useSharedValue(fullFrame), dock = useSharedValue(dockFrame), base = useSharedValue(frame);
   const target = useSharedValue(docked ? 1 : 0), surfaceFade = useSharedValue(fence ? 1 : 0);
   const active = useSharedValue(fence !== undefined);
+  const lifetime = useRef({fence, docked});
+  if (lifetime.current.docked !== docked || (lifetime.current.fence !== fence && !currentMorphFence(lifetime.current.fence, fence))) lifetime.current = {fence, docked};
+  const transition = lifetime.current;
+  const settledTransition = useRef(transition), wasMoving = useRef(false), mounted = useRef(false);
+  useEffect(() => {mounted.current = true; return () => {mounted.current = false; cancelAnimation(surfaceFade);};}, [surfaceFade]);
   const currentFence = useRef(fence), previousFence = useRef<PlaybackFence | undefined>(undefined);
   currentFence.current = fence;
   useEffect(() => {if (validRect(fullFrame)) full.value = fullFrame; if (validRect(dockFrame)) dock.value = dockFrame;}, [fullFrame, dockFrame, full, dock]);
@@ -96,23 +141,31 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     previousFence.current = fence;
     active.value = fence !== undefined;
     cancelAnimation(surfaceFade);
-    setMovingFor(undefined);
+    setMovingFor(undefined); wasMoving.current = false; settledTransition.current = transition;
     surfaceFade.value = fence ? 1 : 0;
     // A new source starts at its own actual layout; an idle gap retains no previous fence.
     const nextFrame = docked && validRect(dockFrame) ? dockFrame : fullFrame;
     if (validRect(nextFrame)) {setFrame(nextFrame); base.value = nextFrame;}
-  }, [fence, docked, dockFrame, fullFrame, active, surfaceFade, base]);
+  }, [fence, docked, dockFrame, fullFrame, active, surfaceFade, base, transition]);
   const settle = useCallback((value: number) => {
-    if (!currentMorphFence(currentFence.current, fence)) return;
+    if (!mounted.current || lifetime.current !== transition || !currentMorphFence(currentFence.current, fence)) return;
     const finalFrame = value === 1 ? dockFrame : fullFrame;
     if (!validRect(finalFrame)) return;
-    setFrame(finalFrame);
+    setFrame(previous => previous.x === finalFrame.x && previous.y === finalFrame.y && previous.width === finalFrame.width && previous.height === finalFrame.height ? previous : finalFrame);
     base.value = finalFrame;
     setMovingFor(undefined);
-    surfaceFade.value = 0;
-    surfaceFade.value = withTiming(1, motion.timing());
-  }, [fence, fullFrame, dockFrame, base, surfaceFade, motion]);
-  const updateMoving = useCallback((value: boolean) => {if (currentMorphFence(currentFence.current, fence)) setMovingFor(value ? fence : undefined);}, [fence]);
+    if (settledTransition.current !== transition || wasMoving.current) {
+      cancelAnimation(surfaceFade);
+      surfaceFade.value = 0;
+      surfaceFade.value = withTiming(1, motion.timing());
+    }
+    settledTransition.current = transition; wasMoving.current = false;
+  }, [fence, fullFrame, dockFrame, base, surfaceFade, motion, transition]);
+  const updateMoving = useCallback((value: boolean) => {
+    if (mounted.current && lifetime.current === transition && currentMorphFence(currentFence.current, fence)) {
+      wasMoving.current = value; setMovingFor(value ? fence : undefined);
+    }
+  }, [fence, transition]);
   useEffect(() => {if (motion.reduce && !dragging.value) settle(docked ? 1 : 0);}, [docked, motion.reduce, dragging, settle]);
   useAnimatedReaction(() => ({active: active.value, p: progress.value, v: velocity.value, drag: dragging.value, goal: target.value}), (now, previous) => {
     if (!now.active) return;

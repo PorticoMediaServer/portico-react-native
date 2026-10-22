@@ -12,6 +12,7 @@ import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView} from '../../platform/native-blur';
+import {selectionHaptic} from '../../platform/haptics';
 import {commandAllowed, dockCommand, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
 import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
@@ -21,20 +22,23 @@ export type MediaBarProps = DockRenderProps & {
   /** Host closes this while its ancestor moves; standalone bars have no presence transform. */
   slotAdmission?: DockSlotAdmission | null;
   onMenuOpenChange?: (open: boolean) => void;
+  /** Live core ownership, including a replacement before React rerenders. */
+  isCurrent?: () => boolean;
   morph?: PlayerMorphController;
   menuOpen?: boolean;
 };
 
 /** This chrome has no video element, segment input, prompt slot, queue preview, or volume. */
-export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotAdmission, onMenuOpenChange, morph, menuOpen, style, testID}: MediaBarProps) {
+export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotAdmission, onMenuOpenChange, isCurrent, morph, menuOpen, style, testID}: MediaBarProps) {
   const theme = useTheme(), motion = useMotion(), t = defaultI18n.t;
   const bar = useRef<View>(null), art = useRef<View>(null), opener = useRef<View>(null), firstMenu = useRef<View>(null);
   const [internalMenu, setMenu] = useState(false);
   const menu = menuOpen ?? internalMenu;
-  const width = useSharedValue(374), x = useSharedValue(0), xOrigin = useSharedValue(0), held = useSharedValue(1), fade = useSharedValue(1), words = useSharedValue(1);
+  const width = useSharedValue(374), localX = useSharedValue(0), xOrigin = useSharedValue(0), held = useSharedValue(1), localFade = useSharedValue(1), words = useSharedValue(1);
   const {presentation: p, remote, playback} = occupant;
   const menuSource = useRef(playback.fence), menuRemote = useRef(remote?.id);
   const video = occupant.mode === 'video', wide = video || !!remote;
+  const sharedPicture = video && morph?.dockMotionHosted === true, x = sharedPicture ? morph.dockX : localX, fade = sharedPicture ? morph.dockFade : localFade;
   const terminal = !!remote && ['stopped', 'replaced', 'error'].includes(remote.phase);
   const connecting = !!remote && ['connecting', 'pairing', 'waiting'].includes(remote.phase);
   const progress = progressOf(occupant);
@@ -52,32 +56,84 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   useEffect(() => {words.value = 0; words.value = withTiming(1, motion.timing('standard'));}, [p.identity.title, playback.fence.sourceId, motion, words]);
   const dismiss = useCallback(() => act(terminal ? 'dismiss-remote' : remote ? 'stop' : 'close'), [act, terminal, remote]);
   const spring = useMemo(() => motion.spring('settle'), [motion]);
-  const latest = useRef({occupant, onAction});
-  latest.current = {occupant, onAction};
-  const gestureTarget = useRef(occupant);
-  if (!sameFence(gestureTarget.current.playback.fence, playback.fence) || gestureTarget.current.remote?.id !== remote?.id || gestureTarget.current.remote?.sequence !== remote?.sequence) gestureTarget.current = occupant;
+  const latest = useRef({occupant, onAction, visible, isCurrent});
+  latest.current = {occupant, onAction, visible, isCurrent};
+  const gestureTarget = useRef({occupant, visible, epoch: 1});
+  const old = gestureTarget.current;
+  if (!sameFence(old.occupant.playback.fence, playback.fence) || old.occupant.remote?.id !== remote?.id
+    || old.occupant.remote?.sequence !== remote?.sequence || old.visible !== visible || old.occupant.mode !== occupant.mode) {
+    gestureTarget.current = {occupant, visible, epoch: old.epoch + 1};
+  }
   const gestureSource = gestureTarget.current;
-  const dismissFromGesture = useCallback(() => {
-    const original = gestureSource;
+  const lifetime = useSharedValue(gestureSource.epoch), run = useSharedValue(0), active = useSharedValue(false);
+  const mounted = useRef(false), consumed = useRef(0);
+  const hold = useRef<{source: typeof gestureSource; used: boolean} | null>(null);
+  useEffect(() => {
+    lifetime.value = gestureSource.epoch; run.value++; active.value = false; hold.current = null;
+    cancelAnimation(x); cancelAnimation(fade); cancelAnimation(held);
+    x.value = 0; fade.value = 1; held.value = 1;
+    return () => {
+      lifetime.value = -1; run.value++; active.value = false; hold.current = null;
+      cancelAnimation(x); cancelAnimation(fade); cancelAnimation(held);
+    };
+  }, [gestureSource, lifetime, run, active, x, fade, held]);
+  useEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
+  const currentInteraction = useCallback(() => mounted.current && gestureTarget.current === gestureSource
+    && latest.current.visible && latest.current.isCurrent?.() !== false, [gestureSource]);
+  const dismissFromGesture = useCallback((version: number) => {
+    if (!currentInteraction() || version !== run.value || consumed.current === version) return;
+    consumed.current = version;
+    const original = gestureSource.occupant;
     const terminalRemote = original.remote && ['stopped', 'replaced', 'error'].includes(original.remote.phase);
     const type = terminalRemote ? 'dismiss-remote' : original.remote ? 'stop' : 'close';
     changeMenu(false);
     if (commandAllowed(original, type)) latest.current.onAction(dockCommand(original, type));
-  }, [changeMenu, gestureSource]);
-  const aside = useMemo(() => Gesture.Pan().activeOffsetX([-10, 10]).failOffsetY([-12, 12])
-    .onBegin(() => {cancelAnimation(x); xOrigin.value = x.value;})
-    .onUpdate(event => {x.value = xOrigin.value + event.translationX;})
-    .onEnd(event => {
-      const direction = releaseAside(x.value, event.velocityX, width.value);
+  }, [changeMenu, gestureSource, currentInteraction, run]);
+  const aside = useMemo(() => Gesture.Pan().enabled(visible).activeOffsetX([-10, 10]).failOffsetY([-12, 12])
+    .onBegin(() => {
+      if (!gestureSource.visible || lifetime.value !== gestureSource.epoch) return;
+      run.value++; active.value = true;
+      cancelAnimation(x); cancelAnimation(fade); fade.value = 1; xOrigin.value = x.value;
+    })
+    .onUpdate(event => {if (active.value && lifetime.value === gestureSource.epoch) x.value = xOrigin.value + event.translationX;})
+    .onEnd((event, success) => {
+      if (!success || !active.value || lifetime.value !== gestureSource.epoch) return;
+      active.value = false;
+      const direction = releaseAside(x.value, event.velocityX, width.value), version = run.value;
       if (direction) {
-        const done = (finished?: boolean) => {if (finished) runOnJS(dismissFromGesture)();};
+        const done = (finished?: boolean) => {if (finished && run.value === version && lifetime.value === gestureSource.epoch) runOnJS(dismissFromGesture)(version);};
         if (spring) x.value = withSpring(direction * width.value * 1.25, {...spring, velocity: event.velocityX}, done);
         else {x.value = 0; fade.value = withTiming(0, {duration: 160}, done);}
       } else if (spring) x.value = withSpring(0, {...spring, velocity: event.velocityX});
       else {x.value = 0; fade.value = withTiming(1, {duration: 160});}
-    }).onFinalize((_event, success) => {if (!success) x.value = spring ? withSpring(0, spring) : 0;}), [x, xOrigin, width, spring, fade, dismissFromGesture]);
-  const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.gesture) : aside, [aside, morph]);
-  const animated = useAnimatedStyle(() => ({opacity: fade.value, transform: [{translateX: x.value}, {scale: held.value}]}));
+    }).onFinalize((_event, success) => {
+      if (!success && lifetime.value === gestureSource.epoch) {
+        run.value++; active.value = false; cancelAnimation(x); cancelAnimation(fade);
+        x.value = spring ? withSpring(0, spring) : 0; fade.value = 1;
+      }
+    }), [x, xOrigin, width, spring, fade, dismissFromGesture, visible, gestureSource, lifetime, run, active]);
+  const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.dockGesture) : aside, [aside, morph]);
+  // Local video uses the single ancestor shared with its native picture. Applying
+  // x/fade here too would double the chrome's movement and opacity.
+  const animated = useAnimatedStyle(() => ({opacity: sharedPicture ? 1 : fade.value, transform: [{translateX: sharedPicture ? 0 : x.value}, {scale: held.value}]}));
+  const beginHold = useCallback(() => {
+    if (!currentInteraction()) return;
+    hold.current = {source: gestureSource, used: false};
+    held.value = motion.transforms ? withTiming(.98, motion.timing('quick')) : 1;
+  }, [currentInteraction, gestureSource, held, motion]);
+  const endHold = useCallback(() => {
+    if (hold.current?.source !== gestureSource) return;
+    hold.current = null;
+    held.value = motion.transforms ? withSpring(1, motion.spring('snap')) : 1;
+  }, [gestureSource, held, motion]);
+  const heldMenu = useCallback(() => {
+    const pending = hold.current;
+    if (!currentInteraction() || remote || !pending || pending.source !== gestureSource || pending.used) return;
+    pending.used = true;
+    held.value = motion.transforms ? withSpring(1.02, motion.spring('snap')) : 1;
+    void selectionHaptic();
+    changeMenu(true);
+  }, [currentInteraction, remote, gestureSource, held, motion, changeMenu]);
   const textMotion = useAnimatedStyle(() => ({opacity: words.value, transform: [{translateY: motion.transforms ? 6 * (1 - words.value) : 0}]}));
   const slotSource = useRef(playback.fence);
   if (!sameFence(slotSource.current, playback.fence)) slotSource.current = playback.fence;
@@ -92,14 +148,14 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   }, []);
   const measureArt = useCallback(() => {
     const version = ++measurement.current, node = art.current;
-    if (!measuring.current || !video || !visible || !onVideoSlot || !node || slotAdmission === null || slotAdmission?.isCurrent() === false) return;
+    if (!measuring.current || active.value || x.value !== 0 || fade.value !== 1 || held.value !== 1 || !video || !visible || !onVideoSlot || !node || slotAdmission === null || slotAdmission?.isCurrent() === false) return;
     node.measureInWindow((ax, ay, w, h) => {
       const now = slotNow.current, rect = {x: ax, y: ay, width: w, height: h};
-      if (measuring.current && version === measurement.current && node === art.current && now.video && now.visible &&
+      if (measuring.current && !active.value && x.value === 0 && fade.value === 1 && held.value === 1 && version === measurement.current && node === art.current && now.video && now.visible &&
         now.onVideoSlot === onVideoSlot && now.slotAdmission === slotAdmission && sameFence(now.fence, measuredFence) &&
         slotAdmission?.isCurrent() !== false && validRect(rect)) onVideoSlot(rect);
     });
-  }, [video, visible, onVideoSlot, slotAdmission, measuredFence]);
+  }, [video, visible, onVideoSlot, slotAdmission, measuredFence, active, x, fade, held]);
   // Ancestor transforms do not produce a child onLayout at animation completion.
   useEffect(() => {
     const request = measurement;
@@ -130,9 +186,9 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
       <View style={[s.phone, wide && s.video, {backgroundColor: alpha(theme.colors.raisedBright, .88), borderWidth: 1, borderColor: alpha(theme.colors.text, menu ? .12 : .07)}]}>
         <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>
         <Focusable ref={opener} focusTreatment="none" style={[s.body, {gap: wide ? 11 : 12}]} accessible={!connecting && !terminal} accessibilityRole={connecting || terminal ? undefined : 'button'} accessibilityLabel={connecting || terminal ? undefined : label}
-          onPress={() => act(remote ? 'open-remote' : 'expand')} onLongPressAction={!remote ? () => {held.value = motion.transforms ? withSpring(1.02, motion.spring('snap')) : 1; changeMenu(true);} : undefined} delayLongPress={500}
-          onPressIn={() => {held.value = motion.transforms ? withTiming(.98, motion.timing('quick')) : 1;}}
-          onPressOut={() => {held.value = motion.transforms ? withSpring(1, motion.spring('snap')) : 1;}}
+          onPress={() => act(remote ? 'open-remote' : 'expand')} onLongPressAction={!remote ? heldMenu : undefined} delayLongPress={500}
+          onPressIn={beginHold}
+          onPressOut={endHold}
           accessibilityActions={[{name: 'activate', label: remote ? label : t('next.dock.native.openPlayer')}, {name: 'stop', label: t('action.stop')}]}
           onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'stop') dismiss(); else if (event.nativeEvent.actionName === 'activate') act(remote ? 'open-remote' : 'expand');}}>
           <View ref={art} collapsable={false} onLayout={measureArt} pointerEvents="none" style={[wide ? s.videoArt : s.art, {backgroundColor: theme.colors.shadow}]}>

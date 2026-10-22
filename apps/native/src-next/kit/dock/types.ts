@@ -57,8 +57,13 @@ export type PlayerMorphController = {
   dragging: SharedValue<boolean>;
   releaseVelocity: SharedValue<number>;
   request: (docked: boolean, velocity?: number) => void;
-  /** Full player and dock bind this to their actual picture/bar GestureDetector. */
+  /** Shared ancestor motion for video chrome AND its retained native picture. */
+  dockMotionHosted: boolean;
+  dockX: SharedValue<number>;
+  dockFade: SharedValue<number>;
+  /** Each physical detector owns a distinct RNGH instance. */
   gesture: PanGesture;
+  dockGesture: PanGesture;
 };
 export type DockHostProps = {
   dock: PlaybackDock;
