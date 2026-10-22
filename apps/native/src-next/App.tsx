@@ -1,15 +1,17 @@
-import React, {type ComponentType} from 'react';
+import React, {useMemo, type ComponentType} from 'react';
 import {Platform, StatusBar, View} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {ThemeProvider, useTheme} from './kit/theme';
+import {NativeShell, type NativeShellRuntime} from './shell';
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
-export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; reduceMotion?: boolean; textScale?: number};
+export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; runtime?: NativeShellRuntime; reduceMotion?: boolean; textScale?: number};
 
-function NativeRoot({phoneShell, tvShell}: NativeAppProps) {
+function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const {colors} = useTheme();
-  const Shell = Platform.isTV ? tvShell : phoneShell;
+  const RuntimeShell = useMemo(() => runtime ? function BoundNativeShell() {return <NativeShell runtime={runtime}/>;} : undefined, [runtime]);
+  const Shell = RuntimeShell ?? (Platform.isTV ? tvShell : phoneShell);
   return <View testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null}</View>;
 }
 
