@@ -17,6 +17,7 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
   const {isTV, colors} = useTheme();
   const nameRef = useRef<TextInput>(null);
   const retryRef = useRef<View>(null);
+  const retryRecovery = props.onRetryError ?? props.onRetryOperation, recovering = !!retryRecovery;
   const entryRef = useRef<View>(null);
   const listRef = useRef<FlatList<PickerEntry>>(null);
   const windowKey = JSON.stringify([props.query, props.entries.map(entry => entry.id)]);
@@ -48,9 +49,12 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
   };
   const failures = props.result?.failures ?? [];
   const failed = [...new Set(failures.map(row => row.id))];
-  const complete = !!props.result && !props.onRetryOperation && pickerResultSucceeded(props.result);
+  const retryFailed = failed.length > 0 && !!props.result?.complete && !recovering && !props.loading;
+  const retryAvailable = recovering || retryFailed;
+  useEffect(() => {if (props.open && retryAvailable) focusTarget(retryRef.current);}, [props.open, retryAvailable]);
+  const complete = !!props.result && !recovering && !props.loading && pickerResultSucceeded(props.result);
   const newLabel = selectionText(`next.selection.native.new.${kind}`);
-  const retry = () => {if (!props.pending && props.result?.complete && failed.length) props.onRetry(failed);};
+  const retry = () => {if (!props.pending && !props.loading && !recovering && props.result?.complete && failed.length) props.onRetry(failed);};
   const close = () => props.onOpenChange(false, 'action');
   const title = props.creating ? newLabel : selectionText(`next.selection.native.picker.${kind}`);
   const rowContent = (item: PickerResult['destination'] & Partial<Pick<PickerEntry, 'size' | 'alreadyIn'>>, active: boolean) => <View style={[styles.entryContent, {minHeight: isTV ? 104 : 64, paddingHorizontal: isTV ? 16 : 20, gap: isTV ? 24 : 14, borderRadius: isTV ? 16 : 10, backgroundColor: isTV ? active ? colors.text : 'rgba(237,245,250,.07)' : 'transparent'}]}>
@@ -62,18 +66,18 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
     {item.alreadyIn !== undefined && item.alreadyIn > 0 ? <SelectionText size={isTV ? 20 : 12.5} weight={700} style={{color: isTV && active ? 'rgba(7,16,24,.66)' : colors.accentStrong}}>{selectionText('next.selection.native.alreadyIn', {count: item.alreadyIn})}</SelectionText> : null}
   </View>;
   const row = (item: PickerEntry) => <Focusable ref={item.id === preferredId ? entryRef : undefined} hasTVPreferredFocus={isTV && !failed.length && item.id === preferredId} accessibilityRole="button" accessibilityLabel={item.title} focusRadius={isTV ? 16 : 10} focusKind="row"
-    disabled={props.pending || !item.canAdd} onPress={() => {if (item.canAdd && !props.pending) props.onAdd(item.id);}} onFocus={() => {focused.current = true;}} onBlur={() => {focused.current = false;}} style={styles.entry}>
+    disabled={props.pending || props.loading || !item.canAdd} onPress={() => {if (item.canAdd && !props.pending && !props.loading) props.onAdd(item.id);}} onFocus={() => {focused.current = true;}} onBlur={() => {focused.current = false;}} style={styles.entry}>
     {state => rowContent(item, state.focused)}
   </Focusable>;
   const buttons = <View style={styles.buttons}>
-    <Button size="compact" variant="glass" onPress={props.creating ? () => props.onCreatingChange(false) : close}>{selectionText(props.creating ? 'next.selection.native.cancel' : 'next.selection.native.done')}</Button>
-    {props.onRetryOperation ? <Button ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={props.onRetryOperation}>{selectionText('next.selection.native.retry')}</Button> : props.creating ? <Button size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={() => props.onCreateAndAdd(props.name.trim() || newLabel)}>{selectionText('next.selection.native.createAdd', {count: props.count})}</Button>
-      : failed.length && props.result?.complete ? <Button ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={retry}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: failures[0]!.title}) : selectionText('next.selection.native.retry')}</Button> : null}
+    <Button size="compact" variant="glass" onPress={props.creating && !props.result && !recovering ? () => props.onCreatingChange(false) : close}>{selectionText(props.creating && !props.result && !recovering ? 'next.selection.native.cancel' : 'next.selection.native.done')}</Button>
+    {retryRecovery ? <Button ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={() => {if (!props.pending) retryRecovery();}}>{selectionText('next.selection.native.retry')}</Button> : props.creating && !props.result ? <Button size="compact" loading={props.pending} disabled={props.loading} style={{flex: 1, alignSelf: 'stretch'}} onPress={() => {if (!props.pending && !props.loading) props.onCreateAndAdd(props.name.trim() || newLabel);}}>{selectionText('next.selection.native.createAdd', {count: props.count})}</Button>
+      : retryFailed ? <Button ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={retry}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: failures[0]!.title}) : selectionText('next.selection.native.retry')}</Button> : null}
   </View>;
   return <>
     <SelectionSurface scrollable={false} open={props.open} onOpenChange={props.onOpenChange} title={title} description={props.selectionLabel}
-      initialFocusRef={failed.length || props.onRetryOperation ? retryRef : props.creating ? props.initialFocusRef ?? nameRef : props.initialFocusRef ?? entryRef} returnFocusRef={props.returnFocusRef}
-      testID={props.testID} footer={props.creating || props.result || props.onRetryOperation ? buttons : undefined} contentStyle={{paddingHorizontal: 0}}>
+      initialFocusRef={retryAvailable ? retryRef : props.creating ? props.initialFocusRef ?? nameRef : props.initialFocusRef ?? entryRef} returnFocusRef={props.returnFocusRef}
+      testID={props.testID} footer={props.creating || props.result || recovering ? buttons : undefined} contentStyle={{paddingHorizontal: 0}}>
       {props.error ? <View style={styles.notice}><SelectionText>{props.error}</SelectionText></View> : null}
       {props.result ? <View style={styles.notice} accessibilityLiveRegion="polite" accessibilityState={{busy: !props.result.complete}}>
         {props.result.inserted !== undefined ? <SelectionText size={isTV ? 24 : 14.5} weight={700}>{props.result.total !== undefined ? selectionText('next.selection.native.addedPartial', {added: props.result.inserted, count: props.result.total, title: props.result.destination.title}) : selectionText('next.selection.native.added', {count: props.result.inserted, title: props.result.destination.title})}</SelectionText> : null}
@@ -81,9 +85,9 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
         {props.result.jobFacts?.map(fact => <SelectionText key={fact.id} size={isTV ? 22 : 13.5} secondary>{fact.text}</SelectionText>)}
         {failures.map(item => <SelectionText key={item.id} size={isTV ? 22 : 13.5} secondary>{selectionText('next.selection.native.couldNotAdd', {title: item.title, reason: item.reason ?? selectionText('next.selection.native.addFailed')})}</SelectionText>)}
       </View> : null}
-      {props.onRetryOperation && !props.result ? null : !props.result && props.creating ? <View style={{paddingHorizontal: 20, paddingBottom: 8}}>{props.nameInput ?? <TextField ref={nameRef} autoFocus={!isTV} value={props.name} onChangeText={props.onNameChange} label={selectionText('next.selection.native.name')} accessibilityLabel={selectionText('next.selection.native.name')} placeholder={newLabel} editable={!props.pending} returnKeyType="done" onSubmitEditing={() => {if (!props.pending) props.onCreateAndAdd(props.name.trim() || newLabel);}} />}</View> : props.result ? rowContent({...props.result.destination, alreadyIn: props.result.alreadyIn}, false) : <>
+      {recovering && !props.result ? null : !props.result && props.creating ? <View style={{paddingHorizontal: 20, paddingBottom: 8}}>{props.nameInput ?? <TextField ref={nameRef} autoFocus={!isTV} value={props.name} onChangeText={props.onNameChange} label={selectionText('next.selection.native.name')} accessibilityLabel={selectionText('next.selection.native.name')} placeholder={newLabel} editable={!props.pending} returnKeyType="done" onSubmitEditing={() => {if (!props.pending && !props.loading) props.onCreateAndAdd(props.name.trim() || newLabel);}} />}</View> : props.result ? rowContent({...props.result.destination, alreadyIn: props.result.alreadyIn}, false) : <>
         {props.showFind ? <View style={{paddingHorizontal: 20, paddingBottom: 6}}><TextField variant="search" value={props.query} onChangeText={props.onQueryChange} accessibilityLabel={selectionText(`next.selection.native.find.${kind}`)} placeholder={selectionText(`next.selection.native.find.${kind}`)} /></View> : null}
-        <Focusable accessibilityRole="button" accessibilityLabel={newLabel} disabled={props.pending} onPress={() => props.onCreatingChange(true)} focusRadius={isTV ? 16 : 10} style={{paddingHorizontal: isTV ? 16 : 20, minHeight: isTV ? 104 : 64, flexDirection: 'row', alignItems: 'center', gap: isTV ? 24 : 14}}>
+        <Focusable accessibilityRole="button" accessibilityLabel={newLabel} disabled={props.pending || props.loading} onPress={() => {if (!props.pending && !props.loading) props.onCreatingChange(true);}} focusRadius={isTV ? 16 : 10} style={{paddingHorizontal: isTV ? 16 : 20, minHeight: isTV ? 104 : 64, flexDirection: 'row', alignItems: 'center', gap: isTV ? 24 : 14}}>
           <View style={{width: isTV ? 76 : 48, height: isTV ? 76 : 48, borderRadius: isTV ? 12 : 10, backgroundColor: 'rgba(237,245,250,.1)', alignItems: 'center', justifyContent: 'center'}}><Icon name="i-plus" size={isTV ? 36 : 24} /></View><SelectionText size={isTV ? 28 : 16} weight={700}>{newLabel}</SelectionText>
         </Focusable>
         <FlatList ref={listRef} data={props.entries} keyExtractor={item => item.id} renderItem={({item}) => row(item)} scrollEnabled nestedScrollEnabled
