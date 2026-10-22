@@ -5,12 +5,11 @@ import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/Artw
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
 import {artworkAttemptSource, artworkFrame} from './model';
-import {bindArtworkPreparation} from './preparation';
 import type {ArtworkProps, ArtworkSource} from './types';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
 
-function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange, preparation}: ScheduledProps) {
+function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
   const placement = useArtworkPlacement();
   const slot = useArtworkSlot(source.cacheKey, placement, priority);
   const reduced = useReducedMotion();
@@ -21,17 +20,15 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   if (!decoded) displayedAttempt.current = slot.attempt;
   const requestAttempt = displayedAttempt.current;
   const opacity = useRef(new Animated.Value(slot.cached ? 1 : 0)).current;
-  const callbacks = useRef({onReady, onLoad, onError, onStatusChange});
+  const callbacks = useRef({source, onReady, onLoad, onError, onStatusChange});
   const live = useRef(true);
-  const prepared = useRef<ReturnType<typeof bindArtworkPreparation>>(undefined);
-  useLayoutEffect(() => {
-    const binding = bindArtworkPreparation(preparation, {uri: source.uri, cacheKey: source.cacheKey});
-    prepared.current = binding;
-    return () => {binding?.release(); if (prepared.current === binding) prepared.current = undefined;};
-  }, [preparation, source.uri, source.cacheKey]);
-  callbacks.current = {onReady, onLoad, onError, onStatusChange};
+  const reportedFailure = useRef(false);
+  callbacks.current = {source, onReady, onLoad, onError, onStatusChange};
   const status = slot.gaveUp ? 'error' : decoded && !slot.recovering ? 'ready' : slot.active ? 'loading' : 'queued';
-  useEffect(() => {callbacks.current.onStatusChange?.(status); if (status === 'error') prepared.current?.failed();}, [status]);
+  useEffect(() => {
+    callbacks.current.onStatusChange?.(status);
+    if (status === 'error' && !reportedFailure.current) {reportedFailure.current = true; callbacks.current.onError?.(callbacks.current.source);}
+  }, [status]);
   useEffect(() => {
     if (!slot.active || slot.recovering && status !== 'ready') {
       setDecoded(false);
@@ -40,7 +37,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     }
   }, [slot.active, slot.recovering, status, opacity]);
   useEffect(() => () => opacity.stopAnimation(), [opacity]);
-  useEffect(() => {live.current = true; return () => {live.current = false;};}, []);
+  useLayoutEffect(() => {live.current = true; return () => {live.current = false;};}, []);
 
   const uri = sized ? source.uri : sizedUri(source.uri, boxWidth, boxWidth / boxHeight, PixelRatio.get());
   const attemptIdentity = JSON.stringify([uri, requestAttempt]);
@@ -54,7 +51,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     const natural = event.nativeEvent.source;
     if (natural?.width > 0 && natural.height > 0) setIntrinsic({width: natural.width, height: natural.height});
     slot.loaded();
-    prepared.current?.ready();
+    reportedFailure.current = false;
     setDecoded(true);
     callbacks.current.onReady?.(source);
     callbacks.current.onLoad?.(source);
@@ -69,7 +66,8 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
       onLoad={loaded} onError={() => {
         if (!live.current || currentAttempt.current !== attemptIdentity) return;
         setDecoded(false); opacity.stopAnimation(); opacity.setValue(0);
-        slot.failed(); prepared.current?.failed(); callbacks.current.onError?.(source);
+        slot.failed();
+        if (!reportedFailure.current) {reportedFailure.current = true; callbacks.current.onError?.(source);}
       }}/>
     {imageOverlay}
   </Animated.View> : null;

@@ -1,9 +1,9 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useState} from 'react';
 import {Text, View} from 'react-native';
 import type {Gallery} from '../../gallery-registry';
 import {defaultI18n} from '../../../../../../packages/i18n/src/index';
 import {artworkNativeFixtureMessages} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/artwork-native-fixtures';
-import {Artwork, AmbientArt, ArtistCircle, ChannelMark, ColourBackdrop, CoverFan, CoverMosaic, GeneratedArt, GeneratedCover, MediaArt, PersonCircle, ProfileFace, ProfilePicker, createArtworkPreparation, type AmbientArtSource, type ArtworkSource, type ArtworkPalette, type ProfileOption} from '../../../kit/artwork/index';
+import {Artwork, AmbientArt, ArtistCircle, ChannelMark, ColourBackdrop, CoverFan, CoverMosaic, GeneratedArt, GeneratedCover, MediaArt, PersonCircle, ProfileFace, ProfilePicker, type AmbientArtSource, type ArtworkSource, type ArtworkPalette, type ProfileOption} from '../../../kit/artwork/index';
 import {Button, Focusable} from '../../../kit/controls/index';
 import {useTheme} from '../../../kit/theme';
 
@@ -42,22 +42,16 @@ function HeroCase() {
   const theme = useTheme();
   const real = suppliedEvidence();
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [visible, setVisible] = useState(true);
   const foreground = real?.foreground ?? phoneBackdrop;
-  const preparation = useMemo(() => visible ? createArtworkPreparation(foreground) : undefined, [foreground, visible]);
-  useEffect(() => {
-    if (!preparation) return;
-    const controller = new AbortController();
-    void preparation.wait(controller.signal).then(() => setReady(true), () => setReady(false));
-    return () => {controller.abort(); preparation.dispose();};
-  }, [preparation]);
   return <View style={{gap: 20}}>
     <View testID="artwork-hero" style={{marginLeft: theme.isTV ? 0 : -theme.gutter, width: theme.isTV ? 1500 : 390, height: theme.isTV ? 900 : 560, overflow: 'hidden'}}>
       <AmbientArt foreground={foreground} source={real?.ambient} palette={real?.palette ?? palette}
-        treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority preparation={preparation}/>
+        treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority onReady={() => {setReady(true); setFailed(false);}} onError={() => {setReady(false); setFailed(true);}}/>
     </View>
-    <Button variant="glass" onPress={() => {setReady(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
-    {ready ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.artwork.native.backdrop')}</Text> : null}
+    <Button variant="glass" onPress={() => {setReady(false); setFailed(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
+    {ready || failed ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(failed ? 'next.artwork.native.noArtwork' : 'next.artwork.native.backdrop')}</Text> : null}
   </View>;
 }
 

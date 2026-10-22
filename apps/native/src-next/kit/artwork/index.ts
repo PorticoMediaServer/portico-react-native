@@ -10,6 +10,4 @@ export {ChannelMark} from './ChannelMark';
 export {ProfileFace, ProfilePicker} from './Profiles';
 export type {ProfileFaceProps, ProfileOption, ProfilePickerProps} from './Profiles';
 export {nativeAmbientSource} from './source';
-export {createArtworkPreparation} from './preparation';
-export type {ArtworkPreparation} from './preparation';
 export type {ArtworkSource, AmbientArtSource, ArtworkPalette, GeneratedCoverTint, ArtworkStatus, ArtworkPosition, ArtworkProps, AmbientArtProps, AmbientTreatment, ColourBackdropProps, CircleArtProps, PersonCircleProps, GeneratedCoverProps, CoverShape, CoverArrangementProps, ChannelMarkProps} from './types';

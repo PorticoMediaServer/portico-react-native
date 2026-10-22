@@ -65,7 +65,7 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false}: {
 }
 
 /** Continuous ambient wash and independently sharp foreground, with Q43's cheap TV representation. */
-export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, position, style, foregroundStyle, onReady, onStatusChange, preparation, testID}: AmbientArtProps) {
+export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, position, style, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
@@ -90,13 +90,13 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
       width: wash && list.length > 1 ? '70%' : cover ? '130%' : '124%', height: cover ? '160%' : '124%',
       opacity: index === 1 && wash ? 0.34 : alpha,
     }]}>
-      <Artwork source={ambient} visible={visible} sized priority={priority} preparation={!foreground && index === 0 ? preparation : undefined} onReady={decoded => {
+      <Artwork source={ambient} visible={visible} sized priority={priority} onReady={decoded => {
         if (index === 0) {
           fallbackOpacity.stopAnimation();
           Animated.timing(fallbackOpacity, {toValue: 0, duration: reduce ? 160 : theme.motion.standard, useNativeDriver: true}).start();
           if (!foreground) onReady?.(decoded);
         }
-      }}
+      }} onError={!foreground && index === 0 ? onError : undefined}
         onStatusChange={status => {
           if (index === 0 && status === 'error') {fallbackOpacity.stopAnimation(); fallbackOpacity.setValue(1);}
           if (!foreground && index === 0) onStatusChange?.(status);
@@ -105,7 +105,7 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
     </View>)}
     {foreground ? <View style={[StyleSheet.absoluteFillObject, {left: undefined, width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}, foregroundStyle]}>
       <Artwork source={foreground} visible={visible} priority={priority} position={position ?? {x: phone ? 0.38 : 0.5, y: 0.3}}
-        preparation={preparation} onReady={onReady} onStatusChange={onStatusChange}/>
+        onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
       <ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/>
     </View> : null}
     <ArtScrims phone={phone} side={false} bottomAt={wash ? 1 : cover ? 0.7 : 0.42}/>

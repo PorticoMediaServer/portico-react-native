@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {artworkAttemptSource, artworkFrame, boundedCovers, circleArtworkFrames, coverAspect, coverTitleScale, mixColour} from '../src-next/kit/artwork/model.ts';
 import {nativeAmbientSource} from '../src-next/kit/artwork/source.ts';
-import {bindArtworkPreparation, createArtworkPreparation} from '../src-next/kit/artwork/preparation.ts';
 import type {AmbientArtworkSource} from '../../../packages/client-core/src/artwork/index.ts';
 
 test('cover crops preserve actual source dimensions and the requested top edge', () => {
@@ -63,35 +62,4 @@ test('three newest-first covers fill one half and two quarters, with bounded TV 
   assert.deepEqual(frames, [{left: 0, top: 0, width: 160, height: 323}, {left: 163, top: 0, width: 160, height: 160}, {left: 163, top: 163, width: 160, height: 160}]);
   assert.deepEqual(circleArtworkFrames(2, 323, 3), [{left: 163, top: 0, width: 160, height: 323}, {left: 0, top: 0, width: 160, height: 323}]);
   assert.equal(circleArtworkFrames(40, 320, 3).length, 4);
-});
-
-test('preparation resolves only from its matching mounted Image boundary and refuses duplicate layers', async () => {
-  const source = {uri: 'fixture:sharp', cacheKey: 'authority:sharp'};
-  const handle = createArtworkPreparation(source);
-  let resolved = false;
-  const waiting = handle.wait().then(() => {resolved = true;});
-  await Promise.resolve(); assert.equal(resolved, false);
-  const boundary = bindArtworkPreparation(handle, source)!;
-  assert.throws(() => bindArtworkPreparation(handle, source), /one image layer/);
-  await Promise.resolve(); assert.equal(resolved, false);
-  boundary.ready(); await waiting; assert.equal(resolved, true);
-  boundary.release();
-  await assert.rejects(handle.wait(), {name: 'AbortError'});
-});
-
-test('preparation cancels stale waits and rejects real decode failures or changed authority', async () => {
-  const source = {uri: 'fixture:sharp', cacheKey: 'authority:sharp'};
-  const handle = createArtworkPreparation(source);
-  const controller = new AbortController();
-  const cancelled = handle.wait(controller.signal);
-  controller.abort(); await assert.rejects(cancelled, {name: 'AbortError'});
-  const failed = handle.wait(); bindArtworkPreparation(handle, source)!.failed();
-  await assert.rejects(failed, /did not decode/);
-  const changed = createArtworkPreparation(source);
-  const waiting = changed.wait();
-  assert.equal(bindArtworkPreparation(changed, {...source, cacheKey: 'new-authority'}), undefined);
-  await assert.rejects(waiting, /source changed/);
-  const removed = createArtworkPreparation(source);
-  const detached = removed.wait(); bindArtworkPreparation(removed, source)!.release();
-  await assert.rejects(detached, {name: 'AbortError'});
 });
