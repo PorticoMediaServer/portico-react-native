@@ -57,6 +57,14 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     attach()
   }
 
+  fun snapshotTarget(expected: Map<String, Any?>): PorticoSnapshotTarget? {
+    val controller = PorticoMpvController.shared ?: return null
+    val token = controller.snapshotIdentity(this, surface.holder.surface, expected) ?: return null
+    fun current() = PorticoMpvController.shared === controller && isAttachedToWindow && isShown && lent && surfaceReady &&
+        expected["lease"] == lease && leased(controller) && controller.snapshotIdentity(this, surface.holder.surface, expected) == token
+    return if (current()) PorticoSnapshotTarget(surface, ::current) else null
+  }
+
   /**
    * mpv has no Picture in Picture. A request is answered "unavailable", as the Media3 view
    * answers on a device without it, so the player hides the button.
