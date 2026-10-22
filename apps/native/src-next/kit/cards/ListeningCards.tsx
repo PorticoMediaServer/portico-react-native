@@ -24,8 +24,8 @@ function Resume({read = false, kind = 'book', ...props}: ReadResumeCardProps & {
   if (t.isTV && read) return null;
   const width = props.width ?? (t.isTV ? 560 : 296), height = props.height ?? (t.isTV ? 216 : 150), pad = t.isTV ? 20 : 14;
   const coverHeight = height - pad * 2, coverWidth = read ? coverHeight * (kind === 'book' ? 2 / 3 : 3 / 4) : coverHeight;
-  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} height={height} />}>
-    {s => <ArtFrame height={height} radius={14} focused={s.focused} hovered={s.hovered} hoverScale={1.02} selected={props.selection?.selected}>
+  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={height} />}>
+    {s => <ArtFrame height={height} radius={14} focused={s.focused} hovered={s.hovered} holding={s.holding} hoverScale={1.02} selected={props.selection?.selected}>
       <AmbientArt source={props.ambient} palette={props.palette} treatment="cover" visible={props.visible} priority={props.priority} />
       <View style={{flex: 1, flexDirection: 'row', gap: 14, padding: pad, paddingRight: 16}}>
         <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind={read ? kind : 'square'} source={props.artwork} fallback={props.artworkFallback} width={coverWidth} height={coverHeight} style={{borderRadius: read ? 5 : 8}} />
@@ -45,8 +45,8 @@ export function ReadResumeCard(props: ReadResumeCardProps) {return <Resume {...p
 export type QuickTileProps = CardProps & {artwork?: ArtworkSource | null; artworkFallback?: ReactNode; artworkProps?: Omit<ArtworkProps, 'source' | 'fallback' | 'width' | 'height'>; height?: number} & ({playing: true; onPause: () => void} | {playing?: false; onPause?: never});
 export function QuickTile(props: QuickTileProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? 420 : 350), height = props.height ?? (t.isTV ? 112 : 76);
-  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered || !!props.playing} height={height} playSize={36} pause={props.playing ? props.onPause : undefined} />}>
-    {s => <ArtFrame height={height} radius={10} focused={s.focused} hovered={s.hovered} hoverScale={1} selected={props.selection?.selected} style={{backgroundColor: props.playing ? t.colors.raisedHigh : t.colors.raised}}>
+  return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered || !!props.playing} holding={s.holding} height={height} playSize={36} pause={props.playing ? props.onPause : undefined} />}>
+    {s => <ArtFrame height={height} radius={10} focused={s.focused} hovered={s.hovered} holding={s.holding} hoverScale={1} selected={props.selection?.selected} style={{backgroundColor: props.playing ? t.colors.raisedHigh : t.colors.raised}}>
       <View style={{flexDirection: 'row', gap: 16, alignItems: 'center', flex: 1}}>
         <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="square" source={props.artwork} fallback={props.artworkFallback} width={height} height={height} />
         <View style={{flex: 1, minWidth: 0, paddingRight: 58}}>
@@ -85,7 +85,7 @@ export function SessionCard(props: SessionCardProps) {
       {props.onMore && <Button variant="glass" size="xs" icon="i-more" iconSize={18} iconOnly disabled={props.disabled} accessibilityLabel={defaultI18n.t('card.more', {title: props.title})} onPress={props.onMore} style={{height: 38, borderRadius: 10}} />}
     </View>}
   </View>}>
-    {s => <ArtFrame height={height} radius={14} focused={s.focused} selected={props.selection?.selected}>
+    {s => <ArtFrame height={height} radius={14} focused={s.focused} holding={s.holding} selected={props.selection?.selected}>
       <View style={{padding: 12, flex: 1}}>
       <View style={{flexDirection: 'row', gap: 14, alignItems: 'flex-start'}}>
         <View style={{width: artWidth, height: artHeight, borderRadius: 9, overflow: 'hidden', alignSelf: 'flex-start'}}>

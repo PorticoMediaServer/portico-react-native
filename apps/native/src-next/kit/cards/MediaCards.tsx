@@ -23,12 +23,12 @@ export type CircleCardProps = CardProps & ({art: CircleArtProps; person?: false}
 export type CoverCardProps = PosterCardProps & {kind?: 'book' | 'periodical' | 'newspaper'; next?: boolean};
 
 /** SelectionCircle belongs to the selection family; cards only position the actual control. */
-function Overlays({props, hovered, height, playSize = 40, centered = false, pause}: {props: CardProps; hovered: boolean; height: number; playSize?: number; centered?: boolean; pause?: () => void}) {
+function Overlays({props, hovered, height, holding = false, playSize = 40, centered = false, pause}: {props: CardProps; hovered: boolean; height: number; holding?: boolean; playSize?: number; centered?: boolean; pause?: () => void}) {
   const t = useTheme(), {selection, onPlay, onMore, title} = props;
-  if (props.disabled) return null;
+  if (props.disabled || holding) return null;
   return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {height}]}>
-    {selection?.active && <View style={{position: 'absolute', left: t.isTV ? 12 : 6, top: t.isTV ? 12 : 6}}>
-      <SelectionCircle selected={selection.selected} onPress={selection.onToggle} accessibilityLabel={defaultI18n.t('card.select', {title})} focusable={false} />
+    {selection?.active && <View style={{position: 'absolute', left: t.isTV ? 12 : 7, top: t.isTV ? 12 : 7}}>
+      <SelectionCircle selected={selection.selected} selecting={selection.active} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
     </View>}
     {!t.isTV && !selection?.active && hovered && (onPlay || pause) && <CardAction name={pause ? 'i-pause' : 'i-play'} label={pause ? defaultI18n.t('next.cards.pause') : defaultI18n.t('card.play', {title})} onPress={pause ?? onPlay!} size={playSize}
       style={centered ? {position: 'absolute', left: '50%', top: height / 2 - playSize / 2, marginLeft: -playSize / 2} : {position: 'absolute', bottom: 10, right: 10}} />}
@@ -48,9 +48,9 @@ function Marks({progress, watched, isNew}: Media) {
 
 function Portrait({kind = 'poster', next, titleLines = 1, ...props}: PosterCardProps & {kind?: 'poster' | 'book' | 'periodical' | 'newspaper'; next?: boolean}) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.poster[t.platform], height = width / (kind === 'periodical' || kind === 'newspaper' ? 3 / 4 : 2 / 3);
-  return <CardFrame {...props} width={width} overlay={state => <Overlays props={props} hovered={state.hovered} height={height} />}>
+  return <CardFrame {...props} width={width} overlay={state => <Overlays props={props} hovered={state.hovered} holding={state.holding} height={height} />}>
     {state => <>
-      <ArtFrame height={height} focused={state.focused} hovered={state.hovered} selected={props.selection?.selected || next}>
+      <ArtFrame height={height} focused={state.focused} hovered={state.hovered} holding={state.holding} selected={props.selection?.selected || next}>
         <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} source={props.artwork} fallback={props.artworkFallback} kind={kind} width={width} height={height} />
         <Marks {...props} />
       </ArtFrame>
@@ -68,8 +68,8 @@ export function CoverCard(props: CoverCardProps) {
 
 export function SquareCard(props: SquareCardProps) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.square[t.platform];
-  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} height={width} />}>
-    {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} selected={props.selection?.selected}>
+  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
+    {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="square" source={props.artwork} fallback={props.artworkFallback} width={width} height={width} />
       <Scrim start={0.55} opacity={0.75} /><Marks watched={props.watched} isNew={props.isNew} />
       <Progress value={props.progress} height={t.isTV ? 6 : 3} style={{position: 'absolute', left: 8, right: 8, bottom: 8}} />
@@ -79,8 +79,8 @@ export function SquareCard(props: SquareCardProps) {
 
 export function WideCard(props: WideCardProps) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.wide[t.platform], height = width * 9 / 16;
-  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} height={height} playSize={52} centered />}>
-    {s => <ArtFrame height={height} focused={s.focused} hovered={s.hovered} selected={props.selection?.selected}>
+  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={52} centered />}>
+    {s => <ArtFrame height={height} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="wide" source={props.artwork} fallback={props.artworkFallback} width={width} height={height} />
       <Scrim />
       <View style={{position: 'absolute', left: t.spec.card.wide.insetX[t.platform], right: t.spec.card.wide.insetX[t.platform], bottom: t.spec.card.wide.insetBottom[t.platform]}}>
@@ -95,8 +95,8 @@ export function WideCard(props: WideCardProps) {
 
 export function CircleCard(props: CircleCardProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? t.spec.card.width.artist.tv : 104);
-  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} height={width} />}>
-    {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} selected={props.selection?.selected} circle>
+  return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={width} />}>
+    {s => <><ArtFrame height={width} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected} circle>
       {props.person ? <PersonCircle {...props.art} visible={props.visible ?? props.art.visible} size={width} /> : <CircleArt {...props.art} visible={props.visible ?? props.art.visible} size={width} />}
     </ArtFrame><View style={{marginTop: t.isTV ? 0 : 1}}><Caption {...props} titleTextStyle={[titleStyle(t, t.isTV ? 22 : 14, 700), props.titleTextStyle]} captionTextStyle={[titleStyle(t, t.isTV ? 20 : 12.5, 600), props.captionTextStyle]} centered selected={props.selection?.selected} /></View></>}
   </CardFrame>;
@@ -116,7 +116,7 @@ export type EpisodeTileProps = CardProps & Media & {
 export function EpisodeTile(props: EpisodeTileProps) {
   const t = useTheme(), row = props.layout === 'row' || (!t.isTV && props.layout !== 'tile');
   const width = props.width ?? (row ? 350 : t.spec.episode.width[t.platform]), artWidth = row ? 136 : width, height = artWidth * 9 / 16;
-  const art = (focused: boolean, hovered: boolean) => <ArtFrame width={artWidth} height={height} radius={row ? 8 : undefined} focused={focused} hovered={hovered} hoverScale={t.spec.card.hover.episodeScale} selected={props.selection?.selected}>
+  const art = (focused: boolean, hovered: boolean, holding: boolean) => <ArtFrame width={artWidth} height={height} radius={row ? 8 : undefined} focused={focused} hovered={hovered} holding={holding} hoverScale={t.spec.card.hover.episodeScale} selected={props.selection?.selected}>
     <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="still" backdropFallback={props.backdropFallback} source={props.artwork} fallback={props.artworkFallback} width={artWidth} height={height} />
     {props.length && !row && <View style={{position: 'absolute', right: t.spec.episode.duration.inset[t.platform], top: t.spec.episode.duration.inset[t.platform]}}><Badge>{props.length}</Badge></View>}
     {props.status && !row && <View style={{position: 'absolute', left: t.isTV ? 16 : 8, top: t.isTV ? 14 : 8}}><Badge kind="new">{props.status}</Badge></View>}
@@ -135,10 +135,10 @@ export function EpisodeTile(props: EpisodeTileProps) {
     accessibilityActions={[...(props.accessibilityActions ?? []), ...(props.onDownload ? [{name: 'download', label: defaultI18n.t('next.cards.download')}] : [])]}
     onAccessibilityAction={event => event.nativeEvent.actionName === 'download' ? props.onDownload?.() : props.onAccessibilityAction?.(event)}
     overlay={s => row ? <View pointerEvents="box-none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
-    <View pointerEvents="box-none" style={{width: artWidth, height}}><Overlays props={{...props, onMore: undefined}} hovered={s.hovered} height={height} playSize={48} centered /></View>
+    <View pointerEvents="box-none" style={{width: artWidth, height}}><Overlays props={{...props, onMore: undefined}} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered /></View>
     {!props.disabled && !props.selection?.active && (props.onDownload || props.onMore) && <CardAction name={props.onDownload ? 'i-dl' : 'i-more'} label={props.onDownload ? defaultI18n.t('next.cards.download') : defaultI18n.t('card.more', {title: props.title})} onPress={props.onDownload ?? props.onMore!} size={38} color={t.colors.textTertiary} style={{position: 'absolute', right: 0, top: (height - 38) / 2, backgroundColor: 'transparent'}} />}
-  </View> : <Overlays props={props} hovered={s.hovered} height={height} playSize={48} centered />}>
-    {s => <><View style={{flexDirection: row ? 'row' : 'column', gap: row ? 14 : 0, alignItems: row ? 'center' : undefined}}>{art(s.focused, s.hovered)}{text}</View>
+  </View> : <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered />}>
+    {s => <><View style={{flexDirection: row ? 'row' : 'column', gap: row ? 14 : 0, alignItems: row ? 'center' : undefined}}>{art(s.focused, s.hovered, s.holding)}{text}</View>
       {props.synopsis && <Text numberOfLines={row ? 2 : 3} style={[row ? titleStyle(t, 13, 600) : t.type.episodeBody, {color: t.colors.textSecondary, marginTop: row ? 9 : 8, lineHeight: row ? 18.85 * t.textScale : undefined}]}>{props.synopsis}</Text>}
     </>}
   </CardFrame>;
