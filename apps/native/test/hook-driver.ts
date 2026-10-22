@@ -109,6 +109,8 @@ class HookHost {
     useLayoutEffect: (create: () => Destructor, deps: Deps) =>
       this.dispatcher.useEffect(create, deps),
     useInsertionEffect: () => undefined,
+    // No reconciler: unprovided contexts expose their default value.
+    useContext: <T,>(context: {_currentValue: T}) => context._currentValue,
     useDebugValue: () => undefined,
     useId: () => 'driver-id',
     useSyncExternalStore: <S,>(

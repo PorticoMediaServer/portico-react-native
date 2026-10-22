@@ -5,7 +5,7 @@ export type {HeroProps} from './Hero';
 export {FocusPreviewHero} from './FocusPreviewHero';
 export type {FocusPreviewHeroProps} from './FocusPreviewHero';
 export {Row, Shelf} from './Row';
-export type {RowProps} from './Row';
+export type {RowProps, RowPage} from './Row';
 export {FlowSections} from './FlowSections';
 export type {FlowSection, FlowSectionsProps} from './FlowSections';
 export {WindowedGrid} from './WindowedGrid';

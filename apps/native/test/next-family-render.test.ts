@@ -265,8 +265,8 @@ test('TV shelves reserve focus overflow without shifting the card edge and prese
     assert.ok(placed.props.style.top >= 18, 'the 1.08 scale and 8px outer ring fit above the track');
     first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first', 'first']);
     assert.deepEqual(ranges.at(-1), [0, 1]);
-    const all = find(row.tree, 'Pressable'); all.props.onPress(); assert.equal(seeAll, 1);
-    assert.ok(all.props.hitSlop.top + all.props.hitSlop.bottom >= 44, 'the compact label retains the expanded target');
+    assert.equal(find(row.tree, 'Pressable'), undefined, 'DESIGN.md TV focus: row headings and See all are not TV stops');
+    assert.equal(seeAll, 0, 'See all is supplied by the card hold menu, never a second heading target');
   } finally {row.host.unmount();}
 });
 
