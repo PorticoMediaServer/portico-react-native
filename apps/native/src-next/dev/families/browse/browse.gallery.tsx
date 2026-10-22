@@ -6,10 +6,12 @@ import {appliedFilterParts, browseToolbarModel, cardText, type AppliedFilter, ty
 import type {BrowseCapabilities, BrowseFieldCapability, BrowseNode, BrowseSortSelection} from '../../../../../../packages/client-core/src/browse';
 import {createWindowedCollection} from '../../../../../../packages/client-core/src/collections';
 import {Artwork, AmbientArt, type AmbientArtSource} from '../../../kit/artwork';
-import {Button, Tabs} from '../../../kit/controls';
+import {Button, Tabs, TextField} from '../../../kit/controls';
 import {BottomSheet, Dialog, Menu, OverlaysProvider, SidePanel} from '../../../kit/overlays';
 import {SelectionCircle} from '../../../kit/selection';
-import {BrowseToolbar, FilterBuilder, FilteredEmpty, LibraryHeader, LibraryMenu, LibrarySwitcher, SongRow, SortMenu, StickyBrowseHeader, TrackTable, type BrowseLabels, type FilterFieldState, type FilterFieldValue, type TrackColumn, type TrackRowData, type TrackSelection} from '../../../kit/browse';
+import {BrowseToolbar, FacetChips, FilterBuilder, FilteredEmpty, LibraryHeader, LibraryMenu, LibrarySwitcher, SongRow, SortMenu, StickyBrowseHeader, TrackTable, type BrowseLabels, type FilterFieldState, type FilterFieldValue, type TrackColumn, type TrackRowData, type TrackSelection} from '../../../kit/browse';
+import {changeFacetSelection} from '../../../kit/browse/facet-selection';
+import {OwnerTag} from '../../../kit/shell';
 import {useTheme} from '../../../kit/theme';
 import type {Gallery} from '../../gallery-registry';
 
@@ -74,6 +76,23 @@ declare global {var __porticoBrowseEvidence: {ambient?: readonly AmbientArtSourc
 export type BrowsePickerSlot = (props: {
   id: string; label: string; state: FilterFieldState; onChange: (value: FilterFieldValue) => void; onClose: () => void;
 }) => React.ReactNode;
+
+/** The bounded reference directory remains separate from a real server facet read. */
+function ReferenceValuePicker({label, state, onChange, onClose}: Parameters<BrowsePickerSlot>[0]) {
+  const theme = useTheme();
+  const [query, setQuery] = useState('');
+  if (state.kind !== 'values') throw new Error('The reference value picker requires a values field.');
+  const visible = state.values.filter(value => value.label.toLocaleLowerCase('en-US').includes(query.toLocaleLowerCase('en-US')));
+  const searchLabel = t('next.browse.native.find', {field: label.toLocaleLowerCase('en-US')});
+  return <Dialog open onOpenChange={open => {if (!open) onClose();}} title={label} placement={theme.isTV ? 'side' : 'center'} width={theme.isTV ? 680 : undefined}
+    footer={<Button onPress={onClose}>{t('action.done')}</Button>} testID="browse-all-values">
+    <View style={{gap: 16, paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 20}}>
+      <TextField variant="search" leadingIcon="i-search" accessibilityLabel={searchLabel} placeholder={searchLabel} value={query} onChangeText={setQuery}/>
+      <FacetChips values={visible} included={state.included} excluded={state.excluded} cycleExclusion={!theme.isTV}
+        onValueChange={(value, choice) => onChange({kind: 'values', mode: state.mode, ...changeFacetSelection(value, choice, state.included, state.excluded)})}/>
+    </View>
+  </Dialog>;
+}
 
 function RowSelectionControl({row, selected, onPress}: {row: TrackRowData; selected: boolean; onPress: () => void}) {
   const theme = useTheme();
@@ -261,6 +280,7 @@ function EmptyCase() {
 }
 
 const galleries: readonly Gallery[] = [
+  ...componentSlotGalleries(<OwnerTag compact/>, props => <ReferenceValuePicker {...props}/>),
   {id: 'browse-header', title: 'next.browse.native.galleryTitle', render: () => <HeaderCase/>},
   {id: 'browse-switcher', title: 'next.browse.native.switchLibrary', render: () => <HeaderCase switchOpen/>},
   {id: 'browse-menu-member', title: 'next.browse.native.libraryOptions', render: () => <HeaderCase menuOpen owner={false}/>},
