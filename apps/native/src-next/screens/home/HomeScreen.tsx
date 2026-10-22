@@ -43,7 +43,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const scrolled = useRef(false);
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
-  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => vertical.move(0)), [runtime, vertical.move]);
+  const moveToTop = vertical.move;
+  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => moveToTop(0)), [runtime, moveToTop]);
   const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));

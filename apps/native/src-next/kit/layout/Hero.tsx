@@ -180,18 +180,29 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
   const tv = variant === 'tv' || (!variant && theme.isTV), phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone');
   const desktop = variant === 'desktop' || (!variant && theme.layoutMode === 'desktop');
   const renderThumbnail = props.renderThumbnail;
-  const clock = useRef(createRotationClock(heroSpec.rotation.intervalMs)), progress = useSharedValue(0);
-  const change = useCallback((next: number) => {clock.current.reset(); progress.value = 0; if (activeIndex === undefined) setLocalIndex(next); onIndexChange?.(next);}, [activeIndex, onIndexChange, progress]);
+  const candidateId = candidates[index]?.id;
+  // A replacement at the same index owns a fresh dwell clock.
+  const rotation = useMemo(() => ({index, id: candidateId, clock: createRotationClock(heroSpec.rotation.intervalMs)}), [index, candidateId]), progress = useSharedValue(0);
+  const rotationRun = useRef<object | undefined>(undefined);
+  const change = useCallback((next: number) => {rotation.clock.reset(); progress.value = 0; if (activeIndex === undefined) setLocalIndex(next); onIndexChange?.(next);}, [activeIndex, rotation, onIndexChange, progress]);
   useEffect(() => {const subscription = AppState.addEventListener('change', next => setAppVisible(next === 'active')); return () => subscription.remove();}, []);
   const canRotate = candidates.length > 1 && active && visible && appVisible && !motion.reduce && !reducedMotion && !hovered && (tv ? heroFocused : !controlFocused);
-  useEffect(() => {clock.current.reset(); progress.value = 0;}, [index, candidates[index]?.id, progress]);
+  useEffect(() => {progress.value = 0;}, [rotation, progress]);
   useEffect(() => {
     if (!canRotate) return;
-    const remaining = clock.current.resume(Date.now());
-    progress.value = withTiming(1, {...motion.timing('hero', 'linear'), duration: remaining});
-    const timer = setTimeout(() => change((index + 1) % candidates.length), remaining);
-    return () => {clearTimeout(timer); clock.current.pause(Date.now()); cancelAnimation(progress);};
-  }, [canRotate, candidates.length, change, index, motion, progress]);
+    const owner = rotationRun, run = {rotation, animation: progress};
+    owner.current = run;
+    const remaining = run.rotation.clock.resume(Date.now());
+    run.animation.value = withTiming(1, {...motion.timing('hero', 'linear'), duration: remaining});
+    const timer = setTimeout(() => {if (owner.current === run) change((run.rotation.index + 1) % candidates.length);}, remaining);
+    return () => {
+      clearTimeout(timer);
+      if (owner.current !== run) return;
+      owner.current = undefined;
+      run.rotation.clock.pause(Date.now());
+      cancelAnimation(run.animation);
+    };
+  }, [canRotate, candidates.length, change, rotation, motion, progress]);
   const dots = candidates.length > 1 ? <View style={{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: phone ? 'center' : 'flex-start', gap: tv ? 10 : heroSpec.phoneDots.gap}}>
     {candidates.map((candidate, i) => tv ? <View key={candidate.id} style={{width: i === index ? 34 : 10, height: 10, borderRadius: 5, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}47`}} /> : <Pressable key={candidate.id} accessibilityRole="button" accessibilityLabel={candidate.title} accessibilityState={{selected: i === index}} onPress={() => change(i)} hitSlop={8}>
       <View style={{width: i === index ? heroSpec.phoneDots.activeWidth : heroSpec.phoneDots.size, height: heroSpec.phoneDots.size, borderRadius: 3, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}4D`}} />

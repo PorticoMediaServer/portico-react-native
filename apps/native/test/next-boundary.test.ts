@@ -50,3 +50,47 @@ test('boundary accepts aliases, cycles, type exports and a disjoint dev family',
   write('src-next/dev/registry.ts', "require.context('./', true, /\\.gallery\\.tsx$/);");
   assert.deepEqual(auditBoundary({appRoot: root}).violations, []);
 }));
+
+test('boundary accepts exact existing Metro images from each shell location and follows safe asset symlinks', () => fixture((root, write) => {
+  write('assets/wordmark.png', 'image fixture');
+  for (const header of ['PhoneHomeHeader', 'TVRail', 'DesktopHeader']) {
+    write(`src-next/shell/${header}.tsx`, "const wordmark = require('../../assets/wordmark.png');");
+  }
+  write('src-next/App.ts', "import logo from '../assets/wordmark.png'; require('./linked.png');");
+  symlinkSync(path.join(root, 'assets/wordmark.png'), path.join(root, 'src-next/linked.png'));
+  assert.deepEqual(auditBoundary({appRoot: root}).violations, []);
+}));
+
+test('boundary requires the exact image file rather than declarations, source fallbacks, density variants or directories', () => fixture((root, write) => {
+  write('assets/missing.png.d.ts', 'export default 1;');
+  write('assets/missing.png.js', 'module.exports = 1;');
+  write('assets/missing@2x.png', 'image fixture');
+  write('assets/folder.png/child', 'image fixture');
+  write('src-next/App.ts', "require('../assets/missing.png'); require('../assets/folder.png');");
+  const violations = auditBoundary({appRoot: root}).violations;
+  assert.equal(violations.length, 2);
+  assert.match(violations.join('\n'), /cannot resolve ..\/assets\/missing\.png/);
+  assert.match(violations.join('\n'), /cannot resolve ..\/assets\/folder\.png/);
+}));
+
+test('boundary rejects old-src assets through traversal, helpers and either symlink direction', () => fixture((root, write) => {
+  write('src/assets/wordmark.png', 'frozen image fixture');
+  write('assets/safe.png', 'image fixture');
+  symlinkSync(path.join(root, 'src/assets/wordmark.png'), path.join(root, 'assets/linked.png'));
+  symlinkSync(path.join(root, 'assets/safe.png'), path.join(root, 'src/assets/outward.png'));
+  write('helper.ts', "require('./src/assets/wordmark.png');");
+  write('src-next/App.ts', "require('./shell/../../src/assets/wordmark.png'); require('../assets/linked.png'); require('../src/assets/outward.png'); import '../helper';");
+  const violations = auditBoundary({appRoot: root}).violations;
+  assert.equal(violations.length, 4);
+  assert.ok(violations.every(message => message.includes('old src is forbidden')));
+}));
+
+test('boundary keeps unresolved source modules, aliases and dynamic asset paths closed', () => fixture((root, write) => {
+  write('assets/wordmark.png', 'image fixture');
+  write('src-next/App.ts', "require('../assets/missing.js'); import '@next/missing'; require('../assets/' + name + '.png');");
+  const violations = auditBoundary({appRoot: root}).violations;
+  assert.equal(violations.length, 3);
+  assert.match(violations.join('\n'), /cannot resolve ..\/assets\/missing\.js/);
+  assert.match(violations.join('\n'), /cannot resolve @next\/missing/);
+  assert.match(violations.join('\n'), /statically resolvable/);
+}));
