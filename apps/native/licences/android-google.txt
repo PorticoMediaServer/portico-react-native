@@ -103,6 +103,7 @@ com.facebook.soloader:annotation:0.12.1
 com.facebook.soloader:nativeloader:0.12.1
 com.facebook.soloader:soloader:0.12.1
 com.facebook.yoga:proguard-annotations:1.19.0
+com.github.Dimezis:BlurView:version-2.0.4
 com.google.android.datatransport:transport-api:3.0.0
 com.google.android.datatransport:transport-backend-cct:3.1.3
 com.google.android.datatransport:transport-runtime:3.1.3

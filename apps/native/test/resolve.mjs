@@ -15,6 +15,7 @@ const stub = pathToFileURL(path.join(here, 'react-native-stub.mjs')).href;
 const candidates = ['.ts', '.tsx', '/index.ts', '/index.tsx', '.mjs', '.js'];
 
 export async function resolve(specifier, context, next) {
+  if (specifier === '@portico/design') return next(new URL('../../../packages/design/src/index.ts', import.meta.url).href, context);
   if (specifier === 'react-native') return {url: stub, shortCircuit: true, format: 'module'};
   try {
     return await next(specifier, context);

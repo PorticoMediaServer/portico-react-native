@@ -28,6 +28,11 @@
 //   assets.json
 //       Fonts and other vendored assets with their licence files; the test fails when a font in
 //       apps/native/assets is not listed.
+//   native-npm.json
+//       Explicit native npm modules from the installed React Native autolink configuration.
+//       Exact lock/installed versions, upstream repository and licence hashes are checked. Code
+//       omitted from the production JS graph still belongs to its Android/Apple native category;
+//       packages already represented by JS or their pods are listed once.
 //
 // Every repository file read is recorded with its SHA-256 in `inputs`; apps/native/test/
 // licences.test.ts fails when one changes without the lists being generated again.
@@ -39,6 +44,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {buildLicenceData, licenceFiles, lockPackages, packagePathOf, podSources, readDependencyList, readPodfileLock, readPom, serialiseLicenceData, spdxFromMavenName, type CollectedComponent} from '../../../packages/client-core/src/licences/inventory.ts';
+import {nativeNpmComponents, type NativeNpmEntry, type NativeClient} from './native-npm-licences.mts';
 import {standardLicenceText} from '../../../packages/client-core/src/licences/standard-texts.ts';
 import type {LicenceData, LicenceSource} from '../../../packages/client-core/src/presentation/licences.ts';
 
@@ -86,7 +92,7 @@ async function recordBundles() {
     const realModules = realpathSync(modules);
     const watchFolders = [...config.watchFolders, realModules];
     const out = path.join(os.tmpdir(), `portico-licences-${process.pid}-${platform}`);
-    await Metro.runBuild({...config, watchFolders, resetCache: true}, {entry: path.join(appDir, 'index.js'), platform, dev: false, minify: false, out: out + '.js', sourceMap: true});
+    await Metro.runBuild({...config, watchFolders, maxWorkers: 1, resetCache: true}, {entry: path.join(appDir, 'index.js'), platform, dev: false, minify: false, out: out + '.js', sourceMap: true});
     const map = JSON.parse(readFileSync(out + '.map', 'utf8'));
     const lock = lockPackages(JSON.parse(readFileSync(path.join(appDir, 'package-lock.json'), 'utf8')));
     const found = new Map<string, string>();
@@ -183,6 +189,12 @@ const displayName = (name: string) => ENGINE_NAMES[name] ?? name;
 
 const gradleCache = () => path.join(process.env.GRADLE_USER_HOME ?? path.join(os.homedir(), '.gradle'), 'caches/modules-2/files-2.1');
 
+// This exact JitPack artifact omits licence metadata from its POM and AAR.
+// Upstream: https://raw.githubusercontent.com/Dimezis/BlurView/version-2.0.4/LICENSE.md
+const MAVEN_MISSING_LICENCES: Record<string, {licence: string; url: string}> = {
+  'com.github.Dimezis:BlurView:version-2.0.4': {licence: 'Apache-2.0', url: 'https://github.com/Dimezis/BlurView/tree/version-2.0.4'},
+};
+
 function artifactFiles(group: string, artifact: string, version: string): string[] {
   const dir = path.join(gradleCache(), group, artifact, version);
   if (!existsSync(dir)) return [];
@@ -232,7 +244,8 @@ function mavenComponents(read: (rel: string) => string): CollectedComponent[] {
   const bundled = new Map<string, {text: string; only: Set<string>}>();
   for (const [key, d] of all) {
     const pom = pomOf(d.group, d.artifact, d.version);
-    const licence = pom.licences.length ? pom.licences.map(spdxFromMavenName).join(' OR ') : 'See text';
+    const fallback = MAVEN_MISSING_LICENCES[key];
+    const licence = pom.licences.length ? pom.licences.map(spdxFromMavenName).join(' OR ') : fallback?.licence ?? 'See text';
     const archive = artifactFiles(d.group, d.artifact, d.version).find(f => /\.(aar|jar)$/.test(f) && !/-(sources|javadoc)\.jar$/.test(f));
     const entries = archive ? zipEntries(archive) : [];
     const pick = (re: RegExp) => entries.filter(e => re.test(e) && !e.endsWith('/') && !e.endsWith('.class'));
@@ -247,7 +260,7 @@ function mavenComponents(read: (rel: string) => string): CollectedComponent[] {
     out.push({
       id: `maven:${key}`, name: `${d.group}:${d.artifact}`, version: d.version, licence, group: 'android',
       // Terms only on the web (Google's SDK terms): the licence's own page, which the screen offers.
-      ...(pom.licenceUrl && !text ? {url: pom.licenceUrl} : pom.url ? {url: pom.url} : {}),
+      ...(pom.licenceUrl && !text ? {url: pom.licenceUrl} : pom.url || fallback?.url ? {url: pom.url ?? fallback?.url} : {}),
       ...(d.only.length < 2 ? {only: d.only} : {}),
       ...(text ? {text} : pom.licenceUrl ? {textAtUrl: true} : {textPending: true}),
       ...(!own.length && pom.organisation && !/Apache/.test(licence) ? {copyright: [`Copyright (c) ${pom.organisation}`]} : {}),
@@ -351,19 +364,42 @@ function assetComponents(read: (rel: string) => string): CollectedComponent[] {
   });
 }
 
+// Native npm libraries are autolinked even when their JS is not in the production graph.
+let linkedNative: Map<string, NativeClient[]> | undefined;
+function nativeNpm(client: NativeClient, represented: Set<string>, read: (rel: string) => string): CollectedComponent[] {
+  if (!linkedNative) {
+    const command = path.join(root, 'apps/native/node_modules/@react-native-community/cli/build/bin.js');
+    const config = JSON.parse(execFileSync(process.execPath, [command, 'config'], {cwd: path.join(root, 'apps/native'), encoding: 'utf8'}));
+    linkedNative = new Map(Object.entries(config.dependencies).flatMap(([name, value]) => {
+      const platforms = (value as {platforms: Record<string, unknown>}).platforms;
+      const clients: NativeClient[] = [...(platforms.android ? ['android' as const] : []), ...(platforms.ios || platforms.tvos ? ['apple' as const] : [])];
+      return clients.length ? [[name, clients] as [string, NativeClient[]]] : [];
+    }));
+  }
+  const inventory = JSON.parse(read(`${INVENTORY}/native-npm.json`)) as NativeNpmEntry[];
+  const lock = lockPackages(JSON.parse(read('apps/native/package-lock.json')));
+  return nativeNpmComponents(client, inventory, linkedNative, represented, name => {
+    const pkg = JSON.parse(readFileSync(path.join(root, 'apps/native/node_modules', name, 'package.json'), 'utf8'));
+    if (lock.get('node_modules/' + name)?.version !== pkg.version) throw new Error(`Native npm lock mismatch: ${name}`);
+    return pkg;
+  }, (name, file) => readFileSync(path.join(root, 'apps/native/node_modules', name, file), 'utf8'));
+}
+
 // ---------------------------------------------------------------------------------------------
 
 export function generate(client: Client): LicenceData {
   const {inputs, read} = reader();
   const sources: LicenceSource[] = [{id: 'portico-apps', url: APPS_SOURCE}, ...(client === 'vega' ? [] : [{id: 'media-engine' as const, url: ENGINE_SOURCE}])];
   const npm = npmComponents(client, read);
+  const native = client === 'vega' ? [] : nativeNpm(client, new Set(npm.map(c => c.name)), read);
   const components: CollectedComponent[] = [
     {id: 'portico', name: 'Portico apps', licence: 'GPL-3.0-or-later', group: 'portico', text: read('LICENSE'), url: APPS_SOURCE},
     ...npm,
+    ...native,
     ...assetComponents(read),
   ];
   if (client === 'android') components.push(...engineComponents('android', read), ...mavenComponents(read), ...nativeLibraryComponents(read, 'android'));
-  if (client === 'apple') components.push(...engineComponents('apple', read), ...podComponents(read, new Set(npm.map(c => c.name))));
+  if (client === 'apple') components.push(...engineComponents('apple', read), ...podComponents(read, new Set([...npm, ...native].map(c => c.name))));
   return buildLicenceData({client, sources, components, inputs});
 }
 

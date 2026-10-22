@@ -124,3 +124,8 @@ export const AccessibilityInfo = {
   isReduceMotionEnabled: async () => false,
   addEventListener: () => ({remove: () => {}}),
 };
+
+/** Logical viewport for the next theme's pure projection tests. */
+export const useWindowDimensions = () => ({width: 390, height: 844, scale: 1, fontScale: 1});
+
+export const useTVEventHandler = () => {};
