@@ -2,15 +2,15 @@ import {AppState, Platform} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
-import {parseDirectSnapshot, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
+import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../packages/client-core/src/identity-client';
-import {parsePreferenceSnapshot, type PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
+import type {PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
+import {parseLibraryList} from '../../../../packages/client-core/src/library-list';
 import {LocalSessionRefresher} from '../../../../packages/client-core/src/session-refresh';
 import {EventsClient} from '../../../../packages/client-core/src/playback-v1/events';
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
 import {runEventFeed} from '../../../../packages/client-core/src/event-feed';
 import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork';
-import {parseNotificationSummary} from '../../../../packages/client-core/src/notifications';
 import type {HttpLocalApi, LocalSession, Library, CredentialSessionService} from '../../../../packages/client-core/src';
 import {restoreNativeConnection, createCredentials, nativeViewerStorage, nativeConnectionEnvironment, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
@@ -24,6 +24,7 @@ import {authorityKey, type ShellAuthority} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import type {NativeShellPlaybackAdapter} from './playback';
 import {NativeShellNavigation} from './routes';
+import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -64,13 +65,18 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let playback: ReturnType<typeof createNativeShellPlaybackAdapter> | undefined;
   let navigation: NativeShellNavigation | undefined;
   let session: LocalSession | undefined;
+  let services: NativeShellBootstrapServices | undefined;
+  let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
+  let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [];
+  let installationSettings: unknown;
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
   const dispose = () => {
-    alive = false; installation.dispose(); signal.abort(); refresher?.stop(); home?.dispose();
+    alive = false; installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
     playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
+    snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; installationSettings = undefined;
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
@@ -78,15 +84,19 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const abort = () => dispose();
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
-  const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) throw cancelled();};
+  const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) {dispose(); throw cancelled();}};
+  const currentPreferences = () => {assertCurrent(); if (!preferences) throw cancelled(); return preferences;};
+  const currentAccount = () => {assertCurrent(); if (!account) throw cancelled(); return account;};
   try {
     assertCurrent();
     const {saved, connection, identity: installed} = await installation.prepare(); assertCurrent();
     if (!saved.viewer) {dispose(); return undefined;}
     const original = saved.viewer;
+    nativeShellDirectViewer(original.session.viewer);
     let credentials: CredentialSessionService | undefined;
     if (connection?.hosted) {credentials = createCredentials(connection.hosted.origin); await credentials.synchronize(); assertCurrent();}
-    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, credentials, original.session); assertCurrent();
+    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, credentials, original.session);
+    api = restored?.api; assertCurrent();
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
     const reread = await nativeViewerStorage.read(); assertCurrent();
     if (!reread || reread.serverUrl !== original.serverUrl || !sameViewer(reread.session, restored.session)) throw cancelled();
@@ -95,66 +105,61 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const local = api;
     trackNativeConnection(local);
     session = restored.session;
-    home = new HomeService(local);
+    services = new NativeShellBootstrapServices(local, {viewer: session.viewer, deviceClass: Platform.isTV ? 'television' : 'mobile',
+      signal: signal.signal, current: () => alive && installation.current(), onAuthorityEnded: end});
+    const readers = services;
+    home = readers.home;
     const documentService = home;
-    const identities = new IdentityClient(local);
-    const [librariesResult, accountRaw, initialAvatars, preferencesRaw, notificationsRaw] = await Promise.all([
-      local.libraries(),
-      local.request<RouteResponse<'get_direct_account'>>(routePath('get_direct_account'), 'GET', undefined, signal.signal),
+    const identities = new IdentityClient(readers);
+    const [librariesResult, initialAccount, initialAvatars, initialFacts] = await Promise.all([
+      readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList),
+      readers.readAccount(),
       identities.avatars(signal.signal),
-      local.request<RouteResponse<'get_preferences'>>(routePath('get_preferences'), 'GET', undefined, signal.signal),
-      local.request<RouteResponse<'get_notifications_unread_count'>>(routePath('get_notifications_unread_count'), 'GET', undefined, signal.signal),
+      readers.read(),
       documentService.load(),
     ]);
     assertCurrent();
     const document = documentService.getSnapshot().document;
     if (!document) throw documentService.getSnapshot().error ?? Object.assign(new Error('invalid_home'), {code: 'invalid_home'});
     if (document.serverId !== session.viewer.serverId) throw Object.assign(new Error('identity_mismatch'), {code: 'identity_mismatch'});
-    let account = parseDirectSnapshot(accountRaw, {authority: 'local', serverId: session.viewer.serverId, accountId: session.viewer.accountId}, true);
-    let avatars = initialAvatars;
+    account = initialAccount;
+    avatars = initialAvatars;
     const profile = account.profiles.find(value => value.id === session!.viewer.profileId);
     if (!profile) throw Object.assign(new Error('profile_unavailable'), {code: 'access_refused'});
-    let preferences = parsePreferenceSnapshot(preferencesRaw);
+    preferences = initialFacts.preferences;
     const records = new NativeQueueStore();
-    let installationSettings = await records.change('preferences:v1', raw => ({record: raw, value: raw}));
+    installationSettings = await records.change('preferences:v1', raw => ({record: raw, value: raw}));
     assertCurrent();
-    if (preferencesRaw.scope.serverId !== document.serverId || preferencesRaw.scope.viewerFence !== document.viewerFence || notificationsRaw.scope.serverId !== document.serverId || notificationsRaw.scope.viewerFence !== document.viewerFence) throw Object.assign(new Error('viewer_scope_changed'), {code: 'access_refused'});
-    let notifications = parseNotificationSummary(notificationsRaw.data);
+    let unread = initialFacts.unread;
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
       epoch: JSON.stringify([session.sessionFamilyId, session.authorizationHorizon, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
     const scopeIdentity = authorityKey(authority);
-    const current = () => alive && installation.current() && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
+    const current = () => {
+      const valid = alive && installation.current() && !!session && session.viewer.serverId === authority.serverId && session.viewer.accountId === authority.accountId && session.viewer.profileId === authority.profileId;
+      if (!valid && alive) end();
+      return valid;
+    };
     const profileOption: ProfileOption = Object.freeze({id: profile.id, name: profile.name, initial: [...profile.name.trim()][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: profile.pinRequired});
-    let libraries: readonly Library[] = Object.freeze(librariesResult.items);
-    // The source directory checks the current profile permission; no admin/source lookup and no
-    // client scan of every channel. A denied source directory never leaks names into navigation.
-    const readSources = () => local.request<RouteResponse<'get_guide_sources'>>(routePath('get_guide_sources'), 'GET', undefined, signal.signal).catch(error => {
-      if ((error as {status?: unknown})?.status === 403) return undefined;
-      throw error;
-    });
-    const sourceDirectory = await readSources();
-    assertCurrent();
-    if (sourceDirectory && (sourceDirectory.serverId !== authority.serverId || sourceDirectory.viewerFence !== authority.viewerFence)) throw Object.assign(new Error('viewer_scope_changed'), {code: 'access_refused'});
-    let hasLiveTV = !!sourceDirectory?.sources.length;
+    libraries = Object.freeze(librariesResult.items);
+    let hasLiveTV = initialFacts.hasLiveTV;
     const events = new EventsClient({http: localV1Http(local)});
     navigation = new NativeShellNavigation(authority, () => authority);
     const contextBase: Omit<NativeShellBootstrapContext, 'playback'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
-      preferences: () => preferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
+      preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
       appVersion: installed.appVersion, current,
-      get account() {return account;}, libraries: () => libraries, navigation};
+      get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
-      settings: () => nativePlaybackSettings(preferences.effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
-    const context: NativeShellBootstrapContext = {...contextBase, playback, get account() {return account;}};
+      settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
+    const context: NativeShellBootstrapContext = {...contextBase, playback, get account() {return currentAccount();}};
     bindings = await makeBindings(context); assertCurrent();
     const selectedBeforePublish = await nativeViewerStorage.read(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
     const bound = bindings;
-    let snapshot: NativeShellSnapshot;
     const publish = () => {
       if (!current()) return;
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
-      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: notifications.counts.unread > 0, account: bound.account});
+      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, account: bound.account});
       for (const listener of [...listeners]) listener();
     };
     publish();
@@ -166,28 +171,34 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     }, onSignedOut: end});
     let refreshing: Promise<void> | undefined;
     const refresh = () => refreshing ??= (async () => {
-      const [selection, me, nextLibraries, nextPreferences, nextInstallation, nextAccountRaw, nextAvatars, nextNotificationsRaw, nextSources] = await Promise.all([
-        nativeViewerStorage.read(), local.me(), local.libraries(), local.request<RouteResponse<'get_preferences'>>(routePath('get_preferences'), 'GET', undefined, signal.signal),
-        records.change('preferences:v1', raw => ({record: raw, value: raw})),
-        local.request<RouteResponse<'get_direct_account'>>(routePath('get_direct_account'), 'GET', undefined, signal.signal), identities.avatars(signal.signal),
-        local.request<RouteResponse<'get_notifications_unread_count'>>(routePath('get_notifications_unread_count'), 'GET', undefined, signal.signal), readSources(),
-      ]);
-      if (!current()) return;
-      const nextAccount = parseDirectSnapshot(nextAccountRaw, {authority: 'local', serverId: authority.serverId, accountId: authority.accountId}, true);
-      const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
-      if (!selection || !sameViewer(selection.session, session!) || (['accountId', 'profileId', 'serverId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session!.viewer[key])
-        || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision || nextAccount.account.role !== account.account.role
-        || nextPreferences.scope.serverId !== authority.serverId || nextPreferences.scope.viewerFence !== authority.viewerFence
-        || nextNotificationsRaw.scope.serverId !== authority.serverId || nextNotificationsRaw.scope.viewerFence !== authority.viewerFence
-        || nextSources && (nextSources.serverId !== authority.serverId || nextSources.viewerFence !== authority.viewerFence)) {end(); return;}
-      preferences = parsePreferenceSnapshot(nextPreferences); installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
-      account = nextAccount; avatars = nextAvatars; notifications = parseNotificationSummary(nextNotificationsRaw.data); hasLiveTV = !!nextSources?.sources.length;
-      for (const listener of [...preferenceListeners]) listener();
-      await documentService.revalidate();
-      if (!current()) return;
-      const fresh = documentService.getSnapshot().document;
-      if (fresh && fresh.viewerFence !== authority.viewerFence) {end(); return;}
-      publish();
+      assertCurrent();
+      const round = new AbortController(), abortRound = () => round.abort();
+      signal.signal.addEventListener('abort', abortRound, {once: true});
+      try {
+        const [selection, me, nextLibraries, nextFacts, nextInstallation, nextAccount, nextAvatars] = await Promise.all([
+          nativeViewerStorage.read(), readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, round.signal),
+          readers.request(routePath('get_libraries'), 'GET', undefined, round.signal).then(parseLibraryList), readers.read(round.signal),
+          records.change('preferences:v1', raw => ({record: raw, value: raw})), readers.readAccount(round.signal), identities.avatars(round.signal),
+        ]);
+        assertCurrent();
+        const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
+        if (!selection || selection.serverUrl !== original.serverUrl || !sameViewer(selection.session, session!)
+          || (['accountId', 'profileId', 'serverId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session!.viewer[key])
+          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision
+          || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
+        // Revalidate Home before committing the other private facts. Same-scope read failures
+        // retain the entire published body; a changed Home fence retires it in the transport.
+        await documentService.revalidate({signal: round.signal}); assertCurrent();
+        const selectedBeforeRefreshPublish = await nativeViewerStorage.read(); assertCurrent();
+        if (!selectedBeforeRefreshPublish || selectedBeforeRefreshPublish.serverUrl !== original.serverUrl || !sameViewer(selectedBeforeRefreshPublish.session, session!)) {end(); return;}
+        preferences = nextFacts.preferences; installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
+        account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;
+        for (const listener of [...preferenceListeners]) listener();
+        publish();
+      } catch (error) {
+        if (nativeShellPermissionDenied(error)) end();
+        throw error;
+      } finally {round.abort(); signal.signal.removeEventListener('abort', abortRound);}
     })().finally(() => {refreshing = undefined;});
     cleanups.push(bound.subscribe(publish), local.subscribeRoute(publish), documentService.subscribe(() => {
       const next = documentService.getSnapshot().document;
@@ -195,17 +206,17 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     }));
     let expanded = playback.getSnapshot().dock.local?.expanded === true;
     cleanups.push(playback.subscribe(() => {const next = playback!.getSnapshot().dock.local?.expanded === true; if (next !== expanded) {expanded = next; publish();}}));
-    const refreshQuietly = () => {if (current()) void refresh().catch(bound.reportError);};
+    const refreshQuietly = () => {if (current()) void refresh().catch(error => {if (current()) bound.reportError(error);});};
     cleanups.push(events.onResync(refreshQuietly), events.on('library.', refreshQuietly), events.on('personal.', refreshQuietly), events.on('preferences.', refreshQuietly), events.on('notification.changed', refreshQuietly));
     const app = AppState.addEventListener('change', value => {if (value === 'active') {refresher?.wake(); refreshQuietly();}});
     cleanups.push(() => app.remove(), runEventFeed(events, undefined, {visible: () => AppState.currentState === 'active', onVisibility: listener => {const subscription = AppState.addEventListener('change', listener); return () => subscription.remove();},
       busy: () => !!playback?.getSnapshot().dock.local, onBusy: playback.subscribe}));
     ready = true;
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
-    const skipBackMs = preferences.effective['playback.skipBackMs'];
+    const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, get skipBackSeconds() {const value = preferences.effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
-      subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => snapshot,
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
+      subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;
         const uri = resolve(path);
