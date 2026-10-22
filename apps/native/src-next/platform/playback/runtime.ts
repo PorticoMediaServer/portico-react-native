@@ -476,7 +476,13 @@ export class NativePlaybackRuntime {
           // the new generation in response to an effect naming the previous generation.
           for (const effect of transition.effects) if (effect.kind === 'pause') this.remember(effect.playback);
         }
-        if (state.phase === 'error' && !this.expanded) { this.expanded = true; this.dock.expand(fence); }
+        const previous = this.snapshot.playback;
+        // A new error needs attention once for its actual intent/source. Repeated error
+        // notifications must respect Back without clearing the error or retiring the Surface.
+        if (state.phase === 'error' && !this.expanded && (previous.phase !== 'error' || previous.intentId !== state.intentId
+          || previous.session?.id !== state.session?.id || previous.session?.generation !== state.session?.generation)) {
+          this.expanded = true; this.dock.expand(fence);
+        }
       }
       const key = state.session && state.itemId && (state.phase === 'starting' || state.phase === 'ready') ? `${state.intentId}/${state.session.id}/${state.session.generation}/${state.itemId}` : '';
       if (key !== this.sourceKey) this.selectSource(key);
