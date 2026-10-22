@@ -190,10 +190,10 @@ test('TV partial receipts retain actual rows and retry only actual failures, inc
     const footerRetry = ofType(surface.props.footer, Button).at(-1)!;
     footerRetry.props.onPress(); assert.deepEqual(calls, [['b'], ['b']]);
     assert.equal(surface.props.initialFocusRef, footerRetry.props.ref);
-    footerRetry.props.ref.current = {requestTVFocus() {calls.push('retry-focus');}};
+    footerRetry.props.ref.current = {requestTVFocus() {calls.push(['retry-focus']);}};
     editor.update({...props, result, pending: true}); editor.update({...props, result, pending: false});
     editor.update({...props, result: {...result, updated: 0, failed: 2, results: result.results.map(row => ({...row, ok: false}))}});
-    assert.equal(calls.at(-1), 'retry-focus');
+    assert.deepEqual(calls.at(-1), ['retry-focus']);
   } finally {editor.host.unmount();}
 });
 

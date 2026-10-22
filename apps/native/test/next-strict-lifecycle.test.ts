@@ -72,7 +72,7 @@ function timers(t: TestContext) {
   return {tasks, at(value: number) {now = value;}};
 }
 
-const fence: PlaybackFence = {playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1},
+const fence: PlaybackFence = {kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1},
   sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 function occupant(generation = 1, playing = true): DockOccupant {
   const current = {...fence, generation, sourceId: `source-${generation}`};

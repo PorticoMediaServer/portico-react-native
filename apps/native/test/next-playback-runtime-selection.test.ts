@@ -7,6 +7,7 @@ function entry(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target = 
   return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target, startSeconds: 41}}, target: {itemId: target, startSeconds: 41}};
 }
 const collection: HomeSelectionPlaybackItem = {identity: {id: 'collection-1', kind: 'collection', libraryId: 'library'}, collection: {
+  mediaKind: 'movie',
   collection: {id: 'collection-1', libraryId: 'library', name: 'collection-1', itemCount: 90, revision: 3},
   members: [{id: 'preview-only', kind: 'movie', libraryId: 'library', title: 'preview-only', playback: {itemId: 'preview-only'}}],
 }};

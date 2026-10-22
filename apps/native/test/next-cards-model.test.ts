@@ -4,7 +4,7 @@ import {activateCard, cardProgress, holdCard, type CardActions} from '../src-nex
 
 test('title navigation and server-chosen playback keep independent callback identities', () => {
   const calls: string[] = [];
-  const actions: CardActions = {onNavigate: () => calls.push('title:show'), onPlay: () => calls.push('play:next-episode')};
+  const actions = {onNavigate: () => calls.push('title:show'), onPlay: () => calls.push('play:next-episode')} satisfies CardActions;
   activateCard(actions);
   activateCard({...actions, primaryAction: 'play'});
   assert.deepEqual(calls, ['title:show', 'play:next-episode']);
@@ -24,7 +24,7 @@ test('TV menu remains a menu even when selection is active, and never invents Se
   const calls: string[] = [];
   const actions: CardActions = {onNavigate: () => calls.push('navigate'), selection: {active: true, selected: true, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter')}};
   holdCard(actions, true);
-  assert.deepEqual(calls, []);
+  assert.equal(calls.length, 0);
   holdCard({...actions, onMore: () => calls.push('more')}, true);
   assert.deepEqual(calls, ['more']);
 });

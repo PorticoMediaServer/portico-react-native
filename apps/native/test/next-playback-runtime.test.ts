@@ -443,14 +443,14 @@ function selected(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target
   return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target}}, target: {itemId: target}};
 }
 function homeChannel(): HomeChannel {
-  return {source: {id: 'source-1', name: 'source-1', generation: 'g1', publishedAt: '2026-10-22T00:00:00Z', availableStart: '2026-10-22T00:00:00Z', availableEnd: '2026-10-23T00:00:00Z', provenance: 'live-source', refreshState: 'ready'},
+  return {actions: {play: true, favorite: false}, source: {id: 'source-1', name: 'source-1', generation: 'g1', publishedAt: '2026-10-22T00:00:00Z', availableStart: '2026-10-22T00:00:00Z', availableEnd: '2026-10-23T00:00:00Z', provenance: 'live-source', refreshState: 'ready'},
     channel: {id: 'channel-1', sourceId: 'source-1', provenance: 'live-source', name: 'channel-1', number: '1', group: '', generation: 'g1', programmes: [], tuneAvailable: true, recordAvailable: false, tuneUnavailableReason: '', recordUnavailableReason: '', favorite: false, hidden: false, preferenceRevision: 1, mark: {text: '1', seed: 'channel-1'}}};
 }
 
 test('Home mixed Play returns the real queue receipt and adopts it through this runtime native engine', async () => {
   const d = fixture(), context = selectionContext(), signal = new AbortController().signal;
   try {
-    const collection: HomeSelectionPlaybackItem = {identity: {id: 'collection-1', kind: 'collection', libraryId: 'library'}, collection: {collection: {id: 'collection-1', libraryId: 'library', name: 'collection-1', itemCount: 12, revision: 1}, members: []}};
+    const collection: HomeSelectionPlaybackItem = {identity: {id: 'collection-1', kind: 'collection', libraryId: 'library'}, collection: {mediaKind: 'movie', collection: {id: 'collection-1', libraryId: 'library', name: 'collection-1', itemCount: 12, revision: 1}, members: []}};
     const result = await d.runtime.selectionPlayback(candidate => candidate === context).play({context, signal, items: [selected('movie-1'), selected('album-1', 'album', 'song-1'), collection]});
     await settle();
     assert.equal(result.queue.id, d.runtime.getSnapshot().session?.queue?.queueId);
