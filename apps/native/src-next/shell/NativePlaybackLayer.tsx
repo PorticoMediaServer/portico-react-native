@@ -15,6 +15,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
+  const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const touching = useRef(false), moving = useRef(false), alive = useRef(true);
   const capture = useMemo(() => new NativeVideoSnapshotCapture({capture: (fence, options) => adapter.captureVideoSnapshot(fence, options), reportError: runtime.reportError,
@@ -63,7 +64,20 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     });
     return () => back.remove();
   }, [adapter, authority, runtime, theme.isTV]);
-  const onSlot = useCallback((bounds: NativeShellBounds) => setDockBounds(previous => previous && Object.keys(bounds).every(key => previous[key as keyof NativeShellBounds] === bounds[key as keyof NativeShellBounds]) ? previous : bounds), []);
+  const onSlot = useCallback((bounds: NativeShellBounds) => {
+    slot.current = bounds;
+    const node = host.current, source = adapter.getSnapshot().fence, revision = ++slotRevision.current;
+    if (!node || !source || ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) return;
+    // The art slot is measured in window coordinates. Fabric's viewport origin
+    // can include edge-to-edge insets; the persistent overlay uses local bounds.
+    node.measureInWindow((x, y) => {
+      const current = adapter.getSnapshot();
+      if (!alive.current || host.current !== node || revision !== slotRevision.current || !sameAuthority(current.authority, authority)
+        || !sameFence(current.fence, source) || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      const next = {...bounds, x: bounds.x - x, y: bounds.y - y};
+      setDockBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds]) ? previous : next);
+    });
+  }, [adapter, authority]);
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
   const fence = snapshot.fence;
@@ -73,7 +87,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
   const fullFrame = {x: 0, y: 0, width, height};
-  return <View pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
+  return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current);}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
       onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
       {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
