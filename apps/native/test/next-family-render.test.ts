@@ -61,7 +61,8 @@ registerHooks({resolve(specifier, context, next) {
   if (result.errors.length) throw new AggregateError(result.errors);
   return {format: 'module', source: result.code, shortCircuit: true};
 }});
-const {CardFrame} = await import('../src-next/kit/cards/primitives.tsx');
+const {CardFrame, ArtFrame} = await import('../src-next/kit/cards/primitives.tsx');
+const {Row} = await import('../src-next/kit/layout/Row.tsx');
 const {Parts} = await import('../src-next/kit/cards/primitives.tsx');
 const {WideCard} = await import('../src-next/kit/cards/MediaCards.tsx');
 const {SelectionHoldFeedback} = await import('../src-next/kit/selection/SelectionHoldFeedback.tsx');
@@ -231,4 +232,43 @@ test('phone continuation facts stay on one quiet line while TV retains its full 
       }
     } finally {card.host.unmount();}
   }
+});
+
+test('TV shelves reserve focus overflow without shifting the card edge and preserve all native actions', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const items = [{id: 'first'}, {id: 'second'}], focused: string[] = [], ranges: number[][] = [];
+  let seeAll = 0;
+  const row = mount(Row, {title: 'Continue Watching', items, getKey: (item: {id: string}) => item.id,
+    itemWidth: 400, itemHeight: 225, selection: {active: false, isSelected: () => false, onToggle() {}, onEnter() {}},
+    onSeeAll: () => seeAll++, onVisibleRange: (first: number, last: number) => ranges.push([first, last]),
+    onItemFocus: (item: {id: string}) => focused.push(item.id),
+    renderItem: (item: {id: string}, context: any) => React.createElement('View', {key: item.id, testID: item.id, onFocus: context.onFocus})});
+  try {
+    let scroll = find(row.tree, 'AnimatedScrollView');
+    scroll.props.onLayout({nativeEvent: {layout: {width: 1920}}}); row.host.flush();
+    scroll = find(row.tree, 'AnimatedScrollView');
+    const first = nodes(scroll).find(node => node.props.testID === 'first')!;
+    const placed = nodes(scroll).find(node => node.props.style?.position === 'absolute')!;
+    assert.equal(placed.props.style.left, 200);
+    assert.equal(placed.props.style.top + scroll.props.style.marginTop, 0, 'ring clearance does not add space below the heading');
+    assert.ok(placed.props.style.top >= 18, 'the 1.08 scale and 8px outer ring fit above the track');
+    first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first']);
+    assert.deepEqual(ranges.at(-1), [0, 1]);
+    const all = find(row.tree, 'Pressable'); all.props.onPress(); assert.equal(seeAll, 1);
+    assert.ok(all.props.hitSlop.top + all.props.hitSlop.bottom >= 44, 'the compact label retains the expanded target');
+  } finally {row.host.unmount();}
+});
+
+test('TV art focus paints an outer ring and soft shadow without an elevated interior surface', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const art = mount(ArtFrame, {height: 225, focused: true, children: null});
+  try {
+    const ring = nodes(art.tree).find(node => Array.isArray(node.props.style) && node.props.style[0]?.boxShadow)!;
+    assert.ok(ring);
+    assert.equal(ring.props.style[0].elevation, undefined);
+    assert.equal(ring.props.style[0].backgroundColor, undefined);
+    assert.equal(ring.props.style[0].top, -8);
+    assert.equal(ring.props.style[0].boxShadow[0].spreadDistance, -12);
+    assert.equal(ring.props.style[0].boxShadow[0].blurRadius, 64);
+  } finally {art.host.unmount();}
 });
