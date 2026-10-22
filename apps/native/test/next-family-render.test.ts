@@ -73,7 +73,8 @@ const {default: browseGalleries} = await import('../src-next/dev/families/browse
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
-const {Dialog} = await import('../src-next/kit/overlays/index.ts');
+const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
+const {default: overlayGalleries} = await import('../src-next/dev/families/overlays/overlays.gallery.tsx');
 type Element = ReactElement<Record<string, any>>;
 function nodes(node: ReactNode): Element[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
@@ -276,4 +277,30 @@ test('TV art focus paints an outer ring and soft shadow without an elevated inte
     assert.equal(ring.props.style[0].boxShadow[0].spreadDistance, -12);
     assert.equal(ring.props.style[0].boxShadow[0].blurRadius, 64);
   } finally {art.host.unmount();}
+});
+
+
+test('the real overlay gallery lets an initially open surface own its window and Cancel retains the opener', () => {
+  for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    const gallery = mount(overlayGalleries.find(value => value.id === 'overlays-dialog')!.render, {});
+    const sceneElement = gallery.tree as Element;
+    const scene = mount(sceneElement.type, sceneElement.props);
+    try {
+      assert.equal((scene.tree as Element).type, 'View');
+      assert.ok(find(scene.tree, OverlaysProvider));
+      assert.equal(nodes(scene.tree).some(node => node.type === 'Modal'), false);
+      const dialog = find(scene.tree, Dialog);
+      assert.equal(dialog.props.open, true);
+      const opener = find(scene.tree, Button);
+      assert.ok(opener.props.ref);
+      assert.equal(dialog.props.returnFocusRef, opener.props.ref);
+      const cancel = nodes(dialog.props.footer).find(node => node.type === Button)!;
+      cancel.props.onPress(); gallery.host.flush();
+      const updated = (gallery.tree as Element).props;
+      scene.update(updated);
+      assert.equal(find(scene.tree, Dialog).props.open, false);
+      assert.ok(find(scene.tree, Button));
+    } finally {scene.host.unmount(); gallery.host.unmount();}
+  }
 });

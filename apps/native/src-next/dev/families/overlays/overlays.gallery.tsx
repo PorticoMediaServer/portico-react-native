@@ -1,5 +1,5 @@
 import React, {useRef, useState} from 'react';
-import {Modal, ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n, formatMessage} from '../../../../../../packages/i18n/src/index';
 import {fileInfoModel, type FileFacts} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {overlaysNativeFixtures} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/overlays-native-fixtures';
@@ -22,8 +22,8 @@ const files: readonly FileFacts[] = [
 
 function Scene({children}: {children: React.ReactNode}) {
   const theme = useTheme();
-  const [visible, setVisible] = useState(true);
-  return <><Button variant="glass" onPress={() => setVisible(true)}>{t('next.overlays.native.galleryTitle')}</Button><Modal visible={visible} animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setVisible(false)}><View style={{flex: 1, backgroundColor: theme.colors.ink}}><OverlaysProvider>{children}</OverlaysProvider></View></Modal></>;
+  // The surface owns its native window; a second Modal here obscures an initially open surface on Android.
+  return <View style={{flex: 1, backgroundColor: theme.colors.ink}}><OverlaysProvider>{children}</OverlaysProvider></View>;
 }
 function FileContent() {
   const theme = useTheme();
