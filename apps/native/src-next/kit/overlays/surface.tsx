@@ -1,10 +1,11 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Modal, Pressable, StyleSheet, Text, TVFocusGuideView, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
+import {Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button} from '../controls/Button';
 import {Focusable} from '../controls/Focusable';
+import {FocusRegion} from '../focus';
 import {Icon} from '../Icon';
 import {nativeType, useTheme} from '../theme';
 import {useMotion} from '../useMotion';
@@ -53,9 +54,9 @@ function DialogBackground({radius}: {radius: number}) {
     <Rect width="100%" height="100%" fill="url(#dialog-base)"/>
   </Svg></View>;
 }
-export function FocusBoundary({modal, children, style}: {modal: boolean; children: React.ReactNode; style?: StyleProp<ViewStyle>}) {
+export function FocusBoundary({modal, children, style, testID}: {modal: boolean; children: React.ReactNode; style?: StyleProp<ViewStyle>; testID?: string}) {
   const {isTV} = useTheme();
-  return isTV ? <TVFocusGuideView autoFocus={modal} trapFocusUp={modal} trapFocusDown={modal} trapFocusLeft={modal} trapFocusRight={modal} style={style}>{children}</TVFocusGuideView> : <View style={style}>{children}</View>;
+  return isTV ? <FocusRegion id={testID ?? ''} hold={modal} style={style}>{children}</FocusRegion> : <View style={style}>{children}</View>;
 }
 export function SurfaceHeader({title, description, action, side = false, inset = true, dialog = false, titleType: suppliedType, titleTextStyle, descriptionTextStyle}: Pick<SurfaceProps, 'title' | 'description' | 'titleType' | 'titleTextStyle' | 'descriptionTextStyle'> & {action?: React.ReactNode; side?: boolean; inset?: boolean; dialog?: boolean}) {
   const theme = useTheme();
@@ -72,7 +73,7 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
   const closeRef = useRef<View>(null);
   const scrimStyle = useScrimStyle(animation.progress);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
-  useOverlayLifecycle(animation.present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs);
+  useOverlayLifecycle(animation.present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID);
   if (!animation.present) return null;
   const width = suppliedWidth ?? (size === 'md' ? theme.isTV ? 900 : 480 : theme.spec.overlay.width[size][theme.platform]);
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
@@ -81,13 +82,13 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
       <Pressable accessible={false} focusable={false} style={StyleSheet.absoluteFill} onPress={() => {if (dismissOnOutsidePress) dismiss('outside');}}/>
       <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[{width: width || '100%', maxWidth: '92%', maxHeight: `${theme.spec.overlay.maxHeight[theme.platform] * 100}%`, borderRadius: theme.isTV ? 26 : 20, paddingTop: theme.isTV ? 48 : 26, paddingHorizontal: theme.isTV ? 52 : 26, paddingBottom: theme.isTV ? 44 : 22, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.text, 0.09)}, animation.style, style]}>
         <DialogBackground radius={theme.isTV ? 26 : 20}/>
-        <FocusBoundary modal>
+        <FocusBoundary modal testID={testID}>
           {headerContext}
           <SurfaceHeader dialog inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle}/>
           <View style={contentStyle}>{children}</View>
           {footer != null && <View style={{marginTop: theme.isTV ? 40 : 22, gap: theme.isTV ? 18 : 10}}>{footer}</View>}
         </FocusBoundary>
-        {showClose && !theme.isTV && <Focusable ref={closeRef} focusRadius={18} accessibilityRole="button" accessibilityLabel={defaultI18n.t('action.close')} hitSlop={4} onPress={() => dismiss('close-button')} style={{position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-close" size={20} color={theme.colors.textTertiary}/></Focusable>}
+        {showClose && !theme.isTV && <Focusable testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} focusRadius={18} accessibilityRole="button" accessibilityLabel={defaultI18n.t('action.close')} hitSlop={4} onPress={() => dismiss('close-button')} style={{position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-close" size={20} color={theme.colors.textTertiary}/></Focusable>}
       </Animated.View>
     </View>
   </Modal>;
@@ -107,7 +108,7 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
   const animation = useSurfaceMotion(open, 'side', actualWidth);
   const closeRef = useRef<View>(null);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
-  useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs);
+  useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID);
   const hostWidth = frame.width || viewport.width;
   const hostHeight = frame.height || viewport.height;
   const panelWidth = Math.min(actualWidth, hostWidth);
@@ -116,9 +117,9 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
   return <OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
     <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu, paddingTop: theme.isTV ? 64 : 24, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0}, animation.style, style]}>
       {theme.isTV && <PanelBackground/>}
-      <FocusBoundary modal={false} style={styles.root}>
+      <FocusBoundary modal testID={testID} style={styles.root}>
         {headerContext}
-        <SurfaceHeader side title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={<Button ref={closeRef} variant="text" size="small" onPress={() => dismiss('close-button')}>{defaultI18n.t('action.close')}</Button>}/>
+        <SurfaceHeader side title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={<Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" onPress={() => dismiss('close-button')}>{defaultI18n.t('action.close')}</Button>}/>
         <View style={[styles.root, contentStyle]}>{children}</View>
         {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}
       </FocusBoundary>

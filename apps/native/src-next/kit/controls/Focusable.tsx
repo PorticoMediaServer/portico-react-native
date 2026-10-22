@@ -6,10 +6,12 @@ import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {colorAlpha, focusScale, type FocusKind} from './control-model';
 import {useFocusedMenu} from './useFocusedMenu';
+import {useFocusTarget} from '../focus';
 
 export type ControlState = PressableStateCallbackType & {focused: boolean; hovered: boolean};
 export type FocusableProps = Omit<PressableProps, 'children'> & {
   children?: React.ReactNode | ((state: ControlState) => React.ReactNode);
+  focusId?: string;
   focusKind?: FocusKind;
   focusRadius?: number;
   focusInset?: boolean;
@@ -38,38 +40,40 @@ const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter
 
 /** The platform moves focus; this primitive only draws it and owns its Menu registration. */
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
-  children, style, disabled, focusable, focusKind = 'button', focusRadius = 10,
+  children, style, disabled, focusable, focusId, testID, focusKind = 'button', focusRadius = 10,
   focusInset = false, focusTreatment = 'default', onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
   onLongPressAction, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
   const motion = useMotion();
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || focusable === false, ref});
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const scale = useSharedValue(1);
   const halo = useSharedValue(0);
   const pressed = useSharedValue(0);
 
+  // motion.html 4.1: native focus draws with quick/out tokens.
   useEffect(() => {
     scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && !disabled ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
     halo.value = withTiming(focused && !disabled ? 1 : 0, motion.timing('quick'));
   }, [focused, disabled, isTV, focusKind, focusTreatment, motion, scale, halo]);
-  useFocusedMenu(isTV, focused, disabled, onLongPressAction);
+  useFocusedMenu(isTV, focused, disabled, waiting ? undefined : onLongPressAction);
 
   const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV ? 1 : 1 - pressed.value * .03) : 1}]}));
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
-  return <AnimatedPressable {...props} ref={ref} disabled={disabled} focusable={disabled ? false : focusable}
+  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={binding.ref} disabled={disabled} focusable={disabled ? false : focusable}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
     tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}
-    onFocus={event => {setFocused(true); onFocus?.(event);}}
-    onBlur={event => {setFocused(false); pressed.value = 0; onBlur?.(event);}}
+    onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event);}}
+    onBlur={event => {binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event);}}
     onHoverIn={event => {setHovered(true); onHoverIn?.(event);}}
     onHoverOut={event => {setHovered(false); onHoverOut?.(event);}}
     onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
-    onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
+    onLongPress={disabled || waiting ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     pressableStyleInput={typeof style === 'function' ? style : undefined}
     style={[typeof style === 'function' ? undefined : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
     {(state: PressableStateCallbackType) => <>

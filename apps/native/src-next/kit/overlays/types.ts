@@ -89,6 +89,7 @@ export type MenuProps = Omit<SurfaceProps, 'children' | 'headerContext'> & {
   context?: React.ReactNode;
 };
 export type MenuRowProps = Omit<PressableProps, 'children'> & {
+  focusId?: string;
   label: React.ReactNode;
   icon?: IconName;
   description?: React.ReactNode;

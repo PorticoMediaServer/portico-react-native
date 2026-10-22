@@ -42,7 +42,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     done.current = reason === 'close-button' || reason === 'action';
     onOpenChange(false, reason);
   }, [onOpenChange, dismissOnBack]);
-  useOverlayLifecycle(present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500);
+  useOverlayLifecycle(present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID);
   useEffect(() => {
     opacity.value = motion.reduce ? withTiming(open ? 1 : 0, motion.timing()) : open ? withTiming(1, motion.timing('standard')) : 1;
     const target = open ? heights[index] : 0;
@@ -77,7 +77,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const scrimStyle = useAnimatedStyle(() => ({opacity: motion.reduce ? opacity.value : side ? sideProgress.value : Math.max(0, Math.min(1, shown.value / max))}));
   const footerStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateY: Math.max(0, (1 - shown.value / heights[0]) * footerHeight)}]}));
   const tvStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateX: (1 - sideProgress.value) * sideWidth}]}));
-  const close = <Button ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
+  const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
   if (!present) return null;
   const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
   const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
@@ -86,7 +86,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', 0.64)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {side ? <Animated.View testID={testID} style={[styles.tv, {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20, backgroundColor: theme.colors.raised}, tvStyle, style]}>
-        {theme.isTV && <PanelBackground/>}<FocusBoundary modal style={styles.root}>{headerContext}<SurfaceHeader side inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction}/>{body}{(footer != null || showClose) && <View style={{paddingTop: 20}}>{footer ?? close}</View>}</FocusBoundary>
+        {theme.isTV && <PanelBackground/>}<FocusBoundary modal testID={testID} style={styles.root}>{headerContext}<SurfaceHeader side inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction}/>{body}{(footer != null || showClose) && <View style={{paddingTop: 20}}>{footer ?? close}</View>}</FocusBoundary>
       </Animated.View> : <>
         <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[styles.sheet, {height: max, backgroundColor: theme.colors.raised, borderColor: alpha(theme.colors.text, 0.08)}, sheetStyle, style]}>
           <GestureDetector gesture={pan}><Animated.View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}><View accessible accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
