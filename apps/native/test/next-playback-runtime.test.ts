@@ -246,3 +246,48 @@ test('a second native surface attachment is rejected and unmount tears down one 
     assert.equal(d.server.session(sessionId)?.ended, true);
   } finally { d.runtime.dispose(); }
 });
+
+test('quality and audio changes replan the real session and fence old generation callbacks', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1', 30);
+    const before = d.runtime.getSnapshot(), original = before.fence!, oldCommand = d.engine.lastCommand, listener = d.engine.listener!;
+    d.runtime.setRate(original, 1.5); await settle();
+    assert.equal(d.engine.lastCommand.rate, 1.5);
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    await d.runtime.chooseQuality(original, quality); await settle();
+    const changed = d.runtime.getSnapshot();
+    assert.equal(changed.fence?.sessionId, original.sessionId);
+    assert.ok(changed.fence!.generation > original.generation);
+    assert.equal(changed.session?.presentation.quality.id, '720p');
+    assert.equal(d.engine.lastCommand.rate, 1.5);
+    const stablePosition = changed.playback.positionSeconds;
+    listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding, intentId: oldCommand.binding.intentId, factSequence: 999999,
+      lastCommandRevision: oldCommand.commandRevision, position: 2, paused: false});
+    await d.runtime.seek(original, 2); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, stablePosition);
+    const fence = d.runtime.getSnapshot().fence!;
+    await d.runtime.change(fence, {audioTrackId: 'a2'}); await settle();
+    assert.equal(d.runtime.getSnapshot().session?.presentation.audioTrackId, 'a2');
+    await d.start('movie-2');
+    assert.equal(d.engine.lastCommand.rate, 1, 'a fresh playback reads Settings instead of the prior session override');
+  } finally { d.runtime.dispose(); }
+});
+
+test('a superseded preflight cannot create or mount a late session for its previous source', async () => {
+  const d = fixture();
+  let release!: () => void;
+  try {
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered = false;
+    d.intercept(async request => { if (request.path.includes('/items/movie-old/playback-options') && !entered) { entered = true; await held; } });
+    const oldStart = d.runtime.start({entry: {id: 'movie-old', kind: 'movie', title: 'movie-old', playback: {itemId: 'movie-old'}}, target: {itemId: 'movie-old'}});
+    await settle(); assert.equal(entered, true);
+    await d.start('movie-current', 27);
+    release(); await oldStart; await settle();
+    assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-current');
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 27);
+    assert.ok(d.engine.commands.every(command => command.binding.itemId !== 'movie-old'));
+    assert.equal(d.requests.some(request => request.method === 'POST' && JSON.stringify(request.body).includes('movie-old')), false);
+  } finally { release?.(); d.runtime.dispose(); }
+});
