@@ -1,0 +1,69 @@
+import React, {forwardRef, useEffect, useRef, useState} from 'react';
+import {Pressable, StyleSheet, type PressableProps, type PressableStateCallbackType, type View} from 'react-native';
+import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import {focusSpec} from '@portico/design';
+import {registerFocusedMenu} from '../../platform/menu-key';
+import {useTheme} from '../theme';
+import {useMotion} from '../useMotion';
+import {colorAlpha, focusScale, type FocusKind} from './control-model';
+
+export type ControlState = PressableStateCallbackType & {focused: boolean};
+export type FocusableProps = Omit<PressableProps, 'children'> & {
+  children?: React.ReactNode | ((state: ControlState) => React.ReactNode);
+  focusKind?: FocusKind;
+  focusRadius?: number;
+  focusInset?: boolean;
+  /** Custom face/art layers may draw the focus look from the real render-prop state. */
+  focusTreatment?: 'default' | 'none';
+  /** Same context action for touch/Apple long press and Android TV Menu-up. */
+  onLongPressAction?: () => void;
+};
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/** The platform moves focus; this primitive only draws it and owns its Menu registration. */
+export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
+  children, style, disabled, focusable, focusKind = 'button', focusRadius = 10,
+  focusInset = false, focusTreatment = 'default', onFocus, onBlur, onPressIn, onPressOut, onLongPress,
+  onLongPressAction, accessibilityState, ...props
+}, ref) {
+  const {isTV, colors, layers} = useTheme();
+  const motion = useMotion();
+  const [focused, setFocused] = useState(false);
+  const owner = useRef({});
+  const scale = useSharedValue(1);
+  const halo = useSharedValue(0);
+  const pressed = useSharedValue(0);
+
+  useEffect(() => {
+    scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && !disabled ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
+    halo.value = withTiming(focused && !disabled ? 1 : 0, motion.timing('quick'));
+  }, [focused, disabled, isTV, focusKind, focusTreatment, motion, scale, halo]);
+  useEffect(() => {
+    if (isTV && focused && !disabled && onLongPressAction) return registerFocusedMenu(owner.current, onLongPressAction);
+  }, [isTV, focused, disabled, onLongPressAction]);
+
+  const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV ? 1 : 1 - pressed.value * .03) : 1}]}));
+  const ring = useAnimatedStyle(() => ({opacity: halo.value}));
+  const offset = focusInset ? 0 : focusSpec.offsetOuter[isTV ? 'tv' : 'phone'] + focusSpec.ringWidth[isTV ? 'tv' : 'phone'];
+
+  return <AnimatedPressable {...props} ref={ref} disabled={disabled} focusable={disabled ? false : focusable}
+    accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
+    tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}
+    onFocus={event => {setFocused(true); onFocus?.(event);}}
+    onBlur={event => {setFocused(false); pressed.value = 0; onBlur?.(event);}}
+    onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
+    onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
+    onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
+    style={state => [typeof style === 'function' ? style(state) : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
+    {state => <>
+      {focusTreatment === 'default' ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
+        style={[styles.ring, {inset: -offset, borderRadius: focusRadius + offset,
+          borderWidth: focusSpec.ringWidth[isTV ? 'tv' : 'phone'], borderColor: colors.focus,
+          ...(isTV ? {shadowColor: colorAlpha(colors.accentStrong, focusSpec.glow.alpha), shadowOffset: {width: focusSpec.glow.x, height: focusSpec.glow.y}, shadowOpacity: 1, shadowRadius: focusSpec.glow.blur / 2} : {})}, ring]} /> : null}
+      {typeof children === 'function' ? children({...state, focused}) : children}
+    </>}
+  </AnimatedPressable>;
+});
+
+const styles = StyleSheet.create({ring: {position: 'absolute'}});
