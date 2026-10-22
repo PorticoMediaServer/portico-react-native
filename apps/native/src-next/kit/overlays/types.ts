@@ -59,6 +59,8 @@ export type PopoverProps = SurfaceProps & {
   anchorRef: React.RefObject<View | null>;
   width?: number;
   modal?: boolean;
+  /** Native focus containment can hold an in-window TV menu independently of window modality. */
+  holdFocus?: boolean;
   showTitle?: boolean;
   backdropOpacity?: number;
   placement?: 'bottom-start' | 'bottom-center' | 'bottom-end' | 'top-start' | 'top-center' | 'top-end';

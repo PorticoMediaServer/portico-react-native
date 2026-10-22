@@ -20,11 +20,12 @@ export type TextFieldProps = TextInputProps & {
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
   label, description, error, leadingIcon, iconSize, variant = 'field', containerStyle, fieldStyle,
-  editable = true, style, onFocus, onBlur, accessibilityLabel, accessibilityState,
+  editable = true, focusable, style, onFocus, onBlur, accessibilityLabel, accessibilityState,
   placeholderTextColor, nativeID, multiline, focusId, testID, ...props
 }, ref) {
   const theme = useTheme();
-  const {waiting: _waiting, ...binding} = useFocusTarget<TextInput>({focusId, testID, disabled: !editable, ref});
+  const eligible = editable && focusable !== false;
+  const {waiting, ...binding} = useFocusTarget<TextInput>({focusId, testID, disabled: !eligible, ref});
   const [focused, setFocused] = useState(false);
   const id = useId();
   const search = variant === 'search';
@@ -44,10 +45,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
       borderWidth: search && !error ? 0 : fieldSpec.borderWidth[theme.platform], borderColor: color,
       opacity: editable ? 1 : .45}, fieldStyle]}>
       {leadingIcon ? <Icon name={leadingIcon} size={iconSize ?? (theme.isTV ? 30 : 20)} color={theme.colors.textTertiary} /> : null}
-      <TextInput {...binding} {...props} testID={binding.testID} ref={binding.ref} nativeID={nativeID ?? id} editable={editable} multiline={multiline}
+      <TextInput {...binding} {...props} testID={binding.testID} ref={binding.ref} nativeID={nativeID ?? id} editable={editable} focusable={eligible} multiline={multiline}
         accessibilityLabel={accessibilityLabel ?? (typeof label === 'string' ? label : undefined)}
         accessibilityLabelledBy={label === undefined ? props.accessibilityLabelledBy : labelID}
-        accessibilityState={{...accessibilityState, disabled: !editable}}
+        accessibilityState={{...accessibilityState, disabled: !editable, busy: waiting || accessibilityState?.busy}}
         placeholderTextColor={placeholderTextColor ?? theme.colors.placeholder}
         underlineColorAndroid="transparent"
         onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event);}}
