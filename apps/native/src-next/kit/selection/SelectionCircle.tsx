@@ -1,5 +1,5 @@
 import React, {forwardRef} from 'react';
-import {StyleSheet, View, type PressableProps} from 'react-native';
+import {Pressable, StyleSheet, View, type PressableProps} from 'react-native';
 import {Icon} from '../Icon';
 import {Focusable} from '../controls/Focusable';
 import {useTheme} from '../theme';
@@ -31,9 +31,9 @@ export const SelectionCircle = forwardRef<View, SelectionCircleProps>(function S
     backgroundColor: selected ? colors.accentStrong : variant === 'row' ? 'transparent' : isTV ? 'rgba(7,16,24,.45)' : 'rgba(7,16,24,.42)',
     boxShadow: variant === 'row' ? undefined : selected ? '0 2px 8px rgba(0,0,0,.5)' : '0 1px 5px rgba(0,0,0,.5)',
   }]}>{selected ? <Icon name="i-check" size={geometry.check} color="#03121c" /> : null}</View>;
-  if (!interactive) return <View ref={ref} testID={props.testID} nativeID={props.nativeID}
+  if (!interactive) return <Pressable ref={ref} testID={props.testID} nativeID={props.nativeID} disabled
     pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" focusable={false}
-    style={[{opacity: visible ? disabled ? .42 : 1 : 0}, typeof style === 'function' ? style({pressed: false}) : style]}>{face}</View>;
+    style={state => [{opacity: visible ? disabled ? .42 : 1 : 0}, typeof style === 'function' ? style(state) : style]}>{face}</Pressable>;
   return <Focusable {...props} ref={ref} disabled={disabled || !visible} focusable={visible ? props.focusable : false}
     accessibilityLabel={accessibilityLabel} accessibilityRole="checkbox"
     accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'yes' : 'no-hide-descendants'}

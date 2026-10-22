@@ -46,7 +46,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   const firstMounted = window.startRow * columns, lastMounted = Math.min(total - 1, (window.endRow + 1) * columns - 1);
   const firstPage = collection.pageOf(firstMounted), lastPage = collection.pageOf(Math.max(firstMounted, lastMounted));
   const subscribePages = useCallback((listener: () => void) => {
-    const cleanup = [];
+    const cleanup: (() => void)[] = [];
     for (let page = firstPage; page <= lastPage; page++) cleanup.push(collection.subscribePage(page, listener));
     return () => cleanup.forEach(run => run());
   }, [collection, firstPage, lastPage]);

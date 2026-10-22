@@ -33,7 +33,7 @@ internal object PorticoSnapshotBinding {
     if (actual == null) return false
     return listOf("lease", "sessionId", "itemId").all { key ->
       val value = expected[key] as? String
-      !value.isNullOrEmpty() && value.length <= 512 && value == actual[key]
+      value != null && value.isNotEmpty() && value.length <= 512 && value == actual[key]
     } &&
         listOf("intentId", "generation").all { key ->
           val value = (expected[key] as? Number)?.toDouble()

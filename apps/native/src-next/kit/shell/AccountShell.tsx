@@ -5,7 +5,7 @@ import type {Notification} from '../../../../../packages/client-core/src/notific
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {ProfileFace, type ProfileFaceProps, type ProfileOption} from '../artwork/Profiles';
 import {Focusable, type FocusableProps} from '../controls/Focusable';
-import {Popover} from '../overlays/surface';
+import {Popover} from '../overlays/Menu';
 import type {PopoverProps} from '../overlays/types';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {Icon, type IconName} from '../Icon';

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueueScope, type RemoteDock} from '../../../packages/player-core/src/index.ts';
+import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueuePlaybackFence, type QueueScope, type RemoteDock} from '../../../packages/player-core/src/index.ts';
 import {playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {commandAllowed, commandIsCurrent, currentOccupant, dockCommand, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
@@ -8,13 +8,13 @@ import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
-const fence: PlaybackFence = {playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
+const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 const video: DockPlayback = {fence, kind: 'video', queue: null, positionSeconds: 75, playing: true, expanded: false};
 const presentation = (over: Partial<DockPresentation> = {}): DockPresentation => ({fence, identity: playbackIdentity({kind: 'video', item: {id: 'item', kind: 'episode', title: 'Episode', show: {title: 'Show'}, episode: {mode: 'seasonal', season: 1, episode: 1}}}, 'dock', {t: defaultI18n.t}), durationSeconds: 100, skipBackSeconds: 10, capabilities: {play: true, pause: true, seek: true, stop: true, previous: false, next: true, cast: false}, ...over});
 const remote = (over: Partial<RemoteDock> = {}): RemoteDock => ({id: 'receiver', kind: 'cast', sequence: '1', phase: 'playing', playback: video, positionSeconds: 40, ...over});
-function setup(model = presentation()) {
+function setup(model = presentation(), playback: DockPlayback = video) {
   const dock = new PlaybackDock(scope);
-  dock.start(video);
+  dock.start(playback);
   const get = () => currentOccupant(dock, dock.getSnapshot(), {local: model, remote: model})!;
   return {dock, get};
 }
@@ -53,7 +53,9 @@ test('actions captured before a new source or receiver sequence cannot reach its
 });
 
 test('live progress and Back use actual rewind bounds, including tune-in and the live edge', () => {
-  const {get} = setup(presentation({seekWindow: {start: 50, end: 90}}));
+  const liveFence: PlaybackFence = {kind: 'channel', playback: fence.playback, sessionId: 'live-session', sourceId: 'live-source', channelKind: 'live-source', channelId: 'channel', channelGeneration: 'buffer-1', generation: 1};
+  const live: DockPlayback = {...video, kind: 'live', fence: liveFence, queue: null};
+  const {get} = setup(presentation({fence: liveFence, seekWindow: {start: 50, end: 90}}), live);
   const occupant = get();
   assert.equal(progressOf(occupant), .625);
   assert.equal(seekTo(occupant, 0)?.positionSeconds, 50);

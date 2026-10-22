@@ -11,7 +11,8 @@ export function artworkArrivalDuration(requested: number | undefined, standard: 
 export function artworkFrame(width: number, height: number, intrinsicWidth: number, intrinsicHeight: number, fit: 'cover' | 'contain', position: ArtworkPosition = {x: 0.5, y: 0.5}, zoom = 1) {
   const scale = (fit === 'contain' ? Math.min : Math.max)(width / intrinsicWidth, height / intrinsicHeight) * Math.max(1, Number.isFinite(zoom) ? zoom : 1);
   const w = intrinsicWidth * scale, h = intrinsicHeight * scale;
-  return {width: w, height: h, left: (width - w) * unit(position.x), top: (height - h) * unit(position.y)};
+  const left = (width - w) * unit(position.x), top = (height - h) * unit(position.y);
+  return {width: w, height: h, left: left === 0 ? 0 : left, top: top === 0 ? 0 : top};
 }
 
 /** Headers stay on the native Image; scheduler identity never becomes a request URL. */

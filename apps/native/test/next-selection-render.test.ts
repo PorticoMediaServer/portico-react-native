@@ -68,6 +68,7 @@ const {Dialog, FocusBoundary} = await import('../src-next/kit/overlays/surface.t
 const {Menu} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
+const {SelectionCircle} = await import('../src-next/kit/selection/SelectionCircle.tsx');
 const {TextField} = await import('../src-next/kit/controls/TextField.tsx');
 const {Select} = await import('../src-next/kit/controls/Select.tsx');
 const {Switch} = await import('../src-next/kit/controls/Switch.tsx');
@@ -241,12 +242,13 @@ test('TV More presents only supplied owner commands and preserves denial explana
 
 test('TV mixed Edit offers genuine Keep-only callbacks and an actual initial focus row', () => {
   const calls: unknown[] = [];
-  const mixed = mount(MixedEditExplainer, {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 2, description: 'Actual mixed-type reason', groups: [{kind: 'movie', label: 'Movies', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episodes', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)});
+  const props = {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 2, description: 'Actual mixed-type reason', groups: [{kind: 'movie', label: 'Movies', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episodes', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)};
+  const mixed = mount(MixedEditExplainer, props);
   try {
     const surface = mixed.tree as Element; assert.equal(surface.type, SelectionSurface); assert.equal(surface.props.description, 'Actual mixed-type reason');
     const rows = ofType(surface, Focusable); assert.equal(rows.length, 2); assert.equal(rows[0]!.props.ref, surface.props.initialFocusRef);
     rows[1]!.props.onPress(); assert.deepEqual(calls, ['episode', [false, 'action']]);
-    mixed.update({...surface.props, groups: [{kind: 'season', label: 'Seasons', count: 2, icon: 'i-tv'}], description: 'Actual no-fields reason'});
+    mixed.update({...props, groups: [{kind: 'season', label: 'Seasons', count: 2, icon: 'i-tv'}], description: 'Actual no-fields reason'});
     const single = mixed.tree as Element;
     assert.equal(single.props.title, 'These fields are edited one title at a time.');
     assert.equal(single.props.description, 'Actual no-fields reason'); assert.equal(ofType(single, Focusable).length, 0);
@@ -269,4 +271,22 @@ test('TV Delete keeps the owner, preview, exact confirmation and restriction gat
     dialog.update({...props, preview: {...preview, blocked: ['Actual library']}}); assert.match(text(dialog.tree), /Deleting is turned off/);
     dialog.update({...props, owner: false}); assert.equal(dialog.tree, null);
   } finally {dialog.host.unmount();}
+});
+
+test('a decorative circle gets its full native style state from Pressable without becoming a focus target', () => {
+  const nativeState = {pressed: false, focused: false};
+  let received: unknown;
+  let presses = 0;
+  const circle = mount(SelectionCircle, {selected: true, interactive: false, accessibilityLabel: 'Selected title',
+    onPress: () => {presses++;}, style: (value: typeof nativeState) => {received = value; return {opacity: .5};}});
+  try {
+    const host = circle.tree as Element;
+    assert.equal(host.type, 'Pressable');
+    assert.equal(host.props.disabled, true); assert.equal(host.props.focusable, false);
+    assert.equal(host.props.pointerEvents, 'none'); assert.equal(host.props.accessible, false);
+    assert.equal(host.props.importantForAccessibility, 'no-hide-descendants');
+    assert.equal(host.props.onPress, undefined); assert.equal(host.props.accessibilityLabel, undefined);
+    host.props.style(nativeState);
+    assert.equal(received, nativeState); assert.equal(presses, 0);
+  } finally {circle.host.unmount();}
 });
