@@ -12,8 +12,12 @@ import type {HomeChannel} from '../../../packages/client-core/src/home.ts';
 import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/home-selection/types.ts';
 import type {SelectionContext} from '../../../packages/client-core/src/selection-model/index.ts';
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
+import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
+const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const seekRequest = (request: FakeRequest, positionMs: number) => request.method === 'PATCH' && record(request.body) && record(request.body.seek) && request.body.seek.positionMs === positionMs;
+const playingRequest = (request: FakeRequest) => record(request.body) && request.body.state === 'playing';
 type Command = Record<string, any>;
 class Engine implements NativePlaybackTransport {
   commands: Command[] = [];
@@ -21,6 +25,7 @@ class Engine implements NativePlaybackTransport {
   subscriptions = 0;
   listener?: (fact: any) => void;
   position = 0;
+  acknowledgeSeeks = true;
   private sequence = 0;
   private leases = 0;
   private key = '';
@@ -35,7 +40,7 @@ class Engine implements NativePlaybackTransport {
       if (key !== this.key) { this.key = key; this.emit('ready'); }
       if (command.pendingSeek) {
         this.position = command.pendingSeek.positionSeconds;
-        this.emit('seekApplied', {seekRevision: command.pendingSeek.revision});
+        if (this.acknowledgeSeeks) this.emit('seekApplied', {seekRevision: command.pendingSeek.revision});
       } else this.emit('progress');
     });
   }
@@ -58,9 +63,12 @@ function fixture() {
   const authorityListeners = new Set<() => void>();
   const eventListeners = new Map<string, Set<(event: any) => void>>();
   const resyncListeners = new Set<() => void>();
+  const timers = new Map<number, {ms: number; run: () => void}>();
+  let timerSerial = 0;
   let before: ((request: FakeRequest) => Promise<void>) | undefined;
   const channelSeeks = new Map<string, {id: string; positionMs: number; acknowledged: boolean}>();
   let channelWindow = {startMs: 20000, endMs: 120000};
+  let markers: readonly Marker[] = [{id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true}];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input)), path = url.pathname + url.search;
     const request: FakeRequest = {method: init?.method ?? 'GET', path, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
@@ -76,7 +84,7 @@ function fixture() {
       response = await server.handle(request);
       if (path.includes('/playback-options') && response.status === 200) {
         const body = response.body as Record<string, unknown>, id = body.itemId as string;
-        response = {...response, body: {...body, kind: id.startsWith('song') ? 'song' : 'movie', markers: [{id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true}]}};
+        response = {...response, body: {...body, kind: id.startsWith('song') ? 'song' : 'movie', markers}};
       }
     }
     // The existing fake owns session/revision/timeline receipts. Add its missing linear
@@ -104,10 +112,16 @@ function fixture() {
     events: {on(type, listener) { const set = eventListeners.get(type) ?? new Set(); set.add(listener); eventListeners.set(type, set); return () => { set.delete(listener); }; }, onResync(listener) { resyncListeners.add(listener); return () => { resyncListeners.delete(listener); }; }},
     settings: () => settings, subscribeSettings: listener => { settingsListeners.add(listener); return () => { settingsListeners.delete(listener); }; },
     requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: 'native', choose: () => 'native', transport: () => engine},
-    engineFeatures: () => nativeEngineFeatures, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, timers: {setTimer: () => 0, clearTimer: () => {}},
+    engineFeatures: () => nativeEngineFeatures, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; },
+    timers: {
+      setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
+      clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
+    },
   });
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: id.startsWith('song') ? 'song' : 'movie', title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
   return {server, engine, runtime, requests, start,
+    markers: (value: readonly Marker[]) => { markers = value; },
+    pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
     intercept: (fn: typeof before) => { before = fn; },
     changeAuthority: () => { authority = {...authority, epoch: 'epoch-2'}; session = undefined; for (const listener of [...authorityListeners]) listener(); },
@@ -230,6 +244,26 @@ test('automatic safe intro skipping still uses the real seek while docked and As
     d.runtime.collapse(fence); await settle();
     assert.equal(d.runtime.getSnapshot().dock.local?.expanded, false);
     assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 12);
+    d.settings({skips: {intro: 'auto', recap: 'ask', credits: 'ask'}});
+    d.engine.emit('progress'); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 69);
+    assert.equal(d.runtime.getSnapshot().playback.pendingSeek, undefined);
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, false);
+  } finally { d.runtime.dispose(); }
+});
+
+test('unsupported wire markers cannot mask an authoritative intro during automatic skipping', async () => {
+  const d = fixture();
+  try {
+    d.markers([
+      {id: 'other-1', type: 'other', startMs: 0, endMs: 170000, confidence: 'manual', automaticSafe: true},
+      {id: 'preview-1', type: 'preview', startMs: 0, endMs: 170000, confidence: 'manual', automaticSafe: true},
+      {id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true},
+    ]);
+    await d.start('movie-1', 12);
+    const fence = d.runtime.getSnapshot().fence;
+    assert.ok(fence);
+    d.runtime.collapse(fence);
     d.settings({skips: {intro: 'auto', recap: 'ask', credits: 'ask'}});
     d.engine.emit('progress'); await settle();
     assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 69);
@@ -444,16 +478,157 @@ test('restoring a live bookmark starts paused and seeks only within its actual n
   const d = fixture();
   try {
     await d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal); await settle();
-    const live = d.runtime.getSnapshot().fence!; await d.runtime.toggle(live); await d.runtime.seek(live, 44); await settle();
+    const initial = d.runtime.getSnapshot().fence;
+    assert.ok(initial?.kind === 'channel');
+    await d.runtime.toggle(initial); await d.runtime.seek(initial, 44); await settle();
+    const live = d.runtime.getSnapshot().fence;
+    assert.ok(live?.kind === 'channel');
+    assert.equal(live.sessionId, initial.sessionId);
+    assert.equal(live.playback.run, initial.playback.run);
+    assert.ok(live.generation > initial.generation, 'the actual seek changed media generation');
     await d.start('song-1', 19);
+    assert.deepEqual(d.runtime.getSnapshot().dock.resumeVideo?.fence, live);
     const requestCount = d.requests.length, commandCount = d.engine.commands.length;
+    assert.equal(await d.runtime.restoreBookmark(initial, true), undefined, 'the retired generation cannot restore or resume');
+    assert.equal(d.requests.length, requestCount);
+    assert.equal(d.engine.commands.length, commandCount);
     const restored = await d.runtime.restoreBookmark(live, false); await settle();
-    assert.equal(restored?.kind, 'channel'); assert.notEqual(restored?.sessionId, live.sessionId);
+    assert.ok(restored?.kind === 'channel'); assert.notEqual(restored.sessionId, live.sessionId);
+    assert.ok(restored.playback.run > live.playback.run);
+    assert.deepEqual(d.runtime.getSnapshot().fence, restored);
+    assert.deepEqual(d.runtime.getSnapshot().dock.local?.fence, restored);
+    assert.equal(restored.channelId, live.channelId); assert.equal(restored.sourceId, live.sourceId);
+    assert.equal(restored.channelGeneration, live.channelGeneration);
     assert.equal(d.runtime.getSnapshot().playback.intent, 'paused'); assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 44);
-    const start = d.requests.slice(requestCount).find(request => request.method === 'POST' && (request.body as any)?.channelId)!;
-    assert.equal((start.body as any).state, 'paused');
-    assert.ok(d.engine.commands.slice(commandCount).filter(command => command.binding.itemId === 'channel-1').every(command => command.paused === true));
-    assert.equal(d.server.session(restored!.sessionId)?.state, 'paused');
+    const requests = d.requests.slice(requestCount);
+    const start = requests.find(request => request.method === 'POST' && record(request.body) && request.body.channelId);
+    assert.ok(start && record(start.body)); assert.equal(start.body.state, 'paused');
+    const seek = requests.find(request => seekRequest(request, 44000));
+    assert.ok(seek && record(seek.body) && record(seek.body.seek));
+    assert.equal(d.runtime.getSnapshot().playback.linear?.acknowledgedSeekCommandId, seek.body.seek.id);
+    assert.equal(requests.some(playingRequest), false);
+    const commands = d.engine.commands.slice(commandCount).filter(command => command.binding.sessionId === restored.sessionId);
+    assert.ok(commands.length > 0); assert.ok(commands.every(command => command.paused === true));
+    assert.equal(d.server.session(restored.sessionId)?.state, 'paused');
+    assert.equal(d.pendingTimers(15000).length, 0);
+  } finally { d.runtime.dispose(); }
+});
+
+async function parkLive(d: ReturnType<typeof fixture>, seconds = 44) {
+  await d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal); await settle();
+  const initial = d.runtime.getSnapshot().fence;
+  assert.ok(initial?.kind === 'channel');
+  await d.runtime.toggle(initial); await d.runtime.seek(initial, seconds); await settle();
+  const live = d.runtime.getSnapshot().fence;
+  assert.ok(live?.kind === 'channel');
+  assert.equal(d.runtime.getSnapshot().playback.positionSeconds, seconds);
+  await d.start('song-1', 19);
+  assert.deepEqual(d.runtime.getSnapshot().dock.resumeVideo?.fence, live);
+  return live;
+}
+
+test('explicit live restore waits for its own acknowledged seek when the saved position equals the join target', async () => {
+  const d = fixture();
+  try {
+    const live = await parkLive(d, 120), sent = d.requests.length, commanded = d.engine.commands.length;
+    d.intercept(async request => { if (seekRequest(request, 120000)) d.engine.acknowledgeSeeks = false; });
+    let completed = false;
+    const restoring = d.runtime.restoreBookmark(live, true).then(result => { completed = true; return result; });
+    await settle();
+    const waiting = d.runtime.getSnapshot();
+    assert.ok(waiting.playback.session && waiting.playback.pendingSeek);
+    assert.equal(waiting.playback.pendingSeek.positionSeconds, 120);
+    assert.equal(waiting.playback.session.resumeSeconds, 120);
+    assert.equal(waiting.playback.linear?.desired.seek?.positionUs, '120000000');
+    assert.notEqual(waiting.playback.linear?.acknowledgedSeekCommandId, waiting.playback.linear?.desired.seek?.seekCommandId);
+    assert.equal(completed, false);
+    assert.equal(waiting.playback.intent, 'paused');
+    assert.equal(d.server.session(waiting.playback.session.id)?.state, 'paused');
+    d.engine.emit('progress'); await settle();
+    assert.equal(completed, false, 'uncorrelated progress cannot acknowledge the restore seek');
+    assert.equal(d.requests.slice(sent).some(playingRequest), false);
+    const commands = d.engine.commands.slice(commanded).filter(command => command.binding.sessionId === waiting.playback.session?.id);
+    assert.ok(commands.length > 0); assert.ok(commands.every(command => command.paused === true));
+    d.engine.emit('seekApplied', {seekRevision: waiting.playback.pendingSeek.revision});
+    const restored = await restoring; await settle();
+    assert.ok(restored?.kind === 'channel');
+    assert.equal(restored.sessionId, waiting.playback.session.id);
+    assert.deepEqual(d.runtime.getSnapshot().fence, restored);
+    assert.equal(d.runtime.getSnapshot().playback.pendingSeek, undefined);
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 120);
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'playing');
+    assert.equal(d.server.session(restored.sessionId)?.state, 'playing');
+    assert.equal(d.pendingTimers(15000).length, 0);
+  } finally { d.runtime.dispose(); }
+});
+
+test('a competing play during a live restore seek keeps the replacement paused and retires only the restored channel', async () => {
+  const d = fixture();
+  try {
+    const live = await parkLive(d);
+    d.intercept(async request => { if (seekRequest(request, 44000)) d.engine.acknowledgeSeeks = false; });
+    const restoring = d.runtime.restoreBookmark(live, true);
+    await settle();
+    const waiting = d.runtime.getSnapshot();
+    assert.ok(waiting.playback.pendingSeek && waiting.playback.session);
+    const obsolete = d.engine.lastCommand;
+    d.engine.acknowledgeSeeks = true;
+    await d.start('movie-2', 19);
+    const winner = d.runtime.getSnapshot().fence;
+    assert.ok(winner?.kind === 'queue');
+    await d.runtime.toggle(winner); await settle();
+    assert.equal(await restoring, undefined);
+    d.engine.listener?.({type: 'seekApplied', instanceId: 'engine-instance', binding: obsolete.binding, intentId: obsolete.binding.intentId,
+      factSequence: 99999, lastCommandRevision: obsolete.commandRevision, position: 44, paused: true, seekRevision: waiting.playback.pendingSeek.revision});
+    await settle();
+    assert.deepEqual(d.runtime.getSnapshot().fence, winner);
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'paused');
+    assert.equal(d.engine.lastCommand.binding.sessionId, winner.sessionId);
+    assert.equal(d.engine.lastCommand.paused, true);
+    assert.equal(d.server.session(waiting.playback.session.id)?.ended, true);
+    assert.equal(d.server.session(winner.sessionId)?.ended, false);
+    assert.equal(d.pendingTimers(15000).length, 0);
+  } finally { d.runtime.dispose(); }
+});
+
+test('a failed live bookmark seek rejects and closes its fresh paused session without autoplay', async () => {
+  const d = fixture();
+  try {
+    const live = await parkLive(d), sent = d.requests.length;
+    d.intercept(async request => { if (seekRequest(request, 44000)) d.engine.acknowledgeSeeks = false; });
+    const rejected = assert.rejects(d.runtime.restoreBookmark(live, true), /channel_position_unavailable/);
+    await settle();
+    const waiting = d.runtime.getSnapshot();
+    assert.ok(waiting.playback.pendingSeek && waiting.playback.session);
+    d.engine.emit('seekFailed', {seekRevision: waiting.playback.pendingSeek.revision});
+    await rejected; await settle();
+    assert.equal(d.runtime.getSnapshot().playback.session, undefined);
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'paused');
+    assert.equal(d.server.session(waiting.playback.session.id)?.ended, true);
+    assert.equal(d.requests.slice(sent).some(playingRequest), false);
+    assert.equal(d.pendingTimers(15000).length, 0);
+  } finally { d.runtime.dispose(); }
+});
+
+test('an unacknowledged live restore times out and removes its wait before closing the paused session', async () => {
+  const d = fixture();
+  try {
+    const live = await parkLive(d), sent = d.requests.length;
+    d.intercept(async request => { if (seekRequest(request, 44000)) d.engine.acknowledgeSeeks = false; });
+    const rejected = assert.rejects(d.runtime.restoreBookmark(live, true), /channel_position_unavailable/);
+    await settle();
+    const waiting = d.runtime.getSnapshot();
+    assert.ok(waiting.playback.pendingSeek && waiting.playback.session);
+    const deadlines = d.pendingTimers(15000);
+    assert.equal(deadlines.length, 1);
+    const deadline = deadlines[0]; assert.ok(deadline); deadline.run();
+    await rejected; await settle();
+    assert.equal(d.pendingTimers(15000).length, 0);
+    assert.equal(d.runtime.getSnapshot().playback.session, undefined);
+    assert.equal(d.server.session(waiting.playback.session.id)?.ended, true);
+    assert.equal(d.requests.slice(sent).some(playingRequest), false);
+    deadline.run(); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.session, undefined);
   } finally { d.runtime.dispose(); }
 });
 
