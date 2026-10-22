@@ -88,7 +88,14 @@ function nodes(node: ReactNode): Element[] {
 }
 function mount(component: any, initial: any) {
   let props = initial, tree: ReactNode;
-  const host = createHookHost(() => {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);});
+  const host = createHookHost(() => {
+    if (component === Row) {
+      const wrapper: any = Row(props), provider = wrapper.type(wrapper.props), context = provider.type;
+      const previous = context._currentValue;
+      context._currentValue = provider.props.value;
+      try {tree = provider.props.children.type(provider.props.children.props);} finally {context._currentValue = previous;}
+    } else tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);
+  });
   host.mount();
   return {host, get tree() {return tree;}, update(next: any) {props = next; host.rerender();}};
 }

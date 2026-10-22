@@ -117,7 +117,7 @@ test('one stable cursor waiting slot fills at the same identity and position whi
   assert.equal(slots.filter(s => s.waiting).length, 1); const waiting = slots[2]!;
   slots = reconcileRowSlots(slots, entries(['a', 'b']), key, true, page('cursor-one'));
   assert.deepEqual(slots[2], waiting);
-  slots = reconcileRowSlots(slots, entries(['a', 'b', 'c', 'd']), key, true, page('cursor-two'));
+  slots = reconcileRowSlots(slots, entries(['a', 'b', 'c', 'd']), key, true, page('cursor-two', {fulfilled: {waitingId: 'cursor-one', firstItemId: 'c'}}));
   assert.deepEqual(slots.slice(2).map(s => [s.id, s.focusId, s.position, s.waiting]), [['c', 'cursor-one', 2, false], ['d', 'd', 3, false], ['cursor-two', 'cursor-two', 4, true]]);
   const rerender = reconcileRowSlots(slots, entries(['a', 'b', 'c', 'd']), key, true, page('cursor-two'));
   assert.deepEqual(rerender, slots, 'ordinary render cannot remount or advance the cursor anchor');
@@ -148,7 +148,7 @@ test('semantic focus IDs remain independent from raw selection/data keys through
   const identity = (item: Item) => JSON.stringify(['movie', 'actual-library', item.id]);
   let slots = reconcileRowSlots([], entries(['a', 'b']), key, false, page('cursor'), identity);
   assert.equal(slots[0]!.id, 'a'); assert.equal(slots[0]!.focusId, identity({id: 'a'}));
-  slots = reconcileRowSlots(slots, entries(['a', 'b', 'c']), key, true, undefined, identity);
+  slots = reconcileRowSlots(slots, entries(['a', 'b', 'c']), key, true, page('cursor', {hasMore: false, fulfilled: {waitingId: 'cursor', firstItemId: 'c'}}), identity);
   assert.equal(slots[2]!.id, 'c'); assert.equal(slots[2]!.focusId, 'cursor');
   assert.equal(slots[2]!.sourceFocusId, identity({id: 'c'}));
 });
@@ -164,4 +164,84 @@ test('nested sheet returns through a removed menu to its original page opener', 
   registry.attach({regionId: 'menu', childId: 'file'}, null);
   registry.attach({regionId: 'row', childId: 'b'}, null);
   assert.equal(registry.restore(menu), true); assert.deepEqual(requests, ['row/c']);
+});
+
+test('F02 appended siblings refresh active order before capture and direct removal', async () => {
+  const registry = createFocusRegistry(), requests: string[] = [];
+  for (const id of ['a', 'b', 'c']) registry.attach({regionId: 'row', childId: id}, {requestTVFocus: () => requests.push(id)});
+  registry.configure({id: 'row', order: ['a', 'b']}); registry.didFocus({regionId: 'row', childId: 'b'});
+  registry.configure({id: 'row', order: ['a', 'b', 'c']});
+  const opener = registry.capture(); assert.deepEqual(opener?.order, ['a', 'b', 'c']);
+  registry.configure({id: 'row', order: ['a', 'c']}); registry.attach({regionId: 'row', childId: 'b'}, null);
+  await Promise.resolve(); assert.deepEqual(requests, ['c']);
+  registry.configure({id: 'row', order: ['c', 'a']}); registry.restore(opener);
+  assert.deepEqual(requests, ['c', 'c'], 'saved opener keeps its pre-removal relative order');
+});
+test('F03 waiting position stays stationary through unrelated removals and appends', () => {
+  const first = reconcileRowSlots([], entries(['a', 'b']), key, false, page('pending'));
+  const removed = reconcileRowSlots(first, entries(['a']), key, true, page('pending'));
+  assert.equal(removed.find(s => s.waiting)?.position, 2);
+  const appended = reconcileRowSlots(removed, entries(['a', 'x']), key, true, page('pending'));
+  assert.equal(appended.find(s => s.waiting)?.position, 2); assert.equal(appended.find(s => s.id === 'x')?.position, 3);
+});
+test('F04 only explicitly fulfilled cursor response consumes the waiting alias', () => {
+  let slots = reconcileRowSlots([], entries(['a', 'b']), key, false, page('pending'));
+  slots = reconcileRowSlots(slots, entries(['a', 'b', 'subscription']), key, true, page('pending'));
+  assert.equal(slots.find(s => s.waiting)?.focusId, 'pending'); assert.equal(slots.find(s => s.id === 'subscription')?.focusId, 'subscription');
+  slots = reconcileRowSlots(slots, entries(['a', 'b', 'subscription', 'response']), key, true,
+    page('next', {fulfilled: {waitingId: 'wrong-request', firstItemId: 'response'}}));
+  assert.equal(slots.find(s => s.id === 'response')?.focusId, 'response');
+});
+test('empty/filtered response advances backend cursor while preserving the waiting host and position', () => {
+  const first = reconcileRowSlots([], entries(['a']), key, false, page('one'));
+  const second = reconcileRowSlots(first, entries(['a']), key, true, page('two', {fulfilled: {waitingId: 'one'}}));
+  assert.equal(second[1]?.focusId, 'one'); assert.equal(second[1]?.requestId, 'two'); assert.equal(second[1]?.position, 1);
+  const third = reconcileRowSlots(second, entries(['a', 'b']), key, true, page('three', {fulfilled: {waitingId: 'two', firstItemId: 'b'}}));
+  assert.equal(third[1]?.focusId, 'one'); assert.equal(third[1]?.id, 'b'); assert.equal(third[1]?.position, 1);
+});
+test('F05 virtualized removal pins the surviving predecessor before recovery and keeps its real host', async () => {
+  const old = indexRowSlots(reconcileRowSlots([], entries(Array.from({length: 100}, (_, i) => `${i}`)), key, false));
+  const next = indexRowSlots(reconcileRowSlots(old.slots, entries(Array.from({length: 90}, (_, i) => `${i}`)), key, true));
+  const registry = createFocusRegistry(), requests: string[] = [];
+  registry.configure({id: 'row', order: old.order}); registry.attach({regionId: 'row', childId: '99'}, {requestTVFocus() {}});
+  registry.didFocus({regionId: 'row', childId: '99'});
+  const visible = visibleRowSlots(next, 97, 89, '99', '99', registry.recovery('row'));
+  assert.deepEqual(visible.map(slot => slot.focusId), ['89']);
+  registry.attach({regionId: 'row', childId: '99'}, null);
+  registry.attach({regionId: 'row', childId: '89'}, {requestTVFocus: () => requests.push('89')});
+  registry.configure({id: 'row', order: next.order}); await Promise.resolve(); assert.deepEqual(requests, ['89']);
+});
+test('F08 nested overlay retains every distinct opener region until the dependent surface closes', () => {
+  const {registry} = fixture(); registry.didFocus({regionId: 'row', childId: 'b'});
+  const page = registry.capture()!, releaseMenu = registry.retain(page);
+  const unregister = registry.registerReturn('menu', page);
+  registry.didFocus({regionId: 'menu', childId: 'file'});
+  const releaseSheet = registry.retain(registry.capture()!);
+  registry.didFocus({regionId: 'sheet', childId: 'close'}); unregister(); releaseMenu();
+  assert.equal(registry.isRegionActive('row'), true); assert.equal(registry.isRegionActive('menu'), true);
+  releaseSheet(); releaseSheet(); assert.equal(registry.isRegionActive('row'), false); assert.equal(registry.isRegionActive('menu'), false);
+});
+test('F12 region teardown bounds re-entry memory and preserves live/retained regions', async () => {
+  const registry = createFocusRegistry();
+  for (let i = 0; i < 1000; i++) {
+    const id = `page/${i}`, owner = {}, release = registry.mountRegion(id, owner);
+    registry.configure({id, order: Array.from({length: 100}, (_, j) => `child/${j}`)});
+    registry.attach({regionId: id, childId: 'child/0'}, {requestTVFocus() {}}, owner);
+    registry.didFocus({regionId: id, childId: 'child/0'});
+    registry.attach({regionId: id, childId: 'child/0'}, null, owner); release();
+  }
+  await Promise.resolve(); await Promise.resolve(); assert.deepEqual(registry.size(), {regions: 0, remembered: 64});
+  const release = registry.mountRegion('retained', {}); registry.didFocus({regionId: 'retained', childId: 'x'});
+  const unretain = registry.retain(registry.capture()!); release(); await Promise.resolve();
+  assert.ok(registry.config('retained')); unretain(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(registry.config('retained'), undefined);
+});
+test('F13 duplicate live host owners are diagnosed and stale owner cleanup cannot detach another target', () => {
+  const registry = createFocusRegistry(), address = {regionId: 'r', childId: 'a'}, ownerA = {}, ownerB = {};
+  const host = {requestTVFocus() {}}; registry.attach(address, host, ownerA);
+  assert.throws(() => registry.attach(address, host, ownerB), /Duplicate live focus child/);
+  registry.attach(address, null, ownerB); assert.equal(registry.child(address), host);
+  registry.attachRegion('r', host, ownerA); assert.throws(() => registry.attachRegion('r', {focus() {}}, ownerB), /Duplicate/);
+  registry.attachRegion('r', null, ownerB); assert.equal(registry.host('r'), host);
+  const release = registry.mountRegion('r', ownerA); assert.throws(() => registry.mountRegion('r', ownerB), /Duplicate/); release();
 });

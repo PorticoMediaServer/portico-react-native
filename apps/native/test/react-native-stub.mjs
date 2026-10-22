@@ -129,6 +129,7 @@ export const AccessibilityInfo = {
 export const useWindowDimensions = () => ({width: 390, height: 844, scale: 1, fontScale: 1});
 
 export const useTVEventHandler = () => {};
+export const TVEventHandler = {addListener: handler => new NativeEventEmitter().addListener('onHWKeyEvent', handler)};
 
 /** Only explicitly attached controlled hosts have native handles in source tests. */
 export const findNodeHandle = host => host?.nativeTag ?? null;

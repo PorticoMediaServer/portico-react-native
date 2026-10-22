@@ -90,6 +90,7 @@ async function controls(isTV = false, reduce = false) {
   };
   const focusModule = await screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {
     react, 'react-native': {...native, findNodeHandle: () => null, TVFocusGuideView: 'TVFocusGuideView'},
+    './useHostRef': await import('../src-next/kit/focus/useHostRef.ts'),
     '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
   });
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
