@@ -30,4 +30,3 @@ export function holdCard(actions: CardActions, isTV: boolean): void {
 export function cardProgress(value: number | undefined): number | undefined {
   return value === undefined || !Number.isFinite(value) ? undefined : Math.max(0, Math.min(1, value));
 }
-

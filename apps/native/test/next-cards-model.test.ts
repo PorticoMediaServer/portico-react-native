@@ -44,4 +44,3 @@ test('unknown and nonfinite progress stays unknown; measured fractions remain bo
   assert.equal(cardProgress(0.38), 0.38);
   assert.equal(cardProgress(3), 1);
 });
-

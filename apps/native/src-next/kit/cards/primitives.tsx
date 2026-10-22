@@ -6,7 +6,7 @@ import type {FactPart} from '../../../../../packages/client-core/src/presentatio
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {registerFocusedMenu} from '../../platform/menu-key';
 import {Icon, type IconName} from '../Icon';
-import {nativeType, useTheme} from '../theme';
+import {nativeType, useTheme, type Theme} from '../theme';
 import {useMotion} from '../useMotion';
 import {activateCard, cardProgress, holdCard, type CardActions} from './model';
 
@@ -24,6 +24,9 @@ export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPre
   titleTextStyle?: StyleProp<TextStyle>;
   captionTextStyle?: StyleProp<TextStyle>;
   menuVisibility?: 'hover' | 'always';
+  /** Visibility is independent from selection/focus and cancels offscreen artwork slots. */
+  visible?: boolean;
+  priority?: boolean;
 };
 export type CardProps = CardNativeProps & CardActions;
 type Interaction = {focused: boolean; hovered: boolean; pressed: boolean};
@@ -40,9 +43,9 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
     return () => {menuRegistration.current?.(); menuRegistration.current = undefined;};
   }, [focused, disabled, onMore, theme.isTV]);
   useEffect(() => {
-    const next = !motion.transforms ? 1 : theme.isTV && focused ? theme.spec.focus.scale.card.tv : pressed ? 0.97 : 1;
+    const next = !motion.transforms || disabled ? 1 : theme.isTV && focused ? theme.spec.focus.scale.card.tv : pressed ? 0.97 : 1;
     scale.value = withTiming(next, motion.timing('quick'));
-  }, [focused, pressed, theme.isTV, theme.spec.focus.scale.card.tv, motion, scale]);
+  }, [focused, pressed, disabled, theme.isTV, theme.spec.focus.scale.card.tv, motion, scale]);
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const label = accessibilityLabel ?? title;
   return <Animated.View style={[{width}, style, animated]}>
@@ -55,6 +58,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
         ...(selection ? [{name: 'select', label: defaultI18n.t('card.select', {title})}] : []),
       ]}
       onAccessibilityAction={event => {
+        if (disabled) return;
         const name = event.nativeEvent.actionName;
         if (name === 'play') onPlay?.();
         else if (name === 'more') onMore?.();
@@ -72,9 +76,9 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
       }}
       onBlur={() => {menuRegistration.current?.(); menuRegistration.current = undefined; setFocused(false); onBlur?.();}}
       onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
-      {children({focused, hovered, pressed})}
+      {children({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled})}
     </Pressable>
-    {overlay?.({focused, hovered, pressed})}
+    {overlay?.({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled})}
   </Animated.View>;
 }
 
@@ -112,8 +116,8 @@ export function Caption({title, caption, detail, density, titleTextStyle, captio
   const t = useTheme();
   const compact = density === 'grid' && !t.isTV;
   return <View style={{marginTop: compact ? 7 : t.spec.card.titleMargin[t.platform], gap: t.spec.card.subtitleMargin[t.platform], alignItems: centered ? 'center' : undefined}}>
-    <Text numberOfLines={lines} ellipsizeMode="tail" style={[t.type.cardTitle, compact && titleStyle(12.5, 600), {color: selected ? t.colors.accentStrong : t.colors.text, textAlign: centered ? 'center' : 'left'}, titleTextStyle]}>{title}</Text>
-    <Parts parts={caption} style={[compact && titleStyle(11.5, 600), captionTextStyle]} /><Parts parts={detail} style={[compact && titleStyle(11.5, 600), captionTextStyle]} />
+    <Text numberOfLines={lines} ellipsizeMode="tail" style={[t.type.cardTitle, compact && titleStyle(t, 12.5, 600), {color: selected ? t.colors.accentStrong : t.colors.text, textAlign: centered ? 'center' : 'left'}, titleTextStyle]}>{title}</Text>
+    <Parts parts={caption} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} /><Parts parts={detail} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} />
   </View>;
 }
 
@@ -142,7 +146,7 @@ export function Badge({children, kind = 'plain'}: {children?: ReactNode; kind?: 
 /** A separate phone/pointer action; TV keeps its one root focus and real hold-OK menu. */
 export function CardAction({name, label, onPress, size = 40, style, color}: {name: IconName; label: string; onPress: () => void; size?: number; style?: StyleProp<ViewStyle>; color?: string}) {
   const t = useTheme();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={event => {event.stopPropagation(); onPress();}} style={({pressed}) => [{width: size, height: size, minWidth: 44, minHeight: 44, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={Math.max(0, (44 - size) / 2)} onPress={event => {event.stopPropagation(); onPress();}} style={({pressed}) => [{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center', backgroundColor: t.colors.text, opacity: pressed ? 0.8 : 1}, style]}>
     <Icon name={name} size={20} color={color ?? t.colors.ink} />
   </Pressable>;
 }
@@ -153,6 +157,6 @@ function nativePressableProps(props: Record<string, unknown>): PressableProps {
   return Object.fromEntries(Object.entries(props).filter(([name]) => names.has(name))) as PressableProps;
 }
 
-export function titleStyle(size: number, weight: 600 | 700 | 800 = 700, tracking = 0): TextStyle {
-  return nativeType({size, weight, tracking, lineHeight: 'normal'});
+export function titleStyle(theme: Pick<Theme, 'textScale'>, size: number, weight: 600 | 700 | 800 = 700, tracking = 0): TextStyle {
+  return nativeType({size, weight, tracking, lineHeight: 'normal'}, theme.textScale);
 }
