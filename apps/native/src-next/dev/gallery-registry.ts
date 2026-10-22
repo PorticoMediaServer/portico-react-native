@@ -1,10 +1,15 @@
 import type {ComponentType} from 'react';
 import type {NextMessageId} from '../../../../packages/i18n/src/catalog/en-US/next/index';
 
-export type GalleryPlatform = 'phone' | 'tablet' | 'tv';
+/** web is the genuine >=1024 desktop theme column, never a phone alias. */
+export type GalleryPlatform = 'phone' | 'tablet' | 'web' | 'tv';
 export type Gallery = Readonly<{id: string; title: NextMessageId; render: ComponentType; platforms?: readonly GalleryPlatform[]}>;
 export type GalleryContext = {keys(): string[]; (key: string): {default: Gallery | readonly Gallery[]}};
 declare const require: {context(directory: string, recursive: boolean, filter: RegExp): GalleryContext};
+
+export function galleriesForPlatform(galleries: readonly Gallery[], platform: GalleryPlatform): readonly Gallery[] {
+  return galleries.filter(gallery => !gallery.platforms || gallery.platforms.includes(platform));
+}
 
 /** The existing Portico URL scheme opens a development gallery without editing an entry file. */
 export function kitSelectionFromURL(value: string | null): {gallery?: string} | undefined {

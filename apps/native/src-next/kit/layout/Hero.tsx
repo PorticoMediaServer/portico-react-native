@@ -47,7 +47,7 @@ type LayerProps<T extends HeroCandidate> = {
 };
 
 function HeroLayer<T extends HeroCandidate>({entry, shown, pending, fade, ready, failed, departed, visible = true, renderArtwork, reducedMotion}: LayerProps<T>) {
-  const motion = useMotion(), opacity = useSharedValue(0), drift = useSharedValue(heroSpec.rotation.driftScaleFrom);
+  const motion = useMotion(), opacity = useSharedValue(0), drift = useSharedValue<number>(heroSpec.rotation.driftScaleFrom);
   const reduced = motion.reduce || !!reducedMotion;
   useEffect(() => {
     opacity.value = withTiming(shown ? 1 : 0, {...motion.timing(fade), ...(reduced ? {duration: heroSpec.rotation.reducedMs} : {})}, finished => {
@@ -60,7 +60,7 @@ function HeroLayer<T extends HeroCandidate>({entry, shown, pending, fade, ready,
     return () => cancelAnimation(drift);
   }, [drift, fade, motion, reduced, shown]);
   const layerStyle = useAnimatedStyle(() => ({opacity: opacity.value}));
-  const foregroundStyle = useAnimatedStyle(() => ({transform: [{scale: drift.value}]}));
+  const foregroundStyle = useAnimatedStyle<ViewStyle>(() => ({transform: [{scale: drift.value}]}));
   return <Animated.View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{position: 'absolute', inset: 0}, layerStyle]}>
     {renderArtwork(entry, {onReady: ready, onError: failed, visible, active: shown, foregroundStyle})}
   </Animated.View>;
@@ -83,11 +83,11 @@ function CopyPart({identity, step, stagger, translate, timing, children}: {ident
 function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, reducedMotion}: CopyProps<T>) {
   const theme = useTheme(), motion = useMotion();
   const reduced = motion.reduce || !!reducedMotion;
-  const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && !theme.isTV), tv = variant === 'tv' || (!variant && theme.isTV);
+  const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone'), tv = variant === 'tv' || (!variant && theme.isTV);
   const timing = useMemo(() => ({...motion.timing('standard'), duration: reduced ? heroSpec.rotation.reducedMs : fade === 'hero' ? heroSpec.rotation.copyMs : theme.motion.standard}), [fade, motion, reduced, theme.motion.standard]);
   const partProps = {identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
   let step = 0;
-  return <View style={{position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.layout.gutter.desktop,
+  return <View style={{position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
     right: phone ? theme.layout.gutter.phone : undefined, width: phone ? undefined : tv ? heroSpec.copy.width.tv : heroSpec.copy.width.web,
     top: copyTop ?? (tv ? 220 : undefined), bottom: copyTop !== undefined || tv ? undefined : phone ? heroSpec.copy.homeBottom.phone : heroSpec.copy.homeBottom.web}}>
     {(renderReason || entry.reason) ? <CopyPart {...partProps} step={step++}>{renderReason ? renderReason(entry) : <Text style={[theme.type.eyebrow, {textAlign: phone ? 'center' : 'left', color: theme.colors.accentStrong, marginBottom: phone ? 8 : tv ? 16 : 14}]}>{entry.reason}</Text>}</CopyPart> : null}
@@ -177,7 +177,9 @@ function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, 
 export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexChange, active = true, visible = true, reducedMotion = false, heroFocused = false, variant, height, style, testID, ...props}: HeroProps<T>) {
   const theme = useTheme(), motion = useMotion(), [localIndex, setLocalIndex] = useState(0), [appVisible, setAppVisible] = useState(AppState.currentState === 'active'), [hovered, setHovered] = useState(false), [controlFocused, setControlFocused] = useState(false);
   const index = Math.max(0, Math.min(candidates.length - 1, activeIndex ?? localIndex));
-  const tv = variant === 'tv' || (!variant && theme.isTV), phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && !theme.isTV);
+  const tv = variant === 'tv' || (!variant && theme.isTV), phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone');
+  const desktop = variant === 'desktop' || (!variant && theme.layoutMode === 'desktop');
+  const renderThumbnail = props.renderThumbnail;
   const clock = useRef(createRotationClock(heroSpec.rotation.intervalMs)), progress = useSharedValue(0);
   const change = useCallback((next: number) => {clock.current.reset(); progress.value = 0; if (activeIndex === undefined) setLocalIndex(next); onIndexChange?.(next);}, [activeIndex, onIndexChange, progress]);
   useEffect(() => {const subscription = AppState.addEventListener('change', next => setAppVisible(next === 'active')); return () => subscription.remove();}, []);
@@ -199,9 +201,9 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
     onFocus={() => setControlFocused(true)} onBlur={() => setControlFocused(false)}
     style={[{height: height ?? (variant === 'phone-web' ? heroSpec.mobileWeb.homeHeight : variant === 'desktop' ? heroSpec.homeHeight.web : heroSpec.homeHeight[theme.platform]), position: 'relative'}, style]}>
     <HeroSurface {...props} entry={candidates[index]} variant={variant} active={active} visible={visible && appVisible} reducedMotion={reducedMotion} heroFocused={heroFocused}
-      renderAfterCopy={entry => <>{props.renderAfterCopy?.(entry)}{variant !== 'desktop' && dots}</>} />
-    {variant === 'desktop' && props.renderThumbnail && <View style={{position: 'absolute', right: theme.layout.gutter.desktop, bottom: heroSpec.thumbnail.bottom, flexDirection: 'row', gap: heroSpec.thumbnail.gap}}>
-      {candidates.map((candidate, i) => <HeroThumbnail key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={props.renderThumbnail!} onPress={() => change(i)} />)}
+      renderAfterCopy={entry => <>{props.renderAfterCopy?.(entry)}{!desktop && dots}</>} />
+    {desktop && renderThumbnail && <View style={{position: 'absolute', right: theme.gutter, bottom: heroSpec.thumbnail.bottom, flexDirection: 'row', gap: heroSpec.thumbnail.gap}}>
+      {candidates.map((candidate, i) => <HeroThumbnail key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={renderThumbnail} onPress={() => change(i)} />)}
     </View>}
   </View>;
 }
