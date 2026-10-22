@@ -68,7 +68,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   const label = accessibilityLabel ?? title;
   return <Animated.View style={[{width, zIndex: holding ? 4 : undefined}, style, animated]}>
     <Pressable {...nativePressableProps(native)} testID={testID} disabled={disabled} accessibilityRole="button" accessibilityLabel={label}
-      accessibilityState={{...native.accessibilityState, disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
+      accessibilityState={{...native.accessibilityState, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
       accessibilityActions={[
         ...(native.accessibilityActions ?? []),
         ...(onPlay && primaryAction !== 'play' ? [{name: 'play', label: defaultI18n.t('card.play', {title})}] : []),

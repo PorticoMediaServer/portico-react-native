@@ -35,7 +35,7 @@ export function CardSizeButton({value, options, onValueChange}: NonNullable<Brow
   return <>
     <Button ref={anchorRef} variant="icon" size="compact" iconOnly icon="i-size" accessibilityLabel={t('next.browse.native.cardSize')} accessibilityState={{expanded: open}} onPress={() => setOpen(!open)}/>
     <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.cardSize')} placement="bottom-end">
-      {options.map(option => <MenuRow key={option.value} label={option.label} selected={option.value === value} accessibilityRole="menuitemradio" accessibilityState={{checked: option.value === value}} onPress={() => {onValueChange(option.value); setOpen(false);}}/>)}
+      {options.map(option => <MenuRow key={option.value} label={option.label} selected={option.value === value} accessibilityRole="radio" accessibilityState={{checked: option.value === value}} onPress={() => {onValueChange(option.value); setOpen(false);}}/>)}
     </Popover>
   </>;
 }
@@ -67,7 +67,7 @@ export function SortMenu({sorts, value, label, onValueChange, onReshuffle, open:
       </View>
     </Focusable>
     <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.sort')} width={theme.isTV ? 560 : 300} placement="bottom-end">
-      <ScrollView style={{maxHeight: theme.isTV ? 680 : 560}} keyboardShouldPersistTaps="handled">{sorts.map(choice => <MenuRow key={choice.id} label={label(choice)} description={choice.expensive ? t('next.browse.native.expensiveSort') : undefined} selected={choice.id === value.field} accessibilityRole="menuitemradio" accessibilityState={{checked: choice.id === value.field}} variant={theme.isTV ? 'tv' : 'compact'} style={{minHeight: theme.isTV ? 64 : theme.platform === 'phone' ? 42 : 36}} onPress={() => select(choice)}/>)}</ScrollView>
+      <ScrollView style={{maxHeight: theme.isTV ? 680 : 560}} keyboardShouldPersistTaps="handled">{sorts.map(choice => <MenuRow key={choice.id} label={label(choice)} description={choice.expensive ? t('next.browse.native.expensiveSort') : undefined} selected={choice.id === value.field} accessibilityRole="radio" accessibilityState={{checked: choice.id === value.field}} variant={theme.isTV ? 'tv' : 'compact'} style={{minHeight: theme.isTV ? 64 : theme.platform === 'phone' ? 42 : 36}} onPress={() => select(choice)}/>)}</ScrollView>
       {active && value.flippable && !active.seeded && <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, padding: 8, gap: 6}}>
         <Text style={[browseType(theme, theme.isTV ? 20 : 13, 700), {color: theme.colors.textTertiary}]}>{t('next.browse.native.order')}</Text>
         <Segmented variant="browse" value={value.direction} onValueChange={dir => onValueChange({field: value.field, direction: dir as 'asc' | 'desc'})} items={active.directions.map(dir => ({value: dir, label: direction(dir)}))}/>

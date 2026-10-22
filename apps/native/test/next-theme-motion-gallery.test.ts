@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createTheme, fontFamilies, nativeType} from '../src-next/kit/theme.ts';
 import {motionPolicy} from '../src-next/platform/motion-policy.ts';
-import {collectGalleries, kitSelectionFromURL, type Gallery, type GalleryContext} from '../src-next/dev/gallery-registry.ts';
+import {collectGalleries, galleriesForPlatform, kitSelectionFromURL, type Gallery, type GalleryContext} from '../src-next/dev/gallery-registry.ts';
 import {colors, layout, platformRadii, typeScale, springs} from '@portico/design';
 
 test('theme maps every accepted role, normal metrics and exact family registration', () => {
@@ -69,4 +69,17 @@ test('the development gallery URL selects one family without intercepting produc
   assert.equal(kitSelectionFromURL('portico://kit/product'), undefined);
   assert.equal(kitSelectionFromURL('invalid'), undefined);
   assert.equal(kitSelectionFromURL(null), undefined);
+});
+
+test('desktop gallery admission uses the actual web mode and never admits phone-only cases', () => {
+  const render = () => null;
+  const galleries: readonly Gallery[] = [
+    {id: 'all', title: 'next.platform.kitTitle', render},
+    {id: 'desktop', title: 'next.platform.kitTitle', render, platforms: ['web']},
+    {id: 'phone', title: 'next.platform.kitTitle', render, platforms: ['phone', 'tablet']},
+    {id: 'tv', title: 'next.platform.kitTitle', render, platforms: ['tv']},
+  ];
+  for (const width of [1024, 1440, 1920]) assert.deepEqual(galleriesForPlatform(galleries, createTheme({isTV: false, width}).platform).map(gallery => gallery.id), ['all', 'desktop']);
+  assert.deepEqual(galleriesForPlatform(galleries, createTheme({isTV: false, width: 768}).platform).map(gallery => gallery.id), ['all', 'phone']);
+  assert.deepEqual(galleriesForPlatform(galleries, createTheme({isTV: true, width: 1920}).platform).map(gallery => gallery.id), ['all', 'tv']);
 });
