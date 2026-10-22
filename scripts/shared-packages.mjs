@@ -23,6 +23,7 @@ const server = path.resolve(process.env.PORTICO_SERVER_REPO ?? path.join(here, '
 const LOCK = path.join(here, 'packages/portico-server.lock.json');
 const readLock = () => JSON.parse(readFileSync(LOCK, 'utf8'));
 const SHARED = {
+  'packages/player-core': ['src', 'test', 'scripts', 'package.json', 'tsconfig.json'],
   'packages/client-core': ['src', 'package.json', 'tsconfig.json'],
   'packages/contracts': ['src', 'package.json'],
   'packages/design': ['src', 'package.json', 'COMPONENTS.md', 'LICENSE-LUCIDE'],
