@@ -5,7 +5,7 @@ import type {NextMessageId} from '../../../../../../packages/i18n/src/catalog/en
 import {nativeControlsFixtureMessages} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/controls-native-fixtures';
 import type {Gallery} from '../../gallery-registry';
 import {Button, Chip, Focusable, ResumeButton, Segmented, Switch, Tabs, TextField, Select, RichSelect, type ButtonSize, type ButtonVariant, type ChipVariant} from '../../../kit/controls';
-import {useTheme} from '../../../kit/theme';
+import {fontFamilies, useTheme} from '../../../kit/theme';
 import {OverlaysProvider} from '../../../kit/overlays/OverlayHost';
 
 const t = defaultI18n.t;
@@ -118,8 +118,9 @@ export function FieldsGallery() {
     <TextField label={t('settings.row.autoplayNext')} description={t('settings.help.qualityHome')} defaultValue={t('entry.play')} testID="controls-field-default" />
     <TextField label={t('browse.field.search')} error={t('player.quality.tooSlowAny')} value={value} onChangeText={setValue} testID="controls-field-error" />
     <TextField label={t('browse.field.search')} editable={false} value={longTitle} testID="controls-field-disabled" />
-    <TextField label={t('filter.field.genre')} variant="search" leadingIcon="i-search" value={value} onChangeText={setValue}
-      fieldStyle={{height: 38, borderRadius: 10, backgroundColor: theme.colors.raisedBright}} hitSlop={{top: 3, bottom: 3}}
+    <TextField label={t('filter.field.genre')} variant="search" leadingIcon="i-search" iconSize={17} value={value} onChangeText={setValue}
+      fieldStyle={{height: 38, borderRadius: 10, paddingHorizontal: 10, gap: 8, backgroundColor: theme.colors.raisedBright}}
+      style={{fontSize: 14 * theme.textScale, fontFamily: fontFamilies[400]}} hitSlop={{top: 3, bottom: 3}}
       testID="controls-field-filter38" />
     <Button variant="text" size="small" onPress={() => {setValue(''); field.current?.focus();}} testID="controls-field-clear">{t('filter.clear')}</Button>
   </Frame>;
