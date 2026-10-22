@@ -4,13 +4,16 @@ import {defaultI18n} from '../../../../../../packages/i18n/src/index';
 import {shellNativeCases as fixture} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/shell-native-fixtures';
 import type {SegmentReviewEntry} from '../../../../../../packages/client-core/src/segment-review';
 import type {Gallery} from '../../gallery-registry';
+import {Dialog} from '../../../kit/overlays/surface';
 import {OverlaysProvider} from '../../../kit/overlays/OverlayHost';
 import {useTheme} from '../../../kit/theme';
-import {BarList, DeviceRow, PersonRow, SegmentWindows, StatTiles, WaitingNotice} from '../../../kit/shell';
+import {BarList, DeviceRow, PersonRow, SegmentWindows, Sparkline, StatTiles, WaitingNotice} from '../../../kit/shell';
 
 function StatisticsGallery() {
   const {width} = useWindowDimensions();
-  return <ScrollView contentContainerStyle={{padding: 16, gap: 20}}><StatTiles tiles={fixture.stats} width={Math.min(width - 32, 952)}/><BarList rows={fixture.barRows}/></ScrollView>;
+  const [selected, setSelected] = useState<typeof fixture.stats[number] | undefined>();
+  const theme = useTheme();
+  return <OverlaysProvider><ScrollView contentContainerStyle={{padding: 16, gap: 20}}><StatTiles tiles={fixture.stats} width={Math.min(width - 32, 952)} onTilePress={id => setSelected(fixture.stats.find(tile => tile.id === id))}/><BarList rows={fixture.barRows}/></ScrollView><Dialog open={Boolean(selected)} onOpenChange={open => {if (!open) setSelected(undefined);}} title={selected?.label ?? defaultI18n.t('next.shell.native.statisticsGallery')}>{selected && <><Text style={[theme.type.title, {color: theme.colors.text}]}>{selected.value}</Text><Sparkline samples={selected.samples} min={selected.min} max={selected.max} width={Math.min(width - 80, 700)} height={170} endDot/></>}</Dialog></OverlaysProvider>;
 }
 function PeopleGallery() {
   const theme = useTheme();

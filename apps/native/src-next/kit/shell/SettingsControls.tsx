@@ -8,10 +8,12 @@ import {Artwork} from '../artwork/Artwork';
 import type {ArtworkSource} from '../artwork/types';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
+import {HighlightedText} from './HighlightedText';
 import {alpha, shellType} from './visual';
 
 export type SettingsRowProps = {
   label: string;
+  highlightQuery?: string;
   description?: string;
   scope?: string;
   control?: ReactNode;
@@ -26,14 +28,14 @@ export type SettingsRowProps = {
   nextFocusLeft?: number;
 };
 /** A slotted control keeps its sole focus target. A TV readable row intentionally has no OK action. */
-export function SettingsRow({label, description, scope, control, value, onPress, readable = false, dependent = false, continuesBranch = false, highlighted = false, first = false, style, nextFocusLeft}: SettingsRowProps) {
+export function SettingsRow({label, highlightQuery, description, scope, control, value, onPress, readable = false, dependent = false, continuesBranch = false, highlighted = false, first = false, style, nextFocusLeft}: SettingsRowProps) {
   const theme = useTheme();
   const tv = theme.isTV;
   const content = <>
     {dependent && <View pointerEvents="none" style={{position: 'absolute', left: tv ? 38 : 31, top: -1, height: '50%', width: 14, borderLeftWidth: 2, borderBottomWidth: 2, borderBottomLeftRadius: 9, borderColor: theme.colors.line}}/>}
     {dependent && continuesBranch && <View pointerEvents="none" style={{position: 'absolute', left: tv ? 38 : 31, top: 0, bottom: 0, width: 2, backgroundColor: theme.colors.line}}/>}
     {highlighted && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: 3, borderRadius: 3, backgroundColor: theme.colors.accent}}/>}
-    <View style={{flex: 1, minWidth: 0}}><Text style={[shellType(tv ? 24 : 15.5), {color: theme.colors.text}]}>{label}</Text>
+    <View style={{flex: 1, minWidth: 0}}><HighlightedText text={label} query={highlightQuery} style={[shellType(tv ? 24 : 15.5), {color: theme.colors.text}]}/>
       {description && <Text numberOfLines={tv ? 2 : undefined} style={[shellType(tv ? 20 : 12.5, tv ? 400 : 500, tv ? 29 : 17.5), {color: theme.colors.textTertiary, marginTop: 3}]}>{description}</Text>}
       {scope && <Text style={[shellType(tv ? 18 : 12, 600), {color: theme.colors.textTertiary, marginTop: 3}]}>{scope}</Text>}
     </View>

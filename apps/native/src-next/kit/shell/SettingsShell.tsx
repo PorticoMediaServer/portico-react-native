@@ -8,6 +8,7 @@ import {BottomSheet} from '../overlays/BottomSheet';
 import type {BottomSheetProps} from '../overlays/types';
 import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
+import {HighlightedText} from './HighlightedText';
 import {alpha, shellType} from './visual';
 import {ServerHeader} from './ServerIdentity';
 import {canSeeServerPage, type ServerAudience, type ServerRole} from './authority';
@@ -55,9 +56,10 @@ export type SettingsNavProps = {
   nextFocusRight?: number;
   mode?: 'account' | 'server' | 'combined';
   search?: ReactNode;
+  searchResults?: SettingsSearchResultsProps;
   style?: StyleProp<ViewStyle>;
 };
-export function SettingsNav({accountPages, serverPages, viewerRole, serverName, selectedId, onNavigate, nextFocusRight, mode, search, style}: SettingsNavProps) {
+export function SettingsNav({accountPages, serverPages, viewerRole, serverName, selectedId, onNavigate, nextFocusRight, mode, search, searchResults, style}: SettingsNavProps) {
   const theme = useTheme();
   const currentMode = mode ?? (theme.isTV ? 'account' : 'combined');
   const pages = serverPages.filter(page => canSeeServerPage(viewerRole, page.audience ?? 'owner'));
@@ -71,11 +73,34 @@ export function SettingsNav({accountPages, serverPages, viewerRole, serverName, 
     </Focusable>
     {index > 0 && !theme.isTV && <View pointerEvents="none" style={{position: 'absolute', left: 56, right: 0, top: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
   </View>;
+  if (searchResults) return <View style={style}>{search}<SettingsSearchResults {...searchResults}/></View>;
   return <View style={style}>{search}
     {currentMode !== 'server' && <><Text style={[shellType(theme.isTV ? 20 : 13.5, 700), {marginTop: 22, marginBottom: 8, marginLeft: 20, color: theme.colors.textTertiary}]}>{defaultI18n.t('settings.heading.account')}</Text><View style={{marginHorizontal: theme.isTV ? 0 : 16, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.isTV ? 'transparent' : theme.colors.raised}}>{accountPages.map((page, index) => row(page, false, index, accountPages[index - 1]))}</View></>}
     {currentMode !== 'account' && pages.length > 0 && <View style={{marginTop: 20, marginHorizontal: theme.isTV ? 0 : 16, borderRadius: theme.isTV ? 20 : 14, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.accentStrong, .28)}}>
       <View style={{backgroundColor: alpha(theme.colors.accent, .1), borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.accentStrong, .22)}}><ServerHeader serverName={serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant={theme.isTV ? 'group' : 'phone'} style={theme.isTV ? {padding: 20} : undefined}/></View>
       {pages.map((page, index) => row(page, true, index, pages[index - 1]))}
     </View>}
+  </View>;
+}
+
+export type SettingsSearchResultsProps = {
+  matches: readonly import('../../../../../packages/client-core/src/presentation/settings-structure').SettingsMatch[];
+  query: string;
+  selectedRowId?: string;
+  values?: Readonly<Record<string, string>>;
+  onNavigate: (address: string, rowId: string) => void;
+};
+export function SettingsSearchResults({matches, query, selectedRowId, values = {}, onNavigate}: SettingsSearchResultsProps) {
+  const theme = useTheme();
+  const groups = new Map<string, typeof matches[number][]>();
+  for (const match of matches) {
+    const group = groups.get(match.address);
+    if (group) group.push(match); else groups.set(match.address, [match]);
+  }
+  return <View style={{marginTop: 18}}>
+    {!matches.length && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{defaultI18n.t('settings.search.none', {query})}</Text>}
+    {Array.from(groups.entries()).map(([address, group]) => <View key={address} style={{marginTop: 12}}><View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingBottom: 4}}><Text style={[shellType(theme.isTV ? 20 : 13, 700), {color: theme.colors.textSecondary, flex: 1}]}>{group[0].pageTitle}</Text><Text style={[shellType(12, 700), {color: theme.colors.textTertiary, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: alpha(theme.colors.text, .08)}]}>{defaultI18n.number(group.length)}</Text></View>
+      {group.map(match => <Focusable key={match.rowId} accessibilityRole="button" accessibilityLabel={match.label} accessibilityState={{selected: match.rowId === selectedRowId}} onPress={() => onNavigate(match.address, match.rowId)} focusKind="row" focusRadius={9} style={{paddingVertical: 8, paddingLeft: 40, paddingRight: 12, borderRadius: 9, backgroundColor: match.rowId === selectedRowId ? alpha(theme.colors.text, .1) : 'transparent'}}><HighlightedText text={match.label} query={query} style={[shellType(theme.isTV ? 22 : 14.5), {color: theme.colors.text}]}/>{values[match.rowId] !== undefined && <Text style={[shellType(theme.isTV ? 20 : 12.5), {color: theme.colors.textTertiary, marginTop: 1}]}>{values[match.rowId]}</Text>}</Focusable>)}
+    </View>)}
   </View>;
 }
