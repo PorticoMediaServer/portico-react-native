@@ -1,3 +1,4 @@
+import {focusTestID} from '../focus/registry';
 import React, {useEffect} from 'react';
 import {ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
@@ -73,6 +74,7 @@ export type ProfileOption = Readonly<{
   disabled?: boolean;
 }>;
 export type ProfilePickerProps = Readonly<{
+  testID?: string;
   profiles: readonly ProfileOption[];
   onSelect: (id: string) => void;
   onAdd?: () => void;
@@ -113,7 +115,7 @@ function ProfileTileContents({profile, focused, selected, layout}: {profile: Pro
 }
 
 /** Authentication/PIN/management authority stays with these real caller callbacks (Q34). */
-export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, preferredProfileId, onFocusChange, profileProps, title, description, showTitle = true, layout: requestedLayout, style}: ProfilePickerProps) {
+export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, preferredProfileId, onFocusChange, profileProps, title, description, showTitle = true, layout: requestedLayout, style, testID}: ProfilePickerProps) {
   const theme = useTheme();
   const layout = requestedLayout ?? (theme.isTV ? 'tv' : theme.platform === 'phone' ? 'phone' : 'row');
   const phone = layout === 'phone';
@@ -121,7 +123,7 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
   const tiles = <View style={{flexDirection: 'row', flexWrap: phone ? 'wrap' : 'nowrap', justifyContent: phone ? 'flex-start' : 'center', columnGap: phone ? 0 : layout === 'tv' ? 60 : 32, rowGap: phone ? 26 : 0}}>
     {profiles.map(profile => {
       const forwarded = profileProps?.(profile);
-      return <Focusable key={profile.id} {...forwarded}
+      return <Focusable key={profile.id} {...forwarded} testID={forwarded?.testID ?? controlID(testID, 'profile', profile.id)}
       accessibilityRole="button" accessibilityLabel={profile.name} accessibilityHint={profileBadge(profile)}
       accessibilityState={{...forwarded?.accessibilityState, selected: selectedId === profile.id}}
       disabled={profile.disabled || Boolean(profile.unavailableReason)} focusTreatment="none"
@@ -132,7 +134,7 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
       {state => <ProfileTileContents profile={profile} focused={state.focused} selected={selectedId === profile.id} layout={layout}/>}
     </Focusable>;
     })}
-    {onAdd ? <Focusable accessibilityRole="button" accessibilityLabel={defaultI18n.t('profile.add')} onPress={onAdd} focusTreatment="none" style={{width: phone ? '33.333333%' : layout === 'tv' ? 236 : 168, alignItems: 'center', paddingHorizontal: phone ? 4 : 0}}>
+    {onAdd ? <Focusable testID={controlID(testID, 'add')} accessibilityRole="button" accessibilityLabel={defaultI18n.t('profile.add')} onPress={onAdd} focusTreatment="none" style={{width: phone ? '33.333333%' : layout === 'tv' ? 236 : 168, alignItems: 'center', paddingHorizontal: phone ? 4 : 0}}>
       {state => <><ProfileFace initial="" add size={faceSize} focused={state.focused}/><Text style={{fontFamily: fontFamilies[700], color: theme.colors.text, fontSize: layout === 'tv' ? 30 : phone ? 15 : 21, marginTop: layout === 'tv' ? 26 : phone ? 10 : 18}}>{defaultI18n.t('profile.add')}</Text></>}
     </Focusable> : null}
   </View>;
@@ -140,6 +142,8 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
     {showTitle ? <Text accessibilityRole="header" style={{fontFamily: fontFamilies[800], fontSize: layout === 'tv' ? 72 : phone ? 32 : 64, letterSpacing: (layout === 'tv' ? 72 : phone ? 32 : 64) * (phone ? -0.04 : -0.045), color: theme.colors.text, marginBottom: description ? 6 : layout === 'tv' ? 80 : phone ? 30 : 56}}>{title ?? defaultI18n.t('auth.whosWatching')}</Text> : null}
     {description ? <Text style={{...theme.type.body, color: theme.colors.textSecondary, marginBottom: 30}}>{description}</Text> : null}
     {phone ? tiles : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{padding: 18}}>{tiles}</ScrollView>}
-    {onManage ? <Button variant="glass" size="hero" icon="i-edit" onPress={onManage} style={{alignSelf: phone ? 'flex-start' : 'center', marginTop: 56}}>{defaultI18n.t('next.artwork.native.manageProfiles')}</Button> : null}
+    {onManage ? <Button testID={controlID(testID, 'manage')} variant="glass" size="hero" icon="i-edit" onPress={onManage} style={{alignSelf: phone ? 'flex-start' : 'center', marginTop: 56}}>{defaultI18n.t('next.artwork.native.manageProfiles')}</Button> : null}
   </View>;
 }
+
+const controlID = (prefix: string | undefined, ...parts: readonly string[]) => prefix ? focusTestID(prefix, JSON.stringify(parts)) : undefined;

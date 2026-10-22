@@ -61,6 +61,7 @@ export type PlayerMorphController = {
   gesture: PanGesture;
 };
 export type DockHostProps = {
+  testID?: string;
   dock: PlaybackDock;
   snapshot: DockState;
   presentation: Readonly<{local?: DockPresentation; remote?: DockPresentation}>;

@@ -37,11 +37,18 @@ const schemas: readonly RepairFieldSpec[] = [
   {field: 'tags', label: fixture.fields.tags, group: 'general', type: 'list', bulk: true},
   {field: 'labels', label: fixture.fields.labels, group: 'general', type: 'list', bulk: true},
 ];
+const movieEntries = [
+  {id: 'toy-story', title: fixture.movieTitles[0], artworkIndex: 0}, {id: 'toy-story-2', title: fixture.movieTitles[1], artworkIndex: 1},
+  {id: 'toy-story-3', title: fixture.movieTitles[2], artworkIndex: 2}, {id: 'toy-story-5', title: fixture.movieTitles[3], artworkIndex: 3},
+] as const;
+const playlistKeys = ['family-movies', 'weekend-movies', 'watch-again'] as const;
+const collectionKeys = ['animation', 'adventure', 'favorites'] as const;
 const actionIds: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'more', 'playNext', 'playLater', 'watched', 'unwatched', 'collection', 'favorite', 'download', 'edit', 'refresh', 'delete'];
 const actions: readonly SelectionActionOffer[] = actionIds.map(id => ({id}));
 type Scenario = keyof typeof fixture.scenarios;
 function SelectionExample({scenario, deniedDestination = false}: {scenario: Scenario; deniedDestination?: boolean}) {
   const theme = useTheme();
+  const prefix = `dev.selection.${deniedDestination ? 'picker-admission' : scenario}`;
   const [evidence, setEvidence] = useState(() => globalThis.__porticoNativeSelectionEvidence?.getSnapshot());
   useEffect(() => {
     const source = globalThis.__porticoNativeSelectionEvidence;
@@ -51,7 +58,7 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     update();
     return unsubscribe;
   }, []);
-  const [selected, setSelected] = useState<readonly string[]>(scenario === 'circles' ? [] : theme.isTV ? ['0', '1', '2'] : ['0', '1', '2', '3']);
+  const [selected, setSelected] = useState<readonly string[]>(scenario === 'circles' ? [] : theme.isTV ? movieEntries.slice(0, 3).map(movie => movie.id) : movieEntries.map(movie => movie.id));
   const [menu, setMenu] = useState<'queue' | 'watched' | 'more' | null>(scenario === 'queue' ? 'queue' : scenario === 'more' ? 'more' : null);
   const [open, setOpen] = useState(true);
   const [creating, setCreating] = useState(scenario === 'newPlaylist');
@@ -68,11 +75,11 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
   const [page, setPage] = useState(0);
   const size = theme.isTV ? 76 : 48;
   const collection = scenario === 'collection';
-  const entries: PickerEntry[] = (collection ? fixture.collections : fixture.playlists).map((title, index) => ({id: String(index), title, size: [12, 6, 9][index], canAdd: !deniedDestination || index !== 1, ...(index === 0 ? {alreadyIn: 2} : {}),
+  const entries: PickerEntry[] = (collection ? fixture.collections : fixture.playlists).map((title, index) => ({id: (collection ? collectionKeys : playlistKeys)[index], title, size: [12, 6, 9][index], canAdd: !deniedDestination || index !== 1, ...(index === 0 ? {alreadyIn: 2} : {}),
     artwork: <CoverMosaic covers={[art(index), art((index + 1) % 4), art((index + 2) % 4), art((index + 3) % 4)]} shape="square" width={size} height={size} />}));
   const pickerCount = theme.isTV ? 3 : 4;
   const destination = entries[0];
-  const referenceFailure = {id: String(pickerCount - 1), title: fixture.movieTitles[pickerCount - 1], reason: fixture.failedAdd};
+  const referenceFailure = {id: movieEntries[pickerCount - 1].id, title: fixture.movieTitles[pickerCount - 1], reason: fixture.failedAdd};
   const suppliedResult: PickerResult | undefined = pickerResult ?? (scenario === 'partialPlaylist' && destination ? {destination, inserted: pickerCount - 1, failed: 1, total: pickerCount, failures: [referenceFailure], complete: true} : undefined);
   // Bounded in-memory reference directory, not the current-page search or a server receipt.
   const matching = entries.filter(entry => entry.title.toLocaleLowerCase('en-US').includes(query.toLocaleLowerCase('en-US')));
@@ -80,8 +87,8 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
   const bulkResult = bulkReceipts.length ? bulkReceiptView(bulkReceipts) : undefined;
   const close = (next: boolean) => setOpen(next);
   const onAction = (action: SelectionAction) => {setLastAction(action);};
-  const barProps = {count: selected.length, subtitle: fixture.films, selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(['0', '1', '2', '3']), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, ownerTag: <OwnerTag compact variant="badge" />};
-  const base = {open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 8}}><OwnerTag compact /></View>};
+  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, ownerTag: <OwnerTag compact variant="badge" />};
+  const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 8}}><OwnerTag compact /></View>};
   const isPicker = ['playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario);
   const isEditor = ['editor', 'episodes', 'tracks', 'editResult'].includes(scenario);
   const editorKind = scenario === 'episodes' ? 'episode' : scenario === 'tracks' ? 'song' : 'movie';
@@ -101,13 +108,13 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     <SelectionText weight={700}>{fixture.scenarios[scenario]}</SelectionText>
     {['bar', 'queue', 'more', 'circles'].includes(scenario) ? <>
       <SelectionBar {...barProps} />
-      <View style={{flexDirection: 'row', gap: 18, padding: 20, flexWrap: 'wrap'}}>{fixture.movieTitles.map((title, index) => <PosterCard key={title} title={title} width={theme.isTV ? 200 : 108} artwork={art(index)} density="grid"
+      <View style={{flexDirection: 'row', gap: 18, padding: 20, flexWrap: 'wrap'}}>{movieEntries.map(movie => <PosterCard testID={`${prefix}.movie.${movie.id}`} key={movie.id} title={movie.title} width={theme.isTV ? 200 : 108} artwork={art(movie.artworkIndex)} density="grid"
         onNavigate={() => setLastAction('navigate')} onMore={() => setMenu('more')}
-        selection={{active: selected.length > 0, selected: selected.includes(String(index)), onEnter: () => setSelected([String(index)]), onToggle: () => setSelected(current => current.includes(String(index)) ? current.filter(id => id !== String(index)) : [...current, String(index)])}} />)}</View>
-      {scenario === 'circles' ? <View style={{flexDirection: 'row', gap: 24, padding: 20}}>{[false, true].map(value => <SelectionCircle key={String(value)} selecting selected={value} accessibilityLabel={fixture.movieTitles[value ? 1 : 0]} onSelectedChange={next => setSelected(next ? ['0'] : [])} />)}</View> : null}
+        selection={{active: selected.length > 0, selected: selected.includes(movie.id), onEnter: () => setSelected([movie.id]), onToggle: () => setSelected(current => current.includes(movie.id) ? current.filter(id => id !== movie.id) : [...current, movie.id])}} />)}</View>
+      {scenario === 'circles' ? <View style={{flexDirection: 'row', gap: 24, padding: 20}}>{[false, true].map(value => <SelectionCircle testID={`${prefix}.circle.${value ? 'selected' : 'empty'}`} key={String(value)} selecting selected={value} accessibilityLabel={fixture.movieTitles[value ? 1 : 0]} onSelectedChange={next => setSelected(next ? [movieEntries[0].id] : [])} />)}</View> : null}
       <SelectionPhoneActionBar {...barProps} />
     </> : null}
-    {!open && !pickerResult ? <Button size="compact" onPress={() => setOpen(true)}>{fixture.scenarios[scenario]}</Button> : null}
+    {!open && !pickerResult ? <Button testID={`${prefix}.open`} size="compact" onPress={() => setOpen(true)}>{fixture.scenarios[scenario]}</Button> : null}
     {lastAction ? <SelectionText>{formatMessage(fixture.lastAction, {action: lastAction}, {locale: 'en-US'})}</SelectionText> : null}
     {isPicker ? React.createElement(collection ? CollectionPicker : PlaylistPicker, {
       ...base, count: pickerCount, selectionLabel: theme.isTV ? fixture.tvSelectionLabel : fixture.selectionLabel, entries: windowEntries, query, onQueryChange: value => {setQuery(value); setPage(0);}, showFind: true,
@@ -124,23 +131,23 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
       schema={editorSchema}
       fieldLabel={field => field.label} values={referenceFields(editorKind)}
       changes={changes} onChangesChange={setChanges} lockEdited={lockEdited} onLockEditedChange={setLockEdited} onSave={requireSelectionEvidence} result={bulkResult}
-      resultEntries={fixture.movieTitles.map((title, index) => ({id: String(index), title, artwork: <Artwork source={art(index)} width={30} height={45} />}))}
+      resultEntries={movieEntries.map(movie => ({id: movie.id, title: movie.title, artwork: <Artwork source={art(movie.artworkIndex)} width={30} height={45} />}))}
       onRetry={requireSelectionEvidence}
       singleItemFields={referenceSingleItemFields(editorKind)} summary={summary} {...evidence?.editor} /> : null}
-    {scenario === 'mixed' ? <MixedEditExplainer open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-disk', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
+    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-disk', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
     {scenario.startsWith('delete') ? <DeleteMediaDialog {...base} owner selectionCount={scenario === 'deleteLimit' ? 240 : scenario === 'deleteOne' || scenario === 'deleteShow' || scenario === 'deleteBlocked' ? 1 : 4}
       preview={deletionPreview(scenario)} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
-      onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(Number(id))} width={24} height={36} />} {...evidence?.deletion} /> : null}
+      onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(movieEntries.find(movie => movie.id === id)?.artworkIndex ?? 0)} width={24} height={36} />} {...evidence?.deletion} /> : null}
   </View>;
 }
-function receipt(): BulkReceipt {return {operationId: 'selection-gallery-edit', updated: 3, failed: 1, results: fixture.movieTitles.map((_title, index) => ({id: String(index), kind: 'item', ok: index !== 3, code: index === 3 ? 'metadata_conflict' : undefined}))};}
+function receipt(): BulkReceipt {return {operationId: 'selection-gallery-edit', updated: 3, failed: 1, results: movieEntries.map(movie => ({id: movie.id, kind: 'item', ok: movie.id !== 'toy-story-5', code: movie.id === 'toy-story-5' ? 'metadata_conflict' : undefined}))};}
 function deletionPreview(scenario: Scenario): DeletePreview {
   const single = scenario === 'deleteOne' || scenario === 'deleteBlocked' || scenario === 'deleteShow';
   return {revision: 1, confirmation: single ? scenario === 'deleteShow' ? fixture.showTitle : fixture.movieTitles[3] : '4', confirmationKind: single ? 'title' : 'count', totalFiles: scenario === 'deleteShow' ? 9 : single ? 1 : 4,
     totalBytes: 16800000000, totalBytesText: single ? '4.1 GB' : '16.8 GB', blocked: scenario === 'deleteBlocked' ? [fixture.films] : [],
-    targets: (single ? [fixture.movieTitles[3]] : fixture.movieTitles).map((title, index) => ({itemId: String(index), title: scenario === 'deleteShow' ? fixture.showTitle : title, kind: scenario === 'deleteShow' ? 'show' : 'movie', libraryId: 'movies', libraryName: fixture.films, allowMediaDeletion: scenario !== 'deleteBlocked', titles: scenario === 'deleteShow' ? 9 : 1, bytes: 4100000000, files: [{assetId: String(index), path: '', bytes: 4100000000, present: true, shared: false}], dependents: [{kind: 'playlist', count: 2, description: ''}, {kind: 'collection', count: 1, description: ''}, {kind: 'progress', count: 3, description: ''}]}))};
+    targets: (single ? [movieEntries[3]] : movieEntries).map(movie => ({itemId: scenario === 'deleteShow' ? 'reference-show' : movie.id, title: scenario === 'deleteShow' ? fixture.showTitle : movie.title, kind: scenario === 'deleteShow' ? 'show' : 'movie', libraryId: 'movies', libraryName: fixture.films, allowMediaDeletion: scenario !== 'deleteBlocked', titles: scenario === 'deleteShow' ? 9 : 1, bytes: 4100000000, files: [{assetId: `${movie.id}-file`, path: '', bytes: 4100000000, present: true, shared: false}], dependents: [{kind: 'playlist', count: 2, description: ''}, {kind: 'collection', count: 1, description: ''}, {kind: 'progress', count: 3, description: ''}]}))};
 }
-function deletionResult(): DeleteResult {return {revision: 2, removed: 3, failed: 1, bytesDeleted: 12700000000, filesRetained: false, receipts: fixture.movieTitles.map((title, index) => ({itemId: String(index), title, removed: index !== 3, filesDeleted: index === 3 ? 0 : 1, filesKept: index === 3 ? 1 : 0, bytes: 4100000000, code: index === 3 ? 'file_not_removed' : ''}))};}
+function deletionResult(): DeleteResult {return {revision: 2, removed: 3, failed: 1, bytesDeleted: 12700000000, filesRetained: false, receipts: movieEntries.map(movie => ({itemId: movie.id, title: movie.title, removed: movie.id !== 'toy-story-5', filesDeleted: movie.id === 'toy-story-5' ? 0 : 1, filesKept: movie.id === 'toy-story-5' ? 1 : 0, bytes: 4100000000, code: movie.id === 'toy-story-5' ? 'file_not_removed' : ''}))};}
 const galleries: readonly Gallery[] = [
   ...(Object.keys(fixture.scenarios) as Scenario[]).map((scenario): Gallery => ({id: `selection-${scenario}`, title: 'next.selection.native.gallery', platforms: ['circles', 'bar', 'queue', 'more', 'playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario) ? ['phone', 'tablet', 'tv'] : ['phone', 'tablet'], render: function GalleryExample() {return <OverlaysProvider><SelectionExample scenario={scenario} /></OverlaysProvider>;}})),
   {id: 'selection-picker-admission', title: 'next.selection.native.gallery', platforms: ['phone', 'tablet', 'tv'], render: function PickerAdmission() {return <OverlaysProvider><SelectionExample scenario="playlist" deniedDestination /></OverlaysProvider>;}},

@@ -1,9 +1,11 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
-import {AppState, Pressable, Text, View, type StyleProp, type ViewStyle} from 'react-native';
+import {AppState, Text, View, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withDelay, withTiming, type SharedValue, type WithTimingConfig} from 'react-native-reanimated';
 import {heroSpec} from '@portico/design';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {useTheme} from '../theme';
+import {Focusable} from '../controls/Focusable';
+import {focusTestID} from '../focus/registry';
 import {useMotion} from '../useMotion';
 import {Lockup} from './Lockup';
 import {createArtworkReadiness, createRotationClock} from './model';
@@ -156,13 +158,13 @@ export function HeroSurface<T extends HeroCandidate>({entry, fade = 'hero', ...p
   </>;
 }
 
-function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, progress, render, onPress}: {
+function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, progress, render, onPress, testID}: {testID?: string;
   entry: T; index: number; active: boolean; visible: boolean; progress: SharedValue<number>;
   render: NonNullable<HeroProps<T>['renderThumbnail']>; onPress: () => void;
 }) {
   const theme = useTheme(), [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
   const fill = useAnimatedStyle(() => ({transform: [{translateX: (progress.value - 1) * heroSpec.thumbnail.width / 2}, {scaleX: progress.value}]}));
-  return <Pressable accessibilityRole="button" accessibilityLabel={entry.title} accessibilityState={{selected: active}} onPress={onPress}
+  return <Focusable testID={testID} focusTreatment="none" accessibilityRole="button" accessibilityLabel={entry.title} accessibilityState={{selected: active}} onPress={onPress}
     onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
     style={{width: heroSpec.thumbnail.width, opacity: active ? 1 : hovered ? heroSpec.thumbnail.hoverOpacity : heroSpec.thumbnail.opacity}}>
     <View style={{width: heroSpec.thumbnail.width, height: heroSpec.thumbnail.height, borderRadius: heroSpec.thumbnail.radius, overflow: 'hidden'}}>{render(entry, {index, active, visible})}</View>
@@ -171,7 +173,7 @@ function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, 
       {active && <Animated.View style={[{height: heroSpec.thumbnail.progressHeight, backgroundColor: theme.colors.text}, fill]} />}
     </View>
     <Text numberOfLines={1} style={[theme.type.thumbnailLabel, {marginTop: heroSpec.thumbnail.labelGap, color: theme.colors.textSecondary}]}>{entry.title}</Text>
-  </Pressable>;
+  </Focusable>;
 }
 
 export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexChange, active = true, visible = true, reducedMotion = false, heroFocused = false, variant, height, style, testID, ...props}: HeroProps<T>) {
@@ -204,9 +206,9 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
     };
   }, [canRotate, candidates.length, change, rotation, motion, progress]);
   const dots = candidates.length > 1 ? <View style={{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: phone ? 'center' : 'flex-start', gap: tv ? 10 : heroSpec.phoneDots.gap}}>
-    {candidates.map((candidate, i) => tv ? <View key={candidate.id} style={{width: i === index ? 34 : 10, height: 10, borderRadius: 5, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}47`}} /> : <Pressable key={candidate.id} accessibilityRole="button" accessibilityLabel={candidate.title} accessibilityState={{selected: i === index}} onPress={() => change(i)} hitSlop={8}>
+    {candidates.map((candidate, i) => tv ? <View key={candidate.id} style={{width: i === index ? 34 : 10, height: 10, borderRadius: 5, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}47`}} /> : <Focusable testID={testID ? focusTestID(testID, JSON.stringify(['candidate', candidate.id])) : undefined} focusTreatment="none" key={candidate.id} accessibilityRole="button" accessibilityLabel={candidate.title} accessibilityState={{selected: i === index}} onPress={() => change(i)} hitSlop={8}>
       <View style={{width: i === index ? heroSpec.phoneDots.activeWidth : heroSpec.phoneDots.size, height: heroSpec.phoneDots.size, borderRadius: 3, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}4D`}} />
-    </Pressable>)}
+    </Focusable>)}
   </View> : null;
   return <View testID={testID} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}
     onFocus={() => setControlFocused(true)} onBlur={() => setControlFocused(false)}
@@ -214,7 +216,7 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
     <HeroSurface {...props} entry={candidates[index]} variant={variant} active={active} visible={visible && appVisible} reducedMotion={reducedMotion} heroFocused={heroFocused}
       renderAfterCopy={entry => <>{props.renderAfterCopy?.(entry)}{!desktop && dots}</>} />
     {desktop && renderThumbnail && <View style={{position: 'absolute', right: theme.gutter, bottom: heroSpec.thumbnail.bottom, flexDirection: 'row', gap: heroSpec.thumbnail.gap}}>
-      {candidates.map((candidate, i) => <HeroThumbnail key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={renderThumbnail} onPress={() => change(i)} />)}
+      {candidates.map((candidate, i) => <HeroThumbnail testID={testID ? focusTestID(testID, JSON.stringify(['thumbnail', candidate.id])) : undefined} key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={renderThumbnail} onPress={() => change(i)} />)}
     </View>}
   </View>;
 }

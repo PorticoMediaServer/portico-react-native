@@ -40,7 +40,7 @@ const albumEntries = [
   {id: 'the-wall', title: fixture('wall'), artist: fixture('pinkFloyd'), year: 1979, kind: 'album' as const, poster: asset('pool/albums/the-wall.jpg')},
 ];
 
-const cardContext = ({selection, onFocus, onBlur}: LayoutItemContext) => ({selection, onFocus, onBlur});
+const cardContext = ({selection, onFocus, onBlur, focusId, testID}: LayoutItemContext) => ({selection, onFocus, onBlur, focusId, testID});
 
 function Stage({height, children}: {height?: number; children: React.ReactNode}) {
   const theme = useTheme();
@@ -83,15 +83,15 @@ function HeroGallery({mobileWeb = false}: {mobileWeb?: boolean}) {
   const desktop = theme.layoutMode === 'desktop';
   const height = theme.isTV ? 1080 : desktop ? theme.spec.hero.homeHeight.web : mobileWeb ? 486 : 560;
   return <>
-    <Stage height={height}><Hero candidates={heroes} activeIndex={index} onIndexChange={setIndex} active={active} heroFocused={focused}
+    <Stage height={height}><Hero testID="dev.layout.hero" candidates={heroes} activeIndex={index} onIndexChange={setIndex} active={active} heroFocused={focused}
       variant={theme.isTV ? 'tv' : desktop ? 'desktop' : mobileWeb ? 'phone-web' : 'phone-app'}
       renderArtwork={(entry, context) => <ReferenceArtwork entry={entry} context={context} phone={theme.layoutMode === 'phone'} />}
       renderThumbnail={desktop ? (entry, context) => <Artwork source={entry.art} visible={context.visible} /> : undefined}
       renderReason={entry => <ReferenceReason entry={entry} />}
-      renderActions={entry => <><Button icon="i-play" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => Alert.alert(t('action.play'), entry.title)}>{t('action.play')}</Button>
-        <Button variant="glass" icon={saved ? 'i-check' : 'i-plus'} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => setSaved(value => !value)} accessibilityState={{selected: saved}}>{t('title.watchlist')}</Button>
-        {theme.isTV && <Button variant="glass" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => Alert.alert(entry.title)}>{t('action.details')}</Button>}</>} /></Stage>
-    <Button size="small" variant="text" onPress={() => setActive(value => !value)}>{t(active ? 'action.pause' : 'entry.resume')}</Button>
+      renderActions={entry => <><Button testID={`dev.layout.hero.${entry.id}.play`} icon="i-play" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => Alert.alert(t('action.play'), entry.title)}>{t('action.play')}</Button>
+        <Button testID={`dev.layout.hero.${entry.id}.my-list`} variant="glass" icon={saved ? 'i-check' : 'i-plus'} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => setSaved(value => !value)} accessibilityState={{selected: saved}}>{t('title.watchlist')}</Button>
+        {theme.isTV && <Button testID={`dev.layout.hero.${entry.id}.details`} variant="glass" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => Alert.alert(entry.title)}>{t('action.details')}</Button>}</>} /></Stage>
+    <Button testID="dev.layout.hero.rotation" size="small" variant="text" onPress={() => setActive(value => !value)}>{t(active ? 'action.pause' : 'entry.resume')}</Button>
   </>;
 }
 
@@ -109,11 +109,11 @@ function PreviewGallery() {
   const theme = useTheme(), [entry, setEntry] = useState(heroes[1]), [repeating, setRepeating] = useState(false);
   const state = useGallerySelection();
   return <Stage height={1080}>
-    <FocusPreviewHero focusedEntry={entry} repeating={repeating} renderArtwork={(item, context) => <ReferenceArtwork entry={item} context={context} phone={false} />}
+    <FocusPreviewHero testID="dev.layout.preview.hero" focusedEntry={entry} repeating={repeating} renderArtwork={(item, context) => <ReferenceArtwork entry={item} context={context} phone={false} />}
       renderReason={item => <ReferenceReason entry={item} />} renderHint={() => <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
         {[t('next.layout.native.ok'), t('entry.resume'), t('next.layout.native.holdOK'), t('next.layout.native.moreOptions')].map((label, i) => <Text key={label} style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginLeft: i === 2 ? 24 : 0, ...(i % 2 === 0 ? {borderWidth: 1.5, borderColor: `${theme.colors.text}4D`, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 6} : {})}]}>{label}</Text>)}
       </View>} />
-    <View style={{position: 'absolute', left: 0, right: 0, top: 588}}><Row title={t('home.row.continueWatching')} items={heroes.slice(1)} getKey={item => item.id} itemWidth={400} itemHeight={225}
+    <View style={{position: 'absolute', left: 0, right: 0, top: 588}}><Row testID="dev.layout.preview.continue" title={t('home.row.continueWatching')} items={heroes.slice(1)} getKey={item => item.id} itemWidth={400} itemHeight={225}
       selection={state.selection} onItemFocus={setEntry} onRepeatingChange={setRepeating} renderItem={(item, context) => {
         const model = cardText(item.subject, 'continuation', {t});
         return <WideCard {...cardContext(context)} title={model.title} caption={model.caption} detail={model.detail} progress={model.progress} artwork={item.art} width={400} primaryAction="play" onPlay={() => Alert.alert(t('action.play'), item.title)} onMore={() => state.more(item)} hasTVPreferredFocus={context.index === 0} />;
@@ -127,15 +127,15 @@ function RowsGallery() {
   const posterWidth = theme.isTV ? 214 : 118, squareWidth = theme.isTV ? 214 : 132;
   const card = (item: typeof gridEntries[number], context: LayoutItemContext) => <PosterCard {...cardContext(context)} title={item.title} caption={cardText(item, 'ordinary', {t}).caption} width={posterWidth} artwork={item.poster} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />;
   return <Stage><View style={{gap: theme.isTV ? 44 : 28}}>
-    <Row title={t('home.row.continueWatching')} items={continued} getKey={item => item.id} itemWidth={theme.isTV ? 400 : 262} itemHeight={theme.isTV ? 225 : 147.375} selection={state.selection}
+    <Row testID="dev.layout.rows.continue" title={t('home.row.continueWatching')} items={continued} getKey={item => item.id} itemWidth={theme.isTV ? 400 : 262} itemHeight={theme.isTV ? 225 : 147.375} selection={state.selection}
       renderItem={(item, context) => {const model = cardText(item.subject, 'continuation', {t}); return <WideCard {...cardContext(context)} width={theme.isTV ? 400 : 262} title={model.title} caption={model.caption} detail={model.detail} progress={model.progress} artwork={item.art} primaryAction="play" onPlay={() => Alert.alert(t('action.play'), item.title)} onMore={() => state.more(item)} />;}} />
-    {continued.length > 0 && <Button variant="text" size="small" onPress={() => setContinued(current => current.slice(1))}>{t('entry.removeFromContinueWatching')}</Button>}
-    <Row title={t('home.row.recommended')} items={gridEntries} getKey={item => item.id} itemWidth={posterWidth} itemHeight={posterWidth * 1.5 + (theme.isTV ? 70 : 44)} selection={state.selection} onSeeAll={() => Alert.alert(t('shelf.seeAll'), t('home.row.recommended'))} renderItem={card} />
-    <Row title={t('search.chip.albums')} items={albumEntries} getKey={item => item.id} itemWidth={squareWidth} itemHeight={squareWidth + 54} selection={state.selection} renderItem={(item, context) => <SquareCard {...cardContext(context)} title={item.title} caption={cardText(item, 'ordinary', {t}).caption} width={squareWidth} artwork={item.poster} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />} />
-    <Row title={t('search.chip.artists')} items={albumEntries} getKey={item => item.id} itemWidth={theme.isTV ? 214 : 100} itemHeight={theme.isTV ? 268 : 154} selection={state.selection} renderItem={(item, context) => <CircleCard {...cardContext(context)} title={item.artist} width={theme.isTV ? 214 : 100} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} onMore={() => state.more(item)} />} />
-    <Row title={t('web.segments.episodes')} items={[heroes[1]]} getKey={item => item.id} itemWidth={theme.isTV ? theme.spec.episode.width.tv : 350} itemHeight={theme.isTV ? 380 : 124} selection={state.selection}
+    {continued.length > 0 && <Button testID="dev.layout.rows.remove-continue" variant="text" size="small" onPress={() => setContinued(current => current.slice(1))}>{t('entry.removeFromContinueWatching')}</Button>}
+    <Row testID="dev.layout.rows.recommended" title={t('home.row.recommended')} items={gridEntries} getKey={item => item.id} itemWidth={posterWidth} itemHeight={posterWidth * 1.5 + (theme.isTV ? 70 : 44)} selection={state.selection} onSeeAll={() => Alert.alert(t('shelf.seeAll'), t('home.row.recommended'))} renderItem={card} />
+    <Row testID="dev.layout.rows.albums" title={t('search.chip.albums')} items={albumEntries} getKey={item => item.id} itemWidth={squareWidth} itemHeight={squareWidth + 54} selection={state.selection} renderItem={(item, context) => <SquareCard {...cardContext(context)} title={item.title} caption={cardText(item, 'ordinary', {t}).caption} width={squareWidth} artwork={item.poster} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />} />
+    <Row testID="dev.layout.rows.artists" title={t('search.chip.artists')} items={albumEntries} getKey={item => item.id} itemWidth={theme.isTV ? 214 : 100} itemHeight={theme.isTV ? 268 : 154} selection={state.selection} renderItem={(item, context) => <CircleCard {...cardContext(context)} title={item.artist} width={theme.isTV ? 214 : 100} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} onMore={() => state.more(item)} />} />
+    <Row testID="dev.layout.rows.episodes" title={t('web.segments.episodes')} items={[heroes[1]]} getKey={item => item.id} itemWidth={theme.isTV ? theme.spec.episode.width.tv : 350} itemHeight={theme.isTV ? 380 : 124} selection={state.selection}
       renderItem={(item, context) => {const model = cardText(item.subject, 'in-show', {t}); return <EpisodeTile {...cardContext(context)} title={item.subject.title} label={model.caption} length={model.detail.find(part => part.id === 'duration')?.text} artwork={item.art} backdropFallback synopsis={item.overview} width={theme.isTV ? theme.spec.episode.width.tv : 350} primaryAction="play" onPlay={() => Alert.alert(t('action.play'), item.subject.title)} onMore={() => state.more(item)} />;}} />
-    {state.selection.active && <Button variant="text" size="small" onPress={state.clear}>{t('action.cancel')}</Button>}
+    {state.selection.active && <Button testID="dev.layout.rows.cancel" variant="text" size="small" onPress={state.clear}>{t('action.cancel')}</Button>}
   </View></Stage>;
 }
 
@@ -153,17 +153,17 @@ function GridGallery({stress = false}: {stress?: boolean}) {
   return <>
     {stress && <View style={{gap: 12, marginBottom: 16}}>
       <Text style={[theme.type.heading, {color: theme.colors.text}]}>{fixture('stressTitle')}</Text>
-      <Button size="small" onPress={() => grid.current?.scrollToIndex(25_000)}>{fixture('jumpMiddle')}</Button>
+      <Button testID="dev.layout.grid.stress.jump-middle" size="small" onPress={() => grid.current?.scrollToIndex(25_000)}>{fixture('jumpMiddle')}</Button>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{fixture('visibleRange', {first: range.first + 1, last: range.last + 1, total})}</Text>
     </View>}
     <Stage height={theme.isTV ? 762 : 630}>
     <WindowedGrid testID={stress ? 'layout-grid-50k' : 'layout-grid-reference'} ref={grid} collection={collection} getKey={item => item.id} itemWidth={width} itemHeight={height} gap={theme.isTV ? 32 : 10} rowGap={theme.isTV ? 40 : 16}
       gutter={theme.isTV ? 200 : 16} rightGutter={theme.isTV ? 96 : 30} paddingTop={theme.isTV ? 0 : 12} selection={state.selection} onVisibleRange={visibleRange} style={{flex: 1}}
       renderPlaceholder={() => <View style={{height: width * 1.5, borderRadius: theme.radii.artwork, backgroundColor: theme.colors.raised}} />}
-      renderItem={(item, context) => <PosterCard {...cardContext(context)} density="grid" width={width} title={item.title} artwork={item.poster} caption={cardText(item, 'ordinary', {t}).caption} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />} />
-    {!theme.isTV && !stress && <AlphabetRail positionIndex={{'#': 0, A: 1, B: 8, C: 12, D: 13}} total={gridEntries.length} firstVisible={range.first} lastVisible={range.last} height={514} style={{position: 'absolute', right: 4, top: 18}} onJump={index => grid.current?.scrollToIndex(index)} />}
+      renderItem={(item, context) => <PosterCard {...cardContext(context)} testID={`dev.layout.grid.${stress ? 'stress' : 'reference'}.movie.${item.id}`} density="grid" width={width} title={item.title} artwork={item.poster} caption={cardText(item, 'ordinary', {t}).caption} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />} />
+    {!theme.isTV && !stress && <AlphabetRail testID="dev.layout.grid.alphabet" positionIndex={{'#': 0, A: 1, B: 8, C: 12, D: 13}} total={gridEntries.length} firstVisible={range.first} lastVisible={range.last} height={514} style={{position: 'absolute', right: 4, top: 18}} onJump={index => grid.current?.scrollToIndex(index)} />}
   </Stage>
-  {state.selection.active && <Button variant="text" size="small" onPress={state.clear}>{t('action.cancel')}</Button>}
+  {state.selection.active && <Button testID={`dev.layout.grid.${stress ? 'stress' : 'reference'}.cancel`} variant="text" size="small" onPress={state.clear}>{t('action.cancel')}</Button>}
   </>;
 }
 
@@ -171,7 +171,7 @@ function SparseGridGallery() {return <GridGallery stress />;}
 
 function AlphabetGallery() {
   const theme = useTheme(), [first, setFirst] = useState(34), [current, setCurrent] = useState('M');
-  return <View style={{padding: theme.gutter, alignItems: 'center'}}><AlphabetRail positionIndex={{'#': 0, A: 3, B: 8, C: 14, M: 30, S: 60, 'あ': 80, 'Ж': 90}} total={100} firstVisible={first} lastVisible={first + 12} currentKey={current}
+  return <View style={{padding: theme.gutter, alignItems: 'center'}}><AlphabetRail testID="dev.layout.alphabet" positionIndex={{'#': 0, A: 3, B: 8, C: 14, M: 30, S: 60, 'あ': 80, 'Ж': 90}} total={100} firstVisible={first} lastVisible={first + 12} currentKey={current}
     onJump={(index, key) => {setFirst(index); setCurrent(key);}} height={theme.isTV ? 1900 : 514} />
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.filters.jumpToKey', {key: current})}</Text>
   </View>;
@@ -181,10 +181,10 @@ function FlowGallery() {
   const theme = useTheme(), state = useGallerySelection(), [showArtists, setShowArtists] = useState(true);
   const circleWidth = theme.isTV ? 214 : 100, squareWidth = theme.isTV ? 214 : 132;
   const artists = <View><Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text, marginBottom: 16}]}>{t('search.chip.artists')}</Text>
-    <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <CircleCard key={item.id} title={item.artist} width={circleWidth} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
+    <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <CircleCard testID={`dev.layout.flow.artist.${item.id}`} key={item.id} title={item.artist} width={circleWidth} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
   const albums = <View><Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text, marginBottom: 16}]}>{t('search.chip.albums')}</Text>
-    <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <SquareCard key={item.id} title={item.title} width={squareWidth} artwork={item.poster} caption={cardText(item, 'ordinary', {t}).caption} onNavigate={() => Alert.alert(item.title)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
-  return <><Button variant="text" size="small" accessibilityState={{selected: showArtists}} onPress={() => setShowArtists(current => !current)}>{t('search.chip.artists')}</Button><Stage><View style={{paddingHorizontal: theme.gutter}}><FlowSections sections={[
+    <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <SquareCard testID={`dev.layout.flow.album.${item.id}`} key={item.id} title={item.title} width={squareWidth} artwork={item.poster} caption={cardText(item, 'ordinary', {t}).caption} onNavigate={() => Alert.alert(item.title)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
+  return <><Button testID="dev.layout.flow.toggle-artists" variant="text" size="small" accessibilityState={{selected: showArtists}} onPress={() => setShowArtists(current => !current)}>{t('search.chip.artists')}</Button><Stage><View style={{paddingHorizontal: theme.gutter}}><FlowSections sections={[
     {id: 'artists', count: showArtists ? 2 : 0, cap: 4, itemWidth: circleWidth, content: artists},
     {id: 'empty', count: 0, cap: 4, itemWidth: 100, content: null},
     {id: 'albums', count: 2, cap: 4, itemWidth: squareWidth, content: albums},

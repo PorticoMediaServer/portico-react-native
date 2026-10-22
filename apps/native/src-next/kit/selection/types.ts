@@ -9,6 +9,8 @@ export type SelectionSurfaceProps = Pick<SurfaceProps, 'open' | 'onOpenChange' |
 export type SelectionAction = 'play' | 'queue' | 'playlist' | 'myList' | 'watched' | 'unwatched' | 'collection' | 'favorite' | 'removeMyList' | 'download' | 'edit' | 'refresh' | 'delete' | 'playNext' | 'playLater' | 'more';
 export type SelectionActionOffer = {id: SelectionAction; disabled?: boolean; reason?: string};
 export type SelectionBarProps = {
+  /** Caller-owned authority and surface identity, forwarded to each native control. */
+  testID?: string;
   count: number;
   subtitle?: string;
   selectAllLabel: string;
