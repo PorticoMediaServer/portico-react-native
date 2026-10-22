@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A6F100000000000000000001 /* PorticoHaptics.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000002 /* PorticoHaptics.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-Portico.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		21A01CD8C2E3AE4B31958D60 /* PorticoImagePicker.m in Sources */ = {isa = PBXBuildFile; fileRef = 34202A7540AC3E7E5FE588ED /* PorticoImagePicker.m */; };
@@ -56,6 +57,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A6F100000000000000000002 /* PorticoHaptics.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoHaptics.m; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* Portico.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Portico.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Portico/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Portico/Info.plist; sourceTree = "<group>"; };
@@ -191,6 +193,7 @@
 				A60900000000000000000002 /* PorticoNetwork.swift */,
 				B752D323CC79103ABDE5034C /* PorticoIntents.swift */,
 				B772FDD8857E9E1BF4BA7927 /* PorticoActivity.m */,
+				A6F100000000000000000002 /* PorticoHaptics.m */,
 				B7E2FD5150E6B9B324188541 /* PorticoURLRoutes.swift */,
 				B7023956C1361284A1D39FCC /* PorticoSystemMedia.m */,
 				A60900000000000000000004 /* PorticoNetworkBridge.m */,
@@ -389,6 +392,7 @@
 				A60900000000000000000001 /* PorticoNetwork.swift in Sources */,
 				B8D323CC79103ABDE5034C83 /* PorticoIntents.swift in Sources */,
 				B8FDD8857E9E1BF4BA79276F /* PorticoActivity.m in Sources */,
+				A6F100000000000000000001 /* PorticoHaptics.m in Sources */,
 				B8FD5150E6B9B324188541AF /* PorticoURLRoutes.swift in Sources */,
 				B83956C1361284A1D39FCC18 /* PorticoSystemMedia.m in Sources */,
 				A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */,
