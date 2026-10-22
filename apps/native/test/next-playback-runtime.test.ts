@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {fabricPlayback} from './helpers/fabric-playback-harness.mjs';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src/index.ts';
 import {FakePlaybackServer, type FakeRequest, type FakeResponse} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
@@ -1122,4 +1123,154 @@ test('same-detail-fence refreshes update native metadata while a transient read 
     response = detailResponse(episodeDetail('episode-1', detailFence, 'show-current'));
     await d.runtime.refreshAuthority(); await settle(); assertEpisodeDetail(d, 'show-current');
   } finally { d.runtime.dispose(); }
+});
+
+
+test('production Fabric playback progress settles without a parent render and keeps the actual Surface', async () => {
+  const d = fixture();
+  let ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  try {
+    await d.start('movie-1', 0);
+    ui = await fabricPlayback(d.runtime);
+    const ref = ui.nativeProps.at(-1)!.ref, lease = d.runtime.getSnapshot().lease;
+    const captureClears = ui.captureClears;
+    for (let n = 1; n <= 100; n++) {
+      d.engine.position = n / 2;
+      d.engine.emit('progress', {decodedWidth: 320, decodedHeight: 180});
+      await ui.settle();
+      assert.equal(d.runtime.getSnapshot().playback.positionSeconds, n / 2);
+    }
+    assert.equal(ui.parentRenders, 1, 'no unrelated parent render may rescue the subscription chain');
+    assert.equal(ui.captureClears, captureClears, 'progress must not feed back through source-lifecycle capture cleanup');
+    assert.strictEqual(ui.nativeProps.at(-1)!.ref, ref);
+    assert.equal(d.runtime.getSnapshot().lease, lease);
+    assert.equal(d.engine.released.length, 0);
+    assert.equal(d.engine.subscriptions, 1);
+  } finally {await ui?.unmount(); d.runtime.dispose();}
+});
+
+
+test('one accepted fact publishes its settled progress once and retains the current source identity', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1', 0);
+    const initial = d.runtime.getSnapshot(), facts: ReturnType<NativePlaybackRuntime['getSnapshot']>[] = [];
+    const off = d.runtime.subscribe(() => facts.push(d.runtime.getSnapshot()));
+    try {
+      d.engine.emit('stalled');
+      assert.equal(d.runtime.getSnapshot().playback.recovering, true);
+      facts.length = 0;
+      const revision = d.runtime.playback.getSnapshot().revision;
+      d.engine.position = 1;
+      d.engine.emit('progress', {decodedWidth: 320, decodedHeight: 180});
+      assert.equal(facts.length, 1, 'recovery clearance and observed progress are one native publication');
+      assert.equal(facts[0]!.playback.positionSeconds, 1);
+      assert.equal(facts[0]!.playback.recovering, undefined);
+      assert.ok(facts[0]!.playback.revision > revision, 'core still accepts the actual fact');
+      assert.strictEqual(facts[0]!.fence, initial.fence, 'progress is not a new source lifecycle');
+      facts.length = 0;
+      const repeatedRevision = d.runtime.playback.getSnapshot().revision;
+      d.engine.emit('progress', {decodedWidth: 320, decodedHeight: 180});
+      assert.equal(facts.length, 1, 'a genuine repeated observation must still be accepted and published');
+      assert.ok(facts[0]!.playback.revision > repeatedRevision);
+      assert.equal(facts[0]!.playback.positionSeconds, 1);
+      d.engine.position = 2;
+      d.engine.emit('progress');
+      assert.equal(facts.at(-1)!.playback.positionSeconds, 2, 'publication continues after a repeated fact');
+    } finally {off();}
+  } finally {d.runtime.dispose();}
+});
+
+test('Fabric playback facts, source replacements, controls and unmount retain native ordering', async () => {
+  const d = fixture();
+  let ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  try {
+    await d.start('movie-1', 0);
+    ui = await fabricPlayback(d.runtime);
+    const first = d.runtime.getSnapshot(), ref = ui.nativeProps.at(-1)!.ref;
+    const listener = d.engine.listener!, oldCommand = d.engine.lastCommand;
+    let publications = 0;
+    const off = d.runtime.subscribe(() => publications++);
+    try {
+      d.engine.emit('firstFrame', {decodedWidth: 320, decodedHeight: 180});
+      await ui.settle();
+      assert.equal(publications, 1);
+      assert.strictEqual(d.runtime.getSnapshot().fence, first.fence);
+      const beforeDuplicate = d.runtime.getSnapshot();
+      listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding,
+        factSequence: 1, lastCommandRevision: oldCommand.commandRevision, position: 99, paused: false});
+      assert.strictEqual(d.runtime.getSnapshot(), beforeDuplicate, 'duplicate/out-of-order packets never publish');
+      for (const [field, value] of [['intentId', -1], ['sessionId', 'stale-session'], ['generation', 999], ['itemId', 'stale-item']] as const) {
+        listener({type: 'progress', instanceId: 'engine-instance', binding: {...oldCommand.binding, [field]: value},
+          factSequence: 99999, lastCommandRevision: oldCommand.commandRevision, position: 99, paused: false});
+        assert.strictEqual(d.runtime.getSnapshot(), beforeDuplicate, field);
+      }
+      // These are the same public callbacks the rendered dock binds.
+      await ui.adapter.toggle(first.fence!); await ui.settle();
+      assert.equal(d.engine.lastCommand.paused, true);
+      await ui.adapter.toggle(first.fence!); await ui.settle();
+      assert.equal(d.engine.lastCommand.paused, false);
+      await ui.adapter.seek(first.fence!, 14); await ui.settle();
+      assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 14);
+      await ui.adapter.onTransition(ui.adapter.dock.collapse(first.fence!)); await ui.settle();
+      ui.adapter.open(first.fence!); ui.adapter.open(first.fence!); await ui.settle();
+      assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true);
+      await d.runtime.chooseQuality(first.fence!, first.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!);
+      await ui.settle();
+      const replacement = d.runtime.getSnapshot();
+      assert.equal(replacement.fence?.sessionId, first.fence?.sessionId);
+      assert.notEqual(replacement.fence?.generation, first.fence?.generation);
+      assert.notStrictEqual(replacement.fence, first.fence);
+      listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding,
+        factSequence: 99999, lastCommandRevision: oldCommand.commandRevision, position: 99, paused: false});
+      assert.strictEqual(d.runtime.getSnapshot(), replacement, 'old generation cannot cross source replacement');
+      d.engine.position = 15; d.engine.emit('progress'); await ui.settle();
+      assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 15);
+      await d.start('movie-2', 0); await ui.settle();
+      const next = d.runtime.getSnapshot(), commandCount = d.engine.commands.length;
+      listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding,
+        factSequence: 99999, lastCommandRevision: oldCommand.commandRevision, position: 99, paused: false});
+      await ui.adapter.toggle(first.fence!); await ui.adapter.seek(first.fence!, 77); ui.adapter.open(first.fence!);
+      await ui.settle();
+      assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-2');
+      assert.equal(d.engine.commands.length, commandCount, 'old rendered callbacks cannot command the replacement');
+      assert.equal(d.runtime.getSnapshot().fence?.sessionId, next.fence?.sessionId);
+      d.engine.position = 2; d.engine.emit('progress'); await ui.settle();
+      assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 2);
+      assert.strictEqual(ui.nativeProps.at(-1)!.ref, ref);
+      assert.equal(ui.parentRenders, 1);
+      assert.equal(d.engine.released.length, 0);
+      assert.equal(d.engine.subscriptions, 1);
+    } finally {off();}
+    await ui.unmount(); ui = undefined;
+    const retired = d.runtime.getSnapshot(), requests = d.requests.length;
+    assert.equal(retired.retired, true);
+    assert.equal(d.engine.subscriptions, 0);
+    assert.equal(d.subscriptions, 0);
+    assert.equal(d.engine.released.length, 1);
+    listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding,
+      factSequence: 999999, lastCommandRevision: oldCommand.commandRevision, position: 99, paused: false});
+    await d.runtime.toggle(first.fence!); await settle();
+    assert.strictEqual(d.runtime.getSnapshot(), retired);
+    assert.equal(d.requests.length, requests, 'late facts/control callbacks do not reopen disposed work');
+  } finally {await ui?.unmount(); d.runtime.dispose();}
+});
+
+test('authority retirement during native fact delivery cannot expose old progress to Fabric', async () => {
+  const d = fixture();
+  let ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  try {
+    await d.start('movie-1', 0);
+    ui = await fabricPlayback(d.runtime);
+    const position = d.runtime.getSnapshot().playback.positionSeconds;
+    d.authority({epoch: 'retired'}, false);
+    d.engine.position = 99; d.engine.emit('progress'); await ui.settle();
+    assert.equal(d.runtime.getSnapshot().retired, true);
+    assert.notEqual(d.runtime.getSnapshot().playback.positionSeconds, 99);
+    assert.equal(position, 0);
+    assert.equal(d.runtime.getSnapshot().fence, undefined);
+    assert.equal(d.engine.subscriptions, 0);
+    assert.equal(d.subscriptions, 0);
+    assert.equal(ui.parentRenders, 1);
+  } finally {await ui?.unmount(); d.runtime.dispose();}
 });
