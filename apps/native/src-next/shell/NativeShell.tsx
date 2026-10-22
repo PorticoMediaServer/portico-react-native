@@ -31,9 +31,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), railRelease = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const remember = () => {const saved = registry.capture();
-    if (saved && (saved.regionId === ids.spotlight || saved.regionId === ids.customize || saved.regionId.startsWith(ids.row('').slice(0, -2)))) pageFocus.current = saved;
+    if (saved && (saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true)) pageFocus.current = saved;
   }; remember(); return registry.subscribe(remember);}, [ids, registry]);
-  const pageHold = snapshot.mediaExpanded || !snapshot.homeVisible;
+  const pageHold = snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);

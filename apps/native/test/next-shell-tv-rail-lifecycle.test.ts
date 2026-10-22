@@ -27,7 +27,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
     onDestination: (destination: unknown) => navigations.push(destination), scrollToTop: (destination: unknown) => tops.push(destination),
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
-    renderRoutes() {}, renderSelection() {}};
+    renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: useShared, withTiming: (v: unknown) => v},
@@ -69,6 +69,13 @@ test('the real TV shell retains its exact page opener through rail, route and pl
       assert.equal(requests.at(-1), 'card');
       assert.equal(registry.capture()?.childId, row.childId);
     }
+    const library = {regionId: 'actual-library-region', childId: 'actual-library-card'};
+    registry.configure({id: library.regionId, entry: library.childId, order: [library.childId]});
+    registry.attach(library, {requestTVFocus() {requests.push('library-card'); registry.didFocus(library);}});
+    await act(() => {snapshot = {...snapshot, destination: {kind: 'saved'}, homeVisible: false}; sessionHost!.rerender(); registry.didFocus(library);
+      registry.didFocus({regionId: ids.rail, childId: 'saved'}); rail().props.onExpandedChange(true);});
+    assert.equal(railBack!(), true);
+    assert.equal(requests.at(-1), 'library-card', 'rail return memory follows the actual destination page, not a former Home address');
   } finally {
     sessionHost?.unmount(); rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;

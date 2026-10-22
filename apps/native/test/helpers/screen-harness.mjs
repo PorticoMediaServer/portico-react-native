@@ -17,7 +17,13 @@ export async function screenModule(file, modules) {
     }
     return `const ${bind} = modules[${JSON.stringify(source)}];`;
   }).replace(/export (const|function|class) (\w+)/g, (_, kind, name) => { exported.push(name); return `${kind} ${name}`; })
+    .replace(/export\s*\{([^}]+)\};/g, (_, bindings) => bindings.split(',').map(binding => {
+      const [local, alias] = binding.trim().split(/\s+as\s+/); exported.push(alias ?? local);
+      return alias ? `const ${alias} = ${local};` : '';
+    }).join('\n'))
     .replaceAll('import.meta.env', '({DEV:false})');
+  // Repository-owned fixture source is the executable input to this render harness.
+  // eslint-disable-next-line no-new-func
   return new Function('modules', (/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};')(modules);
 }
 

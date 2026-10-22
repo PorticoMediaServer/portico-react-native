@@ -13,13 +13,14 @@ import {AmbientArt} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {tvFocusIds, tvHomeRegionMap} from '../../shell/tv-focus';
+import {NativeHomePaging} from '../../shell/home-paging';
 import {tvHomeRows} from './tv-presentation';
 import {CollectionBanner, LiveCard, PosterCard, RankedCard, SquareCard, WideCard, type CardProps} from '../../kit/cards';
 import {Hero, FocusPreviewHero, Row, type HeroCandidate} from '../../kit/layout';
 import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
-import {StateView, HomeSkeleton} from '../../kit/states';
+import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
@@ -58,9 +59,22 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
   });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, theme.isTV, vertical.offset]);
   const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
+  const pages = useMemo(() => new NativeHomePaging(runtime.home, () => sameAuthority(authority, runtime.getSnapshot().authority), error => runtime.reportError(error)), [authority, runtime]);
+  const pagingRevision = useSyncExternalStore(pages.subscribe, pages.getSnapshot, pages.getSnapshot);
+  useEffect(() => pages.activate(), [pages]);
+  useEffect(() => {
+    const saved = registry.capture();
+    const row = document?.rows.find(value => ids.row(value.id) === saved?.regionId);
+    const page = row && pages.state(row.id), fulfilled = page?.fulfilled;
+    const entryId = fulfilled?.firstItemId;
+    if (row && entryId && saved?.childId === page?.hostId) {
+      setFocus(before => before?.rowId === row.id && before.entryId === entryId ? before : {rowId: row.id, entryId});
+      setHeroFocused(false);
+    }
+  }, [document, ids, pages, pagingRevision, registry]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
-  const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries) : [];
+  const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).map(row => theme.isTV ? pages.present(row) : row) : [];
   const previousRows = useRef<readonly HomeRow[]>([]);
   const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
   const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
@@ -172,9 +186,14 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         : square ? theme.spec.card.width.square[theme.platform] : theme.spec.card.width.poster[theme.platform];
       const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
+      const pending = pages.state(row.id), waitingItem = presentation.cards.at(-1);
+      const waitingId = pending?.loading ? pending.waitingId : ids.page(row.id, row.nextCursor);
+      const paging = theme.isTV && waitingItem && !row.live && !row.collection ? {hasMore: !!row.nextCursor || !!pending?.loading,
+        loading: !!pending?.loading || !!snapshot.paging?.has(row.id) || !shown, failed: !!pending?.failed && pending.cursor === row.nextCursor,
+        waitingId, waitingItem, fulfilled: pending?.fulfilled, requestNext: () => {if (shown && current()) void pages.request(sourceRow, waitingId);}} : undefined;
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
       const retainedIds = theme.isTV && registry.isRegionActive(ids.row(row.id)) && focus?.rowId === row.id ? [focus.entryId] : undefined;
-      const range = (first: number, last: number) => {if (!current()) return; const keys = ranges.current.get(row.id)?.keys; ranges.current.set(row.id, {first, last, keys}); runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds, retainedIds, keys); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
+      const range = (first: number, last: number) => {if (!current()) return; const keys = ranges.current.get(row.id)?.keys; ranges.current.set(row.id, {first, last, keys}); runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds, retainedIds, keys); if (shown && (!theme.isTV || row.live) && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
       const visibleKeys = (keys: readonly string[]) => {if (!current()) return; const before = ranges.current.get(row.id) ?? {first: 0, last: -1};
         ranges.current.set(row.id, {...before, keys}); runtime.setHomeWindow(sourceRow, rowIndex, before.first, before.last, shown, physicalIds, retainedIds, keys);};
       return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown} physicalIds={physicalIds} retainedIds={retainedIds} range={ranges.current.get(row.id)}><View onLayout={event => {const box = event.nativeEvent.layout;
@@ -189,11 +208,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
             selection={itemSelection(runtime.selection(row.id), row.collection.collection.id)} onMore={() => guarded(() => runtime.actions.collectionMore(row.collection!, row.id))}
             primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/></View></FocusItem></HomeRegion>
           : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
-            gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range} onVisibleKeys={visibleKeys}
+            gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
-            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
+            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false}
-              current={current}/>}/>} 
+              current={current}/>{context.waiting && <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}</View>}/>}
       </View></HomeWindow>;
     })}
     <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={{paddingHorizontal: theme.gutter, paddingVertical: 24}}><Button focusId="customize" variant="text" size="compact" onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button></View></HomeRegion>
@@ -205,16 +224,19 @@ function HomeRegion({focus, children}: {focus?: Omit<FocusRegionProps, 'children
 }
 
 function HomeWindow({runtime, row, sectionOrder, visible, physicalIds, retainedIds, range, children}: {runtime: NativeShellRuntime; row: HomeRow; sectionOrder: number; visible: boolean; physicalIds?: readonly string[]; retainedIds?: readonly string[]; range?: {first: number; last: number; keys?: readonly string[]}; children: React.ReactNode}) {
-  const {isTV} = useTheme(), rowId = row.id, latest = useRef(row);
-  latest.current = row;
+  const {isTV} = useTheme(), rowId = row.id, latest = useRef({row, sectionOrder});
+  latest.current = {row, sectionOrder};
+  // Updating a measured range is not an unmount. Cleanup belongs only to this
+  // row's lifetime; otherwise registration publishes recursively recreate it.
   useEffect(() => {
-    if (!isTV) {
-      runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
-      return () => runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
-    }
+    if (isTV) return;
+    runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
+  }, [isTV, runtime, row, sectionOrder, visible]);
+  useEffect(() => {
+    if (!isTV) return;
     runtime.setHomeWindow(row, sectionOrder, range?.first ?? 0, range?.last ?? (row.collection ? 0 : -1), visible, physicalIds, retainedIds, range?.keys);
   }, [isTV, runtime, row, sectionOrder, visible, physicalIds, retainedIds, range]);
-  useEffect(() => {if (isTV) return () => runtime.setHomeWindow(latest.current, sectionOrder, 0, -1, false);}, [isTV, runtime, rowId, sectionOrder]);
+  useEffect(() => () => {const current = latest.current; runtime.setHomeWindow(current.row, current.sectionOrder, 0, -1, false);}, [runtime, rowId]);
   return children;
 }
 

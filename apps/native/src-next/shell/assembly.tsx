@@ -27,7 +27,8 @@ import type {NativeShellRuntime} from './runtime';
 const t = defaultI18n.t;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const failure = (code: string) => Object.assign(new Error(code), {code});
-type Window = {row: HomeRow; order: number; first: number; last: number; cleanup?: () => void; keys: Map<string, string>; memberWindows: Map<string, string>; physicalIds?: readonly string[]; retainedIds?: readonly string[]; visible: boolean; visibleIds?: readonly string[]};
+type Registration = {row: HomeRow; order: number; context: string; coordinate: number; first: number; last: number};
+type Window = {registration?: Registration; row: HomeRow; order: number; first: number; last: number; cleanup?: () => void; keys: Map<string, string>; memberWindows: Map<string, string>; physicalIds?: readonly string[]; retainedIds?: readonly string[]; visible: boolean; visibleIds?: readonly string[]};
 
 /** Genuine default assembly. The controller and playback runtime retain all business state. */
 export function createNativeShellBindings(context: NativeShellBootstrapContext): NativeShellBindings {
@@ -36,7 +37,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
   let tvPageBack: (() => boolean) | undefined, tvRailBack: (() => boolean) | undefined;
-  const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void}>(), scroll = new Map<string, () => void>();
+  const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
   const publish = () => {if (alive) for (const listener of [...listeners]) listener();};
   const currentHome = () => alive && context.current() && context.navigation.getSnapshot().route.kind === 'shell' && context.navigation.getSnapshot().destination.kind === 'home';
@@ -65,10 +66,27 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     routes: {openEntry: entry => open(titleRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   const windowId = (rowId: string) => `home-row:${rowId}`;
-  const members = new Map<string, {row: HomeRow; index: number; cleanup: () => void}>();
+  const members = new Map<string, Registration & {cleanup: () => void}>();
+  let coordinateDocument = initial;
+  const coordinates = new Map<HomeRow, number>();
+  const registrationContext = () => {
+    const document = context.home.getSnapshot().document!;
+    if (coordinateDocument !== document || !coordinates.size) {
+      coordinateDocument = document; coordinates.clear();
+      const visit = (row: HomeRow) => {coordinates.set(row, coordinates.size); for (const child of row.children ?? []) visit(child);};
+      for (const row of document.rows) visit(row);
+    }
+    return JSON.stringify(homeSelectionContext(scope, document));
+  };
+  const sameRegistration = (before: Registration | undefined, next: Registration) => !!before && before.row === next.row && before.order === next.order
+    && before.context === next.context && before.coordinate === next.coordinate && before.first === next.first && before.last === next.last;
   const register = (window: Window, ids?: readonly string[]) => {
+    const row = window.row, stamp = registrationContext(), coordinate = coordinates.get(row) ?? -1;
+    const count = row.live?.channels.length ?? row.entries.length;
+    const first = Math.min(Math.max(0, window.first - 2), Math.max(0, count - 1)), last = Math.min(Math.max(first, window.last + 2), Math.max(0, count - 1));
+    const registration = {row, order: window.order, context: stamp, coordinate, first, last};
+    if (!Platform.isTV || row.collection) {if (window.cleanup && sameRegistration(window.registration, registration)) return;}
     window.keys.clear(); window.memberWindows.clear();
-    const row = window.row, first = Math.max(0, window.first - 2), last = Math.max(first, window.last + 2);
     // TV presentation may keep a different order while focused. Admission always
     // uses genuine latest document objects in bounded, contiguous one-item windows.
     if (Platform.isTV && window.physicalIds && !row.collection) {
@@ -78,10 +96,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         if (index < 0) continue;
         const memberWindow = `home-row-item:${JSON.stringify([row.id, id])}`;
         const entry = row.entries[index], channel = row.live?.channels[index];
-        const result = controller.registerWindow({id: memberWindow, row, sectionOrder: window.order, start: row.start + index,
+        const memberRegistration = {...registration, first: index, last: index};
+        const previous = members.get(memberWindow);
+        const result = previous && sameRegistration(previous, memberRegistration) ? {ok: true as const, unregister: previous.cleanup} : controller.registerWindow({id: memberWindow, row, sectionOrder: window.order, start: row.start + index,
           ...(channel ? {channels: [channel]} : {entries: [entry]})});
         if (!result.ok) throw failure(result.reason);
-        members.set(memberWindow, {row, index, cleanup: result.unregister});
+        members.set(memberWindow, {...memberRegistration, cleanup: result.unregister});
         const identity = channel ? homeChannelSelection(channel, platform) : homeEntrySelection(entry, platform);
         if (identity) {window.keys.set(id, controller.key(identity)); window.memberWindows.set(id, memberWindow);}
       }
@@ -91,7 +111,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const result = controller.registerWindow({id: windowId(row.id), row, sectionOrder: window.order, start: row.start + first,
       ...(channels ? {channels} : row.collection ? {} : {entries})});
     if (!result.ok) throw failure(result.reason);
-    const previousCleanup = window.cleanup; window.cleanup = result.unregister; previousCleanup?.();
+    const previousCleanup = window.cleanup; window.cleanup = result.unregister; window.registration = registration; previousCleanup?.();
     for (const entry of entries) {const identity = homeEntrySelection(entry, platform); if (identity) window.keys.set(entry.id, controller.key(identity));}
     for (const channel of channels ?? []) window.keys.set(JSON.stringify([channel.channel.sourceId, channel.channel.id]), controller.key(homeChannelSelection(channel, platform)));
     if (row.collection) window.keys.set(row.collection.collection.id, controller.key(homeCollectionSelection(row.collection, platform)));
@@ -120,12 +140,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return identity ? `home-spotlight:${JSON.stringify([identity.kind, 'libraryId' in identity ? identity.libraryId : '', 'id' in identity ? identity.id : ''])}` : undefined;}));
     for (const [id, value] of before) if (!offeredIds.has(id)) {value.cleanup(); before.delete(id);}
     reconcileWindows(values.length);
-    for (const spotlight of values) {
+    for (const [index, spotlight] of values.entries()) {
       const identity = homeEntrySelection(spotlight.entry, platform); if (!identity) continue;
       const id = `home-spotlight:${JSON.stringify([identity.kind, 'libraryId' in identity ? identity.libraryId : '', 'id' in identity ? identity.id : ''])}`;
+      const previous = before.get(id), stamp = registrationContext();
+      if (previous?.spotlight === spotlight && previous.index === index && previous.context === stamp) {spotlights.set(spotlight.entry, previous); before.delete(id); continue;}
       const result = controller.registerSpotlight({id, spotlight});
       if (!result.ok) throw failure(result.reason);
-      spotlights.set(spotlight.entry, {id, key: controller.key(identity), cleanup: result.unregister});
+      spotlights.set(spotlight.entry, {id, key: controller.key(identity), cleanup: result.unregister, spotlight, index, context: stamp});
       before.get(id)?.cleanup(); before.delete(id);
     }
     for (const value of before.values()) value.cleanup();
@@ -143,7 +165,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const document = context.home.getSnapshot().document;
     if (!document || document.serverId !== scope.serverId || document.viewerFence !== context.authority().viewerFence) return;
     const next = homeSelectionContext(scope, document);
-    if (!same(next, controller.getSnapshot().context)) {controller.setContext(next, environment()); members.clear();}
+    if (!same(next, controller.getSnapshot().context)) {controller.setContext(next, environment());}
     if (!currentHome()) return;
     for (const [id, window] of windows) {
       const row = document.rows.find(value => value.id === id);
@@ -170,7 +192,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     else {
       if (context.playback.getSnapshot().dock.local?.expanded) return false;
       // Menus/selection own Back first, then the player, then the page.
-      if (Platform.isTV && currentHome() && tvRailBack?.()) return true;
+      if (Platform.isTV && tvRailBack?.()) return true;
       if (Platform.isTV && currentHome() && tvPageBack) return tvPageBack();
       return context.navigation.back(context.authority());
     }
@@ -227,10 +249,10 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       }}),
     setHomeWindow: (row, order, first, last, visible, physicalIds, retainedIds, visibleIds) => {
       const before = windows.get(row.id);
-      if ((!visible && !retainedIds?.length) || !currentHome()) {before?.cleanup?.(); windows.delete(row.id); reconcileWindows(); return;}
+      if ((!visible && !retainedIds?.length) || !currentHome()) {if (!before) return; before.cleanup?.(); windows.delete(row.id); reconcileWindows(); return;}
       const latest = context.home.getSnapshot().document?.rows.find(value => value.id === row.id);
       if (!latest) return;
-      if (before?.row === latest && before.first === first && before.last === last && before.visible === visible && same(before.physicalIds, physicalIds) && same(before.retainedIds, retainedIds) && same(before.visibleIds, visibleIds)) return;
+      if (before?.row === latest && before.order === order && before.first === first && before.last === last && before.visible === visible && same(before.physicalIds, physicalIds) && same(before.retainedIds, retainedIds) && same(before.visibleIds, visibleIds)) return;
       const window = before ?? {row: latest, order, first, last, visible, keys: new Map(), memberWindows: new Map()};
       Object.assign(window, {row: latest, order, first, last, visible, physicalIds, retainedIds, visibleIds}); windows.set(row.id, window);
       try {reconcileWindows();} catch (error) {reportError(error);}
