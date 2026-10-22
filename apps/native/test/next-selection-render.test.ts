@@ -415,6 +415,12 @@ test('phone text-entry sheet moves body and footer together for keyboard events 
     assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-input'));
     assert.ok(flatten(getSheet().props.style).height <= 544);
     assert.deepEqual(calls, ['input'], 'keyboard movement must not steal focus');
+    const outer = sheet.tree as Element;
+    const measured = elements(outer).find(element => typeof element.props.onLayout === 'function' && element.type === 'View')!;
+    measured.props.onLayout({nativeEvent: {layout: {height: 544}}}); sheet.host.rerender();
+    assert.equal(flatten(boundary().props.style).marginBottom, 0, 'Android resize must not subtract the keyboard twice');
+    assert.ok(flatten(getSheet().props.style).height <= 544);
+    measured.props.onLayout({nativeEvent: {layout: {height: 844}}}); sheet.host.rerender();
     keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender();
     assert.equal(flatten(boundary().props.style).marginBottom, 0);
     assert.equal(flatten(getSheet().props.style).height, 800);
@@ -453,4 +459,17 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
 test('content-fit Selection surfaces do not reserve an empty footer or default Done control', () => {
   const surface = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual queue', children: null});
   try {const sheet = surface.tree as Element; assert.equal(sheet.props.footer, undefined); assert.equal(sheet.props.showClose, false); assert.equal(sheet.props.fitContent, true);} finally {surface.host.unmount();}
+});
+
+
+test('a real deletion preview error stays unavailable and cannot invoke the destructive callback', () => {
+  const calls: unknown[] = [];
+  const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 4, preview: null, error: 'Actual preview unavailable', confirmation: '4', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: (...args) => calls.push(args)};
+  const dialog = mount(DeleteMediaDialog, props);
+  try {
+    assert.match(text(dialog.tree), /Actual preview unavailable/);
+    assert.doesNotMatch(text(dialog.tree), /Checking what would be removed/);
+    const button = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+    assert.equal(button.props.disabled, true); button.props.onPress(); assert.deepEqual(calls, []);
+  } finally {dialog.host.unmount();}
 });
