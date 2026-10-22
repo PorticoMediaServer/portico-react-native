@@ -186,7 +186,8 @@ test('TV dock holds the shared region, keeps transport identity on pause/play an
     dock.update({...props, expanded: false});
     const quiet = ofType(dock.tree, Focusable)[0]!;
     const focus = mount(Focusable, quiet.props), adapter = mount((focus.tree as Element).type, (focus.tree as Element).props);
-    try {(adapter.tree as Element).props.ref({requestTVFocus() {calls.push('remounted-opener');}}); restore?.(); assert.equal(calls.at(-1), 'remounted-opener');} finally {adapter.host.unmount(); focus.host.unmount();}
+    try {(adapter.tree as Element).props.ref({requestTVFocus() {calls.push('remounted-opener'); (adapter.tree as Element).props.onFocus({});}}); restore?.(); assert.equal(calls.at(-1), 'remounted-opener', 'restoration does not immediately re-expand the quiet dock');
+      quiet.props.onPress(); assert.equal(calls.at(-1), true, 'explicit OK still expands the restored opener');} finally {adapter.host.unmount(); focus.host.unmount();}
   } finally {dock.host.unmount(); globalThis.requestAnimationFrame = originalRAF; globalThis.cancelAnimationFrame = originalCancel;}
 });
 
