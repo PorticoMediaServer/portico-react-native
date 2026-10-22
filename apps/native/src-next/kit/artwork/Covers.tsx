@@ -21,11 +21,12 @@ export function CoverFan({covers, shape, variant = 'library', spine = false, wid
   return <View accessible={Boolean(alt)} accessibilityRole={alt ? 'image' : undefined} accessibilityLabel={alt} style={[{width: w, height: h}, style]}>
     {Array.from({length: count}, (_, index) => <View key={index} style={{position: 'absolute', width: cw, height: ch,
       right: recipe.right[index]! * scale, top: recipe.top[index]! * scale, transform: [{rotate: `${recipe.rotate[index]}deg`}],
-      borderRadius: 5 * scale, overflow: 'hidden', backgroundColor: theme.colors.raised,
+      borderRadius: 5 * scale, backgroundColor: theme.colors.raised,
       shadowColor: theme.colors.shadow, shadowOpacity: 0.85, shadowOffset: {width: 0, height: 12 * scale}, shadowRadius: 11 * scale}}>
-      <Artwork source={samples[index]} visible={visible} fallback={renderFallback?.(index)}/>
-      {spine ? <BookSpine/> : null}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {borderWidth: 1, borderColor: theme.colors.text, opacity: 0.16, borderRadius: 5 * scale}]}/>
+      <View style={[StyleSheet.absoluteFillObject, {borderRadius: 5 * scale, overflow: 'hidden'}]}>
+        <Artwork source={samples[index]} visible={visible} fallback={renderFallback?.(index)} imageOverlay={spine ? <BookSpine/> : undefined}/>
+        <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {borderWidth: 1, borderColor: theme.colors.text, opacity: 0.16, borderRadius: 5 * scale}]}/>
+      </View>
     </View>)}
   </View>;
 }

@@ -1,27 +1,37 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Animated, Image, PixelRatio, StyleSheet, View, type LayoutChangeEvent} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/ArtworkPipeline';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
 import {artworkAttemptSource, artworkFrame} from './model';
+import {bindArtworkPreparation} from './preparation';
 import type {ArtworkProps, ArtworkSource} from './types';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
 
-function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, sized = false, imageStyle, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
+function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange, preparation}: ScheduledProps) {
   const placement = useArtworkPlacement();
   const slot = useArtworkSlot(source.cacheKey, placement, priority);
   const reduced = useReducedMotion();
   const theme = useTheme();
-  const [decoded, setDecoded] = useState(slot.cached);
+  const [decoded, setDecoded] = useState(false);
   const [intrinsic, setIntrinsic] = useState<{width: number; height: number} | null>(null);
+  const displayedAttempt = useRef(slot.attempt);
+  if (!decoded) displayedAttempt.current = slot.attempt;
+  const requestAttempt = displayedAttempt.current;
   const opacity = useRef(new Animated.Value(slot.cached ? 1 : 0)).current;
   const callbacks = useRef({onReady, onLoad, onError, onStatusChange});
   const live = useRef(true);
+  const prepared = useRef<ReturnType<typeof bindArtworkPreparation>>(undefined);
+  useLayoutEffect(() => {
+    const binding = bindArtworkPreparation(preparation, {uri: source.uri, cacheKey: source.cacheKey});
+    prepared.current = binding;
+    return () => {binding?.release(); if (prepared.current === binding) prepared.current = undefined;};
+  }, [preparation, source.uri, source.cacheKey]);
   callbacks.current = {onReady, onLoad, onError, onStatusChange};
   const status = slot.gaveUp ? 'error' : decoded && !slot.recovering ? 'ready' : slot.active ? 'loading' : 'queued';
-  useEffect(() => {callbacks.current.onStatusChange?.(status);}, [status]);
+  useEffect(() => {callbacks.current.onStatusChange?.(status); if (status === 'error') prepared.current?.failed();}, [status]);
   useEffect(() => {
     if (!slot.active || slot.recovering && status !== 'ready') {
       setDecoded(false);
@@ -33,7 +43,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   useEffect(() => {live.current = true; return () => {live.current = false;};}, []);
 
   const uri = sized ? source.uri : sizedUri(source.uri, boxWidth, boxWidth / boxHeight, PixelRatio.get());
-  const attemptIdentity = JSON.stringify([uri, slot.attempt]);
+  const attemptIdentity = JSON.stringify([uri, requestAttempt]);
   const currentAttempt = useRef(attemptIdentity);
   currentAttempt.current = attemptIdentity;
   const mode = resizeMode ?? fit;
@@ -44,6 +54,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     const natural = event.nativeEvent.source;
     if (natural?.width > 0 && natural.height > 0) setIntrinsic({width: natural.width, height: natural.height});
     slot.loaded();
+    prepared.current?.ready();
     setDecoded(true);
     callbacks.current.onReady?.(source);
     callbacks.current.onLoad?.(source);
@@ -51,15 +62,16 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     Animated.timing(opacity, {toValue: 1, duration: slot.cached ? 0 : reduced ? 160 : theme.motion.standard, useNativeDriver: true}).start();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
-    <Image key={slot.attempt} source={artworkAttemptSource(source, uri, slot.attempt)}
+    <Image key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}
       accessible={Boolean(alt)} accessibilityLabel={alt} fadeDuration={0} blurRadius={blurRadius}
       resizeMode={intrinsic && crop ? 'stretch' : mode}
       style={[{position: 'absolute'}, frame, !intrinsic && zoom !== 1 ? {transform: [{scale: zoom}]} : undefined, imageStyle]}
       onLoad={loaded} onError={() => {
         if (!live.current || currentAttempt.current !== attemptIdentity) return;
         setDecoded(false); opacity.stopAnimation(); opacity.setValue(0);
-        slot.failed(); callbacks.current.onError?.(source);
+        slot.failed(); prepared.current?.failed(); callbacks.current.onError?.(source);
       }}/>
+    {imageOverlay}
   </Animated.View> : null;
 }
 
@@ -73,7 +85,7 @@ export function Artwork({source, width, height, style, fallback, visible = true,
   const w = width ?? box.width, h = height ?? box.height;
   return <View testID={testID} onLayout={onLayout} style={[styles.box, width === undefined && height === undefined ? StyleSheet.absoluteFillObject : undefined, {width, height}, style]}>
     {fallback}
-    {visible && source && w > 0 && h > 0 ? <ScheduledImage key={source.cacheKey} {...props} source={source} boxWidth={w} boxHeight={h}/> : null}
+    {visible && source && w > 0 && h > 0 ? <ScheduledImage key={JSON.stringify([source.cacheKey, source.uri])} {...props} source={source} boxWidth={w} boxHeight={h}/> : null}
   </View>;
 }
 
@@ -89,8 +101,8 @@ export function MediaArt({kind, backdropFallback = false, style, width, height, 
     <Artwork {...props} style={StyleSheet.absoluteFillObject} position={position ?? (kind === 'newspaper' ? {x: 0.5, y: 0} : undefined)}
       zoom={zoom ?? (fallback ? theme.spec.episode.fallback.cropScale : 1)}
       saturation={saturation ?? (fallback ? theme.spec.episode.fallback.saturation : 1)}
-      brightness={brightness ?? (fallback ? theme.spec.episode.fallback.brightness : 1)}/>
-    {kind === 'book' ? <BookSpine/> : null}
+      brightness={brightness ?? (fallback ? theme.spec.episode.fallback.brightness : 1)}
+      imageOverlay={kind === 'book' ? <BookSpine/> : props.imageOverlay}/>
   </View>;
 }
 

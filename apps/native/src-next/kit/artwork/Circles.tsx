@@ -4,7 +4,7 @@ import Svg, {Defs, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {fontFamilies, useTheme} from '../theme';
 import {Artwork} from './Artwork';
 import {PaletteWash} from './Surfaces';
-import {boundedCovers} from './model';
+import {boundedCovers, circleArtworkFrames} from './model';
 import type {CircleArtProps, PersonCircleProps} from './types';
 
 function CircleBase({size}: {size: number}) {
@@ -17,23 +17,32 @@ function CircleBase({size}: {size: number}) {
 
 /** Bounded own-album samples, supplied by the caller's actual content entry. */
 export function CircleArt({covers, initials, alt, size = 100, visible = true, style}: CircleArtProps) {
-  const {colors} = useTheme();
+  const {colors, isTV} = useTheme();
   const samples = boundedCovers(covers, 4);
-  return <View accessible={Boolean(alt)} accessibilityRole={alt ? 'image' : undefined} accessibilityLabel={alt} style={[{width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: colors.raised}, style]}>
-    <CircleBase size={size}/>
-    {samples.length === 1 ? <Artwork source={samples[0]} visible={visible} zoom={1.22}/> : samples.map((source, index) => {
-      const half = (size - 2) / 2;
+  const frames = circleArtworkFrames(samples.length, size, isTV ? 3 : 2);
+  return <View accessible={Boolean(alt)} accessibilityRole={alt ? 'image' : undefined} accessibilityLabel={alt} style={[{width: size, height: size, borderRadius: size / 2, overflow: 'hidden', backgroundColor: samples.length > 1 ? colors.ink : colors.raised}, style]}>
+    {!samples.length ? <CircleBase size={size}/> : null}
+    {initials ? <Text accessible={false} allowFontScaling={false} style={{position: 'absolute', width: size, top: 0, bottom: 0, textAlign: 'center', textAlignVertical: 'center', fontFamily: fontFamilies[800], fontSize: size * 0.3125, lineHeight: size, color: colors.textSecondary, letterSpacing: -size * 0.015}}>{initials}</Text> : null}
+    {samples.length === 1 ? <Artwork source={samples[0]} visible={visible} zoom={isTV ? 1 : 1.22}/> : samples.map((source, index) => {
       const split = samples.length === 2;
-      return <Artwork key={`${source.cacheKey}-${index}`} source={source} visible={visible} width={half} height={split ? size : half}
-        style={{position: 'absolute', left: index % 2 ? half + 2 : 0, top: index > 1 ? half + 2 : 0}}
-        zoom={split ? 1.5 : 1} position={split ? {x: index ? 0.6 : 0.3, y: 0.5} : undefined}/>;
+      const frame = frames[index]!;
+      return <Artwork key={`${source.cacheKey}-${index}`} source={source} visible={visible} width={frame.width} height={frame.height}
+        style={{position: 'absolute', left: frame.left, top: frame.top}}
+        zoom={split && !isTV ? 1.5 : 1} position={split && !isTV ? {x: index ? 0.6 : 0.3, y: 0.5} : undefined}/>;
     })}
-    {!samples.length && initials ? <Text accessible={false} allowFontScaling={false} style={{position: 'absolute', width: size, top: 0, bottom: 0, textAlign: 'center', textAlignVertical: 'center', fontFamily: fontFamilies[800], fontSize: size * 0.3125, lineHeight: size, color: colors.textSecondary, letterSpacing: -size * 0.015}}>{initials}</Text> : null}
-    <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {borderRadius: size / 2, borderWidth: 1, borderColor: colors.text, opacity: 0.12}]}/>
+    <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {borderRadius: size / 2, borderWidth: isTV ? 1.5 : 1, borderColor: colors.text, opacity: isTV ? 0.1 : 0.12}]}/>
   </View>;
 }
 
-export function ArtistCircle(props: CircleArtProps) {return <CircleArt {...props}/>;}
+export type ArtistCircleProps = CircleArtProps & {rings?: readonly number[]};
+export function ArtistCircle({rings, ...props}: ArtistCircleProps) {
+  const {colors} = useTheme();
+  const size = props.size ?? 100;
+  return <View style={{width: size, height: size}}>
+    <CircleArt {...props}/>
+    {rings?.map(inset => <View key={inset} pointerEvents="none" style={[StyleSheet.absoluteFillObject, {inset: -inset, borderRadius: (size + inset * 2) / 2, borderWidth: 1.5, borderColor: colors.text, opacity: 0.08}]}/>)}
+  </View>;
+}
 
 /** Real portraits when supplied; authors otherwise keep initials over only their own covers. */
 export function PersonCircle({source, covers = [], ambientCovers = [], palette, initials, alt, size = 96, visible = true, style}: PersonCircleProps) {

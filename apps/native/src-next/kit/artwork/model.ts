@@ -22,6 +22,17 @@ export function boundedCovers(covers: readonly ArtworkSource[], maximum: number)
 }
 export const coverAspect = (shape: CoverShape): number => shape === 'square' ? 1 : shape === 'periodical' ? 3 / 4 : 2 / 3;
 
+/** Newest-first supplied slots: two put newest right; three use newest in the full left half. */
+export function circleArtworkFrames(count: number, size: number, gap: number) {
+  const half = (size - gap) / 2;
+  return Array.from({length: Math.min(4, Math.max(0, count))}, (_, index) => {
+    if (count === 1) return {left: 0, top: 0, width: size, height: size};
+    if (count === 2) return {left: index === 0 ? half + gap : 0, top: 0, width: half, height: size};
+    if (count === 3) return {left: index === 0 ? 0 : half + gap, top: index === 2 ? half + gap : 0, width: half, height: index === 0 ? size : half};
+    return {left: index % 2 ? half + gap : 0, top: index > 1 ? half + gap : 0, width: half, height: half};
+  });
+}
+
 export function coverTitleScale(title: string): number {
   const longest = Math.max(1, ...(title.match(/\S+/gu) ?? []).map(word => Array.from(word).length));
   return longest <= 7 ? 0.155 : longest <= 9 ? 0.124 : longest <= 11 ? 0.12 : Math.max(0.086, 1.12 / longest);

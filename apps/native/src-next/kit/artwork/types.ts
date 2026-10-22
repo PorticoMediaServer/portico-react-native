@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import type {ImageResizeMode, ImageStyle, StyleProp, ViewStyle} from 'react-native';
 import type {AmbientArtworkSource} from '../../../../../packages/client-core/src/artwork/index';
 import type {ChannelMarkModel} from '../../../../../packages/client-core/src/presentation/kit-model/index';
+import type {ArtworkPreparation} from './preparation';
 
 /** Supplied by the authenticated platform adapter. Change cacheKey at every authority fence. */
 export type ArtworkSource = Readonly<{
@@ -38,11 +39,13 @@ export type ArtworkProps = Readonly<{
   sized?: boolean;
   style?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
+  imageOverlay?: ReactNode;
   fallback?: ReactNode;
   onStatusChange?: (status: ArtworkStatus) => void;
   onReady?: (source: ArtworkSource) => void;
   onLoad?: (source: ArtworkSource) => void;
   onError?: (source: ArtworkSource) => void;
+  preparation?: ArtworkPreparation;
   testID?: string;
 }>;
 
@@ -63,6 +66,7 @@ export type AmbientArtProps = Readonly<{
   /** Fires after the foreground decoded, or after ambient decode when there is no foreground. */
   onReady?: (source: ArtworkSource) => void;
   onStatusChange?: (status: ArtworkStatus) => void;
+  preparation?: ArtworkPreparation;
   testID?: string;
 }>;
 export type ColourBackdropProps = Readonly<{

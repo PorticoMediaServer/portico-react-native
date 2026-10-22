@@ -119,16 +119,19 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
   const phone = layout === 'phone';
   const faceSize = layout === 'tv' ? 216 : phone ? 90 : 160;
   const tiles = <View style={{flexDirection: 'row', flexWrap: phone ? 'wrap' : 'nowrap', justifyContent: phone ? 'flex-start' : 'center', columnGap: phone ? 0 : layout === 'tv' ? 60 : 32, rowGap: phone ? 26 : 0}}>
-    {profiles.map(profile => <Focusable key={profile.id} {...profileProps?.(profile)}
+    {profiles.map(profile => {
+      const forwarded = profileProps?.(profile);
+      return <Focusable key={profile.id} {...forwarded}
       accessibilityRole="button" accessibilityLabel={profile.name} accessibilityHint={profileBadge(profile)}
-      accessibilityState={{selected: selectedId === profile.id}}
+      accessibilityState={{...forwarded?.accessibilityState, selected: selectedId === profile.id}}
       disabled={profile.disabled || Boolean(profile.unavailableReason)} focusTreatment="none"
       hasTVPreferredFocus={profile.id === preferredProfileId}
-      onFocus={event => {profileProps?.(profile).onFocus?.(event); onFocusChange?.(profile.id);}}
-      onBlur={event => {profileProps?.(profile).onBlur?.(event); onFocusChange?.(undefined);}}
-      onPress={() => onSelect(profile.id)} style={{width: phone ? '33.333333%' : layout === 'tv' ? 236 : 168, paddingHorizontal: phone ? 4 : 0}}>
+      onFocus={event => {forwarded?.onFocus?.(event); onFocusChange?.(profile.id);}}
+      onBlur={event => {forwarded?.onBlur?.(event); onFocusChange?.(undefined);}}
+      onPress={() => onSelect(profile.id)} style={state => [{width: phone ? '33.333333%' : layout === 'tv' ? 236 : 168, paddingHorizontal: phone ? 4 : 0}, typeof forwarded?.style === 'function' ? forwarded.style(state) : forwarded?.style]}>
       {state => <ProfileTileContents profile={profile} focused={state.focused} selected={selectedId === profile.id} layout={layout}/>}
-    </Focusable>)}
+    </Focusable>;
+    })}
     {onAdd ? <Focusable accessibilityRole="button" accessibilityLabel={defaultI18n.t('profile.add')} onPress={onAdd} focusTreatment="none" style={{width: phone ? '33.333333%' : layout === 'tv' ? 236 : 168, alignItems: 'center', paddingHorizontal: phone ? 4 : 0}}>
       {state => <><ProfileFace initial="" add size={faceSize} focused={state.focused}/><Text style={{fontFamily: fontFamilies[700], color: theme.colors.text, fontSize: layout === 'tv' ? 30 : phone ? 15 : 21, marginTop: layout === 'tv' ? 26 : phone ? 10 : 18}}>{defaultI18n.t('profile.add')}</Text></>}
     </Focusable> : null}
