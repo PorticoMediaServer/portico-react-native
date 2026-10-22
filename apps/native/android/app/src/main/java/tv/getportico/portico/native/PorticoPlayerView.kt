@@ -29,8 +29,32 @@ import com.facebook.react.uimanager.annotations.ReactProp
 internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
   val surface = SurfaceView(context)
   private val subtitle = TextView(context)
-  private var attached: ExoPlayer? = null
   private val suppliedSurface: () -> android.view.Surface? = { surface.holder.surface }
+  private val binding = PorticoSurfaceBinding<ExoPlayer>(
+    visible = { active ->
+      // SurfaceView.setVisibility updates its own producer lifecycle and asks
+      // Android to recompute the window's transparent region. Hiding only a
+      // Fabric ancestor can leave these native descendants at their old bounds.
+      surface.visibility = if (active) View.VISIBLE else View.GONE
+      visibility = if (active) View.VISIBLE else View.GONE
+      if (!active) { subtitle.text = ""; subtitle.visibility = View.GONE }
+    },
+    detach = { player ->
+      val controller = PorticoPlaybackController.shared
+      if (controller?.displaySurface === suppliedSurface) controller.displaySurface = null
+      player.clearVideoSurfaceView(surface)
+    },
+    attach = { player ->
+      player.setVideoSurfaceView(surface)
+      PorticoPlaybackController.shared?.displaySurface = suppliedSurface
+    },
+    compositionChanged = {
+      // ViewRoot computes this region during layout. Request a traversal for
+      // this producer transition, even if Fabric skipped hidden-child layout.
+      parent?.requestTransparentRegion(this)
+      invalidate()
+    },
+  )
   private val captioning = context.getSystemService(Context.CAPTIONING_SERVICE) as? android.view.accessibility.CaptioningManager
   private val captionsChanged = object : android.view.accessibility.CaptioningManager.CaptioningChangeListener() {
     override fun onFontScaleChanged(fontScale: Float) = place(PorticoPlaybackController.shared)
@@ -50,18 +74,9 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
   }
 
   /** Shows [player]'s picture here (or nothing). A surface belongs to one player at a time. */
-  fun show(player: ExoPlayer?) {
-    if (player === attached) return
-    val controller = PorticoPlaybackController.shared
-    if (controller?.displaySurface === suppliedSurface) controller.displaySurface = null
-    attached?.clearVideoSurfaceView(surface)
-    attached = player
-    player?.setVideoSurfaceView(surface)
-    // The controller asks the display to match the title through the surface the picture is on.
-    if (player != null) controller?.displaySurface = suppliedSurface
-  }
+  fun show(player: ExoPlayer?) = binding.show(player)
 
-  fun shows(player: ExoPlayer?): Boolean = player != null && attached === player
+  fun shows(player: ExoPlayer?): Boolean = binding.shows(player)
 
   fun update(controller: PorticoPlaybackController?, active: Boolean) {
     val cue = controller?.subtitleCue
@@ -115,7 +130,14 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
 
   override fun requestLayout() {
     super.requestLayout()
-    post { measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)); layout(left, top, right, bottom) }
+    // Native children still need a measure pass while the producer is active.
+    // A pending subtitle/layout request must not relayout the retired stage.
+    if (visibility == View.VISIBLE) post {
+      if (isAttachedToWindow && visibility == View.VISIBLE) {
+        measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+        layout(left, top, right, bottom)
+      }
+    }
   }
 }
 
@@ -123,6 +145,7 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
 internal class PorticoPlayerView(private val reactContext: ThemedReactContext) : FrameLayout(reactContext) {
   private val stage = PorticoVideoStage(reactContext)
   private var lease = ""
+  private var surfaceActive = true
   private var request = 0
   private var listening = false
   private var announced = ""
@@ -135,12 +158,18 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
     attach()
   }
 
+  fun setSurfaceActive(value: Boolean) {
+    if (surfaceActive == value) return
+    surfaceActive = value
+    attach()
+  }
+
   fun snapshotTarget(expected: Map<String, Any?>): PorticoSnapshotTarget? {
     val controller = PorticoPlaybackController.shared ?: return null
     val token = controller.snapshotIdentity(expected) ?: return null
     val picture = stage.surface
     fun current() = PorticoPlaybackController.shared === controller && isAttachedToWindow && isShown &&
-        owns(controller) && expected["lease"] == lease && !PorticoPictureInPicture.active && stage.shows(controller.player) &&
+        surfaceActive && owns(controller) && expected["lease"] == lease && !PorticoPictureInPicture.active && stage.shows(controller.player) &&
         controller.displaySurface?.invoke() === picture.holder.surface && controller.snapshotIdentity(expected) == token
     return if (current()) PorticoSnapshotTarget(picture, ::current) else null
   }
@@ -162,11 +191,12 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
   private fun attach() {
     val controller = PorticoPlaybackController.shared
     val mine = controller != null && isAttachedToWindow && owns(controller)
+    val showing = mine && surfaceActive && !PorticoPictureInPicture.active
     // While the Picture in Picture window has the picture, this view shows nothing.
-    stage.show(if (mine && !PorticoPictureInPicture.active) controller?.player else null)
-    stage.update(controller, mine)
+    stage.show(if (showing) controller?.player else null)
+    stage.update(controller, showing)
     keepScreenOn = mine && controller?.paused == false
-    PorticoPictureInPicture.playerView(reactContext.currentActivity, controller, mine)
+    PorticoPictureInPicture.playerView(reactContext.currentActivity, controller, mine && surfaceActive)
     // A device without Picture in Picture (every television) says so once per playback, so the
     // shared player never offers the button there.
     if (mine && announced != lease && reactContext.currentActivity != null) {
@@ -214,6 +244,9 @@ class PorticoPlayerManager : SimpleViewManager<FrameLayout>() {
 
   @ReactProp(name = "lease")
   fun setLease(view: FrameLayout, lease: String?) = (view as PorticoPlayerView).setLease(lease)
+
+  @ReactProp(name = "surfaceActive", defaultBoolean = true)
+  fun setSurfaceActive(view: FrameLayout, active: Boolean) = (view as PorticoPlayerView).setSurfaceActive(active)
 
   @ReactProp(name = "pictureInPictureRequest", defaultInt = 0)
   fun setPictureInPictureRequest(view: FrameLayout, request: Int) = (view as PorticoPlayerView).setPictureInPictureRequest(request)
