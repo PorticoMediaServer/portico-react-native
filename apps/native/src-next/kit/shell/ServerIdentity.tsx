@@ -92,6 +92,7 @@ export function ServerHeader({serverName, viewerRole, audience, facts = [], vari
   if (!visibility) return null;
   const text = (size: number, weight: 600 | 700 | 800 = 600, tracking = 0) => shellType(size, weight, 'normal', tracking, textScale);
   if (variant !== 'page') return <View testID={testID} style={[styles.groupHeader, {gap: isTV ? 16 : 12, padding: variant === 'phone' ? 14 : 0}, style]}>
+    {variant === 'phone' && <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} accessible={false} pointerEvents="none"><Defs><LinearGradient id="server-phone-header" x1="0%" y1="0%" x2="100%" y2="57.735%"><Stop offset="0" stopColor={colors.accent} stopOpacity=".3"/><Stop offset=".7" stopColor={colors.accent} stopOpacity=".06"/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#server-phone-header)"/></Svg>}
     <ServerMark variant={isTV ? 'tv' : variant === 'phone' ? 'phone' : 'settings'}/>
     <View style={{flex: 1, minWidth: 0}}>
       {variant === 'phone' ? <><Text style={[text(12, 700), {color: colors.accentStrong}]}>{defaultI18n.t('next.shell.server')}</Text><Text numberOfLines={1} style={[text(16.5, 800, -.015), {color: colors.text}]}>{serverName}</Text></> : <><Text style={[text(isTV ? 24 : 15, 800), {color: colors.text}]}>{defaultI18n.t('next.shell.server')}</Text><Text numberOfLines={1} style={[text(isTV ? 18 : 13), {color: colors.textTertiary, marginTop: isTV ? 2 : 1}]}>{serverName}</Text></>}
