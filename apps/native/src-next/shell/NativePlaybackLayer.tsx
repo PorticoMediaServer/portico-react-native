@@ -4,6 +4,8 @@ import {GestureDetector} from 'react-native-gesture-handler';
 import Animated, {useAnimatedStyle} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../packages/player-core/src';
 import {useTheme} from '../kit/theme';
+import {focusTestID} from '../kit/focus';
+import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation} from '../kit/dock';
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {NativeShellRuntime} from './runtime';
@@ -60,6 +62,8 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   useEffect(() => {
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       const current = adapter.getSnapshot();
+      const shell = runtime.getSnapshot();
+      if (shell.selectionActive || shell.homeObscured) return false;
       const transition = nativeShellBackTransition(adapter.dock, current, authority, theme.isTV);
       if (!transition) return false;
       void adapter.onTransition(transition).catch(runtime.reportError);
@@ -102,7 +106,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
-        <DockHost dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
+        <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>
       </View>
     </Animated.View>

@@ -5,6 +5,7 @@ import * as homeCapabilities from '../../../packages/client-core/src/home-select
 import {HomeService} from '../../../packages/client-core/src/home-service';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
 import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
+import {planHomeWindows} from '../src-next/shell/home-windows';
 import {homePlayTarget} from '../src-next/screens/home/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
@@ -29,6 +30,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': {},
     '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
+    './home-windows': {planHomeWindows},
     './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': {homePlayTarget},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
@@ -43,6 +45,11 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.ok(controller.getSnapshot().menu, 'the genuine registered member opened the controller menu');
   assert.equal(controller.getSnapshot().menu.member.entry.id, 'third', 'physical first slot is admitted through its genuine source index');
   assert.equal(bindings.homeMenuRow(controller.getSnapshot().menu.windowId), home.getSnapshot().document!.rows[0]);
+  raw.rows[0].entries[2] = {...raw.rows[0].entries[2], title: 'Current server title'};
+  await home.revalidate();
+  const latest = home.getSnapshot().document!.rows[0].entries.find(value => value.id === 'third')!;
+  assert.equal(controller.getSnapshot().menu?.member.entry, latest, 'same-authority menu actions use the actual latest source object after refresh');
+  assert.equal(controller.getSnapshot().menu?.member.entry.title, 'Current server title');
   expanded = true;
   assert.equal(back(), true);
   assert.equal(controller.getSnapshot().menu, null, 'menu closes before expanded player handles Back');

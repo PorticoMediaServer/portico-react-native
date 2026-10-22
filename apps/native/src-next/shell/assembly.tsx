@@ -20,13 +20,14 @@ import {nativeHomeSelectionScope} from './selection-scope';
 import {titleRoute, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
+import {planHomeWindows} from './home-windows';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
 
 const t = defaultI18n.t;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const failure = (code: string) => Object.assign(new Error(code), {code});
-type Window = {row: HomeRow; order: number; first: number; last: number; cleanup?: () => void; keys: Map<string, string>; memberWindows: Map<string, string>; physicalIds?: readonly string[]};
+type Window = {row: HomeRow; order: number; first: number; last: number; cleanup?: () => void; keys: Map<string, string>; memberWindows: Map<string, string>; physicalIds?: readonly string[]; retainedIds?: readonly string[]; visible: boolean; visibleIds?: readonly string[]};
 
 /** Genuine default assembly. The controller and playback runtime retain all business state. */
 export function createNativeShellBindings(context: NativeShellBootstrapContext): NativeShellBindings {
@@ -34,7 +35,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   if (!initial || !session || !context.current()) throw failure('native_home_authority_required');
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
-  let tvPageBack: (() => boolean) | undefined;
+  let tvPageBack: (() => boolean) | undefined, tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
   const publish = () => {if (alive) for (const listener of [...listeners]) listener();};
@@ -64,15 +65,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     routes: {openEntry: entry => open(titleRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   const windowId = (rowId: string) => `home-row:${rowId}`;
-  const register = (window: Window) => {
-    window.cleanup?.(); window.keys.clear(); window.memberWindows.clear();
+  const members = new Map<string, {row: HomeRow; index: number; cleanup: () => void}>();
+  const register = (window: Window, ids?: readonly string[]) => {
+    window.keys.clear(); window.memberWindows.clear();
     const row = window.row, first = Math.max(0, window.first - 2), last = Math.max(first, window.last + 2);
     // TV presentation may keep a different order while focused. Admission always
     // uses genuine latest document objects in bounded, contiguous one-item windows.
     if (Platform.isTV && window.physicalIds && !row.collection) {
-      const cleanups: (() => void)[] = [];
-      window.cleanup = () => {for (const cleanup of cleanups) cleanup();};
-      for (const id of window.physicalIds.slice(first, last + 1)) {
+      for (const id of ids ?? []) {
         const index = row.live ? row.live.channels.findIndex(value => JSON.stringify([value.channel.sourceId, value.channel.id]) === id)
           : row.entries.findIndex(value => value.id === id);
         if (index < 0) continue;
@@ -81,7 +81,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const result = controller.registerWindow({id: memberWindow, row, sectionOrder: window.order, start: row.start + index,
           ...(channel ? {channels: [channel]} : {entries: [entry]})});
         if (!result.ok) throw failure(result.reason);
-        cleanups.push(result.unregister);
+        members.set(memberWindow, {row, index, cleanup: result.unregister});
         const identity = channel ? homeChannelSelection(channel, platform) : homeEntrySelection(entry, platform);
         if (identity) {window.keys.set(id, controller.key(identity)); window.memberWindows.set(id, memberWindow);}
       }
@@ -91,25 +91,48 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const result = controller.registerWindow({id: windowId(row.id), row, sectionOrder: window.order, start: row.start + first,
       ...(channels ? {channels} : row.collection ? {} : {entries})});
     if (!result.ok) throw failure(result.reason);
-    window.cleanup = result.unregister;
+    const previousCleanup = window.cleanup; window.cleanup = result.unregister; previousCleanup?.();
     for (const entry of entries) {const identity = homeEntrySelection(entry, platform); if (identity) window.keys.set(entry.id, controller.key(identity));}
     for (const channel of channels ?? []) window.keys.set(JSON.stringify([channel.channel.sourceId, channel.channel.id]), controller.key(homeChannelSelection(channel, platform)));
     if (row.collection) window.keys.set(row.collection.collection.id, controller.key(homeCollectionSelection(row.collection, platform)));
     for (const id of window.keys.keys()) window.memberWindows.set(id, windowId(row.id));
   };
+  const reconcileWindows = (spotlightCount = spotlights.size) => {
+    if (!Platform.isTV) {for (const window of windows.values()) register(window); return;}
+    const populations = [...windows.values()].map(window => ({id: window.row.id, visible: window.visible, first: window.first, last: window.last,
+      physicalIds: window.row.collection ? [window.row.collection.collection.id] : window.physicalIds ?? [], retainedIds: window.retainedIds, visibleIds: window.visibleIds}));
+    const plan = planHomeWindows(populations, spotlightCount);
+    const desired = new Set<string>();
+    for (const window of windows.values()) {
+      if (window.row.collection) continue;
+      for (const id of plan.get(window.row.id) ?? []) desired.add(`home-row-item:${JSON.stringify([window.row.id, id])}`);
+    }
+    for (const [id, member] of members) if (!desired.has(id)) {member.cleanup(); members.delete(id);}
+    for (const window of windows.values()) {
+      if (window.row.collection && !(plan.get(window.row.id)?.length)) {window.cleanup?.(); window.cleanup = undefined; window.keys.clear(); window.memberWindows.clear();}
+      else register(window, plan.get(window.row.id));
+    }
+  };
   const registerSpotlights = (values: readonly HomeSpotlight[]) => {
-    for (const value of spotlights.values()) value.cleanup(); spotlights.clear();
+    const before = new Map([...spotlights.values()].map(value => [value.id, value]));
+    spotlights.clear();
+    const offeredIds = new Set(values.map(value => {const identity = homeEntrySelection(value.entry, platform);
+      return identity ? `home-spotlight:${JSON.stringify([identity.kind, 'libraryId' in identity ? identity.libraryId : '', 'id' in identity ? identity.id : ''])}` : undefined;}));
+    for (const [id, value] of before) if (!offeredIds.has(id)) {value.cleanup(); before.delete(id);}
+    reconcileWindows(values.length);
     for (const spotlight of values) {
       const identity = homeEntrySelection(spotlight.entry, platform); if (!identity) continue;
       const id = `home-spotlight:${JSON.stringify([identity.kind, 'libraryId' in identity ? identity.libraryId : '', 'id' in identity ? identity.id : ''])}`;
       const result = controller.registerSpotlight({id, spotlight});
       if (!result.ok) throw failure(result.reason);
       spotlights.set(spotlight.entry, {id, key: controller.key(identity), cleanup: result.unregister});
+      before.get(id)?.cleanup(); before.delete(id);
     }
+    for (const value of before.values()) value.cleanup();
   };
   registerSpotlights(initial.spotlight);
   const find = (entry: ContentEntry, rowId?: string) => {
-    const spotlight = spotlights.get(entry); if (!rowId && spotlight) return spotlight;
+    const spotlight = spotlights.get(entry) ?? [...spotlights].find(([value]) => value.id === entry.id && value.libraryId === entry.libraryId && value.kind === entry.kind)?.[1]; if (!rowId && spotlight) return spotlight;
     const window = rowId ? windows.get(rowId) : [...windows.values()].find(value => value.row.entries.includes(entry));
     const key = window?.keys.get(entry.id); if (!window || !key) throw failure('unregistered_home_entry');
     return {id: window.memberWindows.get(entry.id)!, key};
@@ -120,14 +143,13 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const document = context.home.getSnapshot().document;
     if (!document || document.serverId !== scope.serverId || document.viewerFence !== context.authority().viewerFence) return;
     const next = homeSelectionContext(scope, document);
-    if (!same(next, controller.getSnapshot().context)) controller.setContext(next, environment());
+    if (!same(next, controller.getSnapshot().context)) {controller.setContext(next, environment()); members.clear();}
     if (!currentHome()) return;
-    registerSpotlights(document.spotlight);
     for (const [id, window] of windows) {
       const row = document.rows.find(value => value.id === id);
-      if (!row) {window.cleanup?.(); windows.delete(id);} else {window.row = row; register(window);}
+      if (!row) {window.cleanup?.(); windows.delete(id);} else window.row = row;
     }
-    publish();
+    registerSpotlights(document.spotlight); reconcileWindows(); publish();
   };
   const scopeForServices = {serverId: scope.serverId, viewerId: JSON.stringify([scope.authority, scope.accountId, scope.profileId])};
   const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
@@ -148,6 +170,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     else {
       if (context.playback.getSnapshot().dock.local?.expanded) return false;
       // Menus/selection own Back first, then the player, then the page.
+      if (Platform.isTV && currentHome() && tvRailBack?.()) return true;
       if (Platform.isTV && currentHome() && tvPageBack) return tvPageBack();
       return context.navigation.back(context.authority());
     }
@@ -202,16 +225,18 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const before = controller.getSnapshot().selection.active, changed = controller.toggle(windows.get(rowId)!.memberWindows.get(id)!, key);
         if (changed.ok && !before && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
       }}),
-    setHomeWindow: (row, order, first, last, visible, physicalIds) => {
+    setHomeWindow: (row, order, first, last, visible, physicalIds, retainedIds, visibleIds) => {
       const before = windows.get(row.id);
-      if (!visible || !currentHome()) {before?.cleanup?.(); windows.delete(row.id); return;}
-      if (before?.row === row && before.first === first && before.last === last && same(before.physicalIds, physicalIds)) return;
-      const window = before ?? {row, order, first, last, keys: new Map(), memberWindows: new Map()};
-      Object.assign(window, {row, order, first, last, physicalIds}); windows.set(row.id, window);
-      try {register(window);} catch (error) {reportError(error);}
+      if ((!visible && !retainedIds?.length) || !currentHome()) {before?.cleanup?.(); windows.delete(row.id); reconcileWindows(); return;}
+      const latest = context.home.getSnapshot().document?.rows.find(value => value.id === row.id);
+      if (!latest) return;
+      if (before?.row === latest && before.first === first && before.last === last && before.visible === visible && same(before.physicalIds, physicalIds) && same(before.retainedIds, retainedIds) && same(before.visibleIds, visibleIds)) return;
+      const window = before ?? {row: latest, order, first, last, visible, keys: new Map(), memberWindows: new Map()};
+      Object.assign(window, {row: latest, order, first, last, visible, physicalIds, retainedIds, visibleIds}); windows.set(row.id, window);
+      try {reconcileWindows();} catch (error) {reportError(error);}
     },
     homeMenuRow: id => [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.row,
-    renderSelection: () => <><HomeSelectionBars controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
+    renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
     renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
     renderDestination: destination => render({kind: 'shell', destination}),
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
@@ -230,8 +255,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; nativeShellRoutes.get(route.kind)?.scrollToTop?.(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
+    registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error),
-    dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
   };
 }

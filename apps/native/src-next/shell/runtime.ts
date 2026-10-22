@@ -51,7 +51,7 @@ export interface NativeShellRuntime {
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;
   selection: (rowId: string) => LayoutSelection;
-  setHomeWindow: (row: HomeRow, sectionOrder: number, first: number, last: number, visible: boolean, physicalIds?: readonly string[]) => void;
+  setHomeWindow: (row: HomeRow, sectionOrder: number, first: number, last: number, visible: boolean, physicalIds?: readonly string[], retainedIds?: readonly string[], visibleIds?: readonly string[]) => void;
   homeMenuRow?: (windowId: string) => HomeRow | undefined;
   renderSelection: () => ReactNode;
   renderRoutes: () => ReactNode;
@@ -65,6 +65,7 @@ export interface NativeShellRuntime {
   scrollToTop: (destination: ShellDestination) => void;
   registerScrollToTop: (destination: ShellDestination, handler: () => void) => () => void;
   /** Registered by the TV shell; assembly dispatches only after topmost holds/player. */
+  registerTVRailBack?: (handler: () => boolean) => () => void;
   registerTVPageBack?: (handler: () => boolean) => () => void;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;

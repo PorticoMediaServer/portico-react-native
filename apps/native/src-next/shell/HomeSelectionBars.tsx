@@ -6,6 +6,8 @@ import type {HomeSelectionController} from '../../../../packages/client-core/src
 import type {SelectionActionReason} from '../../../../packages/client-core/src/selection-model/index';
 import {SelectionBar, SelectionPhoneActionBar, type SelectionBarProps} from '../kit/selection';
 import {useTheme} from '../kit/theme';
+import type {NativeShellRuntime} from './runtime';
+import {tvFocusIds} from './tv-focus';
 import {nativeSelectionCommand, nativeSelectionOffers} from './selection-actions';
 
 const t = defaultI18n.t;
@@ -15,14 +17,14 @@ const reason = (value: SelectionActionReason): string => t(value === 'mixed-type
       : value === 'delete-limit' ? 'next.selection.native.deleteLimit' : 'error.permission');
 
 /** Controlled native presentation for the one shared HomeSelectionController/SelectionModel. */
-export function HomeSelectionBars({controller, ownerTag, reportError}: {
-  controller: HomeSelectionController; ownerTag?: React.ReactNode; reportError: (error: unknown) => void;
+export function HomeSelectionBars({controller, runtime, ownerTag, reportError}: {
+  controller: HomeSelectionController; runtime?: NativeShellRuntime; ownerTag?: React.ReactNode; reportError: (error: unknown) => void;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const theme = useTheme(), insets = useSafeAreaInsets();
   const [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   if (!snapshot.selection.active) return null;
-  const props: SelectionBarProps = {count: snapshot.selection.summary.count, selectAllLabel: t('next.home.native.selectRow'),
+  const props: SelectionBarProps = {testID: theme.isTV && runtime ? tvFocusIds(runtime.getSnapshot().authority).surface('selection-bar') : undefined, count: snapshot.selection.summary.count, selectAllLabel: t('next.home.native.selectRow'),
     onSelectAll: () => controller.selectRow(), onCancel: () => {setMenu(null); controller.clear();},
     onAction: action => {const command = nativeSelectionCommand(action); if (command) {setMenu(null); void controller.execute(command).catch(reportError);}},
     actions: nativeSelectionOffers(snapshot.actions, reason), menu, onMenuChange: setMenu, ownerTag,
