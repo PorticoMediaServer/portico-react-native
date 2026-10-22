@@ -1,0 +1,116 @@
+import React, {useEffect, useRef, useSyncExternalStore, type ComponentType} from 'react';
+import {AppState, Dimensions, NativeEventEmitter, NativeModules, Platform, UIManager, requireNativeComponent, type ViewProps} from 'react-native';
+import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
+import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
+import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
+import {chooseEngine, parseEngineFeatures, type EngineKind} from './engine-choice';
+import {planEngineOf, requiredSubtitleRendering} from './engine-media';
+import {deviceCapabilityDocument} from './capability-document';
+import type {NativeFacts} from './device-profile';
+import type {MpvDeviceFacts} from './mpv-profile';
+import {NativeListeningV1Adapter, type NativeListeningBridge} from './NativeListeningAdapter';
+import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
+import {NativePlaybackRuntime} from './runtime';
+import {PlaybackScopeHttp} from './scope-http';
+import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
+
+const names = {native: {module: 'PorticoPlaybackModule', fact: 'PorticoPlaybackFact', view: 'PorticoPlayer'}, mpv: {module: 'PorticoMpvPlaybackModule', fact: 'PorticoMpvPlaybackFact', view: 'PorticoMpvPlayer'}} as const;
+type EngineModule = NativeListeningBridge & {
+  acquire(owner: string): Promise<Readonly<{lease: string; instanceId: string}>>;
+  command(value: Record<string, unknown>): Promise<unknown>;
+  release(lease: string): Promise<unknown>;
+  facts?: () => Promise<unknown>;
+  getConstants?: () => Record<string, unknown>;
+  available?: boolean;
+  features?: unknown;
+};
+type NativeSurfaceProps = ViewProps & {lease: string};
+const views: Partial<Record<EngineKind, ComponentType<NativeSurfaceProps>>> = {};
+function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
+function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
+function transport(module: EngineModule, event: string): NativePlaybackTransport {
+  const emitter = new NativeEventEmitter(module as never);
+  return {acquire: owner => module.acquire(owner), command: value => module.command(value), release: lease => module.release(lease),
+    subscribe: listener => { const subscription = emitter.addListener(event, listener); return () => subscription.remove(); }};
+}
+export type NativePlaybackFactoryOptions = Omit<NativePlaybackRuntimeOptions, 'transport' | 'engines' | 'engineFeatures' | 'nativeListening' | 'requestId' | 'capabilitiesReady' | 'disposeCapabilities' | 'timers'> & Readonly<{appVersion: string}>;
+
+/** Binds real platform modules. There is no alternate renderer/engine, demo session or URL. */
+export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryOptions): NativePlaybackAdapter & {runtime: NativePlaybackRuntime} {
+  const native = NativeModules[names.native.module] as EngineModule | undefined;
+  const requestId = NativeModules.PorticoRuntime?.playbackRequestId as undefined | (() => string);
+  if (!native || !requestId || !viewAvailable(names.native.view)) throw new Error(serviceText('player.nativeHandoverFailed'));
+  const mpv = NativeModules[names.mpv.module] as EngineModule | undefined;
+  const mpvAvailable = !!mpv && moduleConstants(mpv).available === true && viewAvailable(names.mpv.view);
+  const nativeFeatures = parseEngineFeatures(moduleConstants(native).features);
+  const mpvFeatures = mpvAvailable ? parseEngineFeatures(moduleConstants(mpv!).features) : undefined;
+  const nativeTransport = transport(native, names.native.fact), mpvTransport = mpvAvailable ? transport(mpv!, names.mpv.fact) : undefined;
+  const viewer = options.session()?.viewer;
+  if (!viewer || !['local', 'hosted'].includes(viewer.authority)) throw new Error('Invalid playback authority.');
+  const initialAuthority = options.authority();
+  const authority = [initialAuthority.serverId, initialAuthority.accountId, initialAuthority.profileId, initialAuthority.epoch, initialAuthority.viewerFence].join('\n');
+  const capabilityHttp = new PlaybackScopeHttp(localV1Http(options.api), () => [options.authority().serverId, options.authority().accountId, options.authority().profileId, options.authority().epoch, options.authority().viewerFence].join('\n') === authority && options.session()?.viewer.profileId === viewer.profileId);
+  const publisher = new CapabilityPublisher(capabilityHttp);
+  let closed = false, publishing: Promise<void> = Promise.resolve();
+  const publishCapabilities = (): Promise<void> => {
+    publishing = publishing.then(async () => {
+      if (closed) return;
+      const settings = options.settings();
+      const [facts, mpvFacts] = await Promise.all([
+        (NativeModules.PorticoCapabilities?.facts?.() as Promise<NativeFacts | null> | undefined)?.catch(() => null) ?? Promise.resolve(null),
+        mpvAvailable ? (mpv!.facts?.() as Promise<MpvDeviceFacts> | undefined)?.catch(() => null) ?? Promise.resolve(null) : Promise.resolve(null),
+      ]);
+      if (closed) return;
+      const android = Platform.OS === 'android', amazon = android && String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon';
+      const screen = Dimensions.get('screen');
+      const pad = !Platform.isTV && (android ? Math.min(screen.width, screen.height) >= 600 : (Platform as {isPad?: boolean}).isPad === true);
+      const document = deviceCapabilityDocument({setting: settings.engine, overrides: settings.overrides, native: facts, mpv: mpvFacts, mpvAvailable, appVersion: options.appVersion,
+        device: {television: Platform.isTV, pad, family: android ? Platform.isTV ? amazon ? 'firetv' : 'androidtv' : 'android' : undefined, osVersion: String(Platform.Version)}});
+      await publisher.publish(document);
+    }).catch(() => {});
+    return publishing;
+  };
+  void publishCapabilities();
+  const ready = async () => { for (;;) { const pending = publishing; await pending; if (pending === publishing) return; } };
+  const offSettings = options.subscribeSettings(() => { void publishCapabilities(); });
+  const capabilitiesModule = NativeModules.PorticoCapabilities;
+  const capabilitiesEvent = capabilitiesModule ? new NativeEventEmitter(capabilitiesModule).addListener('portico.capabilities', () => { void publishCapabilities(); }) : undefined;
+  const emitter = new NativeEventEmitter(native as never);
+  const listening = typeof native.adoptListeningSession === 'function' ? new NativeListeningV1Adapter({
+    bridge: native, route: options.api.getRouteConnection(),
+    principal: {origin: options.api.baseUrl, serverId: viewer.serverId, authority: viewer.authority as 'local' | 'hosted', accountId: viewer.accountId, profileId: viewer.profileId},
+    bearer: () => options.session()?.accessToken ?? '', id: requestId,
+    subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
+  }) : undefined;
+  let runtime: NativePlaybackRuntime;
+  runtime = new NativePlaybackRuntime({...options, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); },
+    engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
+      const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
+      const plan = planEngineOf(session, known), snapshot = runtime.getSnapshot();
+      const nativeOnly = !!state.nativeListening || !!session?.audio || known?.kind === 'audio';
+      if (plan.stale && !nativeOnly) return runtime.coordinator.getEngine();
+      return chooseEngine({setting: options.settings().engine, mpvAvailable, planEngine: plan.engine, nativeOnly,
+        requiredSubtitleRendering: requiredSubtitleRendering(snapshot.subtitles?.plan, known), nativeSubtitleRendering: nativeFeatures.subtitleRendering});
+    }}});
+  const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
+
+  /** The only new component is a native-module view bridge; all player chrome belongs later. */
+  function Surface({dockBounds, expandedBounds, docked, subtitlesVisible}: NativePlaybackSurfaceProps) {
+    const owner = useRef<object>({});
+    const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
+    useEffect(() => runtime.attachSurface(owner.current), []);
+    useEffect(() => { runtime.setSubtitleDisplay(subtitlesVisible && !docked); }, [subtitlesVisible, docked]);
+    const kind = state.engine;
+    const SurfaceView = views[kind] ??= requireNativeComponent<NativeSurfaceProps>(names[kind].view);
+    const bounds = docked ? dockBounds : expandedBounds;
+    return <SurfaceView lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
+      style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, opacity: bounds && state.lease ? 1 : 0}} />;
+  }
+  return {
+    runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, Surface,
+    onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, seek: runtime.seek, skip: runtime.skip,
+    previous: runtime.previous, next: runtime.next, stop: runtime.stop, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
+    ...(options.openDestinations ? {cast: runtime.cast} : {}),
+  };
+}
