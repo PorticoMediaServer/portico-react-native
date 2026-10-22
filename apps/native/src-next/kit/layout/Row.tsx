@@ -45,7 +45,10 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
   const anchor = useFocusAnchor(true, focused !== undefined);
   const stride = itemWidth + (gap ?? theme.spec.shelf.gap[theme.platform]);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
-  const top = theme.isTV ? 10 : theme.spec.shelf.phonePaddingTop, bottom = theme.isTV ? 14 : theme.spec.shelf.phonePaddingBottom;
+  // The TV track starts directly below the heading margin. Reserve room above
+  // its viewport for the scaled outer ring without moving the drawn card edge.
+  const top = theme.isTV ? Math.ceil(itemHeight * (theme.spec.focus.scale.card.tv - 1) / 2 + (theme.spec.focus.offsetOuter.tv + theme.spec.focus.ringWidth.tv) * theme.spec.focus.scale.card.tv) : theme.spec.shelf.phonePaddingTop;
+  const bottom = theme.isTV ? Math.max(14, top) : theme.spec.shelf.phonePaddingBottom;
   const extent = leading + Math.max(0, items.length * stride - (stride - itemWidth)) + trailing;
   const first = Math.max(0, Math.floor((offset - leading) / stride));
   const last = Math.min(items.length - 1, Math.max(first, Math.ceil((offset + width - leading) / stride) - 1));
@@ -67,14 +70,14 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: theme.spec.shelf.headingGap[theme.platform], paddingLeft: leading, paddingRight: trailing, marginBottom: theme.spec.shelf.headingMargin[theme.platform]}}>
       {onSeeAll && !theme.isTV ? <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={defaultI18n.t('shelf.seeAll')} onPress={onSeeAll}
         onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{minHeight: 24, flexDirection: 'row', alignItems: 'center', flexShrink: 1}, controlStyle(arrowFocus === 'all')]}>
-        <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary} />
-      </Pressable> : <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1}]}>{title}</Text>}
-      {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary}]}>{subtitle}</Text> : subtitle}</View>}
-      {onSeeAll && theme.isTV && <Pressable onPress={onSeeAll} accessibilityRole="button" onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{marginLeft: 'auto', minHeight: theme.targets.tenFoot, justifyContent: 'center'}, controlStyle(arrowFocus === 'all')]}>
-        <Text style={[theme.type.seeAll, {color: theme.colors.textTertiary}]}>{defaultI18n.t('shelf.seeAll')}</Text>
+        <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary} />
+      </Pressable> : <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.rowHeading, {color: theme.colors.text, flexShrink: 1, includeFontPadding: false}]}>{title}</Text>}
+      {subtitle && <View style={{flexShrink: 1}}>{typeof subtitle === 'string' ? <Text numberOfLines={1} style={[theme.type.rowSubtitle, {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text> : subtitle}</View>}
+      {onSeeAll && theme.isTV && <Pressable onPress={onSeeAll} accessibilityRole="button" hitSlop={{top: 22, bottom: 22}} onFocus={() => setArrowFocus('all')} onBlur={() => setArrowFocus(undefined)} style={[{marginLeft: 'auto', justifyContent: 'center'}, controlStyle(arrowFocus === 'all')]}>
+        <Text style={[theme.type.seeAll, {color: theme.colors.textTertiary, includeFontPadding: false}]}>{defaultI18n.t('shelf.seeAll')}</Text>
       </Pressable>}
     </View>
-    <Animated.ScrollView horizontal ref={anchor.scrollRef} onLayout={event => setWidth(event.nativeEvent.layout.width)}
+    <Animated.ScrollView horizontal ref={anchor.scrollRef} style={theme.isTV ? {marginTop: -top} : undefined} onLayout={event => setWidth(event.nativeEvent.layout.width)}
       onScroll={onScroll} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onScrollBeginDrag={anchor.stop}
       snapToInterval={theme.isTV ? undefined : stride} decelerationRate="fast" disableIntervalMomentum={!theme.isTV}
       scrollAnimationEnabled={false} onTouchStart={anchor.stop} removeClippedSubviews={false}>

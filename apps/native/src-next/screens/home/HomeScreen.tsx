@@ -20,6 +20,7 @@ import {StateView, HomeSkeleton} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
+import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, initialHomeFocus, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
@@ -129,11 +130,12 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     <View style={{height: theme.isTV ? preview && !railExpanded ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
       {theme.isTV && preview && !railExpanded ? <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1}]}>{part.text}</Text>)}</View>}
-        renderHint={candidate => <View style={{flexDirection: 'row', gap: 12, alignItems: 'center'}}><Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('next.layout.ok')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginRight: 32}]}>{t(candidate.target?.progressSeconds ? 'next.home.resume' : 'next.home.play')}</Text><Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.layout.moreOptions')}</Text></View>}
+        renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
+        renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>
         : <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
           active={heroActive} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
-          renderArtwork={renderArtwork} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
+          renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
     </View>
     {rows.map((row, rowIndex) => {
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);

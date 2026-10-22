@@ -186,6 +186,117 @@ test('pause, resume and a correlated seek change real engine commands, while sta
   } finally { d.runtime.dispose(); }
 });
 
+for (const kind of ['queue', 'live'] as const) test(`Back keeps an actual ${kind} playback error collapsed through repeated source notifications`, async () => {
+  const d = fixture();
+  try {
+    if (kind === 'queue') await d.start('movie-1', 31);
+    else { await d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal); await settle(); }
+    const initial = d.runtime.getSnapshot(), fence = initial.fence!;
+    d.runtime.collapse(fence);
+    d.engine.emit('error', {deliveryError: true, networkError: false}); await settle();
+    const failed = d.runtime.getSnapshot();
+    assert.equal(failed.playback.phase, 'error');
+    assert.ok(failed.playback.error);
+    assert.equal(failed.playback.intent, 'paused');
+    assert.equal(failed.dock.local?.expanded, true, 'a new actual error still breaks through the quiet dock');
+    assert.deepEqual(failed.fence, fence);
+
+    for (const collapse of [() => d.runtime.collapse(fence), () => d.runtime.onTransition(d.runtime.dock.collapse(fence))]) {
+      d.runtime.open(fence);
+      assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true, 'explicit Open remains available during the error');
+      await collapse();
+      const seen: boolean[] = [], sent = d.requests.length;
+      const off = d.runtime.subscribe(() => { seen.push(d.runtime.getSnapshot().dock.local?.expanded ?? false); });
+      try {
+        if (kind === 'queue') await d.runtime.queue.refresh();
+        await d.runtime.refreshAuthority();
+        d.settings({subtitleSize: 'large'});
+        d.engine.emit('error', {deliveryError: true, networkError: false});
+        d.engine.emit('progress'); await settle();
+        const collapsed = d.runtime.getSnapshot();
+        assert.equal(collapsed.dock.local?.expanded, false);
+        assert.ok(seen.length > 0); assert.ok(seen.every(expanded => !expanded), 'no transient full Surface reopen after Back');
+        assert.equal(collapsed.playback.phase, 'error', 'Back never hides or clears the actual service error');
+        assert.equal(collapsed.playback.error, failed.playback.error);
+        assert.equal(collapsed.playback.intent, 'paused');
+        assert.deepEqual(collapsed.fence, fence);
+        assert.equal(collapsed.lease, initial.lease);
+        assert.equal(d.engine.released.length, 0);
+        assert.equal(d.engine.subscriptions, 1);
+        assert.equal(d.server.session(fence.sessionId)?.ended, false);
+        assert.equal(d.requests.slice(sent).some(request => request.method === 'DELETE' || playingRequest(request)), false);
+      } finally { off(); }
+    }
+  } finally { d.runtime.dispose(); }
+});
+
+test('presentation replacement rejects stale completion and a dismissed error does not mask a fresh same-item source error', async () => {
+  const d = fixture();
+  try {
+    await d.start('movie-1');
+    const original = d.runtime.getSnapshot(), oldCommand = d.engine.lastCommand, listener = d.engine.listener!;
+    d.runtime.collapse(original.fence!);
+    await d.runtime.chooseQuality(original.fence!, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!); await settle();
+    const replacement = d.runtime.getSnapshot(), fence = replacement.fence!;
+    assert.equal(replacement.playback.phase, 'ready');
+    assert.equal(fence.sessionId, original.fence!.sessionId);
+    assert.ok(fence.generation > original.fence!.generation);
+    assert.equal(replacement.dock.local?.expanded, false, 'a source replan preserves the collapsed presentation');
+    for (const type of ['error', 'ended']) listener({type, instanceId: 'engine-instance', binding: oldCommand.binding, intentId: oldCommand.binding.intentId,
+      factSequence: 999999, lastCommandRevision: oldCommand.commandRevision, position: 180, paused: true, deliveryError: true, networkError: false});
+    await settle();
+    assert.equal(d.runtime.getSnapshot().playback.phase, 'ready');
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, false);
+    assert.deepEqual(d.runtime.getSnapshot().fence, fence);
+    d.engine.emit('error', {deliveryError: true, networkError: false}); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.phase, 'error');
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true, 'the replacement generation gets its own actual error attention');
+    d.runtime.collapse(fence);
+    // Replanning an errored session genuinely replaces the session instead of bumping
+    // its presentation generation. Its real new identity must get fresh error attention.
+    await d.runtime.chooseQuality(fence, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!); await settle();
+    const retried = d.runtime.getSnapshot();
+    assert.equal(retried.playback.phase, 'ready');
+    assert.notEqual(retried.fence?.sessionId, fence.sessionId);
+    assert.equal(retried.playback.itemId, 'movie-1');
+    assert.equal(retried.dock.local?.expanded, false);
+    d.engine.emit('error', {deliveryError: true, networkError: false}); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.phase, 'error');
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true);
+    d.runtime.collapse(retried.fence!);
+    await d.start('movie-2');
+    const next = d.runtime.getSnapshot();
+    assert.notEqual(next.playback.intentId, replacement.playback.intentId);
+    assert.equal(next.dock.local?.expanded, true, 'a new video start keeps its normal opening intent');
+    d.runtime.collapse(fence);
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true, 'the old source cannot collapse a replacement');
+  } finally { d.runtime.dispose(); }
+});
+
+test('queue advancement retains its real run and gives a new entry error attention after a prior Back', async () => {
+  const d = fixture();
+  try {
+    d.runtime.connect();
+    await d.runtime.queue.playEntries([queueItemInput('movie-1'), queueItemInput('movie-2')], {startSeconds: 0}); await settle();
+    const first = d.runtime.getSnapshot().fence!;
+    d.engine.emit('error', {deliveryError: true, networkError: false}); await settle();
+    d.runtime.collapse(first);
+    // Use the actual queue control: error snapshots correctly offer no Next capability.
+    const queue = d.runtime.getSnapshot().queue.view!.queue;
+    await d.runtime.queue.next(queue.id, queue.revision); await settle();
+    const next = d.runtime.getSnapshot(), fence = next.fence!;
+    assert.equal(next.playback.phase, 'ready');
+    assert.equal(fence.playback.run, first.playback.run);
+    assert.notEqual(fence.sessionId, first.sessionId);
+    assert.ok(fence.kind === 'queue' && first.kind === 'queue');
+    assert.notEqual(fence.entryId, first.entryId);
+    assert.equal(next.dock.local?.expanded, false);
+    d.engine.emit('error', {deliveryError: true, networkError: false}); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.phase, 'error');
+    assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true);
+  } finally { d.runtime.dispose(); }
+});
+
 test('audio handover restores its original queue entry and settled place in a fresh paused session', async () => {
   const d = fixture();
   try {

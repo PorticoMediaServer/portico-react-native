@@ -84,14 +84,16 @@ export function SquareCard(props: SquareCardProps) {
 
 export function WideCard(props: WideCardProps) {
   const t = useTheme(), width = props.width ?? t.spec.card.width.wide[t.platform], height = width * 9 / 16;
+  const handheld = t.layoutMode === 'phone';
+  const compactFacts = handheld ? [...(props.caption ?? []), ...(props.detail ?? [])].filter(part => part.id === 'episode-label' || part.id === 'remaining') : undefined;
   return <CardFrame {...props} width={width} overlay={s => <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={52} centered />}>
     {s => <ArtFrame height={height} focused={s.focused} hovered={s.hovered} holding={s.holding} selected={props.selection?.selected}>
       <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} kind="wide" source={props.artwork} fallback={props.artworkFallback} width={width} height={height} />
       <Scrim />
       <View style={{position: 'absolute', left: t.spec.card.wide.insetX[t.platform], right: t.spec.card.wide.insetX[t.platform], bottom: t.spec.card.wide.insetBottom[t.platform]}}>
         <Text numberOfLines={1} style={[t.type.wideTitle, {color: props.selection?.selected ? t.colors.accentStrong : t.colors.text}]}>{props.title}</Text>
-        <View style={{marginTop: t.isTV ? 4 : 2}}><Parts parts={props.caption} style={{color: t.colors.textSecondary}} /></View>
-        {!t.isTV && <Parts parts={props.detail} style={{color: t.colors.textSecondary}} />}
+        <View style={{marginTop: t.isTV ? 4 : 2}}><Parts parts={handheld ? compactFacts : props.caption} style={{color: t.colors.textSecondary}} /></View>
+        {!handheld && !t.isTV && <Parts parts={props.detail} style={{color: t.colors.textSecondary}} />}
         <Progress value={props.progress} style={{marginTop: t.spec.card.progress.marginTop[t.platform]}} />
       </View>
     </ArtFrame>}

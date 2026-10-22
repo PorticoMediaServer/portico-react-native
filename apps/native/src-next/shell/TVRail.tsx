@@ -1,10 +1,9 @@
 import React, {useRef} from 'react';
 import {Image, ScrollView, Text, View} from 'react-native';
-import Svg, {Defs, LinearGradient, Rect, Stop, SvgXml} from 'react-native-svg';
+import Svg, {Defs, LinearGradient, Rect, Stop, Path} from 'react-native-svg';
 import Animated, {useAnimatedStyle, useSharedValue, withDelay, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {Library} from '../../../../packages/client-core/src';
-import {brandSymbol} from '../../assets/brandSymbol';
 import {Focusable} from '../kit/controls';
 import {ProfileFace, type ProfileOption} from '../kit/artwork';
 import {Icon, type IconName} from '../kit/Icon';
@@ -24,12 +23,13 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   const change = (value: boolean) => {
     if (pendingBlur.current) clearTimeout(pendingBlur.current);
     setOpen(value); onExpandedChange(value);
-    expanded.value = withTiming(value ? 1 : 0, motion.timing('standard'));
+    expanded.value = motion.transforms ? withTiming(value ? 1 : 0, motion.timing('standard')) : value ? 1 : 0;
     labelOpacity.value = value ? withDelay(motion.transforms ? 60 : 0, withTiming(1, motion.timing('standard'))) : withTiming(0, motion.timing('quick'));
   };
   React.useEffect(() => () => {if (pendingBlur.current) clearTimeout(pendingBlur.current);}, []);
-  const panel = useAnimatedStyle(() => ({transform: [{translateX: motion.transforms ? (expanded.value - 1) * (spec.openWidth - spec.width) : 0}]}));
-  const counter = useAnimatedStyle(() => ({transform: [{translateX: motion.transforms ? (1 - expanded.value) * (spec.openWidth - spec.width) : 0}]}));
+  React.useEffect(() => {if (!motion.transforms) expanded.value = open ? 1 : 0;}, [expanded, motion.transforms, open]);
+  const panel = useAnimatedStyle(() => ({transform: [{translateX: (expanded.value - 1) * (spec.openWidth - spec.width)}]}));
+  const counter = useAnimatedStyle(() => ({transform: [{translateX: (1 - expanded.value) * (spec.openWidth - spec.width)}]}));
   const labels = useAnimatedStyle(() => ({opacity: labelOpacity.value}));
   const entries: RailEntry[] = [
     {key: 'search', icon: 'i-search', label: defaultI18n.t('web.shell.search'), destination: {kind: 'search'}},
@@ -55,9 +55,9 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
       style={[{flex: 1, width: spec.openWidth, paddingLeft: spec.insetLeft, paddingTop: spec.paddingTop, paddingBottom: spec.paddingBottom}, panel]}>
       <Animated.View style={[{flex: 1}, counter]}>
         <View accessible={false} style={{height: 40, marginLeft: 16, marginBottom: 64}}>
-          {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 130, height: 30, marginTop: 5}}/> : <SvgXml xml={brandSymbol} width={28} height={40}/>}
+          {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 130, height: 30, marginTop: 5}}/> : <RailBrandSymbol/>}
         </View>
-        <ScrollView style={{flex: 1}} contentContainerStyle={{gap: spec.itemGap, paddingVertical: 10}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
+        <ScrollView style={{flex: 1, marginLeft: -24}} contentContainerStyle={{gap: spec.itemGap, paddingLeft: 24}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
         <View style={{gap: spec.itemGap, paddingTop: 8}}>
           {item({key: 'settings', label: defaultI18n.t('settings.title'), icon: 'i-settings', destination: {kind: 'settings'}})}
           <Focusable ref={profileRef} testID="tv-rail-profile" accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={14}
@@ -68,4 +68,12 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
       </Animated.View>
     </Animated.View>
   </View>;
+}
+
+/** The canonical brandSymbol asset paths, using the elements supplied by the Metro SVG adapter. */
+function RailBrandSymbol() {
+  return <Svg width={28} height={40} viewBox="206 184 304 405" accessible={false}>
+    <Path d="M228.0 567.0V206.0H354.3530578613281Q395.70135498046875 206.0 425.38002014160156 221.2514419555664Q455.0586853027344 236.5028839111328 471.0293426513672 265.1856155395508Q487.0 293.86834716796875 487.0 333.6389465332031Q487.0 372.9089660644531 471.0293426513672 401.5841369628906Q455.0586853027344 430.2593078613281 425.38002014160156 445.51832580566406Q395.70135498046875 460.77734375 354.3530578613281 460.77734375H324.0V408.46429443359375H352.413818359375Q392.6810607910156 408.46429443359375 413.2369079589844 388.8592529296875Q433.7927551269531 369.25421142578125 433.7927551269531 333.6389465332031Q433.7927551269531 297.52313232421875 413.2369079589844 277.91807556152344Q392.6810607910156 258.3130187988281 352.413818359375 258.3130187988281H280.7454833984375V408.46429443359375H281.0V460.77734375H280.7454833984375V567.0Z" fill="#FFFFFF"/>
+    <Path d="M324 298 L324 369 Q324 374 329 371 L392 338 Q398 333 392 328 L329 296 Q324 293 324 298 Z" fill="#FFFFFF"/>
+  </Svg>;
 }

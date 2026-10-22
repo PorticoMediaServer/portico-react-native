@@ -75,10 +75,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const expanded = (value: boolean) => {
     setRailExpanded(value);
     // tv.html f2 moves the copy's left edge from200 to470. The frame wins the stale220 token.
-    shift.value = withTiming(value ? 270 : 0, motion.timing('standard'));
+    shift.value = motion.transforms ? withTiming(value ? 270 : 0, motion.timing('standard')) : value ? 270 : 0;
     dim.value = withTiming(value ? .42 : 0, motion.timing('standard'));
   };
-  const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: motion.transforms ? shift.value : 0}]}));
+  useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
+  const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const library = destination.kind === 'library' ? snapshot.libraries.find(item => item.id === destination.libraryId) : undefined;
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
