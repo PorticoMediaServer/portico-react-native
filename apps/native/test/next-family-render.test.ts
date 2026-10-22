@@ -74,6 +74,8 @@ const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.t
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
+const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
+const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {default: overlayGalleries} = await import('../src-next/dev/families/overlays/overlays.gallery.tsx');
 type Element = ReactElement<Record<string, any>>;
 function nodes(node: ReactNode): Element[] {
@@ -302,5 +304,27 @@ test('the real overlay gallery lets an initially open surface own its window and
       assert.equal(find(scene.tree, Dialog).props.open, false);
       assert.ok(find(scene.tree, Button));
     } finally {scene.host.unmount(); gallery.host.unmount();}
+  }
+});
+
+
+test('actual selection galleries render list changes when native Intl.ListFormat is unavailable', t => {
+  const descriptor = Object.getOwnPropertyDescriptor(Intl, 'ListFormat')!;
+  Object.defineProperty(Intl, 'ListFormat', {...descriptor, value: undefined});
+  t.after(() => Object.defineProperty(Intl, 'ListFormat', descriptor));
+  for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const id of ['selection-circles', 'selection-playlist', 'selection-editor', 'selection-deleteOne']) {
+      const gallery = mount(selectionGalleries.find(value => value.id === id)!.render, {});
+      const exampleElement = (gallery.tree as Element).props.children as Element;
+      const example = mount(exampleElement.type, exampleElement.props);
+      try {
+        assert.ok(example.tree);
+        if (id === 'selection-editor') {
+          const editor = find(example.tree, BulkEditor);
+          assert.ok(editor.props.summary.some((part: {id: string; text: string}) => part.id === 'tags-add' && part.text.length > 0));
+        }
+      } finally {example.host.unmount(); gallery.host.unmount();}
+    }
   }
 });

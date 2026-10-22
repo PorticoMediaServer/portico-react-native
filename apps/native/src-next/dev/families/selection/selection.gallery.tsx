@@ -92,10 +92,9 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     const field = editorSchema.find(value => value.field === id);
     if (!field) return [];
     if ('value' in change) return [{id, text: t('next.selection.scalarChange', {field: field.label, value: change.value, count: editorCount})}];
-    const list = new Intl.ListFormat('en-US', {style: 'long', type: 'conjunction'});
     return [
-      ...(change.add.length ? [{id: `${id}-add`, text: t('next.selection.listAdd', {field: field.label, values: list.format(change.add), count: editorCount})}] : []),
-      ...(change.remove.length ? [{id: `${id}-remove`, text: t('next.selection.listRemove', {field: field.label, values: list.format(change.remove), count: editorCount})}] : []),
+      ...(change.add.length ? [{id: `${id}-add`, text: t('next.selection.listAdd', {field: field.label, values: defaultI18n.list(change.add), count: editorCount})}] : []),
+      ...(change.remove.length ? [{id: `${id}-remove`, text: t('next.selection.listRemove', {field: field.label, values: defaultI18n.list(change.remove), count: editorCount})}] : []),
     ];
   });
   return <View style={{backgroundColor: theme.colors.ink, width: theme.isTV ? 1724 : 390, minHeight: theme.isTV ? 700 : 844, gap: 20}}>
