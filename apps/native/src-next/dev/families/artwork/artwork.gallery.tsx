@@ -48,6 +48,7 @@ function HeroCase({arrivalDurationMs}: {arrivalDurationMs?: number}) {
   return <View style={{gap: 20}}>
     <View testID="artwork-hero" style={{marginLeft: theme.isTV ? 0 : -theme.gutter, width: theme.isTV ? 1500 : 390, height: theme.isTV ? 900 : 560, overflow: 'hidden'}}>
       <AmbientArt foreground={foreground} source={real?.ambient} palette={real?.palette ?? palette}
+        foregroundFrameStyle={theme.isTV ? {width: 1500, height: 900} : undefined}
         treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority arrivalDurationMs={arrivalDurationMs} onReady={() => {setReady(true); setFailed(false);}} onError={() => {setReady(false); setFailed(true);}}/>
     </View>
     <Button variant="glass" onPress={() => {setReady(false); setFailed(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>

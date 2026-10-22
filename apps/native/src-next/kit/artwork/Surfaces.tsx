@@ -67,7 +67,7 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false}: {
 }
 
 /** Continuous ambient wash and independently sharp foreground, with Q43's cheap TV representation. */
-export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
+export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundFrameStyle, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
@@ -105,7 +105,7 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
         }}
         blurRadius={allowLiveBlur ? wash ? 12 : 8 : undefined}/>
     </View>)}
-    {foreground ? <View style={[StyleSheet.absoluteFillObject, {left: undefined, width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}]}>
+    {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%', width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}, foregroundFrameStyle]}>
       <Reanimated.View style={[StyleSheet.absoluteFillObject, foregroundStyle]}>
         <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? {x: phone ? 0.38 : 0.5, y: 0.3}}
           onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>

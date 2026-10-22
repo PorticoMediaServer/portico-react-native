@@ -63,6 +63,8 @@ export type AmbientArtProps = Readonly<{
   arrivalDurationMs?: number;
   position?: ArtworkPosition;
   style?: StyleProp<ViewStyle>;
+  /** Fixed foreground bounds and stationary masks; transforms belong to foregroundStyle. */
+  foregroundFrameStyle?: StyleProp<ViewStyle>;
   foregroundStyle?: StyleProp<ViewStyle>;
   /** Fires after the foreground decoded, or after ambient decode when there is no foreground. */
   onReady?: (source: ArtworkSource) => void;
