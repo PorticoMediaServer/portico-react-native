@@ -73,6 +73,8 @@ const {default: browseGalleries} = await import('../src-next/dev/families/browse
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
+const {default: stateGalleries} = await import('../src-next/dev/families/states/states.gallery.tsx');
+const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
@@ -347,4 +349,16 @@ test('TV panel artwork gets a full unpadded frame independent of the controls pa
     assert.equal(svg.props.height, '100%');
     assert.equal(svg.props.style, undefined);
   } finally {panel.host.unmount();}
+});
+
+
+test('real state galleries request initial TV focus only on TV, preserving the native phone state', () => {
+  for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const id of ['states-connection', 'states-page-failure']) {
+      const gallery = mount(stateGalleries.find(value => value.id === id)!.render, {});
+      try {assert.equal(find(gallery.tree, StateLayout).props.primaryAction.hasTVPreferredFocus, isTV);}
+      finally {gallery.host.unmount();}
+    }
+  }
 });
