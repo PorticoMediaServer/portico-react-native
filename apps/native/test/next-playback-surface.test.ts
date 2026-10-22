@@ -22,7 +22,7 @@ function mount(component: any, initial: any) {
   return {host, get tree() {return tree;}, update(next: any) {props = next; host.rerender();}};
 }
 
-async function surfaceFixture() {
+async function surfaceFixture(os = 'android') {
   let snapshot: any = {engine: 'native', lease: '', fence: undefined};
   let attachments = 0, detachments = 0, subscriptions = 0;
   const listeners = new Set<() => void>(), tags: {owner: object; tag: number | null}[] = [], subtitles: boolean[] = [], requested: string[] = [];
@@ -40,7 +40,7 @@ async function surfaceFixture() {
       AppState: {addEventListener: () => ({remove() {}})}, Dimensions: {get: () => ({width: 1920, height: 1080})},
       NativeEventEmitter: class {addListener() {return {remove() {}};}},
       NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request'}},
-      Platform: {OS: 'android', isTV: true, Version: 35, constants: {}},
+      Platform: {OS: os, isTV: true, Version: 35, constants: {}},
       UIManager: {hasViewManagerConfig: () => true}, findNodeHandle: (node: {tag: number}) => node.tag,
       requireNativeComponent: (name: string) => {requested.push(name); return name;},
     },
@@ -71,17 +71,21 @@ test('the actual native host hides on close before lease release and keeps its t
   ref({tag: 71});
   try {
     assert.equal(flatten(surface.tree.props.style).display, 'none', 'idle hiding must reach the native host itself');
+    assert.equal(surface.tree.props.surfaceActive, false, 'native producer admission must not depend on Fabric laying out a hidden descendant');
     assert.equal(surface.tree.props.lease, '');
     await d.publish({engine: 'native', lease: 'actual-lease', fence});
     assert.equal(flatten(surface.tree.props.style).display, 'flex');
+    assert.equal(surface.tree.props.surfaceActive, true);
     assert.equal(surface.tree.props.lease, 'actual-lease');
     surface.update({...props, docked: true, subtitlesVisible: false});
     assert.equal(flatten(surface.tree.props.style).width, dockFrame.width);
+    assert.equal(surface.tree.props.surfaceActive, true, 'docking must retain the admitted native producer');
     assert.equal(d.subtitles.at(-1), false);
     // Runtime close can publish fence-less idle before the async coordinator
     // releases its old lease. Neither publication may leave a black host visible.
     await d.publish({engine: 'native', lease: 'actual-lease', fence: undefined});
     assert.equal(flatten(surface.tree.props.style).display, 'none');
+    assert.equal(surface.tree.props.surfaceActive, false, 'close revokes composition even before asynchronous lease release');
     await d.publish({engine: 'native', lease: '', fence: undefined});
     assert.equal(flatten(surface.tree.props.style).display, 'none');
     const next = {...fence, sessionId: 'session-next', generation: 2};
@@ -89,6 +93,7 @@ test('the actual native host hides on close before lease release and keeps its t
     assert.equal(flatten(surface.tree.props.style).display, 'none');
     await d.publish({engine: 'native', lease: 'next-lease', fence: next});
     assert.equal(flatten(surface.tree.props.style).display, 'flex');
+    assert.equal(surface.tree.props.surfaceActive, true);
     assert.strictEqual(surface.tree.type, type);
     assert.strictEqual(surface.tree.props.ref, ref);
     assert.equal(surface.tree.key, null);
@@ -113,14 +118,27 @@ test('a leased native host stays hidden for missing or invalid target bounds', a
     assert.equal(flatten(surface.tree.props.style).display, 'flex');
     surface.update({...props, docked: true});
     assert.equal(flatten(surface.tree.props.style).display, 'none');
+    assert.equal(surface.tree.props.surfaceActive, false);
     for (const bounds of [{...frame, width: 0}, {...frame, height: -1}, {...frame, x: NaN}, {...frame, width: Infinity}]) {
       surface.update({...props, expandedBounds: bounds});
       assert.equal(flatten(surface.tree.props.style).display, 'none');
+      assert.equal(surface.tree.props.surfaceActive, false);
       for (const key of ['left', 'top', 'width', 'height']) assert.equal(Number.isFinite(flatten(surface.tree.props.style)[key]), true);
     }
     surface.update(props);
     assert.equal(flatten(surface.tree.props.style).display, 'flex');
+    assert.equal(surface.tree.props.surfaceActive, true);
     assert.equal(d.attachments, 1);
+  } finally {surface.host.unmount();}
+});
+
+test('Android producer admission is not sent to the Apple bridge', async () => {
+  const d = await surfaceFixture('ios');
+  const surface = mount(d.adapter.Surface, {expandedBounds: frame, docked: false, subtitlesVisible: false});
+  try {
+    assert.equal('surfaceActive' in surface.tree.props, false);
+    await d.publish({engine: 'native', lease: 'actual-lease', fence});
+    assert.equal('surfaceActive' in surface.tree.props, false);
   } finally {surface.host.unmount();}
 });
 
