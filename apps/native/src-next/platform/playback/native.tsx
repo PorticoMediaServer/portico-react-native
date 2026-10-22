@@ -107,9 +107,15 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     useEffect(() => { runtime.setSubtitleDisplay(subtitlesVisible && !docked); }, [subtitlesVisible, docked]);
     const kind = state.engine;
     const SurfaceView = views[kind] ??= requireNativeComponent<NativeSurfaceProps>(names[kind].view);
-    const bounds = docked ? dockBounds : expandedBounds;
+    const target = docked ? dockBounds : expandedBounds;
+    const bounds = target && [target.x, target.y, target.width, target.height].every(Number.isFinite) && target.width > 0 && target.height > 0 ? target : undefined;
+    const visible = !!bounds && !!state.fence && !!state.lease;
+    // Releasing the lease detaches the decoder, but the native black stage and
+    // SurfaceView remain mounted. Hide that exact host through native layout as
+    // well as alpha; a retained SurfaceFlinger identity alone says nothing about
+    // visibility. Keep the component/ref/owner stable across idle and new sources.
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
-      style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, opacity: bounds && state.lease ? 1 : 0}} />;
+      style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, selectionPlayback: runtime.selectionPlayback, Surface,
