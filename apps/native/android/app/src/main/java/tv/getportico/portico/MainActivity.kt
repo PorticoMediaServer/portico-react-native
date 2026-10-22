@@ -11,6 +11,7 @@ import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import tv.getportico.portico.native.PorticoAccountAuth
+import tv.getportico.portico.native.PorticoOverlayKeys
 import tv.getportico.portico.native.PorticoPictureInPicture
 
 class MainActivity : ReactActivity() {
@@ -55,6 +56,8 @@ class MainActivity : ReactActivity() {
    * developer menu in a debug build) does not run on a television.
    */
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    // A native Modal has its own focused window and already owns Escape/BACK handling.
+    if (window.decorView.hasWindowFocus() && PorticoOverlayKeys.dispatch(event) { super.dispatchKeyEvent(it) }) return true
     if (event.keyCode != KeyEvent.KEYCODE_MENU || !TelevisionDisplay.isTelevision) return super.dispatchKeyEvent(event)
     window.superDispatchKeyEvent(event)
     return true

@@ -61,6 +61,8 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     if (player != null) controller?.displaySurface = suppliedSurface
   }
 
+  fun shows(player: ExoPlayer?): Boolean = player != null && attached === player
+
   fun update(controller: PorticoPlaybackController?, active: Boolean) {
     val cue = controller?.subtitleCue
     val text = if (active) cue?.text ?: "" else ""
@@ -131,6 +133,16 @@ internal class PorticoPlayerView(private val reactContext: ThemedReactContext) :
   fun setLease(value: String?) {
     lease = value ?: ""
     attach()
+  }
+
+  fun snapshotTarget(expected: Map<String, Any?>): PorticoSnapshotTarget? {
+    val controller = PorticoPlaybackController.shared ?: return null
+    val token = controller.snapshotIdentity(expected) ?: return null
+    val picture = stage.surface
+    fun current() = PorticoPlaybackController.shared === controller && isAttachedToWindow && isShown &&
+        owns(controller) && expected["lease"] == lease && !PorticoPictureInPicture.active && stage.shows(controller.player) &&
+        controller.displaySurface?.invoke() === picture.holder.surface && controller.snapshotIdentity(expected) == token
+    return if (current()) PorticoSnapshotTarget(picture, ::current) else null
   }
 
   /** A change of this number is the viewer asking for Picture in Picture (or to leave it). */

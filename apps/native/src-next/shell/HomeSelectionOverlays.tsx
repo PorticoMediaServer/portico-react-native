@@ -52,7 +52,9 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   const typeCounts = new Map<SelectionKind, number>();
   for (const member of members) typeCounts.set(member.item.kind, (typeCounts.get(member.item.kind) ?? 0) + 1);
   const groups = [...typeCounts].map(([kind, total]) => ({kind, count: total, label: t('next.home.native.selectionType', {kind}), icon: kindIcon(kind)}));
-  const description = t('next.home.native.mixedSelection', {types: defaultI18n.list([...typeCounts].map(([kind, total]) => t('next.home.native.selectedType', {kind, count: total})))});
+  const description = state.editExplanation === 'no-bulk-fields'
+    ? t('next.selection.native.noBulkFields')
+    : t('next.home.native.mixedSelection', {types: defaultI18n.list([...typeCounts].map(([kind, total]) => t('next.home.native.selectedType', {kind, count: total})))});
   const rating = state.rating;
   const ratingTitle = members[0] && memberTitle(members[0], runtime);
   const mutation = (value: number | null) => {controller.setRatingValue(value); void controller.submitRating().catch(reportError);};

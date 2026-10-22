@@ -151,7 +151,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
             body={homeCollectionCaption(row.collection, runtime.text)[0]?.text}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} backdrop={runtime.artwork(row.collection.backdropUrl)} ambient={runtime.ambient(row.collection.backdropUrl)} visible={shown}
             selection={itemSelection(runtime.selection(row.id), row.collection.collection.id)} onMore={() => guarded(() => runtime.actions.collectionMore(row.collection!, row.id))}
-            primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/>
+            primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/></View>
           : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} itemWidth={width} itemHeight={height}
             gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}

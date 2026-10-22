@@ -2,6 +2,8 @@ export type {KitMessageId, KitMessageValues, KitTranslate, FactRole, FactPart, T
 export {timelineFacts} from './text.ts';
 export {cardText, titleFactParts, episodeLabel, playbackIdentity} from './facts.ts';
 export type {TitleKind, EpisodeNumbering, CardContext, TitleFactContext, TitleFacts, CardSubject, CardTextModel, PlaybackSubject, PlaybackIdentityModel} from './facts.ts';
+export {collectionCaptionParts} from './collections.ts';
+export type {CollectionCaptionFacts} from './collections.ts';
 export {cardGeometry, hasUniformGeometry} from './geometry.ts';
 export type {GeometrySubject, GeometryContext, CardGeometry} from './geometry.ts';
 export {appliedFilterParts} from './filters.ts';
@@ -14,3 +16,5 @@ export {fileInfoModel} from './files.ts';
 export type {TechnicalRow, FileFacts, OwnerFileFacts, FileInfoAccess, ManageAction, FileInfoModel} from './files.ts';
 export {playbackInfoModel, sessionFactParts, qualityControlModel} from './playback.ts';
 export type {StreamDecision, StreamDecisions, SubtitleOrigin, PlaybackFacts, PlaybackInfoRow, SessionFacts, QualityFacts, QualityControlModel} from './playback.ts';
+export {browseToolbarModel} from './browse.ts';
+export type {BrowseToolbarEnvironment, BrowseQuickModel, BrowseFilterGroup, BrowseToolbarModel} from './browse.ts';
