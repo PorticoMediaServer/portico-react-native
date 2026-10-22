@@ -1,7 +1,7 @@
 /** APL-HOME-03 / TV-PLAYER-03: progress broadcasts and invoker focus return. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHookHost, act} from './hook-driver.ts';
+import {createHookHost} from './hook-driver.ts';
 import {emitPlaybackChange, rememberInvoker, restoreInvoker, useRefreshOnPlayback} from '../src/app/playback-events.ts';
 
 test('a progress change refreshes every subscriber once, debounced', (t) => {

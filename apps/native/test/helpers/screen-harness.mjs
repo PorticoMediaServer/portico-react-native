@@ -1,4 +1,5 @@
 import {readFile} from 'node:fs/promises';
+import {compileFunction} from 'node:vm';
 import {transformSync} from 'rolldown/utils';
 
 // Exercises a screen's exported pure helpers without a renderer or a server,
@@ -18,7 +19,7 @@ export async function screenModule(file, modules) {
     return `const ${bind} = modules[${JSON.stringify(source)}];`;
   }).replace(/export (async )?(const|function|class) (\w+)/g, (_, asyncPrefix, kind, name) => { exported.push(name); return `${asyncPrefix ?? ''}${kind} ${name}`; })
     .replaceAll('import.meta.env', '({DEV:false})');
-  return new Function('modules', (/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};')(modules);
+  return compileFunction((/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};', ['modules'], {filename: file.pathname})(modules);
 }
 
 export function hooks() {
