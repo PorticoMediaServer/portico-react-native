@@ -7,6 +7,7 @@ import {Button} from '../controls/index';
 import {useTheme} from '../theme';
 import {CardOverlays} from './MediaCards';
 import {ArtFrame, CardFrame, Parts, Progress, alpha, titleStyle, type CardProps} from './primitives';
+import {sessionViewerParts, type SessionViewer} from './session-identity';
 
 export type ResumeCardProps = CardProps & {
   artwork?: ArtworkSource | null;
@@ -72,10 +73,12 @@ export type SessionCardProps = CardProps & {
   paused?: boolean;
   height?: number;
   viewerBadge?: ReactNode;
+  /** Supplied profile and optional genuine username; absent viewer retains legacy facts. */
+  viewer?: SessionViewer;
 } & ({kind?: 'video' | 'audio'; channelMark?: never; channelName?: never; channelNumber?: never} | {kind: 'channel'; channelMark: ChannelMarkModel; channelName: string; channelNumber?: string});
 export function SessionCard(props: SessionCardProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? 640 : 358), height = props.height ?? (t.isTV ? 220 : 182), artWidth = t.isTV ? 176 : 124, artHeight = artWidth * 9 / 16;
-  const who = props.facts.filter(p => p.id === 'viewer' || p.id === 'account' || p.id === 'device');
+  const who = props.viewer ? sessionViewerParts(props.viewer) : props.facts.filter(p => p.id === 'viewer' || p.id === 'account' || p.id === 'device');
   const state = props.facts.find(p => p.id === 'state');
   const position = props.facts.filter(p => p.id === 'position' || props.kind === 'channel' && p.id === 'started');
   const facts = props.facts.filter(p => !['viewer', 'account', 'device', 'state', 'position', 'started'].includes(p.id));
