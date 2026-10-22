@@ -54,11 +54,13 @@ class Engine implements NativePlaybackTransport {
   get lastCommand() { return this.commands.at(-1)!; }
 }
 
+const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
+const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
 function fixture() {
-  const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind: id => id.startsWith('song') ? 'song' : 'movie'});
+  const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
-  let authority: PlaybackAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch-1', viewerFence: 'viewer-fence'};
+  let authority: PlaybackAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch-1', viewerFence: homeFence};
   let session: LocalSession | undefined = {accessToken: '', expiresAt: '2099-01-01T00:00:00Z', viewer: {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'owner'}, sessionFamilyId: 'family', tokenGeneration: '1', authorizationHorizon: 'horizon'};
   const authorityListeners = new Set<() => void>();
   const eventListeners = new Map<string, Set<(event: any) => void>>();
@@ -66,6 +68,7 @@ function fixture() {
   const timers = new Map<number, {ms: number; run: () => void}>();
   let timerSerial = 0;
   let before: ((request: FakeRequest) => Promise<void>) | undefined;
+  let respond: ((request: FakeRequest) => FakeResponse | undefined | Promise<FakeResponse | undefined>) | undefined;
   const channelSeeks = new Map<string, {id: string; positionMs: number; acknowledged: boolean}>();
   let channelWindow = {startMs: 20000, endMs: 120000};
   let markers: readonly Marker[] = [{id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true}];
@@ -76,15 +79,17 @@ function fixture() {
     requests.push(request);
     await before?.(request);
     let response: FakeResponse;
-    if (path === routePath('get_capabilities')) response = {status: 200, headers: {}, body: {features: {playback_v1_kinds: 'movie,episode,song,audiobook_file', playback_v1_channels: 'enabled'}}};
+    const supplied = await respond?.(request);
+    if (supplied) response = supplied;
+    else if (path === routePath('get_capabilities')) response = {status: 200, headers: {}, body: {features: {playback_v1_kinds: 'movie,episode,song,audiobook_file', playback_v1_channels: 'enabled'}}};
     else if (/^\/v1\/items\/[^/]+$/.test(path)) {
       const id = decodeURIComponent(url.pathname.split('/').at(-1)!);
-      response = {status: 200, headers: {}, body: {id, libraryId: 'library', kind: id.startsWith('song') ? 'song' : 'movie', title: id, durationMs: 180000, progressMs: 0, available: true}};
+      response = {status: 200, headers: {}, body: {id, libraryId: 'library', kind: itemKind(id), title: id, durationMs: 180000, progressMs: 0, available: true}};
     } else {
       response = await server.handle(request);
       if (path.includes('/playback-options') && response.status === 200) {
         const body = response.body as Record<string, unknown>, id = body.itemId as string;
-        response = {...response, body: {...body, kind: id.startsWith('song') ? 'song' : 'movie', markers}};
+        response = {...response, body: {...body, kind: itemKind(id), markers}};
       }
     }
     // The existing fake owns session/revision/timeline receipts. Add its missing linear
@@ -118,12 +123,14 @@ function fixture() {
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
     },
   });
-  const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: id.startsWith('song') ? 'song' : 'movie', title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
+  const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
   return {server, engine, runtime, requests, start,
     markers: (value: readonly Marker[]) => { markers = value; },
     pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
     intercept: (fn: typeof before) => { before = fn; },
+    respond: (fn: typeof respond) => { respond = fn; },
+    authority: (patch: Partial<PlaybackAuthority>, notify = true) => { authority = {...authority, ...patch}; if (notify) for (const listener of [...authorityListeners]) listener(); },
     changeAuthority: () => { authority = {...authority, epoch: 'epoch-2'}; session = undefined; for (const listener of [...authorityListeners]) listener(); },
     settings: (patch: Partial<NativePlaybackSettings>) => { settings = {...settings, ...patch}; for (const listener of settingsListeners) listener(); },
     get disposedCapabilities() { return disposedCapabilities; },
@@ -424,7 +431,7 @@ test('a superseded preflight cannot create or mount a late session for its previ
   } finally { release?.(); d.runtime.dispose(); }
 });
 
-const selectionContext = (): SelectionContext => ({scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', viewId: 'home', privacyFence: 'viewer-fence'}, revision: {catalogRevision: '1', viewerRevision: '2'}});
+const selectionContext = (): SelectionContext => ({scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', viewId: 'home', privacyFence: homeFence}, revision: {catalogRevision: '1', viewerRevision: '2'}});
 function selected(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target = id): HomeSelectionPlaybackItem {
   return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target}}, target: {itemId: target}};
 }
@@ -786,5 +793,209 @@ test('an aggregate audio start uses its actual first queue kind and music speed 
     assert.equal(d.runtime.getSnapshot().dock.local?.kind, 'music');
     assert.equal(d.runtime.getSnapshot().dock.local?.expanded, false);
     assert.equal(d.engine.lastCommand.rate, 1);
+  } finally { d.runtime.dispose(); }
+});
+
+const detailPath = (id: string) => encodedRoutePath('get_items_id_detail', {id: encodeURIComponent(id)}) + '?related=all';
+function episodeDetail(id: string, viewerFence = detailFence, showId = 'show-1') {
+  return {scope: {serverId: 'server', libraryId: 'library', itemId: id, viewerFence}, revision: {catalog: 1, viewer: 1},
+    item: {id, libraryId: 'library', kind: 'episode', title: id, durationMs: 180000, progressMs: 0, available: true,
+      episode: {showId, showTitle: showId, seasonId: `${showId}-season-2`, seasonNumber: 2, numbering: 'seasonal', number: 3,
+        localIdentityStatus: 'identified', providerMatchStatus: 'matched', orderingBasis: 'aired', sourceBoundary: 'library'}},
+    personal: {revision: 1}, actions: [], metadata: {status: 'available'}, markers: []};
+}
+const detailResponse = (body: unknown): FakeResponse => ({status: 200, headers: {}, body});
+function assertEpisodeDetail(d: ReturnType<typeof fixture>, showId?: string) {
+  const snapshot = d.runtime.getSnapshot();
+  assert.ok(snapshot.fence?.kind === 'queue');
+  assert.equal(snapshot.fence.showId, showId);
+  assert.equal(snapshot.fence.seasonId, showId ? `${showId}-season-2` : undefined);
+  assert.equal(snapshot.dock.local?.fence.kind, 'queue');
+  if (snapshot.dock.local?.fence.kind === 'queue') {
+    assert.equal(snapshot.dock.local.fence.showId, showId);
+    assert.equal(snapshot.dock.local.fence.seasonId, showId ? `${showId}-season-2` : undefined);
+  }
+  assert.ok(snapshot.subject?.kind === 'video');
+  assert.deepEqual(snapshot.subject.item.show, showId ? {id: showId, title: showId} : undefined);
+  assert.equal(snapshot.authority.viewerFence, homeFence, 'the genuine Home fence is never replaced by a Detail fence');
+  assert.equal(snapshot.retired, false);
+}
+
+test('a genuine detail response with a different Home fence supplies episode metadata on the actual native session', async () => {
+  const d = fixture();
+  try {
+    d.respond(request => request.path === detailPath('episode-1') ? detailResponse(episodeDetail('episode-1')) : undefined);
+    await d.start('episode-1');
+    assert.notEqual(homeFence, detailFence);
+    assertEpisodeDetail(d, 'show-1');
+    const snapshot = d.runtime.getSnapshot();
+    assert.equal(snapshot.fence?.sessionId, snapshot.session?.id);
+    assert.equal(snapshot.fence?.sourceId, snapshot.session?.versionId);
+    assert.equal(snapshot.fence?.generation, snapshot.session?.presentation.generation);
+    assert.equal(d.engine.lastCommand.binding.sessionId, snapshot.session?.id);
+    assert.equal(snapshot.playback.phase, 'ready');
+    const request = d.requests.find(value => value.path === detailPath('episode-1'));
+    assert.equal(request?.method, 'GET');
+    assert.equal(request?.signal?.aborted, false);
+  } finally { d.runtime.dispose(); }
+});
+
+test('a genuine different-fence song detail also supplies the native dock artist and album', async () => {
+  const d = fixture();
+  const episode = episodeDetail('song-1');
+  const body = {...episode, item: {id: 'song-1', libraryId: 'library', kind: 'song', title: 'song-1', durationMs: 180000, available: true,
+    song: {albumId: 'album-1', albumTitle: 'album-1', albumArtist: 'artist-1', artist: 'artist-1', providerMatchStatus: 'matched'}}};
+  try {
+    d.respond(request => request.path === detailPath('song-1') ? detailResponse(body) : undefined);
+    await d.start('song-1');
+    const snapshot = d.runtime.getSnapshot();
+    assert.ok(snapshot.subject?.kind === 'music');
+    assert.equal(snapshot.subject.item.artist, 'artist-1');
+    assert.equal(snapshot.subject.item.album, 'album-1');
+    assert.equal(snapshot.authority.viewerFence, homeFence);
+    assert.equal(snapshot.fence?.sessionId, snapshot.session?.id);
+    assert.equal(snapshot.dock.local?.kind, 'music');
+  } finally { d.runtime.dispose(); }
+});
+
+test('wrong server, library, item and malformed detail responses cannot supply native episode metadata', async () => {
+  const body = episodeDetail('episode-1');
+  const rejected = [
+    {...body, scope: {...body.scope, serverId: 'other-server'}},
+    {...body, scope: {...body.scope, libraryId: 'other-library'}},
+    {...body, scope: {...body.scope, itemId: 'episode-other'}},
+    {...body, item: {...body.item, id: 'episode-other'}},
+    {...body, item: {...body.item, libraryId: 'other-library'}},
+    {...body, scope: {...body.scope, viewerFence: ''}},
+  ];
+  for (const raw of rejected) {
+    const d = fixture();
+    try {
+      d.respond(request => request.path === detailPath('episode-1') ? detailResponse(raw) : undefined);
+      await d.start('episode-1');
+      assert.equal(d.requests.filter(request => request.path === detailPath('episode-1')).length, 1);
+      assertEpisodeDetail(d);
+      assert.equal(d.runtime.getSnapshot().playback.phase, 'ready', 'the real session is independent of rejected detail metadata');
+    } finally { d.runtime.dispose(); }
+  }
+});
+
+test('a detail response that arrives after another item starts cannot overwrite its native metadata', async () => {
+  const d = fixture(); let finish!: (response: FakeResponse) => void, oldRequest: FakeRequest | undefined;
+  try {
+    d.respond(request => {
+      if (request.path === detailPath('episode-old')) { oldRequest = request; return new Promise(resolve => { finish = resolve; }); }
+      if (request.path === detailPath('episode-current')) return detailResponse(episodeDetail('episode-current', detailFence, 'show-current'));
+    });
+    await d.start('episode-old'); assert.ok(oldRequest);
+    await d.start('episode-current'); assertEpisodeDetail(d, 'show-current');
+    const winner = d.runtime.getSnapshot().fence;
+    assert.equal(oldRequest.signal?.aborted, true);
+    finish(detailResponse(episodeDetail('episode-old', detailFence, 'show-obsolete'))); await settle();
+    assertEpisodeDetail(d, 'show-current');
+    assert.deepEqual(d.runtime.getSnapshot().fence, winner);
+    assert.equal(d.runtime.getSnapshot().entry?.id, 'episode-current');
+  } finally { finish?.(detailResponse(episodeDetail('episode-old'))); d.runtime.dispose(); }
+});
+
+test('a late detail response for the same item cannot cross an actual presentation generation', async () => {
+  const d = fixture(); let finish!: (response: FakeResponse) => void, oldRequest: FakeRequest | undefined, reads = 0;
+  try {
+    d.respond(request => {
+      if (request.path !== detailPath('episode-1')) return;
+      if (++reads === 1) { oldRequest = request; return new Promise(resolve => { finish = resolve; }); }
+      return detailResponse(episodeDetail('episode-1', 'c'.repeat(64), 'show-current'));
+    });
+    await d.start('episode-1'); const before = d.runtime.getSnapshot(); assert.ok(before.fence && oldRequest);
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    await d.runtime.chooseQuality(before.fence, quality); await settle();
+    assert.ok(d.runtime.getSnapshot().fence!.generation > before.fence.generation);
+    assert.equal(d.runtime.getSnapshot().fence!.sessionId, before.fence.sessionId);
+    assert.equal(oldRequest.signal?.aborted, true);
+    assertEpisodeDetail(d, 'show-current');
+    finish(detailResponse(episodeDetail('episode-1', detailFence, 'show-obsolete'))); await settle();
+    assertEpisodeDetail(d, 'show-current');
+    await d.runtime.toggle(before.fence); await settle();
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'playing', 'the retired source fence still cannot control the new generation');
+  } finally { finish?.(detailResponse(episodeDetail('episode-1'))); d.runtime.dispose(); }
+});
+
+test('same-item source replacement clears old detail metadata while its new genuine response is pending', async () => {
+  const d = fixture(); let finish!: (response: FakeResponse) => void, pending: FakeRequest | undefined;
+  try {
+    d.respond(request => request.path === detailPath('episode-1') ? detailResponse(episodeDetail('episode-1')) : undefined);
+    await d.start('episode-1'); assertEpisodeDetail(d, 'show-1');
+    const before = d.runtime.getSnapshot(); assert.ok(before.fence);
+    d.respond(request => { if (request.path === detailPath('episode-1')) { pending = request; return new Promise(resolve => { finish = resolve; }); } });
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    await d.runtime.chooseQuality(before.fence, quality); await settle(); assert.ok(pending);
+    assertEpisodeDetail(d);
+    finish(detailResponse(episodeDetail('episode-1', 'c'.repeat(64), 'show-new-source'))); await settle();
+    assertEpisodeDetail(d, 'show-new-source');
+  } finally { finish?.(detailResponse(episodeDetail('episode-1'))); d.runtime.dispose(); }
+});
+
+test('late genuine detail responses cannot cross any current native authority input before owner notification', async () => {
+  for (const patch of [{serverId: 'other-server'}, {accountId: 'other-account'}, {profileId: 'other-profile'}, {epoch: 'other-epoch'}, {viewerFence: 'd'.repeat(64)}]) {
+    const d = fixture(); let finish!: (response: FakeResponse) => void, pending: FakeRequest | undefined;
+    try {
+      d.respond(request => { if (request.path === detailPath('episode-1')) { pending = request; return new Promise(resolve => { finish = resolve; }); } });
+      await d.start('episode-1'); assert.ok(pending);
+      d.authority(patch, false);
+      finish(detailResponse(episodeDetail('episode-1'))); await settle();
+      const snapshot = d.runtime.getSnapshot();
+      assert.equal(snapshot.retired, true);
+      assert.equal(snapshot.fence, undefined);
+      assert.equal(snapshot.subject, undefined);
+      assert.equal(snapshot.dock.local, null);
+      assert.equal(pending.signal?.aborted, true);
+      assert.equal(d.engine.subscriptions, 0);
+      assert.equal(d.subscriptions, 0);
+    } finally { finish?.(detailResponse(episodeDetail('episode-1'))); d.runtime.dispose(); }
+  }
+});
+
+test('a changed genuine Detail fence clears native metadata and cannot rebind within the same source lifetime', async () => {
+  const d = fixture(); let body = episodeDetail('episode-1');
+  try {
+    d.respond(request => request.path === detailPath('episode-1') ? detailResponse(body) : undefined);
+    await d.start('episode-1'); assertEpisodeDetail(d, 'show-1'); const session = d.runtime.getSnapshot().session;
+    body = episodeDetail('episode-1', 'c'.repeat(64), 'show-other-fence');
+    await d.runtime.refreshAuthority(); await settle(); assertEpisodeDetail(d);
+    assert.equal(d.runtime.getSnapshot().session?.id, session?.id);
+    assert.equal(d.runtime.getSnapshot().session?.presentation.generation, session?.presentation.generation);
+    // DetailService can decode a retry after clearing its data. The runtime's original
+    // response-fence binding must still reject that different fence on this source.
+    await d.runtime.refreshAuthority(); await settle(); assertEpisodeDetail(d);
+    assert.ok(d.requests.filter(request => request.path === detailPath('episode-1')).length >= 3);
+  } finally { d.runtime.dispose(); }
+});
+
+test('detail denial or invalid scope removes previously accepted native show and season metadata', async () => {
+  for (const response of [
+    {status: 401, headers: {}, body: {error: {code: 'unauthorized', message: 'unauthorized'}}},
+    {status: 403, headers: {}, body: {error: {code: 'forbidden', message: 'forbidden'}}},
+    {status: 404, headers: {}, body: {error: {code: 'not_found', message: 'not_found'}}},
+    detailResponse({...episodeDetail('episode-1'), scope: {...episodeDetail('episode-1').scope, libraryId: 'other-library'}}),
+  ]) {
+    const d = fixture(); let denied = false;
+    try {
+      d.respond(request => request.path === detailPath('episode-1') ? denied ? response : detailResponse(episodeDetail('episode-1')) : undefined);
+      await d.start('episode-1'); assertEpisodeDetail(d, 'show-1');
+      denied = true; await d.runtime.refreshAuthority(); await settle();
+      assertEpisodeDetail(d);
+    } finally { d.runtime.dispose(); }
+  }
+});
+
+test('same-detail-fence refreshes update native metadata while a transient read failure retains its validated data', async () => {
+  const d = fixture(); let response = detailResponse(episodeDetail('episode-1'));
+  try {
+    d.respond(request => request.path === detailPath('episode-1') ? response : undefined);
+    await d.start('episode-1'); assertEpisodeDetail(d, 'show-1');
+    response = {status: 503, headers: {}, body: {error: {code: 'busy', message: 'busy'}}};
+    await d.runtime.refreshAuthority(); await settle(); assertEpisodeDetail(d, 'show-1');
+    response = detailResponse(episodeDetail('episode-1', detailFence, 'show-current'));
+    await d.runtime.refreshAuthority(); await settle(); assertEpisodeDetail(d, 'show-current');
   } finally { d.runtime.dispose(); }
 });
