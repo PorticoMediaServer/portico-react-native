@@ -60,7 +60,7 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   // TV never has a minimized video surface or a phone's sender controls.
   if (occupant.mode !== 'music' && occupant.mode !== 'audiobook') return null;
   if (!expanded) return <Animated.View style={[animated, style]} testID={testID}>
-    <Focusable ref={opener} focusRadius={18} focusKind="card" focusTreatment="none" accessibilityRole="button" accessibilityLabel={t('player.nowPlayingTitle', {title: p.identity.title})}
+    <Focusable ref={opener} disabled={!visible} focusRadius={18} focusKind="card" focusTreatment="none" accessibilityRole="button" accessibilityLabel={t('player.nowPlayingTitle', {title: p.identity.title})}
       onFocus={() => onExpandedChange(true)} onPress={() => onExpandedChange(true)} style={[s.tvQuiet, {backgroundColor: alpha(sourceSurfaces.quiet, .8), borderWidth: 1, borderColor: alpha(theme.colors.text, .1)}]}>
       {glassRecipe().nativeBlur && <BlurView pointerEvents="none" style={s.fill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={sourceSurfaces.quiet}/>}
       <Artwork source={p.artwork} width={64} height={64} visible={visible} priority style={{borderRadius: 10, overflow: 'hidden'}}/>

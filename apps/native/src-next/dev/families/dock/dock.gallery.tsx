@@ -26,12 +26,12 @@ type Evidence = {
 declare global {var __porticoNativeDockEvidence: Evidence | undefined; var __porticoNativeDockCommands: DockCommand[] | undefined;}
 const scope: QueueScope = {serverId: 'gallery-server', authority: 'local', accountId: 'gallery-account', profileId: 'gallery-profile', controllerId: 'gallery-controller', controllerEpoch: 'gallery-epoch', commandLaneId: 'gallery-lane'};
 const fence: PlaybackFence = {playback: {scope, run: 1}, sessionId: 'gallery-session', itemId: 'gallery-item', sourceId: 'gallery-source', entryId: 'gallery-entry', generation: 1};
-type Case = 'music' | 'audiobook' | 'video' | 'menu' | 'finished' | 'paused' | 'handover' | 'connecting' | 'waiting' | 'playing' | 'stopped' | 'replaced' | 'error' | 'tv-music' | 'tv-book' | 'tv-expanded' | 'gesture';
+type Case = 'music' | 'audiobook' | 'video' | 'menu' | 'finished' | 'paused' | 'handover' | 'connecting' | 'waiting' | 'playing' | 'play-on' | 'stopped' | 'replaced' | 'error' | 'tv-music' | 'tv-book' | 'tv-expanded' | 'gesture';
 
 /** Deterministic DEV-only arbiter inputs. This does not assert real engine or session execution. */
 function fixture(kind: Case) {
   const book = kind === 'audiobook' || kind === 'tv-book', tv = kind.startsWith('tv-');
-  const remote = ['connecting', 'waiting', 'playing', 'stopped', 'replaced', 'error'].includes(kind);
+  const remote = ['connecting', 'waiting', 'playing', 'play-on', 'stopped', 'replaced', 'error'].includes(kind);
   const video = remote || ['video', 'menu', 'finished', 'gesture', 'handover'].includes(kind);
   const dock = new PlaybackDock(scope);
   const item = book ? {id: fence.itemId, kind: 'audiobook_file' as const, title: facts.book.title, author: facts.book.author, chapterNumber: 15} : video ? {id: fence.itemId, kind: 'episode' as const, title: facts.video.episode, show: {title: facts.video.title}, episode: {mode: 'seasonal' as const, season: 1, episode: 1}} : {id: fence.itemId, kind: 'song' as const, title: tv ? facts.tvMusic.title : facts.music.title, artist: tv ? facts.tvMusic.artist : facts.music.artist};
@@ -39,7 +39,7 @@ function fixture(kind: Case) {
   const local: DockPlayback = {fence, kind: mode, queue: null, positionSeconds: book ? 20880 : kind === 'finished' ? 2940 : video ? 724 : tv ? 96 : 9.56, playing: !['paused', 'tv-book', 'finished'].includes(kind), expanded: false};
   if (kind === 'handover') dock.start({...local, kind: 'music', positionSeconds: 34, fence: {...fence, sessionId: 'gallery-audio', sourceId: 'gallery-audio', itemId: 'gallery-song'}});
   dock.start(local);
-  if (remote) dock.beginRemote({id: 'gallery-remote', kind: 'cast', phase: kind as RemotePhase, sequence: '1', playback: local, positionSeconds: 1420}, 0);
+  if (remote) dock.beginRemote({id: 'gallery-remote', kind: kind === 'play-on' ? 'play-on' : 'cast', phase: kind === 'play-on' ? 'playing' : kind as RemotePhase, sequence: '1', playback: local, positionSeconds: 1420}, 0);
   const model: DockPresentation = {fence, identity: playbackIdentity({kind: mode, item}, 'dock', {t: defaultI18n.t}), durationSeconds: book ? 36000 : video ? 2940 : kind === 'tv-music' ? 200 : tv ? 185 : 239, skipBackSeconds: 10,
     capabilities: {play: true, pause: true, stop: true, seek: true, previous: !video, next: true, cast: false}, finished: kind === 'finished',
     ...(tv && !book ? {album: [{id: 'album', text: facts.tvMusic.album, role: 'context'}, {id: 'year', text: facts.tvMusic.year, role: 'context'}] as const} : {}), ...(remote ? {device: facts.device} : {})};
@@ -104,6 +104,7 @@ const cases: readonly [string, Case, 'phone' | 'tv'][] = [
   ['dock-phone-music', 'music', 'phone'], ['dock-phone-audiobook', 'audiobook', 'phone'], ['dock-phone-video', 'video', 'phone'], ['dock-phone-menu', 'menu', 'phone'], ['dock-phone-finished', 'finished', 'phone'], ['dock-phone-paused', 'paused', 'phone'],
   ['dock-phone-handover', 'handover', 'phone'],
   ['dock-phone-remote-connecting', 'connecting', 'phone'], ['dock-phone-remote-waiting', 'waiting', 'phone'], ['dock-phone-remote-playing', 'playing', 'phone'], ['dock-phone-remote-stopped', 'stopped', 'phone'], ['dock-phone-remote-replaced', 'replaced', 'phone'], ['dock-phone-remote-error', 'error', 'phone'],
+  ['dock-phone-play-on', 'play-on', 'phone'],
   ['dock-tv-music', 'tv-music', 'tv'], ['dock-tv-audiobook', 'tv-book', 'tv'], ['dock-tv-expanded', 'tv-expanded', 'tv'], ['dock-phone-gesture', 'gesture', 'phone'],
 ];
 const galleries: Gallery[] = cases.map(([id, kind, platform]) => ({id, title: platform === 'tv' ? 'next.dock.native.gallery.tv' : kind === 'gesture' ? 'next.dock.native.gallery.motion' : kind === 'music' || kind === 'audiobook' || kind === 'paused' ? 'next.dock.native.gallery.music' : kind.startsWith('tv-') ? 'next.dock.native.gallery.tv' : ['video', 'menu', 'finished'].includes(kind) ? 'next.dock.native.gallery.video' : 'next.dock.native.gallery.remote', platforms: platform === 'tv' ? ['tv'] : ['phone', 'tablet'], render: function GalleryCase() {return <DockCase kind={kind}/>;}}));

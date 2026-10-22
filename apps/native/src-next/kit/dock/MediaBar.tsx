@@ -136,6 +136,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, onMen
     <Popover open={menu && !remote} onOpenChange={changeMenu} anchorRef={bar} returnFocusRef={opener} initialFocusRef={firstMenu} title={p.identity.title} modal backdropOpacity={0} placement="top-start" width={250} offset={8}
       style={{backgroundColor: theme.colors.raisedBright, borderRadius: 14}} contentStyle={{paddingVertical: 6}}>
       {menuRows.map((row, index) => <Focusable key={row.id} ref={index === 0 ? firstMenu : undefined} accessibilityRole="menuitem" accessibilityLabel={row.label}
+        disabled={!commandAllowed(occupant, row.action)}
         onPress={() => {changeMenu(false); act(row.action);}} style={{height: 42, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.text, .06)}}>
         <Icon name={row.icon} size={20} color={row.id === 'stop' ? theme.colors.record : theme.colors.textSecondary}/><Text style={[dockType(theme, 14.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
       </Focusable>)}
