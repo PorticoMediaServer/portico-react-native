@@ -19,6 +19,7 @@ class PorticoPackage : ReactPackage {
       PorticoSiriRemote(reactContext),
       PorticoOverlayKeys(reactContext),
       PorticoHaptics(reactContext),
+      PorticoPosture(reactContext),
       PorticoVideoSnapshot(reactContext),
       PorticoNetwork(reactContext),
       PorticoAccountAuth(reactContext),
