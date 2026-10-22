@@ -279,7 +279,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
       ? null
       : {
           itemId: systemItemId,
-          title: identity.title || 'Now playing',
+          title: identity.title || i18n.t('web.together.nowPlaying'),
           subtitle: identity.subtitle,
           seriesTitle: identity.seriesTitle,
           origin: api.baseUrl,
@@ -315,7 +315,7 @@ export function VideoPlayer({engine}: {engine: PlayerEngine}) {
   const [lyricsOn, setLyricsOn] = useState(true);
   const lyricsShown = lyricsAllowed && lyricsOn;
   // OS-03 (iOS): Handoff/Spotlight/Siri learn the title being played.
-  useCurrentActivity(isAudio || !systemItemId || state.channel ? null : {itemId: systemItemId, title: identity.title || 'Now playing', subtitle: [identity.seriesTitle, identity.subtitle].filter(Boolean).join(' · ') || undefined, webUrl: session?.viewer.authority === 'hosted' ? `https://web.getportico.tv/media/${encodeURIComponent(systemItemId)}` : undefined});
+  useCurrentActivity(isAudio || !systemItemId || state.channel ? null : {itemId: systemItemId, title: identity.title || i18n.t('web.together.nowPlaying'), subtitle: [identity.seriesTitle, identity.subtitle].filter(Boolean).join(' · ') || undefined, webUrl: session?.viewer.authority === 'hosted' ? `https://web.getportico.tv/media/${encodeURIComponent(systemItemId)}` : undefined});
   // FEAT-12 / OS-05 (tvOS): with the timeline focused, sliding a finger on the Siri Remote's
   // surface scrubs the existing timeline, and lifting it seeks there.
   const [scrub, setScrub] = useState<number>();

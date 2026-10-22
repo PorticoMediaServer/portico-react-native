@@ -164,7 +164,7 @@ function Room() {
           <View style={{gap: space.sm}}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: space.sm}}>
               <Badge label={groupStateLabel(i18n.t, group.state)} tone={playing ? 'accent' : 'neutral'} />
-              {group.timeline.itemId ? <Ticking>{() => <Text variant="caption" tone="tertiary">{clock(position())}{now?.duration ? ` of ${clock(now.duration)}` : ''}</Text>}</Ticking> : null}
+              {group.timeline.itemId ? <Ticking>{() => <Text variant="caption" tone="tertiary">{now?.duration ? i18n.t('web.together.positionOf', {position: clock(position()), duration: clock(now.duration)}) : clock(position())}</Text>}</Ticking> : null}
             </View>
             <Text variant="heading" numberOfLines={2}>{current === 'chosen' ? (now === null ? i18n.t('web.together.hiddenTitle') : now?.title ?? i18n.t('web.together.loadingTitle')) : current === 'hidden' ? i18n.t('web.together.hiddenTitle') : i18n.t('web.together.nothingChosen')}</Text>
             <Text variant="caption" tone="tertiary">{current !== 'none' ? readinessLine(i18n.t, group.readiness) : can.canManageQueue ? i18n.t('web.together.pickHelpHold') : i18n.t('web.together.hostPicks')}</Text>
