@@ -12,7 +12,9 @@
     "lint:strings": "node ../../packages/i18n/scripts/lint-strings.mjs src ../../packages/i18n/baselines/apple.json --all --strict && node ../../packages/i18n/scripts/lint-raw-errors.mjs src && node ../../packages/i18n/scripts/lint-glossary.mjs && node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict && node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict",
     "lint:boundary": "node scripts/lint-boundary.mjs",
     "check:next": "npm run lint:boundary && npm run lint:hooks && npm run lint:strings && npm run typecheck && npm run typecheck:next-test && npm test",
-    "typecheck:next-test": "tsc -p test/tsconfig.next.json --noEmit"
+    "typecheck:next-test": "tsc -p test/tsconfig.next.json --noEmit",
+    "postinstall": "node scripts/patch-apple-blur.mjs",
+    "test:apple-blur-patch": "node --test-concurrency=1 --test test/apple-blur-patch.test.mjs"
   },
   "dependencies": {
     "@bacons/text-decoder": "0.0.0",

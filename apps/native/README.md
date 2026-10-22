@@ -51,6 +51,23 @@ cd ios && pod install && xcodebuild -workspace Portico.xcworkspace -scheme Porti
 Debug builds load JS from `127.0.0.1:19424`. `npx tsc --noEmit` must stay
 clean.
 
+The pinned `@react-native-community/blur` 4.4.1 Apple source is patched by
+`npm` postinstall and again before autolinking in both Podfiles. The offline
+`node scripts/patch-apple-blur.mjs` hook accepts only the exact pinned version
+and known original/patched source hashes; unexpected inputs abort setup.
+Review the patch when changing the dependency. `npm run test:apple-blur-patch`
+checks controlled copies without changing installed dependencies. The patch
+definition and upstream MIT notice are in `scripts/patches/`.
+
+Apple blur uses normal public `UIBlurEffect` materials selected by `blurType`.
+Current callers select `dark` (`UIBlurEffectStyleDark`) on iOS and tvOS.
+`blurAmount` remains accepted and bridged, but all values (including 0 and the
+default 10) use that material's UIKit-controlled intensity; 0 does not disable
+the effect. This trades numeric radius control for the public style API.
+Existing translucent fills, style mappings and reduced-transparency fallback
+remain in place. Android's numeric behavior is unchanged. Apple is **written,
+not built**; this source candidate does not establish visual equivalence.
+
 **Release builds for the simulators** embed the JS bundle and need no Metro:
 `-configuration Release -sdk iphonesimulator` (or `appletvsimulator`) with
 `CODE_SIGN_IDENTITY=-`. Don't use `CODE_SIGNING_ALLOWED=NO`: it drops the
