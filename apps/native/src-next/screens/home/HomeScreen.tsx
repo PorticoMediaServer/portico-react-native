@@ -35,7 +35,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
 }) {
   const registry = useFocusRegistry();
-  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
+  const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const ids = useMemo(() => tvFocusIds(authority), [authority]);
   const theme = useTheme(), dimensions = useWindowDimensions();
   const desktop = theme.layoutMode === 'desktop';
@@ -59,6 +59,16 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
   });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, theme.isTV, vertical.offset]);
   const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
+  useEffect(() => {
+    if (!theme.isTV || spotlightEntered.current) return;
+    // Only the unopened page may acquire entry focus. An already focused rail,
+    // row or overlay owns it even when the Home document/artwork arrives later.
+    if (registry.capture() || railExpanded) {spotlightEntered.current = true; return;}
+    if (!heroActive || !foreground || !current() || !registry.host(ids.spotlight) || !registry.child(ids.start)) return;
+    // HeroCopy mounts after its artwork is ready. The guide and actual Play
+    // host must both exist before issuing this one platform lifecycle request.
+    if (registry.focus(ids.start)) spotlightEntered.current = true;
+  }, [current, focusRevision, foreground, heroActive, ids, railExpanded, registry, theme.isTV]);
   const pages = useMemo(() => new NativeHomePaging(runtime.home, () => sameAuthority(authority, runtime.getSnapshot().authority), error => runtime.reportError(error)), [authority, runtime]);
   const pagingRevision = useSyncExternalStore(pages.subscribe, pages.getSnapshot, pages.getSnapshot);
   useEffect(() => pages.activate(), [pages]);
@@ -128,8 +138,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const heroActions = (candidate: HomeCandidate) => {
     const offers = homeEntryCapabilities(candidate.entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
     const order = [...(offers.playable && candidate.target?.playback ? ['play'] : []), ...(offers.watchlisted !== undefined ? ['my-list'] : []), ...(offers.details ? ['details'] : [])];
-    return <HomeRegion focus={theme.isTV ? {...regionMap.spotlight, entry: order[0], orientation: 'horizontal', order} : undefined}>
-      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
+    return <HomeRegion focus={theme.isTV ? {...regionMap.spotlight, entry: order[0], orientation: 'horizontal', order,
+      style: {flexDirection: 'row', alignItems: 'center', gap: theme.spec.hero.actions.gap[theme.platform]}} : undefined}>
+      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
         onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
       {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
