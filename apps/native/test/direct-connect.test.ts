@@ -320,16 +320,23 @@ test('an address that answers at once is the only one asked', async () => {
   assert.deepEqual(asked, [0]);
 });
 
-test('an address that keeps quiet does not hold up the next ones', async () => {
-  const began = Date.now();
-  const asked: Record<number, number> = {};
-  // The likeliest gives no answer for 60 ms, then fails; the next is asked long before that.
-  const found = await firstAnsweringAtOnce(['quiet', 'b'], async (_origin, i) => {
-    asked[i] = Date.now() - began;
-    return i === 0 ? after(60, new Error('no answer'), true) : 'b';
+test('an address that keeps quiet does not hold up the next ones', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const asked: number[] = [];
+  let rejectQuiet!: (error: Error) => void;
+  const quiet = new Promise<never>((_, reject) => {rejectQuiet = reject;});
+  const pending = firstAnsweringAtOnce(['quiet', 'b'], async (_origin, i) => {
+    asked.push(i);
+    return i === 0 ? quiet : 'b';
   }, new AbortController().signal, 5);
+  assert.deepEqual(asked, [0]);
+  t.mock.timers.tick(4);
+  assert.deepEqual(asked, [0], 'the configured stagger is honored');
+  t.mock.timers.tick(1);
+  assert.deepEqual(asked, [0, 1], 'the next address starts while the first remains unanswered');
+  rejectQuiet(new Error('no answer'));
+  const found = await pending;
   assert.deepEqual(found, {origin: 'b', value: 'b'});
-  assert.ok(asked[1]! < 40, `the next address waited ${asked[1]} ms`);
 });
 
 test('the likeliest address that answers wins, even when a less likely one answers first', async () => {

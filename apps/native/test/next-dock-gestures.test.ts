@@ -5,6 +5,8 @@ import {PlaybackDock, sameFence, type ChannelPlaybackFence, type DockPlayback, t
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
+import {focusTestID} from '../src-next/kit/focus/registry.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule as transformModule} from './helpers/screen-harness.mjs';
 
@@ -98,6 +100,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   refresh();
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
+    '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)}, './playback': {nativeShellBackTransition: () => undefined},
