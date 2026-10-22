@@ -1,4 +1,5 @@
 export {NativeShell} from './NativeShell';
+export {WindowPostureProvider, useWindowPosture} from './WindowPosture';
 export {LastLibraryMemory} from './library-memory';
 export {restoreNativeShellRuntime} from './bootstrap';
 export {createNativeShellBindings} from './assembly';

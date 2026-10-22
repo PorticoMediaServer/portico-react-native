@@ -21,6 +21,7 @@ import * as kitModel from '../../../packages/client-core/src/presentation/kit-mo
 import * as layoutModel from '../src-next/kit/layout/model.ts';
 import {NativeHomePaging} from '../src-next/shell/home-paging.ts';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation.ts';
+import * as postureStore from '../src-next/platform/platformPostureStore.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -51,7 +52,7 @@ const host = (name, lifecycle) => React.forwardRef(function Host(props, ref) {
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
 const profile = {id: 'profile', name: 'Justin', color: '#28404f'};
 
-function environment({isTV = false, width = 599, height = 900} = {}) {
+function environment({isTV = false, width = 599, height = 900, os = 'android'} = {}) {
   let window = {width, height, scale: 2, fontScale: 1};
   let insets = {top: 24, right: 0, bottom: 34, left: 0};
   const dimensionListeners = new Set(), insetListeners = new Set();
@@ -64,8 +65,21 @@ function environment({isTV = false, width = 599, height = 900} = {}) {
     React.useImperativeHandle(ref, () => instance.current, []);
     return React.createElement('ScrollView', {...props, nativeInstance: instance.current}, props.children);
   });
-  const native = {View, Text, ScrollView, Image: host('Image'), RefreshControl: host('RefreshControl'), Platform: {OS: 'android', isTV}, useWindowDimensions,
+  const postureListeners = new Set();
+  const postureCounts = {subscriptions: 0, removals: 0, reads: 0};
+  const postureModule = {getSnapshot: async () => {postureCounts.reads++; return {revision: 0, status: 'pending', window: null, folds: []};}};
+  class NativeEventEmitter {
+    constructor(module) {assert.strictEqual(module, postureModule);}
+    addListener(event, listener) {
+      assert.equal(event, 'PorticoPostureChanged'); postureCounts.subscriptions++; postureListeners.add(listener);
+      return {remove() {postureCounts.removals++; postureListeners.delete(listener);}};
+    }
+  }
+  const native = {View, Text, ScrollView, Image: host('Image'), RefreshControl: host('RefreshControl'), Platform: {OS: os, isTV}, useWindowDimensions,
+    NativeEventEmitter, NativeModules: {PorticoPosture: postureModule},
     AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, useTVEventHandler() {}};
+  const platformPosture = load('../src-next/platform/platformPosture.ts', {react: React, 'react-native': native, './platformPostureStore': postureStore});
+  const windowPosture = load('../src-next/shell/WindowPosture.tsx', {react: React, '../platform/platformPosture': platformPosture});
   const safeArea = {useSafeAreaInsets: () => React.useSyncExternalStore(fn => {insetListeners.add(fn); return () => insetListeners.delete(fn);}, () => insets)};
   const {useSizeClass} = load('../src-next/kit/useSizeClass.ts', {'react-native': native, '../../../../packages/client-core/src': core});
   const theme = load('../src-next/kit/theme.ts', {react: React, 'react-native': native, '@portico/design': design,
@@ -108,7 +122,7 @@ function environment({isTV = false, width = 599, height = 900} = {}) {
     '../kit/useMotion': {useMotion: () => motion}, '../kit/focus': focus, '../screens/home/HomeScreen': {HomeScreen},
     './PhoneTabBar': {PhoneTabBar}, './PhoneHomeHeader': {PhoneHomeHeader: host('PhoneHomeHeader')}, './TouchNavigation': {TouchNavigation},
     './TVRail': {TVRail: host('TVRail')}, './TVProfileMenu': {TVProfileMenu: host('TVProfileMenu')},
-    './NativePlaybackLayer': {NativePlaybackLayer: () => React.createElement(Lifetime, {kind: 'playback'})}});
+    './NativePlaybackLayer': {NativePlaybackLayer: () => React.createElement(Lifetime, {kind: 'playback'})}, './WindowPosture': windowPosture});
   let shellSnapshot = {authority, destination: {kind: 'home'}, libraries: [{id: 'read', name: 'Read', kind: 'books'}, {id: 'movie', name: 'Movies', kind: 'movie'}],
     hasLiveTV: true, profile, homeVisible: true, mediaExpanded: false, homeObscured: false, selectionActive: false, account: {viewerRole: 'owner'}};
   const shellListeners = new Set();
@@ -122,11 +136,12 @@ function environment({isTV = false, width = 599, height = 900} = {}) {
     return React.createElement(Lifetime, {kind: 'page'}, React.createElement('Page', {state: state.current}));
   });
   let loads = 0, scrollRequests = 0;
+  function PostureProbe() {return React.createElement('PostureProbe', {snapshot: windowPosture.useWindowPosture()});}
   const runtime = {getSnapshot: () => shellSnapshot, subscribe: fn => {shellListeners.add(fn); return () => shellListeners.delete(fn);},
     memory: {read: async () => undefined, remember: async () => {}}, reportError: error => {throw error;},
     scrollToTop: () => {scrollRequests++;}, onDestination: destination => {shellSnapshot = {...shellSnapshot, destination}; for (const fn of shellListeners) fn();},
     registerScrollToTop: (destination, move) => {anchors.set(destination.kind, move); return () => anchors.delete(destination.kind);},
-    renderDestination: () => React.createElement(Page, {ref: pageRef}), renderRoutes: () => null, renderSelection: () => null,
+    renderDestination: () => React.createElement(Page, {ref: pageRef}), renderRoutes: () => React.createElement(PostureProbe), renderSelection: () => null,
     home: {subscribe: () => () => {}, getSnapshot: () => homeSnapshot, load: async () => {loads++;}},
     artwork: () => undefined, ambient: () => undefined, heroArt: () => undefined, onArtworkError() {}, libraryMenu: () => ({}),
     text: {t: defaultI18n.t, locale: 'en-US'}, actions: {customize() {}}, playback: {}};
@@ -136,15 +151,17 @@ function environment({isTV = false, width = 599, height = 900} = {}) {
   const tree = () => React.createElement(theme.ThemeProvider, null, React.createElement(Probe), React.createElement(NativeShell, {runtime}));
   const flatten = style => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style ?? {};
   let renderer;
-  return {theme, TouchNavigation, runtime, lifetimes, pageRef, anchors,
+  return {theme, TouchNavigation, runtime, lifetimes, pageRef, anchors, posture: platformPosture.platformPosture, postureCounts,
     get loads() {return loads;}, get scrollRequests() {return scrollRequests;}, get listenerCount() {return dimensionListeners.size;},
     get root() {return renderer.root;}, get renderer() {return renderer;}, flatten,
     async mount() {await act(async () => {renderer = create(tree(), {createNodeMock: element => ({testID: element.props.testID, scrollY: 0, scrollTo({y}) {this.scrollY = y;}})});});},
     async resize(next, nextInsets) {await act(async () => {window = {...window, ...next}; for (const fn of [...dimensionListeners]) fn({window});
       if (nextInsets) {insets = {...insets, ...nextInsets}; for (const fn of [...insetListeners]) fn();}});},
     async navigate(kind) {await act(async () => runtime.onDestination({kind}));},
+    async emitPosture(value) {await act(async () => {for (const fn of [...postureListeners]) fn(value);});},
     async press(id) {await act(async () => renderer.root.findAllByType('Focusable').find(node => node.props.testID === id).props.onPress());},
-    async dispose() {await act(async () => renderer.unmount()); assert.equal(dimensionListeners.size, 0); assert.equal(insetListeners.size, 0);},
+    async dispose() {await act(async () => renderer.unmount()); assert.equal(dimensionListeners.size, 0); assert.equal(insetListeners.size, 0);
+      assert.equal(postureListeners.size, 0); assert.equal(postureCounts.subscriptions, postureCounts.removals);},
   };
 }
 
@@ -240,5 +257,51 @@ test('TV at 1920 uses the D-pad rail regardless of expanded size class', async (
     await f.resize({width: 599, height: 400});
     assert.equal(f.root.findAllByType('TVRail').length, 1);
     assert.equal(f.root.findByType('SizeProbe').props.platform, 'tv');
+  } finally {await f.dispose();}
+});
+
+test('checked posture subscription is read-only and never overrides RN width or replaces page, scroll, provider or playback', async () => {
+  const f = environment({width: 626}); await f.mount();
+  try {
+    assert.deepEqual(f.postureCounts, {subscriptions: 1, removals: 0, reads: 1});
+    const home = byID(f, 'native-home')[0], scroll = home.props.nativeInstance, anchor = f.anchors.get('home');
+    scroll.scrollY = 411;
+    const fold = {bounds: {left: 0, top: 440, right: 1920, bottom: 450}, state: 'half-opened', orientation: 'horizontal', isSeparating: true, occlusion: 'none'};
+    for (const report of [
+      {revision: 1, status: 'available', window: {width: 1920, height: 900}, folds: [fold]},
+      {revision: 2, status: 'available', window: {width: 466, height: 678}, folds: [{...fold, state: 'flat', orientation: 'vertical'}]},
+      {revision: 3, status: 'available', window: {width: 1024, height: 768}, folds: []},
+    ]) {
+      await f.emitPosture(report);
+      const snapshot = f.root.findByType('PostureProbe').props.snapshot;
+      assert.strictEqual(snapshot, f.posture.getSnapshot()); assert.equal(snapshot.status, 'available');
+      assert.ok(Object.isFrozen(snapshot)); assert.deepEqual(snapshot.folds, report.folds);
+      assertClass(f, 'medium', 'touch-rail');
+      assert.strictEqual(byID(f, 'native-home')[0], home); assert.strictEqual(byID(f, 'native-home')[0].props.nativeInstance, scroll);
+      assert.equal(scroll.scrollY, 411); assert.strictEqual(f.anchors.get('home'), anchor);
+      assert.deepEqual(f.runtime.getSnapshot().destination, {kind: 'home'});
+    }
+    await f.resize({width: 466}); assertClass(f, 'compact', 'phone-tab-bar');
+    await f.navigate('search'); const page = f.root.findByType('Page'), ref = f.pageRef.current;
+    for (const [revision, status] of [[4, 'pending'], [5, 'unavailable']]) {
+      await f.emitPosture({revision, status, window: null, folds: []});
+      assert.equal(f.root.findByType('PostureProbe').props.snapshot.status, status);
+      assertClass(f, 'compact', 'phone-tab-bar'); assert.strictEqual(f.root.findByType('Page'), page); assert.strictEqual(f.pageRef.current, ref);
+    }
+    await f.resize({width: 1024}); assertClass(f, 'expanded', 'touch-sidebar');
+    assert.strictEqual(f.root.findByType('Page'), page); assert.strictEqual(f.pageRef.current, ref);
+    assert.deepEqual(ref, {topVisibleItem: 'item-17', offsetWithinItem: 12, query: 'retained'});
+    assert.equal(f.loads, 1); assert.equal(f.scrollRequests, 0);
+    assert.deepEqual(f.lifetimes.provider, {mount: 1, unmount: 0}); assert.deepEqual(f.lifetimes.playback, {mount: 1, unmount: 0});
+    assert.deepEqual(f.postureCounts, {subscriptions: 1, removals: 0, reads: 1});
+  } finally {await f.dispose();}
+});
+
+test('unsupported Apple posture stays unavailable while native shell size follows live RN width', async () => {
+  const f = environment({width: 626, os: 'ios'}); await f.mount();
+  try {
+    assert.deepEqual(f.root.findByType('PostureProbe').props.snapshot, {status: 'unavailable', window: null, folds: []});
+    assertClass(f, 'medium', 'touch-rail'); await f.resize({width: 466}); assertClass(f, 'compact', 'phone-tab-bar');
+    assert.deepEqual(f.postureCounts, {subscriptions: 0, removals: 0, reads: 0});
   } finally {await f.dispose();}
 });

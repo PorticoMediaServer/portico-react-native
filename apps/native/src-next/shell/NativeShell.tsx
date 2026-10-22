@@ -18,11 +18,12 @@ import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
 import {TouchNavigation} from './TouchNavigation';
+import {WindowPostureProvider} from './WindowPosture';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   // Permission/profile/server changes cannot reuse component state, focus, selections or images.
-  return <OverlaysProvider key={authorityKey(snapshot.authority)}><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></OverlaysProvider>;
+  return <OverlaysProvider key={authorityKey(snapshot.authority)}><WindowPostureProvider><ShellSession key={authorityKey(snapshot.authority)} runtime={runtime} snapshot={snapshot}/></WindowPostureProvider></OverlaysProvider>;
 }
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {

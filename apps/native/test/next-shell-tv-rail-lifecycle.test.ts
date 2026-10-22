@@ -35,7 +35,7 @@ test('the real TV shell retains its exact page opener through rail, route and pl
     '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {}, '../kit/theme': {useTheme: () => theme, useSizeClass: () => 'expanded'}, '../kit/useMotion': {useMotion: () => motion},
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': focusModel, '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './model': shellModel,
     './PhoneTabBar': {}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
-    './NativePlaybackLayer': {}, './TouchNavigation': {},
+    './NativePlaybackLayer': {}, './TouchNavigation': {}, './WindowPosture': {WindowPostureProvider: 'WindowPostureProvider'},
   });
   const frames = new Map<number, FrameRequestCallback>(); let sequence = 0;
   const previousFrame = globalThis.requestAnimationFrame, previousCancel = globalThis.cancelAnimationFrame;
