@@ -1,5 +1,6 @@
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
+import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import test, {type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
@@ -341,7 +342,7 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../../packages/client-core/src/presentation/home-spotlight': {}, '../../../../../packages/client-core/src/home-selection': {},
     '../../../../../packages/client-core/src/presentation/server-text': {}, '../../../../../packages/client-core/src/presentation/kit-model': {},
-    '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows},
+    '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {}, '../../kit/layout': {}, '../../kit/layout/types': {},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => anchor}, '../../kit/states': {HomeSkeleton: 'HomeSkeleton'},
     '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},

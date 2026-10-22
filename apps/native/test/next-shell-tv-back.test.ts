@@ -59,5 +59,9 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.equal(back(), true); assert.equal(pageCalls, 1);
   pageConsumes = false;
   assert.equal(back(), false, 'Home opening state falls through to OS on second Back');
+  const removeRail = bindings.registerTVRailBack(() => true);
+  navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
+  assert.equal(back(), true, 'rail Back returns to its actual page even away from Home');
+  removeRail();
   cleanup(); bindings.dispose(); navigation.dispose(); home.dispose();
 });

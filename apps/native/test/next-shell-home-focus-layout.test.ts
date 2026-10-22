@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
+import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {createTheme} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -32,7 +33,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../../../../packages/client-core/src/presentation/kit-model': {},
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
       '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
-      '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows},
+      '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
       '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {},
       '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
@@ -46,7 +47,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     let actions = descendants(hero.props.renderActions(candidate)).filter(node => node.type === 'Button');
     assert.equal(actions[0].props.hasTVPreferredFocus, true, 'Home starts on genuine spotlight Play, never a Continue card');
     const renderedRow = descendants(tree).find(node => node.type === 'Row');
-    assert.equal(renderedRow.props.renderItem({entry}, {index: 0}).props.preferred, false);
+    assert.equal(descendants(renderedRow.props.renderItem({entry}, {index: 0})).find(node => node.props.preferred !== undefined).props.preferred, false);
     actions[0].props.onFocus();
     tree = render();
     actions = descendants(descendants(tree).find(node => node.type === 'Hero').props.renderActions(candidate)).filter(node => node.type === 'Button');

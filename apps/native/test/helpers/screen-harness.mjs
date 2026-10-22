@@ -18,6 +18,10 @@ export async function screenModule(file, modules) {
     }
     return `const ${bind} = modules[${JSON.stringify(source)}];`;
   }).replace(/export (async )?(const|function|class) (\w+)/g, (_, asyncPrefix, kind, name) => { exported.push(name); return `${asyncPrefix ?? ''}${kind} ${name}`; })
+    .replace(/export\s*\{([^}]+)\};/g, (_, bindings) => bindings.split(',').map(binding => {
+      const [local, alias] = binding.trim().split(/\s+as\s+/); exported.push(alias ?? local);
+      return alias ? `const ${alias} = ${local};` : '';
+    }).join('\n'))
     .replaceAll('import.meta.env', '({DEV:false})');
   return compileFunction((/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};', ['modules'], {filename: file.pathname})(modules);
 }
