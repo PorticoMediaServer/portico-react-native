@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import type {ImageResizeMode, ImageStyle, StyleProp, ViewStyle} from 'react-native';
+import type {AnimatedStyle} from 'react-native-reanimated';
 import type {AmbientArtworkSource} from '../../../../../packages/client-core/src/artwork/index';
 import type {ChannelMarkModel} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 
@@ -65,7 +66,7 @@ export type AmbientArtProps = Readonly<{
   style?: StyleProp<ViewStyle>;
   /** Fixed foreground bounds and stationary masks; transforms belong to foregroundStyle. */
   foregroundFrameStyle?: StyleProp<ViewStyle>;
-  foregroundStyle?: StyleProp<ViewStyle>;
+  foregroundStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
   /** Fires after the foreground decoded, or after ambient decode when there is no foreground. */
   onReady?: (source: ArtworkSource) => void;
   /** Actual foreground Image failure or scheduler exhaustion; ambient failure only without foreground. */

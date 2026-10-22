@@ -68,6 +68,7 @@ const {Dialog, FocusBoundary} = await import('../src-next/kit/overlays/surface.t
 const {Menu} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
+const {SelectionCircle} = await import('../src-next/kit/selection/SelectionCircle.tsx');
 const {TextField} = await import('../src-next/kit/controls/TextField.tsx');
 const {Select} = await import('../src-next/kit/controls/Select.tsx');
 const {Switch} = await import('../src-next/kit/controls/Switch.tsx');
@@ -269,4 +270,22 @@ test('TV Delete keeps the owner, preview, exact confirmation and restriction gat
     dialog.update({...props, preview: {...preview, blocked: ['Actual library']}}); assert.match(text(dialog.tree), /Deleting is turned off/);
     dialog.update({...props, owner: false}); assert.equal(dialog.tree, null);
   } finally {dialog.host.unmount();}
+});
+
+test('a decorative circle gets its full native style state from Pressable without becoming a focus target', () => {
+  const nativeState = {pressed: false, focused: false};
+  let received: unknown;
+  let presses = 0;
+  const circle = mount(SelectionCircle, {selected: true, interactive: false, accessibilityLabel: 'Selected title',
+    onPress: () => {presses++;}, style: (value: typeof nativeState) => {received = value; return {opacity: .5};}});
+  try {
+    const host = circle.tree as Element;
+    assert.equal(host.type, 'Pressable');
+    assert.equal(host.props.disabled, true); assert.equal(host.props.focusable, false);
+    assert.equal(host.props.pointerEvents, 'none'); assert.equal(host.props.accessible, false);
+    assert.equal(host.props.importantForAccessibility, 'no-hide-descendants');
+    assert.equal(host.props.onPress, undefined); assert.equal(host.props.accessibilityLabel, undefined);
+    host.props.style(nativeState);
+    assert.equal(received, nativeState); assert.equal(presses, 0);
+  } finally {circle.host.unmount();}
 });

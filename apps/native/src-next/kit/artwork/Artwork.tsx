@@ -95,7 +95,7 @@ export function MediaArt({kind, backdropFallback = false, style, width, height, 
   const theme = useTheme();
   const aspectRatio = kind === 'poster' || kind === 'book' ? 2 / 3 : kind === 'wide' || kind === 'still' ? 16 / 9 : kind === 'square' ? 1 : 3 / 4;
   const fallback = kind === 'still' && backdropFallback;
-  return <View style={[{width, height, aspectRatio: height === undefined ? aspectRatio : undefined, overflow: 'hidden', borderRadius: theme.radii.card, backgroundColor: theme.colors.raised}, style]}>
+  return <View style={[{width, height, aspectRatio: height === undefined ? aspectRatio : undefined, overflow: 'hidden', borderRadius: theme.radii.artwork, backgroundColor: theme.colors.raised}, style]}>
     <Artwork {...props} style={StyleSheet.absoluteFillObject} position={position ?? (kind === 'newspaper' ? {x: 0.5, y: 0} : undefined)}
       zoom={zoom ?? (fallback ? theme.spec.episode.fallback.cropScale : 1)}
       saturation={saturation ?? (fallback ? theme.spec.episode.fallback.saturation : 1)}

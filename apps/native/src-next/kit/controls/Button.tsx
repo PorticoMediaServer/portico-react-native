@@ -28,7 +28,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   disabled, style, textStyle, accessibilityState, hitSlop, progress, remaining, ...props
 }, ref) {
   const theme = useTheme();
-  const geometry = buttonGeometry(size, theme.platform);
+  const geometry = buttonGeometry(size, theme.platform, variant);
   const nativeStyle = StyleSheet.flatten(typeof style === 'function' ? undefined : style);
   const height = typeof nativeStyle?.height === 'number' ? nativeStyle.height : geometry.height;
   const radius = typeof nativeStyle?.borderRadius === 'number' ? nativeStyle.borderRadius : iconOnly ? height / 2 : geometry.radius;
@@ -36,7 +36,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   const recipe = glassRecipe();
   const white = variant === 'primary';
   const glass = variant === 'glass' || variant === 'icon';
-  const foreground = white ? theme.colors.ink : variant === 'text' ? theme.colors.accentStrong : theme.colors.text;
+  const foreground = white ? theme.colors.ink : variant === 'text' ? theme.platform === 'web' ? theme.colors.textSecondary : theme.colors.accentStrong : theme.colors.text;
   const slop = minimumHitSlop(height, theme.isTV);
   const fraction = progress === undefined ? undefined : progressFraction(progress);
   const inline = theme.isTV && fraction !== undefined;
@@ -60,7 +60,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
           {loading ? <ActivityIndicator size={glyphSize} color={foreground} /> : icon ? <Icon name={icon} size={glyphSize} color={foreground} /> : null}
         </View> : null}
         {!iconOnly ? <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle]}>{children}</Text> : null}
-        {inline && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction! * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
+        {inline && fraction !== undefined && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
         {remaining !== undefined && !iconOnly ? <>
           <Text numberOfLines={1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary}, textStyle]}>{remaining}</Text>
         </> : null}

@@ -5,7 +5,7 @@ import {defaultI18n} from '../../../../packages/i18n/src/index';
 import {Icon} from '../kit/Icon';
 import {useTheme} from '../kit/theme';
 import {BlurView, glassRecipe} from '../platform/native-blur';
-import {discoverGalleries, kitSelectionFromURL} from './gallery-registry';
+import {discoverGalleries, galleriesForPlatform, kitSelectionFromURL} from './gallery-registry';
 
 const galleries = discoverGalleries();
 
@@ -27,7 +27,7 @@ export function Kit({initialGallery}: {initialGallery?: string}) {
   const theme = useTheme();
   const [selected, setSelected] = useState<string | undefined>(initialGallery);
   const [focused, setFocused] = useState<string>();
-  const available = galleries.filter(gallery => !gallery.platforms || gallery.platforms.includes(theme.platform));
+  const available = galleriesForPlatform(galleries, theme.platform);
   const current = available.find(gallery => gallery.id === selected);
   const Screen = current?.render;
   const t = defaultI18n.t;

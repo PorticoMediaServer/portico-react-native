@@ -1,6 +1,6 @@
 import React, {useCallback, useMemo, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
-import {PlaybackDock, type DockPlayback, type DockState, type PlaybackFence, type QueueScope, type RemotePhase} from '../../../../../../packages/player-core/src/index';
+import {PlaybackDock, type DockPlayback, type DockState, type QueuePlaybackFence, type QueueScope, type RemotePhase} from '../../../../../../packages/player-core/src/index';
 import {playbackIdentity} from '../../../../../../packages/client-core/src/presentation/kit-model/index';
 import {defaultI18n} from '../../../../../../packages/i18n/src/index';
 import {dockNativeFixtures as facts} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/dock-native-fixtures';
@@ -21,17 +21,20 @@ type Evidence = {
   /** Actual runtime surface rendered once by the evidence owner, never replaced with a poster. */
   surface?: React.ComponentProps<typeof PlayerMorph>['children'];
   androidSnapshot?: React.ComponentProps<typeof PlayerMorph>['androidSnapshot'];
+  notice?: React.ComponentProps<typeof DockHost>['notice'];
+  onNoticeDismiss?: React.ComponentProps<typeof DockHost>['onNoticeDismiss'];
   artwork?: Readonly<{video?: ArtworkSource; music?: ArtworkSource; tvMusic?: ArtworkSource; book?: ArtworkSource}>;
 };
 declare global {var __porticoNativeDockEvidence: Evidence | undefined; var __porticoNativeDockCommands: DockCommand[] | undefined;}
 const scope: QueueScope = {serverId: 'gallery-server', authority: 'local', accountId: 'gallery-account', profileId: 'gallery-profile', controllerId: 'gallery-controller', controllerEpoch: 'gallery-epoch', commandLaneId: 'gallery-lane'};
-const fence: PlaybackFence = {playback: {scope, run: 1}, sessionId: 'gallery-session', itemId: 'gallery-item', sourceId: 'gallery-source', entryId: 'gallery-entry', generation: 1};
+const fence: QueuePlaybackFence = {kind: 'queue', playback: {scope, run: 1}, sessionId: 'gallery-session', itemId: 'gallery-item', sourceId: 'gallery-source', entryId: 'gallery-entry', generation: 1};
 type Case = 'music' | 'audiobook' | 'video' | 'menu' | 'finished' | 'paused' | 'handover' | 'connecting' | 'waiting' | 'playing' | 'play-on' | 'stopped' | 'replaced' | 'error' | 'tv-music' | 'tv-book' | 'tv-expanded' | 'gesture';
 
 /** Deterministic DEV-only arbiter inputs. This does not assert real engine or session execution. */
 function fixture(kind: Case) {
   const book = kind === 'audiobook' || kind === 'tv-book', tv = kind.startsWith('tv-');
-  const remote = ['connecting', 'waiting', 'playing', 'play-on', 'stopped', 'replaced', 'error'].includes(kind);
+  const remotePhase: RemotePhase | undefined = kind === 'play-on' ? 'playing' : kind === 'connecting' || kind === 'waiting' || kind === 'playing' || kind === 'stopped' || kind === 'replaced' || kind === 'error' ? kind : undefined;
+  const remote = remotePhase !== undefined;
   const video = remote || ['video', 'menu', 'finished', 'gesture', 'handover'].includes(kind);
   const dock = new PlaybackDock(scope);
   const item = book ? {id: fence.itemId, kind: 'audiobook_file' as const, title: facts.book.title, author: facts.book.author, chapterNumber: 15} : video ? {id: fence.itemId, kind: 'episode' as const, title: facts.video.episode, show: {title: facts.video.title}, episode: {mode: 'seasonal' as const, season: 1, episode: 1}} : {id: fence.itemId, kind: 'song' as const, title: tv ? facts.tvMusic.title : facts.music.title, artist: tv ? facts.tvMusic.artist : facts.music.artist};
@@ -39,9 +42,9 @@ function fixture(kind: Case) {
   const local: DockPlayback = {fence, kind: mode, queue: null, positionSeconds: book ? 20880 : kind === 'finished' ? 2940 : video ? 724 : tv ? 96 : 9.56, playing: !['paused', 'tv-book', 'finished'].includes(kind), expanded: false};
   if (kind === 'handover') dock.start({...local, kind: 'music', positionSeconds: 34, fence: {...fence, sessionId: 'gallery-audio', sourceId: 'gallery-audio', itemId: 'gallery-song'}});
   dock.start(local);
-  if (remote) dock.beginRemote({id: 'gallery-remote', kind: kind === 'play-on' ? 'play-on' : 'cast', phase: kind === 'play-on' ? 'playing' : kind as RemotePhase, sequence: '1', playback: local, positionSeconds: 1420}, 0);
+  if (remotePhase) dock.beginRemote({id: 'gallery-remote', kind: kind === 'play-on' ? 'play-on' : 'cast', phase: remotePhase, sequence: '1', playback: local, positionSeconds: 1420}, 0);
   const model: DockPresentation = {fence, identity: playbackIdentity({kind: mode, item}, 'dock', {t: defaultI18n.t}), durationSeconds: book ? 36000 : video ? 2940 : kind === 'tv-music' ? 200 : tv ? 185 : 239, skipBackSeconds: 10,
-    capabilities: {play: true, pause: true, stop: true, seek: true, previous: !video, next: true, cast: false}, finished: kind === 'finished',
+    capabilities: {play: true, pause: true, stop: true, seek: true, previous: false, next: false, cast: false}, finished: kind === 'finished',
     ...(tv && !book ? {album: [{id: 'album', text: facts.tvMusic.album, role: 'context'}, {id: 'year', text: facts.tvMusic.year, role: 'context'}] as const} : {}), ...(remote ? {device: facts.device} : {})};
   return {dock, model};
 }
@@ -56,9 +59,9 @@ function DockCase({kind}: {kind: Case}) {
   const external = useSyncExternalStore(injected?.subscribe ?? (() => () => {}), injected?.getSnapshot ?? (() => snapshot));
   const dock = injected?.dock ?? prepared.dock;
   const artwork = injected?.artwork?.[kind === 'tv-book' || kind === 'audiobook' ? 'book' : kind.startsWith('tv-') ? 'tvMusic' : ['video', 'menu', 'finished', 'gesture'].includes(kind) ? 'video' : 'music'];
-  const restoredMusic = kind === 'handover' && snapshot.local?.kind === 'music';
+  const restoredMusic = kind === 'handover' && snapshot.local?.kind === 'music' ? snapshot.local : undefined;
   const localModel = {...prepared.model, fence: snapshot.local?.fence ?? prepared.model.fence, artwork: restoredMusic ? injected?.artwork?.music : artwork,
-    ...(restoredMusic ? {identity: playbackIdentity({kind: 'music', item: {id: snapshot.local!.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), durationSeconds: 239} : {}),
+    ...(restoredMusic ? {identity: playbackIdentity({kind: 'music', item: {id: restoredMusic.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), durationSeconds: 239} : {}),
     finished: !!prepared.model.finished && snapshot.local?.positionSeconds === 2940 && !snapshot.local.playing};
   const presentation = injected?.presentation ?? {local: localModel, remote: {...prepared.model, fence: snapshot.remote?.playback.fence ?? prepared.model.fence, artwork}};
   const action = useCallback((command: DockCommand) => {
@@ -85,18 +88,18 @@ function DockCase({kind}: {kind: Case}) {
       if (command.type === 'play' || command.type === 'pause') dock.update({...p, playing: command.type === 'play'});
       else if (command.type === 'replay') dock.update({...p, playing: true, positionSeconds: 0});
       else if (command.type === 'seek') dock.update({...p, positionSeconds: command.positionSeconds ?? p.positionSeconds});
-      else if (command.type === 'previous' || command.type === 'next') dock.update({...p, positionSeconds: 0, fence: {...p.fence, generation: p.fence.generation + 1}});
     }
     setSnapshot(dock.getSnapshot());
   }, [injected, dock]);
-  const morph = usePlayerMorph({docked, travel: 690, onRelease: value => action({type: value ? 'collapse' : 'expand', fence: presentation.local?.fence ?? fence})});
+  const localFence = presentation.local?.fence;
+  const morph = usePlayerMorph({docked, travel: 690, onRelease: value => {if (localFence) action({type: value ? 'collapse' : 'expand', fence: localFence});}});
   const occupant = currentOccupant(dock, external, presentation);
-  const parked = snapshot.parkedAudio;
-  const notice = !noticeDismissed && parked ? {id: 'gallery-paused-audio', kind: 'paused-audio' as const, fence: parked.fence, identity: playbackIdentity({kind: 'music', item: {id: parked.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), positionSeconds: parked.positionSeconds} : undefined;
+  const parked = !injected && snapshot.parkedAudio?.kind !== 'live' ? snapshot.parkedAudio : null;
+  const notice = injected ? injected.notice : !noticeDismissed && parked ? {id: 'gallery-paused-audio', kind: 'paused-audio' as const, fence: parked.fence, identity: playbackIdentity({kind: 'music', item: {id: parked.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), positionSeconds: parked.positionSeconds} : undefined;
   return <OverlaysProvider><View style={{width: theme.isTV ? 1920 : 390, height: theme.isTV ? 1080 : 844, backgroundColor: theme.colors.ink}}>
-    {kind === 'menu' && occupant ? <MediaBar occupant={occupant} onAction={action} menuOpen={menu} onMenuOpenChange={setMenu} style={{position: 'absolute', left: 8, right: 8, bottom: 92}}/> : <DockHost dock={dock} snapshot={external} presentation={presentation} onAction={action} tvExpanded={expanded} onTVExpandedChange={setExpanded} morph={kind === 'gesture' ? morph : undefined} onVideoSlot={setSlot} bottomInset={92} notice={notice} onNoticeDismiss={() => setNoticeDismissed(true)}/>}
-    {injected?.surface && presentation.local && <PlayerMorph controller={morph} fence={presentation.local.fence} docked={docked} fullFrame={{x: 0, y: 0, width: 390, height: 219.375}} dockFrame={slot} androidSnapshot={injected.androidSnapshot}>{injected.surface}</PlayerMorph>}
-    {!docked && <Button variant="text" onPress={() => action({type: 'collapse', fence: presentation.local?.fence ?? fence})}>{defaultI18n.t('player.minimize')}</Button>}
+    {kind === 'menu' && occupant ? <MediaBar occupant={occupant} onAction={action} menuOpen={menu} onMenuOpenChange={setMenu} style={{position: 'absolute', left: 8, right: 8, bottom: 92}}/> : <DockHost dock={dock} snapshot={external} presentation={presentation} onAction={action} tvExpanded={expanded} onTVExpandedChange={setExpanded} morph={kind === 'gesture' ? morph : undefined} onVideoSlot={setSlot} bottomInset={92} notice={notice} onNoticeDismiss={injected ? injected.onNoticeDismiss : () => setNoticeDismissed(true)}/>}
+    {injected?.surface && <PlayerMorph controller={morph} fence={localFence} docked={docked} fullFrame={{x: 0, y: 0, width: 390, height: 219.375}} dockFrame={slot} androidSnapshot={injected.androidSnapshot}>{injected.surface}</PlayerMorph>}
+    {!docked && localFence && <Button variant="text" onPress={() => action({type: 'collapse', fence: localFence})}>{defaultI18n.t('player.minimize')}</Button>}
   </View></OverlaysProvider>;
 }
 

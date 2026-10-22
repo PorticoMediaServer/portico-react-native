@@ -27,7 +27,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   focusInset = false, focusTreatment = 'default', onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
   onLongPressAction, accessibilityState, ...props
 }, ref) {
-  const {isTV, colors, layers} = useTheme();
+  const {isTV, colors, layers, platform} = useTheme();
   const motion = useMotion();
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -43,7 +43,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
 
   const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV ? 1 : 1 - pressed.value * .03) : 1}]}));
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
-  const offset = focusInset ? 0 : focusSpec.offsetOuter[isTV ? 'tv' : 'phone'] + focusSpec.ringWidth[isTV ? 'tv' : 'phone'];
+  const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
   return <AnimatedPressable {...props} ref={ref} disabled={disabled} focusable={disabled ? false : focusable}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
@@ -56,13 +56,13 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
     onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     style={state => [typeof style === 'function' ? style(state) : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
-    {state => <>
+    {(state: PressableStateCallbackType) => <>
       {focusTreatment === 'default' && isTV && !focusInset ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -focusSpec.offsetOuter.tv, borderRadius: focusRadius + focusSpec.offsetOuter.tv,
           borderWidth: focusSpec.offsetOuter.tv, borderColor: colors.ink}, ring]} /> : null}
       {focusTreatment === 'default' ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -offset, borderRadius: focusRadius + offset,
-          borderWidth: focusSpec.ringWidth[isTV ? 'tv' : 'phone'], borderColor: colors.focus,
+          borderWidth: focusSpec.ringWidth[platform], borderColor: colors.focus,
           ...(isTV ? {shadowColor: colorAlpha(colors.accentStrong, focusSpec.glow.alpha), shadowOffset: {width: focusSpec.glow.x, height: focusSpec.glow.y}, shadowOpacity: 1, shadowRadius: focusSpec.glow.blur / 2} : {})}, ring]} /> : null}
       {typeof children === 'function' ? children({...state, focused, hovered}) : children}
     </>}
