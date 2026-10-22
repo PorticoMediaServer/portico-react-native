@@ -281,7 +281,7 @@ test('inset TV focus keeps one ring and custom faces retain caller geometry with
       const rings = elements(control.native().props.children({pressed: false, focused: true})).filter(node => node.type === 'AnimatedView');
       assert.equal(rings.length, focusTreatment === 'none' ? 0 : 1);
       if (rings.length) {
-        assert.equal(flatten(rings[0]!.props.style).inset, 0);
+        assert.ok(flatten(rings[0]!.props.style).inset === 0, 'the inset ring has exactly zero offset (including signed zero)');
         assert.equal(flatten(rings[0]!.props.style).borderRadius, 12);
       }
       assert.deepEqual(handles[0]!.read().transform, [{scale: focusTreatment === 'none' ? 1 : controlModel.focusScale('button', true)}]);
