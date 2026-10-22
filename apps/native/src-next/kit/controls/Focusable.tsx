@@ -27,6 +27,7 @@ type PressableStyleAdapterProps = Omit<PressableProps, 'style'> & {
 // Reanimated 4.6 turns its style prop into an array, including functions.
 // Resolve caller styles inside the real Pressable so its native render state
 // still drives them, while Reanimated animates that same forwarded host ref.
+// Static styles stay on Reanimated's style prop for animated-handle discovery.
 const PressableStyleAdapter = forwardRef<View, PressableStyleAdapterProps>(function PressableStyleAdapter({
   style, pressableStyleInput, ...props
 }, ref) {
@@ -69,8 +70,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
     onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
-    pressableStyleInput={style}
-    style={[{zIndex: focused ? layers.tvFocus : undefined}, animated]}>
+    pressableStyleInput={typeof style === 'function' ? style : undefined}
+    style={[typeof style === 'function' ? undefined : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
     {(state: PressableStateCallbackType) => <>
       {focusTreatment === 'default' && isTV && !focusInset ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -focusSpec.offsetOuter.tv, borderRadius: focusRadius + focusSpec.offsetOuter.tv,

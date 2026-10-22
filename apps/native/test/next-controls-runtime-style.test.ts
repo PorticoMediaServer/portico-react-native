@@ -179,6 +179,19 @@ test('caller styles receive the exact native render state, including press witho
   } finally {control.host.unmount();}
 });
 
+test('static caller animated handles remain visible to the installed Reanimated style filter', async () => {
+  const {Focusable} = await controls();
+  let updates = 0;
+  const caller = {viewDescriptors: {}, initial: {value: {width: 100}, updater: () => {updates++; return {width: 120};}}};
+  const control = mount(Focusable, {style: [{height: 46}, [caller]]});
+  try {
+    const style = nativeStyle(control.native());
+    assert.equal(style.width, 120); assert.equal(style.height, 46);
+    assert.equal(updates, 1, 'Reanimated must discover and initialise the caller handle');
+    assert.equal('viewDescriptors' in style, false, 'native style receives the processed value');
+  } finally {control.host.unmount();}
+});
+
 test('real event callbacks and render state retain focus, hover, press, cancellation and blur behavior', async () => {
   const {Focusable, handles, theme} = await controls();
   const calls: [string, unknown][] = [];
