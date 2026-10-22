@@ -71,6 +71,10 @@ const {Artwork} = await import('../src-next/kit/artwork/Artwork.tsx');
 const {AmbientArt} = await import('../src-next/kit/artwork/Surfaces.tsx');
 const {default: browseGalleries} = await import('../src-next/dev/families/browse/browse.gallery.tsx');
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
+const {Focusable, Tabs, Segmented} = await import('../src-next/kit/controls/index.ts');
+const {FocusProvider, FocusRegion} = await import('../src-next/kit/focus/index.ts');
+const {Menu, MenuRow, Popover} = await import('../src-next/kit/overlays/Menu.tsx');
+const {LibrarySwitcher, LibraryMenu} = await import('../src-next/kit/browse/Library.tsx');
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
 const {default: stateGalleries} = await import('../src-next/dev/families/states/states.gallery.tsx');
@@ -86,18 +90,22 @@ function nodes(node: ReactNode): Element[] {
   if (!React.isValidElement<Record<string, any>>(node)) return [];
   return [node, ...nodes(node.props.children)];
 }
-function mount(component: any, initial: any) {
-  let props = initial, tree: ReactNode;
+function mount(component: any, initial: any, contexts: [any, unknown][] = []) {
+  let props = initial, tree: ReactNode, focusRegistry: any;
   const host = createHookHost(() => {
+    const savedContexts = contexts.map(([context, value]) => {const previous = context._currentValue; context._currentValue = value; return [context, previous];});
+    try {
     if (component === Row) {
       const wrapper: any = Row(props), provider = wrapper.type(wrapper.props), context = provider.type;
       const previous = context._currentValue;
+      focusRegistry = provider.props.value;
       context._currentValue = provider.props.value;
       try {tree = provider.props.children.type(provider.props.children.props);} finally {context._currentValue = previous;}
     } else tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);
+    } finally {for (const [context, value] of savedContexts) context._currentValue = value;}
   });
   host.mount();
-  return {host, get tree() {return tree;}, update(next: any) {props = next; host.rerender();}};
+  return {host, get tree() {return tree;}, get focusRegistry() {return focusRegistry;}, update(next: any) {props = next; host.rerender();}};
 }
 const find = (tree: ReactNode, type: unknown) => nodes(tree).find(node => node.type === type)!;
 
@@ -368,4 +376,113 @@ test('real state galleries request initial TV focus only on TV, preserving the n
       finally {gallery.host.unmount();}
     }
   }
+});
+
+function nativeFocusable(tree: ReactNode): Element {
+  const element = tree as any;
+  return element.type.render(element.props, element.props.ref);
+}
+
+function actualRegion(id: string) {
+  const provider = mount(FocusProvider, {children: null}), providerElement = provider.tree as any;
+  const registryContext: [any, unknown] = [providerElement.type, providerElement.props.value];
+  const outer = mount(FocusRegion, {id, children: null}, [registryContext]);
+  const element = outer.tree as any, region = mount(element.type, element.props, [registryContext]);
+  const guide = region.tree as any, childContext: [any, unknown] = [guide.props.children.type, id];
+  return {registry: providerElement.props.value, contexts: [registryContext, childContext],
+    unmount() {region.host.unmount(); outer.host.unmount(); provider.host.unmount();}};
+}
+
+test('F06 CardFrame and TextField attach exactly the hosts native props make eligible', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const scope = actualRegion('eligibility');
+  const cardProps = {title: 'Actual card', focusId: 'card', primaryAction: 'navigate', onNavigate() {}, children: () => null};
+  const card = mount(CardFrame, {...cardProps, disabled: true}, scope.contexts);
+  const host = {nativeTag: 301, requestTVFocus() {}};
+  try {
+    let native = find(card.tree, 'Pressable'); native.props.ref(host); assert.equal(native.props.focusable, false);
+    assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), undefined);
+    card.update({...cardProps, focusable: false}); assert.equal(find(card.tree, 'Pressable').props.focusable, false);
+    assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), undefined);
+    card.update(cardProps); native = find(card.tree, 'Pressable'); assert.equal(native.props.focusable, true);
+    assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), host);
+    const input = mount(TextField, {focusId: 'input', focusable: false}, scope.contexts);
+    try {
+      const inputHost = {nativeTag: 302, focus() {}}; find(input.tree, 'TextInput').props.ref(inputHost);
+      assert.equal(find(input.tree, 'TextInput').props.focusable, false); assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'input'}), undefined);
+      input.update({focusId: 'input', editable: false}); assert.equal(find(input.tree, 'TextInput').props.focusable, false);
+      input.update({focusId: 'input'}); assert.equal(find(input.tree, 'TextInput').props.focusable, true);
+      assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'input'}), inputHost);
+    } finally {input.host.unmount();}
+  } finally {card.host.unmount(); scope.unmount();}
+});
+
+test('F01 Library composites forward caller-fenced surface and semantic inner identities', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const switcher = mount(LibrarySwitcher, {testID: 'actual-libraries', libraries: [{id: 'one/source', name: 'First'}, {id: 'second', name: 'Second'}], value: 'second', onValueChange() {}, open: true});
+  const menu = mount(LibraryMenu, {testID: 'actual-library-options', owner: false, open: true, onSaveView() {}, onMarkAll() {}, onEditPins() {}});
+  try {
+    const surface = find(switcher.tree, Popover); assert.equal(surface.props.testID, 'actual-libraries-surface');
+    const choices = nodes(surface).filter(node => node.type === MenuRow);
+    assert.deepEqual(choices.map(node => node.props.focusId), ['one/source', 'second']);
+    assert.deepEqual(choices.map(node => node.props.testID), ['actual-libraries-library-one%2Fsource', 'actual-libraries-library-second']);
+    const menuSurface = find(menu.tree, Popover); assert.equal(menuSurface.props.testID, 'actual-library-options-surface');
+    assert.deepEqual(nodes(menuSurface).filter(node => node.type === MenuRow).map(node => node.props.focusId), ['save-view', 'mark-all', 'edit-pins']);
+    const scope = actualRegion(surface.props.testID), choice = mount(MenuRow, choices[0]!.props, scope.contexts);
+    try {
+      const target = find(choice.tree, Focusable), control = mount(Focusable, target.props, scope.contexts);
+      try {nativeFocusable(control.tree).props.ref({nativeTag: 303, requestTVFocus() {}}); assert.ok(scope.registry.child({regionId: surface.props.testID, childId: 'one/source'}));}
+      finally {control.host.unmount();}
+    } finally {choice.host.unmount(); scope.unmount();}
+  } finally {menu.host.unmount(); switcher.host.unmount();}
+});
+
+test('F09 explicitly anchored TV Menu holds its in-window native focus guide', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const menu = mount(Menu, {testID: 'anchored-menu', open: true, onOpenChange() {}, presentation: 'anchored', anchorRef: {current: {measureInWindow: (run: any) => run(300, 200, 100, 60)}}, items: [{id: 'action', label: 'Actual action', onSelect() {}}]});
+  try {
+    const popover = menu.tree as any; assert.equal(popover.type, Popover); assert.equal(popover.props.holdFocus, true); assert.equal(popover.props.modal, undefined);
+    const surface = mount(Popover, popover.props);
+    try {
+      surface.host.flush(); const boundary = nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!;
+      assert.ok(boundary); assert.equal(boundary.props.modal, true, 'containment is independent of the native window modality');
+    } finally {surface.host.unmount();}
+  } finally {menu.host.unmount();}
+});
+
+test('F10 standalone Row owns one provider and reports actual raw viewport keys across retained holes', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const seen: (readonly string[])[] = [], items = ['a', 'b', 'c', 'd'].map(id => ({id}));
+  const props = {title: 'Actual row', items, getKey: (item: {id: string}) => item.id, getFocusId: (item: {id: string}) => `source/${item.id}`,
+    initialViewportWidth: 200, itemWidth: 100, itemHeight: 150, gap: 0, gutter: 0, rightGutter: 0, focus: {id: 'standalone'},
+    selection: {active: false, isSelected: () => false, onToggle() {}, onEnter() {}},
+    onVisibleKeys: (keys: readonly string[]) => seen.push(keys),
+    renderItem: (item: {id: string}, context: any) => React.createElement('View', {testID: `actual-${item.id}`, context})};
+  const row = mount(Row, props);
+  try {
+    assert.deepEqual(seen.at(-1), ['a', 'b']); const registry = row.focusRegistry;
+    registry.didFocus({regionId: 'standalone', childId: 'source/b'}); row.host.flush();
+    row.update({...props, items: [items[3], items[2], items[0]]});
+    const rendered = nodes(row.tree).filter(node => node.props.context);
+    assert.deepEqual(rendered.map(node => [node.props.context.id, node.props.context.index]), [['a', 0], ['c', 2], ['d', 3]]);
+    assert.deepEqual(seen.at(-1), ['a'], 'physical hole at position1 does not enroll items[1]');
+    assert.equal(row.focusRegistry, registry);
+  } finally {row.host.unmount();}
+});
+
+test('F13 separate Tabs and Segmented groups fence shared semantic values and preserve explicit IDs', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const items = [{value: 'all', label: 'Actual all'}], scope = actualRegion('choices');
+  const a = mount(Tabs, {testID: 'group-a', items}), b = mount(Segmented, {testID: 'group-b', items}), explicit = mount(Tabs, {testID: 'group-c', items, itemProps: () => ({focusId: 'explicit-child', testID: 'explicit-host'})});
+  try {
+    const first = find(a.tree, Focusable), second = find(b.tree, Focusable), override = find(explicit.tree, Focusable);
+    assert.notEqual(first.props.focusId, second.props.focusId); assert.equal(override.props.focusId, 'explicit-child'); assert.equal(override.props.testID, 'explicit-host');
+    const firstTarget = mount(Focusable, first.props, scope.contexts), secondTarget = mount(Focusable, second.props, scope.contexts);
+    try {
+      const one = {nativeTag: 304, requestTVFocus() {}}, two = {nativeTag: 305, requestTVFocus() {}};
+      nativeFocusable(firstTarget.tree).props.ref(one); nativeFocusable(secondTarget.tree).props.ref(two);
+      assert.equal(scope.registry.child({regionId: 'choices', childId: first.props.focusId}), one); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
+      firstTarget.host.unmount(); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
+    } finally {firstTarget.host.unmount(); secondTarget.host.unmount();}
+  } finally {a.host.unmount(); b.host.unmount(); explicit.host.unmount(); scope.unmount();}
 });
