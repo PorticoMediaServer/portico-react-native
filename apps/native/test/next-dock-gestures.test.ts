@@ -32,7 +32,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   let now = 0, parentRenders = 0;
   const clock = controlledClock ? mock.method(performance, 'now', () => now) : undefined;
   const presentations: any[] = [];
-  const shared = (initialValue: any) => {
+  const useSharedValue = (initialValue: any) => {
     const ref = React.useRef<any>(null);
     if (!ref.current) {
       let value = initialValue, pending: Animation | undefined;
@@ -48,14 +48,14 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     return ref.current;
   };
   const animate = (to: any, config: any, complete?: Animation['complete']) => {const value = {__animation: true, to, config, complete}; animations.push(value); return value;};
-  const animated = {default: {View: 'AnimatedView'}, useSharedValue: shared, useAnimatedStyle: (read: () => any) => ({read}),
+  const animated = {default: {View: 'AnimatedView'}, useSharedValue, useAnimatedStyle: (read: () => any) => ({read}),
     withTiming: animate, withSpring: animate, withDelay: (_: any, animation: any) => animation,
     cancelAnimation: (value: any) => {cancelled.push(value); value.cancel?.();},
     runOnUI: (fn: (...args: any[]) => void) => (...args: any[]) => ui.push(() => fn(...args)),
     runOnJS: (fn: (...args: any[]) => void) => (...args: any[]) => js.push(() => fn(...args)),
     useAnimatedReaction: (read: () => any, callback: (next: any, previous: any) => void) => {
       const cell = React.useRef<any>({previous: null}); cell.current.read = read; cell.current.callback = callback;
-      React.useEffect(() => {reactions.push(cell.current); return () => {reactions.splice(reactions.indexOf(cell.current), 1);};}, []);
+      React.useEffect(() => {const reaction = cell.current; reactions.push(reaction); return () => {reactions.splice(reactions.indexOf(reaction), 1);};}, []);
     },
   };
   const pan = () => {
