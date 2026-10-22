@@ -101,7 +101,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
    const delivered=React.useRef(false);React.useLayoutEffect(()=>{if(delivered.current||!props.onLayout)return;delivered.current=true;const style=flat(typeof props.style==='function'?props.style({pressed:false}):props.style);props.onLayout({nativeEvent:{layout:{x:0,y:588,width:typeof style.width==='number'?style.width:390,height:typeof style.height==='number'?style.height:220}}});},[props.onLayout,props.style]);
    return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
  };}
- export const View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
+ export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
@@ -260,7 +260,12 @@ const loader = registerHooks({
  * resolve from source unchanged; no runtime prop or business facade is supplied.
  * Native secure records contain synthetic test credentials, never device state.
  */
-export async function standardHomeApp() {
+/** @param {{setup?: boolean, mountUI?: boolean, setupResponse?: (request: any, fixture: any) => Promise<any>}} options */
+export async function standardHomeApp({
+  setup = false,
+  mountUI = true,
+  setupResponse,
+} = {}) {
   const {FakePlaybackServer} = await import(
     '../../../../packages/client-core/src/playback-v1/testing/fake-server.ts'
   );
@@ -313,25 +318,31 @@ export async function standardHomeApp() {
     authorizationHorizon: new Date(Date.now() + 86400000).toISOString(),
     viewer,
   };
-  const store = new Map([
-    [
-      'network.selected.v1',
-      JSON.stringify({
-        version: '1',
-        logicalOrigin: origin,
-        session,
-        pin,
-        routes: {paired: [origin]},
-      }),
-    ],
-  ]);
+  const store = new Map(
+    setup
+      ? []
+      : [
+          [
+            'network.selected.v1',
+            JSON.stringify({
+              version: '1',
+              logicalOrigin: origin,
+              session,
+              pin,
+              routes: {paired: [origin]},
+            }),
+          ],
+        ],
+  );
   const requests = [],
     receipts = [],
     commands = [],
     cancellations = [],
     nativeErrors = [],
     pending = new Map();
-  let selected = JSON.stringify(selectedViewerRecord(origin, session, true)),
+  let selected = setup
+      ? null
+      : JSON.stringify(selectedViewerRecord(origin, session, true)),
     lease = 0,
     homeVersion = 1,
     homeFence = 'home-fence';
@@ -472,6 +483,22 @@ export async function standardHomeApp() {
         },
       };
     }
+    if (setup && setupResponse) {
+      const response = await setupResponse(request, {
+        pin,
+        viewer,
+        session: {
+          ...session,
+          serverIdentity: {
+            publicKey: pin.publicKey,
+            fingerprint: pin.fingerprint,
+          },
+        },
+        installationId,
+        origin,
+      });
+      if (response) return response;
+    }
     if (path === routePath('get_me')) return {status: 200, body: {viewer}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
     if (path === routePath('get_preferences'))
@@ -591,7 +618,7 @@ export async function standardHomeApp() {
     profileInstallation: async () => installationId,
     loadSelectedViewer: async () => selected,
     saveSelectedViewer: async value => {
-      selected = value;
+      selected = value === 'null' ? null : value;
     },
     loadQueueRecord: async key => store.get(key) ?? null,
     saveQueueRecord: async (key, value) => {
@@ -633,6 +660,8 @@ export async function standardHomeApp() {
       }
     },
   };
+  state.modules.PorticoRuntime.profileRequest =
+    state.modules.PorticoRuntime.networkRequest;
   state.modules.PorticoNetwork = {
     sha256: async value => b64(digest(Buffer.from(value, 'base64url'))),
     verify: async (publicKey, signature, payload) =>
@@ -715,7 +744,8 @@ export async function standardHomeApp() {
     exports,
     fabric,
   );
-  await import('../../index.js');
+  if (setup) await import('../../setup-sign-in-r25.tsx');
+  else await import('../../index.js');
   const App = state.registrations.get('Portico')?.();
   if (!App) throw Error('Standard index did not register Portico');
   const subscriptions = () => ({
@@ -742,7 +772,7 @@ export async function standardHomeApp() {
     });
     await settle();
   };
-  await mount();
+  if (mountUI) await mount();
   const card = () => {
     const value = [...state.hosts.values()].find(
       host =>
@@ -755,6 +785,27 @@ export async function standardHomeApp() {
   return {
     requests,
     receipts,
+    // Synthetic native store only; never connected to device authentication.
+    syntheticStorage: () => ({
+      selected: selected ? JSON.parse(selected) : null,
+      connection: store.has('network.selected.v1')
+        ? JSON.parse(store.get('network.selected.v1'))
+        : null,
+    }),
+    resetSyntheticStorage: () => {
+      selected = null;
+      store.clear();
+      setInstallationIdentity(undefined);
+    },
+    async fill(label, value) {
+      const target = [...state.hosts.values()].find(
+        host =>
+          host.name === 'TextInput' && host.props.accessibilityLabel === label,
+      );
+      if (!target) throw Error('Missing native input: ' + label);
+      target.props.onChangeText(value);
+      await settle();
+    },
     commands,
     backend,
     errors,
@@ -778,7 +829,9 @@ export async function standardHomeApp() {
       await settle();
     },
     async select() {
-      card().props.onAccessibilityAction({nativeEvent: {actionName: 'select'}});
+      card().props.onAccessibilityAction({
+        nativeEvent: {actionName: 'select'},
+      });
       await settle();
     },
     async tapLabel(label) {
