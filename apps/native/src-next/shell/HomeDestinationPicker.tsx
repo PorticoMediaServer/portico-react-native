@@ -9,6 +9,7 @@ import {useTheme} from '../kit/theme';
 import {homeCardText} from '../screens/home/model';
 import {nativePickerCounts} from './selection-picker';
 import type {NativeShellRuntime} from './runtime';
+import {tvFocusIds} from './tv-focus';
 
 const t = defaultI18n.t;
 
@@ -34,7 +35,8 @@ export function HomeDestinationPicker({controller, runtime, reportError}: {
   const result: PickerResult | undefined = receipt && destination ? {destination: {id: destination.id, title: destination.name, size: destination.count, artwork: art(destination.artwork)},
     ...counts!, failures} : undefined;
   const Picker = picker.kind === 'playlist' ? PlaylistPicker : CollectionPicker;
-  return <Picker open onOpenChange={open => {if (!open) controller.closePicker();}} count={state.displayMembers.length}
+  return <Picker testID={theme.isTV ? tvFocusIds(runtime.getSnapshot().authority).surface(`picker.${picker.kind}`) : undefined}
+    open onOpenChange={open => {if (!open) controller.closePicker();}} count={state.displayMembers.length}
     selectionLabel={t('next.selection.native.selected', {count: state.displayMembers.length})}
     entries={picker.rows.map(row => ({id: row.id, title: row.name, size: row.count, canAdd: row.canAdd,
       ...(row.alreadyIn === undefined ? {} : {alreadyIn: row.alreadyIn}), artwork: art(row.artwork)}))}

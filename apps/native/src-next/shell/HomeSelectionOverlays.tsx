@@ -33,6 +33,7 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme();
   if (!runtime) return null;
+  const ids = theme.isTV ? tvFocusIds(runtime.getSnapshot().authority) : undefined;
   const members = state.displayMembers, count = members.length;
   const error = (value: {code: string} | null) => value ? presentError(value, 'home', {operation: 'action'}).body : undefined;
   const items: MenuEntry[] = [];
@@ -74,9 +75,9 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
       items={items} presentation={theme.isTV ? 'sideSheet' : 'sheet'}/>
     <HomeDestinationPicker controller={controller} runtime={runtime} reportError={reportError}/>
     <HomeBulkEditor controller={controller} runtime={runtime} reportError={reportError}/>
-    <MixedEditExplainer open={state.mixedEdit} onOpenChange={open => {if (!open) controller.closeEditor();}} description={description} total={count} groups={groups}
+    <MixedEditExplainer testID={ids?.surface('mixed-edit')} open={state.mixedEdit} onOpenChange={open => {if (!open) controller.closeEditor();}} description={description} total={count} groups={groups}
       onKeepOnly={kind => {controller.keepOnly(kind as SelectionKind);}}/>
-    {state.deletion && <DeleteMediaDialog open onOpenChange={open => {if (!open) controller.closeDelete();}} ownerHeader={ownerTag}
+    {state.deletion && <DeleteMediaDialog testID={ids?.surface('delete')} open onOpenChange={open => {if (!open) controller.closeDelete();}} ownerHeader={ownerTag}
       owner={runtime.getSnapshot().account.viewerRole === 'owner'} selectionCount={count} preview={state.deletion.preview} loading={state.deletion.phase === 'loading'} error={error(state.deletion.error)}
       result={state.deletion.result ?? undefined} confirmation={state.deletion.confirmation} onConfirmationChange={value => controller.setDeleteConfirmation(value)}
       removeFiles={state.deletion.removeFiles} onRemoveFilesChange={value => controller.setDeleteRemoveFiles(value)} pending={state.deletion.phase === 'deleting'}
@@ -84,12 +85,12 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
         const member = members.find(value => 'id' in value.item && value.item.id === id), source = runtime.artwork(member?.entry?.posterUrl);
         return source ? <Artwork source={source} width={24} height={36}/> : null;
       }}/>} 
-    {rating && ratingTitle && <Dialog open onOpenChange={open => {if (!open) controller.closeRating();}} title={t('title.rate', {title: ratingTitle})}
-      footer={<Button variant="glass" size="compact" onPress={() => controller.closeRating()}>{t('action.close')}</Button>}>
+    {rating && ratingTitle && <Dialog testID={ids?.surface('rating')} open onOpenChange={open => {if (!open) controller.closeRating();}} title={t('title.rate', {title: ratingTitle})}
+      footer={<Button testID={ids ? `${ids.surface('rating')}-close` : undefined} variant="glass" size="compact" onPress={() => controller.closeRating()}>{t('action.close')}</Button>}>
       <View style={{paddingTop: 16, gap: 16}}>
         {rating.value === undefined ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.states.loading')}</Text>
           : <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.isTV ? 12 : 0}} accessibilityRole="radiogroup" accessibilityLabel={t('player.rateThis')}>
-            {[1, 2, 3, 4, 5].map(stars => <Focusable key={stars} accessibilityRole="radio" accessibilityLabel={t('title.stars', {count: stars})}
+            {[1, 2, 3, 4, 5].map(stars => <Focusable key={stars} testID={ids ? `${ids.surface('rating')}-stars-${stars}` : undefined} accessibilityRole="radio" accessibilityLabel={t('title.stars', {count: stars})}
               accessibilityState={{checked: rating.value === stars * 2, disabled: rating.phase !== 'ready'}} disabled={rating.phase !== 'ready'}
               hasTVPreferredFocus={theme.isTV && stars === (typeof rating.value === 'number' && rating.value > 0 ? Math.ceil(rating.value / 2) : 1)}
               onPress={() => mutation(stars * 2)} focusRadius={8} hitSlop={6} style={{width: theme.isTV ? 64 : 32, height: theme.isTV ? 64 : 32, alignItems: 'center', justifyContent: 'center'}}>
@@ -99,10 +100,10 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
               </View>
             </Focusable>)}
           </View>}
-        {rating.phase === 'ready' && <Button variant="text" size="compact" onPress={() => mutation(null)}>{t('title.clearRating')}</Button>}
+        {rating.phase === 'ready' && <Button testID={ids ? `${ids.surface('rating')}-clear` : undefined} variant="text" size="compact" onPress={() => mutation(null)}>{t('title.clearRating')}</Button>}
         {rating.phase === 'result' && <Text accessibilityLiveRegion="polite" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.selection.native.saved')}</Text>}
         {rating.error && <Text accessibilityLiveRegion="polite" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{error(rating.error)}</Text>}
-        {rating.phase === 'uncertain' && <Button variant="glass" size="compact" onPress={() => {void controller.retryRating().catch(reportError);}}>{t('action.tryAgain')}</Button>}
+        {rating.phase === 'uncertain' && <Button testID={ids ? `${ids.surface('rating')}-retry` : undefined} variant="glass" size="compact" onPress={() => {void controller.retryRating().catch(reportError);}}>{t('action.tryAgain')}</Button>}
       </View>
     </Dialog>}
   </>;

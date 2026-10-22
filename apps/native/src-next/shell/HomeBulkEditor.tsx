@@ -12,6 +12,7 @@ import {useTheme} from '../kit/theme';
 import {memberTitle, metadataFieldLabel} from './selection-display';
 import {nativeBulkChanges, nativeBulkDraft, nativeBulkValues} from './selection-editor';
 import type {NativeShellRuntime} from './runtime';
+import {tvFocusIds} from './tv-focus';
 
 const t = defaultI18n.t;
 
@@ -21,15 +22,16 @@ export function HomeBulkEditor({controller, runtime, reportError}: {
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), editor = state.editor;
   if (!editor) return null;
+  const editorId = theme.isTV ? tvFocusIds(runtime.getSnapshot().authority).surface('editor') : undefined;
   const close = () => controller.closeEditor();
   const run = (work: Promise<unknown>) => {void work.catch(reportError);};
   const error = editor.error ? presentError(editor.error, 'home', {operation: 'action'}).body : undefined;
   // An ambiguous write retries its original body/id; re-previewing would lose that operation.
-  if (!editor.preview || editor.phase === 'uncertain' || editor.phase === 'error' || editor.phase === 'conflict') return <Dialog open
+  if (!editor.preview || editor.phase === 'uncertain' || editor.phase === 'error' || editor.phase === 'conflict') return <Dialog testID={editorId} open
     onOpenChange={open => {if (!open) close();}} title={t('next.selection.native.action.edit')}
     footer={<View style={{flexDirection: 'row', gap: 10}}>
-      <Button variant="glass" size="compact" onPress={close}>{t('action.close')}</Button>
-      {editor.phase !== 'loading' && <Button size="compact" onPress={() => run(editor.phase === 'uncertain' ? controller.saveEditor()
+      <Button testID={editorId ? `${editorId}-close` : undefined} variant="glass" size="compact" onPress={close}>{t('action.close')}</Button>
+      {editor.phase !== 'loading' && <Button testID={editorId ? `${editorId}-retry` : undefined} size="compact" onPress={() => run(editor.phase === 'uncertain' ? controller.saveEditor()
         : editor.receipts.length ? controller.retryEditor(editor.draft) : controller.reloadEditor())}>{t('action.tryAgain')}</Button>}
     </View>}>
     <Text accessibilityLiveRegion="polite" style={[theme.type.body, {color: theme.colors.textSecondary, paddingTop: 16}]}>{error ?? t('next.states.loading')}</Text>
@@ -52,7 +54,7 @@ export function HomeBulkEditor({controller, runtime, reportError}: {
     const source = runtime.artwork(member.entry?.posterUrl);
     return [{id: member.item.id, title, artwork: source ? <Artwork source={source} width={30} height={45}/> : undefined}];
   });
-  return <BulkEditor open onOpenChange={open => {if (!open) close();}} title={t('next.home.native.editSelection', {count, kind})}
+  return <BulkEditor testID={editorId} open onOpenChange={open => {if (!open) close();}} title={t('next.home.native.editSelection', {count, kind})}
     count={count} saveLabel={t('next.home.native.saveSelection', {count: preview.total, kind})} schema={preview.schema} values={nativeBulkValues(preview)}
     changes={changes} onChangesChange={value => controller.setEditorDraft(nativeBulkDraft(value, lockEdited))}
     lockEdited={lockEdited} onLockEditedChange={value => controller.setEditorDraft(nativeBulkDraft(changes, value))}

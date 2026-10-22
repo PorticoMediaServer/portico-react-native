@@ -17,6 +17,7 @@ export function tvFocusIds(authority: ShellAuthority) {
     profileMenu: `${prefix}.rail.profile-menu`,
     menu: (windowId: string, key: string) => `${prefix}.home.menu.${JSON.stringify([windowId, key])}`,
     page: (rowId: string, cursor: string) => JSON.stringify(['page', rowId, cursor]),
+    surface: (kind: string) => `${prefix}.home.${kind}`,
     start: {regionId: spotlight, childId: 'play'},
     last: {regionId: customize, childId: 'customize'},
   };
