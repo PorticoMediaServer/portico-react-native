@@ -82,7 +82,7 @@ export function SessionCard(props: SessionCardProps) {
   const state = props.facts.find(p => p.id === 'state');
   const position = props.facts.filter(p => p.id === 'position' || props.kind === 'channel' && p.id === 'started');
   const facts = props.facts.filter(p => !['viewer', 'account', 'device', 'state', 'position', 'started'].includes(p.id));
-  return <CardFrame {...props} width={width} overlay={s => <View pointerEvents="box-none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
+  return <CardFrame {...props} width={width} overlay={() => <View pointerEvents="box-none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
     {!t.isTV && <View style={{position: 'absolute', right: 12, bottom: 14, flexDirection: 'row', gap: 8}}>
       {props.onStop && <Button variant="glass" size="xs" icon="i-stop" iconSize={14} disabled={props.disabled} onPress={props.onStop} style={{height: 38, paddingHorizontal: 14, borderRadius: 10}} textStyle={titleStyle(t, 14, 700)}>{defaultI18n.t('next.cards.stop')}</Button>}
       {props.onMore && <Button variant="glass" size="xs" icon="i-more" iconSize={18} iconOnly disabled={props.disabled} accessibilityLabel={defaultI18n.t('card.more', {title: props.title})} onPress={props.onMore} style={{height: 38, borderRadius: 10}} />}
