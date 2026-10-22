@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src/index.ts';
 import {FakePlaybackServer, type FakeRequest, type FakeResponse} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
-import {routePath} from '../../../packages/contracts/src/routes.ts';
+import {encodedRoutePath, routePath} from '../../../packages/contracts/src/routes.ts';
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
 import {NativePlaybackRuntime} from '../src-next/platform/playback/runtime.ts';
 import type {NativePlaybackSettings, PlaybackAuthority} from '../src-next/platform/playback/types.ts';
@@ -215,6 +215,79 @@ test('an explicit bookmark restore never resumes a newer replacement that wins d
     assert.equal(d.engine.lastCommand.binding.sessionId, winner.sessionId);
     assert.equal(d.engine.lastCommand.paused, true);
   } finally { release?.(); d.runtime.dispose(); }
+});
+
+test('a create retains all three actual dock queue candidates and the next create retires superseded extras', async () => {
+  const d = fixture();
+  const queueId = () => { const queue = d.runtime.getSnapshot().session?.queue; assert.ok(queue); return queue.queueId; };
+  const queueStatus = async (id: string) => (await d.server.handle({method: 'GET', path: encodedRoutePath('get_queue', {id: encodeURIComponent(id)})})).status;
+  try {
+    await d.start('movie-a', 11); const a = queueId(), videoA = d.runtime.getSnapshot().fence;
+    await d.start('song-b', 22); const b = queueId(), audioB = d.runtime.getSnapshot().fence;
+    await d.start('movie-c', 33); const c = queueId();
+    assert.equal(new Set([a, b, c]).size, 3);
+    assert.deepEqual(d.runtime.getSnapshot().dock.resumeVideo?.fence, videoA);
+    assert.deepEqual(d.runtime.getSnapshot().dock.parkedAudio?.fence, audioB);
+    let sent = d.requests.length;
+    await d.start('movie-d', 44); const current = queueId();
+    const create = d.requests.slice(sent).find(request => request.method === 'POST' && request.path === routePath('create_queue'));
+    assert.ok(create && record(create.body));
+    assert.deepEqual(create.body.retainQueueIds, [c, b, a]);
+    for (const id of [a, b, c, current]) assert.equal(await queueStatus(id), 200);
+    sent = d.requests.length;
+    await d.runtime.selectionPlayback(() => true).play({context: selectionContext(), signal: new AbortController().signal, items: [selected('movie-e')]}); await settle();
+    const next = queueId();
+    const selectionCreate = d.requests.slice(sent).find(request => request.method === 'POST' && request.path === routePath('create_queue'));
+    assert.ok(selectionCreate && record(selectionCreate.body));
+    assert.deepEqual(selectionCreate.body.retainQueueIds, [current, b, a]);
+    assert.equal(await queueStatus(c), 404, 'a superseded local video is not retained just because it remains in the bookmark cache');
+    for (const id of [a, b, current, next]) assert.equal(await queueStatus(id), 200);
+    assert.deepEqual(d.runtime.getSnapshot().dock.resumeVideo?.fence, videoA);
+    assert.deepEqual(d.runtime.getSnapshot().dock.parkedAudio?.fence, audioB);
+  } finally { d.runtime.dispose(); }
+});
+
+test('Home selection handover retains the exact audio fence and restores its original queue paused', async () => {
+  const d = fixture();
+  try {
+    await d.start('song-1', 41);
+    const music = d.runtime.getSnapshot(); assert.ok(music.fence?.kind === 'queue' && music.session?.queue);
+    const sent = d.requests.length;
+    await d.runtime.selectionPlayback(() => true).play({context: selectionContext(), signal: new AbortController().signal, items: [selected('movie-selection')]}); await settle();
+    const video = d.runtime.getSnapshot(); assert.ok(video.fence?.kind === 'queue');
+    assert.deepEqual(video.dock.parkedAudio?.fence, music.fence);
+    const create = d.requests.slice(sent).find(request => request.method === 'POST' && request.path === routePath('create_queue'));
+    assert.ok(create && record(create.body));
+    assert.deepEqual(create.body.retainQueueIds, [music.session.queue.queueId]);
+    const commanded = d.engine.commands.length;
+    await d.runtime.stop(video.fence); await settle();
+    const restored = d.runtime.getSnapshot(); assert.ok(restored.fence?.kind === 'queue');
+    assert.equal(restored.session?.queue?.queueId, music.session.queue.queueId);
+    assert.equal(restored.fence.entryId, music.fence.entryId);
+    assert.notEqual(restored.fence.sessionId, music.fence.sessionId);
+    assert.equal(restored.playback.positionSeconds, 41);
+    assert.equal(restored.playback.intent, 'paused');
+    const commands = d.engine.commands.slice(commanded).filter(command => command.binding.sessionId === restored.fence?.sessionId);
+    assert.ok(commands.length > 0); assert.ok(commands.every(command => command.paused === true));
+  } finally { d.runtime.dispose(); }
+});
+
+test('current video and parked audio from the same actual mixed queue retain that queue only once', async () => {
+  const d = fixture();
+  try {
+    d.runtime.connect();
+    await d.runtime.queue.playEntries([queueItemInput('song-1'), queueItemInput('movie-1')], {startSeconds: 0}); await settle();
+    const music = d.runtime.getSnapshot(); assert.ok(music.fence?.kind === 'queue' && music.session?.queue);
+    await d.runtime.next(music.fence); await settle();
+    const video = d.runtime.getSnapshot(); assert.ok(video.fence?.kind === 'queue');
+    assert.equal(video.session?.queue?.queueId, music.session.queue.queueId);
+    assert.deepEqual(video.dock.parkedAudio?.fence, music.fence);
+    const sent = d.requests.length;
+    await d.start('movie-2', 17);
+    const create = d.requests.slice(sent).find(request => request.method === 'POST' && request.path === routePath('create_queue'));
+    assert.ok(create && record(create.body));
+    assert.deepEqual(create.body.retainQueueIds, [music.session.queue.queueId]);
+  } finally { d.runtime.dispose(); }
 });
 
 test('profile retirement aborts pending source reads, releases the engine and removes every listener', async () => {
@@ -627,8 +700,12 @@ test('an unacknowledged live restore times out and removes its wait before closi
     assert.equal(d.runtime.getSnapshot().playback.session, undefined);
     assert.equal(d.server.session(waiting.playback.session.id)?.ended, true);
     assert.equal(d.requests.slice(sent).some(playingRequest), false);
+    d.engine.acknowledgeSeeks = true;
+    await d.start('movie-after-timeout', 17);
+    const winner = d.runtime.getSnapshot().fence; assert.ok(winner);
     deadline.run(); await settle();
-    assert.equal(d.runtime.getSnapshot().playback.session, undefined);
+    assert.deepEqual(d.runtime.getSnapshot().fence, winner);
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'playing');
   } finally { d.runtime.dispose(); }
 });
 

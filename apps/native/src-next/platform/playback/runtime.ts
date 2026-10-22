@@ -122,7 +122,8 @@ export class NativePlaybackRuntime {
     this.path = new NativePlayback({http: this.http, key: options.requestId, timers: options.timers});
     this.playback = new PlaybackService(this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
     this.queue = new V1QueuePlayer({http: this.http, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
-      transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind)});
+      transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
+      retainQueueIds: () => this.retainedQueueIds()});
     // Video completion remains held for the later player. Music follows the server's real policy.
     this.queue.setCompletionPolicy(({kind}) => audioKind(kind) ? 'advance' : 'hold');
     this.dock = new PlaybackDock(this.scope);
@@ -245,14 +246,18 @@ export class NativePlaybackRuntime {
       this.subject = this.entry ? subjectOf(this.entry) : undefined; this.options = undefined;
       this.expanded = this.entry ? !audioKind(this.entry.kind) : true;
       this.expandAtStart = epoch;
+      this.preparing = true;
       // Only the canonical core owns the create/adopt path and its pre-adoption context fence.
       const queue = await this.queue.playSegments(segments, {startSeconds: selectionStartSeconds(request.items), signal: scoped.signal, isCurrent: valid});
       if (!valid()) throw new Error('stale_selection_context');
-      this.changed(); return {queue};
+      return {queue};
     } catch (error) {
       if (epoch === this.startEpoch && this.currentAuthority()) { await this.queue.cancel(); this.playback.leave(); this.changed(); }
       throw error;
-    } finally { scoped.close(); }
+    } finally {
+      scoped.close();
+      if (epoch === this.startEpoch) { this.preparing = false; this.changed(); }
+    }
   }
   private async enqueueSelection(request: HomeSelectionPlaybackRequest & {placement: 'next' | 'end'}, current: (context: SelectionContext) => boolean, epoch: number, source: number) {
     this.assertSelection(request.context, request.signal, current);
@@ -267,7 +272,7 @@ export class NativePlaybackRuntime {
       this.connect(); check();
       const held = this.queue.getSnapshot().view?.queue;
       if (!held) {
-        const created = await client.create(segments, {signal: scoped.signal}); check();
+        const created = await client.create(segments, {signal: scoped.signal, retainQueueIds: this.retainedQueueIds()}); check();
         await this.queue.open(created.queue.id, scoped.signal); check();
         this.changed(); return {queue: created.queue};
       }
@@ -470,6 +475,24 @@ export class NativePlaybackRuntime {
       queueId: playback.queue?.id ?? (session?.id === playback.fence.sessionId ? session.queue?.queueId : previous?.queueId),
       ...(fence.kind === 'queue' ? {entryId: fence.entryId} : {channel: current ? state.channel : previous?.channel})});
     while (this.bookmarks.size > 8) this.bookmarks.delete(this.bookmarks.keys().next().value!);
+  }
+  private retainedQueueIds(): readonly string[] {
+    if (!this.currentAuthority()) throw new Error('Playback authority retired.');
+    const state = this.dock.getSnapshot(), session = this.currentSession();
+    const queueId = (value: DockPlayback | null): string | undefined => {
+      if (!value || value.fence.kind !== 'queue') return;
+      if (!sameScope(value.fence.playback.scope, this.scope)) throw new Error('Invalid playback bookmark scope.');
+      const saved = this.bookmarks.get(value.fence.sessionId);
+      if (session?.id === value.fence.sessionId && session.queue?.entryId === value.fence.entryId) return session.queue.queueId;
+      if (saved && sameFence(saved.playback.fence, value.fence)) return saved.queueId;
+      return value.queue?.id;
+    };
+    // Only normalized current/parked/resume state grants candidates. The older cache may
+    // contain superseded sessions, and a new subject's kind is not known at create time.
+    const candidates = [session?.queue?.queueId ?? queueId(state.local), queueId(state.parkedAudio), queueId(state.resumeVideo)];
+    const ids = [...new Set(candidates.filter((id): id is string => id !== undefined))];
+    if (ids.length > 3) throw new Error('Too many playback queue bookmarks.');
+    return Object.freeze(ids);
   }
   private selectSource(key: string): void {
     this.cancelSnapshot();
