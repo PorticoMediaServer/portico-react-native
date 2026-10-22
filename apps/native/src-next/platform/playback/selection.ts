@@ -4,7 +4,7 @@ import {id} from '../../../../../packages/client-core/src/playback-v1/types';
 
 const containers = new Set(['show', 'season', 'album', 'artist', 'book', 'collection', 'disc']);
 const leaves = new Set(['movie', 'episode', 'song', 'audiobook_file', 'extra']);
-const invalid = (): never => { throw new Error('invalid_selection_playback_target'); };
+function invalid(): never { throw new Error('invalid_selection_playback_target'); }
 
 /** Home supplies display order for Play and pick order for enqueue. Never expand an aggregate
  * from its bounded preview members, or replace its identity with the selected resume child. */

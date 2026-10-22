@@ -13,6 +13,7 @@ const stub = pathToFileURL(path.join(here, 'react-native-stub.mjs')).href;
 // ESM resolver requires them, so extensionless relative specifiers get the same
 // candidate list a bundler would try. App source is not modified for tests.
 const candidates = ['.ts', '.tsx', '/index.ts', '/index.tsx', '.mjs', '.js'];
+const resolutionMiss = error => error?.code === 'ERR_MODULE_NOT_FOUND' || error?.code === 'ERR_UNSUPPORTED_DIR_IMPORT';
 
 export async function resolve(specifier, context, next) {
   if (specifier === '@portico/design') return next(new URL('../../../packages/design/src/index.ts', import.meta.url).href, context);
@@ -20,12 +21,12 @@ export async function resolve(specifier, context, next) {
   try {
     return await next(specifier, context);
   } catch (error) {
-    if (error?.code !== 'ERR_MODULE_NOT_FOUND' || !specifier.startsWith('.')) throw error;
+    if (!resolutionMiss(error) || !specifier.startsWith('.')) throw error;
     for (const suffix of candidates) {
       try {
         return await next(specifier + suffix, context);
       } catch (retry) {
-        if (retry?.code !== 'ERR_MODULE_NOT_FOUND') throw retry;
+        if (!resolutionMiss(retry)) throw retry;
       }
     }
     throw error;

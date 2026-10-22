@@ -140,10 +140,12 @@ export function IconGlyph({name}: {name: IconName}) {
     case "i-person": return <G><G fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2"><Circle cx="12" cy="8" r="4" /><Path d="M4 21a8 8 0 0 1 16 0" /></G></G>;
     case "i-phone": return <G><G fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2"><Rect height="18" rx="2.5" width="10" x="7" y="3" /><Path d="M11 17.5h2" /></G></G>;
     case "i-pip": return <G><G fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="2"><Rect height="14" rx="2.5" width="18" x="3" y="5" /><Rect fill="currentColor" height="4.5" rx="1" width="6" x="12" y="11.5" /></G></G>;
+    case "i-plater": return <G><G fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><Path d="M4 6.5h16M4 11.5h16M4 16.5h8M17 14v6M14 17h6" /></G></G>;
     case "i-play": return <G><Path d="M7 4.8v14.4c0 .8.9 1.3 1.6.9l11.4-7.2a1 1 0 0 0 0-1.8L8.6 3.9C7.9 3.5 7 4 7 4.8z" fill="currentColor" /></G>;
     case "i-playc": return <G><G fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"><Circle cx="12" cy="12" r="8.6" /><Path d="M10.3 8.9v6.2l5-3.1z" /></G></G>;
     case "i-plug": return <G><Path d="M9 3.5V8m6-4.5V8M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5v4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" /></G>;
     case "i-plus": return <G><Path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" /></G>;
+    case "i-pnext": return <G><G fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><Path d="M4 6.5h8M4 12h5M4 17.5h8" /></G><Path fill="currentColor" d="M14.5 8.2v7.6c0 .5.5.8.9.5l5-3.8a.6.6 0 0 0 0-1l-5-3.8c-.4-.3-.9 0-.9.5z" /></G>;
     case "i-prev": return <G><Path d="M5 5.5a1 1 0 0 1 2 0v13a1 1 0 0 1-2 0zm14 .7v11.6c0 .8-.9 1.3-1.6.9L8.6 13a1.2 1.2 0 0 1 0-2l8.8-5.7c.7-.4 1.6.1 1.6.9z" fill="currentColor" /></G>;
     case "i-pulse": return <G><Path d="M3.5 12.5h4l2.5-6 4 11 2.5-5h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" /></G>;
     case "i-qr": return <G><G fill="none" stroke="currentColor" strokeLinejoin="round" strokeWidth="2"><Rect height="6" rx="1" width="6" x="3.5" y="3.5" /><Rect height="6" rx="1" width="6" x="14.5" y="3.5" /><Rect height="6" rx="1" width="6" x="3.5" y="14.5" /><Path d="M14.5 14.5h2.5v2.5M20.5 14.5v.1M20.5 18v2.5H17M14.5 20.5v-.1" /></G></G>;

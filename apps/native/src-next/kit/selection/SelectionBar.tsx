@@ -1,4 +1,4 @@
-import React, {useEffect, useId} from 'react';
+import React, {useEffect, useId, useRef} from 'react';
 import {BackHandler, StyleSheet, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
@@ -6,7 +6,7 @@ import {Button} from '../controls/Button';
 import {Focusable} from '../controls/Focusable';
 import {Icon, type IconName} from '../Icon';
 import {Menu} from '../overlays/Menu';
-import type {MenuEntry} from '../overlays/types';
+import type {FocusRef, MenuEntry} from '../overlays/types';
 import {useTheme} from '../theme';
 import {selectionText} from './copy';
 import {SelectionText} from './surface';
@@ -18,8 +18,9 @@ const mainTV: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList
 const phoneMain: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'more'];
 const label = (id: SelectionAction) => selectionText(`next.selection.native.action.${id}`);
 
-function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'refresh' && action.id !== 'delete' && action.id !== 'download');}
-function SelectionMenus(props: SelectionBarProps) {
+// Admission belongs to the canonical model/server offers, including TV curation.
+function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'download');}
+function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
   const {isTV} = useTheme();
   const actions = permitted(props.actions, isTV);
   const menuIds: readonly SelectionAction[] = props.menu === 'queue' ? ['playNext', 'playLater'] : props.menu === 'watched' ? ['watched', 'unwatched'] : ['watched', 'unwatched', 'collection', 'favorite', 'download', 'removeMyList', 'edit', 'refresh', 'delete'];
@@ -33,7 +34,7 @@ function SelectionMenus(props: SelectionBarProps) {
   }
   return <Menu open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
     title={props.menu === 'queue' ? selectionText('next.selection.native.queueTitle', {count: props.count}) : props.menuTitle ?? selectionText('next.selection.native.selected', {count: props.count})}
-    items={items} presentation={isTV ? 'sideSheet' : 'sheet'} />;
+    items={items} returnFocusRef={props.returnFocusRef} presentation={isTV ? 'sideSheet' : 'sheet'} />;
 }
 function useSelectionBack(onCancel: () => void, menu: SelectionBarProps['menu']) {
   useEffect(() => {
@@ -50,6 +51,7 @@ function activate(props: SelectionBarProps, id: SelectionAction) {
 /** Header replaces its host toolbar. The phone action bar occupies the shell's tab-bar slot. */
 export function SelectionBar(props: SelectionBarProps) {
   const {isTV, colors} = useTheme();
+  const moreRef = useRef<View>(null), queueRef = useRef<View>(null), watchedRef = useRef<View>(null);
   useSelectionBack(props.onCancel, props.menu);
   const tintId = useId().replace(/:/g, '');
   const actions = permitted(props.actions, isTV);
@@ -70,13 +72,13 @@ export function SelectionBar(props: SelectionBarProps) {
       <SelectionText size={28} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText>
       {props.subtitle ? <SelectionText size={20} weight={600} secondary>{props.subtitle}</SelectionText> : null}
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
-      {mainTV.map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
+      {mainTV.map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
         style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : 24}} textStyle={{fontSize: 22}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
       <Button variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64}} textStyle={{fontSize: 22}}>{props.selectAllLabel}</Button>
       <Button variant="glass" size="compact" onPress={props.onCancel} style={{height: 64}} textStyle={{fontSize: 22}}>{selectionText('next.selection.native.done')}</Button>
     </View>
-    <SelectionMenus {...props} />
+    <SelectionMenus {...props} returnFocusRef={props.menu === 'more' ? moreRef : props.menu === 'queue' ? queueRef : props.menu === 'watched' ? watchedRef : undefined} />
   </>;
 }
 
