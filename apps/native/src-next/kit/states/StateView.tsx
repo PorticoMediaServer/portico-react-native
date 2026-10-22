@@ -26,9 +26,9 @@ export function StateView({title, body, icon, tone = 'neutral', primaryAction, s
     {body != null && <Text style={[nativeType({size: bodySize, lineHeight: bodySize * (panel ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale), {color: panel ? theme.colors.textTertiary : theme.colors.textSecondary, textAlign: 'center', maxWidth: tv ? panel ? 560 : 900 : 440, marginBottom: tv ? centered ? 40 : 26 : 20}]}>{body}</Text>}
     {children}
     <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: tv ? 18 : 10}}>
-      {primaryAction && <StateActionButton action={primaryAction} size="hero" variant={panel ? 'glass' : 'primary'} />}
-      {secondaryAction && <StateActionButton action={secondaryAction} size="hero" variant="glass" />}
-      {additionalActions?.map(action => <StateActionButton key={action.id} action={action} size="compact" variant="text" />)}
+      {primaryAction && <StateActionButton testID={testID} action={primaryAction} size="hero" variant={panel ? 'glass' : 'primary'} />}
+      {secondaryAction && <StateActionButton testID={testID} action={secondaryAction} size="hero" variant="glass" />}
+      {additionalActions?.map(action => <StateActionButton testID={testID} key={action.id} action={action} size="compact" variant="text" />)}
     </View>
   </View>;
 }

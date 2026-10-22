@@ -1,3 +1,4 @@
+import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import test, {type TestContext} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -27,6 +28,8 @@ function lifecycle() {
     },
     useEffect: (setup: () => void | (() => void), deps?: readonly unknown[]) => React.useEffect(() => {
       const cleanup = setup(); effects.push({setup, cleanup}); return cleanup;
+    // This harness forwards the component's exact effect dependencies to React.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, deps),
   };
   const animated = {
@@ -182,6 +185,7 @@ async function heroModule(state: ReturnType<typeof lifecycle>) {
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated, '@portico/design': {heroSpec},
     '../theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', colors: {text: '#edf5fa'}})}, '../useMotion': {useMotion: () => state.motion},
     './Lockup': {Lockup: 'Lockup'}, './model': {createRotationClock},
+    '../controls/Focusable': {Focusable: 'Focusable'}, '../focus/registry': {focusTestID},
   });
 }
 const heroProps = () => ({candidates: [{id: 'a', title: 'A'}, {id: 'b', title: 'B'}], variant: 'phone-app',

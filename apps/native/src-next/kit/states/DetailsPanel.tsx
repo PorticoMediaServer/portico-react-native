@@ -65,7 +65,7 @@ export function DetailsPanel(props: DetailsPanelProps) {
         {owner.time != null && <Text style={[ownerStyle, {color: theme.colors.textSecondary}]}>{owner.time}</Text>}
       </View>}
       {owner.actions && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: tv ? 26 : 18, marginTop: tv ? 16 : 10}}>
-        {owner.actions.map(action => <StateActionButton key={action.id} action={action} variant="text" size="xs" iconSize={tv ? 22 : 14}
+        {owner.actions.map(action => <StateActionButton testID={testID ? `${testID}-owner` : undefined} key={action.id} action={action} variant="text" size="xs" iconSize={tv ? 22 : 14}
           style={{height: tv ? 30 : 19, paddingHorizontal: 0}}
           textStyle={{fontSize: (tv ? 21 : compact ? 12.5 : 13.5) * theme.textScale}}
           hitSlop={tv ? {top: 17, bottom: 17, left: 8, right: 8} : {top: 13, bottom: 13, left: 8, right: 8}} />)}

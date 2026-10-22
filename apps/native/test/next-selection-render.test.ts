@@ -58,6 +58,8 @@ registerHooks({
     return {format: 'module', source: result.code, shortCircuit: true};
   },
 });
+const {selectionControlID: controlID} = await import('../src-next/kit/selection/focus-ids.ts');
+const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {DeleteMediaDialog} = await import('../src-next/kit/selection/DeleteMediaDialog.tsx');
 const {MixedEditExplainer} = await import('../src-next/kit/selection/MixedEditExplainer.tsx');
@@ -118,9 +120,13 @@ test('TV BulkEditor binds real schema fields to native controls without writing 
       try {
         const nativeInput = elements(control.tree).find(element => element.type === 'TextInput')!;
         assert.ok(nativeInput); assert.equal(nativeInput.props.keyboardType, 'numbers-and-punctuation');
-        assert.equal(nativeInput.props.ref, field.props.ref); assert.equal(nativeInput.props.onChangeText, field.props.onChangeText);
+        nativeInput.props.ref(focus);
+        assert.equal(surface.props.initialFocusRef.current, focus, 'registry binding forwards the actual TextInput host');
+        nativeInput.props.onChangeText('2020');
+        assert.deepEqual(calls, [{year: {value: '2020'}}]);
+        nativeInput.props.ref(null);
+        assert.equal(surface.props.initialFocusRef.current, null, 'unmount clears the forwarded native host');
       } finally {control.host.unmount();}
-      field.props.onChangeText('2020');
       assert.deepEqual(calls, [{year: {value: '2020'}}]);
     } finally {input.host.unmount();}
     ofType(surface, Switch)[0]!.props.onCheckedChange(false);
@@ -259,11 +265,14 @@ test('TV mixed Edit offers genuine Keep-only callbacks and an actual initial foc
 test('TV Delete keeps the owner, preview, exact confirmation and restriction gates on the real dialog', () => {
   const calls: unknown[] = [];
   const preview = {revision: 7, confirmation: '1', confirmationKind: 'count' as const, totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]};
-  const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 1, preview, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: (...args) => calls.push(args)};
+  const props: DeleteMediaDialogProps = {testID: 'tv.authority.delete', open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 1, preview, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: (...args) => calls.push(args)};
   const dialog = mount(DeleteMediaDialog, props);
   try {
     let surface = dialog.tree as Element; assert.equal(surface.type, SelectionSurface);
     assert.equal(surface.props.initialFocusRef, ofType(surface.props.footer, Button)[0]!.props.ref);
+    assert.equal(nativeControlID(ofType(surface.props.footer, Button)[0]!), controlID(props.testID, 'dismiss'));
+    assert.equal(ofType(surface, TextField)[0]!.props.testID, controlID(props.testID, 'confirmation'));
+    assert.equal(ofType(surface, Switch)[0]!.props.testID, controlID(props.testID, 'remove-files'));
     let remove = ofType(surface.props.footer, Button)[1]!; assert.equal(remove.props.disabled, true); remove.props.onPress(); assert.deepEqual(calls, []);
     dialog.update({...props, confirmation: '1'}); surface = dialog.tree as Element;
     remove = ofType(surface.props.footer, Button)[1]!; assert.equal(remove.props.disabled, false); remove.props.onPress(); assert.deepEqual(calls, [[preview, '1', true]]);
@@ -289,4 +298,90 @@ test('a decorative circle gets its full native style state from Pressable withou
     host.props.style(nativeState);
     assert.equal(received, nativeState); assert.equal(presses, 0);
   } finally {circle.host.unmount();}
+});
+
+// Follow each receiving seam through the real controls to the native host.
+function nativeControlID(element: Element): string | undefined {
+  const mounted: ReturnType<typeof mount>[] = [];
+  try {
+    let current = element;
+    while (typeof current.type !== 'string') {
+      const instance = mount(current.type, current.props); mounted.push(instance);
+      current = instance.tree as Element;
+    }
+    assert.equal(current.type, 'Pressable');
+    return current.props.testID;
+  } finally {for (const instance of mounted.reverse()) instance.host.unmount();}
+}
+
+test('selection actions and their internal menu carry the authority fence to actual Pressables', () => {
+  const prefix = 'tv.[server,account,profile,epoch,viewer].selection-bar';
+  const props: SelectionBarProps = {testID: prefix, count: 4, selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction() {}, menu: 'queue', onMenuChange() {}, actions: [{id: 'play'}, {id: 'queue'}, {id: 'watched'}, {id: 'more'}, {id: 'playNext'}, {id: 'playLater'}]};
+  const bar = mount(SelectionBar, props);
+  try {
+    const buttons = ofType(bar.tree, Button);
+    assert.deepEqual(buttons.map(nativeControlID), ['play', 'queue', 'watched', 'more'].map(id => controlID(prefix, 'action', id)).concat([controlID(prefix, 'select-all'), controlID(prefix, 'dismiss')]));
+    const menuNode = elements(bar.tree).find(element => element.props.menu === 'queue' && element.type !== SelectionBar)!;
+    const menu = mount(menuNode.type, menuNode.props);
+    try {
+      assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'));
+      assert.equal((menu.tree as Element).props.returnFocusRef, buttons[1]!.props.ref);
+      menu.update({...menuNode.props, menu: null, returnFocusRef: undefined});
+      assert.equal((menu.tree as Element).props.testID, controlID(prefix, 'menu', 'queue'), 'closing animation retains its semantic surface identity');
+      assert.equal((menu.tree as Element).props.returnFocusRef, buttons[1]!.props.ref, 'closing animation retains the real opener ref');
+    } finally {menu.host.unmount();}
+    bar.update({...props, count: 99, selectAllLabel: 'Translated copy'});
+    assert.deepEqual(ofType(bar.tree, Button).map(nativeControlID), buttons.map(nativeControlID));
+  } finally {bar.host.unmount();}
+});
+
+test('picker destination identity survives translation/reorder and find/name IDs reach TextInputs', () => {
+  const calls: unknown[] = [], prefix = 'tv.authority.picker.playlist';
+  const props = {testID: prefix, open: true, onOpenChange() {}, count: 2, selectionLabel: 'Selected', entries: [{id: 'one/two', title: 'Same', size: 1, canAdd: true}, {id: 'one.two', title: 'Same', size: 2, canAdd: false}], creating: false, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd: (id: string) => calls.push(id), query: '', onQueryChange() {}, showFind: true, onRetry() {}, onViewDestination() {}, onResultDismiss() {}};
+  const wrapper = mount(PlaylistPicker, props), picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+  const rowIDs = () => {
+    const list = elements(picker.tree).find(element => element.type === 'FlatList')!;
+    return list.props.data.map((item: unknown) => {const row = list.props.renderItem({item}); return {id: nativeControlID(row), row};});
+  };
+  try {
+    const rows = rowIDs();
+    assert.notEqual(rows[0].id, rows[1].id);
+    assert.equal(rows[0].id, controlID(prefix, 'destination', 'playlist', 'one/two'));
+    rows[0].row.props.onPress(); rows[1].row.props.onPress(); assert.deepEqual(calls, ['one/two']);
+    const find = ofType(picker.tree, TextField)[0]!;
+    const input = mount(TextField, find.props);
+    try {assert.equal(elements(input.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'find'));} finally {input.host.unmount();}
+    picker.update({...props, kind: 'playlist', entries: [...props.entries].reverse().map(entry => ({...entry, title: 'Translated'}))});
+    assert.deepEqual(rowIDs().map((entry: {id: string}) => entry.id), rows.map((entry: {id: string}) => entry.id).reverse());
+    picker.update({...props, kind: 'playlist', creating: true});
+    const name = mount(TextField, ofType(picker.tree, TextField)[0]!.props);
+    try {assert.equal(elements(name.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'name'));} finally {name.host.unmount();}
+    picker.update({...props, kind: 'playlist', entries: []});
+    const surface = ofType(picker.tree, SelectionSurface)[0]!;
+    const create = ofType(surface, Focusable).find(element => element.props.testID === controlID(prefix, 'new'))!;
+    assert.equal(surface.props.initialFocusRef, create.props.ref, 'empty picker enters the actual New control');
+  } finally {picker.host.unmount(); wrapper.host.unmount();}
+});
+
+test('bulk field/value/result IDs use schema and entity keys while native lock/save controls stay fenced', () => {
+  const prefix = 'tv.authority.editor';
+  const editor = mount(BulkEditor, bulk({testID: prefix, changes: {year: {value: '2020'}}}));
+  try {
+    const scalarNode = elements(editor.tree).find(element => element.props.field?.field === 'year')!;
+    const scalar = mount(scalarNode.type, scalarNode.props);
+    try {
+      const field = ofType(scalar.tree, TextField)[0]!, input = mount(TextField, field.props);
+      try {assert.equal(elements(input.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'field', 'year', 'input'));} finally {input.host.unmount();}
+    } finally {scalar.host.unmount();}
+    const listNode = elements(editor.tree).find(element => element.props.field?.field === 'tags')!;
+    const list = mount(listNode.type, listNode.props);
+    try {assert.equal(nativeControlID(ofType(list.tree, Focusable)[0]!), controlID(prefix, 'field', 'tags', 'value-toggle', 'Existing'));} finally {list.host.unmount();}
+    const lock = mount(Switch, ofType(editor.tree, Switch)[0]!.props);
+    try {assert.equal(nativeControlID(lock.tree as Element), controlID(prefix, 'lock-edited'));} finally {lock.host.unmount();}
+    const surface = editor.tree as Element;
+    assert.deepEqual(ofType(surface.props.footer, Button).map(nativeControlID), [controlID(prefix, 'dismiss'), controlID(prefix, 'save')]);
+    editor.update(bulk({testID: prefix, result: {updated: 0, failed: 2, results: [{kind: 'item', id: 'same', ok: false}, {kind: 'person', id: 'same', ok: false}]}}));
+    const retries = ofType(editor.tree, Button).filter(button => button.props.testID?.includes('result'));
+    assert.deepEqual(retries.map(nativeControlID), [controlID(prefix, 'result', 'item', 'same', 'retry'), controlID(prefix, 'result', 'person', 'same', 'retry')]);
+  } finally {editor.host.unmount();}
 });
