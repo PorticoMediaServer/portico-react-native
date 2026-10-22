@@ -9,11 +9,12 @@ import {Focusable, type FocusableProps} from './Focusable';
 import {minimumHitSlop, switchDragFraction, switchReleaseValue} from './control-model';
 import {useControlValue} from './useControlValue';
 
+export type SwitchVariant = 'compact' | 'phone' | 'episode' | 'selection';
 export type SwitchProps = Omit<FocusableProps, 'children'> & {
   checked?: boolean;
   defaultChecked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
-  variant?: 'compact' | 'phone' | 'episode';
+  variant?: SwitchVariant;
   children?: React.ReactNode;
   description?: React.ReactNode;
 };
@@ -26,10 +27,11 @@ export const Switch = forwardRef<View, SwitchProps>(function Switch({
   const motion = useMotion();
   const [value, setValue] = useControlValue(checked, defaultChecked, onCheckedChange);
   const geometry = theme.isTV ? {width: 64, height: 36, thumb: 28, inset: 4, onLeft: 32}
-    : variant === 'episode' ? {width: 40, height: 24, thumb: 18, inset: 3, onLeft: 19}
-      : variant === 'compact' ? {width: 38, height: 22, thumb: 16, inset: 3, onLeft: 19}
-        : {width: 48, height: 29, thumb: 23, inset: 3, onLeft: 22};
-  const offThumb = theme.isTV || variant === 'compact' ? theme.colors.textTertiary : theme.colors.textSecondary;
+    : variant === 'selection' ? {width: 44, height: 26, thumb: 20, inset: 3, onLeft: 21}
+      : variant === 'episode' ? {width: 40, height: 24, thumb: 18, inset: 3, onLeft: 19}
+        : variant === 'compact' ? {width: 38, height: 22, thumb: 16, inset: 3, onLeft: 19}
+          : {width: 48, height: 29, thumb: 23, inset: 3, onLeft: 22};
+  const offThumb = theme.isTV || variant === 'compact' || variant === 'selection' ? theme.colors.textTertiary : theme.colors.textSecondary;
   const position = useSharedValue(value ? 1 : 0);
   const dragging = useSharedValue(0);
   const start = useSharedValue(0);

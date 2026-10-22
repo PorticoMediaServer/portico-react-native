@@ -7,7 +7,7 @@ export type {FocusableProps, ControlState} from './Focusable';
 export {Tabs, Segmented} from './Tabs';
 export type {TabsProps, TabItem, SegmentedProps} from './Tabs';
 export {Switch} from './Switch';
-export type {SwitchProps} from './Switch';
+export type {SwitchProps, SwitchVariant} from './Switch';
 export {TextField} from './TextField';
 export type {TextFieldProps} from './TextField';
 export {Select, RichSelect} from './Select';

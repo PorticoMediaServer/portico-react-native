@@ -5,7 +5,7 @@ import type {NextMessageId} from '../../../../../../packages/i18n/src/catalog/en
 import {nativeControlsFixtureMessages} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/controls-native-fixtures';
 import type {Gallery} from '../../gallery-registry';
 import {Button, Chip, Focusable, ResumeButton, Segmented, Switch, Tabs, TextField, Select, RichSelect, type ButtonSize, type ButtonVariant, type ChipVariant} from '../../../kit/controls';
-import {fontFamilies, useTheme} from '../../../kit/theme';
+import {fontFamilies, nativeType, useTheme} from '../../../kit/theme';
 import {OverlaysProvider} from '../../../kit/overlays/OverlayHost';
 
 const t = defaultI18n.t;
@@ -106,7 +106,7 @@ export function SegmentedGallery() {
 export function SwitchesGallery() {
   const [checked, setChecked] = useState(true);
   return <Frame title="next.controls.native.switchesTitle">
-    {(['compact', 'phone', 'episode'] as const).map(variant => <View key={variant} style={{gap: 20}}>
+    {(['compact', 'phone', 'episode', 'selection'] as const).map(variant => <View key={variant} style={{gap: 20}}>
       <Switch variant={variant} checked={checked} onCheckedChange={setChecked} testID={`controls-switch-${variant}-controlled`}>{t('settings.row.autoplayNext')}</Switch>
       <Switch variant={variant} defaultChecked={false} testID={`controls-switch-${variant}-uncontrolled`}>{t('settings.row.startNextDuringCredits')}</Switch>
       <Switch variant={variant} checked disabled testID={`controls-switch-${variant}-disabled`}>{t('settings.row.autoplayNext')}</Switch>
@@ -178,6 +178,21 @@ export function RichSelectGallery() {
   </Frame>;
 }
 
+export function TVChoiceGallery() {
+  const theme = useTheme();
+  const [value, setValue] = useState('ask');
+  const options = [
+    {value: 'ask', label: t('pref.value.playback.introSkip.ask')},
+    {value: 'auto', label: t('pref.value.playback.introSkip.auto')},
+    {value: 'off', label: t('pref.value.playback.introSkip.off')},
+  ];
+  return <Frame title="next.controls.native.selectTitle">
+    <Select label={t('pref.label.playback.introSkip')} options={options} value={value} onValueChange={setValue}
+      pickerContext={<Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('settings.section.skipping')}</Text>}
+      pickerDescription={t('pref.help.playback.introSkip')} testID="controls-select-tv-choice" />
+  </Frame>;
+}
+
 const galleries: readonly Gallery[] = [
   {id: 'controls', title: 'next.controls.native.galleryTitle', render: FocusGallery},
   {id: 'controls-buttons', title: 'next.controls.native.buttonsTitle', render: ButtonsGallery},
@@ -189,5 +204,6 @@ const galleries: readonly Gallery[] = [
   {id: 'controls-fields', title: 'next.controls.native.fieldsTitle', render: FieldsGallery},
   {id: 'controls-select', title: 'next.controls.native.selectTitle', render: SelectGallery},
   {id: 'controls-rich-select', title: 'next.controls.native.richSelectTitle', render: RichSelectGallery},
+  {id: 'controls-select-tv-choice', title: 'next.controls.native.selectTitle', render: TVChoiceGallery, platforms: ['tv']},
 ];
 export default galleries;

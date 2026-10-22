@@ -28,6 +28,7 @@ export type SelectProps = Omit<FocusableProps, 'children'> & {
   error?: React.ReactNode;
   placeholder?: React.ReactNode;
   textStyle?: StyleProp<TextStyle>;
+  pickerContext?: React.ReactNode;
   pickerTitle?: React.ReactNode;
   pickerDescription?: React.ReactNode;
   pickerFooter?: React.ReactNode;
@@ -36,7 +37,7 @@ export type RichSelectProps = SelectProps;
 
 const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function NativeSelect({
   options, value, defaultValue, onValueChange, open, defaultOpen = false, onOpenChange,
-  label, description, error, placeholder, rich, style, textStyle, pickerTitle, pickerDescription, pickerFooter, onPress, disabled, accessibilityLabel,
+  label, description, error, placeholder, rich, style, textStyle, pickerContext, pickerTitle, pickerDescription, pickerFooter, onPress, disabled, accessibilityLabel,
   accessibilityState, testID, ...props
 }, ref) {
   const theme = useTheme();
@@ -57,7 +58,7 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
     trigger.current = node;
     if (typeof ref === 'function') ref(node); else if (ref) ref.current = node;
   }, [ref]);
-  const blocked = disabled || !options.length;
+  const blocked = disabled || focusedValue === undefined;
   const title = label ?? accessibilityLabel ?? selected?.label ?? placeholder;
   return <View style={styles.container}>
     {label !== undefined ? <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{label}</Text> : null}
@@ -75,12 +76,13 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
     </Focusable>
     {error !== undefined ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{error}</Text>
       : description !== undefined ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{description}</Text> : null}
-    <Dialog open={isOpen} onOpenChange={next => setOpen(next)} title={pickerTitle ?? title} description={pickerDescription} footer={pickerFooter} accessibilityLabel={accessibilityLabel}
+    <Dialog open={isOpen} onOpenChange={next => setOpen(next)} headerContext={pickerContext} title={pickerTitle ?? title} description={pickerDescription}
+      footer={pickerFooter ?? (theme.isTV && !blocked ? <PickerHint /> : undefined)} accessibilityLabel={accessibilityLabel}
       placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? 640 : undefined}
-      titleTextStyle={theme.isTV ? nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 47.84}, theme.textScale) : undefined}
-      descriptionTextStyle={theme.isTV ? nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 31.9}, theme.textScale) : undefined}
-      contentStyle={{paddingTop: theme.isTV ? 20 : 0}}
-      initialFocusRef={initialIndex >= 0 ? selectedRow : undefined} returnFocusRef={trigger} testID={testID ? `${testID}-picker` : undefined}>
+      titleTextStyle={theme.isTV ? {...nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 47.84}, theme.textScale), marginTop: pickerContext == null ? 0 : -4} : undefined}
+      descriptionTextStyle={theme.isTV ? {...nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 31.9}, theme.textScale), marginTop: 12} : undefined}
+      contentStyle={{paddingTop: theme.isTV ? pickerDescription == null ? 32 : 26 : 0}}
+      initialFocusRef={!blocked && initialIndex >= 0 ? selectedRow : undefined} returnFocusRef={trigger} testID={testID ? `${testID}-picker` : undefined}>
       <FlatList ref={list} data={options} keyExtractor={option => option.value} accessibilityRole="radiogroup"
         initialScrollIndex={initialIndex >= 0 ? initialIndex : undefined}
         getItemLayout={(_, index) => ({length: rowHeight, offset: rowPitch * index, index})}
@@ -114,6 +116,19 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
     </Dialog>
   </View>;
 });
+
+function PickerHint() {
+  const theme = useTheme();
+  const hintType = nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale);
+  const keyType = nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale);
+  const key = (label: string) => <View style={{height: 36, minWidth: 44, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5,
+    borderColor: colorAlpha(theme.colors.text, .3), alignItems: 'center', justifyContent: 'center'}}><Text style={[keyType, {color: theme.colors.textSecondary}]}>{label}</Text></View>;
+  return <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+    {key(defaultI18n.t('title.ok'))}<Text style={[hintType, {color: theme.colors.textTertiary}]}>{defaultI18n.t('next.controls.native.choose')}</Text>
+    <View style={{width: 16}} /><View style={{width: 16}} />
+    {key(defaultI18n.t('action.back'))}<Text style={[hintType, {color: theme.colors.textTertiary}]}>{defaultI18n.t('action.close')}</Text>
+  </View>;
+}
 
 export const Select = forwardRef<View, SelectProps>(function Select(props, ref) {return <NativeSelect {...props} rich={false} ref={ref} />;});
 export const RichSelect = forwardRef<View, RichSelectProps>(function RichSelect(props, ref) {return <NativeSelect {...props} rich ref={ref} />;});
