@@ -3,7 +3,7 @@ import {StyleSheet, Text, View, type StyleProp, type ViewStyle} from 'react-nati
 import Svg, {Defs, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {fontFamilies, useTheme} from '../theme';
 import {BookSpine} from './Artwork';
-import {coverTitleScale, mixColour} from './model';
+import {mixColour} from './model';
 import {PaletteWash} from './Surfaces';
 import type {ArtworkPalette, GeneratedCoverProps} from './types';
 
@@ -26,11 +26,11 @@ export function GeneratedArt({glyph, palette, width, height, style, testID}: Gen
 }
 
 /** A typographic cover at the size drawn; tint is canonical and explicitly supplied. */
-export function GeneratedCover({title, author, tint, width, height, style, testID}: GeneratedCoverProps) {
+export function GeneratedCover({title, author, tint, fontScale = 12.6, glyph, width, height, style, testID}: GeneratedCoverProps) {
   const theme = useTheme();
   const [measuredWidth, setMeasuredWidth] = useState(width ?? 0);
   const w = width ?? measuredWidth;
-  const fontSize = w * coverTitleScale(title);
+  const fontSize = w * fontScale / 100;
   const small = w <= 80;
   const authorSize = Math.min(22, Math.max(8, w * 0.068));
   return <View testID={testID} accessible accessibilityRole="image" accessibilityLabel={title}
@@ -44,11 +44,11 @@ export function GeneratedCover({title, author, tint, width, height, style, testI
       <Rect width="1000" height="1000" fill="url(#cover-second)"/><Rect width="1000" height="1000" fill="url(#cover-first)"/>
     </Svg>
     {w > 0 ? <>
-      <Text accessible={false} allowFontScaling={false} style={{fontFamily: fontFamilies[800], color: theme.colors.text, opacity: 0.085, position: 'absolute', right: -0.06 * w, bottom: -0.27 * w, fontSize: 1.04 * w, lineHeight: 1.04 * w, letterSpacing: -0.06 * 1.04 * w, includeFontPadding: false}}>{Array.from(title)[0]?.toLocaleUpperCase('en-US')}</Text>
+      <Text accessible={false} allowFontScaling={false} style={{fontFamily: fontFamilies[800], color: theme.colors.text, opacity: 0.085, position: 'absolute', right: -0.06 * w, bottom: -0.27 * w, fontSize: 1.04 * w, lineHeight: 1.04 * w, letterSpacing: -0.06 * 1.04 * w, includeFontPadding: false}}>{glyph}</Text>
       <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {paddingTop: w * (small ? 0.11 : 0.12), paddingRight: w * 0.11, paddingBottom: w * 0.11, paddingLeft: w * 0.13}]}>
         {!small ? <View style={{width: w * 0.09, height: w * 0.012, borderRadius: w * 0.01, backgroundColor: theme.colors.text, opacity: 0.55, marginBottom: w * 0.065}}/> : null}
-        <Text accessible={false} allowFontScaling={false} numberOfLines={5} style={{fontFamily: fontFamilies[800], color: theme.colors.text, fontSize, lineHeight: fontSize * 1.03, letterSpacing: fontSize * -0.04, textShadowColor: theme.colors.ink, textShadowOffset: {width: 0, height: 1}, textShadowRadius: 14, includeFontPadding: false}}>{title}</Text>
-        {!small && author ? <Text accessible={false} allowFontScaling={false} numberOfLines={3} style={{fontFamily: fontFamilies[700], color: theme.colors.textSecondary, fontSize: authorSize, lineHeight: authorSize * 1.25, marginTop: 'auto'}}>{author}</Text> : null}
+        <Text accessible={false} allowFontScaling={false} numberOfLines={5} textBreakStrategy="balanced" style={{fontFamily: fontFamilies[800], color: theme.colors.text, fontSize, lineHeight: fontSize * 1.03, letterSpacing: fontSize * -0.04, textShadowColor: `${theme.colors.ink}66`, textShadowOffset: {width: 0, height: 1}, textShadowRadius: 14, includeFontPadding: false}}>{title}</Text>
+        {!small && author ? <Text accessible={false} allowFontScaling={false} style={{fontFamily: fontFamilies[700], color: theme.colors.textSecondary, fontSize: authorSize, lineHeight: authorSize * 1.25, marginTop: 'auto'}}>{author}</Text> : null}
       </View>
     </> : null}
     <BookSpine/>

@@ -1,8 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {artworkAttemptSource, artworkFrame, boundedCovers, circleArtworkFrames, coverAspect, coverTitleScale, mixColour} from '../src-next/kit/artwork/model.ts';
+import {artworkArrivalDuration, artworkAttemptSource, artworkFrame, boundedCovers, circleArtworkFrames, coverAspect, mixColour} from '../src-next/kit/artwork/model.ts';
 import {nativeAmbientSource} from '../src-next/kit/artwork/source.ts';
 import type {AmbientArtworkSource} from '../../../packages/client-core/src/artwork/index.ts';
+
+test('skeleton picture timing remains240ms while reduction and cached policy take precedence', () => {
+  assert.equal(artworkArrivalDuration(240, 180, false, false), 240);
+  assert.equal(artworkArrivalDuration(240, 180, true, false), 160);
+  assert.equal(artworkArrivalDuration(240, 180, false, true), 0);
+  assert.equal(artworkArrivalDuration(240, 180, true, true), 0);
+  assert.equal(artworkArrivalDuration(undefined, 180, false, false), 180);
+  assert.equal(artworkArrivalDuration(Number.NaN, 180, false, false), 180);
+});
 
 test('cover crops preserve actual source dimensions and the requested top edge', () => {
   assert.deepEqual(artworkFrame(150, 200, 600, 1200, 'cover', {x: 0.5, y: 0}), {width: 150, height: 300, left: 0, top: 0});
@@ -49,10 +58,7 @@ test('bounded supplied cover samples do not scan, reorder or mutate their input'
   assert.equal(coverAspect('poster'), 2 / 3); assert.equal(coverAspect('square'), 1); assert.equal(coverAspect('periodical'), 3 / 4);
 });
 
-test('sparse covers shrink long words and use stable supplied colour mixing', () => {
-  assert.equal(coverTitleScale('Dracula'), 0.155);
-  assert.ok(coverTitleScale('The Metamorphosis') < coverTitleScale('Dracula'));
-  assert.ok(coverTitleScale('An extraordinarilylongunbrokenword') >= 0.086);
+test('generated covers mix their supplied colours without deriving a platform palette', () => {
   assert.equal(mixColour('#000000', '#ffffff', 0.5), '#808080');
   assert.equal(mixColour('#28587a', '#071018', 0), '#28587a');
 });

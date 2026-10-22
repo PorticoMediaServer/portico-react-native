@@ -1,9 +1,11 @@
 import React, {useEffect, useRef} from 'react';
 import {Animated, StyleSheet, View} from 'react-native';
+import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
 import {Artwork} from './Artwork';
+import {artworkArrivalDuration} from './model';
 import type {AmbientArtProps, ArtworkPalette, ColourBackdropProps} from './types';
 
 type Glow = Readonly<{x: number; y: number; rx: number; ry: number; colour: string; stops: readonly (readonly [number, number])[]}>;
@@ -65,7 +67,7 @@ function ArtScrims({phone, side, bottomAt, top = false, phoneOverlay = false}: {
 }
 
 /** Continuous ambient wash and independently sharp foreground, with Q43's cheap TV representation. */
-export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, position, style, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
+export function AmbientArt({source, sources, foreground, palette, treatment = 'hero', width, height, visible = true, priority = false, arrivalDurationMs, position, style, foregroundStyle, onReady, onError, onStatusChange, testID}: AmbientArtProps) {
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
@@ -90,10 +92,10 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
       width: wash && list.length > 1 ? '70%' : cover ? '130%' : '124%', height: cover ? '160%' : '124%',
       opacity: index === 1 && wash ? 0.34 : alpha,
     }]}>
-      <Artwork source={ambient} visible={visible} sized priority={priority} onReady={decoded => {
+      <Artwork source={ambient} visible={visible} sized priority={priority} arrivalDurationMs={arrivalDurationMs} onReady={decoded => {
         if (index === 0) {
           fallbackOpacity.stopAnimation();
-          Animated.timing(fallbackOpacity, {toValue: 0, duration: reduce ? 160 : theme.motion.standard, useNativeDriver: true}).start();
+          Animated.timing(fallbackOpacity, {toValue: 0, duration: artworkArrivalDuration(arrivalDurationMs, theme.motion.standard, reduce, false), useNativeDriver: true}).start();
           if (!foreground) onReady?.(decoded);
         }
       }} onError={!foreground && index === 0 ? onError : undefined}
@@ -103,9 +105,11 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
         }}
         blurRadius={allowLiveBlur ? wash ? 12 : 8 : undefined}/>
     </View>)}
-    {foreground ? <View style={[StyleSheet.absoluteFillObject, {left: undefined, width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}, foregroundStyle]}>
-      <Artwork source={foreground} visible={visible} priority={priority} position={position ?? {x: phone ? 0.38 : 0.5, y: 0.3}}
-        onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
+    {foreground ? <View style={[StyleSheet.absoluteFillObject, {left: undefined, width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}]}>
+      <Reanimated.View style={[StyleSheet.absoluteFillObject, foregroundStyle]}>
+        <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? {x: phone ? 0.38 : 0.5, y: 0.3}}
+          onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
+      </Reanimated.View>
       <ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/>
     </View> : null}
     <ArtScrims phone={phone} side={false} bottomAt={wash ? 1 : cover ? 0.7 : 0.42}/>

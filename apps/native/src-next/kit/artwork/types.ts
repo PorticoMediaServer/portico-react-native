@@ -34,6 +34,8 @@ export type ArtworkProps = Readonly<{
   filter?: ViewStyle['filter'];
   visible?: boolean;
   priority?: boolean;
+  /** Picture arrival only; reduction stays160ms and a cached image stays immediate. */
+  arrivalDurationMs?: number;
   /** Ambient-v1 and already-sized profile pictures bypass sharp-art sizing. */
   sized?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -58,6 +60,7 @@ export type AmbientArtProps = Readonly<{
   height?: number;
   visible?: boolean;
   priority?: boolean;
+  arrivalDurationMs?: number;
   position?: ArtworkPosition;
   style?: StyleProp<ViewStyle>;
   foregroundStyle?: StyleProp<ViewStyle>;
@@ -95,6 +98,9 @@ export type GeneratedCoverProps = Readonly<{
   title: string;
   author?: string;
   tint: GeneratedCoverTint;
+  /** Exact authored --fs in percent of cover width; CSS default12.6cqw. */
+  fontScale?: number;
+  glyph: string;
   width?: number;
   height?: number;
   style?: StyleProp<ViewStyle>;

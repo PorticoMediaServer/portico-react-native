@@ -4,12 +4,12 @@ import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/ArtworkPipeline';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
-import {artworkAttemptSource, artworkFrame} from './model';
+import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './model';
 import type {ArtworkProps, ArtworkSource} from './types';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
 
-function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
+function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, arrivalDurationMs, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
   const placement = useArtworkPlacement();
   const slot = useArtworkSlot(source.cacheKey, placement, priority);
   const reduced = useReducedMotion();
@@ -56,7 +56,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     callbacks.current.onReady?.(source);
     callbacks.current.onLoad?.(source);
     opacity.stopAnimation();
-    Animated.timing(opacity, {toValue: 1, duration: slot.cached ? 0 : reduced ? 160 : theme.motion.standard, useNativeDriver: true}).start();
+    Animated.timing(opacity, {toValue: 1, duration: artworkArrivalDuration(arrivalDurationMs, theme.motion.standard, reduced, slot.cached), useNativeDriver: true}).start();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
     <Image key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}

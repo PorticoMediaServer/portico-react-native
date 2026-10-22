@@ -2,6 +2,11 @@ import type {ArtworkPosition, ArtworkSource, CoverShape} from './types';
 
 export const unit = (value: number): number => Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0.5));
 
+/** A caller's picture timing cannot override system/app reduction or cached immediacy. */
+export function artworkArrivalDuration(requested: number | undefined, standard: number, reduced: boolean, cached: boolean): number {
+  return cached ? 0 : reduced ? 160 : requested !== undefined && Number.isFinite(requested) ? Math.max(0, requested) : standard;
+}
+
 /** Crop in the rendered box, independent of transport or item identity. */
 export function artworkFrame(width: number, height: number, intrinsicWidth: number, intrinsicHeight: number, fit: 'cover' | 'contain', position: ArtworkPosition = {x: 0.5, y: 0.5}, zoom = 1) {
   const scale = (fit === 'contain' ? Math.min : Math.max)(width / intrinsicWidth, height / intrinsicHeight) * Math.max(1, Number.isFinite(zoom) ? zoom : 1);
@@ -31,11 +36,6 @@ export function circleArtworkFrames(count: number, size: number, gap: number) {
     if (count === 3) return {left: index === 0 ? 0 : half + gap, top: index === 2 ? half + gap : 0, width: half, height: index === 0 ? size : half};
     return {left: index % 2 ? half + gap : 0, top: index > 1 ? half + gap : 0, width: half, height: half};
   });
-}
-
-export function coverTitleScale(title: string): number {
-  const longest = Math.max(1, ...(title.match(/\S+/gu) ?? []).map(word => Array.from(word).length));
-  return longest <= 7 ? 0.155 : longest <= 9 ? 0.124 : longest <= 11 ? 0.12 : Math.max(0.086, 1.12 / longest);
 }
 
 export function mixColour(first: string, second: string, fraction: number): string {

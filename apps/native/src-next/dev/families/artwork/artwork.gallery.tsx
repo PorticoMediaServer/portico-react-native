@@ -38,7 +38,7 @@ function WashCase() {
   </View>;
 }
 
-function HeroCase() {
+function HeroCase({arrivalDurationMs}: {arrivalDurationMs?: number}) {
   const theme = useTheme();
   const real = suppliedEvidence();
   const [ready, setReady] = useState(false);
@@ -48,12 +48,13 @@ function HeroCase() {
   return <View style={{gap: 20}}>
     <View testID="artwork-hero" style={{marginLeft: theme.isTV ? 0 : -theme.gutter, width: theme.isTV ? 1500 : 390, height: theme.isTV ? 900 : 560, overflow: 'hidden'}}>
       <AmbientArt foreground={foreground} source={real?.ambient} palette={real?.palette ?? palette}
-        treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority onReady={() => {setReady(true); setFailed(false);}} onError={() => {setReady(false); setFailed(true);}}/>
+        treatment={theme.isTV ? 'hero' : 'phone'} visible={visible} priority arrivalDurationMs={arrivalDurationMs} onReady={() => {setReady(true); setFailed(false);}} onError={() => {setReady(false); setFailed(true);}}/>
     </View>
     <Button variant="glass" onPress={() => {setReady(false); setFailed(false); setVisible(value => !value);}}>{t(visible ? 'action.close' : 'action.refresh')}</Button>
     {ready || failed ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(failed ? 'next.artwork.native.noArtwork' : 'next.artwork.native.backdrop')}</Text> : null}
   </View>;
 }
+function SkeletonArrivalCase() {return <HeroCase arrivalDurationMs={240}/>;}
 
 function FallbackCases() {
   const theme = useTheme();
@@ -71,7 +72,7 @@ function FallbackCases() {
 
 function CircleCases() {
   const theme = useTheme();
-  const size = theme.isTV ? 320 : 172;
+  const size = theme.isTV ? 320 : theme.platform === 'phone' ? 100 : 172;
   const real = suppliedEvidence();
   const [chosen, setChosen] = useState(3);
   return <View style={{gap: 28}}><View style={{flexDirection: 'row', flexWrap: theme.isTV ? 'nowrap' : 'wrap', width: theme.isTV ? 1580 : undefined, gap: theme.isTV ? 100 : 28}}>
@@ -86,10 +87,12 @@ function CircleCases() {
 function CoverCases() {
   const theme = useTheme();
   return <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 20}}>
-    {[40, 80, 108, 170, 300].map(width => <GeneratedCover key={width} title={fixture('next.artwork.native.fixture.timeMachine')} author={fixture('next.artwork.native.fixture.wells')} tint={ochre} width={width}/>)}
-    <GeneratedCover title={fixture('next.artwork.native.fixture.metamorphosis')} author={fixture('next.artwork.native.fixture.kafka')} tint={{first: '#8f2e24', second: '#3f2150'}} width={108}/>
-    <GeneratedCover title={fixture('next.artwork.native.fixture.warOfWorlds')} author={fixture('next.artwork.native.fixture.wells')} tint={{first: '#2e6a6f', second: '#1f4f7a'}} width={170}/>
-    <MediaArt kind="book" source={undefined} width={108} fallback={<GeneratedCover title={fixture('next.artwork.native.fixture.dracula')} author={fixture('next.artwork.native.fixture.stoker')} tint={{first: '#8f2e24', second: '#3f2150'}}/>}/>
+    {[40, 80, 108, 170].map(width => <GeneratedCover key={width} title={fixture('next.artwork.native.fixture.timeMachine')} author={fixture('next.artwork.native.fixture.wells')} tint={ochre} fontScale={15.5} glyph="T" width={width}/>)}
+    <GeneratedCover testID="artwork-generated-phone-book-168x252" title={fixture('next.artwork.native.fixture.timeMachine')} author={fixture('next.artwork.native.fixture.wells')} tint={ochre} fontScale={16.9} glyph="T" width={168} height={252}/>
+    <GeneratedCover testID="artwork-generated-large-book-300x450" title={fixture('next.artwork.native.fixture.timeMachine')} author={fixture('next.artwork.native.fixture.wells')} tint={ochre} fontScale={17.1} glyph="T" width={300} height={450}/>
+    <GeneratedCover title={fixture('next.artwork.native.fixture.metamorphosis')} author={fixture('next.artwork.native.fixture.kafka')} tint={{first: '#8f2e24', second: '#3f2150'}} fontScale={8.6} glyph="M" width={108}/>
+    <GeneratedCover title={fixture('next.artwork.native.fixture.warOfWorlds')} author={fixture('next.artwork.native.fixture.wells')} tint={{first: '#2e6a6f', second: '#1f4f7a'}} fontScale={12} glyph="W" width={170}/>
+    <MediaArt kind="book" source={undefined} width={108} fallback={<GeneratedCover title={fixture('next.artwork.native.fixture.dracula')} author={fixture('next.artwork.native.fixture.stoker')} tint={{first: '#8f2e24', second: '#3f2150'}} fontScale={15.5} glyph="D"/>}/>
     <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.artwork.native.noArtwork')}</Text>
   </View>;
 }
@@ -171,6 +174,7 @@ const gallery: readonly Gallery[] = [
   {id: 'artwork-colour-round', title: 'next.artwork.native.galleryTitle', render: ColourRoundCase},
   {id: 'artwork-colour-top', title: 'next.artwork.native.galleryTitle', render: ColourTopCase},
   {id: 'artwork-hero', title: 'next.artwork.native.backdrop', render: HeroCase},
+  {id: 'artwork-skeleton-arrival', title: 'next.artwork.native.backdrop', render: SkeletonArrivalCase},
   {id: 'artwork-wash', title: 'next.artwork.native.backdrop', render: WashCase},
   {id: 'artwork-fallbacks', title: 'next.artwork.native.noArtwork', render: FallbackCases},
   {id: 'artwork-circles', title: 'next.artwork.native.galleryTitle', render: CircleCases},
