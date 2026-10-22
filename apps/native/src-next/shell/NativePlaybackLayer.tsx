@@ -7,16 +7,19 @@ import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresenta
 import {playbackIdentity} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
-import type {NativeShellBounds, NativeShellPlaybackAdapter, NativeShellVideoSnapshot} from './playback';
+import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlaybackAdapter, type NativeShellVideoSnapshot} from './playback';
+import {NativeVideoSnapshotCapture} from './video-snapshot';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
-  const [picture, setPicture] = useState<NativeShellVideoSnapshot>();
-  const retained = useRef<NativeShellVideoSnapshot>(), pending = useRef<{fence: PlaybackFence; controller: AbortController}>();
-  const operation = useRef(0), touching = useRef(false), moving = useRef(false), alive = useRef(true);
+  const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
+  const touching = useRef(false), moving = useRef(false), alive = useRef(true);
+  const capture = useMemo(() => new NativeVideoSnapshotCapture({capture: (fence, options) => adapter.captureVideoSnapshot(fence, options), reportError: runtime.reportError,
+    changed: (owner, image) => {if (alive.current) setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);},
+  }), [adapter, authority, runtime]);
   const local = snapshot.dock.local, docked = !!local && !local.expanded;
   const action = useMemo(() => bindNativeDock(adapter), [adapter]);
   const morph = usePlayerMorph({docked, travel: height, onRelease: collapse => {
@@ -24,56 +27,38 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     if (!sameAuthority(current.authority, authority) || !current.fence) return;
     void adapter.onTransition(collapse ? adapter.dock.collapse(current.fence) : adapter.dock.expand(current.fence)).catch(runtime.reportError);
   }});
-  const release = useCallback((image: NativeShellVideoSnapshot | undefined) => {
-    return image ? image.release().catch(runtime.reportError) : Promise.resolve();
-  }, [runtime]);
-  const clearPicture = useCallback(() => {
-    operation.current++; pending.current?.controller.abort(); pending.current = undefined;
-    const previous = retained.current; retained.current = undefined;
-    if (alive.current) setPicture(undefined);
-    return release(previous);
-  }, [release]);
   const preparePicture = useCallback(() => {
     const current = adapter.getSnapshot();
     if (Platform.OS !== 'android' || theme.isTV || !alive.current || !sameAuthority(current.authority, authority) || !current.fence
       || !current.dock.local || !['video', 'live'].includes(current.dock.local.kind)) return;
-    if (retained.current && sameFence(retained.current.fence, current.fence) || pending.current && sameFence(pending.current.fence, current.fence)) return;
-    const retiring = clearPicture();
-    const epoch = operation.current, fence = current.fence, controller = new AbortController();
-    pending.current = {fence, controller};
-    void retiring.then(() => {
-      if (controller.signal.aborted || epoch !== operation.current) return;
-      return adapter.captureVideoSnapshot(fence, {signal: controller.signal});
-    }).then(image => {
-      if (!image) return;
+    const fence = current.fence;
+    void capture.prepare(fence, () => {
       const now = adapter.getSnapshot();
-      if (!alive.current || controller.signal.aborted || epoch !== operation.current || !sameAuthority(now.authority, authority)
-        || !sameFence(now.fence, fence) || !sameFence(image.fence, fence) || !touching.current && !moving.current && !morph.dragging.value) {release(image); return;}
-      retained.current = image; setPicture(image);
-    }, error => {if (!controller.signal.aborted && alive.current && epoch === operation.current) runtime.reportError(error);})
-      .finally(() => {if (pending.current?.controller === controller) pending.current = undefined;});
-  }, [adapter, authority, clearPicture, morph.dragging, release, runtime, theme.isTV]);
+      return alive.current && sameAuthority(now.authority, authority) && sameFence(now.fence, fence)
+        && (touching.current || moving.current || morph.dragging.value);
+    });
+  }, [adapter, authority, capture, morph.dragging, theme.isTV]);
   const onPresentationChange = useCallback((state: Readonly<{fence: PlaybackFence; docked: boolean; moving: boolean; hideSubtitles: boolean}>) => {
     const current = adapter.getSnapshot();
     if (!sameAuthority(current.authority, authority) || !sameFence(current.fence, state.fence)) return;
     moving.current = state.moving;
-    if (state.moving) preparePicture(); else if (!touching.current) clearPicture();
-  }, [adapter, authority, clearPicture, preparePicture]);
+    if (state.moving) preparePicture(); else if (!touching.current) void capture.clear();
+  }, [adapter, authority, capture, preparePicture]);
   const touchStart = () => {touching.current = true; preparePicture();};
-  const touchEnd = () => {touching.current = false; if (!moving.current && !morph.dragging.value) clearPicture();};
+  const touchEnd = () => {touching.current = false; if (!moving.current && !morph.dragging.value) void capture.clear();};
   useEffect(() => {
     const current = adapter.getSnapshot();
-    if (!sameAuthority(current.authority, authority) || !current.fence
-      || retained.current && !sameFence(retained.current.fence, current.fence)
-      || pending.current && !sameFence(pending.current.fence, current.fence)) clearPicture();
-  }, [adapter, authority, snapshot.fence, clearPicture]);
-  useEffect(() => {alive.current = true; return () => {alive.current = false; clearPicture();};}, [clearPicture]);
+    if (!sameAuthority(current.authority, authority) || !capture.matches(current.fence)) {
+      touching.current = false; moving.current = false; void capture.clear();
+    }
+  }, [adapter, authority, snapshot.fence, capture]);
+  useEffect(() => {alive.current = true; return () => {alive.current = false; touching.current = false; moving.current = false; void capture.clear();};}, [capture]);
   useEffect(() => {
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       const current = adapter.getSnapshot();
-      if (!sameAuthority(current.authority, authority) || !current.fence || !current.dock.local?.expanded) return false;
-      const video = current.dock.local.kind === 'video' || current.dock.local.kind === 'live';
-      void adapter.onTransition(theme.isTV && video ? adapter.dock.close(current.fence) : adapter.dock.collapse(current.fence)).catch(runtime.reportError);
+      const transition = nativeShellBackTransition(adapter.dock, current, authority, theme.isTV);
+      if (!transition) return false;
+      void adapter.onTransition(transition).catch(runtime.reportError);
       return true;
     });
     return () => back.remove();
@@ -82,6 +67,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   if (!sameAuthority(snapshot.authority, authority)) return null;
   const Surface = adapter.Surface;
   const fence = snapshot.fence;
+  const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
   const presentation: DockPresentation | undefined = fence && snapshot.subject ? {fence, identity: playbackIdentity(snapshot.subject, 'dock', runtime.text),
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
@@ -89,7 +75,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const fullFrame = {x: 0, y: 0, width, height};
   return <View pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
-      onPresentationChange={onPresentationChange} androidSnapshot={picture ? {fence: picture.fence, image: <Image source={{uri: picture.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
+      onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
       {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
     </PlayerMorph>
     {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
