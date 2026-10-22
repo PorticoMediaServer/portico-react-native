@@ -6,6 +6,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
 import {useFocusAnchor} from './FocusAnchor';
+import {MotionItem} from './MotionItem';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
 
 export type RowProps<T> = {
@@ -80,11 +81,11 @@ export function Row<T>({title, subtitle, items, getKey, renderItem, itemWidth, i
       <View style={{width: extent, height: itemHeight + top + bottom}}>
         {indices.map(index => {
           const item = items[index], id = getKey(item);
-          return <View key={id} style={{position: 'absolute', left: leading + index * stride, top, width: itemWidth, height: itemHeight}}>
+          return <MotionItem key={id} style={{position: 'absolute', left: leading + index * stride, top, width: itemWidth, height: itemHeight}}>
             {renderItem(item, {id, index, selection: itemSelection(selection, id), onFocus: () => {
               setFocused(index); anchor.anchor(leading + index * stride, itemWidth, width, extent, leading, trailing); onItemFocus?.(item, index);
             }, onBlur: () => setFocused(current => current === index ? undefined : current)})}
-          </View>;
+          </MotionItem>;
         })}
       </View>
     </Animated.ScrollView>

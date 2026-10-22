@@ -5,7 +5,7 @@ import {layoutNativeFixtureMessages} from '../../../../../../packages/i18n/src/c
 import {createWindowedCollection} from '../../../../../../packages/client-core/src/collections/windowed';
 import {cardText, titleFactParts, type CardSubject} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {AmbientArt, type AmbientArtSource, type ArtworkPalette, type ArtworkSource} from '../../../kit/artwork/index';
-import {PosterCard, SquareCard, WideCard, CircleCard} from '../../../kit/cards';
+import {PosterCard, SquareCard, WideCard, CircleCard, EpisodeTile} from '../../../kit/cards';
 import {Button} from '../../../kit/controls';
 import {AlphabetRail, FlowSections, FocusPreviewHero, Hero, Lockup, Row, WindowedGrid, type ArtworkRenderContext, type HeroCandidate, type LayoutItemContext, type LayoutSelection, type WindowedGridHandle} from '../../../kit/layout';
 import {useTheme} from '../../../kit/theme';
@@ -120,14 +120,18 @@ function PreviewGallery() {
 
 function RowsGallery() {
   const theme = useTheme(), state = useGallerySelection();
+  const [continued, setContinued] = useState(() => heroes.slice(1));
   const posterWidth = theme.isTV ? 214 : 118, squareWidth = theme.isTV ? 214 : 132;
   const card = (item: typeof gridEntries[number], context: LayoutItemContext) => <PosterCard {...cardContext(context)} title={item.title} caption={cardText(item, 'ordinary', {t}).caption} width={posterWidth} artwork={item.poster} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />;
   return <Stage><View style={{gap: theme.isTV ? 44 : 28}}>
-    <Row title={t('home.row.continueWatching')} items={heroes.slice(1)} getKey={item => item.id} itemWidth={theme.isTV ? 400 : 262} itemHeight={theme.isTV ? 225 : 147.375} selection={state.selection}
+    <Row title={t('home.row.continueWatching')} items={continued} getKey={item => item.id} itemWidth={theme.isTV ? 400 : 262} itemHeight={theme.isTV ? 225 : 147.375} selection={state.selection}
       renderItem={(item, context) => {const model = cardText(item.subject, 'continuation', {t}); return <WideCard {...cardContext(context)} width={theme.isTV ? 400 : 262} title={model.title} caption={model.caption} detail={model.detail} progress={model.progress} artwork={item.art} primaryAction="play" onPlay={() => Alert.alert(t('action.play'), item.title)} onMore={() => state.more(item)} />;}} />
+    {continued.length > 0 && <Button variant="text" size="small" onPress={() => setContinued(current => current.slice(1))}>{t('entry.removeFromContinueWatching')}</Button>}
     <Row title={t('home.row.recommended')} items={gridEntries} getKey={item => item.id} itemWidth={posterWidth} itemHeight={posterWidth * 1.5 + (theme.isTV ? 70 : 44)} selection={state.selection} onSeeAll={() => Alert.alert(t('shelf.seeAll'), t('home.row.recommended'))} renderItem={card} />
     <Row title={t('search.chip.albums')} items={albumEntries} getKey={item => item.id} itemWidth={squareWidth} itemHeight={squareWidth + 54} selection={state.selection} renderItem={(item, context) => <SquareCard {...cardContext(context)} title={item.title} caption={cardText(item, 'ordinary', {t}).caption} width={squareWidth} artwork={item.poster} onNavigate={() => Alert.alert(item.title)} onMore={() => state.more(item)} />} />
     <Row title={t('search.chip.artists')} items={albumEntries} getKey={item => item.id} itemWidth={theme.isTV ? 214 : 100} itemHeight={theme.isTV ? 268 : 154} selection={state.selection} renderItem={(item, context) => <CircleCard {...cardContext(context)} title={item.artist} width={theme.isTV ? 214 : 100} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} onMore={() => state.more(item)} />} />
+    <Row title={t('web.segments.episodes')} items={[heroes[1]]} getKey={item => item.id} itemWidth={theme.isTV ? theme.spec.episode.width.tv : 350} itemHeight={theme.isTV ? 380 : 124} selection={state.selection}
+      renderItem={(item, context) => {const model = cardText(item.subject, 'in-show', {t}); return <EpisodeTile {...cardContext(context)} title={item.subject.title} label={model.caption} length={model.detail.find(part => part.id === 'duration')?.text} artwork={item.art} backdropFallback synopsis={item.overview} width={theme.isTV ? theme.spec.episode.width.tv : 350} primaryAction="play" onPlay={() => Alert.alert(t('action.play'), item.subject.title)} onMore={() => state.more(item)} />;}} />
     {state.selection.active && <Button variant="text" size="small" onPress={state.clear}>{t('action.cancel')}</Button>}
   </View></Stage>;
 }
@@ -171,17 +175,17 @@ function AlphabetGallery() {
 }
 
 function FlowGallery() {
-  const theme = useTheme(), state = useGallerySelection();
+  const theme = useTheme(), state = useGallerySelection(), [showArtists, setShowArtists] = useState(true);
   const circleWidth = theme.isTV ? 214 : 100, squareWidth = theme.isTV ? 214 : 132;
   const artists = <View><Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text, marginBottom: 16}]}>{t('search.chip.artists')}</Text>
     <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <CircleCard key={item.id} title={item.artist} width={circleWidth} art={{covers: [item.poster]}} onNavigate={() => Alert.alert(item.artist)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
   const albums = <View><Text accessibilityRole="header" style={[theme.type.rowHeading, {color: theme.colors.text, marginBottom: 16}]}>{t('search.chip.albums')}</Text>
     <View style={{flexDirection: 'row', gap: 16}}>{albumEntries.slice(0, 2).map(item => <SquareCard key={item.id} title={item.title} width={squareWidth} artwork={item.poster} caption={cardText(item, 'ordinary', {t}).caption} onNavigate={() => Alert.alert(item.title)} selection={state.forItem(item.id)} onMore={() => state.more(item)} />)}</View></View>;
-  return <Stage><View style={{paddingHorizontal: theme.gutter}}><FlowSections sections={[
-    {id: 'artists', count: 2, cap: 4, itemWidth: circleWidth, content: artists},
+  return <><Button variant="text" size="small" accessibilityState={{selected: showArtists}} onPress={() => setShowArtists(current => !current)}>{t('search.chip.artists')}</Button><Stage><View style={{paddingHorizontal: theme.gutter}}><FlowSections sections={[
+    {id: 'artists', count: showArtists ? 2 : 0, cap: 4, itemWidth: circleWidth, content: artists},
     {id: 'empty', count: 0, cap: 4, itemWidth: 100, content: null},
     {id: 'albums', count: 2, cap: 4, itemWidth: squareWidth, content: albums},
-  ]} /></View></Stage>;
+  ]} /></View></Stage></>;
 }
 
 const galleries: readonly Gallery[] = [

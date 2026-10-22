@@ -27,12 +27,12 @@ export function useFocusAnchor(horizontal: boolean, ownsFocus = true) {
     if (next.active) scrollTo(scrollRef, horizontal ? next.value : 0, horizontal ? 0 : next.value, false);
   }, [horizontal]);
   const onScroll = useAnimatedScrollHandler(event => {offset.value = horizontal ? event.contentOffset.x : event.contentOffset.y;});
-  const move = useCallback((next: number) => {
+  const move = useCallback((next: number, immediate = false) => {
     driving.value = false;
     cancelAnimation(target);
     target.value = offset.value;
     driving.value = true;
-    target.value = motion.transforms ? withTiming(next, motion.timing('slow', repeating ? 'linear' : 'inOut')) : next;
+    target.value = motion.transforms && !immediate ? withTiming(next, motion.timing('slow', repeating ? 'linear' : 'inOut')) : next;
   }, [driving, motion, offset, repeating, target]);
   const anchor = useCallback((start: number, size: number, viewport: number, extent: number, leading = 0, trailing = 0) => {
     move(anchoredOffset(start, size, viewport, offset.value, extent, leading, trailing));

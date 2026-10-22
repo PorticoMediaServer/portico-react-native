@@ -64,7 +64,9 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
   const height = paddingTop + Math.max(0, window.height - verticalGap) + paddingBottom;
   const moveToIndex = useCallback((index: number) => {
     const bounded = Math.max(0, Math.min(total - 1, Math.floor(index)));
-    anchor.move(Math.max(0, Math.min(height - viewport.height, paddingTop + Math.floor(bounded / columns) * stride - stickyOffset)));
+    // An index/rail jump lands directly; traversing every intervening viewport
+    // would ask the sparse collection for pages that the user never sees.
+    anchor.move(Math.max(0, Math.min(height - viewport.height, paddingTop + Math.floor(bounded / columns) * stride - stickyOffset)), true);
   }, [anchor, columns, height, paddingTop, stickyOffset, stride, total, viewport.height]);
   useImperativeHandle(ref, () => ({scrollToIndex: moveToIndex, scrollToLetter(key) {
     const index = collection.indexOfLetter(key);
