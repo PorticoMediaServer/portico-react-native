@@ -89,3 +89,17 @@ test('switch drags track the finger within the stops and release with the actual
   assert.equal(switchReleaseValue(.2, 100, 19), true);
   assert.equal(switchReleaseValue(.8, -100, 19), false);
 });
+
+test('desktop controls retain their drawn geometry instead of using handheld sizes', () => {
+  assert.deepEqual(buttonGeometry('hero', 'web'), {height: 54, radius: 12, paddingX: 26, gap: 10, icon: 22, fontSize: 17});
+  assert.equal(buttonGeometry('compact', 'web').icon, 22);
+  assert.equal(buttonGeometry('hero', 'web', 'icon').height, 40);
+  assert.equal(buttonGeometry('hero', 'web', 'text').height, 32);
+  assert.deepEqual(buttonGeometry('dock', 'web'), {height: 38, radius: 10, paddingX: 14, gap: 8, icon: 18, fontSize: 14});
+  assert.equal(buttonGeometry('dock', 'phone').height, 32);
+  assert.deepEqual(chipGeometry('default', 'web'), {height: 40, radius: 10, paddingX: 16, gap: 8, fontSize: 15});
+  assert.deepEqual(chipGeometry('quick', 'web'), {height: 40, radius: 20, paddingX: 15, gap: 7, fontSize: 14.5});
+  assert.deepEqual(chipGeometry('facet', 'web'), {height: 34, radius: 17, paddingX: 12, gap: 7, fontSize: 14});
+  assert.equal(chipGeometry('applied', 'web').height, 34);
+  assert.equal(chipGeometry('applied', 'phone').height, 30);
+});

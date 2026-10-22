@@ -4,8 +4,8 @@ import type {SelectionContext} from '../../../../packages/client-core/src/select
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
-import type {DockState, DockTransition, PlaybackDock, PlaybackFence} from '../../../../packages/player-core/src';
-import type {ShellAuthority} from './model';
+import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence} from '../../../../packages/player-core/src';
+import {sameAuthority, type ShellAuthority} from './model';
 
 export type NativeShellPlaybackStart = Readonly<{
   /** The real display record and the server-selected target stay separate for show continuations. */
@@ -29,6 +29,13 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
+
+/** TV video has no collapsed state. Audio folds away; phones retain their video dock. */
+export function nativeShellBackTransition(dock: PlaybackDock, snapshot: Pick<NativeShellPlaybackSnapshot, 'authority' | 'fence' | 'dock'>, authority: ShellAuthority, isTV: boolean): DockTransition | undefined {
+  if (!sameAuthority(snapshot.authority, authority) || !snapshot.fence || !snapshot.dock.local?.expanded || !sameFence(snapshot.dock.local.fence, snapshot.fence)) return undefined;
+  const video = snapshot.dock.local.kind === 'video' || snapshot.dock.local.kind === 'live';
+  return isTV && video ? dock.close(snapshot.fence) : dock.collapse(snapshot.fence);
+}
 export type NativeShellSurfaceProps = Readonly<{
   /** Window coordinates measured from the actual art slot; undefined until mounted/measured. */
   dockBounds?: NativeShellBounds;

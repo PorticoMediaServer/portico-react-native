@@ -140,7 +140,7 @@ function TrackHeader({variant, columns = defaultColumns[variant], sort, sortable
   if (theme.platform === 'phone' || theme.isTV || variant === 'chapters') return null;
   return <View style={{height: theme.isTV ? 64 : 42, paddingLeft: 8, paddingRight: 12, flexDirection: 'row', alignItems: 'center', gap: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.line, marginBottom: 6}}>
     {columns.map(column => <View key={column} style={columnStyle(column, variant)}>{column === 'number' ? <Text accessibilityLabel={t('next.browse.native.number')} style={[browseType(theme, 13), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('next.browse.native.numberSign')}</Text> : (onSort && sortable.includes(column) ? <Focusable accessibilityRole="button" focusKind="row" onPress={() => onSort(column)} style={{height: 42, flexDirection: 'row', alignItems: 'center', gap: 6}}><Text style={[browseType(theme, 13), {color: sort?.column === column ? theme.colors.text : theme.colors.textTertiary}]}>{t(columnKeys[column])}</Text>{sort?.column === column && <Icon name={sort.direction === 'asc' ? 'i-down' : 'i-up'} size={14} color={theme.colors.accentStrong}/>}</Focusable> : <Text style={[browseType(theme, 13), {color: theme.colors.textTertiary}]}>{t(columnKeys[column])}</Text>)}</View>)}
-    <View style={{width: variant === 'chapters' ? 60 : 84}}/>
+    <View style={{width: 84}}/>
   </View>;
 }
 

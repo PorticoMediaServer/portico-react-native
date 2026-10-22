@@ -109,9 +109,11 @@ function initialFields(): Record<string, FilterFieldState> {
   };
 }
 function clearedFields(): Record<string, FilterFieldState> {
-  return Object.fromEntries(Object.entries(initialFields()).map(([id, state]) => [id, state.kind === 'values'
-    ? {...state, included: [], excluded: [], mode: 'any', active: false, summary: undefined, search: state.search === undefined ? undefined : ''}
-    : {...state, value: state.kind === 'text' ? '' : null, active: false, summary: undefined}]));
+  return Object.fromEntries(Object.entries(initialFields()).map(([id, state]): [string, FilterFieldState] => {
+    if (state.kind === 'values') return [id, {...state, included: [], excluded: [], mode: 'any', active: false, summary: undefined, search: state.search === undefined ? undefined : ''}];
+    if (state.kind === 'text') return [id, {...state, value: '', active: false, summary: undefined}];
+    return [id, {...state, value: null, active: false, summary: undefined}];
+  }));
 }
 
 function updateField(previous: Record<string, FilterFieldState>, id: string, value: FilterFieldValue) {

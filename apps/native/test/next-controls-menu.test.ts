@@ -56,3 +56,15 @@ test('a late blur cleanup cannot unregister the next focused control', () => {
   first.unmount(); second.unmount();
   assert.equal(dispatch(), false);
 });
+
+test('native nullable disabled state retains an enabled Menu owner and still cleans up on denial', () => {
+  let disabled: boolean | null | undefined = null;
+  let calls = 0;
+  const action = () => {calls++;};
+  const host = createHookHost(() => useFocusedMenu(true, true, disabled, action));
+  host.mount();
+  assert.equal(dispatch(), true); assert.equal(calls, 1);
+  disabled = true; host.rerender(); assert.equal(dispatch(), false);
+  disabled = undefined; host.rerender(); assert.equal(dispatch(), true); assert.equal(calls, 2);
+  host.unmount(); assert.equal(dispatch(), false);
+});

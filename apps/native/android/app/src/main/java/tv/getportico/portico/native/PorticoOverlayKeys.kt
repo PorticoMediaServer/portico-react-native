@@ -79,10 +79,7 @@ class PorticoOverlayKeys(context: ReactApplicationContext) : ReactContextBaseJav
       stroke.events.clear()
       if (!handled || stroke.ended) strokes.remove(id)
     }
-    for (event in events) {
-      try { if (!handled) stroke.replay(event) }
-      finally { event.recycle() }
-    }
+    for (event in events) if (!handled) stroke.replay(event)
   }
 
   private fun capture(event: KeyEvent, replay: (KeyEvent) -> Unit): Boolean {
@@ -111,7 +108,7 @@ class PorticoOverlayKeys(context: ReactApplicationContext) : ReactContextBaseJav
       // A lost release cannot retain an already handled stroke when that key is pressed anew.
       val previous = strokes.values.filter { it.handled && it.key.device == key.device && it.key.code == key.code }.map { it.id }
       previous.forEach { strokes.remove(it) }
-      if (strokes.size >= 16) { stroke.events.forEach { it.recycle() }; return false }
+      if (strokes.size >= 16) return false
       strokes[stroke.id] = stroke
     }
     main.postDelayed(stroke.timeout, 250)
@@ -125,7 +122,7 @@ class PorticoOverlayKeys(context: ReactApplicationContext) : ReactContextBaseJav
       // Returning false lets the original event take the ordinary path exactly once.
       main.removeCallbacks(stroke.timeout)
       synchronized(lock) { strokes.remove(stroke.id) }
-      stroke.events.forEach { it.recycle() }
+      stroke.events.clear()
       return false
     }
     return true

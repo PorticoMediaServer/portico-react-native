@@ -4,7 +4,7 @@ import {defaultI18n, formatMessage, type MessageValues} from '../../../../../../
 import {layoutNativeFixtureMessages} from '../../../../../../packages/i18n/src/catalog/en-US/next/dev/layout-native-fixtures';
 import {createWindowedCollection} from '../../../../../../packages/client-core/src/collections/windowed';
 import {cardText, titleFactParts, type CardSubject} from '../../../../../../packages/client-core/src/presentation/kit-model';
-import {AmbientArt, type AmbientArtSource, type ArtworkPalette, type ArtworkSource} from '../../../kit/artwork/index';
+import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkPalette, type ArtworkSource} from '../../../kit/artwork/index';
 import {PosterCard, SquareCard, WideCard, CircleCard, EpisodeTile} from '../../../kit/cards';
 import {Button} from '../../../kit/controls';
 import {AlphabetRail, FlowSections, FocusPreviewHero, Hero, Lockup, Row, WindowedGrid, type ArtworkRenderContext, type HeroCandidate, type LayoutItemContext, type LayoutSelection, type WindowedGridHandle} from '../../../kit/layout';
@@ -44,7 +44,7 @@ const cardContext = ({selection, onFocus, onBlur}: LayoutItemContext) => ({selec
 
 function Stage({height, children}: {height?: number; children: React.ReactNode}) {
   const theme = useTheme();
-  return <View style={{width: theme.isTV ? 1920 : 390, height, marginLeft: -theme.gutter, position: 'relative', backgroundColor: theme.colors.ink}}>{children}</View>;
+  return <View style={{width: theme.isTV ? 1920 : theme.layoutMode === 'desktop' ? theme.width : 390, height, marginLeft: -theme.gutter, position: 'relative', backgroundColor: theme.colors.ink}}>{children}</View>;
 }
 
 function useGallerySelection() {
@@ -65,7 +65,7 @@ function ReferenceArtwork({entry, context, phone}: {entry: ReferenceEntry; conte
   const theme = useTheme();
   const real = globalThis.__porticoLayoutArtworkEvidence?.[entry.id];
   return <AmbientArt foreground={real?.foreground ?? entry.art} source={real?.ambient} palette={real?.palette ?? {first: theme.colors.ink, second: theme.colors.ambient}} treatment={phone ? 'phone' : 'hero'}
-    foregroundFrameStyle={phone ? undefined : {width: 1500, height: 900}}
+    foregroundFrameStyle={theme.isTV && !phone ? {width: 1500, height: 900} : undefined}
     arrivalDurationMs={0} foregroundStyle={context.foregroundStyle} visible={context.visible} priority onReady={() => context.onReady()} onError={() => context.onError()}
     position={phone ? {x: .38, y: .3} : undefined} style={{position: 'absolute', inset: 0}} />;
 }
@@ -75,16 +75,18 @@ function ReferenceReason({entry}: {entry: ReferenceEntry}) {
   const parts = entry.subject.kind === 'episode' ? cardText(entry.subject, 'continuation', {t}).caption : undefined;
   return parts ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16}}>
     {parts.map(part => <Text key={part.id} style={[theme.type.eyebrow, {color: theme.colors.accentStrong}]}>{part.text}</Text>)}
-  </View> : entry.reason ? <Text style={[theme.type.eyebrow, {color: theme.colors.accentStrong, textAlign: theme.isTV ? 'left' : 'center', marginBottom: theme.isTV ? 16 : 8}]}>{entry.reason}</Text> : null;
+  </View> : entry.reason ? <Text style={[theme.type.eyebrow, {color: theme.colors.accentStrong, textAlign: theme.layoutMode === 'phone' ? 'center' : 'left', marginBottom: theme.isTV ? 16 : theme.layoutMode === 'desktop' ? 14 : 8}]}>{entry.reason}</Text> : null;
 }
 
 function HeroGallery({mobileWeb = false}: {mobileWeb?: boolean}) {
   const theme = useTheme(), [index, setIndex] = useState(theme.isTV ? 3 : 0), [active, setActive] = useState(true), [focused, setFocused] = useState(false), [saved, setSaved] = useState(false);
-  const height = theme.isTV ? 1080 : mobileWeb ? 486 : 560;
+  const desktop = theme.layoutMode === 'desktop';
+  const height = theme.isTV ? 1080 : desktop ? theme.spec.hero.homeHeight.web : mobileWeb ? 486 : 560;
   return <>
     <Stage height={height}><Hero candidates={heroes} activeIndex={index} onIndexChange={setIndex} active={active} heroFocused={focused}
-      variant={theme.isTV ? 'tv' : mobileWeb ? 'phone-web' : 'phone-app'}
-      renderArtwork={(entry, context) => <ReferenceArtwork entry={entry} context={context} phone={!theme.isTV} />}
+      variant={theme.isTV ? 'tv' : desktop ? 'desktop' : mobileWeb ? 'phone-web' : 'phone-app'}
+      renderArtwork={(entry, context) => <ReferenceArtwork entry={entry} context={context} phone={theme.layoutMode === 'phone'} />}
+      renderThumbnail={desktop ? (entry, context) => <Artwork source={entry.art} visible={context.visible} /> : undefined}
       renderReason={entry => <ReferenceReason entry={entry} />}
       renderActions={entry => <><Button icon="i-play" onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => Alert.alert(t('action.play'), entry.title)}>{t('action.play')}</Button>
         <Button variant="glass" icon={saved ? 'i-check' : 'i-plus'} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => setSaved(value => !value)} accessibilityState={{selected: saved}}>{t('title.watchlist')}</Button>
@@ -144,7 +146,7 @@ function GridGallery({stress = false}: {stress?: boolean}) {
   const collection = useMemo(() => createWindowedCollection({pageSize: 30, maxResidentPages: 4, maxConcurrent: 1, keyOf: (item: typeof gridEntries[number]) => item.id,
     fetchPage: async (start, count) => ({items: stress
       ? Array.from({length: Math.max(0, Math.min(count, total - start))}, (_, offset) => ({...gridEntries[(start + offset) % gridEntries.length], id: `layout-stress-${start + offset}`}))
-      : gridEntries.slice(start, start + count), total, positionIndex: stress ? {} : {'#': 0, A: 1, B: 8, C: 12, D: 13}})}), [stress, total]);
+      : gridEntries.slice(start, start + count), total, positionIndex: stress ? undefined : {'#': 0, A: 1, B: 8, C: 12, D: 13}})}), [stress, total]);
   useEffect(() => () => collection.dispose(), [collection]);
   const width = theme.isTV ? 200 : 108, height = theme.isTV ? 367 : 200;
   const visibleRange = useCallback((first: number, last: number) => setRange({first, last}), []);
@@ -191,7 +193,8 @@ function FlowGallery() {
 
 const galleries: readonly Gallery[] = [
   {id: 'layout-lockup', title: 'next.layout.native.lockupTitle', render: LockupGallery},
-  {id: 'layout-hero', title: 'next.layout.native.heroTitle', render: HeroGallery},
+  {id: 'layout-hero', title: 'next.layout.native.heroTitle', render: HeroGallery, platforms: ['phone', 'tablet', 'tv']},
+  {id: 'layout-hero-desktop', title: 'next.layout.native.heroTitle', render: HeroGallery, platforms: ['web']},
   {id: 'layout-hero-web', title: 'next.layout.native.heroTitle', render: () => <HeroGallery mobileWeb />, platforms: ['phone', 'tablet']},
   {id: 'layout-preview', title: 'next.layout.native.previewTitle', render: PreviewGallery, platforms: ['tv']},
   {id: 'layout-rows', title: 'next.layout.native.rowsTitle', render: RowsGallery},
