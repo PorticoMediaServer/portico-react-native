@@ -48,6 +48,11 @@ const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubj
   return {kind: kind === 'video' || kind === 'live' ? 'video' : kind, item: card};
 };
 type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string; channel?: ChannelReference}>;
+type SourceDetail = {
+  service: DetailService; sourceEpoch: number; sourceKey: string;
+  intentId: number; sessionId: string; generation: number; itemId: string; libraryId: string;
+  responseFence?: string;
+};
 
 /** Actual session, queue and native-engine wiring. Construct one per selected authority.
  * The production factory in native.tsx supplies the existing native modules and one view. */
@@ -82,7 +87,8 @@ export class NativePlaybackRuntime {
   private subtitleOff?: () => void;
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
-  private detail?: DetailService;
+  private detail?: SourceDetail;
+  private detailOff?: () => void;
   private entry?: ContentEntry;
   private subject?: PlaybackSubject;
   private options?: PlaybackOptions;
@@ -178,6 +184,7 @@ export class NativePlaybackRuntime {
     if (!this.active()) return;
     await this.playback.refreshPlaybackAuthority();
     if (this.active()) await this.o.nativeListening?.refresh();
+    if (this.active()) await this.detail?.service.refresh();
   };
   flush = () => this.path.controller.flush();
 
@@ -405,6 +412,19 @@ export class NativePlaybackRuntime {
     const session = held ? this.path.session(held.id) ?? this.queue.currentSession() : undefined;
     return held && session?.id === held.id && session.presentation.generation === held.generation ? session : undefined;
   }
+  private detailProjection(): DetailProjection | undefined {
+    const binding = this.detail, state = this.playback.getSnapshot();
+    if (!binding || !this.currentAuthority() || binding.sourceEpoch !== this.sourceEpoch || binding.sourceKey !== this.sourceKey
+      || state.channel || state.intentId !== binding.intentId || state.itemId !== binding.itemId
+      || state.session?.id !== binding.sessionId || state.session.generation !== binding.generation
+      || this.entry?.id !== binding.itemId || this.entry.libraryId !== binding.libraryId) return;
+    const snapshot = binding.service.getSnapshot(), data = snapshot.data;
+    if (snapshot.scope.serverId !== this.bound.serverId || snapshot.scope.viewerId !== this.bound.profileId
+      || snapshot.target?.itemId !== binding.itemId || snapshot.target.libraryId !== binding.libraryId
+      || data?.scope.serverId !== this.bound.serverId || data.scope.itemId !== binding.itemId || data.scope.libraryId !== binding.libraryId
+      || data.item.id !== binding.itemId || data.item.libraryId !== binding.libraryId || data.scope.viewerFence !== binding.responseFence) return;
+    return data;
+  }
   private fence(): PlaybackFence | undefined {
     const state = this.playback.getSnapshot(), session = this.currentSession(), view = this.queue.getSnapshot().view;
     if (state.channel && state.session && state.session.generation > 0 && state.playbackRun > 0) {
@@ -415,8 +435,7 @@ export class NativePlaybackRuntime {
     }
     if (!state.session || !state.itemId || !session?.versionId || !session.queue?.entryId || state.playbackRun < 1 || this.preparing && this.options?.itemId !== state.itemId) return undefined;
     if (view && !sameScope(view.queue.scope, this.scope)) return undefined;
-    const data = this.detail?.getSnapshot().data;
-    const episode = data?.item.id === state.itemId && data.scope.viewerFence === this.bound.viewerFence ? data.item.episode : undefined;
+    const episode = this.detailProjection()?.item.episode;
     return playbackFence({kind: 'queue', playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, itemId: state.itemId,
       sourceId: session.versionId, entryId: session.queue.entryId, generation: state.session.generation,
       ...(episode?.showId ? {showId: episode.showId} : {}), ...(episode?.seasonId ? {seasonId: episode.seasonId} : {})});
@@ -500,7 +519,8 @@ export class NativePlaybackRuntime {
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
     const subtitles = this.subtitleService; this.subtitleService = undefined; subtitles?.stop();
-    this.detail?.dispose(); this.detail = undefined; this.fonts = undefined; this.fontsKey = undefined;
+    this.detailOff?.(); this.detailOff = undefined;
+    this.detail?.service.dispose(); this.detail = undefined; this.fonts = undefined; this.fontsKey = undefined;
     this.options = this.options?.itemId === this.playback.getSnapshot().itemId ? this.options : undefined;
     this.effectiveRate = 0; this.supportedRates = [];
     if (!key) { if (!this.preparing && this.playback.getSnapshot().phase === 'idle') { this.entry = undefined; this.subject = undefined; } return; }
@@ -508,24 +528,44 @@ export class NativePlaybackRuntime {
     const state = this.playback.getSnapshot(), itemId = state.itemId!, session = this.currentSession();
     if (state.channel) return; // Live references are never catalogue/subtitle endpoint IDs.
     if (this.entry?.id !== itemId) { this.entry = undefined; this.subject = undefined; }
-    const valid = () => this.active() && epoch === this.sourceEpoch && !controller.signal.aborted;
+    else this.subject = subjectOf(this.entry);
+    const valid = () => {
+      const current = this.playback.getSnapshot();
+      return this.active() && epoch === this.sourceEpoch && key === this.sourceKey && !controller.signal.aborted
+        && !current.channel && current.intentId === state.intentId && current.itemId === itemId
+        && current.session?.id === state.session?.id && current.session?.generation === state.session?.generation;
+    };
     void this.optionsClient.options(itemId, session?.versionId ? {versionId: session.versionId} : {}, controller.signal).then(value => {
       if (!valid() || value.itemId !== itemId) return; this.options = value; this.applyOptions(); this.publish();
     }).catch(() => {});
-    void this.request<unknown>(encodedRoutePath('get_items_id', {id: encodeURIComponent(itemId)}), 'GET', undefined, controller.signal).then(async raw => {
+    void this.request<unknown>(encodedRoutePath('get_items_id', {id: encodeURIComponent(itemId)}), 'GET', undefined, controller.signal).then(raw => {
       if (!valid()) return;
       const item = parseMediaItem(raw);
       if (item.id !== itemId) return;
       const kind = item.kind === 'track' ? 'song' : item.kind === 'audiobook' ? 'audiobook_file' : item.kind;
       if (!['movie', 'episode', 'extra', 'song', 'audiobook_file'].includes(kind)) return;
       this.entry = {...this.entry, ...item, kind: kind as ContentEntry['kind']}; this.subject = subjectOf(this.entry);
-      const detail = new DetailService({api: {request: this.request}, scope: {serverId: this.bound.serverId, viewerId: this.bound.profileId}, requestId: async () => this.o.requestId()});
-      this.detail = detail;
-      await detail.select({itemId, libraryId: item.libraryId});
-      if (!valid() || this.detail !== detail) return;
-      const data = detail.getSnapshot().data;
-      if (data?.scope.viewerFence === this.bound.viewerFence && this.entry) this.subject = subjectOf(this.entry, data);
-      this.changed();
+      const detail = new DetailService({api: {request: async <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+        if (!valid() || !signal) throw new Error('Playback detail source retired.');
+        // DetailService owns its read signal; bind that actual request to this source too.
+        const unguard = this.http.guard(signal, valid);
+        try { return await this.request<T>(path, method, body, signal); }
+        finally { unguard(); }
+      }}, scope: {serverId: this.bound.serverId, viewerId: this.bound.profileId}, requestId: async () => this.o.requestId()});
+      const binding: SourceDetail = {service: detail, sourceEpoch: epoch, sourceKey: key, intentId: state.intentId,
+        sessionId: state.session!.id, generation: state.session!.generation, itemId, libraryId: item.libraryId};
+      this.detail = binding;
+      this.detailOff = detail.subscribe(() => {
+        if (!valid() || this.detail !== binding) return;
+        const snapshot = detail.getSnapshot();
+        // Home and Detail issue different fence namespaces. Pin only the genuine decoded
+        // response from this bound service; its parser checks server/library/item scope.
+        if (binding.responseFence === undefined && snapshot.phase === 'ready' && snapshot.data) binding.responseFence = snapshot.data.scope.viewerFence;
+        const data = this.detailProjection();
+        this.subject = this.entry ? subjectOf(this.entry, data) : undefined;
+        this.changed();
+      });
+      void detail.select({itemId, libraryId: item.libraryId});
     }).catch(() => {});
     if (state.session && session?.kind === 'vod') {
       const service = new SubtitleService({request: this.request}, {itemId, sessionId: state.session.id, generation: state.session.generation}, this.o.requestId,
@@ -887,7 +927,8 @@ export class NativePlaybackRuntime {
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
     if (this.routeRecovery) clearTimeout(this.routeRecovery);
     this.subtitleOff?.(); this.subtitleService?.stop(); this.subtitleService = undefined;
-    this.detail?.dispose(); this.detail = undefined;
+    this.detailOff?.(); this.detailOff = undefined;
+    this.detail?.service.dispose(); this.detail = undefined;
     for (const off of this.offs.splice(0).reverse()) off();
     this.coordinator.stop(); this.queue.dispose(); this.playback.leave(); this.path.dispose();
     void this.o.nativeListening?.detach(true).catch(() => {});
