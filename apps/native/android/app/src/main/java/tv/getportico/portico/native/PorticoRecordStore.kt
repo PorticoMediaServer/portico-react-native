@@ -47,7 +47,11 @@ internal class RecordKeyLostException : IllegalStateException("The record key is
  * Every operation holds the store's lock, and [transaction] holds it across a read-modify-write,
  * the guarantee the Apple runtime gives by serialising on its class.
  */
-internal class PorticoRecordStore private constructor(private val root: File) {
+internal class PorticoRecordStore private constructor(private val root: File, private val inspectionAccess: RecordInspectionAccess? = null) {
+
+  /** A read-only boundary for JVM tests of the actual inspection operation, never a JS API. */
+  internal constructor(root: File, files: RecordInspectionFiles, existingKey: () -> SecretKey?) :
+      this(root, RecordInspectionAccess(files, existingKey))
 
   private val resetPending = File(root.parentFile, root.name + ".key-loss-pending")
   private var keyChecked = false
@@ -89,6 +93,56 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   }
 
   fun <T> transaction(block: () -> T): T = synchronized(this) { block() }
+
+  /**
+   * Exactly the saved connection and selected viewer, under one store monitor. This route never
+   * enters normal read/recovery, creates a key, consumes a notice or changes keyChecked. A
+   * quarantined viewer stays hidden without opening its record. Any uncertainty withholds both
+   * values. The monitor coordinates this process's store users, not external filesystem writers.
+   */
+  fun inspectSessionRecords(viewerQuarantined: () -> Boolean): SessionRecordInspection = synchronized(this) {
+    try {
+      val quarantined = viewerQuarantined()
+      val files = inspectionAccess?.files ?: AndroidRecordInspectionFiles
+      check(files.metadata(resetPending) == null)
+      // A half-published recovery proof is uncertain too; do not finish or remove it.
+      check(files.metadata(File(resetPending.path + ".new")) == null)
+      val existing = checkNotNull(if (inspectionAccess != null) inspectionAccess.existingKey() else key(create = false))
+      // Validate even when both requested records are absent. This does not set the normal latch.
+      verifyKey(existing)
+      val connection = inspectionText(readWithoutRecovery(QUEUES, INSPECTION_CONNECTION, existing, files))
+      val viewer = if (quarantined) null else
+        inspectionText(readWithoutRecovery(CREDENTIALS, INSPECTION_VIEWER, existing, files))
+      SessionRecordInspection.Value(connection, viewer)
+    } catch (_: Exception) {
+      SessionRecordInspection.Unreadable
+    }
+  }
+
+  /** Private and key-explicit: it cannot fall through to a recovery-capable read. */
+  private fun readWithoutRecovery(service: String, account: String, existing: SecretKey, files: RecordInspectionFiles): RecordRead {
+    val rootMetadata = files.metadata(root) ?: return RecordRead.Missing
+    check(rootMetadata.kind == InspectionFileKind.DIRECTORY)
+    val directoryMetadata = files.metadata(File(root, service)) ?: return RecordRead.Missing
+    check(directoryMetadata.kind == InspectionFileKind.DIRECTORY)
+    val file = file(service, account)
+    val metadata = files.metadata(file) ?: return RecordRead.Missing
+    check(metadata.kind == InspectionFileKind.REGULAR && metadata.bytes in 0..MAX_FILE_BYTES)
+    val sealed = files.open(file).use { readInspectionBytes(it, MAX_FILE_BYTES.toInt()) }
+    check(sealed.size.toLong() == metadata.bytes)
+    check(sealed.size >= 1 + IV_BYTES + TAG_BYTES && sealed[0] == FORMAT)
+    val cipher = Cipher.getInstance(TRANSFORMATION)
+    cipher.init(Cipher.DECRYPT_MODE, existing, GCMParameterSpec(TAG_BYTES * 8, sealed, 1, IV_BYTES))
+    cipher.updateAAD(binding(service, account))
+    return RecordRead.Value(cipher.doFinal(sealed, 1 + IV_BYTES, sealed.size - 1 - IV_BYTES))
+  }
+
+  /** Raw text conversion is the existing load contract; canonical JSON parsers stay in JS. */
+  private fun inspectionText(read: RecordRead): String? = when (read) {
+    RecordRead.Missing -> null
+    RecordRead.Unreadable -> error("Session records could not be inspected.")
+    is RecordRead.Value -> try { read.bytes.toString(Charsets.UTF_8) } finally { read.bytes.fill(0) }
+  }
 
   fun read(service: String, account: String): RecordRead = synchronized(this) {
     val file = file(service, account)
@@ -248,6 +302,8 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   }
 
   companion object {
+    private const val INSPECTION_CONNECTION = "network.selected.v1"
+    private const val INSPECTION_VIEWER = "portico:selected-viewer:v1"
     private const val RESET_PROOF = "confirmed-key-loss-v2"
     private const val KEYSTORE = "AndroidKeyStore"
     private const val KEY_ALIAS = "tv.getportico.portico.records.v1"

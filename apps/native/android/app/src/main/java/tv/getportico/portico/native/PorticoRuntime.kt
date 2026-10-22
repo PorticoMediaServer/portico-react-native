@@ -298,7 +298,37 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
 
   // --- the selected viewer ---------------------------------------------------------------
 
-  private val flags by lazy { reactApplicationContext.getSharedPreferences("portico", 0) }
+  private val flagsState = lazy { reactApplicationContext.getSharedPreferences("portico", 0) }
+  private val flags by flagsState
+
+  /**
+   * Debug-only inspection of one fixed raw pair, never a preparation or recovery preflight.
+   * A fresh process's cold SharedPreferences boundary remains unavailable: public preferences
+   * cannot attest a healthy disk load. Do not warm it with normal recovery-capable load methods.
+   * Startup/module initialization and private entry transport need their own admission review.
+   */
+  @ReactMethod
+  fun inspectSessionRecords(promise: Promise) {
+    if (!BuildConfig.DEBUG) {
+      promise.reject("record_inspection_unavailable", "Session record inspection is unavailable.")
+      return
+    }
+    storage.execute {
+      val found = store.inspectSessionRecords {
+        // ApplicationInfo supplies the path without a Context directory getter creating it.
+        requireInspectionPreferences(File(checkNotNull(reactApplicationContext.applicationInfo.dataDir)))
+        // No false default for a missing entry or a platform load that became an empty map.
+        inspectionQuarantine(flagsState.isInitialized()) { flags.all[QUARANTINED] }
+      }
+      when (found) {
+        SessionRecordInspection.Unreadable -> promise.reject("record_inspection_unreadable", "Session records could not be inspected.")
+        is SessionRecordInspection.Value -> promise.resolve(Arguments.createMap().apply {
+          putString("connection", found.connection)
+          putString("viewer", found.viewer)
+        })
+      }
+    }
+  }
 
   /** Set (and committed) before a removal or after a save that could not be verified. */
   private fun quarantine(value: Boolean) = flags.edit().putBoolean(QUARANTINED, value).commit()
