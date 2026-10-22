@@ -1,5 +1,6 @@
 import React, {createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, Platform, StyleSheet, View, type GestureResponderEvent} from 'react-native';
+import {registerOverlayKeys} from '../../platform/overlay-keys';
 import {useTheme} from '../theme';
 import {containsPoint, type Rect} from './geometry';
 import {createOverlayStack} from './overlay-stack';
@@ -58,6 +59,17 @@ export function focusTarget(target: FocusTarget | null | undefined) {
 }
 
 const stack = createOverlayStack();
+let keyUsers = 0;
+let unregisterKeys: (() => void) | undefined;
+function retainOverlayKeys(): () => void {
+  if (keyUsers++ === 0) unregisterKeys = registerOverlayKeys(dispatchOverlayKey);
+  let retained = true;
+  return () => {
+    if (!retained) return;
+    retained = false;
+    if (--keyUsers === 0) {unregisterKeys?.(); unregisterKeys = undefined;}
+  };
+}
 /** Root's physical keyboard bridge can forward keys without making a non-modal surface modal. */
 export function dispatchOverlayKey(key: 'escape' | 'tab' | 'menu', _shift = false): boolean {
   if (key === 'escape' || key === 'menu') return stack.dismiss(key === 'menu' ? 'back' : 'escape');
@@ -77,6 +89,7 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
     if (!open) return;
     const registration = {};
     const remove = stack.register(registration, reason => dismissRef.current(reason));
+    const releaseKeys = retainOverlayKeys();
     const timer = setTimeout(() => {if (stack.isTop(registration)) focusTarget(initial.current?.current);}, delay.current);
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!stack.isTop(registration)) return false;
@@ -87,6 +100,7 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
       clearTimeout(timer);
       back.remove();
       const wasTop = remove();
+      releaseKeys();
       if (wasTop) focusTarget(restore.current?.current);
     };
   }, [open, modal]);
