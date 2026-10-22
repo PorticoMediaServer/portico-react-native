@@ -1,5 +1,5 @@
 import React, {forwardRef, useEffect, useState} from 'react';
-import {Pressable, StyleSheet, type PressableProps, type PressableStateCallbackType, type View} from 'react-native';
+import {Pressable, StyleSheet, type PressableProps, type PressableStateCallbackType, type StyleProp, type View, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {focusSpec} from '@portico/design';
 import {useTheme} from '../theme';
@@ -19,7 +19,21 @@ export type FocusableProps = Omit<PressableProps, 'children'> & {
   onLongPressAction?: () => void;
 };
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+type PressableStyleAdapterProps = Omit<PressableProps, 'style'> & {
+  style?: StyleProp<ViewStyle>;
+  pressableStyleInput?: PressableProps['style'];
+};
+
+// Reanimated 4.6 turns its style prop into an array, including functions.
+// Resolve caller styles inside the real Pressable so its native render state
+// still drives them, while Reanimated animates that same forwarded host ref.
+const PressableStyleAdapter = forwardRef<View, PressableStyleAdapterProps>(function PressableStyleAdapter({
+  style, pressableStyleInput, ...props
+}, ref) {
+  return <Pressable {...props} ref={ref}
+    style={state => [typeof pressableStyleInput === 'function' ? pressableStyleInput(state) : pressableStyleInput, style]} />;
+});
+const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter);
 
 /** The platform moves focus; this primitive only draws it and owns its Menu registration. */
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
@@ -55,7 +69,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
     onLongPress={disabled ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
-    style={(state: PressableStateCallbackType) => [typeof style === 'function' ? style(state) : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
+    pressableStyleInput={style}
+    style={[{zIndex: focused ? layers.tvFocus : undefined}, animated]}>
     {(state: PressableStateCallbackType) => <>
       {focusTreatment === 'default' && isTV && !focusInset ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -focusSpec.offsetOuter.tv, borderRadius: focusRadius + focusSpec.offsetOuter.tv,
