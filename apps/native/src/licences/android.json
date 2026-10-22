@@ -837,12 +837,12 @@
    "text": 36
   },
   {
-   "id": "maven:androidx.annotation:annotation:1.8.1",
+   "id": "maven:androidx.annotation:annotation:1.9.1",
    "name": "androidx.annotation:annotation",
-   "version": "1.8.1",
+   "version": "1.9.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.8.1",
+   "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.9.1",
    "text": 36
   },
   {
@@ -855,12 +855,12 @@
    "text": 36
   },
   {
-   "id": "maven:androidx.annotation:annotation-jvm:1.8.1",
+   "id": "maven:androidx.annotation:annotation-jvm:1.9.1",
    "name": "androidx.annotation:annotation-jvm",
-   "version": "1.8.1",
+   "version": "1.9.1",
    "licence": "Apache-2.0",
    "group": "android",
-   "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.8.1",
+   "url": "https://developer.android.com/jetpack/androidx/releases/annotation#1.9.1",
    "text": 36
   },
   {
@@ -1518,6 +1518,42 @@
    "group": "android",
    "url": "https://developer.android.com/jetpack/androidx",
    "text": 36
+  },
+  {
+   "id": "maven:androidx.window:window:1.5.1",
+   "name": "androidx.window:window",
+   "version": "1.5.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
+   "text": 37
+  },
+  {
+   "id": "maven:androidx.window:window-core:1.5.1",
+   "name": "androidx.window:window-core",
+   "version": "1.5.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
+   "text": 36
+  },
+  {
+   "id": "maven:androidx.window:window-core-android:1.5.1",
+   "name": "androidx.window:window-core-android",
+   "version": "1.5.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
+   "text": 37
+  },
+  {
+   "id": "maven:androidx.window:window-java:1.5.1",
+   "name": "androidx.window:window-java",
+   "version": "1.5.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://developer.android.com/jetpack/androidx/releases/window#1.5.1",
+   "text": 37
   },
   {
    "id": "google-notice:Animal Sniffer",
@@ -2578,8 +2614,8 @@
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
-  "apps/native/licences/android-firetv.txt": "c8a92b37f144815e08c42313700f3e52fe01a09d75dccdf00e8ce1668c0368f1",
-  "apps/native/licences/android-google.txt": "b895d89caa625e1a4e7f1ace0356a30313fae61500040cfe2ef1fb6582cdef54",
+  "apps/native/licences/android-firetv.txt": "2b86776082bf93b108a204b6c610d3b2ea0356e04a8da791fda8208a6de42460",
+  "apps/native/licences/android-google.txt": "9129ac79da81474286a13d366a14b8cce4ceb221f484b2941b2b8300f0c5072d",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-android.txt": "02fc1dd52f8da8afd35f10293a65d038dfd404ed05cfea6d4b4bd185f556fea6",
   "apps/native/licences/native-npm.json": "f84a1e04c23bd8197f4449640b16a8c072b586602635460da21f3e077cd8f35f",
