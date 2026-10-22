@@ -9,6 +9,7 @@ import {useTheme} from '../kit/theme';
 import type {NativeShellRuntime} from './runtime';
 import {tvFocusIds} from './tv-focus';
 import {nativeSelectionCommand, nativeSelectionOffers} from './selection-actions';
+import {selectedItemsLabel} from './selection-display';
 
 const t = defaultI18n.t;
 const reason = (value: SelectionActionReason): string => t(value === 'mixed-types' ? 'next.selection.native.mixedTitle'
@@ -24,7 +25,7 @@ export function HomeSelectionBars({controller, runtime, ownerTag, reportError}: 
   const theme = useTheme(), insets = useSafeAreaInsets();
   const [menu, setMenu] = useState<SelectionBarProps['menu']>(null);
   if (!snapshot.selection.active) return null;
-  const props: SelectionBarProps = {testID: theme.isTV && runtime ? tvFocusIds(runtime.getSnapshot().authority).surface('selection-bar') : undefined, count: snapshot.selection.summary.count, selectAllLabel: t('next.home.native.selectRow'),
+  const props: SelectionBarProps = {testID: theme.isTV && runtime ? tvFocusIds(runtime.getSnapshot().authority).surface('selection-bar') : undefined, count: snapshot.selection.summary.count, selectionLabel: selectedItemsLabel(snapshot.selection.summary), selectAllLabel: t('next.home.native.selectRow'),
     onSelectAll: () => controller.selectRow(), onCancel: () => {setMenu(null); controller.clear();},
     onAction: action => {const command = nativeSelectionCommand(action); if (command) {setMenu(null); void controller.execute(command).catch(reportError);}},
     actions: nativeSelectionOffers(snapshot.actions, reason), menu, onMenuChange: setMenu, ownerTag,

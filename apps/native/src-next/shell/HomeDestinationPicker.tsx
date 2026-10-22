@@ -1,5 +1,5 @@
 import React, {useEffect, useState, useSyncExternalStore} from 'react';
-import {defaultI18n} from '../../../../packages/i18n/src';
+import {summarizeSelection} from '../../../../packages/client-core/src/selection-model/index';
 import type {HomeSelectionController} from '../../../../packages/client-core/src/home-selection/index';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
@@ -8,10 +8,9 @@ import {CoverMosaic} from '../kit/artwork';
 import {useTheme} from '../kit/theme';
 import {homeCardText} from '../screens/home/model';
 import {nativePickerCounts} from './selection-picker';
+import {selectedItemsLabel} from './selection-display';
 import type {NativeShellRuntime} from './runtime';
 import {tvFocusIds} from './tv-focus';
-
-const t = defaultI18n.t;
 
 /** The shared controller owns page cursors, creation, job ids and durable outcomes. */
 export function HomeDestinationPicker({controller, runtime, reportError}: {
@@ -37,7 +36,7 @@ export function HomeDestinationPicker({controller, runtime, reportError}: {
   const Picker = picker.kind === 'playlist' ? PlaylistPicker : CollectionPicker;
   return <Picker testID={theme.isTV ? tvFocusIds(runtime.getSnapshot().authority).surface(`picker.${picker.kind}`) : undefined}
     open onOpenChange={open => {if (!open) controller.closePicker();}} count={state.displayMembers.length}
-    selectionLabel={t('next.selection.native.selected', {count: state.displayMembers.length})}
+    selectionLabel={selectedItemsLabel(summarizeSelection(state.displayMembers.map(member => member.item)))}
     entries={picker.rows.map(row => ({id: row.id, title: row.name, size: row.count, canAdd: row.canAdd,
       ...(row.alreadyIn === undefined ? {} : {alreadyIn: row.alreadyIn}), artwork: art(row.artwork)}))}
     query={picker.query} onQueryChange={query => run(controller.pickerSearch(query))} showFind

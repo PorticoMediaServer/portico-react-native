@@ -64,6 +64,7 @@ const state = {
   registrations: new Map(),
   events: new Map(),
   appState: new Set(),
+  back: new Set(),
   modules: {},
   frames: new Map(),
 };
@@ -104,7 +105,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
- export const BackHandler={addEventListener:()=>({remove(){}})},AccessibilityInfo={isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
+ export const BackHandler={addEventListener:(_,listener)=>{S.back.add(listener);return{remove:()=>S.back.delete(listener)}}},AccessibilityInfo={isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
  export const StyleSheet={create:s=>s,flatten:flat,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0},hairlineWidth:1};
  export const Dimensions={get:()=>({width:390,height:844,scale:1,fontScale:1}),addEventListener:()=>({remove(){}})},PixelRatio={get:()=>1,getFontScale:()=>1},useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1});
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
@@ -354,6 +355,8 @@ export async function standardHomeApp() {
     playback: {itemId: 'movie', startMs: 12000},
     homeActions: {
       play: true,
+      queue: true,
+      collection: true,
       myList: true,
       details: true,
       state: {
@@ -364,7 +367,7 @@ export async function standardHomeApp() {
         personalRevision: 1,
         containerRevision: 1,
       },
-      selection: {play: true, myList: true},
+      selection: {play: true, queue: true, collection: true, myList: true},
     },
   });
   const homeRow = () => ({
@@ -545,6 +548,19 @@ export async function standardHomeApp() {
           counts: {unread: 0, read: 0, archived: 0, total: 0},
           observedAt: new Date().toISOString(),
         }),
+      };
+    if (path === routePath('post_home_destination_picker'))
+      return {
+        status: 200,
+        body: {
+          serverId: pin.serverId,
+          viewerFence: homeFence,
+          kind: request.body.kind,
+          query: request.body.query,
+          revision: {catalog: 1, viewer: 1},
+          rows: [],
+          nextCursor: '',
+        },
       };
     if (path === routePath('get_capabilities'))
       return {
@@ -759,6 +775,24 @@ export async function standardHomeApp() {
     },
     async tap() {
       card().props.onPress({nativeEvent: {}, stopPropagation() {}});
+      await settle();
+    },
+    async select() {
+      card().props.onAccessibilityAction({nativeEvent: {actionName: 'select'}});
+      await settle();
+    },
+    async tapLabel(label) {
+      const target = [...state.hosts.values()].find(
+        value =>
+          value.name === 'Pressable' &&
+          value.props.accessibilityLabel === label,
+      );
+      if (!target) throw Error('Missing native host label: ' + label);
+      target.props.onPress({nativeEvent: {}, stopPropagation() {}});
+      await settle();
+    },
+    async back() {
+      for (const listener of [...state.back].reverse()) if (listener()) break;
       await settle();
     },
     async more() {
