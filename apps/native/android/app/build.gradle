@@ -109,6 +109,7 @@ def porticoFonts = tasks.register("porticoFonts", Copy) {
         "manrope-500.ttf": "Manrope-Medium.ttf",
         "manrope-600.ttf": "Manrope-SemiBold.ttf",
         "manrope-700.ttf": "Manrope-Bold.ttf",
+        "manrope-800.ttf": "Manrope-ExtraBold.ttf",
     ]
     from("../../assets") { include names.keySet() }
     into(layout.buildDirectory.dir("generated/portico/assets/fonts"))
