@@ -33,7 +33,9 @@ export class NativeShellNavigation {
   readonly currentAuthority: () => ShellAuthority;
   constructor(authority: ShellAuthority, currentAuthority: () => ShellAuthority) {
     this.currentAuthority = currentAuthority;
-    this.snapshot = Object.freeze({authority, route: {kind: 'shell', destination: {kind: 'home'}}, destination: {kind: 'home'}, revision: 0});
+    const destination: ShellDestination = {kind: 'home'};
+    const route: NativeShellRoute = {kind: 'shell', destination};
+    this.snapshot = Object.freeze({authority, route, destination, revision: 0});
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
@@ -47,8 +49,10 @@ export class NativeShellNavigation {
     return true;
   }
   back(expectedAuthority: ShellAuthority): boolean {
-    if (!this.current(expectedAuthority) || !this.history.length) return false;
-    this.publish(this.history.pop()!);
+    if (!this.current(expectedAuthority)) return false;
+    const route = this.history.pop();
+    if (!route) return false;
+    this.publish(route);
     return true;
   }
   private publish(route: NativeShellRoute): void {
