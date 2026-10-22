@@ -71,7 +71,9 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
   const theme = useTheme();
   const reduce = useReducedMotion();
   const fallbackOpacity = useRef(new Animated.Value(1)).current;
-  const phone = treatment === 'phone' || (!theme.isTV && (treatment === 'hero' || treatment === 'title'));
+  const phone = treatment === 'phone' || (theme.layoutMode === 'phone' && (treatment === 'hero' || treatment === 'title'));
+  const desktop = theme.layoutMode === 'desktop' && (treatment === 'hero' || treatment === 'title');
+  const foregroundWidth = desktop ? treatment === 'title' ? theme.spec.hero.backdrop.titleWidthFraction.web : theme.spec.hero.backdrop.widthFraction.web : theme.spec.hero.backdrop.widthFraction.tv;
   const wash = treatment === 'wash' || treatment === 'library';
   const cover = treatment === 'cover' || treatment === 'artist';
   const list = (sources ?? (source ? [source] : [])).slice(0, 3);
@@ -105,9 +107,9 @@ export function AmbientArt({source, sources, foreground, palette, treatment = 'h
         }}
         blurRadius={allowLiveBlur ? wash ? 12 : 8 : undefined}/>
     </View>)}
-    {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%', width: phone ? '100%' : `${theme.spec.hero.backdrop.widthFraction.tv * 100}%`}, foregroundFrameStyle]}>
+    {foreground ? <View style={[{position: 'absolute', top: 0, right: 0, height: '100%', width: phone ? '100%' : `${foregroundWidth * 100}%`}, foregroundFrameStyle]}>
       <Reanimated.View style={[StyleSheet.absoluteFillObject, foregroundStyle]}>
-        <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? {x: phone ? 0.38 : 0.5, y: 0.3}}
+        <Artwork source={foreground} visible={visible} priority={priority} arrivalDurationMs={arrivalDurationMs} position={position ?? (desktop && treatment === 'title' ? {x: 0.3, y: 0.25} : {x: phone ? 0.38 : 0.5, y: 0.3})}
           onReady={onReady} onError={onError} onStatusChange={onStatusChange}/>
       </Reanimated.View>
       <ArtScrims phone={phone} side={!phone} bottomAt={phone ? theme.spec.hero.mask.phoneBottomOpaqueAt : theme.spec.hero.mask.bottomOpaqueAt} phoneOverlay={phone}/>

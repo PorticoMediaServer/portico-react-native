@@ -21,7 +21,7 @@ test('hold feedback never fabricates progress when measurement is absent', () =>
   assert.equal(holdFraction(2), 1);
 });
 
-import {changeList, changeScalar, deleteSelectionGate, failedSelectionIds, removeFieldChange, setListChange} from '../src-next/kit/selection/presentation.ts';
+import {bulkReceiptView, pickerResultSucceeded, changeList, changeScalar, deleteSelectionGate, failedSelectionIds, removeFieldChange, setListChange} from '../src-next/kit/selection/presentation.ts';
 import type {DeletePreview} from '../../../packages/client-core/src/administration.ts';
 
 const preview: DeletePreview = {
@@ -69,4 +69,27 @@ test('a refreshed preview changes the confirmation instead of reusing a prior ti
   assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Old title'}), 'confirmation');
   assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title'}), null);
   assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title', loading: true}), 'preview');
+});
+
+test('bulk results project latest real target outcomes without an aggregate operation id', () => {
+  const first = {operationId: 'first', updated: 1, failed: 2, results: [{kind: 'item', id: 'a', ok: true}, {kind: 'item', id: 'b', ok: false, code: 'metadata_conflict'}, {kind: 'item', id: 'c', ok: false, code: 'not_found'}]};
+  const retry = {operationId: 'retry-b', updated: 1, failed: 0, results: [{kind: 'item', id: 'b', ok: true}]};
+  const view = bulkReceiptView([first, retry, retry]);
+  assert.equal(view.updated, 2); assert.equal(view.failed, 1);
+  assert.deepEqual(failedSelectionIds(view.results), ['c']);
+  assert.deepEqual(view.results.map(row => [row.id, row.ok]), [['a', true], ['b', true], ['c', false]]);
+  assert.equal('operationId' in view, false);
+  assert.equal(first.results[1]!.ok, false);
+});
+
+test('picker success requires supplied insertion and failure facts rather than processed counts', () => {
+  const result = {destination: {id: 'real-destination', title: 'Actual destination'}, complete: true, processed: 200, total: 200, failures: []};
+  assert.equal(pickerResultSucceeded(result), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20}), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, alreadyIn: 180}), true);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 1}), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, unknown: 1}), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, pending: true}), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, complete: false}), false);
+  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, failures: [{id: 'failure', title: 'Actual title', reason: 'Actual reason'}]}), false);
 });

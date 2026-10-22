@@ -4,6 +4,7 @@ import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueueScope, ty
 import {playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {commandAllowed, commandIsCurrent, currentOccupant, dockCommand, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
+import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
 const scope: QueueScope = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'};
@@ -114,4 +115,15 @@ test('release uses position and signed velocity, including reversals and exact b
   assert.equal(releaseAside(-120, 801, 300), 1);
   assert.equal(releaseAside(NaN, 900, 300), 0);
   assert.equal(releaseAside(100, 900, 0), 0);
+});
+
+test('an idle morph rejects captures and queued settlements, including after scope replacement', () => {
+  assert.equal(currentMorphFence(undefined, undefined), false);
+  assert.equal(currentMorphFence(undefined, fence), false);
+  assert.equal(currentMorphFence(fence, undefined), false);
+  assert.equal(currentMorphFence({...fence}, fence), true);
+  assert.equal(currentMorphFence({...fence, sourceId: 'replacement'}, fence), false);
+  assert.equal(currentMorphFence({...fence, generation: fence.generation + 1}, fence), false);
+  const otherProfile = {...fence, playback: {...fence.playback, scope: {...scope, profileId: 'other-profile'}}};
+  assert.equal(currentMorphFence(otherProfile, fence), false);
 });

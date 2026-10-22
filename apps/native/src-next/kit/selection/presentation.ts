@@ -1,5 +1,6 @@
+import type {BulkReceipt, BulkResult} from '../../../../../packages/client-core/src/metadata-bulk';
 import type {DeletePreview} from '../../../../../packages/client-core/src/administration';
-import type {BulkChanges, BulkFieldChange, SelectionOutcome} from './types';
+import type {BulkChanges, BulkFieldChange, BulkResultView, PickerResult, SelectionOutcome} from './types';
 
 export function failedSelectionIds(outcomes: readonly Pick<SelectionOutcome, 'id' | 'ok'>[]): readonly string[] {
   return [...new Set(outcomes.filter(row => !row.ok).map(row => row.id))];
@@ -35,4 +36,18 @@ export function deleteSelectionGate(input: {owner: boolean; selectionCount: numb
   if (input.pending) return 'pending' as const;
   if (input.confirmation !== preview.confirmation) return 'confirmation' as const;
   return null;
+}
+
+/** Receipts remain with the controller; only each target's latest real outcome is displayed. */
+export function bulkReceiptView(receipts: readonly BulkReceipt[]): BulkResultView {
+  const latest = new Map<string, BulkResult>();
+  for (const receipt of receipts) for (const row of receipt.results) latest.set(JSON.stringify([row.kind, row.id]), row);
+  const results = [...latest.values()];
+  const updated = results.filter(row => row.ok).length;
+  return {results, updated, failed: results.length - updated};
+}
+
+/** Complete observations may still contain failures; missing counters prove no success. */
+export function pickerResultSucceeded(result: PickerResult): boolean {
+  return result.complete && result.inserted !== undefined && result.failed === 0 && (result.unknown === undefined || result.unknown === 0) && result.pending !== true && result.failures.length === 0;
 }

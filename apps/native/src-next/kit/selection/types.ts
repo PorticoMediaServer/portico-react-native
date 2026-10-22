@@ -23,17 +23,34 @@ export type SelectionBarProps = {
   menuTitle?: string;
 };
 export type SelectionOutcome = {id: string; title: string; ok: boolean; reason?: string; artwork?: React.ReactNode};
-export type PickerEntry = {id: string; title: string; size: number; alreadyIn: number; artwork: React.ReactNode};
+export type PickerEntry = {id: string; title: string; size: number; canAdd: boolean; alreadyIn?: number; artwork?: React.ReactNode};
+export type PickerFailure = Readonly<{id: string; title: string; reason: string}>;
+/** Counters describe actual membership writes; processed does not imply inserted. */
+export type PickerResult = Readonly<{
+  destination: Readonly<{id: string; title: string; artwork?: React.ReactNode}>;
+  inserted?: number;
+  processed?: number;
+  failed?: number;
+  unknown?: number;
+  pending?: boolean;
+  total?: number;
+  alreadyIn?: number;
+  failures: readonly PickerFailure[];
+  complete: boolean;
+  jobFacts?: readonly Readonly<{id: string; text: string}>[];
+}>;
 export type PickerProps = SelectionSurfaceProps & {
   count: number;
   selectionLabel: string;
   entries: readonly PickerEntry[];
   focusedEntryId?: string;
   nameInput?: React.ReactNode;
-  hasMore?: boolean;
+  hasNext?: boolean;
+  hasPrevious?: boolean;
+  onNext?: () => void;
+  onPrevious?: () => void;
   loading?: boolean;
   error?: string;
-  onLoadMore: () => void;
   query: string;
   onQueryChange: (query: string) => void;
   showFind?: boolean;
@@ -44,12 +61,23 @@ export type PickerProps = SelectionSurfaceProps & {
   onCreateAndAdd: (name: string) => void;
   onAdd: (id: string) => void;
   onRetry: (failedIds: readonly string[]) => void;
+  /** Present only for a genuine uncertain original operation. */
+  onRetryOperation?: () => void;
   pending?: boolean;
-  result?: {destination: PickerEntry; outcomes: readonly SelectionOutcome[]};
+  result?: PickerResult;
 };
-export type BulkSharedValue = {kind: 'shared'; value: string} | {kind: 'mixed'; distinct: number};
-export type BulkListValue = {value: string; count: number};
-export type BulkFieldValue = {shared?: BulkSharedValue; entries?: readonly BulkListValue[]};
+export type BulkListValue = Readonly<{value: string; count: number}>;
+/** Structural projection of the actual bulk metadata preview, including bounded examples. */
+export type BulkFieldValue = Readonly<{
+  state: 'shared' | 'mixed';
+  distinctCount: number;
+  truncated: boolean;
+  value?: string;
+  values: readonly BulkListValue[];
+  entries: readonly BulkListValue[];
+}>;
+/** A presentation of latest target outcomes, never a new operation receipt. */
+export type BulkResultView = Pick<BulkReceipt, 'results' | 'updated' | 'failed'>;
 export type BulkFieldChange = {value: string} | {add: readonly string[]; remove: readonly string[]};
 export type BulkChanges = Readonly<Record<string, BulkFieldChange>>;
 export type BulkEditorProps = SelectionSurfaceProps & {
@@ -66,12 +94,13 @@ export type BulkEditorProps = SelectionSurfaceProps & {
   onSave: () => void;
   pending?: boolean;
   error?: string;
-  result?: BulkReceipt;
+  result?: BulkResultView;
   resultEntries: readonly {id: string; title: string; artwork?: React.ReactNode}[];
   onRetry: (failedIds: readonly string[]) => void;
   ownerHeader: React.ReactNode;
   artwork?: React.ReactNode;
-  singleItemFields: string;
+  /** Actual complete registry (or exact excludedFields); only !bulk fields are described. */
+  singleItemFields: readonly RepairFieldSpec[];
   /** Localized server-provided field labels/values; presentation never invents a schema. */
   fieldLabel: (field: RepairFieldSpec) => string;
   fieldValueLabel?: (field: RepairFieldSpec, value: string) => string;

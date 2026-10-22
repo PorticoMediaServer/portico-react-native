@@ -23,12 +23,13 @@ export type CircleCardProps = CardProps & ({art: CircleArtProps; person?: false}
 export type CoverCardProps = PosterCardProps & {kind?: 'book' | 'periodical' | 'newspaper'; next?: boolean};
 
 /** SelectionCircle belongs to the selection family; cards only position the actual control. */
-function Overlays({props, hovered, height, holding = false, playSize = 40, centered = false, pause}: {props: CardProps; hovered: boolean; height: number; holding?: boolean; playSize?: number; centered?: boolean; pause?: () => void}) {
+function Overlays({props, hovered, height, holding = false, playSize = 40, centered = false, episode = false, pause}: {props: CardProps; hovered: boolean; height: number; holding?: boolean; playSize?: number; centered?: boolean; episode?: boolean; pause?: () => void}) {
   const t = useTheme(), {selection, onPlay, onMore, title} = props;
   if (props.disabled || holding) return null;
+  const circleInset = t.isTV ? 12 : t.layoutMode === 'desktop' ? 10 : episode ? 6 : 7;
   return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, {height}]}>
-    {selection?.active && <View style={{position: 'absolute', left: t.isTV ? 12 : 7, top: t.isTV ? 12 : 7}}>
-      <SelectionCircle selected={selection.selected} selecting={selection.active} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
+    {selection && (selection.active || hovered && t.layoutMode === 'desktop') && <View style={{position: 'absolute', left: circleInset, top: circleInset}}>
+      <SelectionCircle selected={selection.selected} selecting={selection.active || hovered} size={t.isTV ? 44 : t.layoutMode === 'desktop' ? 26 : 24} interactive={false} accessibilityLabel={defaultI18n.t('card.select', {title})} />
     </View>}
     {!t.isTV && !selection?.active && hovered && (onPlay || pause) && <CardAction name={pause ? 'i-pause' : 'i-play'} label={pause ? defaultI18n.t('next.cards.pause') : defaultI18n.t('card.play', {title})} onPress={pause ?? onPlay!} size={playSize}
       style={centered ? {position: 'absolute', left: '50%', top: height / 2 - playSize / 2, marginLeft: -playSize / 2} : {position: 'absolute', bottom: 10, right: 10}} />}
@@ -135,9 +136,9 @@ export function EpisodeTile(props: EpisodeTileProps) {
     accessibilityActions={[...(props.accessibilityActions ?? []), ...(props.onDownload ? [{name: 'download', label: defaultI18n.t('next.cards.download')}] : [])]}
     onAccessibilityAction={event => event.nativeEvent.actionName === 'download' ? props.onDownload?.() : props.onAccessibilityAction?.(event)}
     overlay={s => row ? <View pointerEvents="box-none" style={{position: 'absolute', left: 0, right: 0, top: 0, height}}>
-    <View pointerEvents="box-none" style={{width: artWidth, height}}><Overlays props={{...props, onMore: undefined}} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered /></View>
+    <View pointerEvents="box-none" style={{width: artWidth, height}}><Overlays props={{...props, onMore: undefined}} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered episode /></View>
     {!props.disabled && !props.selection?.active && (props.onDownload || props.onMore) && <CardAction name={props.onDownload ? 'i-dl' : 'i-more'} label={props.onDownload ? defaultI18n.t('next.cards.download') : defaultI18n.t('card.more', {title: props.title})} onPress={props.onDownload ?? props.onMore!} size={38} color={t.colors.textTertiary} style={{position: 'absolute', right: 0, top: (height - 38) / 2, backgroundColor: 'transparent'}} />}
-  </View> : <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered />}>
+  </View> : <Overlays props={props} hovered={s.hovered} holding={s.holding} height={height} playSize={48} centered episode />}>
     {s => <><View style={{flexDirection: row ? 'row' : 'column', gap: row ? 14 : 0, alignItems: row ? 'center' : undefined}}>{art(s.focused, s.hovered, s.holding)}{text}</View>
       {props.synopsis && <Text numberOfLines={row ? 2 : 3} style={[row ? titleStyle(t, 13, 600) : t.type.episodeBody, {color: t.colors.textSecondary, marginTop: row ? 9 : 8, lineHeight: row ? 18.85 * t.textScale : undefined}]}>{props.synopsis}</Text>}
     </>}
@@ -146,9 +147,11 @@ export function EpisodeTile(props: EpisodeTileProps) {
 
 export type RankedCardProps = PosterCardProps & {rank: number};
 export function RankedCard({rank, width, ...props}: RankedCardProps) {
-  const t = useTheme(), numberWidth = t.isTV ? 120 : 70, posterWidth = t.isTV ? 214 : 116, numberHeight = t.isTV ? 321 : 172;
-  return <View style={{width: width ?? (t.isTV ? 318 : 186), flexDirection: 'row', alignItems: 'flex-start'}}>
-    <Svg accessible={false} width={numberWidth} height={numberHeight} style={{marginRight: -16}}><SvgText x={numberWidth} y={numberHeight - 2} textAnchor="end" fontFamily={t.type.rank.fontFamily} fontSize={t.isTV ? 190 : 120} letterSpacing={(t.isTV ? 190 : 120) * -0.08} fill={t.colors.ink} stroke={t.colors.lineStrong} strokeWidth={2}>{rank}</SvgText></Svg>
+  const t = useTheme(), desktop = t.layoutMode === 'desktop', rankSpec = t.spec.shelf.rank;
+  const numberWidth = desktop ? rankSpec.numberWidth : t.isTV ? 120 : 70, posterWidth = desktop ? rankSpec.posterWidth : t.isTV ? 214 : 116, numberHeight = desktop ? rankSpec.numberHeight : t.isTV ? 321 : 172;
+  const fontSize = desktop ? t.type.rank.fontSize : t.isTV ? 190 : 120;
+  return <View style={{width: width ?? (desktop ? rankSpec.width : t.isTV ? 318 : 186), flexDirection: 'row', alignItems: 'flex-start'}}>
+    <Svg accessible={false} width={numberWidth} height={numberHeight} style={{marginRight: desktop ? rankSpec.overlap : -16}}><SvgText x={numberWidth} y={numberHeight - 2} textAnchor="end" fontFamily={t.type.rank.fontFamily} fontSize={fontSize} letterSpacing={desktop ? t.type.rank.letterSpacing : (t.isTV ? 190 : 120) * -0.08} fill={t.colors.ink} stroke={t.colors.lineStrong} strokeWidth={rankSpec.strokeWidth}>{rank}</SvgText></Svg>
     <PosterCard {...props} width={posterWidth} />
   </View>;
 }

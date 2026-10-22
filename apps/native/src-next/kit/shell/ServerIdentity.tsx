@@ -3,14 +3,17 @@ import {StyleSheet, Text, View, type StyleProp, type ViewStyle} from 'react-nati
 import Svg, {Defs, LinearGradient, Mask, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
+import {Button} from '../controls/Button';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
 import {alpha, shellType} from './visual';
 import {canSeeServerPage, serverVisibilityKey, type ServerAudience, type ServerRole} from './authority';
 
-export type ServerMarkVariant = 'state' | 'stateCompact' | 'settings' | 'phone' | 'tv';
+export type ServerMarkVariant = 'state' | 'stateCompact' | 'settings' | 'phone' | 'tv' | 'editorDesktop' | 'editorPhone';
 export const serverMarkGeometry = {
   state: {size: 26, radius: 7, icon: 15},
+  editorDesktop: {size: 34, radius: 9, icon: 20},
+  editorPhone: {size: 24, radius: 7, icon: 15},
   stateCompact: {size: 22, radius: 7, icon: 13},
   settings: {size: 34, radius: 9, icon: 18},
   phone: {size: 36, radius: 10, icon: 18},
@@ -28,6 +31,57 @@ export function ServerMark({variant = 'state', style, testID}: {variant?: Server
       <Rect width="100%" height="100%" fill={`url(#${id})`}/>
     </Svg>}
     <Icon name="i-server" size={geometry.icon} color={variant === 'phone' ? colors.accentStrong : colors.white}/>
+  </View>;
+}
+
+export type ShellTranslate = typeof defaultI18n.t;
+/** Admission supplies authority; administrators and editors supply their actual localized audience. */
+export type EditorAudience = Readonly<{authority: 'owner'; label?: never} | {authority: 'administrator' | 'editor'; label: string}>;
+export type ServerAudienceTagProps = {
+  audience: EditorAudience;
+  layout?: 'desktop' | 'phone';
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+  t?: ShellTranslate;
+};
+/** Owns the one mark and Server pill; the separate OwnerTag remains a restriction badge. */
+export function ServerAudienceTag({audience, layout = 'desktop', style, testID, t = defaultI18n.t}: ServerAudienceTagProps) {
+  const {colors, textScale} = useTheme();
+  const phone = layout === 'phone';
+  const label = audience.authority === 'owner' ? t(phone ? 'next.shell.editorAudience.ownerPhone' : 'next.shell.editorAudience.owner') : audience.label;
+  return <View testID={testID} style={[{flexDirection: 'row', alignItems: 'center', gap: phone ? 10 : 12}, style]}>
+    <ServerMark variant={phone ? 'editorPhone' : 'editorDesktop'} />
+    <View style={{flexDirection: 'row', alignItems: 'center', height: phone ? 28 : 30, gap: phone ? 6 : 8, paddingHorizontal: phone ? 10 : 12, borderRadius: 8, backgroundColor: alpha(colors.ink, .55)}}>
+      <Text style={[shellType(phone ? 12 : 13, 700, 'normal', 0, textScale), {color: colors.text}]}>{t('next.shell.server')}</Text>
+      <Text style={[shellType(phone ? 11.5 : 13, 600, 'normal', 0, textScale), {color: colors.textTertiary}]}>{label}</Text>
+    </View>
+  </View>;
+}
+export type EditorHeaderProps = ServerAudienceTagProps & {
+  title: string;
+  titleId?: string;
+  description?: ReactNode;
+  onClose: () => void;
+  children?: ReactNode;
+};
+export function EditorHeader({audience, layout = 'desktop', title, titleId, description, onClose, children, style, testID, t = defaultI18n.t}: EditorHeaderProps) {
+  const {colors, textScale} = useTheme();
+  const phone = layout === 'phone', id = useId();
+  return <View testID={testID} style={[{position: 'relative', paddingTop: phone ? 8 : 26, paddingHorizontal: phone ? 20 : 32, paddingBottom: phone ? 12 : 18}, style]}>
+    <Svg accessible={false} pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
+      <Defs>
+        <RadialGradient id={`${id}blue`} cx="100%" cy="0%" rx="120%" ry="120%"><Stop offset="0" stopColor={colors.accentDeep} stopOpacity={phone ? .28 : .26} /><Stop offset=".62" stopColor={colors.accentDeep} stopOpacity="0" /></RadialGradient>
+        <RadialGradient id={`${id}green`} cx="0%" cy="100%" rx="100%" ry="100%"><Stop offset="0" stopColor={colors.generatedGreen} stopOpacity=".2" /><Stop offset=".66" stopColor={colors.generatedGreen} stopOpacity="0" /></RadialGradient>
+      </Defs>
+      <Rect width="100%" height="100%" fill={`url(#${id}blue)`} /><Rect width="100%" height="100%" fill={`url(#${id}green)`} />
+    </Svg>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 10 : 12, marginTop: phone ? 4 : 0}}>
+      <ServerAudienceTag audience={audience} layout={layout} t={t} />
+      <Button variant="icon" size="xs" icon="i-x" accessibilityLabel={t('next.shell.close')} onPress={onClose} style={{marginLeft: 'auto', marginRight: phone ? 0 : -8, width: phone ? 34 : 40, height: phone ? 34 : 40, borderRadius: 20, backgroundColor: phone ? alpha(colors.text, .1) : 'transparent'}} />
+    </View>
+    <Text nativeID={titleId} accessibilityRole="header" style={[shellType(phone ? 24 : 30, 800, 'normal', phone ? -.03 : -.035, textScale), {color: colors.text, marginTop: phone ? 10 : 16, marginBottom: phone ? 4 : 6}]}>{title}</Text>
+    {description !== undefined ? <Text style={[shellType(phone ? 13 : 14.5, 400, phone ? 18.85 : 21.75, 0, textScale), {color: colors.textSecondary, maxWidth: 470}]}>{description}</Text> : null}
+    {children}
   </View>;
 }
 
