@@ -26,11 +26,10 @@ export function PushedNavBar({title, backLabel, onBack, overArtwork = false, tra
     <View style={{marginLeft: 'auto'}}>{trailing}</View>
   </View>;
 }
-export function ShortcutTiles({actions, unreadCounts = {}}: {actions: readonly AccountAction[]; unreadCounts?: Readonly<Record<string, number>>}) {
+export function ShortcutTiles({actions}: {actions: readonly AccountAction[]}) {
   const theme = useTheme();
   return <View style={{flexDirection: 'row', gap: 8, marginHorizontal: 16, marginTop: 10}}>{actions.map(action => <Focusable key={action.id} accessibilityRole="button" accessibilityLabel={action.label} onPress={action.onPress} focusRadius={14} style={{flex: 1, height: 70, borderRadius: 14, backgroundColor: theme.colors.raised, alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 4}}>
     <Icon name={action.icon} size={24}/><Text style={[shellType(11.5, 700, 13.8), {color: theme.colors.textSecondary, textAlign: 'center'}]}>{action.label}</Text>
-    {unreadCounts[action.id] > 0 && <View style={{position: 'absolute', right: 12, top: 9, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent}}><Text style={[shellType(11, 800), {color: theme.colors.actionInk}]}>{defaultI18n.number(unreadCounts[action.id])}</Text></View>}
   </Focusable>)}</View>;
 }
 
@@ -44,7 +43,8 @@ export function SettingsSheet({profile, shortcuts, children, ...surface}: Omit<B
   </BottomSheet>;
 }
 
-export type SettingsNavPage = Readonly<{id: string; label: string; icon: IconName; audience?: ServerAudience; badge?: string; warning?: boolean; cluster?: 'overview' | 'media' | 'access' | 'system'; value?: string}>;
+/** Navigation carries a setting's state, never a summary count. Major issues must be known for this exact row. */
+export type SettingsNavPage = Readonly<{id: string; label: string; icon: IconName; audience?: ServerAudience; cluster?: 'overview' | 'media' | 'access' | 'system'; stateValue?: string; majorIssue?: boolean}>;
 export type SettingsNavProps = {
   accountPages: readonly SettingsNavPage[];
   serverPages: readonly SettingsNavPage[];
@@ -68,7 +68,8 @@ export function SettingsNav({accountPages, serverPages, viewerRole, serverName, 
       {page.id === selectedId && theme.platform !== 'phone' && <View style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: theme.isTV ? 4 : 3, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
       <View style={theme.isTV ? undefined : {width: 30, height: 30, borderRadius: 8, backgroundColor: server ? alpha(theme.colors.accent, .16) : theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'}}><Icon name={page.icon} size={theme.isTV ? 24 : 18} color={server || page.id === selectedId ? theme.colors.accentStrong : theme.colors.textTertiary}/></View>
       <Text numberOfLines={1} style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text, flex: 1}]}>{page.label}</Text>
-      {(page.badge || page.value) && <Text style={[shellType(theme.isTV ? 18 : 14.5), {color: page.warning ? theme.colors.amber : theme.colors.textTertiary}]}>{page.badge ?? page.value}</Text>}
+      {page.stateValue !== undefined && <Text style={[shellType(theme.isTV ? 18 : 14.5), {color: theme.colors.textTertiary}]}>{page.stateValue}</Text>}
+      {page.majorIssue === true && <View accessible accessibilityRole="image" accessibilityLabel={defaultI18n.t('next.shell.health.attention')} style={{width: theme.isTV ? 10 : 7, height: theme.isTV ? 10 : 7, borderRadius: theme.isTV ? 5 : 3.5, backgroundColor: theme.colors.record}}/>}
       {!theme.isTV && <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>}
     </Focusable>
     {index > 0 && !theme.isTV && <View pointerEvents="none" style={{position: 'absolute', left: 56, right: 0, top: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
