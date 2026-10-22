@@ -40,11 +40,11 @@ export function useSurfaceMotion(open: boolean, kind: 'dialog' | 'menu' | 'side'
 
 export function PanelBackground() {
   const {colors} = useTheme();
-  return <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} accessible={false} pointerEvents="none">
+  return <View pointerEvents="none" accessible={false} style={StyleSheet.absoluteFill}><Svg width="100%" height="100%" accessible={false}>
     <Defs><LinearGradient id="panel-base" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#132836"/><Stop offset="1" stopColor="#0b1822"/></LinearGradient>
       <RadialGradient id="panel-blue" cx="100%" cy="0%" rx="120%" ry="50%"><Stop offset="0" stopColor={colors.accent} stopOpacity={0.34}/><Stop offset="0.7" stopColor={colors.accent} stopOpacity={0}/></RadialGradient></Defs>
     <Rect width="100%" height="100%" fill="url(#panel-base)"/><Rect width="100%" height="100%" fill="url(#panel-blue)"/>
-  </Svg>;
+  </Svg></View>;
 }
 function DialogBackground({radius}: {radius: number}) {
   const {isTV} = useTheme();

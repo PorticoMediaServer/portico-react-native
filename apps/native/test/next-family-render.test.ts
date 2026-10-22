@@ -73,6 +73,7 @@ const {default: browseGalleries} = await import('../src-next/dev/families/browse
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
+const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
@@ -327,4 +328,23 @@ test('actual selection galleries render list changes when native Intl.ListFormat
       } finally {example.host.unmount(); gallery.host.unmount();}
     }
   }
+});
+
+
+test('TV panel artwork gets a full unpadded frame independent of the controls padding', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const panel = mount(PanelBackground, {});
+  try {
+    const root = panel.tree as Element;
+    assert.equal(root.type, 'View');
+    assert.equal(root.props.pointerEvents, 'none');
+    assert.equal(root.props.accessible, false);
+    assert.equal(root.props.style.position, 'absolute');
+    assert.equal(root.props.style.width, undefined);
+    const svg = root.props.children as Element;
+    assert.equal(svg.type, 'Svg');
+    assert.equal(svg.props.width, '100%');
+    assert.equal(svg.props.height, '100%');
+    assert.equal(svg.props.style, undefined);
+  } finally {panel.host.unmount();}
 });
