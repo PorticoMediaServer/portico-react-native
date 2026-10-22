@@ -55,7 +55,7 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   // the last action of the actual row member's Hold OK menu.
   if (theme.isTV && state.menu) {
     const menu = state.menu;
-    const row = runtime.home.getSnapshot().document?.rows.find(value => `home-row:${value.id}` === menu.windowId);
+    const row = runtime.homeMenuRow?.(menu.windowId);
     if (row?.seeAll) items.push({id: 'see-all', label: `${t('shelf.seeAll')} ${serverTextLabel(defaultI18n, row.titleText, row.title)}`, icon: 'i-grid',
       onSelect: () => {controller.closeMenu(); runtime.actions.seeAll(row.seeAll!);}});
   }

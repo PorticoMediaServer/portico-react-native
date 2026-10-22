@@ -97,7 +97,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const heroActions = (candidate: HomeCandidate) => {
     const offers = homeEntryCapabilities(candidate.entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
     return <>
-      {offers.playable && candidate.target?.playback && <Button icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
+      {offers.playable && candidate.target?.playback && <Button icon="i-play" variant="primary" size="hero" hasTVPreferredFocus={theme.isTV && !spotlightEntered.current} onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
+        onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
       {offers.watchlisted !== undefined && <Button icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) setFocus(undefined);}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
@@ -105,6 +106,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     </>;
   };
   const onRowFocus = (row: HomeRow, entry: ContentEntry) => {
+    if (theme.isTV) spotlightEntered.current = true;
     setFocus({rowId: row.id, entryId: entry.id}); setHeroFocused(false);
     // Focus changes the TV hero/row geometry. Anchor after that real layout has landed.
     requestAnimationFrame(() => {
@@ -132,14 +134,17 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     <View style={{height: theme.isTV ? preview ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
       {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
           Up guides while the preview covers them. Focus restores the spotlight. */}
-      {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0, opacity: preview ? 0 : 1}}>{spotlight}</View> : spotlight}
-      {theme.isTV && preview && <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
+      {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0}}>{spotlight}</View> : spotlight}
+      {theme.isTV && preview && <View pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: 0, height: heroHeight, backgroundColor: theme.colors.ink}}><FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1, includeFontPadding: false}]}>{part.text}</Text>)}</View>}
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds}/>}
-        onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
+        onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/></View>}
     </View>
     {rows.map((row, rowIndex) => {
+      const sourceRow = document.rows.find(value => value.id === row.id);
+      if (!sourceRow) return null;
+      const physicalIds = theme.isTV ? row.live ? row.live.channels.map(item => JSON.stringify([item.channel.sourceId, item.channel.id])) : row.entries.map(entry => entry.id) : undefined;
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);
       const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
       const ranked = presentation.cards.some(card => card.rank !== undefined);
@@ -149,8 +154,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
-      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(row, rowIndex, first, last, shown); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
-      return <HomeWindow key={row.id} runtime={runtime} row={row} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {const box = event.nativeEvent.layout;
+      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds); if (shown && pageAtVisibleEnd(row, last, theme.isTV ? 10 : 3)) void runtime.home.more(row.id);};
+      return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {const box = event.nativeEvent.layout;
         rowPositions.current.set(row.id, box); updateViewport(offset.current);
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
@@ -174,10 +179,21 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
 }
 
 function HomeWindow({runtime, row, sectionOrder, visible, children}: {runtime: NativeShellRuntime; row: HomeRow; sectionOrder: number; visible: boolean; children: React.ReactNode}) {
+  const {isTV} = useTheme(), rowId = row.id, latest = useRef(row);
+  latest.current = row;
   useEffect(() => {
-    runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
-    return () => runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
-  }, [runtime, row, sectionOrder, visible]);
+    if (!isTV) {
+      runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
+      return () => runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
+    }
+    // Rows report their real measured window. A parent effect must not overwrite
+    // it with the first128 entries when the focused card is farther down a row.
+    if (row.collection) runtime.setHomeWindow(row, sectionOrder, 0, 0, visible);
+  }, [isTV, runtime, row, sectionOrder, visible]);
+  useEffect(() => {
+    if (isTV && !visible) runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
+  }, [isTV, runtime, row, sectionOrder, visible]);
+  useEffect(() => {if (isTV) return () => runtime.setHomeWindow(latest.current, sectionOrder, 0, -1, false);}, [isTV, runtime, rowId, sectionOrder]);
   return children;
 }
 

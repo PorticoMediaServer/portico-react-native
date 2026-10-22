@@ -17,8 +17,8 @@ export function tvHomeRows(before: readonly HomeRow[], incoming: readonly HomeRo
   return rows.map(row => {
     const previous = before.find(value => value.id === row.id);
     if (!previous || !owns(row.id)) return row;
-    if (row.live && previous.live) return {...row, live: {...row.live, channels: keptOrder(previous.live.channels, row.live.channels,
+    if (row.live && previous.live) return {...row, artworkShape: previous.artworkShape, live: {...row.live, channels: keptOrder(previous.live.channels, row.live.channels,
       channel => JSON.stringify([channel.channel.sourceId, channel.channel.id]))}};
-    return {...row, entries: keptOrder(previous.entries, row.entries, entry => JSON.stringify([entry.kind, entry.libraryId, entry.id]))};
+    return {...row, artworkShape: previous.artworkShape, entries: keptOrder(previous.entries, row.entries, entry => JSON.stringify([entry.kind, entry.libraryId, entry.id]))};
   });
 }

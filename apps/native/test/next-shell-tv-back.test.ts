@@ -12,9 +12,9 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   const h = hooks(), authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
   const entry = {id: 'movie', libraryId: 'movies', kind: 'movie', title: 'Movie', available: true,
     navigation: {view: 'item', entityId: 'movie'}, playback: {itemId: 'movie'}};
-  const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry],
+  const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry, {...entry, id: 'second'}, {...entry, id: 'third'}],
     privacySensitivity: '', policyState: '', priority: 1, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false,
-    total: 1, start: 0, limit: 20, hasMore: false, nextCursor: '', endpoint: '', revision: {catalog: 1, viewer: 1}};
+    total: 3, start: 0, limit: 20, hasMore: false, nextCursor: '', endpoint: '', revision: {catalog: 1, viewer: 1}};
   const raw = {serverId: 'server', viewerFence: 'fence', rows: [row], spotlight: [], layout: {revision: 1, rowOrder: ['continue'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-22T19:00:00Z'};
   // A real HomeService parses and owns the in-memory document; no transport/API call occurs.
   const home = new HomeService({request: async () => JSON.parse(JSON.stringify(raw))});
@@ -37,10 +37,12 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     account: {account: {role: 'member'}}, playback: {selectionPlayback: () => ({play() {throw new Error('unused playback');}, enqueue() {throw new Error('unused enqueue');}, playChannel() {throw new Error('unused channel');}}), getSnapshot: () => ({dock: {local: {expanded}}})}});
   bindings.attach({getSnapshot: () => ({authority})});
   const cleanup = bindings.registerTVPageBack(() => {pageCalls++; return pageConsumes;});
-  bindings.setHomeWindow(home.getSnapshot().document!.rows[0], 0, 0, 0, true);
-  bindings.actions.more(home.getSnapshot().document!.rows[0].entries[0], 'continue');
+  bindings.setHomeWindow(home.getSnapshot().document!.rows[0], 0, 0, 0, true, ['third', 'movie', 'second']);
+  bindings.actions.more(home.getSnapshot().document!.rows[0].entries[2], 'continue');
   const controller = bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.controller;
   assert.ok(controller.getSnapshot().menu, 'the genuine registered member opened the controller menu');
+  assert.equal(controller.getSnapshot().menu.member.entry.id, 'third', 'physical first slot is admitted through its genuine source index');
+  assert.equal(bindings.homeMenuRow(controller.getSnapshot().menu.windowId), home.getSnapshot().document!.rows[0]);
   expanded = true;
   assert.equal(back(), true);
   assert.equal(controller.getSnapshot().menu, null, 'menu closes before expanded player handles Back');
