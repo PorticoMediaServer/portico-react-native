@@ -4,11 +4,20 @@ import type {V1Http, V1Request} from '../../../../../packages/client-core/src/pl
 export class PlaybackScopeHttp implements V1Http {
   private closed = false;
   private controllers = new Set<AbortController>();
+  private guards = new WeakMap<AbortSignal, () => boolean>();
   private inner: V1Http;
   private current: () => boolean;
   constructor(inner: V1Http, current: () => boolean) { this.inner = inner; this.current = current; }
+  /** A caller-owned operation fence follows this exact signal through the core's reads. Each
+   * in-flight send retains its guard even after the caller removes the registration. */
+  guard(signal: AbortSignal, current: () => boolean): () => void {
+    this.guards.set(signal, current);
+    return () => { if (this.guards.get(signal) === current) this.guards.delete(signal); };
+  }
   send = async (request: V1Request) => {
-    if (this.closed || !this.current()) throw new Error('Playback authority retired.');
+    const guard = request.signal ? this.guards.get(request.signal) : undefined;
+    const current = () => !this.closed && this.current() && (!guard || guard());
+    if (!current() || request.signal?.aborted) throw new Error('Playback authority retired.');
     const controller = new AbortController();
     const abort = () => controller.abort();
     request.signal?.addEventListener('abort', abort, {once: true});
@@ -16,7 +25,7 @@ export class PlaybackScopeHttp implements V1Http {
     this.controllers.add(controller);
     try {
       const response = await this.inner.send({...request, signal: controller.signal});
-      if (this.closed || !this.current() || controller.signal.aborted) throw new Error('Playback authority retired.');
+      if (!current() || controller.signal.aborted) throw new Error('Playback authority retired.');
       return response;
     } finally { request.signal?.removeEventListener('abort', abort); this.controllers.delete(controller); }
   };

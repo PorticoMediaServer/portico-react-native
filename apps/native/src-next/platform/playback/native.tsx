@@ -1,5 +1,5 @@
-import React, {useEffect, useRef, useSyncExternalStore, type ComponentType} from 'react';
-import {AppState, Dimensions, NativeEventEmitter, NativeModules, Platform, UIManager, requireNativeComponent, type ViewProps} from 'react-native';
+import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ComponentRef} from 'react';
+import {AppState, Dimensions, NativeEventEmitter, NativeModules, Platform, UIManager, findNodeHandle, requireNativeComponent, type HostComponent, type ViewProps} from 'react-native';
 import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
@@ -12,6 +12,7 @@ import {NativeListeningV1Adapter, type NativeListeningBridge} from './NativeList
 import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
 import {NativePlaybackRuntime} from './runtime';
 import {PlaybackScopeHttp} from './scope-http';
+import {createVideoSnapshotCapture} from '../video-snapshot';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
 
 const names = {native: {module: 'PorticoPlaybackModule', fact: 'PorticoPlaybackFact', view: 'PorticoPlayer'}, mpv: {module: 'PorticoMpvPlaybackModule', fact: 'PorticoMpvPlaybackFact', view: 'PorticoMpvPlayer'}} as const;
@@ -26,7 +27,7 @@ type EngineModule = NativeListeningBridge & {
   purgeAudioCache?: () => Promise<unknown>;
 };
 type NativeSurfaceProps = ViewProps & {lease: string};
-const views: Partial<Record<EngineKind, ComponentType<NativeSurfaceProps>>> = {};
+const views: Partial<Record<EngineKind, HostComponent<NativeSurfaceProps>>> = {};
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
 function transport(module: EngineModule, event: string): NativePlaybackTransport {
@@ -94,24 +95,27 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
       return chooseEngine({setting: options.settings().engine, mpvAvailable, planEngine: plan.engine, nativeOnly,
         requiredSubtitleRendering: requiredSubtitleRendering(snapshot.subtitles?.plan, known), nativeSubtitleRendering: nativeFeatures.subtitleRendering});
     }}});
+  runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
   const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */
   function Surface({dockBounds, expandedBounds, docked, subtitlesVisible}: NativePlaybackSurfaceProps) {
     const owner = useRef<object>({});
+    const surfaceRef = useCallback((node: ComponentRef<HostComponent<NativeSurfaceProps>> | null) => { runtime.setSurfaceTag(owner.current, node ? findNodeHandle(node) : null); }, []);
     const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
     useEffect(() => runtime.attachSurface(owner.current), []);
     useEffect(() => { runtime.setSubtitleDisplay(subtitlesVisible && !docked); }, [subtitlesVisible, docked]);
     const kind = state.engine;
     const SurfaceView = views[kind] ??= requireNativeComponent<NativeSurfaceProps>(names[kind].view);
     const bounds = docked ? dockBounds : expandedBounds;
-    return <SurfaceView lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
+    return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, opacity: bounds && state.lease ? 1 : 0}} />;
   }
   return {
-    runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, Surface,
+    runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, selectionPlayback: runtime.selectionPlayback, Surface,
     onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, seek: runtime.seek, skip: runtime.skip,
     previous: runtime.previous, next: runtime.next, stop: runtime.stop, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
+    captureVideoSnapshot: runtime.captureVideoSnapshot,
     ...(options.openDestinations ? {cast: runtime.cast} : {}),
   };
 }

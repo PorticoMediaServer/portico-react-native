@@ -8,6 +8,12 @@ import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/l
 import {call, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
+import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
+import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
+import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
+import type {HomeChannel} from '../../../../../packages/client-core/src/home';
+import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
+import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
 import type {Session, PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
@@ -22,7 +28,9 @@ import {captionStyle} from './caption-style';
 import {deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
-import type {NativePlaybackStart, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, PlaybackAuthority} from './types';
+import {selectionSegments, selectionStartSeconds} from './selection';
+import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
+import type {NativePlaybackStart, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
@@ -39,7 +47,7 @@ const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubj
   const kind = kindOf(entry.kind);
   return {kind: kind === 'video' || kind === 'live' ? 'video' : kind, item: card};
 };
-type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string}>;
+type Bookmark = Readonly<{playback: DockPlayback; entry?: ContentEntry; subject?: PlaybackSubject; queueId?: string; entryId?: string; channel?: ChannelReference}>;
 
 /** Actual session, queue and native-engine wiring. Construct one per selected authority.
  * The production factory in native.tsx supplies the existing native modules and one view. */
@@ -62,6 +70,11 @@ export class NativePlaybackRuntime {
   private retired = false;
   private startEpoch = 0;
   private startController?: AbortController;
+  private selectionControllers = new Set<AbortController>();
+  private enqueueTail: Promise<unknown> = Promise.resolve();
+  private channelControl?: V1ChannelControl;
+  private channelCleanup?: () => void;
+  private channel?: HomeChannel;
   private sourceEpoch = 0;
   private sourceController?: AbortController;
   private sourceKey = '';
@@ -78,12 +91,19 @@ export class NativePlaybackRuntime {
   private preparing = false;
   private transitionEpoch?: number;
   private expanded = false;
+  private expandAtStart?: number;
   private displaySubtitles = true;
   private serverKinds: readonly string[] = [];
   private transitions = false;
   private effectiveRate = 0;
   private supportedRates: readonly number[] = [];
   private surfaceOwner?: object;
+  private surfaceTag?: number;
+  private surfaceTagOwner?: object;
+  private snapshotCapture?: VideoSnapshotCapture;
+  private captureFence?: PlaybackFence;
+  private captureSource?: VideoSnapshotSource;
+  private captureEpoch = 0;
   private routeRecovery?: ReturnType<typeof setTimeout>;
   private recoverySince = 0;
   private completionTimer?: unknown;
@@ -136,7 +156,7 @@ export class NativePlaybackRuntime {
     this.offs.push(this.queue.subscribe(() => this.changed()));
     this.offs.push(this.path.subscribeSessions(() => this.changed()));
     this.offs.push(this.queue.connect());
-    this.offs.push(this.coordinator.subscribe(() => this.publish()));
+    this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
     this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
     this.offs.push(this.o.api.subscribeRoute(() => this.routeChanged()));
@@ -150,6 +170,7 @@ export class NativePlaybackRuntime {
   private routeChanged(): void {
     if (!this.active()) return;
     const route = this.o.api.getRouteSnapshot();
+    if (route && route.phase !== 'ready') this.cancelSnapshot();
     this.coordinator.setConnection(!route || route.phase === 'ready');
   }
   refreshAuthority = async (): Promise<void> => {
@@ -159,12 +180,187 @@ export class NativePlaybackRuntime {
   };
   flush = () => this.path.controller.flush();
 
+  private beginOperation(): number {
+    const epoch = ++this.startEpoch;
+    this.startController?.abort();
+    for (const controller of this.selectionControllers) controller.abort();
+    this.selectionControllers.clear();
+    this.channelControl?.close(); this.channelControl = undefined;
+    this.channelCleanup?.(); this.channelCleanup = undefined;
+    this.channel = undefined;
+    this.transitionEpoch = undefined; this.preparing = false;
+    this.expandAtStart = undefined;
+    return epoch;
+  }
+
+  /** The same exact Home document/route guard is supplied to its selection controller. */
+  selectionPlayback = (isCurrent: (context: SelectionContext) => boolean): HomeSelectionPlaybackPort => ({
+    play: request => this.playSelection(request, isCurrent),
+    enqueue: request => {
+      const epoch = this.startEpoch, source = this.sourceEpoch;
+      const result = this.enqueueTail.then(() => this.enqueueSelection(request, isCurrent, epoch, source));
+      this.enqueueTail = result.catch(() => {});
+      return result;
+    },
+    playChannel: (channel, context, signal) => this.playChannel(channel, context, signal, isCurrent),
+  });
+  private selectionCurrent(context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): boolean {
+    const scope = context.scope;
+    return !signal.aborted && this.currentAuthority() && scope.serverId === this.scope.serverId && scope.authority === this.scope.authority && scope.accountId === this.scope.accountId && scope.profileId === this.scope.profileId && scope.privacyFence === this.bound.viewerFence && current(context);
+  }
+  private assertSelection(context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): void {
+    if (!this.selectionCurrent(context, signal, current)) throw new Error(signal.aborted ? 'cancelled' : 'stale_selection_context');
+  }
+  private selectionScope(signal: AbortSignal, current: () => boolean) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener('abort', abort, {once: true}); if (signal.aborted) abort();
+    this.selectionControllers.add(controller);
+    const unguard = this.http.guard(controller.signal, current);
+    return {signal: controller.signal, close: () => { unguard(); signal.removeEventListener('abort', abort); this.selectionControllers.delete(controller); controller.abort(); }};
+  }
+  private rememberCurrent(): void {
+    const old = this.dock.getSnapshot().local;
+    if (!old) return;
+    this.remember(old);
+    if (this.snapshot.fence && sameFence(old.fence, this.snapshot.fence)) this.playback.pause();
+  }
+  private async playSelection(request: HomeSelectionPlaybackRequest, current: (context: SelectionContext) => boolean) {
+    this.assertSelection(request.context, request.signal, current);
+    const segments = selectionSegments(request.items, true), epoch = this.beginOperation();
+    const valid = () => epoch === this.startEpoch && this.selectionCurrent(request.context, request.signal, current);
+    const scoped = this.selectionScope(request.signal, valid);
+    try {
+      this.connect();
+      await this.queue.cancel();
+      this.assertSelection(request.context, scoped.signal, current); if (!valid()) throw new Error('stale_selection_context');
+      await this.o.capabilitiesReady();
+      this.assertSelection(request.context, scoped.signal, current); if (!valid()) throw new Error('stale_selection_context');
+      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal);
+      if (!valid()) throw new Error('stale_selection_context');
+      this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
+      this.rememberCurrent();
+      const first = request.items[0]!;
+      this.entry = 'entry' in first && first.entry.id === first.target.itemId ? first.entry : undefined;
+      this.subject = this.entry ? subjectOf(this.entry) : undefined; this.options = undefined;
+      this.expanded = this.entry ? !audioKind(this.entry.kind) : true;
+      this.expandAtStart = epoch;
+      // Only the canonical core owns the create/adopt path and its pre-adoption context fence.
+      const queue = await this.queue.playSegments(segments, {startSeconds: selectionStartSeconds(request.items), signal: scoped.signal, isCurrent: valid});
+      if (!valid()) throw new Error('stale_selection_context');
+      this.changed(); return {queue};
+    } catch (error) {
+      if (epoch === this.startEpoch && this.currentAuthority()) { await this.queue.cancel(); this.playback.leave(); this.changed(); }
+      throw error;
+    } finally { scoped.close(); }
+  }
+  private async enqueueSelection(request: HomeSelectionPlaybackRequest & {placement: 'next' | 'end'}, current: (context: SelectionContext) => boolean, epoch: number, source: number) {
+    this.assertSelection(request.context, request.signal, current);
+    if (request.placement !== 'next' && request.placement !== 'end') throw new Error('invalid_queue_placement');
+    const segments = selectionSegments(request.items, false);
+    const valid = () => epoch === this.startEpoch && source === this.sourceEpoch && this.selectionCurrent(request.context, request.signal, current);
+    if (!valid()) throw new Error('stale_selection_context');
+    const scoped = this.selectionScope(request.signal, valid);
+    const client = new QueueClient({send: request => this.http.send({...request, signal: scoped.signal})}, this.o.requestId);
+    const check = () => { if (!valid()) throw new Error('stale_selection_context'); };
+    try {
+      this.connect(); check();
+      const held = this.queue.getSnapshot().view?.queue;
+      if (!held) {
+        const created = await client.create(segments, {signal: scoped.signal}); check();
+        await this.queue.open(created.queue.id, scoped.signal); check();
+        this.changed(); return {queue: created.queue};
+      }
+      let queue = await client.header(held.id, scoped.signal); check();
+      const ordered = request.placement === 'next' ? [...segments].reverse() : segments;
+      for (const segment of ordered) {
+        check(); queue = (await client.addSegment(queue.id, queue.revision, request.placement, segment)).queue; check();
+      }
+      await this.queue.refresh(scoped.signal); check();
+      this.changed(); return {queue};
+    } finally { scoped.close(); }
+  }
+
+  private async playChannel(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
+    this.assertSelection(context, signal, current);
+    const value = channel.channel, source = channel.source;
+    if (!value.tuneAvailable || value.tuneUnavailableReason || value.hidden || value.sourceId !== source.id || value.generation !== source.generation || value.provenance !== source.provenance || !['live-source', 'library-channel'].includes(value.provenance) || !wireId(source.generation) || !wireId(source.id) || !wireId(value.id) || value.provenance === 'library-channel' && source.id !== value.id) throw new Error('invalid_channel_target');
+    const epoch = this.beginOperation();
+    const valid = () => epoch === this.startEpoch && this.selectionCurrent(context, signal, current);
+    const scoped = this.selectionScope(signal, valid);
+    try {
+      this.connect(); await this.queue.cancel();
+      if (!valid()) throw new Error('stale_selection_context');
+      await this.o.capabilitiesReady();
+      if (!valid()) throw new Error('stale_selection_context');
+      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal);
+      if (!valid()) throw new Error('stale_selection_context');
+      if (!serverSupportsV1Channels(capabilities)) throw new Error('channel_playback_unavailable');
+      this.rememberCurrent(); this.channel = channel; this.expanded = true;
+      await this.openChannel({kind: value.provenance, sourceId: source.id, channelId: value.id, generation: value.generation}, epoch, scoped.signal, valid, 'playing');
+      this.changed();
+    } catch (error) {
+      if (epoch === this.startEpoch && this.currentAuthority()) { this.playback.leave(); this.changed(); }
+      throw error;
+    } finally { scoped.close(); }
+  }
+
+  private async openChannel(reference: ChannelReference, epoch: number, signal: AbortSignal, beforeAdoption: () => boolean, state: 'playing' | 'paused'): Promise<void> {
+    let adopted = false, opening = false;
+    const valid = () => epoch === this.startEpoch && this.currentAuthority() && (adopted || !signal.aborted && beforeAdoption());
+    const scoped = this.selectionScope(signal, valid);
+    let control: V1ChannelControl | undefined;
+    let rejectStart: ((error: Error) => void) | undefined;
+    const abort = () => { if (!adopted) { control?.close(); rejectStart?.(new Error('cancelled')); } };
+    signal.addEventListener('abort', abort, {once: true});
+    const close = () => { signal.removeEventListener('abort', abort); control?.close(); scoped.close(); rejectStart?.(new Error('stale_selection_context')); rejectStart = undefined; };
+    try {
+      // DELETE cleanup stays bound to its original authority after a Home context expires.
+      control = new V1ChannelControl({key: this.o.requestId, http: {send: async request => {
+        if (request.method === 'DELETE') return this.http.send(request);
+        if (!valid()) { control?.close(); throw new Error('stale_selection_context'); }
+        const response = await this.http.send(adopted ? request : {...request, signal: scoped.signal});
+        if (!valid()) control?.close();
+        return response;
+      }}});
+      const channelControl = control;
+      this.playback.useChannelPlayback({
+        open: async (reference, sink, options) => {
+          opening = true;
+          // open() can return before its ordered join seek. Await the service's real session.
+          let resolveStart!: () => void;
+          const joined = new Promise<void>((resolve, reject) => { resolveStart = resolve; rejectStart = reject; });
+          void joined.catch(() => {});
+          await channelControl.open(reference, {
+            state: value => {
+              if (!valid()) { close(); return; }
+              sink.state(value);
+              if (!adopted && this.playback.getSnapshot().session?.id === value.playbackId) {
+                adopted = true; scoped.close(); signal.removeEventListener('abort', abort); rejectStart = undefined; resolveStart();
+              }
+            },
+            error: (message, terminal) => { if (valid()) sink.error(message, terminal); if (!adopted) { rejectStart?.(new Error('channel_playback_failed')); rejectStart = undefined; } },
+          }, options);
+          await joined;
+        },
+        recover: () => channelControl.recover(), pause: () => channelControl.pause(), resume: () => channelControl.resume(),
+        seek: seconds => channelControl.seek(seconds), goLive: () => channelControl.goLive(), retry: () => channelControl.retry(),
+        observe: (seconds, seekId, errorCode) => channelControl.observe(seconds, seekId, errorCode),
+        close: () => { if (opening) close(); else channelControl.close(); },
+      });
+      this.channelControl = control; this.channelCleanup = close;
+      this.entry = undefined; this.subject = undefined; this.options = undefined;
+      await this.playback.playChannel(reference, {state});
+      if (!valid()) throw new Error('stale_selection_context');
+      if (this.playback.getSnapshot().phase === 'error' || !this.playback.getSnapshot().session) throw new Error('channel_playback_failed');
+    } catch (error) { close(); throw error; }
+  }
+
   start = async (input: NativePlaybackStart): Promise<void> => {
     this.connect();
     if (!this.active()) return;
     if (!wireId(input.target.itemId) || input.target.startSeconds !== undefined && (!Number.isFinite(input.target.startSeconds) || input.target.startSeconds < 0)) throw new Error('Invalid playback target.');
-    const epoch = ++this.startEpoch;
-    this.transitionEpoch = undefined; this.preparing = false;
+    const epoch = this.beginOperation();
     await this.queue.cancel();
     if (!this.active() || epoch !== this.startEpoch) return;
     this.startController?.abort();
@@ -206,28 +402,46 @@ export class NativePlaybackRuntime {
   }
   private fence(): PlaybackFence | undefined {
     const state = this.playback.getSnapshot(), session = this.currentSession(), view = this.queue.getSnapshot().view;
+    if (state.channel && state.session && state.session.generation > 0 && state.playbackRun > 0) {
+      const reference = state.channel, common = {kind: 'channel' as const, playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, generation: state.session.generation, channelId: reference.channelId, channelGeneration: reference.generation};
+      return reference.kind === 'live-source'
+        ? playbackFence({...common, channelKind: 'live-source', sourceId: reference.sourceId})
+        : playbackFence({...common, channelKind: 'library-channel', sourceId: reference.sourceId});
+    }
     if (!state.session || !state.itemId || !session?.versionId || !session.queue?.entryId || state.playbackRun < 1 || this.preparing && this.options?.itemId !== state.itemId) return undefined;
     if (view && !sameScope(view.queue.scope, this.scope)) return undefined;
     const data = this.detail?.getSnapshot().data;
     const episode = data?.item.id === state.itemId && data.scope.viewerFence === this.bound.viewerFence ? data.item.episode : undefined;
-    return playbackFence({playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, itemId: state.itemId,
+    return playbackFence({kind: 'queue', playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, itemId: state.itemId,
       sourceId: session.versionId, entryId: session.queue.entryId, generation: state.session.generation,
       ...(episode?.showId ? {showId: episode.showId} : {}), ...(episode?.seasonId ? {seasonId: episode.seasonId} : {})});
   }
   private local(fence: PlaybackFence): DockPlayback {
     const state = this.playback.getSnapshot(), queue = this.queue.getSnapshot().view?.queue;
+    const common = {positionSeconds: state.positionSeconds, playing: state.intent === 'playing' && state.phase !== 'error' && state.phase !== 'ended', expanded: this.expanded};
+    if (fence.kind === 'channel') return {...common, fence, kind: 'live', queue: null};
     // A building window is not a completed server-authoritative queue projection.
     let readyQueue: DockPlayback['queue'] = null;
     if (queue) { try { readyQueue = parseQueueSnapshot(queue, this.scope); } catch { /* Keep the validated v1 window in snapshot.queue; never invent a stricter projection. */ } }
-    return {fence, kind: kindOf(this.currentSession()?.kind === 'audio' ? this.entry?.kind ?? this.options?.kind : this.entry?.kind), queue: readyQueue,
-      positionSeconds: state.positionSeconds, playing: state.intent === 'playing' && state.phase !== 'error' && state.phase !== 'ended', expanded: this.expanded};
+    const kind = this.entry?.id === fence.itemId ? this.entry.kind : this.options?.itemId === fence.itemId ? this.options.kind : this.queue.getSnapshot().view?.items.find(item => item.entryId === fence.entryId)?.kind;
+    return {...common, fence, kind: kindOf(kind) as 'video' | 'music' | 'audiobook', queue: readyQueue};
   }
   private changed(): void {
     if (this.updating || this.transitionEpoch !== undefined || !this.active()) return;
     this.updating = true;
     try {
       const state = this.playback.getSnapshot(), fence = this.fence();
+      if (state.channel) {
+        const channel = state.channel, linear = state.linear;
+        const name = linear?.name || this.channel?.channel.name;
+        if (name) this.subject = {kind: 'channel', id: channel.channelId, sourceId: channel.sourceId, channelName: name,
+          ...(linear?.programme?.title ? {programmeTitle: linear.programme.title} : {}), live: true};
+      }
       if (fence) {
+        if (fence.kind === 'queue' && this.expandAtStart === this.startEpoch) {
+          this.expanded = !audioKind(this.queue.getSnapshot().view?.items.find(item => item.entryId === fence.entryId)?.kind);
+          this.expandAtStart = undefined;
+        }
         this.choices.begin(fence.playback); this.choices.bindSource(fence);
         const local = this.local(fence), before = this.dock.getSnapshot().local;
         if (before && sameFence(before.fence, fence)) this.dock.update(local);
@@ -250,12 +464,15 @@ export class NativePlaybackRuntime {
   private remember(playback: DockPlayback): void {
     const session = this.currentSession();
     const previous = this.bookmarks.get(playback.fence.sessionId);
-    const current = this.playback.getSnapshot().session?.id === playback.fence.sessionId && this.entry?.id === playback.fence.itemId;
+    const state = this.playback.getSnapshot(), fence = playback.fence;
+    const current = state.session?.id === fence.sessionId && (fence.kind === 'channel' || this.entry?.id === fence.itemId);
     this.bookmarks.set(playback.fence.sessionId, {playback, entry: current ? this.entry : previous?.entry, subject: current ? this.subject : previous?.subject,
-      queueId: playback.queue?.id ?? (session?.id === playback.fence.sessionId ? session.queue?.queueId : previous?.queueId), entryId: playback.fence.entryId});
+      queueId: playback.queue?.id ?? (session?.id === playback.fence.sessionId ? session.queue?.queueId : previous?.queueId),
+      ...(fence.kind === 'queue' ? {entryId: fence.entryId} : {channel: current ? state.channel : previous?.channel})});
     while (this.bookmarks.size > 8) this.bookmarks.delete(this.bookmarks.keys().next().value!);
   }
   private selectSource(key: string): void {
+    this.cancelSnapshot();
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
@@ -266,6 +483,7 @@ export class NativePlaybackRuntime {
     if (!key) { if (!this.preparing && this.playback.getSnapshot().phase === 'idle') { this.entry = undefined; this.subject = undefined; } return; }
     const controller = new AbortController(); this.sourceController = controller;
     const state = this.playback.getSnapshot(), itemId = state.itemId!, session = this.currentSession();
+    if (state.channel) return; // Live references are never catalogue/subtitle endpoint IDs.
     if (this.entry?.id !== itemId) { this.entry = undefined; this.subject = undefined; }
     const valid = () => this.active() && epoch === this.sourceEpoch && !controller.signal.aborted;
     void this.optionsClient.options(itemId, session?.versionId ? {versionId: session.versionId} : {}, controller.signal).then(value => {
@@ -299,6 +517,10 @@ export class NativePlaybackRuntime {
     if (this.retired) return;
     const state = this.playback.getSnapshot(), fence = this.fence(), settings = this.o.settings();
     if (!state.session || !fence) { this.coordinator.setOptions(1, null, null); return; }
+    if (fence.kind === 'channel') {
+      this.coordinator.setOptions(1, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
+      return;
+    }
     const baseRate = this.local(fence).kind === 'audiobook' ? settings.audiobookRate : this.local(fence).kind === 'music' ? 1 : settings.videoRate;
     const rate = this.choices.get('speed', fence.playback, baseRate);
     this.path.setRate(rate);
@@ -334,17 +556,18 @@ export class NativePlaybackRuntime {
 
   private makeSnapshot(sequence: number): NativePlaybackRuntimeSnapshot {
     const playback = this.playback.getSnapshot(), fence = this.retired ? undefined : this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
-    const currentIndex = view?.items.findIndex(item => item.entryId === fence?.entryId) ?? -1;
+    const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
+    const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
-      options: this.options, subtitles: this.subtitleService?.getSnapshot(), engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, retired: this.retired,
-      capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && playback.duration > 0,
-        previous: ready && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && !!view && view.next.reason !== 'end', cast: ready && !!this.o.openDestinations,
+      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, retired: this.retired,
+      capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
+        previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
         audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
         subtitleTrack: ready && !playback.nativeListening && !!this.subtitleService?.getSnapshot().plan,
-        subtitlesCanHide: session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
+        subtitlesCanHide: fence?.kind === 'queue' && session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
   }
   private publish(): void { this.snapshot = this.makeSnapshot(this.snapshot.sequence + 1); for (const listener of [...this.listeners]) listener(); }
 
@@ -381,7 +604,7 @@ export class NativePlaybackRuntime {
 
   private automaticSkip(): void {
     const state = this.playback.getSnapshot(), fence = this.fence();
-    if (!fence || state.phase !== 'ready' || state.intent !== 'playing' || state.pendingSeek || state.failedSeek) return;
+    if (!fence || fence.kind !== 'queue' || state.phase !== 'ready' || state.intent !== 'playing' || state.pendingSeek || state.failedSeek) return;
     const modes = this.o.settings().skips;
     const markers = (this.options?.markers ?? []).map(marker => ({id: marker.id, kind: marker.type, startSeconds: marker.startMs / 1000, endSeconds: marker.endMs / 1000, automaticSafe: marker.automaticSafe}));
     const prefix = `${fence.playback.run}/${fence.sourceId}/`;
@@ -413,10 +636,16 @@ export class NativePlaybackRuntime {
   toggle = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) { const state = this.playback.getSnapshot(); if (state.intent === 'playing') this.playback.pause(); else this.playback.resume(); } };
   replay = async (fence: PlaybackFence): Promise<void> => {
     if (!this.matches(fence)) return;
+    if (fence.kind === 'channel') { this.channelControl?.retry(); return; }
     if (this.playback.hasNativeOwner() && this.o.nativeListening) await this.o.nativeListening.action('retry', 0);
     else await this.queue.playItem(fence.itemId, 0);
   };
-  seek = async (fence: PlaybackFence, seconds: number): Promise<void> => { if (this.matches(fence) && Number.isFinite(seconds) && seconds >= 0 && this.snapshot.capabilities.seek) this.playback.seek(seconds); };
+  seek = async (fence: PlaybackFence, seconds: number): Promise<void> => {
+    if (!this.matches(fence) || !Number.isFinite(seconds) || seconds < 0 || !this.snapshot.capabilities.seek) return;
+    const window = this.snapshot.seekWindow;
+    if (fence.kind === 'channel' && (!window || seconds < window.startSeconds || seconds > window.endSeconds)) return;
+    this.playback.seek(seconds);
+  };
   skip = async (fence: PlaybackFence, seconds: number): Promise<void> => { if (this.matches(fence) && Number.isFinite(seconds)) await this.seek(fence, Math.max(0, this.playback.getSnapshot().positionSeconds + seconds)); };
   previous = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.snapshot.capabilities.previous) await this.queue.previous(); };
   next = async (fence: PlaybackFence): Promise<void> => { const view = this.queue.getSnapshot().view; if (this.matches(fence) && this.snapshot.capabilities.next && view) await this.queue.next(view.queue.id, view.queue.revision); };
@@ -465,23 +694,41 @@ export class NativePlaybackRuntime {
 
   private applyTransition = async (transition: DockTransition): Promise<{fence: PlaybackFence; epoch: number} | undefined> => {
     if (!this.active() || transition.state !== this.dock.getSnapshot()) return;
-    const epoch = ++this.startEpoch;
+    if (!transition.effects.length) {
+      this.expanded = transition.state.local?.expanded ?? false;
+      this.applyOptions(); this.publish(); return;
+    }
+    const epoch = this.beginOperation();
+    const controller = new AbortController(); this.startController = controller;
     this.transitionEpoch = epoch;
     let restored: PlaybackFence | undefined;
     try {
       await this.queue.cancel();
       if (!this.active() || epoch !== this.startEpoch) return;
-      this.startController?.abort();
       this.expanded = transition.state.local?.expanded ?? false;
       for (const effect of transition.effects) {
         if (!this.active() || epoch !== this.startEpoch) return;
         const fence = this.fence();
         if (effect.kind === 'restore') {
           const saved = this.bookmarks.get(effect.playback.fence.sessionId);
-          if (!saved?.queueId || !saved.entryId) throw new Error('Playback bookmark is unavailable.');
+          if (!saved) throw new Error('Playback bookmark is unavailable.');
           this.entry = saved.entry; this.subject = saved.subject; this.expanded = false;
-          // Root owns the canonical method: it starts the actual saved entry/session paused.
-          await this.queue.restorePaused(saved.queueId, saved.entryId, effect.playback.positionSeconds);
+          if (effect.playback.fence.kind === 'channel') {
+            if (!saved.channel) throw new Error('Playback bookmark is unavailable.');
+            const valid = () => this.currentAuthority() && epoch === this.startEpoch && !controller.signal.aborted;
+            await this.openChannel(saved.channel, epoch, controller.signal, valid, 'paused');
+            if (!valid()) return;
+            const current = this.fence(), linear = this.playback.getSnapshot().linear;
+            const position = effect.playback.positionSeconds;
+            if (!current || current.kind !== 'channel' || !linear || position < channelSeconds(linear.media.windowStartUs) || position > channelSeconds(linear.media.windowEndUs)) {
+              this.playback.leave(); throw new Error('channel_position_unavailable');
+            }
+            await this.restoreChannelPosition(current, position, epoch, controller.signal);
+          } else {
+            if (!saved.queueId || !saved.entryId) throw new Error('Playback bookmark is unavailable.');
+            // Canonical restore starts the actual queue entry paused, with no transient play.
+            await this.queue.restorePaused(saved.queueId, saved.entryId, effect.playback.positionSeconds);
+          }
           if (this.active() && epoch === this.startEpoch) { this.playback.pause(); restored = this.fence(); }
         } else if (fence && sameFence(fence, effect.playback.fence)) {
           this.remember(effect.playback);
@@ -495,11 +742,74 @@ export class NativePlaybackRuntime {
     return restored && epoch === this.startEpoch ? {fence: restored, epoch} : undefined;
   };
 
+  private restoreChannelPosition(fence: PlaybackFence, seconds: number, epoch: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let off = () => {}, done = false;
+      const finish = (error?: Error) => {
+        if (done) return; done = true; off(); clearTimeout(timer); signal.removeEventListener('abort', abort); error ? reject(error) : resolve();
+      };
+      const check = () => {
+        const state = this.playback.getSnapshot();
+        if (signal.aborted || epoch !== this.startEpoch || !this.currentAuthority() || !sameFence(this.fence(), fence)) return finish(new Error('stale_selection_context'));
+        if (state.phase === 'error' || state.failedSeek || state.seekError || state.intent !== 'paused') return finish(new Error('channel_position_unavailable'));
+        if (!state.pendingSeek && Math.abs(state.positionSeconds - seconds) < .25) finish();
+      };
+      const abort = () => finish(new Error('cancelled'));
+      const timer = setTimeout(() => finish(new Error('channel_position_unavailable')), 15000);
+      (timer as {unref?: () => void}).unref?.();
+      off = this.playback.subscribe(check); signal.addEventListener('abort', abort, {once: true});
+      if (signal.aborted) { abort(); return; }
+      this.playback.seek(seconds); check();
+    });
+  }
+
   /** The native surface is an exclusive attachment; a second mounted Surface is rejected. */
+  installSnapshotCapture(capture: VideoSnapshotCapture): void {
+    if (this.snapshotCapture) throw new Error('Snapshot capture is already bound.');
+    if (this.retired) { capture.dispose(); return; }
+    this.snapshotCapture = capture;
+  }
+  setSurfaceTag(owner: object, tag: number | null): void {
+    if (this.surfaceOwner && this.surfaceOwner !== owner || this.surfaceTagOwner && this.surfaceTagOwner !== owner) throw new Error('Playback surface is already mounted.');
+    const next = tag !== null && Number.isSafeInteger(tag) && tag > 0 ? tag : undefined;
+    if (this.surfaceTag !== next) this.cancelSnapshot();
+    this.surfaceTag = next; this.surfaceTagOwner = next === undefined ? undefined : owner;
+  }
+  private snapshotSource(fence: PlaybackFence): VideoSnapshotSource | undefined {
+    if (!this.matches(fence) || !this.surfaceOwner || this.surfaceTagOwner !== this.surfaceOwner || !this.surfaceTag) return;
+    const state = this.playback.getSnapshot(), binding = this.coordinator.getBinding(), engine = this.coordinator.getEngine();
+    if (state.nativeListening || !binding || binding.lease !== this.coordinator.getSnapshot() || binding.intentId !== state.intentId || binding.sessionId !== fence.sessionId || binding.generation !== fence.generation || binding.itemId !== state.itemId || !['native', 'mpv'].includes(engine)) return;
+    return Object.freeze({reactTag: this.surfaceTag, engine: engine as 'native' | 'mpv', lease: binding.lease,
+      binding: Object.freeze({intentId: binding.intentId, sessionId: binding.sessionId, generation: binding.generation, itemId: binding.itemId})});
+  }
+  isSnapshotSourceCurrent = (source: VideoSnapshotSource): boolean => {
+    if (!this.captureFence || !this.currentAuthority()) return false;
+    const actual = this.snapshotSource(this.captureFence);
+    return !!actual && actual.reactTag === source.reactTag && actual.engine === source.engine && actual.lease === source.lease && actual.binding.intentId === source.binding.intentId && actual.binding.sessionId === source.binding.sessionId && actual.binding.generation === source.binding.generation && actual.binding.itemId === source.binding.itemId;
+  };
+  private cancelSnapshot(): void {
+    ++this.captureEpoch; this.captureFence = undefined; this.captureSource = undefined; this.snapshotCapture?.cancel();
+  }
+  captureVideoSnapshot = async (fence: PlaybackFence, options?: {signal?: AbortSignal}): Promise<NativePlaybackVideoSnapshot> => {
+    const source = this.snapshotSource(fence), capture = this.snapshotCapture;
+    if (!source || !capture) throw new Error('snapshot_unavailable');
+    if (this.captureSource) throw new Error('snapshot_busy');
+    const epoch = ++this.captureEpoch;
+    this.captureFence = fence; this.captureSource = source;
+    try {
+      const result = await capture.capture(source, options);
+      if (epoch !== this.captureEpoch || !this.isSnapshotSourceCurrent(result.source)) { await result.release(); throw new Error('snapshot_stale'); }
+      let released: Promise<void> | undefined;
+      return Object.freeze({fence, image: result.image, release: () => released ??= result.release().finally(() => { if (epoch === this.captureEpoch) { this.captureFence = undefined; this.captureSource = undefined; } })});
+    } catch (error) {
+      if (epoch === this.captureEpoch) { this.captureFence = undefined; this.captureSource = undefined; }
+      throw error;
+    }
+  };
   attachSurface(owner: object): () => void {
     if (this.surfaceOwner && this.surfaceOwner !== owner) throw new Error('Playback surface is already mounted.');
     this.surfaceOwner = owner; this.connect();
-    return () => { if (this.surfaceOwner === owner) { this.surfaceOwner = undefined; queueMicrotask(() => { if (!this.surfaceOwner) this.dispose(); }); } };
+    return () => { if (this.surfaceOwner === owner) { this.cancelSnapshot(); this.surfaceTag = undefined; this.surfaceTagOwner = undefined; this.surfaceOwner = undefined; queueMicrotask(() => { if (!this.surfaceOwner) this.dispose(); }); } };
   }
   dispose = (): void => {
     if (this.retired) return;
@@ -512,7 +822,8 @@ export class NativePlaybackRuntime {
       const off = this.o.subscribeAuthority(() => { if (!this.authorityMatches()) cleanup.dispose(); });
       void new SessionsClient(cleanup, this.o.timers).stop(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000))).catch(() => {}).finally(() => { off(); cleanup.dispose(); });
     }
-    this.retired = true; ++this.startEpoch; ++this.sourceEpoch;
+    this.beginOperation(); this.retired = true; ++this.sourceEpoch;
+    this.cancelSnapshot(); this.snapshotCapture?.dispose();
     this.startController?.abort(); this.sourceController?.abort(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
     if (this.routeRecovery) clearTimeout(this.routeRecovery);

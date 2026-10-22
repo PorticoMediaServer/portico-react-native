@@ -37,3 +37,19 @@ test('a caller abort cancels its exact request without closing the current princ
   finish({status: 204, headers: {}}); assert.equal((await next).status, 204);
   http.dispose();
 });
+
+test('an operation guard checks every dispatch and rejects late responses after unregistering', async () => {
+  let current = true, sends = 0, finish!: (response: V1Response) => void;
+  const http = new PlaybackScopeHttp({send: () => { sends++; return new Promise(resolve => { finish = resolve; }); }}, () => true);
+  const controller = new AbortController();
+  const unguard = http.guard(controller.signal, () => current);
+  const pending = http.send({method: 'GET', path: '/operation-read', signal: controller.signal});
+  current = false;
+  await assert.rejects(http.send({method: 'POST', path: '/operation-write', signal: controller.signal}), /authority retired/);
+  unguard(); finish({status: 200, headers: {}});
+  await assert.rejects(pending, /authority retired/);
+  assert.equal(sends, 1);
+  const next = http.send({method: 'GET', path: '/different-operation'});
+  finish({status: 204, headers: {}}); assert.equal((await next).status, 204);
+  http.dispose();
+});
