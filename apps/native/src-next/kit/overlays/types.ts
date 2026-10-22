@@ -30,6 +30,7 @@ export type DialogProps = SurfaceProps & {
   placement?: 'center' | 'side';
   dismissOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
+  dismissOnGesture?: boolean;
   showClose?: boolean;
 };
 export type SidePanelProps = SurfaceProps & {
@@ -47,7 +48,9 @@ export type BottomSheetProps = SurfaceProps & {
   onDetentChange?: (index: number) => void;
   dismissOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
+  dismissOnGesture?: boolean;
   scrollable?: boolean;
+  showClose?: boolean;
   fitContent?: boolean;
   headerAction?: React.ReactNode;
   headerContext?: React.ReactNode;
