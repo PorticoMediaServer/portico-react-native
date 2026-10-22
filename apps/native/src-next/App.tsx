@@ -4,6 +4,7 @@ import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
+import {RestoredShell} from './shell/RestoredShell';
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
 export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; runtime?: NativeShellRuntime; reduceMotion?: boolean; textScale?: number};
@@ -11,11 +12,11 @@ export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentTyp
 function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const {colors} = useTheme();
   const RuntimeShell = useMemo(() => runtime ? function BoundNativeShell() {return <NativeShell runtime={runtime}/>;} : undefined, [runtime]);
-  const Shell = RuntimeShell ?? (Platform.isTV ? tvShell : phoneShell);
+  const Shell = RuntimeShell ?? (Platform.isTV ? tvShell : phoneShell) ?? RestoredShell;
   return <View testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null}</View>;
 }
 
-/** Shell lanes supply their real roots here; the scaffold ships no sample product content. */
+/** The product restores its actual native session; test/dev hosts may inject an owned runtime. */
 export default function App(props: NativeAppProps) {
   return <GestureHandlerRootView style={{flex: 1}}><SafeAreaProvider><ThemeProvider reduceMotion={props.reduceMotion} textScale={props.textScale}><NativeRoot {...props} /></ThemeProvider></SafeAreaProvider></GestureHandlerRootView>;
 }

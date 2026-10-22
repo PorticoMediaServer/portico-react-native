@@ -58,3 +58,9 @@ export function shellLayout(width: number, height: number, isTV: boolean): Shell
 
 /** The 84-point drawn bar includes the ordinary bottom safe area. Larger insets extend it. */
 export const phoneBarHeight = (bottomInset: number): number => Math.max(84, 50 + Math.max(0, bottomInset));
+
+/** phone-app.html draws54 points over the opening hero and46 after scrolling. */
+export function phoneHeaderGeometry(topInset: number, scrolled: boolean): Readonly<{top: number; height: number}> {
+  const top = Math.max(scrolled ? 46 : 54, Math.max(0, topInset));
+  return {top, height: top + 50};
+}

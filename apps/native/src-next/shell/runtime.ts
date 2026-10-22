@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import type {Library} from '../../../../packages/client-core/src/index';
 import type {HomeService} from '../../../../packages/client-core/src/home-service';
-import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
+import type {HomeChannel, HomeCollection, HomeRow, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {TextEnvironment} from '../../../../packages/client-core/src/presentation/kit-model';
 import type {ArtworkSource, AmbientArtSource, ProfileOption} from '../kit/artwork';
@@ -15,6 +15,11 @@ import type {NativeShellPlaybackAdapter} from './playback';
 
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
+  destination: ShellDestination;
+  selectionActive: boolean;
+  homeObscured: boolean;
+  homeVisible: boolean;
+  mediaExpanded: boolean;
   libraries: readonly Library[];
   hasLiveTV: boolean;
   profile: ProfileOption;
@@ -29,6 +34,7 @@ export type NativeHomeActions = Readonly<{
   myList: (entry: ContentEntry, selected: boolean) => Promise<void>;
   channel: (channel: HomeChannel) => void;
   channelMore: (channel: HomeChannel) => void;
+  collectionMore: (collection: HomeCollection, rowId: string) => void;
   seeAll: (destination: HomeSeeAll) => void;
   customize: () => void;
 }>;
@@ -45,7 +51,9 @@ export interface NativeShellRuntime {
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;
   selection: (rowId: string) => LayoutSelection;
+  setHomeWindow: (row: HomeRow, sectionOrder: number, first: number, last: number, visible: boolean) => void;
   renderSelection: () => ReactNode;
+  renderRoutes: () => ReactNode;
   libraryMenu: (library: Library) => LibraryMenuProps;
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
@@ -54,10 +62,12 @@ export interface NativeShellRuntime {
   reportError: (error: unknown) => void;
   onDestination: (destination: ShellDestination) => void;
   scrollToTop: (destination: ShellDestination) => void;
-  onArtworkError: (entry: ContentEntry) => void;
+  registerScrollToTop: (destination: ShellDestination, handler: () => void) => () => void;
+  onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
   /** Only installed when a real device destination control exists. */
   castControl?: ReactNode;
+  desktopActivity?: ReactNode;
 }

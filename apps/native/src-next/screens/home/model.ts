@@ -1,6 +1,6 @@
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {HomeDocument, HomeRow} from '../../../../../packages/client-core/src/home';
-import {cardText, titleFactParts, type CardSubject, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+import {cardText, type CardSubject, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {ShellAuthority} from '../../shell/model';
 
 export function homeSubject(entry: ContentEntry): CardSubject {
@@ -17,8 +17,6 @@ export function homeSubject(entry: ContentEntry): CardSubject {
 }
 
 export const homeCardText = (entry: ContentEntry, continuation: boolean, env: TextEnvironment) => cardText(homeSubject(entry), continuation ? 'continuation' : 'ordinary', env);
-export const homeTitleFacts = (entry: ContentEntry, env: TextEnvironment) => titleFactParts(homeSubject(entry), env);
-
 export function authorizedHome(document: HomeDocument | undefined, authority: ShellAuthority): HomeDocument | undefined {
   return document?.serverId === authority.serverId && document.viewerFence === authority.viewerFence ? document : undefined;
 }

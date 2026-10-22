@@ -14,6 +14,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'notifications'}
   | {kind: 'together'}
   | {kind: 'account'}
+  | {kind: 'saved-destination'; destination: Readonly<{kind: 'playlist' | 'collection'; id: string}>}
   | {kind: 'server-dashboard'}
   | {kind: 'library-save-view' | 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}
 >;
@@ -21,7 +22,7 @@ export type NativeShellRoute = Readonly<
 export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.freeze({kind: 'title', entry});
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
-export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; revision: number}>;
+export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
 
 /** One authority lifetime and one history. Async callers must retain the authority they read. */
 export class NativeShellNavigation {
@@ -32,7 +33,7 @@ export class NativeShellNavigation {
   readonly currentAuthority: () => ShellAuthority;
   constructor(authority: ShellAuthority, currentAuthority: () => ShellAuthority) {
     this.currentAuthority = currentAuthority;
-    this.snapshot = Object.freeze({authority, route: {kind: 'shell', destination: {kind: 'home'}}, revision: 0});
+    this.snapshot = Object.freeze({authority, route: {kind: 'shell', destination: {kind: 'home'}}, destination: {kind: 'home'}, revision: 0});
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
@@ -51,7 +52,7 @@ export class NativeShellNavigation {
     return true;
   }
   private publish(route: NativeShellRoute): void {
-    this.snapshot = Object.freeze({...this.snapshot, route, revision: this.snapshot.revision + 1});
+    this.snapshot = Object.freeze({...this.snapshot, route, destination: route.kind === 'shell' ? route.destination : this.snapshot.destination, revision: this.snapshot.revision + 1});
     for (const listener of [...this.listeners]) listener();
   }
   dispose(): void {this.alive = false; this.history = []; this.listeners.clear();}

@@ -14,6 +14,7 @@ import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
 import {TVRail} from './TVRail';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
+import {DesktopHeader} from './DesktopHeader';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -24,24 +25,25 @@ export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const layout = shellLayout(dimensions.width, dimensions.height, theme.isTV);
-  const [destination, setDestination] = useState<ShellDestination>({kind: 'home'}), [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
+  const destination = snapshot.destination;
+  const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef(true);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
   const current = useCallback(() => alive.current && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
-  useEffect(() => () => {alive.current = false; opening.current++;}, []);
+  useEffect(() => {alive.current = true; return () => {alive.current = false; opening.current++;};}, []);
   useEffect(() => {
     void runtime.memory.read(snapshot.authority).then(id => {if (current()) {setRemembered(id); setMemoryReady(true);}}, error => {if (current()) {setMemoryReady(true); runtime.reportError(error);}});
   }, [current, runtime, snapshot.authority]);
   useEffect(() => {
-    if (destination.kind === 'library' && !snapshot.libraries.some(library => library.id === destination.libraryId)) setDestination({kind: 'libraries'});
-    if (destination.kind === 'live' && !snapshot.hasLiveTV) setDestination({kind: 'home'});
-  }, [destination, snapshot.hasLiveTV, snapshot.libraries]);
+    if (destination.kind === 'library' && !snapshot.libraries.some(library => library.id === destination.libraryId)) runtime.onDestination({kind: 'libraries'});
+    if (destination.kind === 'live' && !snapshot.hasLiveTV) runtime.onDestination({kind: 'home'});
+  }, [destination, runtime, snapshot.hasLiveTV, snapshot.libraries]);
   const navigate = (next: ShellDestination) => {
     if (!current()) return;
     setAccountOpen(false); opening.current++;
-    setDestination(next); runtime.onDestination(next);
+    runtime.onDestination(next);
     pageOpacity.value = 0;
     pageOpacity.value = withTiming(1, motion.timing('quick'));
   };
@@ -72,7 +74,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
   const content = <>
     <Animated.View style={[{flex: 1}, pageStyle]}>
-      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
+      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
         : <View style={{flex: 1, paddingBottom: barHeight}}>
           {!theme.isTV && library && <StickyBrowseHeader name={library.name} onLibraries={() => navigate({kind: 'libraries'})}
             switcher={<LibrarySwitcher libraries={snapshot.libraries} value={library.id} onValueChange={openLibrary}/>}
@@ -81,17 +83,19 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
         </View>}
     </Animated.View>
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {theme.isTV ? <TVRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)}
+    {!snapshot.selectionActive && (theme.isTV ? <TVRail libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={destination} profile={snapshot.profile} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
-        {destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+        {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>
+          : destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
-      </>}
+      </>)}
     <AccountMenu {...snapshot.account} profile={snapshot.profile} open={accountOpen} onOpenChange={setAccountOpen} anchorRef={avatarRef} returnFocusRef={avatarRef}/>
   </>;
   return <View testID="native-shell" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
     {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority}/>}
+    {runtime.renderRoutes()}
     {runtime.renderSelection()}
   </View>;
 }

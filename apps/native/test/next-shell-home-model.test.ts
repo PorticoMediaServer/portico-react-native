@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {authorityKey, librariesDestination, phoneBarHeight, phoneTabs, sameAuthority, selectedTab, shellLayout, visibleLibraries} from '../src-next/shell/model';
+import {authorityKey, librariesDestination, phoneBarHeight, phoneHeaderGeometry, phoneTabs, sameAuthority, selectedTab, shellLayout, visibleLibraries} from '../src-next/shell/model';
 import {LastLibraryMemory, type LibraryRecordStore} from '../src-next/shell/library-memory';
 import {authorizedHome, homePlayTarget, homeSubject, initialHomeFocus, pageAtVisibleEnd, platformRows} from '../src-next/screens/home/model';
 import type {ShellAuthority} from '../src-next/shell/model';
@@ -44,6 +44,9 @@ test('native breakpoint and safe area geometry retains the drawn bar and scales 
   assert.equal(phoneBarHeight(0), 84);
   assert.equal(phoneBarHeight(34), 84);
   assert.equal(phoneBarHeight(48), 98);
+  assert.deepEqual(phoneHeaderGeometry(24, false), {top: 54, height: 104});
+  assert.deepEqual(phoneHeaderGeometry(24, true), {top: 46, height: 96});
+  assert.deepEqual(phoneHeaderGeometry(60, false), {top: 60, height: 110});
   assert.deepEqual(shellLayout(1280, 800, true), {kind: 'tv', panel: 'side', tabs: false, scale: 2 / 3, left: 0, top: 40, width: 1920, height: 1080});
 });
 

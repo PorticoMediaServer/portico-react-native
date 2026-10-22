@@ -4,7 +4,7 @@ import Animated, {runOnJS, useAnimatedScrollHandler} from 'react-native-reanimat
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {HomeChannel, HomeRow} from '../../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {homeRowPresentation, homeSpotlightModels} from '../../../../../packages/client-core/src/presentation/home-spotlight';
+import {homeCollectionCaption, homeRowPresentation, homeSpotlightModels, homeTitleFactParts} from '../../../../../packages/client-core/src/presentation/home-spotlight';
 import {homeEntryCapabilities} from '../../../../../packages/client-core/src/home-selection';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -15,21 +15,25 @@ import {CollectionBanner, LiveCard, PosterCard, RankedCard, SquareCard, WideCard
 import {Hero, FocusPreviewHero, Row, type HeroCandidate} from '../../kit/layout';
 import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
+import {itemSelection} from '../../kit/layout/types';
 import {StateView, HomeSkeleton} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {authorizedHome, homeCardText, homePlayTarget, homeTitleFacts, initialHomeFocus, pageAtVisibleEnd, platformRows} from './model';
+import {authorizedHome, homeCardText, homePlayTarget, initialHomeFocus, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const t = defaultI18n.t;
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
-export function HomeScreen({runtime, authority, active = true, railExpanded = false, bottomInset = 0, onScrolledChange}: {
-  runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
+export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {
+  runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
 }) {
   const theme = useTheme(), dimensions = useWindowDimensions();
+  const desktop = theme.layoutMode === 'desktop';
+  const heroHeight = theme.isTV ? 820 : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
+  const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   const document = authorizedHome(snapshot.document, authority);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
   const [heroVisible, setHeroVisible] = useState(true), [visibleRows, setVisibleRows] = useState<ReadonlySet<string>>(new Set());
@@ -39,6 +43,7 @@ export function HomeScreen({runtime, authority, active = true, railExpanded = fa
   const scrolled = useRef(false);
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
+  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => vertical.move(0)), [runtime, vertical.move]);
   const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
@@ -63,28 +68,28 @@ export function HomeScreen({runtime, authority, active = true, railExpanded = fa
   }, [active, current, document, foreground, runtime]);
   const updateViewport = useCallback((y: number) => {
     offset.current = y;
-    setHeroVisible(y < (theme.isTV ? 820 : 560));
+    setHeroVisible(y < heroHeight);
     if (scrolled.current !== (y > 0)) {scrolled.current = y > 0; onScrolledChange?.(scrolled.current);}
     const visible = new Set<string>();
     for (const [id, box] of rowPositions.current) if (box.y + box.height > y && box.y < y + viewportHeight - bottomInset) visible.add(id);
     setVisibleRows(previous => previous.size === visible.size && [...visible].every(id => previous.has(id)) ? previous : visible);
-  }, [bottomInset, onScrolledChange, theme.isTV, viewportHeight]);
+  }, [bottomInset, heroHeight, onScrolledChange, viewportHeight]);
   const onScroll = useAnimatedScrollHandler(event => {vertical.offset.value = event.contentOffset.y; runOnJS(updateViewport)(event.contentOffset.y);});
   const initialFocus = initialHomeFocus(rows);
   const focusedRow = rows.find(row => row.id === focus?.rowId), focusedEntry = focusedRow?.entries.find(entry => entry.id === focus?.entryId);
   const preview = focusedEntry ? {
     id: focusedEntry.id, title: homeCardText(focusedEntry, true, runtime.text).title, entry: focusedEntry,
-    facts: homeTitleFacts(focusedEntry, runtime.text), overview: focusedEntry.overview,
+    facts: homeTitleFactParts(focusedEntry, runtime.text), overview: focusedEntry.overview,
     target: focusedRow && homePlayTarget(focusedRow, focusedEntry),
   } satisfies HomeCandidate : undefined;
   const candidates: readonly HomeCandidate[] = useMemo(() => document ? homeSpotlightModels(document).map(model => ({
     id: model.entry.id, title: model.entry.title, entry: model.entry, overview: model.overview,
-    reason: serverTextLabel(defaultI18n, model.reason.text), facts: homeTitleFacts(model.entry, runtime.text),
+    reason: serverTextLabel(defaultI18n, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
   })) : [], [document, runtime.text]);
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
-    foreground={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} treatment={theme.isTV ? 'hero' : 'phone'} visible={active && foreground && context.visible} priority
-    onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : 560}/>;
+    foreground={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
+    onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}/>;
   const activate = (entry: ContentEntry, target: ContentEntry | undefined) => guarded(() => {
     if (target?.playback) runtime.actions.play(entry, target.playback); else runtime.actions.navigate(entry);
   });
@@ -120,26 +125,32 @@ export function HomeScreen({runtime, authority, active = true, railExpanded = fa
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
     showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: bottomInset + (theme.isTV ? 96 : 24)}}>
-    <View style={{height: theme.isTV ? preview && !railExpanded ? 588 : 820 : 588}}>
-      {theme.isTV && preview && !railExpanded ? <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={active} visible={active && foreground && heroVisible}
+    <View style={{height: theme.isTV ? preview && !railExpanded ? 588 : 820 : desktop ? heroHeight + theme.spec.shelf.homeOverlap : 588}}>
+      {theme.isTV && preview && !railExpanded ? <FocusPreviewHero focusedEntry={preview} repeating={repeating || vertical.repeating} active={heroActive} visible={active && foreground && heroVisible}
         renderArtwork={renderArtwork} renderReason={candidate => <View style={{flexDirection: 'row', gap: 16, marginBottom: 16}}>{homeCardText(candidate.entry, true, runtime.text).caption.map(part => <Text key={part.id} numberOfLines={1} style={[theme.type.eyebrow, {color: theme.colors.accentStrong, flexShrink: 1}]}>{part.text}</Text>)}</View>}
         renderHint={candidate => <View style={{flexDirection: 'row', gap: 12, alignItems: 'center'}}><Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('next.layout.ok')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginRight: 32}]}>{t(candidate.target?.progressSeconds ? 'next.home.resume' : 'next.home.play')}</Text><Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('next.layout.holdOk')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.layout.moreOptions')}</Text></View>}
-        onPreviewError={(_, candidate) => runtime.onArtworkError(candidate.entry)}/>
+        onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>
         : <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
-          active={active} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : 'phone-app'} height={theme.isTV ? 820 : 560}
-          renderArtwork={renderArtwork} renderActions={heroActions} onArtworkError={(_, candidate) => runtime.onArtworkError(candidate.entry)}/>}
+          active={heroActive} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
+          renderArtwork={renderArtwork} renderActions={heroActions} onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>}
     </View>
     {rows.map((row, rowIndex) => {
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);
       const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
-      const width = theme.isTV ? wide ? 400 : 214 : wide ? 262 : square ? 132 : 118;
-      const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : width * 1.5 + (theme.isTV ? 80 : 48);
+      const ranked = presentation.cards.some(card => card.rank !== undefined);
+      const width = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
+        : wide ? desktop || theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
+        : square ? theme.spec.card.width.square[theme.platform] : theme.spec.card.width.poster[theme.platform];
+      const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
+      const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
-      const range = (first: number, last: number) => {if (shown && current() && pageAtVisibleEnd(row, last)) void runtime.home.more(row.id);};
-      return <View key={row.id} onLayout={event => {rowPositions.current.set(row.id, event.nativeEvent.layout); updateViewport(offset.current);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
-        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : 244} onRange={range} current={current}/>
+      const range = (first: number, last: number) => {if (!current()) return; runtime.setHomeWindow(row, rowIndex, first, last, shown); if (shown && pageAtVisibleEnd(row, last)) void runtime.home.more(row.id);};
+      return <HomeWindow key={row.id} runtime={runtime} row={row} sectionOrder={rowIndex} visible={shown}><View onLayout={event => {rowPositions.current.set(row.id, event.nativeEvent.layout); updateViewport(offset.current);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
+        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} current={current}/>
           : row.collection ? <View style={{paddingHorizontal: theme.gutter}}><CollectionBanner title={row.collection.collection.name} kindLabel={t('next.home.collection')} covers={row.collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
+            body={homeCollectionCaption(row.collection, runtime.text)[0]?.text}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} backdrop={runtime.artwork(row.collection.backdropUrl)} ambient={runtime.ambient(row.collection.backdropUrl)} visible={shown}
+            selection={itemSelection(runtime.selection(row.id), row.collection.collection.id)} onMore={() => guarded(() => runtime.actions.collectionMore(row.collection!, row.id))}
             primaryAction="navigate" onNavigate={() => guarded(() => runtime.actions.seeAll(row.seeAll ?? {type: 'collection', resourceId: row.collection!.collection.id, libraryId: row.collection!.collection.libraryId}))}/>
           : <Row title={title} subtitle={subtitle || undefined} items={presentation.cards} getKey={item => item.entry.id} itemWidth={width} itemHeight={height}
             gutter={theme.gutter} rightGutter={theme.isTV ? 96 : theme.gutter} selection={runtime.selection(row.id)} onVisibleRange={range}
@@ -147,10 +158,18 @@ export function HomeScreen({runtime, authority, active = true, railExpanded = fa
             onItemFocus={item => onRowFocus(row, item.entry)} renderItem={(item, context) => <HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={theme.isTV && initialFocus?.rowId === row.id && initialFocus.entryId === item.entry.id}
               current={current}/>}/>} 
-      </View>;
+      </View></HomeWindow>;
     })}
     <View style={{paddingHorizontal: theme.gutter, paddingVertical: 24}}><Button variant="text" size="compact" onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button></View>
   </Animated.ScrollView>;
+}
+
+function HomeWindow({runtime, row, sectionOrder, visible, children}: {runtime: NativeShellRuntime; row: HomeRow; sectionOrder: number; visible: boolean; children: React.ReactNode}) {
+  useEffect(() => {
+    runtime.setHomeWindow(row, sectionOrder, 0, Math.min(127, (row.live?.channels.length ?? row.entries.length) - 1), visible);
+    return () => runtime.setHomeWindow(row, sectionOrder, 0, -1, false);
+  }, [runtime, row, sectionOrder, visible]);
+  return children;
 }
 
 function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible, preferred, current}: {
@@ -179,7 +198,7 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, current}: {row:
   const observed = Date.parse(live.observedAt);
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
   return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])}
-    itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : 140} selection={runtime.selection(row.id)} onVisibleRange={onRange}
+    itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}
     renderItem={(item: HomeChannel, context) => {
       const channel = item.channel, programme = channel.programmes.find(value => Date.parse(value.start) <= observed && Date.parse(value.end) > observed);

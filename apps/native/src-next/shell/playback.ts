@@ -1,4 +1,6 @@
 import type {ComponentType} from 'react';
+import type {HomeSelectionPlaybackPort} from '../../../../packages/client-core/src/home-selection/types';
+import type {SelectionContext} from '../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
@@ -12,6 +14,11 @@ export type NativeShellPlaybackStart = Readonly<{
   origin?: Readonly<{kind: 'home-row'; rowId: string}>;
 }>;
 export type NativeShellBounds = Readonly<{x: number; y: number; width: number; height: number}>;
+export type NativeShellVideoSnapshot = Readonly<{
+  fence: PlaybackFence;
+  image: Readonly<{uri: string; width: number; height: number}>;
+  release: () => Promise<void>;
+}>;
 export type NativeShellPlaybackSnapshot = Readonly<{
   authority: ShellAuthority;
   dock: DockState;
@@ -19,6 +26,7 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   fence?: PlaybackFence;
   subject?: PlaybackSubject;
   entry?: ContentEntry;
+  seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
 }>;
 export type NativeShellSurfaceProps = Readonly<{
@@ -37,9 +45,11 @@ export interface NativeShellPlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativeShellPlaybackSnapshot;
   start: (input: NativeShellPlaybackStart) => Promise<void>;
+  selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;
   Surface: ComponentType<NativeShellSurfaceProps>;
+  captureVideoSnapshot: (fence: PlaybackFence, options?: {signal?: AbortSignal}) => Promise<NativeShellVideoSnapshot>;
   toggle: (fence: PlaybackFence) => Promise<void>;
   replay: (fence: PlaybackFence) => Promise<void>;
   seek: (fence: PlaybackFence, seconds: number) => Promise<void>;
