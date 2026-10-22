@@ -223,6 +223,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         return uri ? {uri, cacheKey: JSON.stringify([scopeIdentity, uri]), headers: {Authorization: `Bearer ${session!.accessToken}`}} : undefined;
       }, ambient: path => current() ? nativeAmbientSource(ambientArtworkSource(path, {serverId: authority.serverId, viewerId: authority.profileId, authorityKey: scopeIdentity}), resolve, {Authorization: `Bearer ${session!.accessToken}`}) : undefined,
       dispose, refresh};
+    // Spreading the bindings evaluates their account getter. Keep that private menu
+    // behind the live authority too, instead of retaining the copied menu on retirement.
+    Object.defineProperty(runtime, 'account', {get: () => {assertCurrent(); return bound.account;}});
     bound.attach(runtime);
     return runtime;
   } catch (error) {dispose(); throw error;}
