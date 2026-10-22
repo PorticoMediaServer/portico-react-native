@@ -22,21 +22,24 @@ export function nativeType(style: TypeStyle, textScale = 1): TextStyle {
 
 export type ThemeOptions = {isTV: boolean; width: number; reduceMotion?: boolean; textScale?: number};
 export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: ThemeOptions) {
-  const platform: 'phone' | 'tablet' | 'tv' = isTV ? 'tv' : width < layout.breakpoint.phone ? 'phone' : 'tablet';
-  const scale = typeScale[isTV ? 'tenFoot' : 'handheld'];
+  // componentSpec names its desktop column web; layoutMode names the actual shell layout.
+  const platform: 'phone' | 'tablet' | 'web' | 'tv' = isTV ? 'tv' : width >= layout.breakpoint.desktop ? 'web' : width < layout.breakpoint.phone ? 'phone' : 'tablet';
+  const layoutMode: 'phone' | 'desktop' | 'tv' = isTV ? 'tv' : platform === 'web' ? 'desktop' : 'phone';
+  const scale = typeScale[isTV ? 'tenFoot' : layoutMode === 'desktop' ? 'desktop' : 'handheld'];
   const type = Object.fromEntries(Object.entries(scale).map(([role, value]) => [role, nativeType(value, textScale)])) as Record<TypeRole, TextStyle>;
   return {
-    platform, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
+    platform, layoutMode, width, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
     radii: isTV ? platformRadii.tv : platformRadii.phone, baseRadii: radii,
-    gutter: isTV ? layout.gutter.tv : layout.gutter.phone,
+    gutter: isTV ? layout.gutter.tv : layoutMode === 'desktop' ? width >= layout.designWidth.desktop ? layout.gutter.desktop : layout.gutter.desktopNarrow : layout.gutter.phone,
     motion, reduceMotion, textScale,
   };
 }
 export type Theme = ReturnType<typeof createTheme>;
 const ThemeContext = createContext<Theme | undefined>(undefined);
 
-export function ThemeProvider({children, reduceMotion = false, textScale = 1}: {children: React.ReactNode; reduceMotion?: boolean; textScale?: number}) {
-  const {width} = useWindowDimensions();
+export function ThemeProvider({children, width: surfaceWidth, reduceMotion = false, textScale = 1}: {children: React.ReactNode; width?: number; reduceMotion?: boolean; textScale?: number}) {
+  const dimensions = useWindowDimensions();
+  const width = surfaceWidth ?? dimensions.width;
   const isTV = Platform.isTV === true;
   const theme = useMemo(() => createTheme({isTV, width, reduceMotion, textScale}), [isTV, width, reduceMotion, textScale]);
   return React.createElement(ThemeContext.Provider, {value: theme}, children);
