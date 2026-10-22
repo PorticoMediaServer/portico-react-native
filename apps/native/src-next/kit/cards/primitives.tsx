@@ -138,7 +138,7 @@ export function ArtFrame({children, width, height, radius, focused, selected, ho
     <Animated.View pointerEvents="none" style={[{position: 'absolute', top: -3, left: -3, right: -3, bottom: -3, borderRadius: r + 3, borderWidth: 3, borderColor: holding ? t.colors.text : t.colors.accentStrong,
       ...(holding ? {shadowColor: t.colors.ink, shadowOpacity: 0.9, shadowOffset: {width: 0, height: 24}, shadowRadius: 20, elevation: 8} : {})}, selectionStyle]} />
     <Animated.View pointerEvents="none" style={[{position: 'absolute', top: -offset - ring, left: -offset - ring, right: -offset - ring, bottom: -offset - ring, borderRadius: r + offset + ring, borderWidth: ring, borderColor: t.colors.focus,
-      ...(t.isTV ? {shadowColor: t.colors.accentStrong, shadowOpacity: 0.6, shadowOffset: {width: 0, height: 26}, shadowRadius: 32, elevation: 8} : {})}, focusStyle]} />
+      ...(t.isTV ? {boxShadow: [{offsetX: t.spec.focus.glow.x, offsetY: t.spec.focus.glow.y, blurRadius: t.spec.focus.glow.blur, spreadDistance: t.spec.focus.glow.spread, color: alpha(t.colors.accentStrong, t.spec.focus.glow.alpha)}]} : {})}, focusStyle]} />
   </Animated.View>;
 }
 
