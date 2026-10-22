@@ -7,7 +7,7 @@ import {deviceClassHeader} from '../../../packages/client-core/src/delivery.ts';
 import {routePath} from '../../../packages/contracts/src/routes.ts';
 import {nativeNetworkFetch} from '../src-next/platform/session.ts';
 import {nativePlaybackSettings} from '../src-next/shell/playback-settings.ts';
-import {NativeShellBootstrapServices, nativeShellDirectViewer} from '../src-next/shell/bootstrap-services.ts';
+import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from '../src-next/shell/bootstrap-services.ts';
 
 const origin = 'https://native-shell.test';
 const viewer: LocalSession['viewer'] = {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'owner'};
@@ -16,6 +16,12 @@ type Request = {id: string; url: URL; method: string; headers: Headers; body: st
 type Reply = {value: unknown; status?: number};
 const counts = (unread: number) => ({unread, read: 0, archived: 0, total: unread});
 const abortError = (error: unknown) => error instanceof Error && error.name === 'AbortError';
+test('permission classification accepts protocol codes without coercing arbitrary error values', () => {
+  for (const code of ['unauthorized', 'forbidden', 'access_refused', 'identity_mismatch']) assert.equal(nativeShellPermissionDenied({code}), true);
+  for (const status of [401, 403]) assert.equal(nativeShellPermissionDenied({status}), true);
+  assert.equal(nativeShellPermissionDenied({code: {toString() {throw new Error('must not coerce error code');}}}), false);
+  assert.equal(nativeShellPermissionDenied({code: 'network_error'}), false);
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(yes => {resolve = yes;});

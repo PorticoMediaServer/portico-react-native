@@ -20,7 +20,7 @@ const invalid = () => Object.assign(new Error('invalid_shell_response'), {code: 
 const changed = () => Object.assign(new Error('viewer_scope_changed'), {code: 'access_refused'});
 const closedHome: HomeSnapshot = Object.freeze({phase: 'idle', paging: Object.freeze(new Set<string>())});
 export const nativeShellPermissionDenied = (error: unknown): boolean => object(error) &&
-  ([401, 403].includes(Number(error.status)) || ['unauthorized', 'forbidden', 'access_refused', 'identity_mismatch'].includes(String(error.code)));
+  ([401, 403].includes(Number(error.status)) || (typeof error.code === 'string' && ['unauthorized', 'forbidden', 'access_refused', 'identity_mismatch'].includes(error.code)));
 
 /** AccountShell currently consumes DirectSnapshot. Never relabel a hosted principal as local. */
 export function nativeShellDirectViewer(viewer: LocalSession['viewer']): void {
