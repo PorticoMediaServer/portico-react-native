@@ -16,11 +16,12 @@ test('retiring an authority aborts its in-flight network and rejects a transport
 
 test('a changed source authority rejects a response even before the owner disposal callback runs', async () => {
   let active = true, finish!: (response: V1Response) => void;
-  let sends = 0;
-  const http = new PlaybackScopeHttp({send: () => { sends++; return new Promise(resolve => { finish = resolve; }); }}, () => active);
+  let sends = 0, captured: V1Request | undefined;
+  const http = new PlaybackScopeHttp({send: request => { sends++; captured = request; return new Promise(resolve => { finish = resolve; }); }}, () => active);
   const pending = http.send({method: 'GET', path: '/source-read'});
   active = false; finish({status: 200, headers: {}});
   await assert.rejects(pending, /authority retired/);
+  assert.equal(captured?.signal?.aborted, true);
   await assert.rejects(http.send({method: 'GET', path: '/source-read'}), /authority retired/);
   assert.equal(sends, 1);
 });

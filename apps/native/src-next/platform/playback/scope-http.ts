@@ -25,7 +25,12 @@ export class PlaybackScopeHttp implements V1Http {
     this.controllers.add(controller);
     try {
       const response = await this.inner.send({...request, signal: controller.signal});
-      if (!current() || controller.signal.aborted) throw new Error('Playback authority retired.');
+      if (!current() || controller.signal.aborted) {
+        // A transport may finish before its owner receives an authority notification.
+        // Retire this exact request before releasing its cancellation registration.
+        controller.abort();
+        throw new Error('Playback authority retired.');
+      }
       return response;
     } finally { request.signal?.removeEventListener('abort', abort); this.controllers.delete(controller); }
   };

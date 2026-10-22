@@ -109,6 +109,13 @@ function fixture() {
     return new Response(response.status === 204 ? null : JSON.stringify(response.body), {status: response.status, headers: response.headers});
   };
   const api = new HttpLocalApi('https://portico.test', '', fetcher);
+  // Observe the genuine scope-to-API boundary without replacing its deadline or transport.
+  const scopedRequests: {path: string; signal?: AbortSignal}[] = [];
+  const requestRaw = api.requestRaw.bind(api);
+  api.requestRaw = (path, method, options = {}) => {
+    scopedRequests.push({path, signal: options.signal});
+    return requestRaw(path, method, options);
+  };
   let settings: NativePlaybackSettings = {engine: 'automatic', videoRate: 1, audiobookRate: 1, subtitleSize: 'medium', subtitleBackground: 'translucent', skips: {intro: 'ask', recap: 'ask', credits: 'ask'}};
   const settingsListeners = new Set<() => void>();
   let disposedCapabilities = 0;
@@ -124,7 +131,7 @@ function fixture() {
     },
   });
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
-  return {server, engine, runtime, requests, start,
+  return {server, engine, runtime, requests, scopedRequests, start,
     markers: (value: readonly Marker[]) => { markers = value; },
     pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
@@ -941,6 +948,9 @@ test('late genuine detail responses cannot cross any current native authority in
     try {
       d.respond(request => { if (request.path === detailPath('episode-1')) { pending = request; return new Promise(resolve => { finish = resolve; }); } });
       await d.start('episode-1'); assert.ok(pending);
+      const scoped = d.scopedRequests.find(request => request.path === detailPath('episode-1'));
+      assert.ok(scoped?.signal);
+      assert.notEqual(scoped.signal, pending.signal, 'the real API owns a separate deadline signal');
       d.authority(patch, false);
       finish(detailResponse(episodeDetail('episode-1'))); await settle();
       const snapshot = d.runtime.getSnapshot();
@@ -948,7 +958,10 @@ test('late genuine detail responses cannot cross any current native authority in
       assert.equal(snapshot.fence, undefined);
       assert.equal(snapshot.subject, undefined);
       assert.equal(snapshot.dock.local, null);
-      assert.equal(pending.signal?.aborted, true);
+      assert.equal(scoped.signal.aborted, true, 'the playback scope retires its actual request signal');
+      // withinDeadline has completed and detached its child by this point. It is not
+      // an in-flight request that scope disposal can still abort.
+      assert.equal(pending.signal?.aborted, false);
       assert.equal(d.engine.subscriptions, 0);
       assert.equal(d.subscriptions, 0);
     } finally { finish?.(detailResponse(episodeDetail('episode-1'))); d.runtime.dispose(); }
