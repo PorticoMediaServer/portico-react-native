@@ -4,6 +4,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import ts from 'typescript';
 
 const sourceFile = /\.[cm]?[jt]sx?$/;
+// Metro's static image extensions. Assets must name an exact file, without source-module fallbacks.
+const imageFile = /\.(?:bmp|gif|jpg|jpeg|png|psd|svg|webp)$/;
 const inside = (file, directory) => file === directory || file.startsWith(directory + path.sep);
 const real = file => existsSync(file) ? realpathSync(file) : path.resolve(file);
 
@@ -52,6 +54,15 @@ export function auditBoundary({appRoot, configPath = path.join(appRoot, 'tsconfi
     function dependency(expression, node) {
       const specifier = constant(expression);
       if (specifier === undefined) {fail(file, node, 'module path must be statically resolvable', ast); return;}
+      if ((specifier.startsWith('./') || specifier.startsWith('../') || path.isAbsolute(specifier)) && imageFile.test(specifier)) {
+        const assetPath = path.resolve(path.dirname(file), specifier), asset = real(assetPath);
+        if (inside(assetPath, path.join(appRoot, 'src')) || inside(asset, old)) {
+          fail(file, node, `old src is forbidden (${specifier})`, ast);
+        } else if (!existsSync(assetPath) || !statSync(assetPath).isFile()) {
+          fail(file, node, `cannot resolve ${specifier}`, ast);
+        }
+        return;
+      }
       const resolved = ts.resolveModuleName(specifier, file, parsed.options, ts.sys).resolvedModule?.resolvedFileName;
       if (!resolved) {
         if (specifier.startsWith('.') || specifier.startsWith('/') || Object.keys(parsed.options.paths ?? {}).some(alias => specifier.startsWith(alias.replace(/\*.*$/, '')))) fail(file, node, `cannot resolve ${specifier}`, ast);

@@ -29,12 +29,22 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false), [railExpanded, setRailExpanded] = useState(false);
   const [homeScrolled, setHomeScrolled] = useState(false);
-  const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef(true);
+  const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
-  const current = useCallback(() => alive.current && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
-  useEffect(() => {alive.current = true; return () => {alive.current = false; opening.current++;};}, []);
+  const current = useCallback(() => alive.current?.runtime === runtime && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
   useEffect(() => {
-    void runtime.memory.read(snapshot.authority).then(id => {if (current()) {setRemembered(id); setMemoryReady(true);}}, error => {if (current()) {setMemoryReady(true); runtime.reportError(error);}});
+    const lifetime = alive, pending = opening, session = {runtime};
+    lifetime.current = session;
+    return () => {
+      if (lifetime.current !== session) return;
+      lifetime.current = undefined;
+      pending.current++;
+    };
+  }, [runtime]);
+  useEffect(() => {
+    let pending = true;
+    void runtime.memory.read(snapshot.authority).then(id => {if (pending && current()) {setRemembered(id); setMemoryReady(true);}}, error => {if (pending && current()) {setMemoryReady(true); runtime.reportError(error);}});
+    return () => {pending = false;};
   }, [current, runtime, snapshot.authority]);
   useEffect(() => {
     if (destination.kind === 'library' && !snapshot.libraries.some(library => library.id === destination.libraryId)) runtime.onDestination({kind: 'libraries'});
