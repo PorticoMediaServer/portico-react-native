@@ -9,6 +9,8 @@ import type {DockOccupant} from '../src-next/kit/dock/types.ts';
 import type {NativeShellRuntime} from '../src-next/shell/runtime.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
+import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
 
 // Run the actual owned hooks/components with React's hook driver. Native hosts
 // and animation delivery are controlled here; this does not prove device motion.
@@ -84,6 +86,34 @@ async function dockModule(state: ReturnType<typeof lifecycle>) {
     '../../../../../packages/player-core/src/index': {sameFence}, '../useMotion': {useMotion: () => state.motion},
   });
 }
+
+test('idle PlayerMorph hides the Android surface host without removing its persistent child', async () => {
+  const state = lifecycle();
+  const {PlayerMorph} = await screenModule(new URL('../src-next/kit/dock/PlayerMorph.tsx', import.meta.url), {
+    react: state.react, 'react-native': {...state.native, Platform: {OS: 'android'}},
+    'react-native-gesture-handler': {Gesture: {}}, 'react-native-reanimated': {...state.animated, useAnimatedReaction() {}},
+    '../../../../../packages/player-core/src/index': {}, '../Icon': {Icon: 'Icon'},
+    '../theme': {useTheme: () => ({layers: {player: 30}, colors: {shadow: '#000'}})},
+    '../useMotion': {useMotion: () => state.motion}, './morph-fence': {currentMorphFence},
+    './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
+  });
+  const frame = {x: 0, y: 0, width: 390, height: 844}, child = React.createElement('PersistentNativeSurface');
+  const props = {controller: {progress: {value: 0}, velocity: {value: 0}, dragging: {value: false}},
+    docked: false, fullFrame: frame, dockFrame: frame, children: child, fence: undefined as PlaybackFence | undefined};
+  const morph = mount(PlayerMorph, props);
+  const childOf = () => elements(morph.tree).find(element => element.type === 'PersistentNativeSurface');
+  try {
+    assert.equal(morph.tree.props.style.at(-1).display, 'none');
+    assert.equal(morph.tree.props.importantForAccessibility, 'no-hide-descendants');
+    assert.strictEqual(childOf(), child);
+    morph.update({...props, fence});
+    assert.equal(morph.tree.props.style.at(-1).display, 'flex');
+    assert.strictEqual(childOf(), child);
+    morph.update(props);
+    assert.equal(morph.tree.props.style.at(-1).display, 'none');
+    assert.strictEqual(childOf(), child);
+  } finally {morph.host.unmount();}
+});
 
 test('an interrupted dock exit cannot remove a replacement source or invalidate its later exit', async () => {
   const state = lifecycle(), {useDockPresence} = await dockModule(state);

@@ -138,7 +138,9 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     return {transform: motion.transforms || dragging.value ? [{translateX: rect.x - full.value.x + (rect.width - full.value.width) / 2}, {translateY: rect.y - full.value.y + (rect.height - full.value.height) / 2}, {scaleX: rect.width / full.value.width}, {scaleY: rect.height / full.value.height}] : []};
   });
   const snapshot = Platform.OS === 'android' && androidSnapshot && currentMorphFence(androidSnapshot.fence, fence) ? androidSnapshot.image : null;
-  return <View testID={testID} pointerEvents="none" accessibilityElementsHidden={!fence} importantForAccessibility={fence ? 'auto' : 'no-hide-descendants'} style={[dockStyles.fill, {zIndex: theme.layers.player + 1, opacity: fence ? 1 : 0}]}>
+  // Android SurfaceView punches a native composition hole even beneath an alpha-zero
+  // ancestor. Hide the idle host from native layout while retaining the SAME child.
+  return <View testID={testID} pointerEvents="none" accessibilityElementsHidden={!fence} importantForAccessibility={fence ? 'auto' : 'no-hide-descendants'} style={[dockStyles.fill, {zIndex: theme.layers.player + 1, display: fence ? 'flex' : 'none'}]}>
     <Animated.View style={[{position: 'absolute', left: frame.x, top: frame.y, width: frame.width, height: frame.height, overflow: 'hidden', borderRadius: docked && !moving ? 7 : 0, backgroundColor: theme.colors.shadow}, surfaceStyle, moving && snapshot ? {opacity: 0} : undefined]}>
       {typeof children === 'function' ? children({active: fence !== undefined, bounds: {x: 0, y: 0, width: frame.width, height: frame.height}, docked, moving, subtitlesVisible: fence !== undefined && !docked && !moving}) : children}
       {fence && docked && !moving && <View style={[dockStyles.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
