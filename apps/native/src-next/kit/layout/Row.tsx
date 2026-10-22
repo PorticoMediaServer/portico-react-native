@@ -74,7 +74,7 @@ function RowContent<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
   const focusedSlot = focused ? rowIndex.byFocus.get(focused) : undefined;
   const remembered = focus ? registry?.remembered(focus.id) : focused;
   const [arrowFocus, setArrowFocus] = useState<'back' | 'forward' | 'all'>();
-  const anchor = useFocusAnchor(true, focused !== undefined);
+  const anchor = useFocusAnchor(true, focused !== undefined, theme.isTV ? 'start' : 'visible');
   const anchorItem = anchor.anchor;
   const stride = itemWidth + (gap ?? theme.spec.shelf.gap[theme.platform]);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
@@ -82,7 +82,10 @@ function RowContent<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
   // its viewport for the scaled outer ring without moving the drawn card edge.
   const top = theme.isTV ? Math.ceil(itemHeight * (theme.spec.focus.scale.card.tv - 1) / 2 + (theme.spec.focus.offsetOuter.tv + theme.spec.focus.ringWidth.tv) * theme.spec.focus.scale.card.tv) : theme.spec.shelf.phonePaddingTop;
   const bottom = theme.isTV ? Math.max(14, top) : theme.spec.shelf.phonePaddingBottom;
-  const extent = leading + Math.max(0, rowIndex.length * stride - (stride - itemWidth)) + trailing;
+  const naturalExtent = leading + Math.max(0, rowIndex.length * stride - (stride - itemWidth)) + trailing;
+  // Every real TV slot, including a short row's last card, must be able to
+  // reach the left safe edge. This is blank track space, never a focus target.
+  const extent = theme.isTV && rowIndex.length ? Math.max(naturalExtent, width + (rowIndex.length - 1) * stride) : naturalExtent;
   const first = Math.max(0, Math.floor((offset - leading) / stride));
   const last = Math.min(rowIndex.length - 1, Math.max(first, Math.ceil((offset + width - leading) / stride) - 1));
   const recovery = focus ? registry?.recovery(focus.id) ?? [] : focused ? [{childId: focused, order: previous.current?.index.order ?? []}] : [];
@@ -99,8 +102,9 @@ function RowContent<T>({title, subtitle, items, getKey, getFocusId = getKey, ren
   useEffect(() => {onVisibleKeys?.(visibleKeys);}, [onVisibleKeys, visibleKeys]);
   const anchorIntent = useRef('');
   useEffect(() => {
+    if (!focusedSlot || !width) {anchorIntent.current = ''; return;}
     const intent = `${focused}:${focusedSlot?.position}:${width}:${itemWidth}:${leading}:${trailing}:${stride}`;
-    if (intent === anchorIntent.current || !focusedSlot || !width) return;
+    if (intent === anchorIntent.current) return;
     anchorIntent.current = intent;
     // motion.html 4.1: content arrivals alone never retarget a focused slot.
     anchorItem(leading + focusedSlot.position * stride, itemWidth, width, extent, leading, trailing);
