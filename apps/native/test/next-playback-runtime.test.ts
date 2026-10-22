@@ -239,9 +239,10 @@ test('a second native surface attachment is rejected and unmount tears down one 
   try {
     const detach = d.runtime.attachSurface({});
     assert.throws(() => d.runtime.attachSurface({}), /already mounted/);
-    await d.start('movie-1'); detach(); await settle();
+    await d.start('movie-1'); const sessionId = d.runtime.getSnapshot().fence!.sessionId; detach(); await settle();
     assert.equal(d.runtime.getSnapshot().retired, true);
     assert.equal(d.engine.subscriptions, 0);
     assert.equal(d.engine.released.length, 1);
+    assert.equal(d.server.session(sessionId)?.ended, true);
   } finally { d.runtime.dispose(); }
 });

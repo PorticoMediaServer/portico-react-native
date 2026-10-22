@@ -23,6 +23,7 @@ type EngineModule = NativeListeningBridge & {
   getConstants?: () => Record<string, unknown>;
   available?: boolean;
   features?: unknown;
+  purgeAudioCache?: () => Promise<unknown>;
 };
 type NativeSurfaceProps = ViewProps & {lease: string};
 const views: Partial<Record<EngineKind, ComponentType<NativeSurfaceProps>>> = {};
@@ -84,7 +85,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   }) : undefined;
   let runtime: NativePlaybackRuntime;
   runtime = new NativePlaybackRuntime({...options, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
-    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); },
+    disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
       const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
       const plan = planEngineOf(session, known), snapshot = runtime.getSnapshot();

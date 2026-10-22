@@ -3,6 +3,7 @@ import {DetailService, type DetailProjection} from '../../../../../packages/clie
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import {encodedRoutePath, routePath} from '../../../../../packages/contracts/src/routes';
+import {SessionsClient} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {call, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
@@ -115,10 +116,11 @@ export class NativePlaybackRuntime {
   }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  private currentAuthority(): boolean {
+  private authorityMatches(): boolean {
     const viewer = this.o.session()?.viewer;
-    return !this.retired && authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
+    return authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
   }
+  private currentAuthority(): boolean { return !this.retired && this.authorityMatches(); }
   private active(): boolean { if (!this.currentAuthority()) { this.dispose(); return false; } return true; }
   private matches(fence: PlaybackFence): boolean { return this.active() && !!this.snapshot.fence && sameFence(this.snapshot.fence, fence); }
   private request = async <T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> => {
@@ -491,6 +493,15 @@ export class NativePlaybackRuntime {
   }
   dispose = (): void => {
     if (this.retired) return;
+    const state = this.playback.getSnapshot();
+    // An ordinary shell unmount stops its exact server session at the settled position. On an
+    // authority change, no request is sent with the next viewer's credentials: the old lease
+    // expires server-side, while the engine and every old request are torn down immediately.
+    if (state.session && !this.playback.hasNativeOwner() && this.authorityMatches()) {
+      const cleanup = new PlaybackScopeHttp(localV1Http(this.o.api), () => this.authorityMatches());
+      const off = this.o.subscribeAuthority(() => { if (!this.authorityMatches()) cleanup.dispose(); });
+      void new SessionsClient(cleanup, this.o.timers).stop(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000))).catch(() => {}).finally(() => { off(); cleanup.dispose(); });
+    }
     this.retired = true; ++this.startEpoch; ++this.sourceEpoch;
     this.startController?.abort(); this.sourceController?.abort(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
