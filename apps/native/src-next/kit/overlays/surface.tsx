@@ -66,7 +66,7 @@ export function SurfaceHeader({title, description, action, side = false, inset =
   </View>;
 }
 
-function CenteredDialog({open, onOpenChange, title, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true}: DialogProps) {
+function CenteredDialog({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true}: DialogProps) {
   const theme = useTheme();
   const animation = useSurfaceMotion(open, 'dialog');
   const closeRef = useRef<View>(null);
@@ -82,6 +82,7 @@ function CenteredDialog({open, onOpenChange, title, description, children, foote
       <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[{width: width || '100%', maxWidth: '92%', maxHeight: `${theme.spec.overlay.maxHeight[theme.platform] * 100}%`, borderRadius: theme.isTV ? 26 : 20, paddingTop: theme.isTV ? 48 : 26, paddingHorizontal: theme.isTV ? 52 : 26, paddingBottom: theme.isTV ? 44 : 22, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.text, 0.09)}, animation.style, style]}>
         <DialogBackground radius={theme.isTV ? 26 : 20}/>
         <FocusBoundary modal>
+          {headerContext}
           <SurfaceHeader dialog inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle}/>
           <View style={contentStyle}>{children}</View>
           {footer != null && <View style={{marginTop: theme.isTV ? 40 : 22, gap: theme.isTV ? 18 : 10}}>{footer}</View>}
@@ -98,7 +99,7 @@ export function Dialog(props: DialogProps) {
 function useScrimStyle(progress: {value: number}) {
   return useAnimatedStyle(() => ({opacity: progress.value}));
 }
-export function SidePanel({open, onOpenChange, title, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true}: SidePanelProps) {
+export function SidePanel({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true}: SidePanelProps) {
   const theme = useTheme();
   const actualWidth = width ?? (theme.isTV ? 640 : 440);
   const frame = useOverlayFrame();
@@ -116,6 +117,7 @@ export function SidePanel({open, onOpenChange, title, description, children, foo
     <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu, paddingTop: theme.isTV ? 64 : 24, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0}, animation.style, style]}>
       {theme.isTV && <PanelBackground/>}
       <FocusBoundary modal={false} style={styles.root}>
+        {headerContext}
         <SurfaceHeader side title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={<Button ref={closeRef} variant="text" size="small" onPress={() => dismiss('close-button')}>{defaultI18n.t('action.close')}</Button>}/>
         <View style={[styles.root, contentStyle]}>{children}</View>
         {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}

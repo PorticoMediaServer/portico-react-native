@@ -10,6 +10,7 @@ export type SurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean, reason: OverlayReason) => void;
   title: React.ReactNode;
+  headerContext?: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -53,7 +54,6 @@ export type BottomSheetProps = SurfaceProps & {
   showClose?: boolean;
   fitContent?: boolean;
   headerAction?: React.ReactNode;
-  headerContext?: React.ReactNode;
 };
 export type PopoverProps = SurfaceProps & {
   anchorRef: React.RefObject<View | null>;
@@ -79,7 +79,7 @@ export type MenuAction = {
   onSelect: () => void;
 };
 export type MenuEntry = MenuAction | {id: string; separator: true} | {id: string; section: true; label: React.ReactNode; tone?: 'default' | 'owner'};
-export type MenuProps = Omit<SurfaceProps, 'children'> & {
+export type MenuProps = Omit<SurfaceProps, 'children' | 'headerContext'> & {
   items: readonly MenuEntry[];
   anchorRef?: React.RefObject<View | null>;
   width?: number;

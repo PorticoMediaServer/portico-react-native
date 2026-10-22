@@ -33,7 +33,7 @@ export const MenuRow = forwardRef<View, MenuRowProps>(function MenuRow({label, i
     </Focusable>;
 });
 
-export function Popover({open, onOpenChange, anchorRef, title, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, dismissOnOutsidePress = true}: PopoverProps) {
+export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, dismissOnOutsidePress = true}: PopoverProps) {
   const theme = useTheme();
   const viewport = useWindowDimensions();
   const hostFrame = useOverlayFrame();
@@ -54,6 +54,7 @@ export function Popover({open, onOpenChange, anchorRef, title, description, chil
   const surface = <Animated.View testID={testID} accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityViewIsModal={modal} onAccessibilityEscape={() => dismiss('escape')} style={[{position: 'absolute', left: rect.x - (modal ? 0 : hostFrame.x), top: rect.y - (modal ? 0 : hostFrame.y), width: rect.width, maxHeight: viewport.height - insets.top - insets.bottom - 16, borderRadius: 14, backgroundColor: alpha(theme.colors.raisedBright, material.nativeBlur ? 0.96 : 1), borderWidth: 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.8, shadowOffset: {width: 0, height: 16}, shadowRadius: 30}, animation.style, style]}>
     {material.nativeBlur && <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={30} reducedTransparencyFallbackColor={theme.colors.raisedBright} pointerEvents="none"/>}
     <FocusBoundary modal={modal}><View onLayout={event => setHeight(event.nativeEvent.layout.height)} style={[{paddingVertical: 6}, contentStyle]}>
+      {headerContext}
       {showTitle && title != null && <Text accessibilityRole="header" style={[titleType ? nativeType(titleType, theme.textScale) : theme.type.bodyStrong, {color: theme.colors.text, paddingHorizontal: 14, paddingVertical: 8}, titleTextStyle]}>{title}</Text>}
       {description != null && <Text style={[theme.type.caption, {color: theme.colors.textSecondary, paddingHorizontal: 14}, descriptionTextStyle]}>{description}</Text>}
       {children}{footer}
