@@ -9,6 +9,7 @@ const {NativeVersionChooser} = await screenModule(new URL('../src-next/screens/w
   react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
   '../../kit/controls': {Focusable: 'Row', Button: 'Button'}, '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../kit/overlays': {BottomSheet: 'Sheet', SidePanel: 'Panel'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {bodyStrong: {}, body: {}}})},
+  './TVVersionPanel': {NativeWatchTVVersionPanel: 'Panel'},
 });
 const text = {t: () => ''};
 const rows = [{id: 'v2', primary: 'Director’s Cut', secondary: '4K Dolby Vision, Dolby TrueHD with Atmos 7.1, 58.2 GB'}, {id: 'v1', primary: '1080p', secondary: 'AAC stereo, 2.4 GB'}];

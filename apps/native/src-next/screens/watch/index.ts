@@ -12,3 +12,8 @@ export type {NativeWatchHostBindings, NativeWatchHostContext} from './WatchHost'
 export {NativeVersionChooser} from './VersionChooser';
 export type {NativeVersionChooserProps} from './VersionChooser';
 export type {NativeVersionPresentation, NativeVersionRow, NativeVersionRowText} from './version-options';
+export {NativeWatchPanels} from './WatchPanels';
+export type {NativeWatchPanelsProps} from './WatchPanels';
+export {NativeWatchPanelOptions} from './panel-options';
+export {nativeWatchPanelRows} from './panel-model';
+export type {NativeWatchPanelNames, NativeWatchChoiceName, NativeWatchChoiceRow} from './panel-model';

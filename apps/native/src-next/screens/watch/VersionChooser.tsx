@@ -2,9 +2,10 @@ import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} f
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../kit/controls';
-import {BottomSheet, SidePanel, type FocusRef} from '../../kit/overlays';
+import {BottomSheet, type FocusRef} from '../../kit/overlays';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeVersionDestination} from './factory';
+import {NativeWatchTVVersionPanel} from './TVVersionPanel';
 
 export type NativeVersionChooserProps = Readonly<{
   destination: NativeVersionDestination;
@@ -45,12 +46,12 @@ export function NativeVersionChooser({destination, onDismiss, reportError, retur
   </Focusable>);
   const shell = {open: current || starting, onOpenChange: (open: boolean) => {if (!open) dismiss();}, title: destination.title,
     initialFocusRef: first, returnFocusRef, testID: 'watch-version-chooser'};
-  if (theme.isTV) return <SidePanel {...shell} width={760} topInset={0} showClose={false} description={destination.subject}
+  if (theme.isTV) return <NativeWatchTVVersionPanel {...shell} width={760} topInset={0} showClose={false} description={destination.subject}
     titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}}
     descriptionTextStyle={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}, theme.textScale), {color: theme.colors.text, marginTop: 10}]}
     style={{paddingTop: 42}} footer={<VersionHint/>}>
     <ScrollView style={{marginHorizontal: -24}} contentContainerStyle={{paddingHorizontal: 24, paddingTop: 12, paddingBottom: 72}}>{rows}</ScrollView>
-  </SidePanel>;
+  </NativeWatchTVVersionPanel>;
   const header = <View style={{paddingHorizontal: 20, paddingTop: 2, paddingBottom: 12, flexDirection: 'row', alignItems: 'flex-start'}}>
     <View style={{flex: 1}}><Text accessibilityRole="header" style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{destination.title}</Text>
       <Text style={[nativeType({size: 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 3}]}>{destination.subject}</Text></View>

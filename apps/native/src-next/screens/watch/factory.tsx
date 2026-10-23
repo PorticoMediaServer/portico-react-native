@@ -198,7 +198,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     title,
     watch: Object.freeze({render: (runtime: NativeShellRuntime) => alive() && ports.player
       ? <NativeWatchHost authority={ports.authority} current={ports.current} playback={ports.playback} outlet={ports.watch} runtime={runtime}
-          controls={controls} bindings={ports.player} setPresentation={setPresentation}/> : null,
+          controls={controls} bindings={ports.player} setPresentation={setPresentation} isTV={ports.isTV}/> : null,
       /** Assembly calls this before its existing player/destination Back handling. */
       back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls';}}),
     controls,
