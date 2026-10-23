@@ -9,7 +9,7 @@ export function readerNavigationAllowed(entry: string, url: string, isTopFrame: 
   if (!readerAssetEntry(entry) || typeof url !== 'string' || url.length > 8192) return false;
   if (url === entry || url.startsWith(entry + '#')) return true;
   // These are the checked renderer's sandbox documents, never a top-level page.
-  return !isTopFrame && (url === 'about:blank' || url.startsWith('blob:'));
+  return isTopFrame === false && (url === 'about:blank' || url.startsWith('blob:'));
 }
 export function readerDelivery(message: string): string {
   if (message.length > 2 * 1024 * 1024) throw new Error('invalid_bridge');

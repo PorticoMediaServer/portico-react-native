@@ -18,7 +18,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
 }) {
   const closeRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const theme = useTheme(), view = useRef<WebView>(null), host = useRef<ReturnType<typeof createReadingHost>>(undefined);
-  const callbacks = useRef({onBack, onOpenSettings}); callbacks.current = {onBack, onOpenSettings};
+  const callbacks = useRef({onBack, onOpenSettings, active}); callbacks.current = {onBack, onOpenSettings, active};
   const [state, setState] = useState<Readonly<{url?: string; failed?: boolean}>>({}), [retry, setRetry] = useState(0);
   useEffect(() => {
     const life = new AbortController(), captured = context.session();
@@ -52,7 +52,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
       host.current = createReadingHost({session, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot,
         initialProgress, current, send: message => {if (current()) view.current?.injectJavaScript(readerDelivery(message));},
-        onBack: () => {if (current()) callbacks.current.onBack();}, onSettings: () => {if (current()) callbacks.current.onOpenSettings();}});
+        onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
       setState({url});
     })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
     return () => {if (closeRef.current === dispose) closeRef.current = undefined; void dispose().catch(() => {});};
@@ -65,7 +65,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       : state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
         originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
         onMessage={event => {if (readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) host.current?.receive(event.nativeEvent.data);}}
-        incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
+        renderError={() => null} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
         allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
         onError={() => {setState({failed: true}); void closeRef.current?.().catch(() => {});}}
