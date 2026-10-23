@@ -1,4 +1,4 @@
-import {NativeEventEmitter, NativeModules} from 'react-native';
+import {AppState, NativeEventEmitter, NativeModules} from 'react-native';
 import type {CapabilityDocument} from '../../../../../../packages/client-core/src/client-profile';
 import type {V1Http} from '../../../../../../packages/client-core/src/playback-v1/http';
 import {CapabilityPublisher} from '../../../../../../packages/client-core/src/playback-v1/options';
@@ -31,7 +31,13 @@ export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSna
   // What the device itself says it plays. Asked once; a first document that could not wait for
   // the answer is followed by another when it arrives.
   let probed: CapabilityDocument | null = null, answered = false;
-  const probing = probeVegaPlayer().then(document => { probed = document; answered = true; });
+  let probeGeneration = 0;
+  const probe = (refresh = false) => {
+    const generation = ++probeGeneration;
+    answered = false;
+    return probeVegaPlayer(refresh).then(document => { if (generation === probeGeneration) { probed = document; answered = true; } });
+  };
+  let probing = probe();
   const publish = (): Promise<void> => {
     // One write at a time: a slow earlier PUT must not land after, and undo, a newer setting.
     sending = sending.then(async () => {
@@ -42,8 +48,7 @@ export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSna
       const document = vegaCapabilityDocument(native, route?.getSnapshot().origin ?? null, overrides, probed, engineSettingStore.declared());
       // Settings offers "Turn off HDR" and "Don't pass sound through" only where the document
       // says there is HDR, or a receiver, to turn off.
-      // On Vega the viewer's own "This TV supports HDR" is the HDR switch, so "Turn off HDR" stays away.
-      engineSettingStore.setProbed({...probedSettings(document), hdr: false});
+      engineSettingStore.setProbed(probedSettings(document));
       await publisher.publish(document).catch(() => false);
       engineSettingStore.settled(revision);
       if (late) void probing.then(() => { if (!stopped && probed) changed(); });
@@ -61,9 +66,13 @@ export function keepCapabilitiesPublished(http: V1Http, route?: Readonly<{getSna
   // A route change arrives as a burst (old route lost, new one found); ask once it has settled.
   function changed(): void { if (settle) clearTimeout(settle); settle = setTimeout(() => void publish(), 1500); }
   const module = NativeModules.PorticoCapabilities;
-  const subscription = module ? new NativeEventEmitter(module).addListener('portico.capabilities', changed) : undefined;
+  const outputChanged = () => { probed = null; probing = probe(true); changed(); };
+  const subscription = module ? new NativeEventEmitter(module).addListener('portico.capabilities', outputChanged) : undefined;
+  // A television can change its HDMI sink while this app is backgrounded. Old positive output
+  // facts must not survive a resume without asking the SDK again.
+  const appState = AppState.addEventListener('change', state => { if (state === 'active') outputChanged(); });
   const offRoute = route?.subscribe(() => { const next = route.getSnapshot().origin; if (next && next !== origin) { origin = next; changed(); } });
   // The server plans from the viewer's settings, so a change of one is sent at once.
   const offSetting = engineSettingStore.subscribe(() => void publish());
-  return Object.freeze({ready, stop: () => { stopped = true; if (settle) clearTimeout(settle); subscription?.remove(); offRoute?.(); offSetting(); }});
+  return Object.freeze({ready, stop: () => { stopped = true; if (settle) clearTimeout(settle); subscription?.remove(); appState.remove(); offRoute?.(); offSetting(); }});
 }

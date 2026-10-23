@@ -33,17 +33,9 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  *   device.
  * - **It does not switch between the audio tracks inside an original file.** The app switches
  *   between the named tracks of a stream, and asks the server for the title again for anything else.
- * - **Standard dynamic range unless the viewer says otherwise.** The SDK does not say what the
- *   television shows, and HDR sent to a screen that does not show it is grey and flat: no HDR is
- *   claimed and the server tone-maps, until the viewer turns on "This TV supports HDR"
- *   (`declared.hdr`, off by default). Then HEVC is claimed in HDR10 and HLG, for the screen too.
- * - **Two channels of sound unless the viewer says otherwise.** No receiver is ever reported by
- *   this SDK, so the server mixes surround down, until the viewer turns on "This TV supports
- *   surround sound" (`declared.surround`, off by default). Then the output takes eight channels and
- *   AAC, Dolby Digital and Dolby Digital Plus are listed with their surround channels: the TV or
- *   the sound system behind it decodes them. Otherwise Dolby audio is listed only for handing on
- *   to a receiver and used once a route is reported, which never happens today (and is never
- *   listed as decoded: a device's "yes" does not tell decoding from handing on).
+ * - **Output facts come from the SDK.** Exact HDR/Dolby Vision and channel/rate probes include
+ *   the connected display and AVR. Missing answers keep the declared SDR/stereo floor. No
+ *   HDMI route, passthrough, Atmos or bit-perfect output is inferred from a codec-only answer.
  * - **Media passes through the app's HLS reader.** The platform media element does not expose
  *   the final address of a directly opened file. HLS lets the app check every response and
  *   contain grant exposure; the server can use a plain remux without converting the picture.
@@ -53,15 +45,14 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
 }
 
 function vegaDocument(facts: VegaFacts | null, origin: string | null, overrides: CapabilityOverrides, probed: CapabilityDocument | null): CapabilityDocument {
-  const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
+  const model = typeof facts?.model === 'string' ? facts.model.trim() : '';
+  // A missing platform answer is not a model name. Keep the actual system value only.
+  const observedModel = model && model.length <= 64 && model.toLowerCase() !== 'unknown' ? model : undefined;
+  const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: observedModel});
   if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
   const table = declared.engines.native, asked = probed?.engines.native;
-  // Dolby audio stays what the table says it is: sound handed on to a receiver, not sound this
-  // device is known to decode. The device's "yes" to it does not say which, and a television
-  // that cannot decode it would be given silence.
-  const handedOn = new Set((table.audioPassthrough ?? []).map(codec => codec.codec));
   const base: EngineCapabilities = asked
-    ? {name: table.name, evidence: 'probed', video: sdrOnly(asked.video), audio: asked.audio?.filter(codec => !handedOn.has(codec.codec)), audioPassthrough: table.audioPassthrough, transports: asked.transports}
+    ? {...asked, name: table.name, evidence: 'probed'}
     : table;
   const native: EngineCapabilities = {
     ...base,
@@ -71,7 +62,7 @@ function vegaDocument(facts: VegaFacts | null, origin: string | null, overrides:
     embeddedAudioSwitching: false,
   };
   const settings = {engine: 'automatic' as const, overrides};
-  const stamped = withViewerSettings({...declared, engines: {native}}, settings);
+  const stamped = withViewerSettings({...declared, ...(asked ? {display: probed?.display, audioOutput: probed?.audioOutput} : {}), engines: {native}}, settings);
   if (!capabilityDocumentProblem(stamped)) return stamped;
   // A document the server would refuse is never sent. What the device answered is the newest
   // part, so it is the part left out; the table alone is always a valid document.
@@ -103,11 +94,6 @@ export function withDeclaredOutputs(document: CapabilityDocument, declared: Decl
   };
   // What the viewer said never makes the document one the server would refuse.
   return capabilityDocumentProblem(next) ? document : next;
-}
-
-/** Whatever a decoder says of itself, no HDR is claimed here unless the viewer says so (see above). */
-function sdrOnly(video: EngineCapabilities['video']): EngineCapabilities['video'] {
-  return video?.map(({dolbyVisionProfiles: _profiles, ...codec}) => ({...codec, dynamicRanges: ['sdr' as const]}));
 }
 
 const receiverRoutes: readonly string[] = ['hdmi', 'arc', 'earc', 'optical', 'spdif'];

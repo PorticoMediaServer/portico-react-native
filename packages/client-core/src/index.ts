@@ -502,6 +502,7 @@ export class HttpLocalApi {
   setup(setupToken: string, username: string, password: string, name: string) {
     return this.request<RouteResponse<"setup_server">>(routePath("setup_server"), "POST", routeBody("setup_server", {
       setupToken,
+      authMode: "local",
       username,
       password,
       name,
@@ -1971,7 +1972,7 @@ export { DeviceAuthorizationService, HttpDeviceAuthorizationApi, type DeviceAuth
 export { HostedGate, hostedGate, type HostedGateSnapshot, type HostedRequestKind } from "./hosted-gate.ts";
 export { CredentialSessionService,HttpCredentialApi,type CredentialContext,type CredentialRecord,type CredentialStorage,type CredentialApi,type CredentialSnapshot,type CredentialCoordinator } from "./credentials.ts";
 export {LibraryNavigationService,navigationStorageKey,type NavigationScope,type LibraryRoute,type LibraryEntityView,type EntityViewState,type NavigationFocus,type ScrollAnchor,type LibraryNavigationMetadata,type LibraryViewState,type LibraryViewUpdate,type NavigationStorage,type LibraryNavigationSnapshot} from './library-navigation.ts';
-export {LibraryContentService,type ContentView,type ContentSurface,type ContentRoute,type ContentScope,type LibraryContentApi,type ContentEntryKind,type ContentHeading,type ContentEntry,type ContentSection,type ContentProjection,type LibraryContentSnapshot} from './library-content.ts';
+export {readListeningSimilar,LibraryContentService,type ContentView,type ContentSurface,type ContentRoute,type ContentScope,type LibraryContentApi,type ContentEntryKind,type ContentHeading,type ContentEntry,type ContentSection,type ContentProjection,type LibraryContentSnapshot} from './library-content.ts';
 
 export * from './hosted-security.ts';
 export {DetailService,type DetailScope,type DetailTarget,type DetailApi,type PersonalState,type PersonalOfflineMutation,type PersonalConflict,type DetailAction,type DetailMetadata,type DetailEpisodeInfo,type DetailSongInfo,type DetailBookFileInfo,type DetailSource,type DetailItem,type DetailProjection,type PersonalIntent,type DetailError,type DetailSnapshot} from './detail.ts';
@@ -1980,6 +1981,7 @@ export {SearchService,searchPath,parseSearchHistory,type SearchGroup,type Search
 export * from './people.ts';
 export {savedListPath,personalHistoryPath,savedListFilters,savedListSorts,historyPeriods,type SavedListFilter,type SavedListSort,type HistoryPeriod,type SavedApi,type SavedScope,type SavedRoute,type SavedActor} from './saved.ts';
 export * from './browse.ts';
+export * from './browse-buckets.ts';
 export * from './social-playback.ts';
 export * from './group-session.ts';
 export * from './remote-playback.ts';
@@ -2036,4 +2038,19 @@ export * from './home-service.ts';
 export * from './scan-issues.ts';
 export * from './playback-controls.ts';
 export {sizeClassForWidth, type SizeClass} from './presentation/size-class.ts';
+
+export {readLibrarySummaries,parseLibrarySummary} from './library-summary.ts';
+export type {LibrarySummary} from './library-summary.ts';
+
+export {browseServerFilesystem} from './library-management.ts';
 export {libraryNavigationIcon} from './presentation/library-navigation.ts';
+
+
+export {PeopleInvitationsClient,parsePublicInvitation,privatePersonNotes,personIdentity} from './direct-account.ts';
+export type {ServerInvitation,PeopleMember,PublicInvitation} from './direct-account.ts';
+export {highestRatingChoices} from './profile-limits.ts';
+
+export * from './account-reset.ts';
+export * from './same-tab-return.ts';
+
+export * from './report-context.ts';

@@ -5,6 +5,9 @@ import {useSnap} from './snap';
 import {isTyping, preferAfterTyping} from './typing';
 
 type SdkProps = React.ComponentProps<typeof Vega.Pressable>;
+// Shared Apple TV callers can supply this prop; Vega has no parallax API.
+// Accept it at the shim boundary and consume it before forwarding SDK props.
+type Props = SdkProps & {tvParallaxProperties?: unknown};
 type FocusNode = {requestTVFocus?: () => void};
 
 /**
@@ -22,7 +25,7 @@ type FocusNode = {requestTVFocus?: () => void};
  * Taking focus also brings the row and page around the control to rest (see `snap.tsx`), and is
  * told to the focus guides around it, which decide where focus returns to (see `focus.tsx`).
  */
-export const Pressable = forwardRef<React.ComponentRef<typeof Vega.Pressable>, SdkProps>(function Pressable(
+export const Pressable = forwardRef<React.ComponentRef<typeof Vega.Pressable>, Props>(function Pressable(
   {hasTVPreferredFocus, tvParallaxProperties: _parallax, onFocus, onBlur, ...props},
   forwarded,
 ) {
