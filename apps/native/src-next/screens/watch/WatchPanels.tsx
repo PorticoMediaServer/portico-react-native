@@ -46,7 +46,8 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const back = () => {if (current()) context.backPanel();};
   useOverlayLifecycle(!!state.panel, true, back, first, undefined, 0, 'watch-panel');
   useEffect(() => {const expected = latest.current.fence; void options.load(expected); return () => options.clear();}, [options, fenceKey]);
-  useEffect(() => {commandEpoch.current++; busy.current = false; setPending(false); return () => {commandEpoch.current++;};}, [fenceKey, state.panel]);
+  useEffect(() => {const epoch = commandEpoch.current + 1; commandEpoch.current = epoch; busy.current = false; setPending(false);
+    return () => {commandEpoch.current = epoch + 1;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
   useEffect(() => {first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase]);
   const run = async (command: () => Promise<void>) => {
