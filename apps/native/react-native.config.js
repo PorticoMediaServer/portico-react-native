@@ -1,4 +1,3 @@
-const path = require('node:path');
 const manifest = require('./package.json');
 
 // The React Native Apple CLI represents both iOS and tvOS as `ios`.
@@ -9,7 +8,7 @@ const webViewDeclared = [manifest.dependencies, manifest.devDependencies, manife
   .some(dependencies => Object.hasOwn(dependencies ?? {}, 'react-native-webview'));
 
 module.exports = tvOS ? {
-  project: {ios: {sourceDir: path.join(__dirname, 'tvos')}},
+  project: {ios: {sourceDir: 'tvos'}},
   ...(webViewDeclared ? {
     dependencies: {'react-native-webview': {platforms: {ios: null}}},
   } : {}),

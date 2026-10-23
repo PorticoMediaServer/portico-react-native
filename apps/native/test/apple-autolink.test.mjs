@@ -31,7 +31,7 @@ test('tvOS writes autolinking into its own project and disables only declared We
   const installed = {...manifest, dependencies: {...manifest.dependencies, 'react-native-webview': '16.0.0'}};
   const tv = config('tvos', installed);
   assert.deepEqual(tv, {
-    project: {ios: {sourceDir: path.join(root, 'tvos')}},
+    project: {ios: {sourceDir: 'tvos'}},
     dependencies: {'react-native-webview': {platforms: {ios: null}}},
   });
   assert.deepEqual(codegen.findDisabledLibrariesByPlatform(tv, 'ios'), ['react-native-webview']);
@@ -39,7 +39,7 @@ test('tvOS writes autolinking into its own project and disables only declared We
 });
 
 test('tvOS does not ask the CLI to resolve a package absent from the application', () => {
-  assert.deepEqual(config('tvos', {}), {project: {ios: {sourceDir: path.join(root, 'tvos')}}});
+  assert.deepEqual(config('tvos', {}), {project: {ios: {sourceDir: 'tvos'}}});
   for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
     assert.deepEqual(config('tvos', {[section]: {'react-native-webview': '16.0.0'}}).dependencies,
       {'react-native-webview': {platforms: {ios: null}}});
