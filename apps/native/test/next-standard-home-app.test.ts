@@ -118,7 +118,7 @@ test('standard index/App Home actions use restored authority, current documents 
       },
     );
     await t.test(
-      'App unmount/restoration registers a genuine More menu whose Resume creates a second session',
+      'App unmount/restoration registers a genuine phone More menu whose Play resumes into a second session',
       async () => {
         await app.unmount();
         // server-connections intentionally keeps one app-global native monitor. Runtime subscriptions must retire.
@@ -136,10 +136,10 @@ test('standard index/App Home actions use restored authority, current documents 
             .some(
               host =>
                 host.name === 'Pressable' &&
-                host.props.accessibilityLabel === 'Resume',
+                host.props.accessibilityLabel === 'Play',
             ),
         );
-        await app.menuResume();
+        await app.menuPlay();
         assert.equal(
           sessions().length,
           2,
