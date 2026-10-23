@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {playerControlsRevealDeadline, resolvePlayerPresentation, type PlayerFold, type PlayerPresentationInput} from '../src-next/platform/layout/player-presentation.ts';
+import {createPlatformPostureStore, type PlatformPostureSnapshot} from '../src-next/platform/platformPostureStore.ts';
 
 // Geometry assertions do not establish device continuity or frame fidelity.
 const input = (width: number, height: number, folds: readonly PlayerFold[] = []): PlayerPresentationInput => ({
@@ -99,4 +100,52 @@ test('notes/foldable9 reveals for exactly3s on fold/unfold/turn, except under th
   assert.equal(playerControlsRevealDeadline({...wide, panelOpen: true}, wide, 800, 0), 0, 'panel closure alone is not a fold reveal');
   const tabletop = input(626, 890, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, top: 445, right: 626, bottom: 445}}]);
   assert.equal(resolvePlayerPresentation({...tabletop, panelOpen: true})!.controlsHidden, false, 'tabletop keeps its bottom controls visible');
+});
+
+test('the checked posture publisher feeds Q7 page, panel, reveal and dock geometry directly', () => {
+  let publish!: (value: unknown) => void;
+  const store = createPlatformPostureStore({getSnapshot: () => new Promise(() => {}), subscribe: listener => {publish = listener; return () => {};}});
+  const off = store.subscribe(() => {});
+  const read = (window = {width: 890, height: 626}): PlayerPresentationInput => {
+    const posture: PlatformPostureSnapshot = store.getSnapshot();
+    return {window, posture, docked: false, panelOpen: false};
+  };
+  const report = (revision: number, state: 'flat' | 'half-opened') => ({revision, status: 'available', window: {width: 890, height: 626},
+    folds: [{...vertical, state, isSeparating: state === 'half-opened', occlusion: 'none'}]});
+  try {
+    assert.equal(resolvePlayerPresentation(read())!.mode, 'full-window');
+    publish(report(1, 'flat'));
+    const flat = read();
+    assert.deepEqual(resolvePlayerPresentation({...flat, panelOpen: true})!.panel, {x: 445, y: 0, width: 445, height: 626});
+    assert.equal(resolvePlayerPresentation({...flat, panelOpen: true})!.controlsHidden, true);
+    publish(report(2, 'half-opened'));
+    const book = read(), split = resolvePlayerPresentation(book)!;
+    assert.deepEqual(split.picture, {x: 0, y: 0, width: 445, height: 250.3125});
+    assert.equal(split.controls!.width, 429);
+    assert.equal(playerControlsRevealDeadline(flat, book, 100), 3100);
+    assert.equal(resolvePlayerPresentation(read({width: 626, height: 890}))!.mode, 'watch', 'a new window cannot reuse the previous window fold');
+    assert.equal(resolvePlayerPresentation({...book, docked: true})!.surface, undefined, 'posture never replaces the measured dock slot');
+    publish({revision: 3, status: 'unavailable', window: null, folds: []});
+    assert.equal(resolvePlayerPresentation(read())!.hingeBand, undefined, 'native suspension cannot leave a split reserved');
+  } finally {off();}
+});
+
+test('a renewed posture observation cannot restore the previous attachment split', () => {
+  const callbacks: ((value: unknown) => void)[] = [];
+  const store = createPlatformPostureStore({getSnapshot: () => new Promise(() => {}), subscribe: listener => {callbacks.push(listener); return () => {};}});
+  const current = () => resolvePlayerPresentation({...input(890, 626), posture: store.getSnapshot()})!;
+  const report = (revision: number) => ({revision, status: 'available', window: {width: 890, height: 626},
+    folds: [{...vertical, state: 'half-opened', isSeparating: true, occlusion: 'none'}]});
+  const first = store.subscribe(() => {});
+  callbacks[0]!(report(8));
+  assert.equal(current().mode, 'book');
+  first();
+  const second = store.subscribe(() => {});
+  try {
+    assert.equal(current().mode, 'full-window', 'the new observation is pending, not the cached split');
+    callbacks[0]!(report(100));
+    assert.equal(current().mode, 'full-window', 'a retired native attachment cannot reserve a hinge');
+    callbacks[1]!(report(1));
+    assert.equal(current().mode, 'book');
+  } finally {second();}
 });
