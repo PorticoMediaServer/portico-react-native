@@ -18,7 +18,7 @@ export function useGuideTimePan({enabled, revision, start, end, pxPerMs, channel
   const range = useMemo(() => nativeGuidePanRange(sources, span), [sources, span]);
   const active = enabled && !!range && Number.isFinite(pxPerMs) && pxPerMs > 0;
   const position = useSharedValue(start * pxPerMs), origin = useSharedValue(start * pxPerMs);
-  const lastPublished = useSharedValue(start * pxPerMs), moving = useSharedValue(false);
+  const lastPublished = useSharedValue(start * pxPerMs), moving = useSharedValue(false), engaged = useSharedValue(false);
   const gestureGeneration = useRef(0), nativeGeneration = useSharedValue(0), startedGeneration = useSharedValue(0);
   const mounted = useRef(true), pending = useRef(new Set<number>()), previous = useRef({active, revision, pxPerMs, first: range?.first, last: range?.last});
   const publish = useCallback((pixels: number, generation: number) => {
@@ -47,10 +47,16 @@ export function useGuideTimePan({enabled, revision, start, end, pxPerMs, channel
   }, [span, pxPerMs, publish]);
   const first = (range?.first ?? start) * pxPerMs, last = (range?.last ?? start) * pxPerMs;
   const gesture = useMemo(() => Gesture.Pan().enabled(active).maxPointers(1).activeOffsetX([-10, 10]).failOffsetY([-12, 12])
-    .onTouchesDown((event, manager) => {if (event.changedTouches.some(touch => touch.x < channelWidth)) manager.fail();})
-    .onStart(() => {cancelAnimation(position); origin.value = position.value; startedGeneration.value = nativeGeneration.value; moving.value = true;})
-    .onUpdate(event => {position.value = Math.max(first, Math.min(last, origin.value - event.translationX));})
+    .onTouchesDown((event, manager) => {
+      // A real touch interrupts momentum before the next gesture activates, including
+      // a vertical scroll or channel-column tap that never becomes a horizontal pan.
+      if (moving.value) {cancelAnimation(position); moving.value = false; runOnJS(publish)(position.value, startedGeneration.value);}
+      if (event.changedTouches.some(touch => touch.x < channelWidth)) manager.fail();
+    })
+    .onStart(() => {cancelAnimation(position); origin.value = position.value; startedGeneration.value = nativeGeneration.value; moving.value = true; engaged.value = true;})
+    .onUpdate(event => {if (startedGeneration.value === nativeGeneration.value) position.value = Math.max(first, Math.min(last, origin.value - event.translationX));})
     .onEnd(event => {
+      if (startedGeneration.value !== nativeGeneration.value) {moving.value = false; cancelAnimation(position); return;}
       // phone-guide.md: reduced motion stops exactly on lift; ordinary panning decays
       // from genuine native velocity and can be interrupted by the next touch.
       if (reduceMotion) {moving.value = false; runOnJS(publish)(position.value, startedGeneration.value);}
@@ -58,8 +64,9 @@ export function useGuideTimePan({enabled, revision, start, end, pxPerMs, channel
         if (finished) {moving.value = false; runOnJS(publish)(position.value, startedGeneration.value);}
       });
     }).onFinalize((_event, success) => {
-      if (!success) {moving.value = false; cancelAnimation(position); runOnJS(publish)(position.value, startedGeneration.value);}
-    }), [active, channelWidth, position, origin, moving, first, last, reduceMotion, publish, nativeGeneration, startedGeneration]);
+      if (!success && engaged.value) {moving.value = false; cancelAnimation(position); runOnJS(publish)(position.value, startedGeneration.value);}
+      engaged.value = false;
+    }), [active, channelWidth, position, origin, moving, engaged, first, last, reduceMotion, publish, nativeGeneration, startedGeneration]);
   const adjust = useCallback((delta: number) => {
     if (!current()) return;
     const target = nativeGuidePanTarget(start + delta, span, range);
