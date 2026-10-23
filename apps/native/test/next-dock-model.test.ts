@@ -21,7 +21,8 @@ function setup(model = presentation(), playback: DockPlayback = video) {
 
 test('dock text identity follows local plays and actual queue/channel sources', () => {
   assert.equal(dockSourceIdentity(fence), 'source');
-  assert.equal(dockSourceIdentity({...fence, itemId: 'next-item', entryId: 'next-entry', generation: 2}), 'source');
+  const nextQueueFence = {...fence, itemId: 'next-item', entryId: 'next-entry', generation: 2};
+  assert.equal(dockSourceIdentity(nextQueueFence), 'source');
   assert.equal(dockSourceIdentity({kind: 'channel', sourceId: 'live-source'}), 'live-source');
   assert.equal(dockSourceIdentity({kind: 'channel'}), undefined, 'a library channel without a separate source stays source-less');
   assert.equal(dockSourceIdentity({kind: 'local', playId: 'local-play'}), 'local-play');
