@@ -27,6 +27,7 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
   const list = change && 'add' in change ? change : {add: [], remove: []};
   const existing = props.values[field.field]?.entries ?? [];
   const values = [...existing.map(entry => ({...entry, added: false})), ...list.add.filter(value => !existing.some(entry => entry.value === value)).map(value => ({value, count: props.count, added: true}))];
+  const addLabel = field.field === 'genres' ? defaultI18n.t('next.selection.addGenre') : field.field === 'tags' ? defaultI18n.t(values.length ? 'next.selection.addTag' : 'next.selection.emptyTag') : field.field === 'labels' ? defaultI18n.t(values.length ? 'next.selection.addLabel' : 'next.selection.emptyLabel') : selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)});
   const add = () => {const value = draft.trim(); if (validBulkListEntry(value) && !props.pending) {props.onChangesChange(changeList(props.changes, field.field, value, 'add')); setDraft('');}};
   return <View style={{gap: 6}}>
     <View style={styles.chips}>
@@ -40,7 +41,7 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
         <SelectionText size={isTV ? 22 : 12} weight={700} numberOfLines={1} style={{flexShrink: 1, textDecorationLine: removed ? 'line-through' : 'none', color: removed ? colors.textTertiary : colors.text}}>{entry.value}</SelectionText>
         <SelectionText size={isTV ? 20 : 12} secondary>{added ? selectionText('next.selection.native.new') : entry.count}</SelectionText><Icon name={removed ? 'i-undo' : 'i-x'} size={isTV ? 22 : 12} color={colors.textTertiary} />
       </Focusable>;})}
-      <View style={{minWidth: 100, flex: 1, ...(isTV ? {width: '100%', flexBasis: '100%'} as const : {})}}><TextField appearance="selection" testID={controlID(props.testID, 'field', field.field, 'add-input')} ref={fieldRef} accessibilityLabel={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} value={draft} onChangeText={setDraft} onSubmitEditing={add} editable={!props.pending} placeholder={selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)})} maxLength={field.maxLength} returnKeyType="done" fieldStyle={isTV ? {backgroundColor: colors.ink} : {height: 28, minHeight: 28, borderWidth: 0, paddingHorizontal: 4, backgroundColor: 'transparent'}} style={isTV ? {fontSize: type.body.fontSize} : {fontSize: 12.5}} /></View>
+      <View style={{minWidth: 100, flex: 1, ...(isTV ? {width: '100%', flexBasis: '100%'} as const : {})}}><TextField appearance="selection" testID={controlID(props.testID, 'field', field.field, 'add-input')} ref={fieldRef} accessibilityLabel={addLabel} value={draft} onChangeText={setDraft} onSubmitEditing={add} editable={!props.pending} placeholder={addLabel} maxLength={field.maxLength} returnKeyType="done" fieldStyle={isTV ? {backgroundColor: colors.ink} : {height: 28, minHeight: 28, borderWidth: 0, paddingHorizontal: 4, backgroundColor: 'transparent'}} style={isTV ? {fontSize: type.body.fontSize} : {fontSize: 12.5}} /></View>
       {draft.trim() ? <Button testID={controlID(props.testID, 'field', field.field, 'add')} variant="text" size="small" disabled={!validBulkListEntry(draft.trim()) || props.pending} onPress={add}>{selectionText('next.selection.native.add')}</Button> : null}
     </View>
   </View>;

@@ -12,7 +12,8 @@ test('the grid reports actual offsets within one row and restores that exact mea
   const host = hooks(), offset = {value: 0}, moved: {offset: number; immediate: boolean}[] = [], measured: number[] = [];
   const anchor = {offset, scrollRef: {current: null}, move: (value: number, immediate: boolean) => moved.push({offset: value, immediate}), anchor() {}, stop() {}};
   const react = {...host.react, forwardRef: (render: unknown) => render, useImperativeHandle: (ref: {current: unknown}, create: () => unknown) => {ref.current = create();}};
-  const collection = createWindowedCollection({fetchPage: async () => ({items: [], total: 0}), pageSize: 40, maxResidentPages: 4, keyOf: (value: string) => value});
+  const collection = createWindowedCollection({fetchPage: async () => ({items: ['actual-item'], total: 1}), pageSize: 40, maxResidentPages: 4, keyOf: (value: string) => value});
+  collection.ensureRange(0, 0); await new Promise<void>(resolve => setImmediate(resolve));
   const {WindowedGrid} = await screenModule(new URL('../src-next/kit/layout/WindowedGrid.tsx', import.meta.url), {
     react: {...react, default: react}, 'react-native': {View: 'View'},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (run: unknown) => run, useAnimatedScrollHandler: (handler: unknown) => handler, useSharedValue: (value: unknown) => ({value})},
@@ -20,9 +21,11 @@ test('the grid reports actual offsets within one row and restores that exact mea
     './model': {gridWindow}, './types': {itemSelection},
   });
   const ref: {current: {scrollToOffset: (value: number) => void} | null} = {current: null};
+  const selections: unknown[] = [];
   try {
-    const tree = host.render(() => WindowedGrid({collection, getKey: String, renderItem: () => null, renderPlaceholder: () => null,
-      itemWidth: 200, itemHeight: 360, selection: {active: false, isSelected: () => false, onToggle() {}, onEnter() {}}, onScrollOffset: (value: number) => measured.push(value)}, ref));
+    const tree = host.render(() => WindowedGrid({collection, getKey: String, renderItem: (_item: string, context: {selection?: unknown}) => {selections.push(context.selection); return null;}, renderPlaceholder: () => null,
+      itemWidth: 200, itemHeight: 360, onScrollOffset: (value: number) => measured.push(value)}, ref));
+    assert.deepEqual(selections, [undefined], 'a real item renders without a fabricated selection port');
     tree.props.onScroll({contentOffset: {x: 0, y: 73.25}});
     tree.props.onScroll({contentOffset: {x: 0, y: 77.75}});
     assert.deepEqual(measured, [73.25, 77.75], 'the final position is not approximated by a row index or height');
