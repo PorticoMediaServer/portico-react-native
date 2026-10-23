@@ -100,6 +100,9 @@ static BOOL PlainText(id value){
  // folder. Only a download may name one, and only there.
  if(url.isFileURL){
   if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"subtitle_source_invalid"];return;}
+  // Downloaded WebVTT already contains the server's complete correction. Only the raw
+  // source-relative cue document/original overlay uses a selection offset here.
+  offset=0;
   if(_item==item&&_local&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]]){_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;[self tick:_time];return;}
   [self invalidate];_item=item;_url=url;_local=YES;_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
   [self disableEmbedded:item];[self readLocal:url];return;
