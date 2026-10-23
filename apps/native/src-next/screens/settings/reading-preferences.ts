@@ -15,6 +15,7 @@ const unavailable = () => Object.assign(new Error('native_reading_preferences_un
 /** Eligibility uses the selected server's actual registry/documents, never spec defaults. */
 export function nativeReadingPreferencesAvailable(snapshot: PreferenceSnapshot): boolean {
   if (snapshot.deviceClass === 'television' || !snapshot.documents.some(document => document.scope === 'profile-server')) return false;
+  if (rows.some(row => !snapshot.registry.fields.some(field => field.key === row.key && field.scopes.includes('profile-server')))) return false;
   try {readingPreferences(snapshot); return true;} catch {return false;}
 }
 

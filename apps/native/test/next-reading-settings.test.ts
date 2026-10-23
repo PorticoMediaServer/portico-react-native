@@ -122,5 +122,7 @@ test('Reading settings eligibility uses actual published preferences and never a
   assert.equal(nativeReadingPreferencesAvailable(actual), true);
   assert.equal(nativeReadingPreferencesAvailable({...actual, deviceClass: 'television'}), false);
   assert.equal(nativeReadingPreferencesAvailable({...actual, documents: []}), false);
+  assert.equal(nativeReadingPreferencesAvailable({...actual, registry: {...actual.registry,
+    fields: actual.registry.fields.map(field => ({...field, scopes: ['profile-device-class']}))}}), false);
   assert.equal(nativeReadingPreferencesAvailable({...actual, effective: {}, registry: {...actual.registry, fields: []}}), false);
 });
