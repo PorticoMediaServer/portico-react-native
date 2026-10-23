@@ -30,6 +30,124 @@ private func secret(_ account: String, create: () throws -> Data) throws -> Data
     guard saved == errSecSuccess else { throw NetworkFailure.storage }; return data
 }
 
+// This transport is deliberately separate from signed proofs and ordinary pinned sessions.
+// A pending server's claimed name is read only over the leaf already observed and proved by JS.
+private final class PendingSystemRequest: NSObject, URLSessionDataDelegate {
+    let token: UUID
+    private let url: URL
+    private let host: String
+    private let port: Int
+    private let fingerprint: String
+    private var completion: (([String: Any]?, String?) -> Void)?
+    private var session: URLSession?
+    private var deadline: DispatchWorkItem?
+    private var response: HTTPURLResponse?
+    private var headers: [String: String] = [:]
+    private var headerBytes = 0
+    private var bytes = Data()
+    private var startedAt = 0.0
+    private var matchedLeaf = false
+
+    static func endpoint(_ origin: String) -> URL? {
+        guard !origin.isEmpty, origin.utf8.count <= 2048,
+              origin.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
+              !origin.contains("\\"),
+              var parts = URLComponents(string: origin), parts.scheme == "https",
+              let host = parts.host, !host.isEmpty, !host.contains("%"),
+              parts.user == nil, parts.password == nil, parts.percentEncodedPath.isEmpty,
+              parts.query == nil, parts.fragment == nil,
+              parts.port == nil || (1...65535).contains(parts.port!),
+              parts.url?.absoluteString == origin else { return nil }
+        parts.path = "/v1/system"
+        return parts.url
+    }
+
+    init(token: UUID, url: URL, fingerprint: String, completion: @escaping ([String: Any]?, String?) -> Void) {
+        self.token = token; self.url = url
+        self.host = Self.bareHost(url.host ?? ""); self.port = url.port ?? 443
+        self.fingerprint = fingerprint; self.completion = completion
+        super.init()
+    }
+    private static func bareHost(_ host: String) -> String {
+        let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        return bare.lowercased()
+    }
+    func start() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil; configuration.urlCredentialStorage = nil
+        configuration.httpAdditionalHeaders = [:]; configuration.waitsForConnectivity = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
+        self.session = session; startedAt = ProcessInfo.processInfo.systemUptime
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 5)
+        request.httpMethod = "GET"; request.httpShouldHandleCookies = false
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let deadline = DispatchWorkItem { [weak self] in self?.finish(nil, "pending_system_timeout") }
+        self.deadline = deadline; DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)
+        session.dataTask(with: request).resume()
+    }
+    func cancel() { finish(nil, "pending_system_cancelled") }
+    private func finish(_ value: [String: Any]?, _ failure: String?) {
+        guard let completion else { return }
+        self.completion = nil; deadline?.cancel(); deadline = nil
+        let session = self.session; self.session = nil; session?.invalidateAndCancel()
+        bytes.removeAll(); response = nil; headers.removeAll()
+        completion(value, failure)
+    }
+    private func answer(_ challenge: URLAuthenticationChallenge, _ completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        // Even a publicly trusted replacement certificate must not answer a pending-name read.
+        guard completion != nil, ProcessInfo.processInfo.systemUptime - startedAt < 5, challenge.previousFailureCount == 0,
+              space.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              space.protocol?.lowercased() == "https", Self.bareHost(space.host) == host, space.port == port,
+              let trust = space.serverTrust,
+              let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first,
+              encodeURL(Data(SHA256.hash(data: SecCertificateCopyData(leaf) as Data))) == fingerprint else {
+            completionHandler(.cancelAuthenticationChallenge, nil); return
+        }
+        matchedLeaf = true
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) { answer(challenge, completionHandler) }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) { answer(challenge, completionHandler) }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil); finish(nil, "pending_system_redirect")
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard completion != nil, matchedLeaf, self.response == nil, let http = response as? HTTPURLResponse,
+              http.url?.absoluteString == url.absoluteString, !(300...399).contains(http.statusCode),
+              ProcessInfo.processInfo.systemUptime - startedAt < 5 else {
+            completionHandler(.cancel); finish(nil, "pending_system_failed"); return
+        }
+        var headers: [String: String] = [:]; var count = 0
+        for (name, value) in http.allHeaderFields {
+            let key = String(describing: name), text = String(describing: value)
+            count += key.utf8.count + text.utf8.count + 4
+            guard count <= 8192 else { completionHandler(.cancel); finish(nil, "pending_system_too_large"); return }
+            headers[key] = text
+        }
+        guard http.expectedContentLength <= Int64(8192 - count) else {
+            completionHandler(.cancel); finish(nil, "pending_system_too_large"); return
+        }
+        self.response = http; self.headers = headers; headerBytes = count
+        completionHandler(.allow)
+    }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard completion != nil else { return }
+        guard ProcessInfo.processInfo.systemUptime - startedAt < 5 else { finish(nil, "pending_system_timeout"); return }
+        guard data.count <= 8192 - headerBytes - bytes.count else { finish(nil, "pending_system_too_large"); return }
+        bytes.append(data)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard completion != nil else { return }
+        guard ProcessInfo.processInfo.systemUptime - startedAt < 5 else { finish(nil, "pending_system_timeout"); return }
+        guard error == nil, let response, let body = String(data: bytes, encoding: .utf8) else { finish(nil, "pending_system_failed"); return }
+        finish(["status": response.statusCode, "headers": headers, "body": body], nil)
+    }
+}
+
 private final class BonjourSearch: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
     let browser = NetServiceBrowser()
     let type: String
@@ -89,6 +207,7 @@ private final class BonjourSearch: NSObject, NetServiceBrowserDelegate, NetServi
 @objc(PorticoNetwork)
 final class PorticoNetwork: RCTEventEmitter, NetServiceDelegate {
     private var searches: [String: BonjourSearch] = [:]
+    private var pendingSystemRequests: [String: PendingSystemRequest] = [:]
     private var invalidated = false
     private var monitor: NWPathMonitor?
     private var listening = false
@@ -101,7 +220,7 @@ final class PorticoNetwork: RCTEventEmitter, NetServiceDelegate {
     override func supportedEvents() -> [String]! { ["portico.network"] }
     override func startObserving() { if !invalidated { listening = true } }
     override func stopObserving() { listening = false }
-    override func invalidate() { invalidated = true; listening = false; monitor?.pathUpdateHandler = nil; monitor?.cancel(); monitor = nil; for search in Array(searches.values) { search.finish("cancelled") }; searches.removeAll(); tvExpiry?.invalidate(); tvExpiry = nil; tvService?.stop(); tvService = nil; playerService?.stop(); playerService = nil; super.invalidate() }
+    override func invalidate() { invalidated = true; listening = false; monitor?.pathUpdateHandler = nil; monitor?.cancel(); monitor = nil; for request in Array(pendingSystemRequests.values) { request.cancel() }; pendingSystemRequests.removeAll(); for search in Array(searches.values) { search.finish("cancelled") }; searches.removeAll(); tvExpiry?.invalidate(); tvExpiry = nil; tvService?.stop(); tvService = nil; playerService?.stop(); playerService = nil; super.invalidate() }
 
     @objc func sha256(_ payload: String, resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
         do { resolve(encodeURL(Data(SHA256.hash(data: try decodeURL(payload))))) } catch { reject("crypto_input", "Invalid identity data.", nil) }
@@ -207,6 +326,26 @@ final class PorticoNetwork: RCTEventEmitter, NetServiceDelegate {
         if PorticoServerTrust.pin(origin, fingerprint: fingerprint, serverId: serverId) { resolve(true) } else { reject("certificate_storage", "The server's certificate could not be saved.", nil) }
     }
     @objc func forgetCertificate(_ origin: String) { PorticoServerTrust.forget(origin) }
+    @objc func forgetServerCertificates(_ serverId: String, origins: [String], resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
+        if PorticoServerTrust.forgetServerCertificates(serverId, origins: origins) { resolve(nil) }
+        else { reject("certificate_storage", "certificate_storage", nil) }
+    }
+    @objc func pendingSystemRequest(_ requestId: String, origin: String, fingerprint: String, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard !invalidated, requestId.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil,
+              let url = PendingSystemRequest.endpoint(origin), (try? decodeURL(fingerprint, count: 32)) != nil,
+              PorticoServerTrust.refused(at: origin) == fingerprint else {
+            reject("pending_system_invalid", "pending_system_invalid", nil); return
+        }
+        guard pendingSystemRequests[requestId] == nil, pendingSystemRequests.count < 2 else { reject("pending_system_busy", "pending_system_busy", nil); return }
+        let token = UUID()
+        let request = PendingSystemRequest(token: token, url: url, fingerprint: fingerprint) { [weak self] result, failure in
+            guard let self, self.pendingSystemRequests[requestId]?.token == token else { return }
+            self.pendingSystemRequests.removeValue(forKey: requestId)
+            if let result { resolve(result) } else { let code = failure ?? "pending_system_failed"; reject(code, code, nil) }
+        }
+        pendingSystemRequests[requestId] = request; request.start()
+    }
+    @objc func cancelPendingSystemRequest(_ requestId: String) { pendingSystemRequests[requestId]?.cancel() }
     @objc func pinnedCertificates(_ resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock) {
         resolve(PorticoServerTrust.allPinned())
     }

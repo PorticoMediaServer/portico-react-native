@@ -17,6 +17,9 @@ RCT_EXTERN_METHOD(refusedCertificate:(NSString *)origin resolver:(RCTPromiseReso
 RCT_EXTERN_METHOD(pinnedCertificate:(NSString *)origin resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(pinCertificate:(NSString *)origin fingerprint:(NSString *)fingerprint serverId:(NSString *)serverId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(forgetCertificate:(NSString *)origin)
+RCT_EXTERN_METHOD(forgetServerCertificates:(NSString *)serverId origins:(NSArray<NSString *> *)origins resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(pendingSystemRequest:(NSString *)requestId origin:(NSString *)origin fingerprint:(NSString *)fingerprint resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(cancelPendingSystemRequest:(NSString *)requestId)
 RCT_EXTERN_METHOD(pinnedCertificates:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(proofRequest:(NSString *)origin fingerprint:(NSString *)fingerprint body:(NSString *)body resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 @end

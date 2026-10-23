@@ -108,17 +108,21 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   NSURLProtectionSpace *space = challenge.protectionSpace;
   SecTrustRef trust = space.serverTrust;
   if (![space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] || !trust) { completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
-  // Trusted by the system for this name: exactly what happened before.
-  if (SecTrustEvaluateWithError(trust, NULL)) { completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return; }
-  NSString *key = PorticoTrustKey(space.host, space.port), *fingerprint = PorticoTrustFingerprint(trust);
+  NSString *key = PorticoTrustKey(space.host, space.port);
+  // Only genuine system/name trust clears this observation. A saved Portico pin is distinct.
+  if (SecTrustEvaluateWithError(trust, NULL)) {
+    @synchronized(self) { if (key) [PorticoTrustRefused removeObjectForKey:key]; }
+    completion(NSURLSessionAuthChallengePerformDefaultHandling, nil); return;
+  }
+  NSString *fingerprint = PorticoTrustFingerprint(trust);
   if (key && fingerprint && !PorticoTrustIsAccount(key)) {
-    NSString *pinned = [self pinnedForKey:key][@"fingerprint"];
-    if ([pinned isEqualToString:fingerprint]) { completion(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]); return; }
     @synchronized(self) {
       if (!PorticoTrustRefused) PorticoTrustRefused = [NSMutableDictionary dictionary];
       if (PorticoTrustRefused.count >= PorticoTrustMaxRefused && !PorticoTrustRefused[key]) [PorticoTrustRefused removeAllObjects];
       PorticoTrustRefused[key] = fingerprint;
     }
+    NSString *pinned = [self pinnedForKey:key][@"fingerprint"];
+    if ([pinned isEqualToString:fingerprint]) { completion(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]); return; }
   }
   completion(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
@@ -190,7 +194,6 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
     if (!pins[key] && pins.count >= PorticoTrustMaxPins) return NO;
     pins[key] = [NSString stringWithFormat:@"%@ %@", fingerprint, serverId];
     [defaults setObject:pins forKey:PorticoTrustRecord];
-    [PorticoTrustRefused removeObjectForKey:key];
   }
   return YES;
 }
@@ -215,6 +218,36 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
     if (!pins[key]) return;
     [pins removeObjectForKey:key];
     [defaults setObject:pins forKey:PorticoTrustRecord];
+  }
+}
+
++ (BOOL)forgetServerCertificates:(NSString *)serverId origins:(NSArray<NSString *> *)origins {
+  if (!PorticoTrustText(serverId, @"^srv_[A-Za-z0-9_-]{43}$") || ![origins isKindOfClass:NSArray.class] || origins.count > 128) return NO;
+  NSMutableSet<NSString *> *keys = [NSMutableSet set];
+  // Validate the entire set before changing anything. HTTP origins have no TLS pin, but can
+  // share an explicit host/port with a stored route, so their named authority is also removed.
+  for (id raw in origins) {
+    if (![raw isKindOfClass:NSString.class] || [raw length] > 2048 || [raw rangeOfCharacterFromSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].location != NSNotFound || [raw containsString:@"\\"]) return NO;
+    NSURLComponents *origin = [NSURLComponents componentsWithString:raw];
+    BOOL tls = [origin.scheme isEqualToString:@"https"], plain = [origin.scheme isEqualToString:@"http"];
+    if ((!tls && !plain) || !origin.host.length || origin.user || origin.password || origin.percentEncodedPath.length || origin.query || origin.fragment || [origin.host containsString:@"%"] || !origin.URL) return NO;
+    NSString *key = PorticoTrustKey(origin.host, origin.port ? origin.port.integerValue : (tls ? 443 : 80));
+    if (!key) return NO;
+    [keys addObject:key];
+  }
+  @synchronized(self) {
+    NSUserDefaults *defaults = PorticoTrustDefaults();
+    NSMutableDictionary *pins = [[defaults dictionaryForKey:PorticoTrustRecord] mutableCopy] ?: [NSMutableDictionary dictionary];
+    for (id key in pins.allKeys) {
+      id value = pins[key];
+      NSArray *parts = [value isKindOfClass:NSString.class] ? [value componentsSeparatedByString:@" "] : nil;
+      if ([keys containsObject:key] || (parts.count == 2 && [parts[1] isEqualToString:serverId])) [pins removeObjectForKey:key];
+    }
+    // One dictionary replacement keeps the ID/origin deletion indivisible for readers. Do not
+    // resolve the JS promise until the app-group persistent domain acknowledges the write.
+    [defaults setObject:pins forKey:PorticoTrustRecord];
+    if (![defaults synchronize]) return NO;
+    return [[defaults dictionaryForKey:PorticoTrustRecord] isEqualToDictionary:pins];
   }
 }
 
