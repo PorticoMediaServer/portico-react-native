@@ -8,6 +8,7 @@ import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchReader} from '../src-next/shell/watch-outlet.ts';
 import {resolvePlayerPresentation, playerControlsRevealDeadline} from '../src-next/platform/layout/player-presentation.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
+import {nativeWatchTVPresentation} from '../src-next/screens/watch/tv-presentation.ts';
 import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import type {NativeWatchPictureSlot} from '../src-next/screens/watch/picture-slot.tsx';
@@ -222,6 +223,7 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
     '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
     '../../platform/platformPosture': {usePlatformPosture: () => posture},
     './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+    './tv-presentation': {nativeWatchTVPresentation},
   });
   const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},
