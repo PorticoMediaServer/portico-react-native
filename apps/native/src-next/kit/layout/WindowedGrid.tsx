@@ -24,7 +24,7 @@ export type WindowedGridProps<T> = {
   stickyOffset?: number;
   overscanRows?: number;
   initialIndex?: number;
-  selection: LayoutSelection;
+  selection?: LayoutSelection;
   onVisibleRange?: (first: number, last: number) => void;
   /** Actual native contentOffset.y, including a final position within a row. */
   onScrollOffset?: (offset: number) => void;
