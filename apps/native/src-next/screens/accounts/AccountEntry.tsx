@@ -20,6 +20,7 @@ import {nativeNetworkFetch, browseNearby} from '../../platform/server-connection
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff} from '../../tv/auth';
+import {PhoneFrontDoor} from './PhoneFrontDoor';
 
 type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
@@ -201,6 +202,8 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   if (Platform.isTV && stage === 'factor') return <TVVerificationForm kind={factorKind.current} code={code} onCodeChange={setCode}
     recovery={recovery} recoveryCode={recoveryCode} onRecoveryCodeChange={setRecoveryCode} onRecoveryChange={value => {setRecovery(value); setCode(''); setRecoveryCode(''); setError(undefined);}}
     busy={busy} error={status} onSubmit={value => {void run(() => submitTVFactor(value));}} onBack={back}/>;
+  if (stage === 'welcome' && theme.platform === 'phone') return <PhoneFrontDoor busy={busy} error={status}
+    onPortico={() => {void run(portico);}} onLocal={() => {if (!busy) setStage('address');}}/>;
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;

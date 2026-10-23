@@ -4,10 +4,32 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
 
 let connection: object | undefined;
+type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; dispose: () => void}>;
+type SharedDevice = {lease: DownloadDeviceLease; references: number};
+const authorities = new WeakMap<NativeShellBootstrapContext, WeakMap<typeof offlineDownloads, SharedDevice>>();
 
-/** The genuine singleton is connected once for this screen authority, never
- * replaced by server preparations or a second native-file store. */
-export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads) {
+/** Saved and Downloads borrow one connection for their actual bootstrap authority.
+ * Opening the Downloads route must not retire the still-mounted Saved hub. */
+export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads): DownloadDeviceLease {
+  let devices = authorities.get(context);
+  if (!devices) {devices = new WeakMap(); authorities.set(context, devices);}
+  const pool = devices;
+  let shared = pool.get(device);
+  if (!shared) {shared = {lease: connectNativeDownloadsDevice(context, device), references: 0}; pool.set(device, shared);}
+  const current = shared;
+  current.references++;
+  let released = false;
+  return Object.freeze({device: current.lease.device, dispose: () => {
+    if (released) return;
+    released = true;
+    if (--current.references !== 0) return;
+    if (pool.get(device) === current) pool.delete(device);
+    current.lease.dispose();
+  }});
+}
+
+/** Native files remain in the genuine singleton; the server prepares receipts only. */
+function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, device: typeof offlineDownloads): DownloadDeviceLease {
   const lifetime = nativeDestinationLifetime(context), viewer = context.session()!.viewer;
   const owner = {}, abort = new AbortController(); let alive = true;
   const current = () => alive && lifetime.current() && connection === owner;

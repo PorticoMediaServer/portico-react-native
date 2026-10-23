@@ -6,7 +6,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 const parts={
  'player-core':['src','test','scripts','package.json','tsconfig.json'],
- 'client-core':['src','package.json','tsconfig.json'],
+ 'client-core':['src','test/fixtures/channel-tint-vectors.json','package.json','tsconfig.json'],
  contracts:['src','package.json'],design:['src','package.json','COMPONENTS.md','LICENSE-LUCIDE'],
  i18n:['src','scripts','baselines','package.json'],
 };
@@ -28,6 +28,19 @@ test('sync writes the complete player package and locks the exact committed cano
 });
 test('check rejects missing, edited and extra player files, and write repairs byte-for-byte drift',t=>{
  const f=fixture(t);assert.equal(f.run('--write').status,0);const file=path.join(f.native,'packages/player-core/src/fixture.ts');rmSync(file);assert.notEqual(f.run('--check').status,0);assert.equal(f.run('--write').status,0);writeFileSync(file,'changed\n');assert.notEqual(f.run('--check').status,0);assert.equal(f.run('--write').status,0);writeFileSync(path.join(path.dirname(file),'extra.ts'),'extra');assert.notEqual(f.run('--check').status,0);assert.equal(f.run('--write').status,0);assert.equal(f.run('--check').status,0);
+});
+test('sync includes only the canonical channel vectors from the client test tree and checks their exact bytes',t=>{
+ const f=fixture(t),relative='packages/client-core/test/fixtures/channel-tint-vectors.json';
+ mkdirSync(path.join(f.server,'packages/client-core/test/private'),{recursive:true});
+ writeFileSync(path.join(f.server,'packages/client-core/test/private/unrelated.test.ts'),'not a mirrored input\n');
+ f.git('add','.');f.git('commit','-qm','Record an unrelated client test fixture.');
+ assert.equal(f.run('--write').status,0);
+ const file=path.join(f.native,relative);
+ assert.equal(readFileSync(file,'utf8'),readFileSync(path.join(f.server,relative),'utf8'));
+ assert.equal(existsSync(path.join(f.native,'packages/client-core/test/private')),false);
+ rmSync(file);assert.notEqual(f.run('--check').status,0);assert.equal(f.run('--write').status,0);
+ writeFileSync(file,'[]\n');assert.notEqual(f.run('--check').status,0);
+ assert.equal(f.run('--write').status,0);assert.equal(f.run('--check',{CI:'1'}).status,0);
 });
 test('write refuses dirty or untracked player source; CI rejects a server commit different from the lock',t=>{
  const f=fixture(t);assert.equal(f.run('--write').status,0);const source=path.join(f.server,'packages/player-core/src/fixture.ts');writeFileSync(source,'changed\n');const dirty=f.run('--write');assert.notEqual(dirty.status,0);assert.match(dirty.stderr,/uncommitted changes/);f.git('checkout','--',source);writeFileSync(path.join(path.dirname(source),'new.ts'),'new');assert.notEqual(f.run('--write').status,0);f.git('add','.');f.git('commit','-qm','Record an additional shared fixture file.');assert.notEqual(f.run('--check',{CI:'1'}).status,0);assert.equal(f.run('--write').status,0);assert.equal(f.run('--check',{CI:'1'}).status,0);
