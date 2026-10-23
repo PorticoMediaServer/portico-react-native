@@ -21,6 +21,7 @@ export function TVCodePresenter(props: TVCodePresenterProps) {
 }
 function CodePresenter(props: TVCodePresenterProps) {
   const theme = useTheme(), id = `tv.auth.${props.mode}.code`, t = defaultI18n.t, material = glassRecipe();
+  const address = props.verificationUri ? new URL(props.verificationUri) : undefined;
   useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: 0}, {regionId: id, childId: 'credentials'});
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400, lineHeight = 1.45) => nativeType({size, weight, tracking: 0, lineHeight: size * lineHeight}, theme.textScale);
   const aside = <View style={{position: 'absolute', right: 140, top: 0, bottom: 0, width: 720, justifyContent: 'center'}}>
@@ -32,7 +33,7 @@ function CodePresenter(props: TVCodePresenterProps) {
       {props.verificationUriComplete && <View style={{width: 300, height: 300, padding: 20, marginBottom: 34, borderRadius: 20, backgroundColor: theme.colors.white}}>
         <QRCode value={props.verificationUriComplete} size={260}/>
       </View>}
-      <Text selectable style={[type(30, 700), {color: theme.colors.textSecondary}]}>{props.verificationUri}</Text>
+      <Text selectable style={[type(30, 700), {color: theme.colors.textSecondary}]}>{address ? `${address.host}${address.pathname}` : undefined}</Text>
       <Text selectable style={[type(90, 800, 1.05), {color: theme.colors.text, letterSpacing: 3.6, marginTop: 10, marginBottom: 16}]}>{props.userCode ?? t('activation.preparingCode')}</Text>
       <Text style={[type(21), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('activation.codeRefreshes')}</Text>
     </View>
