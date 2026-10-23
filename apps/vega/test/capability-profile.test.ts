@@ -22,6 +22,15 @@ test('with nothing asked of the device, the declared table is the document', () 
   assert.deepEqual(document.engines.native.video?.map(v => v.codec), ['h264', 'hevc']);
 });
 
+test('missing or unknown system identity is omitted without inventing a model', () => {
+  for (const model of [undefined, '', '   ', 'unknown', ' UNKNOWN ', 'x'.repeat(65)]) {
+    const document = vegaCapabilityDocument({model});
+    assert.equal(capabilityDocumentProblem(document), null);
+    assert.equal(document.client.model, undefined);
+  }
+  assert.equal(vegaCapabilityDocument({model: ' AFTKRT '}).client.model, 'AFTKRT');
+});
+
 test('one engine, text subtitles only, no track switching inside a file, no HDR', () => {
   for (const origin of ['https://media.example.test', 'http://192.168.1.20:32500', null]) {
     const native = vegaCapabilityDocument(facts, origin).engines.native;

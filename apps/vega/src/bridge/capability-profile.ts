@@ -45,7 +45,10 @@ export function vegaCapabilityDocument(facts: VegaFacts | null, origin: string |
 }
 
 function vegaDocument(facts: VegaFacts | null, origin: string | null, overrides: CapabilityOverrides, probed: CapabilityDocument | null): CapabilityDocument {
-  const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: facts?.model});
+  const model = typeof facts?.model === 'string' ? facts.model.trim() : '';
+  // A missing platform answer is not a model name. Keep the actual system value only.
+  const observedModel = model && model.length <= 64 && model.toLowerCase() !== 'unknown' ? model : undefined;
+  const declared = vegaDeclaredProfile({osVersion: facts?.osVersion, model: observedModel});
   if (facts?.appVersion) declared.client.appVersion = facts.appVersion;
   const table = declared.engines.native, asked = probed?.engines.native;
   const base: EngineCapabilities = asked
