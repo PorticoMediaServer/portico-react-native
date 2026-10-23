@@ -186,18 +186,18 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 #pragma mark Adoption
 
 - (BOOL)adopt:(NSDictionary *)context error:(NSError **)error {
- if(_invalidated||!V1Dictionary(context)){if(error)*error=ListeningError(@"Playback owner is closed or invalid.");return NO;}
+ if(_invalidated||!V1Dictionary(context)){if(error)*error=ListeningError(@"listening_owner_invalid");return NO;}
  NSString *origin=context[@"origin"],*token=context[@"accessToken"],*owner=context[@"owner"],*principal=context[@"principalKey"];
  NSURLComponents *url=Text(origin)?[NSURLComponents componentsWithString:origin]:nil;
  BOOL local=[@[@"localhost",@"127.0.0.1",@"[::1]",@"::1"] containsObject:url.host];
  NSDictionary *transport=V1Dictionary(context[@"transport"]);
  BOOL verifiedTransport=transport&&ListeningBool(transport[@"ready"])&&ListeningNumber(transport[@"revision"],0,9007199254740991.0,YES);
- if(!url.host.length||url.user||url.password||url.query||url.fragment||url.path.length||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&(local||verifiedTransport)))||!WireID(owner)||!Text(token)||[token rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location!=NSNotFound||!Text(principal)||[principal length]>2048){if(error)*error=ListeningError(@"Invalid listening authority.");return NO;}
+ if(!url.host.length||url.user||url.password||url.query||url.fragment||url.path.length||(![url.scheme isEqual:@"https"]&&!([url.scheme isEqual:@"http"]&&(local||verifiedTransport)))||!WireID(owner)||!Text(token)||[token rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location!=NSNotFound||!Text(principal)||[principal length]>2048){if(error)*error=ListeningError(@"listening_authority_invalid");return NO;}
  NSDictionary *session=context[@"session"];
- if(!V1Session(session)){if(error)*error=ListeningError(@"Invalid v1 audio session.");return NO;}
+ if(!V1Session(session)){if(error)*error=ListeningError(@"listening_session_invalid");return NO;}
  id queueId=context[@"queueId"],queueRevision=context[@"queueRevision"];
- if(queueId!=NSNull.null&&queueId&&(!V1ID(queueId)||!V1Revision(queueRevision))){if(error)*error=ListeningError(@"Invalid listening queue.");return NO;}
- if(!ListeningNumber(context[@"lastSeq"],0,9007199254740991.0,YES)||!ListeningNumber(context[@"leaseMs"],0,120000,NO)||!ListeningNumber(context[@"durationSeconds"],0,1e9,NO)||![@[@"playing",@"paused"] containsObject:context[@"intent"]]||!ListeningBool(context[@"transitions"])){if(error)*error=ListeningError(@"Invalid listening handover.");return NO;}
+ if(queueId!=NSNull.null&&queueId&&(!V1ID(queueId)||!V1Revision(queueRevision))){if(error)*error=ListeningError(@"listening_queue_invalid");return NO;}
+ if(!ListeningNumber(context[@"lastSeq"],0,9007199254740991.0,YES)||!ListeningNumber(context[@"leaseMs"],0,120000,NO)||!ListeningNumber(context[@"durationSeconds"],0,1e9,NO)||![@[@"playing",@"paused"] containsObject:context[@"intent"]]||!ListeningBool(context[@"transitions"])){if(error)*error=ListeningError(@"listening_handover_invalid");return NO;}
  if(_owner)[self retire:_owner stop:NO];
  _owner=[owner copy];_origin=[origin copy];_token=[token copy];_journalKey=[@"listening-v1:" stringByAppendingString:principal];
  _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_end=nil;_queueHeader=nil;
@@ -219,12 +219,12 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   _prepared=@{@"token":journal[@"commit"][@"token"],@"expiresAtMs":@(Wall()*1000+30000),@"entryId":@"",@"itemId":@"",@"presentation":@{},@"recovered":@YES};_commitWanted=YES;_safetyPaused=YES;
  }
  if(V1Dictionary(journal[@"deadlines"]))for(NSString *field in @[@"sleepAtMs",@"passoutAtMs"]){id at=journal[@"deadlines"][field];if([at isKindOfClass:NSNumber.class]&&isfinite([at doubleValue])&&[at doubleValue]>Wall()*1000){_deadlines[field]=at;_deadlineMono[field]=@(Mono()+MAX(0,[at doubleValue]/1000.0-Wall()));}}
- if(context[@"policy"]&&context[@"policy"]!=NSNull.null&&![self policy:context[@"policy"] owner:_owner]){if(error)*error=ListeningError(@"Invalid listening policy.");[self retire:_owner stop:NO];return NO;}
- if(![self persist]){if(error)*error=ListeningError(@"Listening journal could not be saved.");[self retire:_owner stop:NO];return NO;}
+ if(context[@"policy"]&&context[@"policy"]!=NSNull.null&&![self policy:context[@"policy"] owner:_owner]){if(error)*error=ListeningError(@"listening_policy_invalid");[self retire:_owner stop:NO];return NO;}
+ if(![self persist]){if(error)*error=ListeningError(@"listening_storage_unavailable");[self retire:_owner stop:NO];return NO;}
  if (@available(iOS 15.0, tvOS 15.0, *)) { [[AVAudioSession sharedInstance] setSupportsMultichannelContent:YES error:nil]; }
  NSError *audioError=nil;[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault routeSharingPolicy:AVAudioSessionRouteSharingPolicyLongFormAudio options:0 error:&audioError];if(audioError){audioError=nil;[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault options:0 error:&audioError];}
  if(audioError){_error=@"audio_session_unavailable";_safetyPaused=YES;}
- if(transport&&![self route:transport owner:_owner]){if(error)*error=ListeningError(@"Invalid verified transport.");[self retire:_owner stop:NO];return NO;}
+ if(transport&&![self route:transport owner:_owner]){if(error)*error=ListeningError(@"listening_transport_invalid");[self retire:_owner stop:NO];return NO;}
  [self installRemoteCommands];[self apply];[self emit];[self loadCurrentMetadata];
  __weak PorticoListeningSessionOwner *weakSelf=self;
  _timer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer){[weakSelf tick];}];[NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];[self tick];return YES;
