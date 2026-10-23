@@ -19,17 +19,22 @@ const common = {'../../../../../packages/i18n/src': {defaultI18n}, '../../kit/th
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}};
 
 for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use secure platform fields/autofill and only the owner's Submit/Back callbacks`, async () => {
-  const h = hooks(), focused: unknown[] = [], events: string[] = [];
+  const focused: unknown[] = [], events: string[] = [];
   const {TVCredentialForm} = await screenModule(new URL('../src-next/tv/auth/TVCredentialForm.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', TextInput: 'TextInput', View: 'View'},
+    ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', TextInput: 'TextInput', View: 'View'},
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region', useFocusRegistry: () => ({focus: (address: unknown) => focused.push(address)}),
       useFocusTarget: () => ({onFocus() {}, onBlur() {}})},
   });
   const props = {kind, serverName: 'Actual local server', username: 'actual-user', password: 'in-memory-only', busy: false,
     usernamePlaceholder: 'auth.email', onUsernameChange() {}, onPasswordChange() {}, onSubmit: () => events.push('submit'), onBack: () => events.push('back')};
-  const tree = h.render(() => inScope(TVCredentialForm, props));
+  let tree: any, username: any, password: any;
+  const root = createHookHost(() => {tree = inScope(TVCredentialForm, props);});
+  await act(() => root.mount());
   const fields = nodes(tree).filter(node => typeof node.type === 'function');
-  const username = h.render(() => fields[0].type(fields[0].props)), password = h.render(() => fields[1].type(fields[1].props));
+  const usernameHost = createHookHost(() => {username = fields[0].type(fields[0].props);});
+  const passwordHost = createHookHost(() => {password = fields[1].type(fields[1].props);});
+  await act(() => {usernameHost.mount(); passwordHost.mount();});
+  try {
   const input = (node: unknown) => nodes(node).find(value => value.type === 'TextInput');
   assert.equal(input(username).props.textContentType, 'username');
   assert.equal(input(username).props.autoComplete, 'username');
@@ -40,7 +45,7 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   assert.equal(input(password).props.showSoftInputOnFocus, undefined, 'the platform keyboard is not suppressed');
   assert.equal(input(password).props.focusable, false, 'native entry begins only after OK on the drawn field');
   assert.ok(nodes(password).some(node => node.type === 'Focusable' && typeof node.props.onPress === 'function'));
-  input(username).props.onSubmitEditing(); input(password).props.onSubmitEditing();
+  await act(() => {input(username).props.onSubmitEditing(); input(password).props.onSubmitEditing();});
   assert.deepEqual(focused, [{regionId: `tv.auth.${kind}.credentials`, childId: 'password'}, {regionId: `tv.auth.${kind}.credentials`, childId: 'submit'}]);
   const buttons = nodes(tree).filter(node => node.type === 'Button');
   assert.equal(buttons.length, 2, 'no provider/signup/forgot-password controls are added');
@@ -49,9 +54,10 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   assert.equal(tree.props.portico, kind === 'portico', 'only Portico Account renders legal terms');
   assert.equal(tree.props.body, defaultI18n.t(kind === 'local' ? 'auth.direct.lead' : 'auth.accountLead'));
   props.busy = true;
-  const blocked = h.render(() => inScope(TVCredentialForm, props));
-  nodes(blocked).find(node => node.type === 'Button' && node.props.focusId === 'submit').props.onPress();
+  await act(() => root.rerender());
+  nodes(tree).find(node => node.type === 'Button' && node.props.focusId === 'submit').props.onPress();
   assert.deepEqual(events, ['submit', 'back']);
+  } finally {passwordHost.unmount(); usernameHost.unmount(); root.unmount();}
 });
 
 test('both actual TV code modes expose the drawn credential route without starting a transaction', async () => {
