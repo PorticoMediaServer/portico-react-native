@@ -228,7 +228,7 @@ test('Discover uses the actual section continuation and retires it with the curr
     assert.deepEqual(destination.getSnapshot().discover.appended[0]?.entries.map(entry => entry.id), ['first', 'second', 'third']);
     const cursor = new URL(calls[1], 'https://test.invalid');
     assert.equal(cursor.searchParams.get('cursor'), 'real-continuation');
-    assert.equal(cursor.searchParams.get('sectionId'), 'real-section');
+    assert.equal(cursor.searchParams.has('sectionId'), false, 'the canonical producer carries the section in its opaque cursor, without an invented query parameter');
     const beforeEnd = calls.length; await destination.nextDiscover('real-section');
     assert.equal(calls.length, beforeEnd, 'the actual exhausted cursor stops paging');
     await destination.load('browse');
