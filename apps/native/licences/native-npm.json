@@ -84,6 +84,18 @@
     "url": "https://github.com/software-mansion/react-native-svg"
   },
   {
+    "name": "react-native-webview",
+    "version": "16.0.0",
+    "platforms": [
+      "android",
+      "apple"
+    ],
+    "licence": "MIT",
+    "licenceFile": "LICENSE",
+    "licenceSHA256": "22a28f29cff8f5ecf9f463301d9c03b8245a2952ebae0bcab633fd654c0792fb",
+    "url": "https://github.com/react-native-webview/react-native-webview"
+  },
+  {
     "name": "react-native-worklets",
     "version": "0.12.2",
     "platforms": [
