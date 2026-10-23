@@ -995,6 +995,9 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
         if (phone) {
           assert.match(content, /Playlist and collection entries and saved places go too\./);
           assert.doesNotMatch(content, /Actual target|Artwork actual-|12 playlists/);
+          const toggle = ofType(dialog.tree, Switch)[0]!;
+          assert.ok(toggle.props.accessibilityHint, 'the real removal consequence remains available to accessibility');
+          assert.equal(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), false, 'the compact bulk frame omits the separate removal helper');
         } else {
           assert.match(content, /Actual target 0/);
           assert.match(content, /Actual target 4/);
@@ -1013,6 +1016,8 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
           dialog.update({...props, preview: other});
           assert.match(text(dialog.tree), /2 scheduled library channel slots/);
           assert.doesNotMatch(text(dialog.tree), /Playlist and collection entries and saved places go too/);
+          const toggle = ofType(dialog.tree, Switch)[0]!;
+          assert.ok(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), 'other dependency previews retain the existing helper');
         }
       } finally {dialog.host.unmount();}
     }
