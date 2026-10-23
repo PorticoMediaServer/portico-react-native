@@ -1,6 +1,7 @@
 #import "PorticoAudioRender.h"
 #import "PorticoServerTrust.h"
 #import "PorticoAudioProcessing.h"
+#import "PorticoEqualizer.h"
 #import "PorticoAudioCapture.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -934,11 +935,12 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 #endif
  facts[@"supportedRates"]=[_primary.plan[@"channels"] unsignedIntegerValue]>2?@[@1]:facts[@"supportedRates"];
  facts[@"audioPath"]=[PorticoAudioProcessing.shared snapshot];
+ facts[@"eqApplied"]=@(_active&&PorticoEqualizerApplied(_primary.equalizer,_engine));
+ facts[@"levelingApplied"]=@(_active&&![_command[@"audioRender"][@"settings"][@"normalization"] isEqual:@"off"]);
  double frames=[_primary.plan[@"durationFrames"] doubleValue],rate=[_primary.plan[@"sampleRate"] doubleValue],bytes=[_primary.plan[@"bytes"] doubleValue];
  if(frames>0&&rate>0&&bytes>0)facts[@"containerAverageBitrateBps"]=@(llround(bytes*8*rate/frames));
  facts[@"sourceSampleRate"]=_primary.plan[@"sampleRate"]?:@0;facts[@"sourceChannels"]=_primary.plan[@"channels"]?:@0;
  facts[@"appliedGainLinear"]=@(_primary?_primary.gain:1);
- facts[@"bitExactEligible"]=@(_primary&&fabs(_primary.gain-1)<.000001&&fabs(_rate-1)<.000001&&![facts[@"audioPath"][@"eqEnabled"] boolValue]&&[facts[@"audioPath"][@"sampleRateMatched"] boolValue]&&[_primary.plan[@"bitDepth"] doubleValue]>0&&[_primary.plan[@"bitDepth"] doubleValue]<=24);
  return facts;
 }
 - (void)dealloc {[_timer invalidate];[self reset];[NSNotificationCenter.defaultCenter removeObserver:self];}

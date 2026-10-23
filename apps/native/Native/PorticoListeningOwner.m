@@ -356,7 +356,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(_startPending){[self startPendingEntry];return;}
  if(_patchWanted){[self patch];return;}
  if(_actions.count){[self runAction];return;}
- if(_prepared&&!_committed&&[_prepared[@"expiresAtMs"] doubleValue]<=Wall()*1000){[self dropPrepared:@"The next track wasn’t ready in time; it plays normally."];return;}
+ if(_prepared&&!_committed&&[_prepared[@"expiresAtMs"] doubleValue]<=Wall()*1000){[self dropPrepared:@"audio_transition_unavailable"];return;}
  if(_reportNow||Mono()>=_nextReport){[self report];return;}
  [self maybePrepare];
 }
@@ -578,7 +578,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   // No answer came: the commit may have landed. Keep its token; the track ends as usual, and
   // the token is replayed before any :advance (or when the old session reads as completed).
   if(_commitTries>1)_lostCommit=@{@"token":prepared[@"token"],@"queueId":_queue[@"id"]?:@""};
-  _commitWanted=NO;[self dropPrepared:@"The next track plays normally."];return;}
+  _commitWanted=NO;[self dropPrepared:@"audio_transition_unavailable"];return;}
  // Whether the edge is gapless (same album) or a crossfade is decided when it's committed, so
  // the commit waits for the album answer while there's time; after that it crossfades.
  if(!recovered&&[_albumFor isEqual:prepared[@"token"]]&&remaining>1.5){_commitTries--;return;}
@@ -600,7 +600,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
    [self persist];[self apply];[self emit];return;
   }
   // 410 prepared_expired, 409 prepared_canceled, 404: finish this track, then advance as usual.
-  self->_commitWanted=NO;self->_lostCommit=nil;[self dropPrepared:[V1ErrorCode(value) isEqual:@"prepared_expired"]?@"The next track wasn’t ready in time; it plays normally.":@"The next track plays normally."];
+  self->_commitWanted=NO;self->_lostCommit=nil;[self dropPrepared:@"audio_transition_unavailable"];
   if(recovered){self->_safetyPaused=NO;[self apply];}
  }];
 }
@@ -835,12 +835,15 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (NSDictionary *)makeSnapshot {
  NSMutableDictionary *snapshot=[[_controller listeningSnapshot] mutableCopy];
  NSDictionary *heard=[self heard],*binding=V1Dictionary(snapshot[@"binding"]);
- if(![binding[@"sessionId"] isEqual:heard[@"id"]]||![binding[@"generation"] isEqual:heard[@"presentation"][@"generation"]]){snapshot[@"binding"]=NSNull.null;snapshot[@"ready"]=@NO;snapshot[@"observed"]=@NO;}
+ BOOL currentBinding=[binding[@"sessionId"] isEqual:heard[@"id"]]&&[binding[@"generation"] isEqual:heard[@"presentation"][@"generation"]];
+ if(!currentBinding){snapshot[@"binding"]=NSNull.null;snapshot[@"ready"]=@NO;snapshot[@"observed"]=@NO;}
  else snapshot[@"binding"]=@{@"lease":binding[@"lease"],@"intentId":binding[@"intentId"],@"sessionId":heard[@"id"],@"generation":heard[@"presentation"][@"generation"],@"itemId":heard[@"itemId"]};
  snapshot[@"owner"]=_owner;snapshot[@"sequence"]=@(_sequence);
  snapshot[@"session"]=heard;snapshot[@"durationSeconds"]=@(_audible?_audibleDuration:_duration);snapshot[@"lastSeq"]=@(_audible?_audibleSeq:_seq);
  snapshot[@"queue"]=_queue?[_queue copy]:NSNull.null;
  snapshot[@"intent"]=(_safetyPaused||_interrupted||_ended||(![self allowed]&&Mono()>=_leaseUntil))?@"paused":_intent;
+ snapshot[@"eqApplied"]=@(currentBinding&&[snapshot[@"eqApplied"] boolValue]);
+ snapshot[@"levelingApplied"]=@(currentBinding&&[snapshot[@"levelingApplied"] boolValue]);
  snapshot[@"rate"]=@(_rate);snapshot[@"ended"]=@(_ended);snapshot[@"terminal"]=@(_terminal);snapshot[@"error"]=_error?:NSNull.null;
  snapshot[@"deadlines"]=[_deadlines copy];snapshot[@"timerStopped"]=@(_timerStopped);snapshot[@"expiredTimerRevision"]=@(_expiredTimerRevision);snapshot[@"policyRevision"]=_policy[@"revision"]?:@0;
  NSString *notice=_notice?:([self effectsWanted]?[_render notice:heard[@"presentation"]]:nil);if(notice)snapshot[@"noticeCode"]=notice;

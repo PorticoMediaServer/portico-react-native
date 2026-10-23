@@ -102,7 +102,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   NSString *itemId = raw[@"itemId"], *title = raw[@"title"];
   if (!PorticoSMText(itemId, 128) || ![itemId length] || !PorticoSMText(title, 512) || ![title length]) return nil;
   NSMutableDictionary *out = [@{@"itemId": itemId, @"title": title} mutableCopy];
-  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"seriesTitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024};
+  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024};
   for (NSString *key in limits) if (PorticoSMText(raw[key], limits[key].unsignedIntegerValue) && [raw[key] length]) out[key] = raw[key];
   out[@"durationSeconds"] = PorticoSMNumber(raw[@"durationSeconds"]) && [raw[@"durationSeconds"] doubleValue] > 0 ? raw[@"durationSeconds"] : @0;
   out[@"live"] = @([raw[@"live"] boolValue]);
@@ -181,8 +181,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   BOOL live = [_info[@"live"] boolValue];
   NSMutableDictionary *now = [NSMutableDictionary new];
   now[MPMediaItemPropertyTitle] = _info[@"title"];
-  if (_info[@"seriesTitle"]) now[MPMediaItemPropertyArtist] = _info[@"seriesTitle"];
-  if (_info[@"subtitle"]) now[MPMediaItemPropertyAlbumTitle] = _info[@"subtitle"];
+  if (_info[@"subtitle"]) now[MPMediaItemPropertyArtist] = _info[@"subtitle"];
   now[MPNowPlayingInfoPropertyMediaType] = @(MPNowPlayingInfoMediaTypeVideo);
   now[MPNowPlayingInfoPropertyIsLiveStream] = @(live);
   now[MPNowPlayingInfoPropertyExternalContentIdentifier] = _info[@"itemId"];

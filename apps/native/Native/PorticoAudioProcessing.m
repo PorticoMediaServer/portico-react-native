@@ -4,6 +4,7 @@
 
 NSNotificationName const PorticoAudioProcessingChanged=@"PorticoAudioProcessingChanged";
 static BOOL EQNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)n)!=CFBooleanGetTypeID()&&isfinite([n doubleValue])&&[n doubleValue]>=lo&&[n doubleValue]<=hi;}
+static BOOL EQStep(id n){return EQNumber(n,-12,12)&&fabs([n doubleValue]*2-round([n doubleValue]*2))<.000001;}
 static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"PorticoAudio" code:1 userInfo:@{NSLocalizedDescriptionKey:message}];}
 
 @implementation PorticoAudioProcessing {
@@ -19,7 +20,7 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
   NSURL *file=[dir URLByAppendingPathComponent:@"app-equalizer.sqlite3"];
   if(sqlite3_open_v2(file.fileSystemRepresentation,&_db,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,NULL)==SQLITE_OK){
    sqlite3_busy_timeout(_db,1500);char *error=NULL;
-   int result=sqlite3_exec(_db,"PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS app_equalizer (singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton=1), enabled INTEGER NOT NULL CHECK(enabled IN(0,1)), preamp REAL NOT NULL CHECK(preamp BETWEEN -24 AND 12)); CREATE TABLE IF NOT EXISTS app_equalizer_band (band INTEGER PRIMARY KEY NOT NULL CHECK(band BETWEEN 0 AND 9), gain REAL NOT NULL CHECK(gain BETWEEN -12 AND 12));",NULL,NULL,&error);
+   int result=sqlite3_exec(_db,"PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS app_equalizer (singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton=1), enabled INTEGER NOT NULL CHECK(enabled IN(0,1)), preamp REAL NOT NULL CHECK(preamp BETWEEN -12 AND 12)); CREATE TABLE IF NOT EXISTS app_equalizer_band (band INTEGER PRIMARY KEY NOT NULL CHECK(band BETWEEN 0 AND 9), gain REAL NOT NULL CHECK(gain BETWEEN -12 AND 12));",NULL,NULL,&error);
    if(result!=SQLITE_OK){sqlite3_free(error);sqlite3_close(_db);_db=NULL;}
   }else{if(_db)sqlite3_close(_db);_db=NULL;}
   [file setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
@@ -36,7 +37,8 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
  sqlite3_finalize(stmt);stmt=NULL;
  if(sqlite3_prepare_v2(_db,"SELECT band,gain FROM app_equalizer_band ORDER BY band",-1,&stmt,NULL)==SQLITE_OK){
   int count=0;while(sqlite3_step(stmt)==SQLITE_ROW){int band=sqlite3_column_int(stmt,0);if(band>=0&&band<10){_bands[band]=(float)sqlite3_column_double(stmt,1);count++;}}
-  if(count!=10){_enabled=NO;_preamp=0;memset(_bands,0,sizeof(_bands));}
+  BOOL valid=count==10&&EQStep(@(_preamp));for(int i=0;i<10;i++)valid=valid&&EQStep(@(_bands[i]));
+  if(!valid){_enabled=NO;_preamp=0;memset(_bands,0,sizeof(_bands));}
  }sqlite3_finalize(stmt);
 }
 - (void)routeChanged:(NSNotification *)note {
@@ -45,8 +47,8 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
 }
 - (BOOL)setEqualizer:(NSDictionary *)settings error:(NSError **)error {
  NSArray *bands=[settings[@"bands"] isKindOfClass:NSArray.class]?settings[@"bands"]:nil;
- id enabled=settings[@"enabled"];BOOL valid=[enabled isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)enabled)==CFBooleanGetTypeID()&&EQNumber(settings[@"preampDb"],-24,12)&&bands.count==10;
- for(id gain in bands)valid=valid&&EQNumber(gain,-12,12);
+ id enabled=settings[@"enabled"];BOOL valid=[enabled isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)enabled)==CFBooleanGetTypeID()&&EQStep(settings[@"preampDb"])&&bands.count==10;
+ for(id gain in bands)valid=valid&&EQStep(gain);
  for(NSString *key in settings)valid=valid&&[@[@"enabled",@"preampDb",@"bands"] containsObject:key];
  if(!valid){if(error)*error=EQError(@"audio_equalizer_invalid");return NO;}
  if(!_db){if(error)*error=EQError(@"audio_equalizer_storage_unavailable");return NO;}

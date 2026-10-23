@@ -57,6 +57,15 @@ RCT_REMAP_METHOD(configure, configure:(NSString *)baseUrl token:(NSString *)toke
 #endif
  resolve(nil);
 }
+/** The extension follows the resolved app catalogue, independent of the system locale. */
+RCT_EXPORT_METHOD(setLocale:(NSString *)tag) {
+#if TARGET_OS_TV
+ if(![tag isKindOfClass:NSString.class]||!tag.length||tag.length>64||[tag rangeOfString:@"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$" options:NSRegularExpressionSearch].location==NSNotFound)return;
+ NSUserDefaults *defaults=[[NSUserDefaults alloc]initWithSuiteName:PorticoTopShelfGroup];
+ if([[defaults stringForKey:@"topshelf.locale"] isEqualToString:tag])return;
+ [defaults setObject:tag forKey:@"topshelf.locale"];[TVTopShelfContentProvider topShelfContentDidChange];
+#endif
+}
 RCT_REMAP_METHOD(expiresAt, expiresAtWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
  NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:PorticoTopShelfGroup];
 #if TARGET_OS_TV
