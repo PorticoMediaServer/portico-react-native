@@ -65,17 +65,27 @@ test('Android phone glass owns every face foreground while one original Focusabl
     assert.equal(focus.props.focusRadius, 13); assert.equal(focus.props.focusInset, true); assert.equal(focus.props.accessibilityRole, 'button');
     assert.deepEqual(focus.props.accessibilityState, {selected: true, busy: loading}); assert.equal(focus.props.disabled, loading);
     const face: Element = focus.props.children(state), nodes = elements(face);
-    assert.equal(face.type, 'BlurView', 'the entire face is one skipped capture subtree');
-    assert.equal(face.props.pointerEvents, 'none'); assert.equal(face.props.overlayColor, 'transparent');
+    assert.equal(face.type, 'View', 'a native RN View clips the rounded face');
+    assert.equal(face.props.pointerEvents, 'none');
+    const blur = face.props.children as Element;
+    assert.equal(blur.type, 'BlurView'); assert.equal(blur.props.overlayColor, 'transparent');
+    const layout = blur.props.children as Element;
+    assert.equal(layout.type, 'View'); assert.equal(layout.props.collapsable, false, 'FrameLayout gets one real full-face RN layout child');
+    assert.deepEqual(elements(blur).filter(node => node.type === 'Text'), nodes.filter(node => node.type === 'Text'), 'all face foreground stays inside the skipped capture subtree');
     assert.equal(nodes.filter(node => node.type === 'BlurView').length, 1);
     assert.equal(nodes.filter(node => node.type === 'Text').length, 2, 'label and remaining are drawn once');
     assert.equal(nodes.filter(node => node.type === 'ActivityIndicator').length, loading ? 1 : 0);
     assert.equal(nodes.filter(node => node.type === 'Icon').length, loading ? 1 : 2, 'trailing glyph and current leading slot remain inside');
     assert.ok(nodes.some(node => flatten(node.props.style).width === '40%'), 'edge progress is inside the skipped subtree');
-    const outer = flatten(focus.props.style(state)), inner = flatten(face.props.style);
+    const outer = flatten(focus.props.style(state)), clip = flatten(face.props.style), inner = flatten(layout.props.style);
     assert.equal(outer.height, 50); assert.equal(outer.maxWidth, 250); assert.equal(outer.borderRadius, 11); assert.equal(outer.paddingHorizontal, 0); assert.equal(outer.paddingRight, 0); assert.equal(outer.backgroundColor, 'transparent');
-    assert.equal(inner.paddingHorizontal, 23); assert.equal(inner.paddingRight, 9); assert.equal(inner.borderRadius, 11); assert.equal(inner.backgroundColor, '#ff000029');
-    assert.equal(inner.alignSelf, 'stretch'); assert.equal(inner.flexGrow, 1); assert.equal(inner.flexShrink, 1); assert.equal(inner.overflow, 'hidden');
+    assert.equal(clip.borderRadius, 11); assert.equal(clip.overflow, 'hidden');
+    assert.equal(inner.paddingHorizontal, 23); assert.equal(inner.paddingRight, 9); assert.equal(inner.backgroundColor, '#ff000029');
+    for (const element of [face, blur, layout]) {
+      const geometry = flatten(element.props.style);
+      assert.equal(geometry.alignSelf, 'stretch'); assert.equal(geometry.flexGrow, 1); assert.equal(geometry.flexShrink, 1);
+    }
+    assert.equal(inner.alignItems, 'center'); assert.equal(inner.justifyContent, 'center');
     assert.ok(nodes.some(node => flatten(node.props.style).gap === 7));
   }
 });

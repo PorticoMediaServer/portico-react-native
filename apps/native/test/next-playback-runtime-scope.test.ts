@@ -54,3 +54,15 @@ test('an operation guard checks every dispatch and rejects late responses after 
   finish({status: 204, headers: {}}); assert.equal((await next).status, 204);
   http.dispose();
 });
+
+test('a retired response is available only to owner cleanup and still rejects the original caller', async () => {
+  let finish!: (response: V1Response) => void;
+  const observed: unknown[] = [], controller = new AbortController();
+  const http = new PlaybackScopeHttp({send: () => new Promise(resolve => {finish = resolve;})}, () => true,
+    (request, response) => {observed.push([request.path, response]);});
+  const pending = http.send({method:'POST',path:'/resource',signal:controller.signal});
+  controller.abort(); const response = {status:201,headers:{},body:{id:'created'}};
+  finish(response); await assert.rejects(pending, /authority retired/);
+  assert.deepEqual(observed, [['/resource',response]]);
+  http.dispose();
+});

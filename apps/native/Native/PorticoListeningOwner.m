@@ -15,9 +15,6 @@ static BOOL Text(id v) { return [v isKindOfClass:NSString.class] && [v length]>0
 static BOOL WireID(id v) { return Text(v)&&[v length]<=128&&[v rangeOfString:@"^[A-Za-z0-9_-]+$" options:NSRegularExpressionSearch].location!=NSNotFound; }
 static BOOL ListeningNumber(id value,double min,double max,BOOL integer) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)!=CFBooleanGetTypeID()&&isfinite([value doubleValue])&&[value doubleValue]>=min&&[value doubleValue]<=max&&(!integer||floor([value doubleValue])==[value doubleValue]);}
 static BOOL ListeningBool(id value) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID();}
-static BOOL ListeningRate(id value) {return ListeningNumber(value,.5,2,NO)&&[@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2]containsObject:value];}
-// Audiobooks also take 2.5x and 3x (the shared `audiobookRates`); music stays at 2x.
-static BOOL ListeningBookRate(id value) {return ListeningRate(value)||(ListeningNumber(value,.5,3,NO)&&[@[@2.5,@3]containsObject:value]);}
 static double Mono(void) { return NSProcessInfo.processInfo.systemUptime; }
 static double PauseClock(void) {
  static mach_timebase_info_data_t scale;static dispatch_once_t once;
@@ -425,7 +422,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(_timerStopped)return NO;
  NSDictionary *postPlay=V1Dictionary(_queueHeader[@"postPlay"]);
  if(postPlay[@"autoplay"]&&![postPlay[@"autoplay"] boolValue])return NO;
- return [_policy[@"preferences"] isKindOfClass:NSDictionary.class]?[_policy[@"preferences"][@"autoplayNext"] boolValue]:YES;
+ return YES;
 }
 /** The track ended and the server knows: move on if the viewer's policy allows. */
 - (void)completed {
@@ -677,7 +674,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (BOOL)action:(NSString *)action value:(NSNumber *)value owner:(NSString *)owner {
  if(![_owner isEqual:owner]||_terminal||![@[@"pause",@"resume",@"seek",@"rate",@"retry",@"next",@"previous"] containsObject:action])return NO;
  if([@[@"seek",@"rate"] containsObject:action]&&!ListeningNumber(value,0,1e9,NO))return NO;
- if([action isEqual:@"rate"]&&!([[self kind] isEqual:@"audiobook_file"]?ListeningBookRate(value):ListeningRate(value)))return NO;
+ if([action isEqual:@"rate"]&&!PorticoListeningRateAllowed([self kind],value))return NO;
  if([action isEqual:@"retry"]&&value&&(id)value!=NSNull.null&&!ListeningNumber(value,0,1e9,NO))return NO;
  if([@[@"next",@"previous"] containsObject:action])return [self advance:action entry:nil owner:owner];
  [self checkDeadlines];[self beginControlGrace];[self resetInactivity];
@@ -735,9 +732,9 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  for(NSString *key in @[@"revision",@"activityRevision",@"timerRevision"])if(!ListeningNumber(value[key],0,9007199254740991.0,YES))return NO;
  if(!ListeningNumber(value[@"activityAtMs"],1,9007199254740991.0,YES))return NO;
  NSDictionary *effects=value[@"effects"];
- if(![effects isKindOfClass:NSDictionary.class]||!ListeningBool(effects[@"gapless"])||!ListeningNumber(effects[@"crossfadeSeconds"],0,12,NO)||![@[@"off",@"track",@"album"] containsObject:effects[@"normalization"]])return NO;
+ if(!PorticoListeningEffectsValid(effects))return NO;
  id preferences=value[@"preferences"];
- if(preferences!=NSNull.null&&(![preferences isKindOfClass:NSDictionary.class]||!ListeningBool(preferences[@"autoplayNext"])||!ListeningRate(preferences[@"musicRate"])||!ListeningBookRate(preferences[@"bookRate"])||![@[@0,@30,@60,@90,@120] containsObject:preferences[@"passoutMinutes"]]))return NO;
+ if(!PorticoListeningPreferencesValid(preferences))return NO;
  id timer=value[@"timer"];
  if(timer!=NSNull.null){
   if(![timer isKindOfClass:NSDictionary.class]||!Text(timer[@"label"])||[timer[@"label"] length]>512||!WireID(timer[@"libraryId"]))return NO;
@@ -762,11 +759,11 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  [self installDeadline:@"passoutAtMs" value:minutes?@((long long)(_activityWall+minutes*60000)):NSNull.null];
 }
 - (void)applyPreferredRate {
- if(!_owner||_terminal||![_policy[@"preferences"] isKindOfClass:NSDictionary.class])return;
- BOOL book=[[self kind] isEqual:@"audiobook_file"];
- double rate=[_policy[@"preferences"][book?@"bookRate":@"musicRate"] doubleValue];
+ if(!_owner||_terminal)return;
+ NSNumber *preferred=PorticoPreferredListeningRate([self kind],_policy[@"preferences"]);if(!preferred)return;
+ double rate=preferred.doubleValue;
  NSString *key=[NSString stringWithFormat:@"%@:%g",_session[@"id"],rate];
- if([_policyRateKey isEqual:key]||!(book?ListeningBookRate(@(rate)):ListeningRate(@(rate))))return;_policyRateKey=key;
+ if([_policyRateKey isEqual:key])return;_policyRateKey=key;
  if(fabs(_rate-rate)>.00001){_rate=rate;_preferredRate=@(rate);_reportNow=YES;}
 }
 /** Music or a book: the item's kind from its metadata, else music. */
@@ -1087,7 +1084,7 @@ static PorticoListeningHarness *harness;
    NSDictionary *prev=snapshots.lastObject;if(![prev[@"session"] isEqual:s[@"session"][@"id"]]||![prev[@"error"] isEqual:s[@"error"]]||![prev[@"terminal"] isEqual:s[@"terminal"]]||![prev[@"intent"] isEqual:s[@"intent"]])
     [snapshots addObject:@{@"session":s[@"session"][@"id"]?:@"",@"item":s[@"session"][@"itemId"]?:@"",@"intent":s[@"intent"]?:@"",@"error":s[@"error"]?:NSNull.null,@"terminal":s[@"terminal"]?:@NO,@"end":s[@"end"]?:NSNull.null,@"at":@(NSProcessInfo.processInfo.systemUptime)}];};
   NSString *ownerId=[NSString stringWithFormat:@"harness%ld",(long)self->_serial];
-  NSDictionary *policy=@{@"revision":@1,@"activityRevision":@1,@"activityAtMs":@((long long)(Wall()*1000)),@"timerRevision":@0,@"effects":effects,@"preferences":@{@"autoplayNext":@YES,@"musicRate":@1,@"bookRate":@(self->_bookRate>0?self->_bookRate:1),@"passoutMinutes":@0},@"timer":NSNull.null};
+  NSDictionary *policy=@{@"revision":@1,@"activityRevision":@1,@"activityAtMs":@((long long)(Wall()*1000)),@"timerRevision":@0,@"effects":effects,@"preferences":@{@"bookRate":@(self->_bookRate>0?self->_bookRate:1),@"passoutMinutes":@0},@"timer":NSNull.null};
   NSError *error=nil;
   self->_plans=[NSMutableDictionary new];
   BOOL adopted=[owner adopt:@{@"owner":ownerId,@"origin":self->_origin,@"accessToken":self->_real?self->_config[@"accessToken"]:@"harness-token",@"principalKey":[NSString stringWithFormat:@"harness-%ld",(long)self->_serial],@"session":session,@"queueId":queue[@"id"],@"queueRevision":queue[@"revision"],@"durationSeconds":@0,@"lastSeq":@0,@"leaseMs":@120000,@"transitions":@YES,@"intent":@"playing",@"policy":policy} error:&error];
@@ -1196,7 +1193,7 @@ static double HarnessFootprintMB(void){task_vm_info_data_t info;mach_msg_type_nu
   [self start:@[@"book-1"] effects:gapless seek:0 done:^(NSDictionary *session){if(!session){done(@{@"error":@"start failed"});return;}
    [me wait:^BOOL{return [[me->_controller listeningSnapshot][@"observed"] boolValue]&&[me enginePosition]>1;} timeout:20 then:^(BOOL playing){
     double end=[me enginePosition]+5;NSDictionary *s=me->_last[@"session"];
-    NSDictionary *policy=@{@"revision":@2,@"activityRevision":@1,@"activityAtMs":@((long long)(Wall()*1000)),@"timerRevision":@1,@"effects":gapless,@"preferences":@{@"autoplayNext":@YES,@"musicRate":@1,@"bookRate":@1,@"passoutMinutes":@0},
+    NSDictionary *policy=@{@"revision":@2,@"activityRevision":@1,@"activityAtMs":@((long long)(Wall()*1000)),@"timerRevision":@1,@"effects":gapless,@"preferences":@{@"bookRate":@1,@"passoutMinutes":@0},
      @"timer":@{@"label":@"End of chapter",@"libraryId":@"library",@"choice":@"chapter",@"itemId":s[@"itemId"]?:@"book-1",@"sessionId":s[@"id"]?:@"",@"generation":s[@"presentation"][@"generation"]?:@1,@"endSeconds":@(end)}};
     BOOL accepted=[me->_owner policy:policy owner:me->_owner.activeOwner];
     [me wait:^BOOL{return [me->_last[@"intent"] isEqual:@"paused"];} timeout:15 then:^(BOOL paused){
@@ -1379,12 +1376,12 @@ static double HarnessFootprintMB(void){task_vm_info_data_t info;mach_msg_type_nu
   }];return;
  }
  if([name isEqual:@"crossfade-rate"]){
-  // (INT T15) A 6 s crossfade at 1.25x: the overlap is still 6 s of wall time.
+  // Music is fixed at 1x. A rejected rate request cannot change the 6 s wall-time overlap.
   [self start:@[@"long-1",@"long-2"] effects:@{@"gapless":@NO,@"crossfadeSeconds":@6,@"normalization":@"off"} seek:4 done:^(NSDictionary *session){if(!session){done(@{@"error":@"start failed"});return;}
-   [me->_owner action:@"rate" value:@1.25 owner:me->_owner.activeOwner];
+   BOOL refused=![me->_owner action:@"rate" value:@1.25 owner:me->_owner.activeOwner];
    [me wait:^BOOL{return [me boundaries].count>=1;} timeout:45 then:^(BOOL ok){
     [me state:^(NSDictionary *st){PorticoListeningHarness *self=me;(void)self;NSDictionary *b=[self boundaries].firstObject;double overlap=[b[@"overlapSeconds"] doubleValue];
-     done(@{@"boundary":b?:NSNull.null,@"overlapSeconds":@(overlap),@"overlapErrorMs":@((overlap-6)*1000),@"commits":@([self delta:st key:@"commits"]),@"pass":@(ok&&fabs(overlap-6)<=.05&&[self delta:st key:@"commits"]==1)});}];
+     done(@{@"boundary":b?:NSNull.null,@"overlapSeconds":@(overlap),@"overlapErrorMs":@((overlap-6)*1000),@"commits":@([self delta:st key:@"commits"]),@"musicRateRequestRefused":@(refused),@"pass":@(ok&&refused&&fabs(overlap-6)<=.05&&[self delta:st key:@"commits"]==1)});}];
    }];
   }];return;
  }
