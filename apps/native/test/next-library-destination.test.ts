@@ -5,6 +5,7 @@ import type {BrowseCapabilities, BrowseNode, BrowseRequestBody} from '../../../p
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
 import {NativeLibraryFilterDraft} from '../src-next/screens/library/filters.ts';
 import {libraryFilterChange, libraryFilterField} from '../src-next/screens/library/filter-controls.ts';
+import {libraryAppliedFilters} from '../src-next/screens/library/applied-filters.ts';
 
 const scope = {serverId: 'server', viewerId: JSON.stringify(['local', 'account', 'profile'])};
 const library = {id: 'actual-movies', name: 'Movies', kind: 'movie'};
@@ -190,4 +191,18 @@ test('Library remembers the actual unfiltered total without another count read w
     assert.equal(paths.some(path => path.includes('/counts')), false, 'the grid preserves its last real broad page total');
     destination.dispose(); assert.equal(destination.getSnapshot().unfilteredTotal, undefined);
   } finally {destination.dispose();}
+});
+
+test('Applied Library chips retain semantic predicate IDs and never flatten a cross-field OR', () => {
+  const decade: BrowseNode = {field: 'decade', operator: 'in', value: [1980]};
+  const negative: BrowseNode = {not: {field: 'genre', operator: 'contains-any', value: ['Horror']}};
+  const alternative: BrowseNode = {any: [decade, negative]};
+  const before = JSON.stringify(alternative);
+  const labels = {field: (field: {id: string}) => field.id === 'year' ? 'Year' : 'Genre', sort: () => '', quick: () => ''};
+  const chips = libraryAppliedFilters([decade, negative, decade, alternative], filterCapabilities, labels);
+  assert.equal(chips.length, 2, 'duplicate conditions have one semantic focus/control identity');
+  assert.equal(chips[0].id, JSON.stringify(decade)); assert.equal(chips[0].label, 'Year: 1980s');
+  assert.equal(chips[1].id, JSON.stringify(negative));
+  assert.deepEqual(libraryAppliedFilters([negative, decade], filterCapabilities, labels).map(chip => chip.id), [chips[1].id, chips[0].id]);
+  assert.equal(JSON.stringify(alternative), before, 'a complex condition remains whole for the actual query/editor');
 });
