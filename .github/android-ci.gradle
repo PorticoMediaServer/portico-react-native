@@ -1,0 +1,13 @@
+// Gradle's worker limit does not limit Ninja's compiler jobs. Apply the same explicit pools
+// to the app and autolinked Android libraries before their CMake configuration is generated.
+gradle.beforeProject { project ->
+    ["com.android.application", "com.android.library"].each { plugin ->
+        project.plugins.withId(plugin) {
+            project.extensions.getByName("android").defaultConfig.externalNativeBuild.cmake.arguments.addAll([
+                "-DCMAKE_JOB_POOLS=portico_ci_compile=1;portico_ci_link=1",
+                "-DCMAKE_JOB_POOL_COMPILE=portico_ci_compile",
+                "-DCMAKE_JOB_POOL_LINK=portico_ci_link"
+            ])
+        }
+    }
+}

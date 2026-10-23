@@ -19,14 +19,17 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeDashboardController} from './dashboard-controller';
 
 /** TV never exposes a mutation, secret, settings document or inferred administrator action. */
-export function NativeDashboardScreen({controller, ports, runtime}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeDashboardScreen({controller, ports, runtime, deniedFallback}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; deniedFallback: React.ReactNode}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const column = ids.surface('server.pages'), rows = ids.surface('server.dashboard');
   const enter = useScreenEntry(theme.isTV && state.admission !== 'denied' ? {regionId: column, childId: 'dashboard'} : undefined, controller.lifetime.current);
   useEffect(() => {void controller.refresh(); return ports.context.events.on('admin.sessions', () => {void controller.refresh();});}, [controller, ports]);
-  if (state.admission === 'denied') return <Screen><StateView variant="centered" icon="i-lock" title={t('web.console.ownerTitle')} body={t('web.console.ownerBody')} primaryAction={{id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}/></Screen>;
+  useEffect(() => {if (state.admission === 'denied') runtime.onDestination({kind: 'settings'});}, [state.admission, runtime]);
+  // Ruling17.3: a forbidden direct destination falls back to the first permitted account
+  // Settings page. Render that genuine surface while Accounts performs the route transition.
+  if (state.admission === 'denied') return <>{deniedFallback}</>;
   const health = healthFacts(state.health, state.storage);
   const facts: ServerFact[] = state.health ? [{id: 'state', text: t(health.degraded ? 'next.shell.health.attention' : 'next.shell.health.normal'), tone: health.degraded ? 'warning' : 'normal'}] : [];
   if (health.uptimeSeconds !== undefined) facts.push({id: 'uptime', text: t('settings.server.health.upFor', {duration: defaultI18n.duration(health.uptimeSeconds)})});

@@ -16,6 +16,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import java.io.IOException
@@ -32,6 +33,8 @@ import okhttp3.Response
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.security.cert.X509Certificate
+import org.json.JSONObject
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Calendar
@@ -60,7 +63,7 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
   private val nsd by lazy { context.getSystemService(Context.NSD_SERVICE) as NsdManager }
   private val connectivity by lazy { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
 
-  private var invalidated = false
+  @Volatile private var invalidated = false
   private var monitor: ConnectivityManager.NetworkCallback? = null
   private var lastPath = ""
   private val searches = HashMap<String, Search>()
@@ -130,11 +133,19 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
   @ReactMethod
   fun pinCertificate(origin: String?, fingerprint: String?, serverId: String?, promise: Promise) {
     if (PorticoServerTrust.pin(origin, fingerprint, serverId)) promise.resolve(true)
-    else promise.reject("certificate_storage", "The server's certificate could not be saved.")
+    else promise.reject("certificate_storage", "certificate_storage")
   }
 
   @ReactMethod
   fun forgetCertificate(origin: String?) = PorticoServerTrust.forget(origin)
+
+  @ReactMethod
+  fun forgetServerCertificates(serverId: String?, origins: ReadableArray?, promise: Promise) {
+    val values = origins?.toArrayList()?.mapNotNull { it as? String }
+    if (serverId == null || origins == null || values == null || values.size != origins.size() || values.size > 256 ||
+        !PorticoServerTrust.forgetServer(serverId, values)) promise.reject("certificate_storage", "certificate_storage")
+    else promise.resolve(null)
+  }
 
   /** Every certificate pinned on this device: its `host:port`, fingerprint and proving server. */
   @ReactMethod
@@ -148,34 +159,49 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
 
   /**
    * The identity proof, and only it, over one named certificate: a POST of the caller's JSON to
-   * `<origin>/v1/networking/identity-proof`, trusting the system's authorities and that exact
-   * certificate. No credentials, no redirects, 8 KB at most, 5 seconds.
+   * `<origin>/v1/networking/identity-proof`, bound to that exact observed leaf even
+   * if another leaf is system-trusted. No credentials/cookies, no redirects, 8 KB, 5 seconds.
+   * The returned TLS fingerprint comes from this response's handshake, never its headers.
    */
   @ReactMethod
   fun proofRequest(origin: String?, fingerprint: String?, body: String?, promise: Promise) {
-    val target = if (origin != null && PorticoServerTrust.key(origin) != null) (origin.trimEnd('/') + "/v1/networking/identity-proof").toHttpUrlOrNull() else null
-    if (origin == null || target == null || fingerprint == null || !CERT_FINGERPRINT.matches(fingerprint) || body == null || body.length > 4096) {
-      promise.reject("certificate_proof", "Invalid identity proof request.")
-      return
+    val base = origin?.toHttpUrlOrNull()
+    val target = if (base?.scheme == "https" && base.username.isEmpty() && base.password.isEmpty() &&
+        base.encodedPath == "/" && base.query == null && base.fragment == null &&
+        origin == base.toString().removeSuffix("/")) base.newBuilder().encodedPath("/v1/networking/identity-proof").build() else null
+    val validBody = if (body == null || body.toByteArray(Charsets.UTF_8).size > 4096) false else try {
+      val document = JSONObject(body ?: "")
+      val nonce = document.optString("nonce", "")
+      val decoded = if (CERT_FINGERPRINT.matches(nonce)) Base64.decode(nonce, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) else null
+      document.length() == 2 && document.opt("baseUrl") == origin && document.opt("nonce") is String &&
+          decoded != null && decoded.size == 32 && encodeURL(decoded) == nonce
+    } catch (_: Exception) { false }
+    if (invalidated || origin == null || target == null || fingerprint == null || !CERT_FINGERPRINT.matches(fingerprint) || body == null ||
+        body.toByteArray(Charsets.UTF_8).size > 4096 || !validBody) {
+      promise.reject("certificate_proof", "certificate_proof"); return
     }
     val client = PorticoServerTrust.proofClient(OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).cache(null)
-        .retryOnConnectionFailure(false).callTimeout(5, TimeUnit.SECONDS), origin, fingerprint)
+        .retryOnConnectionFailure(false).cookieJar(okhttp3.CookieJar.NO_COOKIES).callTimeout(5, TimeUnit.SECONDS), origin, fingerprint)
     val request = Request.Builder().url(target).header("Accept", "application/json; portico-route-proof=2")
         .post(body.toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType())).build()
     client.newCall(request).enqueue(object : Callback {
-      override fun onFailure(call: Call, e: IOException) = promise.reject("certificate_proof", "The server could not prove its identity.")
+      override fun onFailure(call: Call, e: IOException) = promise.reject("certificate_proof", "certificate_proof")
       override fun onResponse(call: Call, response: Response) {
         response.use {
           try {
             val bytes = it.body?.source()?.let { source -> source.request(8193); source.buffer.readByteArray(minOf(source.buffer.size, 8193)) } ?: ByteArray(0)
-            if (bytes.size > 8192 || it.isRedirect) throw IOException()
+            val leaf = it.handshake?.peerCertificates?.firstOrNull() as? X509Certificate ?: throw IOException()
+            val observed = encodeURL(MessageDigest.getInstance("SHA-256").digest(leaf.encoded))
+            if (invalidated || bytes.size > 8192 || it.isRedirect || observed != fingerprint) throw IOException()
             val headers = Arguments.createMap()
             for (name in it.headers.names()) headers.putString(name, it.headers.values(name).joinToString(", "))
             promise.resolve(Arguments.createMap().apply {
-              putInt("status", it.code); putMap("headers", headers); putString("body", String(bytes, Charsets.UTF_8))
+              putInt("status", it.code); putMap("headers", headers)
+              putString("tlsLeafFingerprint", observed)
+              putString("body", Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString())
             })
           } catch (_: Exception) {
-            promise.reject("certificate_proof", "The server could not prove its identity.")
+            promise.reject("certificate_proof", "certificate_proof")
           }
         }
       }

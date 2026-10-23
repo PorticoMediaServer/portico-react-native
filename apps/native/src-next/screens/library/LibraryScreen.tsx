@@ -120,6 +120,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     [owner, runtime.text, source.capabilities, source.library.kind, source.predicates, source.sort, theme.isTV]);
   const [visible, setVisible] = useState({first: source.memory.firstVisibleIndex, last: source.memory.firstVisibleIndex});
   const [jumpOpen, setJumpOpen] = useState(false), jumpAnchor = useRef<View>(null);
+  const initialIndex = useRef(source.memory.firstVisibleIndex).current;
   const offset = useRef(destination.getMemory().offset), range = useRef(visible), registered = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const held = registered; return () => {held.current?.(); held.current = undefined;};}, [collection]);
   const changedRange = useCallback((firstIndex: number, lastIndex: number) => {
@@ -148,7 +149,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
     <WindowedGrid ref={grid} testID="library-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={width * 1.5 + (theme.isTV ? 72 : 43)}
       gap={gap} rowGap={theme.isTV ? 40 : 22} gutter={theme.isTV ? theme.gutter : 16} rightGutter={theme.isTV ? 72 : 26} selection={selected}
-      onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={source.memory.firstVisibleIndex} paddingBottom={28} style={{flex: 1}}
+      onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={initialIndex} paddingBottom={28} style={{flex: 1}}
       renderPlaceholder={() => <View style={{width, height: width * 1.5, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
       renderItem={(entry, context) => {
         const key = nativeLibraryEntryKey(entry);
@@ -167,7 +168,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
 
 function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
-  const props = {focusId, disabled, title: entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched,
+  const props = {focusId, disabled, title: entry.displayTitle || entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched,
     onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef), selection: selected,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry), onFocus, onBlur};
   return ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind) ? <SquareCard {...props}/> : <PosterCard {...props}/>;
