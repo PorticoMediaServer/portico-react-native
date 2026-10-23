@@ -31,7 +31,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   const host = hooks(), connections: any[] = []; let disposed = 0, disconnects = 0;
   const device = {
     connect: (...args: any[]) => {connections.push(args);}, disconnect: () => {disconnects++;}, adopt() {},
-    getSnapshot: () => ({entries: []}), subscribe: () => () => {}, open: async () => {}, setSettings: async () => {},
+    getSnapshot: () => ({entries: [], supported: true}), subscribe: () => () => {}, open: async () => {}, setSettings: async () => {},
     pause: async () => {}, resume: async () => {}, remove: async () => {}, removeOthers: async () => {},
     displayFacts: async () => ({}), localMedia: async () => ({}), playable: () => '', playabilityReason: () => null, note: () => '',
   };
@@ -47,6 +47,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   const context = {session: () => ({viewer}), authority: () => authority, current: () => current,
     api: {baseUrl: 'https://server.test', mediaUrl: (path: string) => path, request: () => new Promise(resolve => {finish = resolve;})}};
   const first = createNativeDownloadsDevice(context);
+  await first.device.open();
   assert.equal(connections[0][2], viewer);
   assert.equal(first.device.openOffline, undefined);
   const request = connections[0][0].request('/actual');
@@ -55,6 +56,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   assert.throws(() => first.device.getSnapshot(), {code: 'cancelled'});
   assert.throws(() => first.device.setSettings({wifiOnly: false}), {code: 'cancelled'});
   const second = createNativeDownloadsDevice({...context, current: () => true});
+  await second.device.open();
   first.dispose(); assert.equal(disconnects, 0, 'old disposal leaves the newer singleton connection intact');
   second.dispose(); assert.equal(disconnects, 1); assert.equal(disposed, 2);
 });

@@ -26,13 +26,25 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   };
   const service = new DownloadsService(api);
   connection = owner;
-  device.connect(api, service, viewer);
+  device.adopt(viewer);
   const adapter = createNativeOfflineDownloadsAdapter(undefined, device);
+  let opening: Promise<void> | undefined, connected = false;
+  const open = (): Promise<void> => {
+    assertCurrent();
+    if (opening) return opening;
+    const task = adapter.open().then(() => {
+      assertCurrent();
+      // Connect after the actual native read succeeds. A failed native read is
+      // returned to the screen's retry state, not an unhandled connect chain.
+      if (!connected && adapter.getSnapshot().supported) {device.connect(api, service, viewer); connected = true;}
+    }).finally(() => {if (opening === task) opening = undefined;});
+    opening = task; return task;
+  };
   const guarded: NativeOfflineDownloadsDevice = {
     ...adapter,
     getSnapshot: () => {assertCurrent(); return adapter.getSnapshot();},
     subscribe: listener => {assertCurrent(); return adapter.subscribe(() => {if (current()) listener();});},
-    open: () => {assertCurrent(); return adapter.open();},
+    open,
     setSettings: settings => {assertCurrent(); return adapter.setSettings(settings);},
     pause: entry => {assertCurrent(); return adapter.pause(entry);},
     resume: entry => {assertCurrent(); return adapter.resume(entry);},
