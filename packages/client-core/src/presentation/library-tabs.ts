@@ -1,4 +1,3 @@
-import type {BrowseCapabilities} from '../browse.ts';
 import type {MessageId} from '../../../i18n/src/index.ts';
 
 /**
@@ -49,24 +48,13 @@ const TABS: Readonly<Record<string, readonly LibraryTab[]>> = {
   ],
 };
 
-/** The public albums browse with its current attention-backed match filter.
- * It never opens the owner's metadata attention or library management APIs. */
+/** Owner-only: albums made from files without tags (the scanner files them under "Unknown artist"), so the owner can find and fix them. */
 const unmatched: LibraryTab = {id: 'unmatched', label: 'library.tab.unmatched', pivot: 'albums', shows: 'titles', fixedFilter: [{field: 'match', operator: 'equals', value: 'unmatched'}]};
 
 /** The tabs of a library of this kind, in order. Anime has television's. */
-export function libraryTabs(kind: string, options: Readonly<{owner?: boolean; /** True only from the current public albums capability; absent/offline/local-only is false. */ unmatched?: boolean}> = {}): readonly LibraryTab[] {
+export function libraryTabs(kind: string, options: Readonly<{owner?: boolean; /** The server offers the `match` field on albums. */ unmatched?: boolean}> = {}): readonly LibraryTab[] {
   const tabs = TABS[kind === 'anime' ? 'tv' : kind] ?? [discover];
-  return kind === 'music' && options.unmatched===true ? [...tabs, unmatched] : tabs;
-}
-
-/** Derive the tab offer from an actual current public browse vocabulary.
- * No cached role, private attention endpoint or missing/offline capability can
- * supply it. Clients recompute this when library/source capabilities change. */
-export function canBrowseMusicUnmatched(capabilities:BrowseCapabilities|undefined):boolean{
- if(!capabilities||capabilities.library.kind!=='music'||!capabilities.library.id||capabilities.library.id==='*')return false;
- const albums=capabilities.pivots.find(p=>p.id==='albums'&&p.browsable);
- const match=capabilities.fields.find(f=>f.id==='match'&&f.applicableKinds.includes('album')&&f.operators.includes('equals')&&f.allowedValues?.includes('unmatched'));
- return !!albums&&!!match&&albums.filters?.includes('match')===true;
+  return kind === 'music' && options.owner && options.unmatched ? [...tabs, unmatched] : tabs;
 }
 
 /** The tab an address names, or Discover. */
