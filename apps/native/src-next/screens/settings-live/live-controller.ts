@@ -11,9 +11,11 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
   private disposed = false;
   private refreshSources?: Promise<void>;
   readonly api: ChannelApi;
-  constructor(readonly lifetime: NativeScreenLifetime, api: ChannelApi, timezone: string) {
+  readonly lifetime: NativeScreenLifetime;
+  constructor(lifetime: NativeScreenLifetime, api: ChannelApi, timezone: string) {
     const options: LegacyGuideOptions = {kind: 'all', sourceId: '', timezone, sort: 'number'};
     super({sources: [], loading: true, options, revision: 0});
+    this.lifetime = lifetime;
     this.api = {request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => api.request<T>(path, method, body, next), signal)};
     this.store = this.makeStore(options);
   }
@@ -22,7 +24,7 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
   }
   get guide(): GuideWindowStore {return this.store;}
   setViewport(viewport: GuideViewport): void {if (this.disposed || !this.lifetime.current()) return; this.viewport = viewport; this.store.setViewport(viewport);}
-  select(change: Partial<Pick<LegacyGuideOptions, 'sourceId' | 'group' | 'favorites' | 'sort'>>): void {
+  select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort'>>): void {
     this.lifetime.assert();
     if (this.disposed) return;
     this.store.dispose();

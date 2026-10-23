@@ -26,17 +26,24 @@ export type NativeDashboardReaders = Readonly<{
 export class NativeDashboardController extends NativeScreenStore<NativeDashboardSnapshot> {
   private disposed = false;
   private inFlight?: Promise<void>;
-  constructor(readonly lifetime: NativeScreenLifetime, private admission: () => NativeDashboardAdmission, private readers: NativeDashboardReaders) {
+  readonly lifetime: NativeScreenLifetime;
+  private admission: () => NativeDashboardAdmission;
+  private readers: NativeDashboardReaders;
+  constructor(lifetime: NativeScreenLifetime, admission: () => NativeDashboardAdmission, readers: NativeDashboardReaders) {
     super({admission: admission(), loading: false, sessions: [], alerts: [], jobs: []});
+    this.lifetime = lifetime; this.admission = admission; this.readers = readers;
   }
   refresh(): Promise<void> {
-    if (this.inFlight) return this.inFlight;
     this.lifetime.assert();
     const admission = this.admission();
     if (this.disposed || admission === 'denied') {
       this.publish({admission: 'denied', loading: false, sessions: [], alerts: [], jobs: []});
       return Promise.resolve();
     }
+    // Never retain owner-only facts under an administrator heading, even while a prior
+    // owner request or the administrator's new sessions read is still pending.
+    if (this.getSnapshot().admission !== admission) this.publish({admission, loading: false, sessions: [], alerts: [], jobs: []});
+    if (this.inFlight) return this.inFlight;
     this.publish({...this.getSnapshot(), admission, loading: true, error: undefined});
     return this.inFlight = (async () => {
       try {
@@ -45,11 +52,18 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
           this.readers.sessions.list(undefined, 10, this.lifetime.signal),
           admission === 'owner' ? Promise.all([this.readers.console.measurement('health'), this.readers.console.measurement('storage'), this.readers.console.alerts(), this.readers.console.jobs()]) : undefined,
         ]);
-        if (this.disposed || !this.lifetime.current() || this.admission() !== admission) return;
+        if (this.disposed || !this.lifetime.current()) return;
+        if (this.admission() !== admission) {
+          this.publish({admission: this.admission(), loading: false, sessions: [], alerts: [], jobs: []});
+          return;
+        }
         this.publish({admission, loading: false, sessions: page.items, nextCursor: page.nextCursor, totals: page.totals,
           ...(owner ? {health: owner[0], storage: owner[1], alerts: owner[2], jobs: owner[3].items} : {alerts: [], jobs: []})});
       } catch (error) {
-        if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), loading: false, error});
+        if (!this.disposed && this.lifetime.current()) {
+          if (this.admission() !== admission) this.publish({admission: this.admission(), loading: false, sessions: [], alerts: [], jobs: []});
+          else this.publish({...this.getSnapshot(), loading: false, error});
+        }
       }
     })().finally(() => {this.inFlight = undefined;});
   }

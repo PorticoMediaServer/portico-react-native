@@ -8,12 +8,15 @@ export type NativeSettingsReader = Pick<PreferencesReader, 'preferences' | 'appl
 /** Server defaults, scope eligibility and revisions stay in the canonical preference facade. */
 export class NativeSettingsController extends NativeScreenStore<NativeSettingsSnapshot> {
   private disposed = false;
-  constructor(readonly lifetime: NativeScreenLifetime, private reader: NativeSettingsReader, initial: PreferenceSnapshot) {
+  readonly lifetime: NativeScreenLifetime;
+  private reader: NativeSettingsReader;
+  constructor(lifetime: NativeScreenLifetime, reader: NativeSettingsReader, initial: PreferenceSnapshot) {
     super({preferences: initial, busy: false, saved: 0});
+    this.lifetime = lifetime; this.reader = reader;
   }
   accept(preferences: PreferenceSnapshot): void {
     if (this.disposed || !this.lifetime.current()) return;
-    this.publish({...this.getSnapshot(), preferences: currentPreferenceSnapshot(this.getSnapshot().preferences, preferences)});
+    this.publish({...this.getSnapshot(), preferences: currentPreferenceSnapshot(this.getSnapshot().preferences, preferences), error: undefined});
   }
   async refresh(): Promise<void> {
     this.lifetime.assert();

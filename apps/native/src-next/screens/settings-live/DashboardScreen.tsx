@@ -26,7 +26,7 @@ export function NativeDashboardScreen({controller, ports, runtime}: {controller:
   const column = ids.surface('server.pages'), rows = ids.surface('server.dashboard');
   const enter = useScreenEntry(theme.isTV && state.admission !== 'denied' ? {regionId: column, childId: 'dashboard'} : undefined, controller.lifetime.current);
   useEffect(() => {void controller.refresh(); return ports.context.events.on('admin.sessions', () => {void controller.refresh();});}, [controller, ports]);
-  if (state.admission === 'denied') return <Screen><StateView variant="centered" icon="i-lock" title={t('web.console.ownerTitle')} body={t('web.console.ownerBody')} primaryAction={{id: 'home', label: t('web.console.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}/></Screen>;
+  if (state.admission === 'denied') return <Screen><StateView variant="centered" icon="i-lock" title={t('web.console.ownerTitle')} body={t('web.console.ownerBody')} primaryAction={{id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}/></Screen>;
   const health = healthFacts(state.health, state.storage);
   const facts: ServerFact[] = state.health ? [{id: 'state', text: t(health.degraded ? 'next.shell.health.attention' : 'next.shell.health.normal'), tone: health.degraded ? 'warning' : 'normal'}] : [];
   if (health.uptimeSeconds !== undefined) facts.push({id: 'uptime', text: t('settings.server.health.upFor', {duration: defaultI18n.duration(health.uptimeSeconds)})});
@@ -47,7 +47,7 @@ export function NativeDashboardScreen({controller, ports, runtime}: {controller:
         {!theme.isTV && <Button variant="text" size="small" icon="i-left" onPress={() => ports.context.navigation.back(controller.lifetime.authority)}>{t('action.back')}</Button>}
         <ServerHeader serverName={ports.serverName()} viewerRole={role} audience="administrators" facts={facts}/>
         <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 36, 800), {color: theme.colors.text, marginBottom: 30}]}>{t('next.shell.dashboard')}</Text>
-        <FocusRegion id={rows} entry={state.sessions[0]?.id ?? 'refresh'} orientation="vertical" edges={{left: theme.isTV ? column : ids.rail}}>
+        <FocusRegion id={rows} entry={state.sessions[0]?.id} orientation="vertical" edges={{left: theme.isTV ? column : ids.rail}}>
           <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textSecondary, marginBottom: 14}]}>{t('next.shell.nowPlaying')}</Text>
           {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
           {!state.loading && state.error === undefined && !state.sessions.length && <StateView title={t('web.nowPlaying.empty')}/>}
@@ -64,12 +64,11 @@ export function NativeDashboardScreen({controller, ports, runtime}: {controller:
             </Focusable>;
           })}
           {state.admission === 'owner' && <>
-            <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textSecondary, marginTop: 36, marginBottom: 14}]}>{t('web.overview.alerts')}</Text>
+            <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textSecondary, marginTop: 36, marginBottom: 14}]}>{t('settings.server.alerts')}</Text>
             {state.alerts.map(alert => <Focusable key={alert.id} focusId={`alert:${alert.id}`} testID={`dashboard-alert-${alert.id}`} accessibilityRole="text" accessibilityLabel={alertName(t, defaultI18n.has, alert.code)} focusKind="row" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, marginBottom: 8}}><ScreenText>{alertName(t, defaultI18n.has, alert.code)}</ScreenText></Focusable>)}
             <Text style={[shellType(theme.isTV ? 20 : 18, 700), {color: theme.colors.textSecondary, marginTop: 36, marginBottom: 14}]}>{t('next.shell.backgroundTasks')}</Text>
             {state.jobs.map(job => <Focusable key={job.id} focusId={`job:${job.id}`} testID={`dashboard-job-${job.id}`} accessibilityRole="text" accessibilityLabel={jobName(t, defaultI18n.has, job.kind)} focusKind="row" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, marginBottom: 8}}><ScreenText>{jobName(t, defaultI18n.has, job.kind)}</ScreenText></Focusable>)}
           </>}
-          <Button focusId="refresh" testID="dashboard-refresh" variant="text" onPress={() => {void controller.refresh();}}>{t('action.refresh')}</Button>
         </FocusRegion>
       </ScrollView>
     </View>

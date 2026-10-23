@@ -16,13 +16,17 @@ export function Screen({children, title, style}: {children: ReactNode; title?: s
 
 /** First entry is requested only after the real target's native layout exists. */
 export function useScreenEntry(target: FocusAddress | undefined, current: () => boolean) {
-  const registry = useFocusRegistry(), entered = useRef(false), frame = useRef<number | undefined>(undefined);
+  const registry = useFocusRegistry(), entered = useRef(false), laidOut = useRef(false), frame = useRef<number | undefined>(undefined);
+  const regionId = target?.regionId, childId = target?.childId;
   const request = useCallback(() => {
-    if (!target || entered.current || frame.current !== undefined) return;
-    frame.current = requestAnimationFrame(() => {frame.current = undefined; if (current() && !entered.current) entered.current = registry.focus(target);});
-  }, [current, registry, target?.regionId, target?.childId]);
+    if (!laidOut.current || !regionId || !childId || entered.current || frame.current !== undefined) return;
+    frame.current = requestAnimationFrame(() => {frame.current = undefined; if (current() && !entered.current) entered.current = registry.focus({regionId, childId});});
+  }, [current, registry, regionId, childId]);
+  // Guide data and native child refs may arrive after the region's first layout. Retry only
+  // for that real registration, and stop requesting as soon as a native host accepted entry.
+  useEffect(() => {request(); return registry.subscribe(request);}, [registry, request]);
   useEffect(() => () => {if (frame.current !== undefined) cancelAnimationFrame(frame.current);}, []);
-  return request;
+  return useCallback(() => {laidOut.current = true; request();}, [request]);
 }
 
 export function useScreenBack(runtime: NativeShellRuntime, handler: () => boolean, isTV: boolean) {

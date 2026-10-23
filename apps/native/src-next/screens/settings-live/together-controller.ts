@@ -6,8 +6,11 @@ import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
 export class NativeTogetherController extends NativeScreenStore<GroupSessionSnapshot> {
   private off: () => void;
   private disposed = false;
-  constructor(readonly lifetime: NativeScreenLifetime, readonly service: GroupSessionService) {
+  readonly lifetime: NativeScreenLifetime;
+  readonly service: GroupSessionService;
+  constructor(lifetime: NativeScreenLifetime, service: GroupSessionService) {
     super(service.getSnapshot());
+    this.lifetime = lifetime; this.service = service;
     this.off = service.subscribe(() => {if (!this.disposed && lifetime.current()) this.publish(service.getSnapshot());});
   }
   private async action<T>(work: () => Promise<T>): Promise<T> {this.lifetime.assert(); const value = await work(); this.lifetime.assert(); return value;}

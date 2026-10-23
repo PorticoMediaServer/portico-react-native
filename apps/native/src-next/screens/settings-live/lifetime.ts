@@ -15,9 +15,11 @@ export class NativeScreenLifetime {
   readonly authority: ShellAuthority;
   readonly signal: AbortSignal;
   private abort = new AbortController();
-  private off: () => void;
+  private off: () => void = () => {};
   private disposed = false;
-  constructor(private owner: NativeScreenAuthority) {
+  private owner: NativeScreenAuthority;
+  constructor(owner: NativeScreenAuthority) {
+    this.owner = owner;
     this.authority = Object.freeze({...owner.authority()});
     this.signal = this.abort.signal;
     this.off = owner.subscribeAuthority(() => {if (!this.current()) this.dispose();});
@@ -54,7 +56,8 @@ export class NativeScreenLifetime {
 /** Immutable snapshots suitable for useSyncExternalStore. No successful optimistic writes. */
 export class NativeScreenStore<T> {
   private listeners = new Set<() => void>();
-  constructor(private state: T) {}
+  private state: T;
+  constructor(state: T) {this.state = state;}
   getSnapshot = (): T => this.state;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   protected publish(state: T): void {this.state = Object.freeze(state); for (const listener of [...this.listeners]) listener();}

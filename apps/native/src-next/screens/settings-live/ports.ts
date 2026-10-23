@@ -20,7 +20,7 @@ export type NativeSettingsLivePorts = Readonly<{
     write: (id: CompositeId, value: string | boolean) => Promise<void>;
     subscribe: (listener: () => void) => () => void;
   }>;
-  accountActions: Readonly<{signOut: () => Promise<void>}>;
+  accountActions: Readonly<{signOut: () => Promise<void>; linkTV: () => void}>;
   /** Account/device custom surfaces remain with their semantic owners. Required, never a stub. */
   renderSettingsPanel: (id: SettingsCustomId, runtime: NativeShellRuntime) => ReactNode;
 }>;
