@@ -6,6 +6,7 @@ import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
 import {NativeHomeRowController} from '../src-next/screens/home/row-controller';
 import {NativeShellRouteRegistry} from '../src-next/shell/route-registry';
 import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform';
+import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
@@ -15,15 +16,18 @@ const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/ho
     './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute},
     '../../shell/route-registry': {nativeShellRoutes: new NativeShellRouteRegistry()}, '../../shell/model': {}, '../../kit/theme': {},
     '../read/platform': {hiddenReadingLibraryOnTV},
+    './entry-lifetime': {nativeHomeEntryLifetime},
   });
 
 test('real row outlet retains its exact controller through a title and cancels only pending navigation work', async () => {
-  const navigation = new NativeShellNavigation(authority, () => authority), starts: any[] = [];
+  const navigation = new NativeShellNavigation(authority, () => authority), starts: any[] = [], singles: any[] = [];
   const {createNativeHomeRows} = await rowModule();
   let resolve!: () => void;
   const pending = new Promise<void>(done => {resolve = done;});
   const context = {navigation, current: () => true, authority: () => authority, api: {request() {throw new Error('unexpected eager request');}},
-    libraries: () => [{id: 'movies', name: 'Actual Movies', kind: 'movie'}], playback: {runtime: {startGroup: async (input: unknown) => {starts.push(input); await pending;}}}};
+    libraries: () => [{id: 'movies', name: 'Actual Movies', kind: 'movie'}], playback: {
+      start: async (input: unknown) => {singles.push(input); await pending;},
+      runtime: {startGroup: async (input: unknown) => {starts.push(input); await pending;}}}};
   const rows = createNativeHomeRows(context, (error: unknown) => {throw error;});
   const route = {kind: 'home-see-all' as const, destination: {type: 'row' as const, rowId: 'continue'}};
   try {
@@ -36,14 +40,18 @@ test('real row outlet retains its exact controller through a title and cancels o
     initial.props.onPlay(true);
     assert.equal(starts.length, 1); assert.strictEqual(starts[0].query, query); assert.equal(starts[0].shuffle, true);
     assert.equal(starts[0].signal.aborted, false);
+    initial.props.onPlayEntry({id: 'movie', kind: 'movie', title: 'Actual Movie', libraryId: 'movies', playback: {itemId: 'movie'}}, () => true);
+    assert.equal(singles.length, 1); assert.equal(singles[0].lifetime.isCurrent(), true);
     navigation.open(titleRoute({id: 'movie', kind: 'movie', title: 'Actual Movie', libraryId: 'movies'}), authority); rows.reconcile();
     const hidden = rows.render({})[0];
     assert.strictEqual(hidden.props.source, source); assert.equal(hidden.props.active, false);
     assert.equal(starts[0].signal.aborted, true, 'navigation aborts an unfinished queue preparation');
+    assert.equal(singles[0].lifetime.signal.aborted, true, 'ordinary entry creation also retires with its real route');
     hidden.props.onPlay(false); assert.equal(starts.length, 1, 'hidden retained callbacks cannot dispatch');
     navigation.back(authority); rows.reconcile();
     const restored = rows.render({})[0];
     assert.strictEqual(restored.props.source.controller, source.controller); assert.equal(restored.props.active, true);
+    assert.equal(singles[0].lifetime.isCurrent(), false, 'Back does not revive the old card gesture');
     assert.equal(restored.props.kindLabel('movies'), 'Actual Movies');
     navigation.back(authority); rows.reconcile();
     assert.deepEqual(rows.render({}), []); assert.equal(source.abort.signal.aborted, true);

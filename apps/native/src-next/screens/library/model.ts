@@ -1,4 +1,5 @@
 import type {Library} from '../../../../../packages/client-core/src';
+import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
 import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
@@ -63,6 +64,25 @@ export class NativeLibraryDestination {
   getSnapshot = (): NativeLibrarySnapshot => {this.current(); return this.state;};
   /** Exact latest native measurement; it does not cause a React render per pixel. */
   getMemory = (): NativeLibraryMemory => {this.current(); return this.memory;};
+  /** Capture the actual staged Filters draft, not whichever query is active
+   * after the naming sheet opens. Canonical capabilities validate the whole tree. */
+  captureSavedView = (draft: NativeLibraryViewDraft): SavedDefinition => {
+    if (!this.current()) throw cancelled();
+    const {capabilities, tab, phase} = this.state;
+    if (phase !== 'ready' || !capabilities || !tab.pivot) throw new Error('native_library_view_unavailable');
+    const body = this.build(capabilities, tab, draft.predicates, draft.sort, 0, 1);
+    const query = body.query ? JSON.parse(JSON.stringify(body.query)) as BrowseNode : null;
+    const freeze = (node: BrowseNode): void => {
+      if ('all' in node) {node.all.forEach(freeze); Object.freeze(node.all);}
+      else if ('any' in node) {node.any.forEach(freeze); Object.freeze(node.any);}
+      else if ('not' in node) freeze(node.not);
+      else if (Array.isArray(node.value)) Object.freeze(node.value);
+      Object.freeze(node);
+    };
+    if (query) freeze(query);
+    return Object.freeze({libraryId: this.options.library.id, pivot: tab.pivot, query,
+      sort: Object.freeze((body.sort ?? []).map(value => Object.freeze({...value}))), presentation: 'grid'});
+  };
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<NativeLibrarySnapshot>): void {
     if (!this.current()) return;
@@ -150,6 +170,11 @@ export class NativeLibraryDestination {
     const same = (node: BrowseNode) => JSON.stringify(node) === JSON.stringify(preset.query);
     this.setQuery([...this.state.predicates.filter(node => !same(node)), ...(enabled ? [preset.query] : [])]);
   };
+  /** The actual section cursor, not a catalogue walk or a new browse query. */
+  nextDiscover = (sectionId: string): Promise<void> => {
+    if (!this.current() || this.state.tab.shows !== 'rows') return Promise.resolve();
+    return this.discover.next(sectionId);
+  };
   createFilters = (): NativeLibraryFilterDraft => {
     const source = this.getSnapshot();
     if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
@@ -168,7 +193,11 @@ export class NativeLibraryDestination {
     this.memory = Object.freeze({firstVisibleIndex, offset, ...(firstVisibleId ? {firstVisibleId} : {})});
     if (before.firstVisibleIndex !== firstVisibleIndex || before.firstVisibleId !== firstVisibleId) this.publish({});
   };
-  retry = (): void => {if (this.state.phase === 'error') void this.load(); else this.state.collection?.retry();};
+  retry = (): void => {
+    if (this.state.phase === 'error') void this.load();
+    else if (this.state.tab.shows === 'rows') void this.discover.retry();
+    else this.state.collection?.retry();
+  };
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;

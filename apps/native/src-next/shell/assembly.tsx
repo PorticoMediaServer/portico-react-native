@@ -22,6 +22,7 @@ import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
+import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
 
@@ -156,10 +157,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   registerSpotlights(initial.spotlight);
   const find = (entry: ContentEntry, rowId?: string) => {
-    const spotlight = spotlights.get(entry) ?? [...spotlights].find(([value]) => value.id === entry.id && value.libraryId === entry.libraryId && value.kind === entry.kind)?.[1]; if (!rowId && spotlight) return spotlight;
+    const spotlight = spotlights.get(entry) ?? [...spotlights].find(([value]) => value.id === entry.id && value.libraryId === entry.libraryId && value.kind === entry.kind)?.[1];
+    if (!rowId && spotlight) return {id: spotlight.id, key: spotlight.key, owner: spotlight};
     const window = rowId ? windows.get(rowId) : [...windows.values()].find(value => value.row.entries.includes(entry));
     const key = window?.keys.get(entry.id); if (!window || !key) throw failure('unregistered_home_entry');
-    return {id: window.memberWindows.get(entry.id)!, key};
+    const id = window.memberWindows.get(entry.id)!;
+    return {id, key, owner: members.get(id) ?? window.registration};
   };
   const menu = (entry: ContentEntry, rowId?: string) => {homeActionDiagnostics.action('home-assembly', 'menu'); if (!currentHome()) return; const member = find(entry, rowId); controller.openMenu(member.id, member.key);};
   const onDocument = () => {
@@ -221,8 +224,18 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const document = context.home.getSnapshot().document!;
         const offered = homeSpotlightModels(document).some(value => value.entry === entry && same(value.primary?.entry.playback, target)) || document.rows.some(row => row.entries.includes(entry) && same(homePlayTarget(row, entry)?.playback, target));
         if (!offered) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'unoffered'); reportError(failure('unoffered_home_playback')); return;}
+        const navigation = context.navigation.getSnapshot();
+        const selected = (() => {try {return find(entry);} catch (error) {reportError(error); return undefined;}})();
+        if (!selected) return;
+        const signal = new AbortController(); operations.add(signal);
+        const operation = nativeHomeEntryLifetime(() => {
+          if (!currentHome() || context.navigation.getSnapshot() !== navigation || context.home.getSnapshot().document !== document) return false;
+          try {const member = find(entry); return member.id === selected.id && member.key === selected.key && member.owner === selected.owner;} catch {return false;}
+        }, [context.navigation.subscribe, context.home.subscribe, controller.subscribe], signal.signal);
         homeActionDiagnostics.action('home-assembly', 'primary-play', 'dispatch');
-        void context.playback.start({entry, target}).catch(reportError);
+        void context.playback.start({entry, target, lifetime: operation.lifetime})
+          .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
+          .finally(() => {operation.dispose(); operations.delete(signal);});
       },
       more: menu,
       myList: async (entry, selected) => {
