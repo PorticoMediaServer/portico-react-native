@@ -186,7 +186,18 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     publish();
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
-      if (!current() || !sameViewer(session!, renewed) || renewed.authorizationHorizon !== session!.authorizationHorizon) {end(); return;}
+      if (!current() || !sameViewer(session!, renewed)) {end(); return;}
+      if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
+        // Local renewal slides its inactivity horizon. This is the same admitted
+        // family/principal, so its immutable runtime epoch and Surface stay put.
+        // Portico's fixed admission horizon, backwards movement and a different
+        // installation/device still retire the captured authority.
+        const localAdvance = selected.signIn === 'local'
+          && renewed.installationId === session!.installationId && renewed.deviceId === session!.deviceId
+          && BigInt(renewed.tokenGeneration) > BigInt(session!.tokenGeneration)
+          && Date.parse(renewed.authorizationHorizon) > Date.parse(session!.authorizationHorizon);
+        if (!localAdvance) {end(); return;}
+      }
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
