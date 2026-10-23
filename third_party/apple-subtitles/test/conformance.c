@@ -3,10 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
 #include <libavutil/intreadwrite.h>
 #include <libavformat/avformat.h>
+#if defined(__linux__)
+#include <dlfcn.h>
+#endif
 
 static void *read_file(const char *path,size_t *size){FILE *f=fopen(path,"rb");if(!f)return NULL;fseek(f,0,SEEK_END);long n=ftell(f);rewind(f);if(n<1){fclose(f);return NULL;}void *data=malloc((size_t)n);*size=fread(data,1,(size_t)n,f);fclose(f);return data;}
+static int companion_files(void){const char *path=getenv("TMPDIR");DIR *dir=path?opendir(path):NULL;if(!dir)return -1;int count=0;struct dirent *entry;while((entry=readdir(dir)))if(!strncmp(entry->d_name,"portico-vobsub-",15))count++;closedir(dir);return count;}
 /* Independent scalar source-over reference. It deliberately doesn't call ps_blend. */
 static void reference(uint8_t *canvas,int width,int height,ASS_Image *image){
  for(ASS_Image *p=image;p;p=p->next)for(int y=0;y<p->h;y++)for(int x=0;x<p->w;x++){
@@ -50,9 +55,13 @@ static int pgs_test(const char *path){
  ps_close(r);printf("PGS intrinsic canvas/palette/timing/clear/backward-seek: %s\n",ok?"PASS":"FAIL");return ok;
 }
 static int bitmap_test(const char *kind,const char *path,const char *pair_path){
- size_t size=0,pair_size=0;uint8_t *bytes=read_file(path,&size),*pair=pair_path?read_file(pair_path,&pair_size):NULL;char error[256]={0};PSRenderer *r=ps_open(kind,bytes,size,pair,pair_size,NULL,0,error,sizeof(error));free(bytes);free(pair);if(!r){fprintf(stderr,"%s open: %s\n",kind,error);return 0;}
+ int files=companion_files();size_t size=0,pair_size=0;uint8_t *bytes=read_file(path,&size),*pair=pair_path?read_file(pair_path,&pair_size):NULL;char error[256]={0};PSRenderer *r=ps_open(kind,bytes,size,pair,pair_size,NULL,0,error,sizeof(error));free(bytes);free(pair);if(!r){fprintf(stderr,"%s open: %s\n",kind,error);return 0;}
  int w=0,h=0,changed=0;const uint8_t *p=ps_render(r,1500000,640,360,&w,&h,&changed);int ok=p&&w>0&&h>0;unsigned visible=0;if(p)for(int i=0;i<w*h;i++)if(p[i*4+3])visible++;
- ok=ok&&visible==4;printf("%s intrinsic canvas %dx%d, four authored pixels: %s\n",kind,w,h,ok?"PASS":"FAIL");ps_close(r);return ok;
+ ok=ok&&visible==4&&files>=0&&companion_files()==files;
+ p=ps_render(r,2500000,640,360,&w,&h,&changed);if(!p)ok=0;else for(int i=0;i<w*h*4;i++)if(p[i])ok=0;
+ p=ps_render(r,1500000,640,360,&w,&h,&changed);unsigned again=0;if(p)for(int i=0;i<w*h;i++)if(p[i*4+3])again++;ok=ok&&again==4;
+ ps_close(r);ok=ok&&companion_files()==files;
+ printf("%s intrinsic canvas %dx%d, authored pixels=%u (expected4), clear/seek/private-file cleanup: %s\n",kind,w,h,visible,ok?"PASS":"FAIL");return ok;
 }
 typedef struct {const uint8_t *data;size_t size;int64_t at;} Input;
 static int input_read(void *opaque,uint8_t *p,int size){Input *i=opaque;if(i->at>=(int64_t)i->size)return AVERROR_EOF;size_t n=i->size-(size_t)i->at;if(n>(size_t)size)n=(size_t)size;memcpy(p,i->data+i->at,n);i->at+=(int64_t)n;return (int)n;}
@@ -64,5 +73,11 @@ static int opus_test(const char *path){
   ok=ok&&ps_audio_rewind(audio);got=ps_audio_read(audio,planes,512);for(int c=0;c<2;c++)ok=ok&&got==512&&!memcmp(first[c],planes[c],sizeof(first[c]));}
  printf("Opus raw frames and deterministic rewind (%ld frames): %s\n",frames,ok?"PASS":"FAIL");ps_audio_close(audio);free((void *)input.data);free(planes[0]);free(planes[1]);return ok;
 }
-int main(int argc,char **argv){if(argc!=7)return 2;int ok=ass_test(argv[1]);ok=pgs_test(argv[2])&&ok;ok=opus_test(argv[3])&&ok;ok=bitmap_test("vobsub",argv[4],argv[5])&&ok;ok=bitmap_test("dvb",argv[6],NULL)&&ok;
- char error[64];uint8_t bad[]={0,1,2};PSRenderer *invalid=ps_open("vobsub",bad,sizeof(bad),NULL,0,NULL,0,error,sizeof(error));if(invalid){ok=0;ps_close(invalid);}printf("VobSub missing-companion rejection: %s\n",invalid?"FAIL":"PASS");return ok?0:1;}
+int main(int argc,char **argv){if(argc!=7)return 2;setvbuf(stdout,NULL,_IONBF,0);int ok=ass_test(argv[1]);ok=pgs_test(argv[2])&&ok;ok=opus_test(argv[3])&&ok;ok=bitmap_test("vobsub",argv[4],argv[5])&&ok;ok=bitmap_test("dvb",argv[6],NULL)&&ok;
+ char error[64];uint8_t bad[]={0,1,2};PSRenderer *invalid=ps_open("vobsub",bad,sizeof(bad),NULL,0,NULL,0,error,sizeof(error));if(invalid){ok=0;ps_close(invalid);}printf("VobSub missing-companion rejection: %s\n",invalid?"FAIL":"PASS");
+#if defined(__linux__)
+ /* The harness is the last Fontconfig client. Release its process-global cache for LSan. */
+ void (*fontconfig_done)(void)=(void (*)(void))dlsym(RTLD_DEFAULT,"FcFini");
+ if(fontconfig_done)fontconfig_done();else ok=0;
+#endif
+ return ok?0:1;}

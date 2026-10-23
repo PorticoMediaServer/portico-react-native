@@ -20,12 +20,13 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
   NSURL *file=[dir URLByAppendingPathComponent:@"app-equalizer.sqlite3"];
   if(sqlite3_open_v2(file.fileSystemRepresentation,&_db,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE|SQLITE_OPEN_FULLMUTEX,NULL)==SQLITE_OK){
    sqlite3_busy_timeout(_db,1500);char *error=NULL;
-   int result=sqlite3_exec(_db,"PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS app_equalizer (singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton=1), enabled INTEGER NOT NULL CHECK(enabled IN(0,1)), preamp REAL NOT NULL CHECK(preamp BETWEEN -12 AND 12)); CREATE TABLE IF NOT EXISTS app_equalizer_band (band INTEGER PRIMARY KEY NOT NULL CHECK(band BETWEEN 0 AND 9), gain REAL NOT NULL CHECK(gain BETWEEN -12 AND 12));",NULL,NULL,&error);
+   int result=sqlite3_exec(_db,"PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS app_equalizer (singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton=1), enabled INTEGER NOT NULL CHECK(enabled IN(0,1)), preamp REAL NOT NULL CHECK(preamp BETWEEN -12 AND 12)); CREATE TABLE IF NOT EXISTS app_equalizer_band (band INTEGER PRIMARY KEY NOT NULL CHECK(band BETWEEN 0 AND 9), gain REAL NOT NULL CHECK(gain BETWEEN -12 AND 12)); CREATE TABLE IF NOT EXISTS app_audio_processing (singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton=1), sample_rate_matching TEXT NOT NULL CHECK(sample_rate_matching IN('smart','strict','off')));",NULL,NULL,&error);
    if(result!=SQLITE_OK){sqlite3_free(error);sqlite3_close(_db);_db=NULL;}
   }else{if(_db)sqlite3_close(_db);_db=NULL;}
   [file setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(routeChanged:) name:AVAudioSessionRouteChangeNotification object:nil];
   [self loadEqualizer];
+  if(_db){sqlite3_stmt *stmt=NULL;if(sqlite3_prepare_v2(_db,"SELECT sample_rate_matching FROM app_audio_processing WHERE singleton=1",-1,&stmt,NULL)==SQLITE_OK&&sqlite3_step(stmt)==SQLITE_ROW){const unsigned char *text=sqlite3_column_text(stmt,0);NSString *mode=text?[NSString stringWithUTF8String:(const char *)text]:nil;if([@[@"smart",@"strict",@"off"] containsObject:mode])_mode=mode;}sqlite3_finalize(stmt);}
  }return self;
 }
 /* One app-local value; output and account changes never select or replace it. */
@@ -67,12 +68,23 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
 - (void)applyEqualizer:(AVAudioUnitEQ *)equalizer {
  PorticoConfigureEqualizer(equalizer,_enabled,_preamp,_bands);
 }
-- (BOOL)configureRate:(double)rate channels:(AVAudioChannelCount)channels mode:(NSString *)mode error:(NSError **)error {
+- (BOOL)setSampleRateMatching:(NSString *)mode error:(NSError **)error {
+ if(![mode isKindOfClass:NSString.class]||![@[@"smart",@"strict",@"off"] containsObject:mode]){if(error)*error=EQError(@"audio_rate_request_invalid");return NO;}
+ if(!_db){if(error)*error=EQError(@"audio_rate_storage_unavailable");return NO;}
+ sqlite3_stmt *stmt=NULL;BOOL ok=sqlite3_prepare_v2(_db,"INSERT INTO app_audio_processing(singleton,sample_rate_matching) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET sample_rate_matching=excluded.sample_rate_matching",-1,&stmt,NULL)==SQLITE_OK;
+ if(ok){sqlite3_bind_text(stmt,1,mode.UTF8String,-1,SQLITE_TRANSIENT);ok=sqlite3_step(stmt)==SQLITE_DONE;}sqlite3_finalize(stmt);
+ if(!ok){if(error)*error=EQError(@"audio_rate_storage_unavailable");return NO;}
+ BOOL changed=![_mode isEqual:mode];_mode=[mode copy];
+ if(changed){_sessionConfigured=NO;[NSNotificationCenter.defaultCenter postNotificationName:PorticoAudioProcessingChanged object:self userInfo:@{@"sampleRateMatching":mode}];}
+ return YES;
+}
+- (BOOL)configureRate:(double)rate channels:(AVAudioChannelCount)channels error:(NSError **)error {
+ NSString *mode=_mode;
  if(!isfinite(rate)||rate<8000||rate>768000||channels<1||channels>32||![@[@"smart",@"strict",@"off"] containsObject:mode]){if(error)*error=EQError(@"audio_rate_request_invalid");return NO;}
  AVAudioSession *audio=AVAudioSession.sharedInstance;BOOL strict=[mode isEqual:@"strict"];
  double requested=[mode isEqual:@"off"]?0:rate;
- BOOL change=![_mode isEqual:mode]||!_sessionConfigured||fabs(_requestedRate-requested)>.01||_requestedChannels!=channels;
- _mode=[mode copy];_requestedChannels=channels;NSError *failure=nil;
+ BOOL change=strict||!_sessionConfigured||fabs(_requestedRate-requested)>.01||_requestedChannels!=channels;
+ _requestedChannels=channels;NSError *failure=nil;
  if(change){
   /* Preferences are requests. Read back sampleRate/channels after activation and report rejection. */
   [audio setActive:NO error:&failure];

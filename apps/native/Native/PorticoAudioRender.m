@@ -815,9 +815,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL regain=!changed&&_primary&&fabs([PorticoFileRender gainFor:plan settings:render[@"settings"]]-oldGain)>.000001;
  double position=seek?[pending[@"positionSeconds"] doubleValue]:changed?[render[@"startSeconds"] doubleValue]:[self position];
  if(changed||_configChanged){
-  [_engine stop];NSString *matching=[render[@"settings"][@"sampleRateMatching"] isKindOfClass:NSString.class]?render[@"settings"][@"sampleRateMatching"]:@"smart";
+  [_engine stop];
   NSError *sessionError=nil;
-  if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] mode:matching error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_route_unavailable"}];return;}
+  if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_route_unavailable"}];return;}
  }
  if(changed||seek||regain||_configChanged){
   // A route or format change mid-edge: the committed successor comes back as a buffered candidate
@@ -845,6 +845,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 - (void)processingChanged:(NSNotification *)note {
  for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d!=NSNull.null&&d.equalizer)[PorticoAudioProcessing.shared applyEqualizer:d.equalizer];}
+ if(note.userInfo[@"sampleRateMatching"]&&_active&&_command){_configChanged=YES;[self applyCommand:_command];}
 }
 #if DEBUG
 /** The harness's stand-in for a route change: the engine stops and says its configuration changed. */
