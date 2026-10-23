@@ -17,6 +17,10 @@ import type {NativeWatchOutletPort} from './watch-outlet';
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
   destination: ShellDestination;
+  /** The title's genuine library may differ from its retained origin page. */
+  railDestination?: ShellDestination;
+  /** A non-shell route retains its origin without making that page current. */
+  contentVisible?: boolean;
   selectionActive: boolean;
   homeObscured: boolean;
   homeVisible: boolean;
@@ -24,6 +28,8 @@ export type NativeShellSnapshot = Readonly<{
   libraries: readonly Library[];
   hasLiveTV: boolean;
   profile: ProfileOption;
+  serverName?: string;
+  unreadNotificationCount?: number;
   unreadNotifications: boolean;
   account: Pick<AccountMenuProps, 'accountLine' | 'actions' | 'profiles' | 'viewerRole' | 'serverAction'>;
 }>;

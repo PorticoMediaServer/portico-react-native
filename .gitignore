@@ -8,6 +8,8 @@ Pods/
 *.tsbuildinfo
 .DS_Store
 xcuserdata/
+apps/native/ios/.xcode.env.local
+apps/native/tvos/.xcode.env.local
 
 .env
 .env.*
