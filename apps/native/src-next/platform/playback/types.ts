@@ -17,6 +17,7 @@ import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-cor
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
+import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
@@ -82,6 +83,7 @@ export interface NativePlaybackAdapter {
   change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;
   chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
   setRate: (fence: PlaybackFence, rate: number) => void;
+  subtitleControls: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   Surface: ComponentType<NativePlaybackSurfaceProps>;

@@ -25,6 +25,7 @@ import {NativePlaybackCoordinator} from './NativePlaybackCoordinator';
 import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
 import {captionStyle} from './caption-style';
+import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
@@ -800,6 +801,12 @@ export class NativePlaybackRuntime {
   open = (fence: PlaybackFence): void => { if (this.matches(fence)) { this.expanded = true; this.dock.expand(fence); this.applyOptions(); this.publish(); } };
   collapse = (fence: PlaybackFence): void => { if (this.matches(fence)) { this.expanded = false; this.dock.collapse(fence); this.applyOptions(); this.publish(); } };
   setSubtitleDisplay(visible: boolean): void { if (this.displaySubtitles !== visible) { this.displaySubtitles = visible; this.applyOptions(); } }
+  subtitleControls = (fence: PlaybackFence): NativePlaybackSubtitleControls | undefined => {
+    const service = this.subtitleService, epoch = this.sourceEpoch, key = this.sourceKey;
+    const plan = service?.getSnapshot().plan;
+    if (!service || !plan || fence.kind !== 'queue' || !this.matches(fence) || plan.sessionId !== fence.sessionId || plan.generation !== fence.generation) return undefined;
+    return boundSubtitleControls(service, () => this.matches(fence) && this.subtitleService === service && this.sourceEpoch === epoch && this.sourceKey === key);
+  };
   cast = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.o.openDestinations) await this.o.openDestinations(fence); };
 
   change = async (fence: PlaybackFence, choice: PlaybackChoices): Promise<void> => {
