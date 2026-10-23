@@ -65,7 +65,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     if (vertical.offset.value <= 0 && selected?.regionId === ids.spotlight && selected.childId === 'play') return false;
     moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
   });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, setFocus, theme.isTV, vertical.offset]);
-  const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
+  const current = useCallback(() => {
+    try {return sameAuthority(authority, runtime.getSnapshot().authority);}
+    catch (error) {if (error instanceof Error && error.name === 'AbortError') return false; throw error;}
+  }, [authority, runtime]);
   useEffect(() => {
     if (!theme.isTV || spotlightEntered.current) return;
     // Only the unopened page may acquire entry focus. An already focused rail,
