@@ -7,6 +7,7 @@ import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import type {ExpandedSlotLayout, ExpandedSlotReader} from '../src-next/shell/watch-slot-layout.ts';
 import {resolvePlayerPresentation} from '../src-next/platform/layout/player-presentation.ts';
+import type {NativeWatchPictureSlot} from '../src-next/screens/watch/picture-slot.tsx';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -108,6 +109,42 @@ test('the measured full-window pane retains letterbox space in native bounds and
       {position: 'absolute', left: 0, top: 0, width: 890, height: 626});
     assert.deepEqual(d.transitions, []);
   } finally {d.close();}
+});
+
+test('the checked watch measurement payload keeps the full pane through the common consumer', async () => {
+  const d = await layer(), wide = {width: 890, height: 626};
+  const published: NativeWatchPictureSlot[] = [], callbacks: ((x: number, y: number, width: number, height: number) => void)[] = [];
+  let registrations = 0, disposed = 0, picture: any;
+  const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},
+    '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
+  });
+  const outlet = {register() {registrations++; return {publish(value: NativeWatchPictureSlot) {published.push(value); return true;}, clear() {}, dispose() {disposed++;}};}};
+  const view = {measureInWindow(callback: typeof callbacks[number]) {callbacks.push(callback);}};
+  const current = () => ({authority, fence, window: wide});
+  const owner = createHookHost(() => {
+    picture = NativeWatchPicture({authority, fence, outlet, current, style: {width: wide.width, height: wide.height}});
+    picture.props.ref.current = view;
+  });
+  await d.resize(wide);
+  owner.mount();
+  try {
+    const surfaceType = d.surface().type;
+    assert.equal(picture.type, 'View');
+    assert.equal(picture.props.children, undefined);
+    await act(() => callbacks.shift()!(8, 24, 890, 626));
+    const measured: ExpandedSlotLayout = published[0]!;
+    assert.deepEqual(measured.frameInWindow, {x: 8, y: 24, width: 890, height: 626});
+    // Relay the actual payload only; Accounts' canonical outlet/root is not exercised by this fixture.
+    await d.outlet.publish(measured);
+    await act(() => d.callbacks.shift()!(8, 24));
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 890, height: 626});
+    assert.deepEqual(d.surface().props.expandedBounds, {x: 0, y: 0, width: 890, height: 626});
+    assert.strictEqual(d.surface().type, surfaceType);
+    assert.deepEqual(d.transitions, []);
+  } finally {owner.unmount(); d.close();}
+  assert.equal(registrations, 1);
+  assert.equal(disposed, 1);
 });
 
 test('watch origin callbacks reject replacement slot, source, authority, window, host, reader, dock and unmount before notification', async () => {
