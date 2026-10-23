@@ -2,29 +2,22 @@ import React, {useCallback, useEffect, useRef} from 'react';
 import {View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
+import type {NativeExpandedVideoSlot, NativeWatchCurrent, NativeWatchLease, NativeWatchOutletPort} from '../../shell/watch-outlet';
 
 /** Consumer port for Accounts' one watch outlet. No second outlet/store or native bridge. */
-export type NativeWatchPictureSlot = Readonly<{
-  authority: ShellAuthority;
-  fence: PlaybackFence;
-  layoutRevision: number;
-  window: Readonly<{width: number; height: number}>;
-  frameInWindow: Readonly<{x: number; y: number; width: number; height: number}>;
-}>;
-export type NativeWatchPictureOutlet = Readonly<{
-  register: (authority: ShellAuthority) => Readonly<{publish: (slot: NativeWatchPictureSlot) => boolean; clear: () => void; dispose: () => void}>;
-}>;
+export type NativeWatchPictureSlot = NativeExpandedVideoSlot;
+export type NativeWatchPictureOutlet = Pick<NativeWatchOutletPort, 'register'>;
 export type NativeWatchPictureProps = Readonly<{
   authority: ShellAuthority;
   fence: PlaybackFence;
   outlet: NativeWatchPictureOutlet;
-  current: () => Readonly<{authority: ShellAuthority; fence?: PlaybackFence; window: Readonly<{width: number; height: number}>}>;
+  current: () => NativeWatchCurrent;
   style?: StyleProp<ViewStyle>;
 }>;
 
 /** Measure only. The existing NativePlaybackLayer owns Surface/ref/tag/runtime/lease. */
 export function NativeWatchPicture({authority, fence, outlet, current, style}: NativeWatchPictureProps) {
-  const node = useRef<View>(null), revision = useRef(0), registration = useRef<ReturnType<NativeWatchPictureOutlet['register']> | undefined>(undefined);
+  const node = useRef<View>(null), revision = useRef(0), registration = useRef<NativeWatchLease | undefined>(undefined);
   const window = useWindowDimensions();
   const measure = useCallback(() => {
     const view = node.current, owner = registration.current, epoch = ++revision.current;
@@ -42,5 +35,5 @@ export function NativeWatchPicture({authority, fence, outlet, current, style}: N
     return () => {if (registration.current === owner) registration.current = undefined; owner.dispose();};
   }, [outlet, authority]);
   useEffect(() => {registration.current?.clear(); measure();}, [fence, window.width, window.height, measure]);
-  return <View ref={node} collapsable={false} testID="watch-picture-slot" accessible={false} onLayout={measure} style={style}/>;
+  return <View ref={node} collapsable={false} testID="watch-picture-slot" pointerEvents="none" accessible={false} onLayout={measure} style={style}/>;
 }
