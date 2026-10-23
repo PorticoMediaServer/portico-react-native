@@ -34,9 +34,9 @@ test('copied native transport carries headers and cancellation without raw fetch
 
 test('session preparation happens before secure viewer and installation reads', async () => {
   const calls: string[] = [];
-  Object.assign(NativeModules.PorticoRuntime, {prepareSecureRecords: async () => {calls.push('prepare'); return true;}, profileInstallation: async () => {calls.push('installation'); return 'installation';}, loadSelectedViewer: async () => {calls.push('viewer'); return null;}});
+  Object.assign(NativeModules.PorticoRuntime, {prepareSecureRecords: async () => {calls.push('prepare'); return true;}, profileInstallation: async () => {calls.push('installation'); return 'installation';}, loadSelectedViewer: async () => {throw new Error('historical viewer must not be read');}, loadQueueRecord: async (key: string) => {assert.equal(key, 'accounts.sessions.v1'); calls.push('sessions'); return null;}});
   const result = await readNativeSession();
-  assert.equal(calls[0], 'prepare'); assert.deepEqual(result, {recovered: true, installation: 'installation', viewer: null});
+  assert.equal(calls[0], 'prepare'); assert.ok(calls.includes('installation')); assert.ok(calls.includes('sessions')); assert.equal(calls.includes('viewer'), false); assert.deepEqual(result, {recovered: true, installation: 'installation', viewer: null});
   NativeModules.PorticoRuntime.prepareSecureRecords = async () => {throw new Error('Locked');}; calls.length = 0;
   await assert.rejects(readNativeSession(), /Locked/); assert.deepEqual(calls, []);
 });
