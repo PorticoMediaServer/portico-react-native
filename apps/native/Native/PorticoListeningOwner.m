@@ -3,7 +3,6 @@
 #import "PorticoAudioRender.h"
 #import "PorticoQueuePlaybackStore.h"
 #import "PorticoListeningPolicy.h"
-#import "PorticoEngineClock.h"
 #import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <UIKit/UIKit.h>
@@ -982,7 +981,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   [cleanup start:[NSURL URLWithString:[origin stringByAppendingFormat:@"/v1/playback/sessions/%@",[session stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]] token:token body:@{@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))} method:@"DELETE"];
  }
  // Not while the other player engine has started a video: the session is its to keep.
- if(!PorticoEngineClock.active)[[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+ [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
 }
 - (void)invalidate {if(_owner)[self retire:_owner stop:YES];_invalidated=YES;self.onSnapshot=nil;[NSNotificationCenter.defaultCenter removeObserver:self];}
 - (void)dealloc {[_timer invalidate];[_request cancel];[_artworkRequest cancel];[_metadataRequest cancel];[NSNotificationCenter.defaultCenter removeObserver:self];}

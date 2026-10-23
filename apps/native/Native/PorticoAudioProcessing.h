@@ -6,5 +6,6 @@ FOUNDATION_EXPORT NSNotificationName const PorticoAudioProcessingChanged;
 - (BOOL)configureRate:(double)rate channels:(AVAudioChannelCount)channels mode:(NSString *)mode error:(NSError **)error;
 - (NSDictionary *)snapshot;
 - (BOOL)setEqualizer:(NSDictionary *)settings error:(NSError **)error;
+- (BOOL)resetEqualizer:(NSError **)error;
 - (void)applyEqualizer:(AVAudioUnitEQ *)equalizer;
 @end

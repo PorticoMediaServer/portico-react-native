@@ -8,6 +8,14 @@ import tarfile
 
 lock_path, downloads, out = map(Path, sys.argv[1:])
 lock = json.loads(lock_path.read_text())
+recipe = lock_path.parent
+ffmpeg_lock = recipe / lock['components']['ffmpeg']['sourceLock']
+checked = json.loads(ffmpeg_lock.read_text())
+receipt = downloads.parent / 'src/ffmpeg/portico-source-receipt.json'
+expected_receipt = {'sourceCommit': checked['ffmpeg']['commit'], 'sourceSha256': checked['ffmpeg']['sha256'],
+                    'patches': checked['ffmpeg']['patches'], 'sourceDateEpoch': checked['sourceDateEpoch']}
+if json.loads(receipt.read_text()) != expected_receipt:
+    raise SystemExit('Corresponding source has no matching checked Jellyfin patch receipt')
 notices = out / "notices"
 source = out / "source"
 notices.mkdir(parents=True, exist_ok=True)
@@ -31,7 +39,11 @@ for name, entry in lock["components"].items():
             combined.append(data.decode("utf-8", errors="replace"))
 (notices / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(combined))
 shutil.copyfile(lock_path, source / "sources.lock.json")
-recipe = lock_path.parent
+shutil.copyfile(ffmpeg_lock, source / ffmpeg_lock.name)
+shutil.copyfile(receipt, source / receipt.name)
+combined.append('\nFFmpeg uses the checked Jellyfin source and all recorded patches. GPL-3.0-or-later.\n'
+                'The source archive, full patch lock, application receipt and build recipe are in source/.\n')
+(notices / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(combined))
 with tarfile.open(source / "apple-subtitle-recipe.tar", "w") as tar:
     for path in sorted(recipe.rglob("*")):
         if path.is_file() and not set(path.relative_to(recipe).parts) & {"work", "out", "Frameworks", "__pycache__"}:

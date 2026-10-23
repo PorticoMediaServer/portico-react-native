@@ -4,7 +4,6 @@
 #import "PorticoAudioRender.h"
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSubtitleOverlay.h"
-#import "PorticoEngineClock.h"
 #import <UIKit/UIKit.h>
 #import <AVKit/AVKit.h>
 #import <sys/utsname.h>
@@ -199,7 +198,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   _videoSessionActive=NO;__weak PorticoPlaybackController *weakSelf=self;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.5*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
    PorticoPlaybackController *view=weakSelf;
-   if(!view||view->_lease||view->_listeningOwner||view->_audioRender.active||PorticoEngineClock.active)return;
+   if(!view||view->_lease||view->_listeningOwner||view->_audioRender.active)return;
    [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
   });
  }

@@ -44,7 +44,6 @@
 		B8FDD8857E9E1BF4BA79276F /* PorticoActivity.m in Sources */ = {isa = PBXBuildFile; fileRef = B772FDD8857E9E1BF4BA7927 /* PorticoActivity.m */; };
 		CA57000000000000000000A1 /* PorticoCast.m in Sources */ = {isa = PBXBuildFile; fileRef = CA57000000000000000000A2 /* PorticoCast.m */; };
 		E256F9529781C1DDA4567A7B /* PorticoDownloads.m in Sources */ = {isa = PBXBuildFile; fileRef = 4239B6B87389F0D28B2631FE /* PorticoDownloads.m */; };
-		A6B000000000000000000101 /* PorticoEngineClock.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000201 /* PorticoEngineClock.m */; };
 		A6E000000000000000000001 /* PorticoServerTrust.m in Sources */ = {isa = PBXBuildFile; fileRef = A6E000000000000000000002 /* PorticoServerTrust.m */; };
 		A6B0000000000000000003A2 /* PorticoSubtitleEngine in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* PorticoSubtitleEngine */; };
 		A9E000000000000000000101 /* PorticoSubtitleOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000201 /* PorticoSubtitleOverlay.m */; };
@@ -96,9 +95,7 @@
 		CA57000000000000000000A2 /* PorticoCast.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoCast.m; sourceTree = "<group>"; };
 		E7CB18FE2B76A8D86E32C0CE /* PorticoCapabilities.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = PorticoCapabilities.m; path = ../Native/PorticoCapabilities.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		A6B000000000000000000201 /* PorticoEngineClock.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoEngineClock.m; sourceTree = "<group>"; };
 		A6E000000000000000000002 /* PorticoServerTrust.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoServerTrust.m; sourceTree = "<group>"; };
-		A6B000000000000000000209 /* PorticoEngineClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoEngineClock.h"; sourceTree = "<group>"; };
 		A6E000000000000000000003 /* PorticoServerTrust.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoServerTrust.h"; sourceTree = "<group>"; };
 		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
 		A9E000000000000000000201 /* PorticoSubtitleOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoSubtitleOverlay.m; sourceTree = "<group>"; };
@@ -169,9 +166,7 @@
 				A12C00000000000000000002 /* PorticoAudioRender.m */,
 				A12C00000000000000000003 /* PorticoAudioRender.h */,
 				A57D00000000000000000002 /* PorticoPlaybackModule.m */,
-				A6B000000000000000000201 /* PorticoEngineClock.m */,
 				A6E000000000000000000002 /* PorticoServerTrust.m */,
-				A6B000000000000000000209 /* PorticoEngineClock.h */,
 				A6E000000000000000000003 /* PorticoServerTrust.h */,
 				A6B00000000000000000020A /* Portico-Bridging-Header.h */,
 				A59100000000000000000002 /* PorticoAccountAuth.m */,
@@ -385,7 +380,6 @@
 				B83956C1361284A1D39FCC18 /* PorticoSystemMedia.m in Sources */,
 				A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */,
 				A57D00000000000000000001 /* PorticoPlaybackModule.m in Sources */,
-				A6B000000000000000000101 /* PorticoEngineClock.m in Sources */,
 				A6E000000000000000000001 /* PorticoServerTrust.m in Sources */,
 				A59100000000000000000001 /* PorticoAccountAuth.m in Sources */,
 				A57C00000000000000000001 /* PorticoPlaybackController.m in Sources */,

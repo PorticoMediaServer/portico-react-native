@@ -7,6 +7,16 @@ import subprocess
 import sys
 
 out = Path(sys.argv[1])
+recipe = Path(__file__).resolve().parent
+lock = json.loads((recipe / 'sources.lock.json').read_text())
+source_lock = json.loads((recipe / lock['components']['ffmpeg']['sourceLock']).read_text())
+ffmpeg = source_lock['ffmpeg']
+if (ffmpeg['distributionVersion'] != '8.1.3-1' or len(ffmpeg['patches']) != 100
+        or ffmpeg['sha256'] != lock['components']['ffmpeg']['sha256']
+        or ffmpeg['license'] != 'GPL-3.0-or-later'):
+    raise SystemExit('Incorrect checked Jellyfin source lock')
+expected_receipt = {'sourceCommit': ffmpeg['commit'], 'sourceSha256': ffmpeg['sha256'],
+                    'patches': ffmpeg['patches'], 'sourceDateEpoch': source_lock['sourceDateEpoch']}
 stems = {"avcodec", "avformat", "avutil", "swresample", "porticosubtitle", "ass", "freetype", "harfbuzz", "fribidi", "unibreak"}
 expected = {"Lib" + s for s in stems}
 for config in sorted((out / "meta").glob("*/ffmpeg-config_components.h")):
@@ -14,11 +24,19 @@ for config in sorted((out / "meta").glob("*/ffmpeg-config_components.h")):
     for required in ["PGSSUB_DECODER", "DVDSUB_DECODER", "DVBSUB_DECODER", "OPUS_DECODER", "SUP_DEMUXER", "VOBSUB_DEMUXER", "MATROSKA_DEMUXER", "OGG_DEMUXER"]:
         if not re.search(r"#define CONFIG_" + required + r" 1\b", text):
             raise SystemExit(f"Missing {required}: {config}")
-    if re.search(r"#define CONFIG_(H264_DECODER|HEVC_DECODER|HTTP_PROTOCOL|HTTPS_PROTOCOL|GPL|NONFREE) 1\b", text):
+    if re.search(r"#define CONFIG_(H264_DECODER|HEVC_DECODER|HTTP_PROTOCOL|HTTPS_PROTOCOL|LIBFDK_AAC_DECODER|LIBFDK_AAC_ENCODER) 1\b", text):
         raise SystemExit(f"Unexpected video/network/nonfree feature: {config}")
+    general = config.with_name('ffmpeg-config.h').read_text()
+    for required in ['GPL', 'VERSION3', 'GPLV3']:
+        if not re.search(r'#define CONFIG_' + required + r' 1\b', general):
+            raise SystemExit(f'Missing GPLv3 configuration: {config}')
+    if re.search(r'#define CONFIG_NONFREE 1\b', general):
+        raise SystemExit(f'Nonfree configuration: {config}')
+    if json.loads(config.with_name('portico-source-receipt.json').read_text()) != expected_receipt:
+        raise SystemExit(f'Incorrect Jellyfin patch receipt: {config}')
 configs = list((out / "meta").glob("*/ffmpeg-config_components.h"))
-if len(configs) != 4:
-    raise SystemExit("Expected four checked Apple slices")
+if {c.parent.name for c in configs} != {'ios-arm64', 'ios-simulator-arm64', 'ios-simulator-x86_64', 'tvos-arm64', 'tvos-simulator-arm64'}:
+    raise SystemExit('Expected configuration and patch receipts for all five Apple targets')
 manifest = []
 for xc in sorted((out / "xcframeworks").glob("*.xcframework")):
     if xc.stem not in expected:
@@ -38,5 +56,7 @@ if {xc.stem for xc in (out / "xcframeworks").glob("*.xcframework")} != expected 
     raise SystemExit("Missing framework slice")
 if not (out / "notices/THIRD-PARTY-NOTICES.txt").is_file() or not (out / "source/SHA256SUMS").is_file():
     raise SystemExit("Missing licence/source bundle")
+if json.loads((out / 'source/portico-source-receipt.json').read_text()) != expected_receipt:
+    raise SystemExit('Missing corresponding-source patch receipt')
 (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 print(f"Verified {len(manifest)} subtitle framework slices")

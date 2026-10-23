@@ -9,6 +9,8 @@ ME_WORK="${APPLE_SUBTITLE_WORK_DIR:-$ME_ROOT/work}"
 ME_OUT="${APPLE_SUBTITLE_OUT_DIR:-$ME_ROOT/out}"
 ME_DOWNLOADS="$ME_WORK/downloads"; ME_TOOLS="$ME_WORK/tools"; ME_LOGS="$ME_WORK/logs"
 ME_JOBS="${APPLE_SUBTITLE_JOBS:-4}"
+export SOURCE_DATE_EPOCH
+SOURCE_DATE_EPOCH=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceDateEpoch"])' "$ME_LOCK")
 
 CLEAN=0
 while (( $# )); do
@@ -163,7 +165,7 @@ meson_build() {
     CC_FOR_BUILD="$(xcrun --sdk macosx -f clang)" CXX_FOR_BUILD="$(xcrun --sdk macosx -f clang++)" meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" --native-file "$BUILD/native.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
-    # mpv writes its configure command line and config folder into config.h.
+    # Generated configuration headers must not retain build-machine paths.
     [[ -f "$dir/config.h" ]] && me_neutralize "$DEVELOPER_DIR_PATH" "$dir/config.h"
     ninja -C "$dir" -j "$ME_JOBS"
     ninja -C "$dir" install
@@ -223,7 +225,7 @@ build_ffmpeg() {
         --extra-cflags="$CFLAGS_T -I$PREFIX/include" --extra-ldflags="$LDFLAGS_T -L$PREFIX/lib" \
         --install-name-dir='@rpath' \
         --disable-autodetect --disable-everything --disable-programs --disable-doc --disable-network \
-        --enable-shared --disable-static --disable-avdevice --disable-avfilter --disable-swscale \
+        --enable-gpl --enable-version3 --enable-shared --disable-static --disable-avdevice --disable-avfilter --disable-swscale \
         --enable-avformat --enable-avcodec --enable-avutil --enable-swresample \
         --enable-decoder=pgssub,dvdsub,dvbsub,opus --enable-demuxer=sup,vobsub,matroska,ogg \
         --enable-parser=dvdsub,dvbsub,opus --enable-protocol=file --disable-videotoolbox --disable-audiotoolbox --disable-asm \
@@ -232,11 +234,10 @@ build_ffmpeg() {
     me_neutralize "$DEVELOPER_DIR_PATH" config.h
     make -j"$ME_JOBS"
     make install
-    if [[ "$ARCH" == arm64 ]]; then
-        mkdir -p "$ME_OUT/$PLATFORM/meta/$SLICE"
-        cp config.h "$ME_OUT/$PLATFORM/meta/$SLICE/ffmpeg-config.h"
-        cp config_components.h "$ME_OUT/$PLATFORM/meta/$SLICE/ffmpeg-config_components.h"
-    fi
+    mkdir -p "$ME_OUT/$PLATFORM/meta/$TAG"
+    cp config.h "$ME_OUT/$PLATFORM/meta/$TAG/ffmpeg-config.h"
+    cp config_components.h "$ME_OUT/$PLATFORM/meta/$TAG/ffmpeg-config_components.h"
+    cp "$ME_WORK/src/ffmpeg/portico-source-receipt.json" "$ME_OUT/$PLATFORM/meta/$TAG/"
 }
 
 build_core() {
@@ -262,10 +263,11 @@ component_key() {
         echo "$previous"; echo "$XCODE_VERSION"
         python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["components"][sys.argv[2]], sort_keys=True))' "$ME_LOCK" "$name"
         declare -f "build_$name" set_target write_cross_file meson_build cmake_apple
-        declare -f me_path_forms me_path_map_pairs me_path_map_cflags me_rust_remap_flags me_neutralize
-        declare -f me_ffmpeg_common_flags me_openssl_common_flags me_mpv_common_flags me_libplacebo_common_flags \
-            me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags \
-            me_dav1d_common_flags me_lcms2_common_flags
+        declare -f me_path_forms me_path_map_pairs me_path_map_cflags me_neutralize
+        declare -f me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags
+        if [[ "$name" == ffmpeg ]]; then
+            cat "$ME_ROOT/jellyfin-ffmpeg.source.lock.json" "$ME_ROOT/prepare-ffmpeg-source.py"
+        fi
         cat "$ME_ROOT/patches/$name"/*.patch 2>/dev/null || true
     } | shasum -a 256 | cut -d' ' -f1
 }
@@ -274,7 +276,16 @@ EXTRACTED=" "
 prepare_source() {
     local name="$1"
     [[ "$EXTRACTED" == *" $name "* ]] && return
-    me_extract "$name"
+    if [[ "$name" == ffmpeg ]]; then
+        rm -rf "$ME_WORK/src/ffmpeg"
+        # The checked preparer verifies the archive and every one of the 100 patches,
+        # applies them in exact order with --fuzz=0 and writes the source receipt.
+        python3 -I "$ME_ROOT/prepare-ffmpeg-source.py" "$ME_WORK/src/ffmpeg" \
+            --lock "$ME_ROOT/jellyfin-ffmpeg.source.lock.json" \
+            --archive "$ME_DOWNLOADS/$(me_lock ffmpeg file)"
+    else
+        me_extract "$name"
+    fi
     EXTRACTED+="$name "
 }
 
