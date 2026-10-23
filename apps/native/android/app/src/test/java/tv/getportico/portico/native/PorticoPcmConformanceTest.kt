@@ -48,7 +48,7 @@ class PorticoPcmConformanceTest {
   }
   @Test fun peakingBandsMeetTheirCentreGainAndChannelsRemainIndependent() {
     val rate=48000
-    for(band in 0..8) {
+    for(band in PorticoPcmDsp.CENTRES.indices) {
       val gains=MutableList(10) { 0.0 };gains[band]=6.0
       val dsp=PorticoPcmDsp();dsp.eq=PorticoPcmDsp.Eq(true,0.0,gains);dsp.configure(rate,2)
       val f=PorticoPcmDsp.CENTRES[band];val input=ByteBuffer.allocate(rate*2*4).order(ByteOrder.LITTLE_ENDIAN)
