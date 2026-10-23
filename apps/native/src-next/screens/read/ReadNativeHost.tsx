@@ -65,7 +65,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       : state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
         originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
         onMessage={event => {if (readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) host.current?.receive(event.nativeEvent.data);}}
-        renderError={() => null} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
+        renderError={() => <></>} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
         allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
         onError={() => {setState({failed: true}); void closeRef.current?.().catch(() => {});}}

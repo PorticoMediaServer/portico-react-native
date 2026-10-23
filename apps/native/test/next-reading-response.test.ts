@@ -9,13 +9,12 @@ import {NativeModules} from './react-native-stub.mjs';
 const origin = 'http://127.0.0.1:39129', revision = 'a'.repeat(64);
 const viewer: Viewer = {accountId: 'a', profileId: 'p', serverId: 's', authority: 'local', role: 'member'};
 test('canonical byte operations alone select exact bounds and other Reading controls retain JSON', () => {
-  for (const [operation, method, parameters, limit] of [
-    ['head_reading_sessions_sessionId_source', 'HEAD', {sessionId: 'session'}, 65536],
-    ['get_reading_sessions_sessionId_source', 'GET', {sessionId: 'session'}, 65536],
-    ['get_reading_sessions_sessionId_assets', 'GET', {sessionId: 'session'}, 33554432],
-    ['get_reading_sessions_sessionId_pages_pageIndex', 'GET', {sessionId: 'session', pageIndex: 0}, 16777216],
+  for (const [path, method, limit] of [
+    [routePath('head_reading_sessions_sessionId_source', {sessionId: 'session'}), 'HEAD', 65536],
+    [routePath('get_reading_sessions_sessionId_source', {sessionId: 'session'}), 'GET', 65536],
+    [routePath('get_reading_sessions_sessionId_assets', {sessionId: 'session'}), 'GET', 33554432],
+    [routePath('get_reading_sessions_sessionId_pages_pageIndex', {sessionId: 'session', pageIndex: 0}), 'GET', 16777216],
   ] as const) {
-    const path = routePath(operation, parameters);
     assert.equal(nativeReadingPolicy(origin + path, method)?.binaryLimit, limit);
     assert.equal(nativeReadingPolicy(origin + path, 'PATCH'), undefined);
   }

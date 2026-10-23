@@ -33,7 +33,9 @@ export function nativeReadingResponse(raw: NativeReply, binaryLimit: number | un
   }
   const empty = [204, 205, 304].includes(raw.status);
   if (empty && bytes.length) throw invalid();
-  const response = new Response(empty ? null : bytes, {status: raw.status, headers: raw.headers});
+  const buffer = bytes.buffer;
+  if (!(buffer instanceof ArrayBuffer)) throw invalid();
+  const response = new Response(empty ? null : buffer, {status: raw.status, headers: raw.headers});
   if (empty) return response;
   let data: Uint8Array | undefined = bytes, offset = 0, locked = false, used = false;
   const cancel = () => {data = undefined; signal?.removeEventListener('abort', cancel);};
