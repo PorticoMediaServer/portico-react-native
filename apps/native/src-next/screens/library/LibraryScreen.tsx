@@ -21,7 +21,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {NativeLibraryDestination, nativeLibraryEntryKey, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
+import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 import {LibraryToolbar} from './LibraryToolbar';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
@@ -31,6 +31,7 @@ import {hiddenReadingLibraryOnTV} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 export type NativeLibraryActions = Readonly<{
+  dispose?: () => void;
   menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
@@ -167,6 +168,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
+        canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}
         onFilters={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}
         onSort={sort => destination.setQuery(source.predicates, sort)} onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}
         onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}

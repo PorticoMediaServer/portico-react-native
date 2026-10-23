@@ -13,7 +13,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {libraryFilterChange, libraryFilterField} from './filter-controls';
 import {NativeLibraryFilterDraft} from './filters';
-import type {NativeLibrarySnapshot, NativeLibraryViewDraft} from './model';
+import {nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 
 export function LibraryFilters({draft, source, runtime, labels, owner, onClose, onSave}: {draft: NativeLibraryFilterDraft; source: NativeLibrarySnapshot; runtime: NativeShellRuntime; labels: BrowseLabels; owner: boolean; onClose: () => void; onSave: (view: NativeLibraryViewDraft) => void}) {
   const theme = useTheme(), registry = useFocusRegistry(), state = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
@@ -35,7 +35,8 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
   const result = state.count.value;
   const results = result && defaultI18n.t(result.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: result.total, pivot: source.tab.pivot ?? 'other'});
   const footer = <View style={{flexDirection: 'row', gap: theme.isTV ? 16 : 10}}>
-    {!theme.isTV && <Button focusId="save-view" variant="glass" onPress={() => onSave({predicates: state.predicates, sort: source.sort!})}>{defaultI18n.t('next.browse.native.saveView')}</Button>}
+    {!theme.isTV && <Button focusId="save-view" variant="glass" disabled={!nativeLibraryCanSave(source, {predicates: state.predicates, sort: source.sort!})}
+      onPress={() => onSave({predicates: state.predicates, sort: source.sort!})}>{defaultI18n.t('next.browse.native.saveView')}</Button>}
     <Button focusId="apply" testID={`${panelId}-apply`} variant="primary" disabled={state.count.phase !== 'ready'} onPress={() => {if (draft.apply()) onClose();}} style={{flex: 1}}>
       {results ? defaultI18n.t('next.browse.native.showResults', {results}) : null}
     </Button>

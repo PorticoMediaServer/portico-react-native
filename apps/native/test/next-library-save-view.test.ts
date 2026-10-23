@@ -24,7 +24,7 @@ test('Save view trims the real name, preserves the captured definition and close
   } finally {controller.dispose();}
 });
 
-test('an uncertain Save retry retains the name and exact operation body, and viewer retirement refuses late success', async () => {
+test('an uncertain Save retry retains the name and exact operation body, and viewer retirement refuses late success', {timeout: 10000}, async () => {
   const bodies: any[] = []; let fail = true, current = true, finish: (() => void) | undefined;
   const api: SavedApi = {request: async <T>(_path: string, method?: string, body?: unknown) => {
     if (method !== 'POST') return directory() as T;

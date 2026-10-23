@@ -1,5 +1,6 @@
 import {PersonalSavedService, type SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
 import type {SavedApi, SavedScope} from '../../../../../packages/client-core/src/saved';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 
 export type NativeSaveViewSnapshot = Readonly<{open: boolean; name: string; busy: boolean; nameLocked: boolean; error?: unknown}>;
 type Options = Readonly<{api: SavedApi; scope: SavedScope; definition: SavedDefinition; requestId: () => Promise<string>; current: () => boolean; saved: (id: string) => void}>;
@@ -53,7 +54,8 @@ export class NativeLibrarySaveView {
     } catch (error) {
       if (!this.current()) return;
       const state = this.service.getSnapshot();
-      this.patch({busy: false, error, nameLocked: state.retryPending && (state.mutationError?.retryable === true || state.mutationError?.conflict === true)});
+      const presented = presentError(state.mutationError ?? error, 'library', {operation: 'save'});
+      this.patch({busy: false, error, nameLocked: state.retryPending && (presented.action === 'try-again' || state.mutationError?.conflict === true)});
     } finally {if (this.current() && this.value.busy) this.patch({busy: false});}
   };
   close = () => {if (!this.value.busy) this.dispose();};

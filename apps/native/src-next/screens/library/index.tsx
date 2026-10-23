@@ -13,7 +13,7 @@ import {hiddenReadingLibraryOnTV} from '../read/platform';
 export type NativeLibraryRendererPorts = Readonly<{
   activation: (libraryId: string) => NativeDestinationActivationPort;
   labels: BrowseLabels;
-  actions: NativeLibraryActions;
+  actions: NativeLibraryActions | ((destination: NativeLibraryDestination) => NativeLibraryActions);
   /** Only a genuine nonHome execution port enables selection. */
   selection?: (destination: NativeLibraryDestination) => NativeLibrarySelectionPort;
 }>;
@@ -22,24 +22,25 @@ export type NativeLibraryRendererPorts = Readonly<{
  * ID returns no screen here; the shell's authorized overview handles it. */
 export function createNativeLibraryRenderer(context: NativeShellBootstrapContext, ports: NativeLibraryRendererPorts): NativeRouteRenderer & {dispose: () => void} {
   const lifetime = nativeDestinationLifetime(context);
-  let disposed = false, selected: Readonly<{id: string; destination: NativeLibraryDestination; selection?: NativeLibrarySelectionPort}> | undefined;
+  let disposed = false, selected: Readonly<{id: string; destination: NativeLibraryDestination; actions: NativeLibraryActions; selection?: NativeLibrarySelectionPort}> | undefined;
+  const retireSelected = () => {selected?.actions.dispose?.(); selected?.destination.dispose(); selected = undefined;};
   const current = () => !disposed && lifetime.current();
   const directory = new NativeLibraryDirectory({api: context.api, current});
   return {
     render(route, runtime) {
       if (!current() || route.kind !== 'shell' || route.destination.kind !== 'library') return null;
       const id = route.destination.libraryId, library = context.libraries().find(value => value.id === id);
-      if (!library || Platform.isTV && hiddenReadingLibraryOnTV(library.kind)) {selected?.destination.dispose(); selected = undefined; return null;}
+      if (!library || Platform.isTV && hiddenReadingLibraryOnTV(library.kind)) {retireSelected(); return null;}
       if (selected?.id !== id) {
-        selected?.destination.dispose();
+        retireSelected();
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,
           current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)});
-        selected = {id, destination, selection: ports.selection?.(destination)};
+        selected = {id, destination, actions: typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions, selection: ports.selection?.(destination)};
       }
       return <LibraryScreen key={id} destination={selected.destination} runtime={runtime} directory={directory} libraries={context.libraries()}
-        activation={ports.activation(id)} labels={ports.labels} actions={ports.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}/>;
+        activation={ports.activation(id)} labels={ports.labels} actions={selected.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}/>;
     },
-    dispose() {if (disposed) return; disposed = true; selected?.destination.dispose(); selected = undefined; directory.dispose();},
+    dispose() {if (disposed) return; disposed = true; retireSelected(); directory.dispose();},
   };
 }
 
