@@ -29,6 +29,8 @@ export type NativeWatchChromeProps = Readonly<{
   width: number;
   height: number;
   compact: boolean;
+  /** Book-mode edge chrome avoids the padded crease; centre transport does not move. */
+  edgeInsets?: Readonly<{left?: number; right?: number}>;
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
@@ -108,7 +110,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset=".5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
-        <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: compact ? 6 : theme.isTV ? 96 : 54, right: compact ? 6 : theme.isTV ? 96 : 54, flexDirection: 'row', alignItems: 'center'}}>
+        <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: 'center'}}>
           {!theme.isTV && icon('i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {!compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: theme.isTV ? 0 : 8}}><Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 44 : 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}), {color: theme.colors.text}]}>{identity.title}</Text>
             <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 13, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text></View>}
@@ -118,7 +120,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           {!theme.isTV && icon('i-sliders', t('player.opt.menu'), () => panel('options'))}
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
-        <View style={{position: 'absolute', left: theme.isTV ? 96 : compact ? 14 : 60, right: theme.isTV ? 96 : compact ? 6 : 60, bottom: theme.isTV ? 80 : compact ? 8 : 15}}>
+        <View style={{position: 'absolute', left: (theme.isTV ? 96 : compact ? 14 : 60) + (props.edgeInsets?.left ?? 0), right: (theme.isTV ? 96 : compact ? 6 : 60) + (props.edgeInsets?.right ?? 0), bottom: theme.isTV ? 80 : compact ? 8 : 15}}>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
             <Text style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 12.5, color: theme.colors.text}]}>{clockText(source.playback.positionSeconds)}</Text>
             {compact && <Text style={[theme.type.bodyStrong, {fontSize: 12, color: theme.colors.textSecondary}]}>{`/ ${clockText(source.playback.duration)}`}</Text>}
@@ -138,7 +140,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             </View>
           </View>}
         </View>
-        <View style={{position: 'absolute', left: theme.isTV ? 96 : compact ? 0 : 120, right: theme.isTV ? 96 : compact ? 0 : 112, bottom: theme.isTV ? 208 : compact ? -21 : 58}}>
+        <View style={{position: 'absolute', left: (theme.isTV ? 96 : compact ? 0 : 120) + (props.edgeInsets?.left ?? 0), right: (theme.isTV ? 96 : compact ? 0 : 112) + (props.edgeInsets?.right ?? 0), bottom: theme.isTV ? 208 : compact ? -21 : 58}}>
           <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={visible} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
         </View>
       </FocusRegion>

@@ -52,7 +52,7 @@ export function createVideoSnapshotCapture(options: {isCurrent: (source: VideoSn
       if (!current(source)) throw new VideoSnapshotError('snapshot_stale');
       if (signal?.aborted) throw new VideoSnapshotError('snapshot_cancelled');
       const bridge = NativeModules.PorticoVideoSnapshot as Bridge | undefined;
-      if (Platform.OS !== 'android' || Platform.isTV || typeof bridge?.capture !== 'function' || typeof bridge?.release !== 'function') throw new VideoSnapshotError('snapshot_unavailable');
+      if (!['android', 'ios'].includes(Platform.OS) || Platform.isTV || typeof bridge?.capture !== 'function' || typeof bridge?.release !== 'function') throw new VideoSnapshotError('snapshot_unavailable');
       const id = `frame-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
       let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
       let rejectCancel!: (error: VideoSnapshotError) => void;

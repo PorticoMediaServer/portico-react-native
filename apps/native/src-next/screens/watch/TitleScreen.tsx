@@ -4,7 +4,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import {cardText, titleFactParts, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
-import {EpisodeTile, PosterCard} from '../../kit/cards';
+import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
 import {Button, Chip, Tabs} from '../../kit/controls';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {TitleSkeleton} from '../../kit/states';
@@ -19,7 +19,7 @@ export type NativeTitleScreenProps = Readonly<{
   ambient: (path: string | undefined) => AmbientArtSource | undefined;
   back: () => void;
   navigate: (entry: ContentEntry) => void;
-  more: (entry: ContentEntry) => void;
+  more: (entry: ContentEntry, anchorRef?: React.RefObject<View | null>) => void;
   reportError: (error: unknown) => void;
   renderError: (error: unknown, retry: () => void) => ReactNode;
   /** Exact approved About label from the canonical catalogue owner. */
@@ -34,7 +34,7 @@ export type NativeTitleScreenProps = Readonly<{
 export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const {controller, text} = props, snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const theme = useTheme(), viewport = useWindowDimensions(), t = defaultI18n.t;
-  const scroll = useRef<ScrollView>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
+  const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
   const pendingAnchor = useRef<ReturnType<NativeTitleController['memory']['getSnapshot']>['anchor'] | undefined>(controller.memory.getSnapshot().anchor);
   const detail = snapshot.detail?.data, workspace = snapshot.workspace?.data;
@@ -112,7 +112,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             {playback && <Button testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>}
             {props.myList && <Button variant="glass" icon={props.myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} accessibilityLabel={t(props.myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void props.myList!.change(!props.myList!.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
             {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}/>}
-            <Button variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => props.more(snapshot.entry)}/>
+            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => props.more(snapshot.entry, titleMore)}/>
           </View>
           {resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 10}}>
             <View style={{height: 4, backgroundColor: '#edf5fa26'}}><View style={{height: 4, width: `${Math.min(1, progress / duration) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
@@ -133,14 +133,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View>
           {episodes.map(entry => {
             const model = cardText({id: entry.id, kind: entry.kind, title: entry.title, episode: entry.absoluteNumber !== undefined ? {mode: 'absolute', number: entry.absoluteNumber} : entry.seasonNumber === 0 ? {mode: 'special'} : {mode: 'seasonal', season: entry.seasonNumber, episode: entry.episodeNumber}, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
-            return cell(entry.id, <EpisodeTile title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
+            return cell(entry.id, <TitleEpisode entry={entry} more={props.more} title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
               artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={entry.overview}
               {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
-              onNavigate={() => props.navigate(entry)} onMore={() => props.more(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
+              onNavigate={() => props.navigate(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
           })}
         </>}
         {selectedTab === 'related' && detail?.related?.rows.map(row => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <PosterCard key={entry.id} title={entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (viewport.width - 60) / 3} onNavigate={() => props.navigate(entry)} onMore={() => props.more(entry)}/>)}</ScrollView></View>))}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} title={entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (viewport.width - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
         {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
           <Text style={[theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
@@ -150,4 +150,15 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       </View>
     </ScrollView>{header}
   </View>;
+}
+
+/** The actual card owns the measured native ref. Its callback stays argument-free
+ * for touch, keyboard and TV; capture authority still comes from the real entry. */
+export function TitleEpisode({entry, more, ...props}: EpisodeTileProps & {entry: ContentEntry; more: NativeTitleScreenProps['more']}) {
+  const anchor = useRef<View>(null);
+  return <EpisodeTile {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;
+}
+export function TitleRelated({entry, more, ...props}: PosterCardProps & {entry: ContentEntry; more: NativeTitleScreenProps['more']}) {
+  const anchor = useRef<View>(null);
+  return <PosterCard {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;
 }
