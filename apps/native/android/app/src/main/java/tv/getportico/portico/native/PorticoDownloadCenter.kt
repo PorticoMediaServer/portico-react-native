@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.StatFs
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -428,7 +429,14 @@ internal object PorticoDownloadCenter {
   fun storage(): Map<String, Any?> {
     var used = 0.0
     for (entry in entries.values) if (entry["state"] == "ready") used += (entry["bytes"] as? Number)?.toDouble() ?: 0.0
-    return mapOf("freeBytes" to root().usableSpace.toDouble(), "usedBytes" to used)
+    val volume = StatFs(root().absolutePath)
+    val measured = PorticoDownloadStorage.measure(root())
+    return mutableMapOf<String, Any?>("freeBytes" to volume.availableBytes.toDouble(), "totalBytes" to volume.totalBytes.toDouble(), "usedBytes" to used).apply {
+      if (measured != null) {
+        put("storedBytes", measured.storedBytes.toDouble())
+        put("allocatedBytes", measured.allocatedBytes.toDouble())
+      }
+    }
   }
 
   fun setCellular(allowed: Boolean) {

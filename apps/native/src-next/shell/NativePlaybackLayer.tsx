@@ -17,12 +17,19 @@ import {NativeVideoSnapshotCapture} from './video-snapshot';
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
+  const fullFrame = useMemo(() => ({x: 0, y: 0, width, height}), [width, height]);
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
+  const retainedImage = useRef<Readonly<{owner: NativeVideoSnapshotCapture; image: NativeShellVideoSnapshot}> | undefined>(undefined);
+  const [imageState, setImageState] = useState<Readonly<{image: NativeShellVideoSnapshot; state: 'ready' | 'failed'}>>();
   const touching = useRef(false), moving = useRef(false), alive = useRef(true);
+  const layoutCapture = useRef<number | undefined>(undefined), layoutCaptureRevision = useRef(0);
   const capture = useMemo(() => new NativeVideoSnapshotCapture({capture: (fence, options) => adapter.captureVideoSnapshot(fence, options), reportError: runtime.reportError,
-    changed: (owner, image) => {if (alive.current) setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);},
+    changed: (owner, image) => {if (alive.current) {
+      if (image) retainedImage.current = {owner, image}; else if (retainedImage.current?.owner === owner) retainedImage.current = undefined;
+      setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);
+    }},
   }), [adapter, authority, runtime]);
   const local = snapshot.dock.local, docked = !!local && !local.expanded;
   const action = useMemo(() => bindNativeDock(adapter), [adapter]);
@@ -33,6 +40,16 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
   const {dockX, dockFade} = morph;
+  const prepareLayout = useCallback(async (fence: PlaybackFence) => {
+    if (Platform.OS !== 'android' || theme.isTV) return;
+    const revision = ++layoutCaptureRevision.current; layoutCapture.current = revision;
+    try {
+      await capture.prepare(fence, () => {
+        const current = adapter.getSnapshot();
+        return alive.current && layoutCapture.current === revision && sameAuthority(current.authority, authority) && sameFence(current.fence, fence);
+      });
+    } finally {if (layoutCapture.current === revision) layoutCapture.current = undefined;}
+  }, [adapter, authority, capture, theme.isTV]);
   const preparePicture = useCallback(() => {
     const current = adapter.getSnapshot();
     if (Platform.OS !== 'android' || theme.isTV || !alive.current || !sameAuthority(current.authority, authority) || !current.fence
@@ -48,7 +65,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     const current = adapter.getSnapshot();
     if (!sameAuthority(current.authority, authority) || !sameFence(current.fence, state.fence)) return;
     moving.current = state.moving;
-    if (state.moving) preparePicture(); else if (!touching.current) void capture.clear();
+    if (state.moving) preparePicture(); else if (!touching.current && layoutCapture.current === undefined) void capture.clear();
   }, [adapter, authority, capture, preparePicture]);
   const touchStart = () => {touching.current = true; preparePicture();};
   const touchEnd = () => {touching.current = false; if (!moving.current && !morph.dragging.value) void capture.clear();};
@@ -91,16 +108,20 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const Surface = adapter.Surface;
   const fence = snapshot.fence;
   const image = picture?.owner === capture && sameAuthority(picture.authority, authority) && fence && sameFence(picture.image.fence, fence) ? picture.image : undefined;
+  const imageSettled = (state: 'ready' | 'failed') => {
+    const current = adapter.getSnapshot();
+    if (alive.current && image && retainedImage.current?.owner === capture && retainedImage.current.image === image && sameAuthority(current.authority, authority) && sameFence(current.fence, image.fence)) setImageState({image, state});
+  };
   const presentation: DockPresentation | undefined = fence && snapshot.subject ? {fence, identity: playbackIdentity(snapshot.subject, 'dock', runtime.text),
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
-  const fullFrame = {x: 0, y: 0, width, height};
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current);}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
-      <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
-        onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
-        {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
+      <PlayerMorph controller={morph} fence={fence} docked={docked} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
+        onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} androidSnapshot={image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
+          failed: imageState?.image === image && imageState.state === 'failed', image: <Image source={{uri: image.image.uri}} onLoad={() => imageSettled('ready')} onError={() => imageSettled('failed')} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
+        {context => <Surface dockBounds={dockBounds ? context.bounds : undefined} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
       </PlayerMorph>
       {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>

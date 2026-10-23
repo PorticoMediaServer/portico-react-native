@@ -7,7 +7,7 @@ import {useFocusAnchor} from './FocusAnchor';
 import {gridWindow} from './model';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
 
-export type WindowedGridHandle = {scrollToIndex: (index: number) => void; scrollToLetter: (key: string) => void};
+export type WindowedGridHandle = {scrollToIndex: (index: number) => void; scrollToLetter: (key: string) => void; scrollToOffset: (offset: number) => void};
 export type WindowedGridProps<T> = {
   collection: WindowedCollection<T>;
   getKey: (item: T) => string;
@@ -26,12 +26,14 @@ export type WindowedGridProps<T> = {
   initialIndex?: number;
   selection: LayoutSelection;
   onVisibleRange?: (first: number, last: number) => void;
+  /** Actual native contentOffset.y, including a final position within a row. */
+  onScrollOffset?: (offset: number) => void;
   onItemFocus?: (item: T, index: number) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop = 0, paddingBottom = 0, stickyOffset = 0, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onItemFocus, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop = 0, paddingBottom = 0, stickyOffset = 0, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
   const columnGap = gap ?? (theme.isTV ? 28 : 12), verticalGap = rowGap ?? (theme.isTV ? 36 : 22);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
@@ -68,15 +70,19 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, 
     // would ask the sparse collection for pages that the user never sees.
     anchor.move(Math.max(0, Math.min(height - viewport.height, paddingTop + Math.floor(bounded / columns) * stride - stickyOffset)), true);
   }, [anchor, columns, height, paddingTop, stickyOffset, stride, total, viewport.height]);
-  useImperativeHandle(ref, () => ({scrollToIndex: moveToIndex, scrollToLetter(key) {
+  const moveToOffset = useCallback((offset: number) => {
+    if (Number.isFinite(offset)) anchor.move(Math.max(0, offset), true);
+  }, [anchor]);
+  useImperativeHandle(ref, () => ({scrollToIndex: moveToIndex, scrollToOffset: moveToOffset, scrollToLetter(key) {
     const index = collection.indexOfLetter(key);
     if (index !== undefined) moveToIndex(index);
-  }}), [collection, moveToIndex]);
+  }}), [collection, moveToIndex, moveToOffset]);
   const initialOffset = useMemo(() => ({x: 0, y: Math.max(0, paddingTop + Math.floor(initialIndex / columns) * stride - stickyOffset)}), [columns, initialIndex, paddingTop, stickyOffset, stride]);
   const reported = useSharedValue('');
   const scrollOffset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
     scrollOffset.value = event.contentOffset.y;
+    if (onScrollOffset) runOnJS(onScrollOffset)(event.contentOffset.y);
     const y = event.contentOffset.y, next = `${Math.floor((y + stickyOffset - paddingTop) / stride)}:${Math.ceil((y + viewport.height - paddingTop) / stride)}`;
     if (reported.value !== next) {reported.value = next; runOnJS(setScroll)(y);}
   });
