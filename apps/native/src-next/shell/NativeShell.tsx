@@ -33,7 +33,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   useEffect(() => {const remember = () => {const saved = registry.capture();
     if (saved && (saved.regionId !== ids.rail && registry.config(saved.regionId)?.hold !== true)) pageFocus.current = saved;
   }; remember(); return registry.subscribe(remember);}, [ids, registry]);
-  const pageHold = snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
+  const contentVisible = snapshot.contentVisible ?? (destination.kind !== 'home' || snapshot.homeVisible);
+  const pageHold = snapshot.mediaExpanded || !contentVisible;
   const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
@@ -50,7 +51,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     const frame = requestAnimationFrame(() => {
       if (!current()) return;
       const now = runtime.getSnapshot();
-      if (now.homeVisible && !now.homeObscured && !now.mediaExpanded) registry.restore(held.opener);
+      if ((now.contentVisible ?? (now.destination.kind !== 'home' || now.homeVisible)) && !now.homeObscured && !now.mediaExpanded) registry.restore(held.opener);
     });
     return () => cancelAnimationFrame(frame);
   }, [current, pageHold, registry, runtime, theme.isTV]);
@@ -118,7 +119,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const library = destination.kind === 'library' ? snapshot.libraries.find(item => item.id === destination.libraryId) : undefined;
   const barHeight = layout.tabs ? phoneBarHeight(insets.bottom) : 0;
   const content = <>
-    <Animated.View style={[{flex: 1}, pageStyle]}>
+    <Animated.View accessibilityElementsHidden={!contentVisible} importantForAccessibility={contentVisible ? 'auto' : 'no-hide-descendants'} style={[{flex: 1}, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={barHeight} onScrolledChange={setHomeScrolled}/>
         : <View style={{flex: 1, paddingBottom: barHeight}}>
           {!theme.isTV && library && <StickyBrowseHeader name={library.name} onLibraries={() => navigate({kind: 'libraries'})}

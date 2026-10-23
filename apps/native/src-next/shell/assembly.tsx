@@ -224,7 +224,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
-      railDestination: nativeRailDestination(navigation, context.libraries()), selectionActive: state.selection.active,
+      railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     actions: {

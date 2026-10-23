@@ -20,6 +20,8 @@ export type NativeShellSnapshot = Readonly<{
   destination: ShellDestination;
   /** Title context may highlight a library while its origin stays mounted. */
   railDestination?: ShellDestination;
+  /** Underlying destination stays mounted behind title/account routes. */
+  contentVisible?: boolean;
   selectionActive: boolean;
   homeObscured: boolean;
   homeVisible: boolean;
