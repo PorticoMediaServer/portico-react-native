@@ -96,26 +96,26 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
   </View>;
   const big = theme.isTV ? 88 : compact ? 58 : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
-  const icon = (name: IconName, label: string, onPress: () => void, primary = false, disabled = false) => <Button variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
+  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false) => <Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: primary ? big : small, height: primary ? big : small, borderRadius: (primary ? big : small) / 2}} iconSize={primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;
-  const skip = (forward: boolean) => <Focusable focusable={visible} disabled={!visible || !source.capabilities.seek} accessibilityRole="button"
+  const skip = (forward: boolean) => <Focusable focusId={forward ? 'watch-skip-forward' : 'watch-skip-back'} testID={forward ? 'watch-skip-forward' : 'watch-skip-back'} focusable={visible} disabled={!visible || !source.capabilities.seek} accessibilityRole="button"
     accessibilityLabel={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}
     onPress={() => act(expected => playback.skip(expected, forward ? props.skipForwardSeconds : -props.skipBackSeconds))}
     style={{width: small, height: small, alignItems: 'center', justifyContent: 'center', opacity: source.capabilities.seek ? 1 : .4}}>
     <SkipIcon color={theme.colors.text} forward={forward} seconds={forward ? props.skipForwardSeconds : props.skipBackSeconds} size={theme.isTV ? 36 : compact ? 30 : 38}/>
   </Focusable>;
-  const option = (name: NativeWatchPanel, label: string, value?: string) => <Focusable accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => panel(name)} style={{minHeight: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 16 : 12, paddingVertical: theme.isTV ? 10 : 6, justifyContent: 'center', borderRadius: theme.isTV ? 12 : 8, backgroundColor: theme.colors.raisedHigh}}>
+  const option = (name: NativeWatchPanel, label: string, value?: string) => <Focusable focusId={`watch-option-${name}`} testID={`watch-option-${name}`} accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => panel(name)} style={{minHeight: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 16 : 12, paddingVertical: theme.isTV ? 10 : 6, justifyContent: 'center', borderRadius: theme.isTV ? 12 : 8, backgroundColor: theme.colors.raisedHigh}}>
     {theme.isTV ? <><Text style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 20, color: theme.colors.text}}>{label}</Text>{value && <Text style={{fontFamily: theme.type.body.fontFamily, fontSize: 17, color: theme.colors.textSecondary}}>{value}</Text>}</> : <Text style={[theme.type.caption, {color: theme.colors.text}]}>{value ? label ? `${label} ${value}` : value : label}</Text>}
   </Focusable>;
   const transport = <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 20 : compact ? 12 : 38}}>
-    {queue && icon('i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous)}
+    {queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous)}
     {skip(false)}
     <Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={theme.isTV && visible}
       focusable={visible} disabled={!visible || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
       style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : 28}/>
     {skip(true)}
-    {queue && icon('i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next)}
+    {queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next)}
   </View>;
   return <View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
@@ -127,13 +127,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: 'center'}}>
-          {!theme.isTV && icon('i-down', t('player.minimize'), () => props.onMinimize(fence))}
+          {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {!compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: theme.isTV ? 0 : 8}}><Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 44 : 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}), {color: theme.colors.text}]}>{identity.title}</Text>
             <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 13, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text></View>}
           <View style={{flex: 1}}/>
-          {props.onCast && !theme.isTV && icon('i-cast', t('player.playOn'), () => props.onCast!(fence))}
-          {props.onPictureInPicture && !theme.isTV && icon('i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
-          {!theme.isTV && icon('i-sliders', t('player.opt.menu'), () => panel('options'))}
+          {props.onCast && !theme.isTV && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
+          {props.onPictureInPicture && !theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
+          {!theme.isTV && icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         <View style={{position: 'absolute', left: (theme.isTV ? 96 : compact ? 14 : 60) + (props.edgeInsets?.left ?? 0), right: (theme.isTV ? 96 : compact ? 6 : 60) + (props.edgeInsets?.right ?? 0), bottom: theme.isTV ? 80 : compact ? 8 : 15}}>
@@ -142,7 +142,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             {compact && <Text style={[theme.type.bodyStrong, {fontSize: 12, color: theme.colors.textSecondary}]}>{`/ ${clockText(source.playback.duration)}`}</Text>}
             <View style={{flex: 1}}/>
             {!compact && <Text style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 12.5, color: theme.colors.textSecondary}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
-            {compact && <>{option('quality', '', props.quality)}{props.onFullWindow && icon('i-fs', t('next.states.shortcut.fullscreen'), () => props.onFullWindow!(fence))}</>}
+            {compact && <>{option('quality', '', props.quality)}{props.onFullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => props.onFullWindow!(fence))}</>}
           </View>
           {!compact && <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: theme.isTV ? 24 : 10}}>
             <View style={{flex: 1}}>{fence.kind === 'queue' && fence.showId && option('episodes', t('title.episodes'))}</View>
@@ -151,8 +151,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               {source.capabilities.subtitleTrack && option('subtitles', t('player.opt.subtitles'), props.subtitle)}
               {source.capabilities.audioTrack && option('audio', t('title.audio'), props.audio)}
               {option('quality', theme.isTV ? t('player.opt.quality') : '', props.quality)}
-              {theme.isTV && icon('i-sliders', t('player.opt.menu'), () => panel('options'))}
-              {props.onPictureInPicture && theme.isTV && icon('i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
+              {theme.isTV && icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
+              {props.onPictureInPicture && theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
             </View>
           </View>}
         </View>
