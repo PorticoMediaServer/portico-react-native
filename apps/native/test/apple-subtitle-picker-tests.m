@@ -89,8 +89,12 @@ static int tests(void) {@autoreleasepool {
 @implementation PorticoSubtitlePickerTestScene
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
  self.window=[[UIWindow alloc]initWithWindowScene:(UIWindowScene *)scene];testPresenter=[UIViewController new];testPresenter.view.backgroundColor=UIColor.blackColor;self.window.rootViewController=testPresenter;[self.window makeKeyAndVisible];
- dispatch_after(dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC),dispatch_get_main_queue(),^{exit(tests());});
+ // A run-loop callback lets the suite's bounded nested run-loop waits service
+ // UIKit and the production reader's dispatch-to-main completion. Running the
+ // whole suite inside a main-queue block would starve those same callbacks.
+ [self performSelector:@selector(runSuite) withObject:nil afterDelay:1];
 }
+- (void)runSuite {exit(tests());}
 @end
 @interface PorticoSubtitlePickerTestApp : UIResponder<UIApplicationDelegate> @end
 @implementation PorticoSubtitlePickerTestApp
