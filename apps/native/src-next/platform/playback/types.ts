@@ -20,7 +20,7 @@ export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; p
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{
-  dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
+  dockBounds?: NativePlaybackBounds; expandedBounds?: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
   /** Composition only: a retained current-fence image may cover the live producer without unmounting it. */
   surfaceActive: boolean;
 }>;

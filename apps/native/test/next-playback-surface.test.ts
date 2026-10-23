@@ -133,6 +133,24 @@ test('a leased native host stays hidden for missing or invalid target bounds', a
 });
 
 for (const engine of ['native', 'mpv'] as const) {
+  test(`${engine} withholds unmeasured expanded bounds without replacing its host and keeps a measured dock active`, async () => {
+    const d=await surfaceFixture();await d.publish({engine,lease:'actual-lease',fence});
+    const props={expandedBounds:frame,dockBounds:dockFrame,docked:false,subtitlesVisible:true,surfaceActive:true};
+    const surface=mount(d.adapter.Surface,props), type=surface.tree.type, ref=surface.tree.props.ref;
+    ref({tag:71});
+    try {
+      surface.update({...props,expandedBounds:undefined});
+      assert.equal(surface.tree.props.surfaceActive,false);assert.equal(flatten(surface.tree.props.style).display,'none');
+      assert.strictEqual(surface.tree.type,type);assert.strictEqual(surface.tree.props.ref,ref);assert.equal(surface.tree.props.lease,'actual-lease');
+      assert.equal(d.attachments,1);assert.equal(d.detachments,0);assert.equal(d.subscriptions,1);
+      surface.update({...props,expandedBounds:undefined,docked:true});
+      assert.equal(surface.tree.props.surfaceActive,true);assert.equal(flatten(surface.tree.props.style).display,'flex');
+      surface.update(props);assert.equal(surface.tree.props.surfaceActive,true);
+      assert.strictEqual(surface.tree.type,type);assert.strictEqual(surface.tree.props.ref,ref);
+    } finally {ref(null);surface.host.unmount();}
+    assert.equal(d.detachments,1);
+  });
+
   test(`${engine} keeps its exact host/ref/owner/lease while the decoded cover gates only composition`, async () => {
     const d = await surfaceFixture();
     await d.publish({engine, lease: 'actual-lease', fence});
