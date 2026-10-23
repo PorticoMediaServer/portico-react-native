@@ -78,7 +78,7 @@ const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
-const {Dialog, FocusBoundary, SurfaceHeader} = await import('../src-next/kit/overlays/surface.tsx');
+const {Dialog, FocusBoundary, SurfaceHeader, SidePanel} = await import('../src-next/kit/overlays/surface.tsx');
 const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
@@ -647,6 +647,38 @@ test('fitted footer accounting preserves no-footer, explicit detent, long-conten
 });
 
 const flattenStyle = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flattenStyle)) : style ?? {};
+
+test('SidePanel can omit its standard close action while retaining supplied content, geometry and escape', () => {
+  const previousTheme = state.theme;
+  state.theme = createTheme({isTV: true, width: 1920});
+  const calls: unknown[] = [];
+  const context = React.createElement('View', {testID: 'actual-context'});
+  const children = React.createElement('View', {testID: 'actual-rows'});
+  const footer = React.createElement('View', {testID: 'actual-footer'});
+  const props = {open: true, title: 'Actual customization', headerContext: context, children, footer, width: 860, topInset: 0,
+    initialFocusRef: {current: null}, returnFocusRef: {current: null}, onOpenChange: (...args: unknown[]) => calls.push(args), testID: 'actual-side'};
+  const panel = mount(SidePanel, props);
+  try {
+    const heading = () => ofType(panel.tree, SurfaceHeader)[0]!;
+    assert.equal((heading().props.action as Element).type, Button);
+    panel.update({...props, showClose: false});
+    assert.equal(heading().props.action, undefined);
+    assert.equal((panel.tree as Element).props.rect.width, 860);
+    assert.equal((panel.tree as Element).props.rect.y, 0);
+    assert.equal((panel.tree as Element).props.onOutsidePress, undefined);
+    assert.equal(ofType(panel.tree, FocusBoundary)[0]!.props.modal, true);
+    for (const node of [context, children, footer]) assert.ok(elements(panel.tree).includes(node));
+    const host = () => elements(panel.tree).find(element => element.props.testID === props.testID)!;
+    host().props.onAccessibilityEscape();
+    assert.deepEqual(calls, [[false, 'escape']]);
+    panel.update({...props, showClose: false, dismissOnBack: false});
+    host().props.onAccessibilityEscape();
+    assert.equal(calls.length, 1);
+    panel.update(props);
+    (heading().props.action as Element).props.onPress();
+    assert.deepEqual(calls.at(-1), [false, 'close-button']);
+  } finally {panel.host.unmount(); state.theme = previousTheme;}
+});
 
 test('a supplied BottomSheet heading replaces the standard row while retaining context and measured sheet anatomy', () => {
   const previousTheme = state.theme;
