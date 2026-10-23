@@ -88,19 +88,24 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   const {motionRules} = await import('../../../packages/design/src/index');
   const {defaultI18n} = await import('../../../packages/i18n/src');
   const h = hooks(), ids = focusModel.tvFocusIds(authority), changes: boolean[] = [], navigations: unknown[] = [];
+  const registry = createFocusRegistry(), returnTo = {regionId: ids.row('continue'), childId: 'remembered-card'};
+  const nativeCard = {requestTVFocus() {throw new Error('Right must stay native, with no application focus request');}};
+  registry.configure({id: returnTo.regionId, entry: 'first-card', order: ['first-card', returnTo.childId]});
+  registry.attach(returnTo, nativeCard);
   const theme = createTheme({isTV: true, width: 1920});
   const {TVRail} = await screenModule(new URL('../src-next/shell/TVRail.tsx', import.meta.url), {
-    react: h.react, '@portico/design': {motionRules}, 'react-native': {Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    react: h.react, '@portico/design': {motionRules}, 'react-native': {Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View', findNodeHandle: (host: unknown) => host === nativeCard ? 719 : 720},
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop', Path: 'Path'},
     'react-native-reanimated': {default: {View: 'AnimatedView', Text: 'AnimatedText'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: number) => ({value}), withTiming: (value: unknown) => value, withDelay: (_delay: unknown, value: unknown) => value},
     '../../../../packages/i18n/src': {defaultI18n}, '../kit/controls': {Focusable: 'Focusable'},
-    '../kit/focus': {FocusRegion: 'FocusRegion', focusTestID: (await import('../src-next/kit/focus/registry')).focusTestID}, './tv-focus': focusModel,
+    '../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => registry, focusTestID: (await import('../src-next/kit/focus/registry')).focusTestID}, './tv-focus': focusModel,
     '../kit/artwork': {ProfileFace: 'ProfileFace'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/theme': {useTheme: () => theme},
     '../kit/useMotion': {useMotion: () => ({transforms: false, timing: () => ({duration: 0})})}, './model': shellModel,
   });
-  const tree = h.render(() => TVRail({authority, libraries: [], hasLiveTV: false, destination: {kind: 'home'}, profile: {id: 'p', name: 'Actual'},
+  const render = () => h.render(() => TVRail({authority, libraries: [], hasLiveTV: false, destination: {kind: 'home'}, profile: {id: 'p', name: 'Actual'},
     onNavigate: (next: unknown) => navigations.push(next), onProfile() {}, profileRef: {current: null}, onExpandedChange: (open: boolean) => changes.push(open),
-    returnTo: {regionId: ids.row('continue'), childId: 'remembered-card'}}));
+    returnTo}));
+  const tree = render();
   const region = nodes(tree).find(node => node.type === 'FocusRegion');
   assert.equal(region.props.entry, 'home'); assert.equal(region.props.entryPolicy, 'entry');
   assert.equal(region.props.orientation, 'vertical');
@@ -108,6 +113,14 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   region.props.onFocusChange(true);
   assert.deepEqual(changes, [true]); assert.deepEqual(navigations, []);
   const search = nodes(tree).find(node => node.type === 'Focusable' && node.props.focusId === 'search');
+  const controls = (value: unknown) => nodes(value).filter(node => node.type === 'Focusable');
+  assert.ok(controls(tree).every(node => node.props.nextFocusRight === 719), 'all rail entries, including Profile, target the exact live card rather than its region entry');
+  registry.attach(returnTo, null);
+  assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a removed host leaves native region fallback intact');
+  registry.attach(returnTo, {requestTVFocus() {}});
+  assert.ok(controls(render()).every(node => node.props.nextFocusRight === 720), 'a reattached card replaces the old native handle');
+  registry.configure({id: returnTo.regionId, enabled: false});
+  assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
   assert.equal(search.props.onFocus, undefined, 'Up/Down has no application navigation handler');
   search.props.onPress(); assert.deepEqual(navigations, [{kind: 'search'}]);
 });
