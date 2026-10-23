@@ -94,9 +94,16 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
       : state.collection ? <LibraryGrid {...props} source={state} entryRequest={entryRequest} onEntered={onEntered}/>
-      : state.tab.shows === 'rows' ? <ScrollView>{state.discover.appended.map(section => <View key={section.id}>
+      : state.tab.shows === 'rows' ? <ScrollView>
+        {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
+        {state.discover.appended.map(section => <View key={section.id}>
         <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: theme.gutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
-        <ScrollView horizontal contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}>
+        <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
+          onScroll={event => {
+            if (!active.visible || !section.nextCursor) return;
+            const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+            if (contentOffset.x + layoutMeasurement.width >= contentSize.width - 10 * (theme.isTV ? 228 : 122)) void destination.nextDiscover(section.id).catch(runtime.reportError);
+          }}>
           {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
         </ScrollView>
       </View>)}</ScrollView> : null}
