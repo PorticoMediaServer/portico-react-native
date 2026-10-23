@@ -192,11 +192,14 @@ export class NativePlaybackRuntime {
   };
   flush = () => this.path.controller.flush();
 
-  private beginOperation(): number {
+  private beginOperation(retainScope?: AbortSignal): number {
     const epoch = ++this.startEpoch;
     this.startController?.abort();
-    for (const controller of this.selectionControllers) controller.abort();
-    this.selectionControllers.clear();
+    for (const controller of [...this.selectionControllers]) {
+      if (controller.signal === retainScope) continue;
+      this.selectionControllers.delete(controller);
+      controller.abort();
+    }
     this.channelControl?.close(); this.channelControl = undefined;
     this.channelCleanup?.(); this.channelCleanup = undefined;
     this.channel = undefined;
@@ -424,7 +427,7 @@ export class NativePlaybackRuntime {
       const positionMs = offered.resume?.positionMs ?? 0;
       if (!Number.isFinite(positionMs) || positionMs < 0) throw new Error(serviceText('queuePlayer.unsupported'));
       const fresh = {...input, target: {...input.target, startSeconds: positionMs / 1000}};
-      epoch = this.beginOperation();
+      epoch = this.beginOperation(scoped.signal);
       await this.queue.cancel();
       if (!current()) return;
       dispatching = true;
