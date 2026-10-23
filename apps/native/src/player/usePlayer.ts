@@ -1,3 +1,4 @@
+import {nativePlaybackMessage} from '../../src-next/platform/playback/native-messages';
 import {classifyPlaybackFailure} from './playback-failure';
 import {PlayerOffersService, type PlayerOffersSnapshot} from '../../../../packages/client-core/src/player-offers';
 import {activeI18n} from '../app/errors';
@@ -342,13 +343,13 @@ export function usePlayerEngine() {
     }
     if (f.type === 'firstFrame' || f.type === 'rateStatus') return;
     if (f.type === 'ready') playback.ready(f.intentId);
-    else if (f.type === 'seekFailed') playback.seekFailed(f.intentId, f.seekRevision, f.error);
+    else if (f.type === 'seekFailed') playback.seekFailed(f.intentId, f.seekRevision, nativePlaybackMessage(f.error, 'playback.message.seek_mismatch'));
     else if (f.type === 'error') {
       // The engine refusing what it was given is not yet the viewer's problem: the server is
       // told which route failed and the title comes back through the next one up.
       const engine = failure.engine;
-      if (engine) playback.engineFailed(f.intentId, engine, typeof f.errorDetail === 'string' ? f.errorDetail.slice(0, 120) : '', f.error);
-      else playback.fail(f.intentId, f.error);
+      if (engine) playback.engineFailed(f.intentId, engine, typeof f.errorDetail === 'string' ? f.errorDetail.slice(0, 120) : '', nativePlaybackMessage('media_unavailable'));
+      else playback.fail(f.intentId, nativePlaybackMessage(f.error));
     }
     else playback.fact(f.intentId, f.position, f.type === 'ended' ? 'ended' : f.paused ? 'paused' : 'playing');
   };

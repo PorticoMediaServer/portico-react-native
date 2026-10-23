@@ -1,3 +1,4 @@
+import {nativePlaybackMessage, nativeRateError} from './native-messages';
 import type {RouteSnapshot} from '../../../../../packages/client-core/src/route-connection';
 import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../../packages/client-core/src/playback/native-listening.ts';
 import {parseQueue,parseSession,parseSessionEnd} from '../../../../../packages/client-core/src/playback-v1/types.ts';
@@ -62,7 +63,7 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  const b=raw.binding;
  if(b!==null&&(!b||!wireID(b.lease)||!Number.isSafeInteger(b.intentId)||b.intentId<1||b.sessionId!==session.id||b.generation!==session.presentation.generation||b.itemId!==session.itemId))throw new Error('Native engine binding changed.');
  const end=raw.terminal?parseSessionEnd(raw.end):undefined;
- return Object.freeze({...raw,session,queue,transition,end,deadlines:Object.freeze({...raw.deadlines})});
+ return Object.freeze({...raw,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
 }
 
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are

@@ -417,7 +417,7 @@ internal class PorticoMpvController(private val context: Context) {
       if (nextSource.isNotEmpty()) {
         val url = PorticoMpvSupport.parse(nextSource)
         if (url == null || !PorticoMpvSupport.allowedSource(context, url)) {
-          emit("error", "Invalid media address.")
+          emit("error", "media_address_invalid")
           return
         }
         itemInstanceId = UUID.randomUUID().toString()
@@ -433,7 +433,7 @@ internal class PorticoMpvController(private val context: Context) {
               routeFailed = true
               routeEpoch++
               core?.set("pause", "yes")
-              emit("error", "Connection restored, but the retained position is not available. Your playback session was not replaced.")
+              emit("error", "seek_unavailable")
             }
           }, 10_000)
         }
@@ -855,7 +855,7 @@ internal class PorticoMpvController(private val context: Context) {
         routeFailed = true
         routeEpoch++
         core?.set("pause", "yes")
-        emit("error", "The previous playback position is unavailable on this connection. Your position has been retained.")
+        emit("error", "seek_unavailable")
         return
       }
       routeResume = false
@@ -997,7 +997,7 @@ internal class PorticoMpvController(private val context: Context) {
     fact["seekRevision"] = revision.toDouble()
     fact["position"] = if (observed.isFinite()) observed else 0.0
     fact["paused"] = pausedFact()
-    fact["error"] = if (applied) "" else "That position is not available yet. Try seeking again."
+    fact["error"] = if (applied) "" else "seek_unavailable"
     fact.putAll(rateFacts())
     publish(fact)
     sessionPlayer.changed()
@@ -1015,7 +1015,7 @@ internal class PorticoMpvController(private val context: Context) {
         "supportedRates" to supportedRates(),
         "rateReady" to isReady,
         "rateWaiting" to (isReady && !snapshot.pause && (snapshot.pausedForCache || snapshot.coreIdle) && !snapshot.eofReached),
-        "rateError" to (if (isReady && !valid) "This speed is unavailable for this media. Choose a supported speed, then press Play." else ""),
+        "rateError" to (if (isReady && !valid) "rate_unavailable" else ""),
         "monotonicSeconds" to SystemClock.elapsedRealtime() / 1000.0)
   }
 
@@ -1114,7 +1114,7 @@ internal class PorticoMpvController(private val context: Context) {
     fact["uncertain"] = uncertain
     fact["engineCode"] = if (network || delivery) "" else engine
     fact["errorDetail"] = detail.take(240)
-    fact["error"] = if (network) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
+    fact["error"] = if (network) "media_connection_interrupted" else "playback_failed"
     fact.putAll(rateFacts())
     core?.set("pause", "yes")
     publish(fact)
@@ -1254,7 +1254,7 @@ internal class PorticoMpvController(private val context: Context) {
     val wanted = pending["renditionId"] as? String
     val track = wanted?.let { map[it] }
     if (track == null) {
-      emitAudio("audioFailed", mapOf("audioRevision" to revision.toDouble(), "error" to "This audio track is unavailable in the current player."))
+      emitAudio("audioFailed", mapOf("audioRevision" to revision.toDouble(), "error" to "audio_track_unavailable"))
       return
     }
     core?.set("aid", track.toString())
@@ -1273,7 +1273,7 @@ internal class PorticoMpvController(private val context: Context) {
     val found = PorticoMpvSupport.tracks(tracks, "audio").filter { PorticoMpvSupport.streamIndex(it)?.toLong() == index }
     val track = if (found.size == 1) PorticoMpvSupport.trackId(found[0]) else null
     if (track == null) {
-      val fact = baseFact("audioTrackFailed", currentPosition(), "This audio track is unavailable in the current player.")
+      val fact = baseFact("audioTrackFailed", currentPosition(), "audio_track_unavailable")
       fact["audioTrackRevision"] = revision.toDouble()
       fact["streamIndex"] = index.toDouble()
       publish(fact)
@@ -1419,7 +1419,7 @@ internal class PorticoMpvController(private val context: Context) {
     updateOutput()
     if (!document) {
       overlayOff()
-      emit("subtitleStatus", "This subtitle track is unavailable in the current player.")
+      emit("subtitleStatus", "subtitle_track_unavailable")
       return
     }
     subtitleOverlay.apply(subtitles, source)

@@ -135,7 +135,7 @@ internal class PorticoAudioSelection {
     handledRevision = revision
     val option = known[pending["renditionId"]]
     if (option == null) {
-      emit("audioFailed", mapOf("audioRevision" to revision.toDouble(), "error" to "This audio track is unavailable in the current player."))
+      emit("audioFailed", mapOf("audioRevision" to revision.toDouble(), "error" to "audio_track_unavailable"))
       return
     }
     engine.trackSelectionParameters = engine.trackSelectionParameters.buildUpon()

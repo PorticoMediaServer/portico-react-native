@@ -1,5 +1,6 @@
 import type { PlaybackService } from '../../../../packages/client-core/src/index';
-import {enUS} from '../../../../packages/i18n/src/index';
+import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
+import {nativeRateError} from '../../src-next/platform/playback/native-messages';
 import {audiobookRates} from '../../../../packages/client-core/src/listening';
 export const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 /** The Speed menu for what is playing: audiobooks go to 3×, as on web; video stays at 2×. */
@@ -29,7 +30,7 @@ export class NativePlaybackSpeed {
   // supported/effective rate; this does not pretend a paused player is playing.
   prefer = (rate:number) => {
     if(!(audiobookRates as readonly number[]).includes(rate))return;
-    if(this.state.ready&&!this.state.supported.includes(rate)){this.publish({...this.state,desired:1,error:enUS['player.opt.speedUnsupported']});return;}
+    if(this.state.ready&&!this.state.supported.includes(rate)){this.publish({...this.state,desired:1,error:serviceText('player.opt.speedUnsupported')});return;}
     this.publish({...this.state,desired:rate,error:undefined});
   };
   select = (rate: number) => {
@@ -40,10 +41,10 @@ export class NativePlaybackSpeed {
   observe(fact: { intentId: number; effectiveRate?: number; supportedRates?: number[]; rateReady?: boolean; rateWaiting?: boolean; rateError?: string }) {
     if (typeof fact.effectiveRate !== 'number') return;
     this.intentId = fact.intentId;
-    this.publish({ ...this.state, effective: fact.effectiveRate, supported: Object.freeze(fact.supportedRates ?? []), ready: !!fact.rateReady, waiting: !!fact.rateWaiting, error: fact.rateError || undefined });
+    this.publish({ ...this.state, effective: fact.effectiveRate, supported: Object.freeze(fact.supportedRates ?? []), ready: !!fact.rateReady, waiting: !!fact.rateWaiting, error: nativeRateError(fact.rateError) });
   }
   reconcileNative(event:{rate:number;effectiveRate?:number;supportedRates?:readonly number[];ready:boolean;rateWaiting?:boolean;rateError?:string}) {
-    this.publish({desired:event.rate,effective:event.effectiveRate??0,supported:event.supportedRates??[],ready:event.ready,waiting:!!event.rateWaiting,error:event.rateError||undefined});
+    this.publish({desired:event.rate,effective:event.effectiveRate??0,supported:event.supportedRates??[],ready:event.ready,waiting:!!event.rateWaiting,error:nativeRateError(event.rateError)});
   }
   invalidate(intentId: number) {
     if (this.intentId === intentId) return;

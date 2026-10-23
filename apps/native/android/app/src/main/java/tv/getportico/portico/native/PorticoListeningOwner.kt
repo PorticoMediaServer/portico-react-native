@@ -232,7 +232,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val row = mapOf("version" to 1, "sessionId" to session["id"], "queueId" to queue?.get("id"), "seq" to seq, "commit" to commit, "deadlines" to HashMap(deadlines),
         "timerStopped" to timerStopped, "expiredTimerRevision" to expiredTimerRevision)
     val ok = PorticoRecordStore.get(context).write(PorticoRecordStore.QUEUES, key, json(row).toByteArray(Charsets.UTF_8))
-    if (!ok) { safetyPaused = true; error = "Playback storage is unavailable. Playback paused."; apply() }
+    if (!ok) { safetyPaused = true; error = "listening_storage_unavailable"; apply() }
     return ok
   }
 
@@ -396,12 +396,12 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       request = null
       busy = false
       if (status == 401 && token != requestToken) { retryAt = mono() + 0.5; return@completion }
-      if (status == 401 || (status == 403 && errorCode(value) == "forbidden")) { fail("Playback authorization is no longer valid. Reopen playback after signing in.", true); return@completion }
+      if (status == 401 || (status == 403 && errorCode(value) == "forbidden")) { fail("listening_authorization_invalid", true); return@completion }
       if (status == 0 || status >= 500 || status == 429) {
         failures++
         backoff = BACKOFF[Math.min(failures - 1, 4)]
         retryAt = mono() + (if (status == 429) retryAfter(responseHeaders, value) else if (fast) 0.5 else backoff)
-        if (mono() < leaseUntil) error = "Reconnecting to the server. Audio keeps playing for now."
+        if (mono() < leaseUntil) error = "listening_reconnecting"
         apply(); emit()
         return@completion
       }
@@ -429,7 +429,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       if (reason == "ended" && endedReported) return@send
       val message = (ending?.get("message") as? String)?.takeIf { it.isNotEmpty() }
       end = if (!reason.isNullOrEmpty()) mapOf("reason" to reason, "message" to message) else mapOf("reason" to "stopped", "message" to null)
-      fail(message ?: "Playback ended on the server.", true)
+      fail("listening_ended", true)
     }
   }
 
@@ -458,7 +458,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (mono() >= leaseUntil && !terminal && !safetyPaused && intent == "playing") {
       safetyPaused = true
       dropPrepared(null)
-      error = "Playback paused: the server hasn’t confirmed it for two minutes. Press Play to try again."
+      error = "listening_lease_expired"
       apply(); emit()
     }
     if (!routeReady || terminal || busy || mono() < retryAt) return
@@ -497,7 +497,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       if (status in 200..299) {
         seq = Math.max(seq, next)
         leaseUntil = started + 120
-        if (error?.startsWith("Reconnecting") == true || error?.startsWith("Playback paused: the server") == true) error = null
+        if (error == "listening_reconnecting" || error == "listening_lease_expired") error = null
         val every = headers?.get("Report-Every-Ms")?.toDoubleOrNull()
         if (every != null && every > 0) reportEvery = Math.max(1.0, every / 1000.0)
         nextReport = mono() + (if (state == "paused") Math.max(30.0, reportEvery) else reportEvery)
@@ -527,7 +527,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       }
       if (sessionGone(status, value)) { patchWanted = false; learnEnd(); return@send }
       patchWanted = false
-      error = "The server didn’t accept that change. Playback continues here."
+      error = "listening_change_rejected"
       emit()
     }
   }
@@ -600,7 +600,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
         if (v1Queue(current) && (action["tries"] as Int) < 1) {
           acceptQueue(current!!)
           actions.add(0, HashMap(action).apply { put("key", newId()); put("tries", 1) })
-        } else { error = "The queue changed. Open it to choose what plays next."; emit() }
+        } else { error = "listening_queue_changed"; emit() }
         return@send
       }
       if (status == 503) { retryAt = mono() + retryAfter(headers, value); return@send } // queue_building: the same request again
@@ -609,7 +609,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       @Suppress("UNCHECKED_CAST") val result = value as? Map<String, Any?>
       @Suppress("UNCHECKED_CAST") val moved = (result?.get("queue") as? Map<String, Any?>) ?: result
       if (status !in 200..299 || !v1Queue(moved)) {
-        error = if (sessionGone(status, value)) "The queue is no longer available." else "The queue couldn’t move on. Try again."
+        error = if (sessionGone(status, value)) "listening_queue_unavailable" else "listening_queue_advance_failed"
         emit()
         return@send
       }
@@ -643,7 +643,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       @Suppress("UNCHECKED_CAST") val answer = value as? Map<String, Any?>
       @Suppress("UNCHECKED_CAST") val moved = pending["queue"] as? Map<String, Any?>
       if ((status == 200 || status == 201) && v1Session(answer)) { moveTo(answer!!, started, moved); return@send }
-      fail("The next item couldn’t start. Open the queue to choose it again.", false)
+      fail("listening_next_failed", false)
     }
   }
 
@@ -840,7 +840,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (committed != null && type in PROMOTING) { promoteCommitted(); return }
     if (type == "audioPreparationFailed") dropPrepared("The next track couldn’t be buffered; it plays normally.")
     if (type == "seekApplied" && num(fact["seekRevision"]) == num(nativeSeek?.get("revision"))) { nativeSeek = null; reportNow = true; apply() }
-    if (type == "seekFailed") { nativeSeek = null; safetyPaused = true; error = "That position isn’t available. Seek again or press Retry."; dropPrepared(null); apply() }
+    if (type == "seekFailed") { nativeSeek = null; safetyPaused = true; error = "seek_unavailable"; dropPrepared(null); apply() }
     if (type == "ended" && !ended && committed == null) { ended = true; reportNow = true; checkDeadlines() }
     if (type == "error" && rendering && fact["networkError"] != true && ++renderFailures >= 1 && noRender != heard["id"]) {
       // The plan's file keeps failing: play this session's ordinary stream from here, and say so quietly.
@@ -855,7 +855,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       apply(); emit()
       return
     }
-    if (type == "error") { safetyPaused = true; error = "This audio couldn’t be played. Press Retry."; reportNow = true; dropPrepared(null); apply() }
+    if (type == "error") { safetyPaused = true; error = "playback_failed"; reportNow = true; dropPrepared(null); apply() }
     if (type == "progress") {
       checkDeadlines()
       // While paused nothing moves: no snapshot per engine tick.

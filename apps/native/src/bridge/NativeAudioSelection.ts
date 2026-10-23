@@ -1,3 +1,4 @@
+import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 import type {AudioBinding, PlaybackService} from '../../../../packages/client-core/src/index';
 const bindingKey=(b:AudioBinding)=>JSON.stringify([b.intentId,b.sessionId,b.generation,b.sourceId,b.planRevision]);
 export type NativeAudioCommand = Readonly<{
@@ -63,7 +64,7 @@ export class NativeAudioSelection {
     else if (f.type === 'audioObserved') this.service.audioObserved(b, e, f.audioSequence, typeof f.renditionId === 'string' ? f.renditionId : null);
     else if (f.type === 'audioApplied') this.service.audioApplied(b, e, f.audioRevision, f.renditionId);
     else if (f.type === 'audioUnavailable' && typeof f.renditionId==='string') this.service.audioRenditionUnavailable(b,e,f.renditionId);
-    else if (f.type === 'audioFailed') this.service.audioFailed(b, e, f.audioRevision, 'The player could not select this audio track. Try again.');
+    else if (f.type === 'audioFailed') this.service.audioFailed(b, e, f.audioRevision, serviceText('player.opt.audioChangeFailed'));
     return true;
   }
   retryMapping() {

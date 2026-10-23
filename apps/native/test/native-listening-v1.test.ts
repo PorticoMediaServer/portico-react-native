@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {NativeListeningV1Adapter, parseNativeListeningV1Event, type NativeListeningBridge} from '../src/bridge/NativeListeningAdapter.ts';
+import {parseNativeListeningV1Event as parseShellListeningEvent} from '../src-next/platform/playback/NativeListeningAdapter.ts';
+import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import type {NativeListeningV1Event} from '../../../packages/client-core/src/playback/native-listening.ts';
 
 const session = (id: string, over: Record<string, unknown> = {}) => ({
@@ -24,6 +26,20 @@ const raw = (owner: string, sequence: number, s: Record<string, unknown>, extra:
   route: 'Speaker', deadlines: {sleepAtMs: null, passoutAtMs: null}, commandRevision: 2,
   binding: {lease: 'lease-1', intentId: 1, sessionId: s.id, generation: 1, itemId: s.itemId},
   session: s, durationSeconds: 200, queue: {id: 'q1', revision: '7'}, lastSeq: 4, ...extra,
+});
+
+test('both native listening boundaries present catalogue errors while retaining facts and strict validation', () => {
+  for (const parse of [parseNativeListeningV1Event, parseShellListeningEvent]) {
+    const denied = parse(raw('o', 1, session('s1'), {error: 'listening_authorization_invalid', rateError: 'Private native rate text'}), 'o', 's1');
+    assert.equal(denied.error, defaultI18n.t('playback.message.unauthorized'));
+    assert.equal(denied.rateError, defaultI18n.t('player.opt.speedUnsupported'));
+    assert.equal(denied.positionSeconds, 3);
+    assert.equal(parse(raw('o', 2, session('s1'), {error: 'Private native error text'}), 'o', 's1').error, defaultI18n.t('queuePlayer.startFailed'));
+    const cleared = parse(raw('o', 3, session('s1')), 'o', 's1');
+    assert.equal(cleared.error, null);
+    assert.equal(cleared.rateError, '');
+    assert.throws(() => parse(raw('o', 4, session('s1'), {error: {message: 'Invalid shape'}}), 'o', 's1'), /Invalid native listening snapshot/);
+  }
 });
 
 test('a v1 snapshot reads its session, queue, seq and binding', () => {

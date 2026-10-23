@@ -101,7 +101,7 @@ internal class PorticoSubtitleSelection {
     val resourceId = value["resourceId"] as? String
     if (!positiveInteger(value["revision"]) || !positiveInteger(value["resourceRevision"]) || offset == null || documentUrl == null || resourceId == null) {
       invalidate()
-      status("The subtitle command is invalid.")
+      status("subtitle_command_invalid")
       return
     }
     // The document must be this playback session's own: the same origin as the media, under the
@@ -114,7 +114,7 @@ internal class PorticoSubtitleSelection {
       val allowed = allowsLocalFile
       if (media?.scheme?.lowercase() != "file" || allowed == null || !allowed(target) || !allowed(media) || target.path?.lowercase()?.endsWith(".vtt") != true) {
         invalidate()
-        status("The subtitle address does not belong to this playback session.")
+        status("subtitle_scope_invalid")
         return
       }
       val held = command
@@ -143,7 +143,7 @@ internal class PorticoSubtitleSelection {
         target.host?.lowercase() != media.host?.lowercase() || target.port != media.port || target.userInfo != null ||
         target.encodedQuery != null || target.encodedFragment != null || target.path != expected || !ROUTE.matches(expected)) {
       invalidate()
-      status("The subtitle address does not belong to this playback session.")
+      status("subtitle_scope_invalid")
       return
     }
     val next = (value["revision"] as Number).toLong()
@@ -187,7 +187,7 @@ internal class PorticoSubtitleSelection {
       } catch (_: Exception) { null }
       main.post {
         if (attempt != generation || !local) return@post
-        if (parsed == null) { status("Subtitles could not be read from this download."); return@post }
+        if (parsed == null) { status("subtitle_local_read_failed"); return@post }
         cues = parsed
         var maxEnd = 0L
         prefixEnds = LongArray(parsed.size) { index -> maxOf(maxEnd, parsed[index].end).also { maxEnd = it } }
@@ -223,20 +223,20 @@ internal class PorticoSubtitleSelection {
           if (code == 200) {
             val json = it.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase() == "application/json"
             val source = it.body?.source()
-            if (!json || source == null || (it.body?.contentLength() ?: 0) > BYTE_LIMIT) failure = "Subtitles are unavailable or access was revoked."
+            if (!json || source == null || (it.body?.contentLength() ?: 0) > BYTE_LIMIT) failure = "subtitle_unavailable"
             else try {
               val buffer = Buffer()
-              while (source.read(buffer, 16384) != -1L) if (buffer.size > BYTE_LIMIT) { failure = "Subtitle data exceeded the supported limit."; break }
+              while (source.read(buffer, 16384) != -1L) if (buffer.size > BYTE_LIMIT) { failure = "subtitle_limit_exceeded"; break }
               if (failure == null) body = buffer.readByteArray()
             } catch (_: IOException) {
               transient = true
-              failure = "Subtitles could not be read. Check the server connection."
+              failure = "subtitle_connection_failed"
             }
           } else if (code in 500..599) {
             transient = true
-            failure = "Subtitles could not be read. Check the server connection."
+            failure = "subtitle_connection_failed"
           } else if (code != 304) {
-            failure = "Subtitles are unavailable or access was revoked."
+            failure = "subtitle_unavailable"
           }
         }
         main.post { finished(attempt, started, Answer(code, tag, body, failure, transient)) }
@@ -254,7 +254,7 @@ internal class PorticoSubtitleSelection {
       lastRequest = SystemClock.elapsedRealtime() - 20_000
       // Keep the previous grant's deadline: a failed check cannot extend authorization.
       tick(positionUs)
-      status("Subtitles could not be read. Check the server connection.")
+      status("subtitle_connection_failed")
       return
     }
     // 304 is the server saying: checked in full, still yours, unchanged.
@@ -268,7 +268,7 @@ internal class PorticoSubtitleSelection {
       cues = null
       authorizedUntil = 0
       show("")
-      status(answer.failure ?: "Subtitles are unavailable or access was revoked.")
+      status(answer.failure ?: "subtitle_unavailable")
       return
     }
     val parsed = parse(answer.body)
@@ -277,7 +277,7 @@ internal class PorticoSubtitleSelection {
       cues = null
       authorizedUntil = 0
       show("")
-      status("The server returned invalid subtitle timing or text.")
+      status("subtitle_document_invalid")
       return
     }
     etag = answer.etag

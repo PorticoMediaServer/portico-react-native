@@ -393,7 +393,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       val address = (plan?.get("url") as? String) ?: nextSource
       if (address.isNotEmpty()) {
         val url = parse(address)
-        if (url == null || !PorticoMpvSupport.allowedSource(context, url)) { emit("error", "Invalid media address."); return }
+        if (url == null || !PorticoMpvSupport.allowedSource(context, url)) { emit("error", "media_address_invalid"); return }
         val pendingStart = (next["pendingSeek"] as? Map<*, *>)?.get("positionSeconds")?.let { number(it) }
         // A direct MP3 or ADTS file with a seek index from the server lands exactly (rendered or not).
         @Suppress("UNCHECKED_CAST") val indexed = PorticoSeekIndex.spec(plan ?: next["seekPlan"] as? Map<String, Any?>, url.toString())
@@ -406,7 +406,7 @@ internal class PorticoPlaybackController(private val context: Context) {
             if (!invalidated && routeEpoch == epoch && itemInstanceId == item && routeResume) {
               routeResume = false; routeSeeking = false; routeFailed = true; routeEpoch++
               player?.playWhenReady = false
-              emit("error", "Connection restored, but the retained position is not available. Your playback session was not replaced.")
+              emit("error", "seek_unavailable")
             }
           }, 10_000)
         }
@@ -820,7 +820,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (!actual.isFinite() || Math.abs(actual - target) > 0.5) {
       routeResume = false; routeFailed = true; routeEpoch++
       player?.playWhenReady = false
-      emit("error", "The previous playback position is unavailable on this connection. Your position has been retained.")
+      emit("error", "seek_unavailable")
       return
     }
     routeResume = false
@@ -884,7 +884,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       fact["uncertain"] = false
       fact["engineCode"] = "source_not_supported"
       fact["errorDetail"] = "The file has no index to seek by."
-      fact["error"] = "This media could not be played. Check its format or try again."
+      fact["error"] = "playback_failed"
       fact.putAll(rateFacts())
       engine.playWhenReady = false
       publish(fact)
@@ -897,7 +897,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     fact["seekRevision"] = wait.revision.toDouble()
     fact["position"] = if (observed.isFinite()) observed else 0.0
     fact["paused"] = isPaused()
-    fact["error"] = if (applied) "" else "That position is not available yet. Try seeking again."
+    fact["error"] = if (applied) "" else "seek_unavailable"
     fact.putAll(rateFacts())
     publish(fact)
   }
@@ -1064,7 +1064,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       // The successor could not start under the fade: the owner starts it as an ordinary track.
       val token = nextToken
       closeIncoming()
-      if (token != null) emit("audioPreparationFailed", "The next track could not be buffered.", mapOf("token" to token))
+      if (token != null) emit("audioPreparationFailed", "audio_preparation_failed", mapOf("token" to token))
     }
   }
 
@@ -1298,7 +1298,7 @@ internal class PorticoPlaybackController(private val context: Context) {
         "supportedRates" to supportedRates(),
         "rateReady" to ready,
         "rateWaiting" to (engine?.playWhenReady == true && engine.playbackState == Player.STATE_BUFFERING),
-        "rateError" to (if (ready && !valid) "This speed is unavailable for this media. Choose a supported speed, then press Play." else ""),
+        "rateError" to (if (ready && !valid) "rate_unavailable" else ""),
         "monotonicSeconds" to SystemClock.elapsedRealtime() / 1000.0)
   }
 
@@ -1419,7 +1419,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     fact["uncertain"] = !network && !delivery && engine.isEmpty() && error.errorCode in UNCERTAIN_ERRORS
     fact["engineCode"] = if (network || delivery) "" else engine
     fact["errorDetail"] = "media3 ${error.errorCode} ${error.errorCodeName}" + (error.cause?.let { " / ${it.javaClass.simpleName}" } ?: "")
-    fact["error"] = if (network) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
+    fact["error"] = if (network) "media_connection_interrupted" else "playback_failed"
     fact.putAll(rateFacts())
     publish(fact)
   }

@@ -15,17 +15,17 @@ internal class PorticoAudioOutput(context: Context) {
   private var mixerDevice: AudioDeviceInfo? = null
   private var mixerFormat: AudioFormat? = null
   var accepted = false; private set
-  var reason = "No bit-perfect output requested"; private set
+  var reason = "mixer_not_requested"; private set
   fun prefer(device: AudioDeviceInfo?, format: AudioFormat, transparent: Boolean) {
-    if (Build.VERSION.SDK_INT < 34) { reason = "Android 14 is required for a bit-perfect USB mixer"; return }
-    if (device == null || device.type !in USB || !transparent) { clear(); reason = if (!transparent) "Audio processing is active" else "The output is not USB"; return }
+    if (Build.VERSION.SDK_INT < 34) { reason = "mixer_api_unavailable"; return }
+    if (device == null || device.type !in USB || !transparent) { clear(); reason = if (!transparent) "mixer_processing_active" else "mixer_output_not_usb"; return }
     if (mixerDevice?.id == device.id && mixerFormat == format && accepted) return
     clear()
     val match = manager.getSupportedMixerAttributes(device).firstOrNull { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT && it.format == format }
-    if (match == null) { reason = "The USB output has no bit-perfect mixer for this exact format"; return }
+    if (match == null) { reason = "mixer_format_unavailable"; return }
     accepted = try { manager.setPreferredMixerAttributes(attributes, device, match) } catch (_: Exception) { false }
     if (accepted) { mixerDevice = device; mixerFormat = format }
-    reason = if (accepted) "Android accepted the exact bit-perfect USB mixer format" else "Android refused the preferred mixer format"
+    reason = if (accepted) "mixer_format_accepted" else "mixer_format_refused"
   }
   fun clear() {
     if (Build.VERSION.SDK_INT >= 34) mixerDevice?.let { try { manager.clearPreferredMixerAttributes(attributes, it) } catch (_: Exception) {} }
