@@ -11,13 +11,17 @@ import {NativeVideoSnapshotCapture} from '../../src-next/shell/video-snapshot.ts
 import {sameAuthority} from '../../src-next/shell/model.ts';
 import {bindNativeDock} from '../../src-next/kit/dock/native-binding.ts';
 import {nativeShellBackTransition} from '../../src-next/shell/playback.ts';
+import * as watchSlotLayout from '../../src-next/shell/watch-slot-layout.ts';
+import * as shellModel from '../../src-next/shell/model.ts';
+import * as tvFocus from '../../src-next/shell/tv-focus.ts';
+import {createFocusRegistry} from '../../src-next/kit/focus/registry.ts';
 const require = createRequire(import.meta.url);
 const React = require(join(dirname(require.resolve('react')), 'cjs/react.production.js'));
 
 // Real production Fabric store commit checks and nested-update accounting.
 // Native hosts and animation clocks alone are controlled; no parent rerender pump.
-export async function fabricPlayback(runtime, tv = true) {
-  const errors = [], commits = [], nativeProps = [], callbacks = [];
+export async function fabricPlayback(runtime, tv = true, watch, withShell = false) {
+  const errors = [], commits = [], nativeProps = [], callbacks = [], containers = [];
   let captureClears = 0;
   class Capture extends NativeVideoSnapshotCapture {
     clear() {captureClears++; return super.clear();}
@@ -31,7 +35,16 @@ export async function fabricPlayback(runtime, tv = true) {
   compileFunction(await readFile(rendererPath, 'utf8'), ['require', 'exports', 'nativeFabricUIManager'])(
     name => name.endsWith('ReactNativePrivateInitializeCore') ? {} : name.endsWith('ReactNativePrivateInterface') ? privateInterface : name === 'react' ? React : require(name), exports, fabric);
   const react = {...React, default: React};
-  const Container = ({children}) => React.createElement(React.Fragment, null, children);
+  const Container = props => {
+    containers.push(props);
+    const {children, ref} = props;
+    React.useLayoutEffect(() => {
+      if (!ref || typeof ref !== 'object') return;
+      ref.current = {measureInWindow: callback => callback(0, 0)};
+      return () => {ref.current = null;};
+    }, [ref]);
+    return React.createElement(React.Fragment, null, children);
+  };
   const animated = {default: {View: Container}, useSharedValue: value => React.useRef({value}).current, useAnimatedStyle: fn => fn(), useAnimatedReaction: (prepare, reaction) => {
       const previous = React.useRef(null);
       React.useEffect(() => {const value = prepare(); reaction(value, previous.current); previous.current = value;});
@@ -40,7 +53,7 @@ export async function fabricPlayback(runtime, tv = true) {
     withTiming: (value, _config, finish) => {if (finish) callbacks.push(() => finish(true)); return value;},
     withSpring: (value, _config, finish) => {if (finish) callbacks.push(() => finish(true)); return value;}};
   const pan = () => new Proxy({}, {get: (_target, name) => name === 'then' ? undefined : () => pan()});
-  const theme = {isTV: tv, layers: {player: 30}, colors: {shadow: '#000', dim: '#000'}, layout: {gutter: {tvRight: 96}}};
+  const theme = {isTV: tv, layers: {player: 30, navigation: 20, menu: 40}, colors: {ink: '#000', shadow: '#000', dim: '#000'}, layout: {gutter: {tvRight: 96}}};
   const motion = {reduce: false, transforms: true, timing: () => ({duration: 180}), spring: () => ({damping: 20})};
   let window = {width: 1920, height: 1080};
   const dimensionListeners = new Set();
@@ -80,14 +93,41 @@ export async function fabricPlayback(runtime, tv = true) {
     '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme}, '../kit/focus': {focusTestID: () => 'playback'}, './tv-focus': {tvFocusIds: () => ({surface: () => 'playback'})},
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
-    './model': {sameAuthority}, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture: Capture}});
-  const shell = {reportError: error => errors.push(error), text: {}, artwork() {}, ambient() {}, getSnapshot: () => ({})};
+    './model': {sameAuthority}, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture: Capture}, './watch-slot-layout': watchSlotLayout});
+  const shell = {reportError: error => errors.push(error), text: {}, artwork() {}, ambient() {}, getSnapshot: () => ({}), watch};
+  const chrome = {mounts: 0, unmounts: 0, renders: 0};
+  function WatchProbe() {
+    chrome.renders++;
+    React.useEffect(() => {chrome.mounts++; return () => {chrome.unmounts++;};}, []);
+    return null;
+  }
+  let NativeShell;
+  if (withShell) {
+    // The actual shell/wrapper/layer reconcile together. Home, menus and native
+    // hosts remain controlled; this does not establish genuine App entry/UI.
+    const snapshot = {authority: runtime.getSnapshot().authority, destination: {kind: 'home'}, libraries: [], profile: {}, account: {},
+      selectionActive: false, homeVisible: true, mediaExpanded: true};
+    Object.assign(shell, {getSnapshot: () => snapshot, subscribe: () => () => {}, playback: adapter,
+      memory: {read: async () => undefined}, renderRoutes: () => null, renderSelection: () => null, renderDestination: () => null,
+      renderWatch: () => React.createElement(WatchProbe)});
+    const registry = createFocusRegistry(), Empty = () => null;
+    ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {...common,
+      'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
+      '../kit/overlays': {OverlaysProvider: Container}, '../kit/shell': {AccountMenu: Empty}, '../kit/browse': {},
+      '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},
+      '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': tvFocus, './model': shellModel,
+      '../screens/home/HomeScreen': {HomeScreen: Empty}, './NativePlaybackLayer': {NativePlaybackLayer},
+      './PhoneTabBar': {PhoneTabBar: Empty}, './PhoneHomeHeader': {PhoneHomeHeader: Empty}, './DesktopHeader': {DesktopHeader: Empty},
+      './TVRail': {TVRail: Empty}, './TVProfileMenu': {TVProfileMenu: Empty}}));
+  }
   let parentRenders = 0;
-  function Parent() {parentRenders++; return React.createElement(NativePlaybackLayer, {adapter, runtime: shell, authority: runtime.getSnapshot().authority});}
+  function Parent() {parentRenders++; return withShell ? React.createElement(NativeShell, {runtime: shell})
+    : React.createElement(NativePlaybackLayer, {adapter, runtime: shell, authority: runtime.getSnapshot().authority});}
   const settle = async () => {for (let n = 0; n < 12; n++) await new Promise(resolve => setImmediate(resolve)); if (errors.length) throw errors[0];};
   exports.render(React.createElement(Parent), 11, undefined, true, {onUncaughtError: error => errors.push(error), onCaughtError: error => errors.push(error), onRecoverableError: error => errors.push(error)});
   try {await settle();} catch (error) {exports.stopSurface(11); throw error;}
   return {adapter, commits, nativeProps, callbacks, errors, settle, get parentRenders() {return parentRenders;},
+    chrome, get watchWrapper() {return containers.findLast(props => props.children?.type === WatchProbe);},
     get captureClears() {return captureClears;},
     async resize(width, height) {window = {width, height}; for (const listener of dimensionListeners) listener(); await settle();},
     async unmount() {exports.stopSurface(11); await settle();}};

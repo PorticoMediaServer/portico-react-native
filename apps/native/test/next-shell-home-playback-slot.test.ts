@@ -6,6 +6,7 @@ import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme} from '../src-next/kit/theme';
 import {sameAuthority} from '../src-next/shell/model';
 import {sameFence} from '../../../packages/player-core/src';
+import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -27,6 +28,7 @@ test('actual playback layer converts measured window slot to its own origin and 
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {}},
+    './watch-slot-layout': watchSlotLayout,
   });
   const runtime = {text: {}, reportError() {}, artwork: () => undefined, ambient: () => undefined};
   const render = () => h.render(() => NativePlaybackLayer({adapter, runtime, authority}));

@@ -6,6 +6,7 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
+import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import {act, createHookHost} from './hook-driver.ts';
@@ -105,6 +106,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)}, './playback': {nativeShellBackTransition: () => undefined},
+    './watch-slot-layout': watchSlotLayout,
     './video-snapshot': {NativeVideoSnapshotCapture: class {matches() {return true;} async clear() {} async prepare() {}}},
   });
   const runtime = {reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};

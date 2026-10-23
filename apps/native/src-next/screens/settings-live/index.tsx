@@ -17,7 +17,7 @@ export type {NativeSettingsLivePorts, NativeSettingsLiveRenderers} from './ports
 export {NativeScreenLifetime} from './lifetime';
 export {NativeSettingsController} from './settings-controller';
 export {NativeLiveController} from './live-controller';
-export {NativeTogetherController} from './together-controller';
+export {NativeTogetherController, type NativeTogetherService} from './together-controller';
 export {NativeDashboardController} from './dashboard-controller';
 
 /** No global registration. Accounts composes the one shell dispatcher with Destinations. */
