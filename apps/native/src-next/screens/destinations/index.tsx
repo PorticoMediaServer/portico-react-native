@@ -5,23 +5,26 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import {SearchScreen} from '../search/SearchScreen';
 import {NativeSearchDestination} from '../search/model';
-import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchSelectionPort} from '../search/types';
+import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchSelectionPort, NativeSearchTVCopy} from '../search/types';
 import {SavedScreen, type NativeSavedActions, type NativeSavedSelectionPort} from '../saved/SavedScreen';
 import {NativeSavedDestination} from '../saved/model';
 import {DownloadsScreen, type NativeDownloadsCopy} from '../downloads/DownloadsScreen';
 import type {OfflineEntry} from '../../platform/offline-downloads';
 import {nativeDestinationLifetime} from './lifetime';
+import type {NativeDestinationActivationPort} from './focus';
 
 export type NativeDestinationPorts = Readonly<{
   context: NativeShellBootstrapContext;
   requestId: () => Promise<string>;
   rememberHistory: () => boolean;
   reportError: (error: unknown) => void;
+  activation: (kind: 'search' | 'saved') => NativeDestinationActivationPort;
   searchExplore: NativeSearchExplorePort;
+  searchTVCopy: NativeSearchTVCopy;
   searchActions: NativeSearchActions;
-  searchSelection: NativeSearchSelectionPort;
+  searchSelection?: NativeSearchSelectionPort;
   savedActions: NativeSavedActions;
-  savedSelection: NativeSavedSelectionPort;
+  savedSelection?: NativeSavedSelectionPort;
   offline: NativeOfflineDownloadsAdapter;
   downloads: Readonly<{copy: NativeDownloadsCopy; back: () => void; openTitle: (entry: OfflineEntry) => void}>;
   onThisPhone: MessageId;
@@ -55,7 +58,7 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
   const saved = new NativeSavedDestination({api: ports.context.api, scope: lifetime.scope, current, requestId: ports.requestId});
   return Object.freeze({
     search: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'search'
-      ? <SearchScreen destination={search} runtime={runtime} explore={ports.searchExplore} actions={ports.searchActions} selection={ports.searchSelection}/> : null},
+      ? <SearchScreen destination={search} runtime={runtime} explore={ports.searchExplore} actions={ports.searchActions} selection={ports.searchSelection} activation={ports.activation('search')} tvCopy={ports.searchTVCopy}/> : null},
     saved: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'saved'
       ? <SavedScreen destination={saved} runtime={runtime} device={ports.offline} actions={ports.savedActions} selection={ports.savedSelection} onThisPhone={ports.onThisPhone}/> : null},
     downloads: {render: (_route, runtime) => current() ? <DownloadsScreen runtime={runtime} device={ports.offline} {...ports.downloads}/> : null},
@@ -63,7 +66,7 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
   } satisfies NativeDestinationRenderers);
 }
 
-export type {NativeSearchActions, NativeSearchExplorePort, NativeSearchExploreSnapshot, NativeSearchGenre, NativeSearchSelectionPort} from '../search/types';
+export type {NativeSearchActions, NativeSearchExplorePort, NativeSearchExploreSnapshot, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from '../search/types';
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
 export type {NativeDownloadsCopy} from '../downloads/DownloadsScreen';
 export {NativeTVKeyboard} from '../search/TVKeyboard';

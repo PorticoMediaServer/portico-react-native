@@ -52,7 +52,7 @@ export class NativeSavedDestination {
     const revision = ++this.revision;
     this.publish({phase: 'loading', error: undefined});
     const task = Promise.all([
-      this.myList.select({view: 'watchlist'}), this.favorites.select({view: 'favorites'}), this.playlists.select({view: 'playlists'}),
+      this.myList.select({view: 'watchlist', shape: 'posters'}), this.favorites.select({view: 'favorites'}), this.playlists.select({view: 'playlists'}),
       this.collections.select({view: 'collections'}), this.views.select({view: 'views'}),
       readPinOrder(this.options.api, this.options.scope.serverId, controller.signal),
     ]).then(results => {
