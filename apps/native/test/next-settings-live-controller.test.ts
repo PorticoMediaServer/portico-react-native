@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
 import {NativeSettingsController, type NativeSettingsReader} from '../src-next/screens/settings-live/settings-controller';
 import {NativeDashboardController, type NativeDashboardAdmission, type NativeDashboardReaders} from '../src-next/screens/settings-live/dashboard-controller';
+import {NativeTogetherController, type NativeTogetherService} from '../src-next/screens/settings-live/together-controller';
+import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
 
@@ -117,5 +119,42 @@ test('Dashboard removes owner-only facts before a demoted viewer read finishes',
   finish({items: [], nextCursor: undefined, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}, scope: {serverId: 'server', viewerFence: 'sessions-fence'}});
   await pending;
   assert.deepEqual(calls, ['sessions:10', 'health', 'storage', 'alerts', 'jobs']);
+  controller.dispose(); lifetime.dispose();
+});
+
+function togetherService() {
+  const state: GroupSessionSnapshot = {directory: [], directoryPhase: 'idle', phase: 'idle', busy: false, clockOffsetMs: 0};
+  const calls: string[] = [], listeners = new Set<() => void>();
+  const service: NativeTogetherService & {dispose: () => void} = {
+    getSnapshot: () => state, subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
+    serverNow: () => 1, refreshDirectory: async () => {calls.push('directory');}, refreshQueue: async () => {calls.push('queue');},
+    open: async () => true, create: async () => true, join: async () => true, dismiss() {calls.push('dismiss');},
+    transport: async () => true, invite: async () => true, makeHost: async () => true, queueRemove: async () => true,
+    leave: async () => {}, end: async () => true, dispose() {calls.push('borrowed-dispose');},
+  };
+  return {calls, service, listeners};
+}
+
+test('Together teardown releases its subscription without disposing or calling the borrowed app service', async () => {
+  const lifetime = new NativeScreenLifetime(authority()), {service, calls, listeners} = togetherService();
+  const controller = new NativeTogetherController(lifetime, service);
+  assert.equal(listeners.size, 1);
+  controller.dispose(); controller.dispose();
+  assert.equal(listeners.size, 0);
+  await assert.rejects(controller.refresh(), {name: 'AbortError'});
+  await assert.rejects(controller.invite(), {name: 'AbortError'});
+  assert.deepEqual(calls, []);
+  lifetime.dispose();
+});
+
+test('Together refuses a late join acknowledgement after the selected viewer changes', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), {service} = togetherService();
+  let finish!: (joined: boolean) => void;
+  service.join = () => new Promise(resolve => {finish = resolve;});
+  const controller = new NativeTogetherController(lifetime, service);
+  const pending = controller.join('ABCD2345', 'viewer');
+  owner.replace({profileId: 'other'}); finish(true);
+  await assert.rejects(pending, {name: 'AbortError'});
+  assert.equal(controller.getSnapshot().phase, 'idle');
   controller.dispose(); lifetime.dispose();
 });
