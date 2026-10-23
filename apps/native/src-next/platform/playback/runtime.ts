@@ -16,8 +16,9 @@ import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
-import {parseSession, type Session, type PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
+import {parseSession, type Session, type PlaybackOptions, type QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
+import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {SubtitleService} from '../../../../../packages/client-core/src/subtitles';
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -455,6 +456,43 @@ export class NativePlaybackRuntime {
       if (this.startController === controller) this.startController = undefined;
     }
   };
+
+  private readonly cataloguePort: Pick<V1QueuePlayer, 'playSegments'> = Object.freeze({
+    playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
+  });
+  /** Borrow the genuine authority-local player. This port has no Home context,
+   * selection membership, page expansion or independent queue/session store. */
+  cataloguePlayback = (): Pick<V1QueuePlayer, 'playSegments'> => this.cataloguePort;
+
+  private async playCatalogueSegments(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
+    const {signal, isCurrent} = options;
+    if (!signal || !isCurrent) throw new Error('native_catalogue_lifetime_required');
+    if (!segments.length || options.startSeconds !== undefined && (!Number.isFinite(options.startSeconds) || options.startSeconds < 0 || options.startSeconds > 1e9)) throw new Error('native_catalogue_selection_invalid');
+    const admitted = () => !signal.aborted && this.currentAuthority() && isCurrent();
+    const retired = () => Object.assign(new Error('native_catalogue_retired'), {name: 'AbortError'});
+    if (!admitted()) throw retired();
+    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
+    const scoped = this.selectionScope(signal, valid);
+    const assertCurrent = () => {if (!valid()) throw retired();};
+    try {
+      this.connect();
+      await this.queue.cancel(); assertCurrent();
+      await this.o.capabilitiesReady(); assertCurrent();
+      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal); assertCurrent();
+      this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
+      this.rememberCurrent(); assertCurrent();
+      this.entry = undefined; this.subject = undefined; this.options = undefined;
+      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
+      const queue = await this.queue.playSegments(segments, {...options, signal: scoped.signal, isCurrent: valid});
+      assertCurrent(); return queue;
+    } catch (error) {
+      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
+      throw error;
+    } finally {
+      scoped.close();
+      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+    }
+  }
 
   /** Play the server-owned whole group, never the screen's loaded preview.
    * The caller supplies its genuine route/member lifetime through adoption. */
