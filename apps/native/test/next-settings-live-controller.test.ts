@@ -7,6 +7,9 @@ import {NativeTogetherController, type NativeTogetherService} from '../src-next/
 import {NativeRecordingsController, type NativeRecordingService} from '../src-next/screens/settings-live/recordings-controller';
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
 import {nativeGuideClock} from '../src-next/screens/settings-live/guide-presentation';
+import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
+import {defaultI18n} from '../../../packages/i18n/src';
+import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
 import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
@@ -90,6 +93,15 @@ test('guide clocks use actual device zone and omit TV day periods without changi
   assert.equal(nativeGuideClock('en-GB', 'America/Halifax', false)(at), '16:05');
   assert.equal(nativeGuideClock('en-US', 'not/a-zone', true)(at), undefined);
   assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(NaN), undefined);
+});
+
+test('Dashboard uses actual show identity and numbering without shortening stored titles', () => {
+  const session: AdminSession = {id: 'session', user: 'person', profile: 'profile', device: 'device', title: 'Episode: Special Edition', kind: 'vod', state: 'playing', positionMs: 1000, decision: {}, location: 'local', item: {id: 'episode', kind: 'episode', title: 'Episode: Special Edition', showId: 'show', showTitle: 'Show: Special Edition', seasonNumber: 1, episodeNumber: 3, episodeNumbering: 'seasonal', art: []}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeDashboardIdentity(session, text), {title: 'Show: Special Edition', secondary: ['S1 E3', 'Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, episodeNumbering: 'unrecognized'}}, text), {title: 'Show: Special Edition', secondary: ['Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, kind: 'movie', title: 'Film: Special Edition', year: 2001}}, text), {title: 'Film: Special Edition', secondary: ['2001']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: undefined}, text), {title: 'Episode: Special Edition', secondary: []});
 });
 function recordingService() {
   let accessChanged = () => {}, disposed = 0;
