@@ -205,8 +205,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
             || selectedViewer.session.deviceId !== renewed.deviceId
             || selectedViewer.session.tokenGeneration !== renewed.tokenGeneration
             || selectedViewer.session.authorizationHorizon !== renewed.authorizationHorizon) {end(); return;}
-          dispose();
-          if (options.onSessionRenewed) options.onSessionRenewed(); else options.onAuthorityEnded();
+          // The restore owner first removes the rendered old shell; its effect
+          // cleanup then aborts/disposes this runtime. Disposing before that
+          // render would make a still-mounted external-store reader throw.
+          if (options.onSessionRenewed) options.onSessionRenewed(); else end();
         }, () => end());
         return;
       }
