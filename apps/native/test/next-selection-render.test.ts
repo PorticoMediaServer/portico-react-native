@@ -472,7 +472,7 @@ test('phone Selection action line boxes retain their type and exclude additional
     for (const width of [390, 820]) {
       state.theme = createTheme({isTV: false, width, textScale: 1.2});
       const calls: string[] = [], ref = {current: null};
-      const row = mount(SelectionActionRow, {label: 'Actual queue action', description: 'Actual queue order', icon: 'i-queue-next', ref, onPress: () => calls.push('press')});
+      const row = mount(SelectionActionRow, {label: 'Actual queue action', description: 'Actual queue order', icon: 'i-queue', ref, onPress: () => calls.push('press')});
       try {
         const [label, description] = ofType(row.tree, SelectionText), phone = width === 390;
         assert.equal(label.props.weight, 600); assert.equal(description.props.weight, 500);
