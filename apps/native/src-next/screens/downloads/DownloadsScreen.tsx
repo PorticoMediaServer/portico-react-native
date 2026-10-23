@@ -1,25 +1,24 @@
 import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork} from '../../kit/artwork';
-import {Button, Focusable, Switch} from '../../kit/controls';
-import {Menu, type MenuEntry} from '../../kit/overlays';
+import {Chip, Focusable, Switch} from '../../kit/controls';
+import {CardFrame} from '../../kit/cards/primitives';
+import {BottomSheet, Menu, type MenuAction} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
-import {groupOfflineEntries, type NativeOfflineDownloadsAdapter, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
+import {type NativeOfflineDownloadsAdapter, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
+import {useDownloadArtwork} from './useDownloadArtwork';
 
 const t = defaultI18n.t;
 const limits = [0, 5, 10, 25, 50, 100].map(gb => gb * 1073741824);
 
-/** Frame-specific keys are supplied only from the checked canonical catalogue. */
-export type NativeDownloadsCopy = Readonly<{
-  emptyBody: MessageId; storageLimitHelp: MessageId; freeOnPhone: MessageId;
-  removeFromPhone: MessageId; stoppedBody: MessageId; downloading: MessageId;
-}>;
+export type {NativeDownloadsCopy} from './presentation';
 export type NativeDownloadsScreenProps = Readonly<{
   device: NativeOfflineDownloadsAdapter; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
   back: () => void; openTitle: (entry: OfflineEntry) => void;
@@ -31,7 +30,8 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const snapshot = useSyncExternalStore(device.subscribe, device.getSnapshot);
   const [failure, setFailure] = useState<unknown>(), [entryMenu, setEntryMenu] = useState<{entry: OfflineEntry; anchor: RefObject<View | null>}>();
-  const menu = entryMenu?.entry;
+  const menu = entryMenu && snapshot.entries.find(entry => downloadEntryIdentity(entry) === downloadEntryIdentity(entryMenu.entry));
+  useEffect(() => {if (entryMenu && !menu) setEntryMenu(undefined);}, [entryMenu, menu]);
   const [pickingLimit, setPickingLimit] = useState(false), [pending, setPending] = useState(false);
   const alive = useRef(true), operation = useRef(0), scroll = useRef<ScrollView>(null), limitRef = useRef<View>(null);
   useEffect(() => {const lifetime = alive, tickets = operation; lifetime.current = true; return () => {lifetime.current = false; tickets.current++;};}, [device]);
@@ -43,10 +43,11 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
   }, [runtime]);
   useEffect(() => {run(device.open);}, [device, run]);
   const save = (settings: Partial<OfflineSettings>) => run(() => device.setSettings(settings));
-  const groups = groupOfflineEntries(snapshot.entries);
+  const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
   const empty = snapshot.ready && snapshot.entries.length === 0;
   const ruleList = <DownloadsRules settings={snapshot.settings} pending={pending} copy={copy} save={save} limitRef={limitRef} onLimit={() => setPickingLimit(true)}/>;
-  const menuItems: MenuEntry[] = menu ? [
+  const firstMenuAction = useRef<View>(null);
+  const menuItems: MenuAction[] = menu ? [
     ...(menu.state !== 'ready' ? [{id: 'resume', label: t('action.tryAgain'), icon: 'i-retry' as const, onSelect: () => run(() => device.resume(menu))}] : []),
     {id: 'title', label: t('web.downloads.goToTitle'), icon: 'i-film', onSelect: () => openTitle(menu)},
     {id: 'remove', label: t(copy.removeFromPhone), icon: 'i-trash', destructive: true, onSelect: () => run(() => device.remove(menu))},
@@ -66,25 +67,46 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
           <Text accessibilityRole="header" style={[browseType(theme, 30, 800, -.035, 32.4), {color: theme.colors.text, textAlign: 'center', marginBottom: 10}]}>{t('next.states.native.noDownloads')}</Text>
           <Text style={[browseType(theme, 15, 400, 0, 22.5), {color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 16}]}>{t(copy.emptyBody)}</Text>
         </View>}
-        {!empty && snapshot.ready && <View style={{marginHorizontal: 16, marginTop: 4, padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised, flexDirection: 'row', gap: 12, alignItems: 'baseline'}}>
+        {!empty && snapshot.ready && <View style={{marginHorizontal: 16, marginTop: 4, padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised}}>
+          <View style={{flexDirection: 'row', gap: 12, alignItems: 'baseline'}}>
           <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('downloads.used', {size: defaultI18n.bytes(snapshot.usedBytes)})}</Text>
           <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary}]}>{t(copy.freeOnPhone, {size: defaultI18n.bytes(snapshot.freeBytes)})}</Text>
+          </View>
+          {storage && <View testID="downloads-storage-bar" style={{height: 6, borderRadius: 3, backgroundColor: theme.colors.raisedBright, marginTop: 10, overflow: 'hidden', flexDirection: 'row'}}>
+            <View style={{height: 6, width: `${100 * storage.downloads}%`, backgroundColor: theme.colors.accentStrong}}/>
+            <View style={{height: 6, width: `${100 * storage.other}%`, backgroundColor: alpha(theme.colors.accentStrong, .4)}}/>
+          </View>}
         </View>}
         <View style={dimensions.width >= 1024 && !empty ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
           {!empty && <View style={{flex: 1}}>{groups.map(group => <View key={group.key}>
-            {!!group.title && <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary, marginTop: 20, marginHorizontal: 20, marginBottom: 8}]}>{group.title}</Text>}
+            {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 20, marginHorizontal: 20, marginBottom: 8}}>
+              <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
+              {group.episodeCount !== undefined && <Text style={[browseType(theme, 13.5, 700), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
+            </View>}
             <View style={{marginHorizontal: 16, backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
-              {group.entries.map((entry, index) => <DownloadRow key={entry.id} entry={entry} device={device} copy={copy} separator={index > 0}
+              {group.entries.map((entry, index) => <DownloadRow key={entry.id} entry={entry} device={device} runtime={runtime} copy={copy} separator={index > 0} menuOpen={menu?.id === entry.id}
                 onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={() => run(() => device.openOffline(entry))} onRetry={() => run(() => device.resume(entry))}/>)}
             </View>
           </View>)}</View>}
-          <View style={dimensions.width >= 1024 && !empty ? {width: 360} : {flex: 1}}>{ruleList}</View>
+          <View style={dimensions.width >= 1024 && !empty ? {width: 360} : {flex: 1}}>{ruleList}
+            {snapshot.otherBytes > 0 && <View style={{marginHorizontal: 16, marginTop: 14, paddingLeft: 14, paddingRight: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .08), flexDirection: 'row', gap: 10, alignItems: 'center'}}>
+              <Icon name="i-info" size={18} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 13.5, 400), {color: theme.colors.textSecondary, flex: 1}]}>{t(copy.otherProfiles, {size: defaultI18n.bytes(snapshot.otherBytes)})}</Text>
+              <Chip testID="downloads-remove-other-profiles" disabled={pending} onPress={() => run(device.removeOthers)}>{t('action.remove')}</Chip>
+            </View>}
+          </View>
         </View>
       </>}
     </ScrollView>
-    <Menu testID="downloads-entry-menu" open={!!menu} onOpenChange={open => {if (!open) setEntryMenu(undefined);}} anchorRef={entryMenu?.anchor} returnFocusRef={entryMenu?.anchor} title={menu?.title ?? ''} context={menu && <View style={{flexDirection: 'row', gap: 14, padding: 16}}>
-      <Artwork source={localArtwork(menu)} width={44} height={66}/><Text style={[browseType(theme, 17, 800), {color: theme.colors.text, flex: 1}]}>{menu.title}</Text>
-    </View>} items={menuItems} presentation={dimensions.width < 600 ? 'sheet' : 'anchored'}/>
+    {dimensions.width < 600 && !theme.isTV ? <BottomSheet testID="downloads-entry-menu" title={undefined} open={!!menu} onOpenChange={open => {if (!open) setEntryMenu(undefined);}}
+      initialFocusRef={firstMenuAction} returnFocusRef={entryMenu?.anchor} accessibilityLabel={menu?.title} headerContent={menu && <DownloadMenuContext entry={menu} copy={copy}/>}
+      showClose={false} fitContent scrollable={false}>
+      <View style={{paddingBottom: Math.max(26, insets.bottom)}}>{menuItems.map((action, index) => <Focusable key={action.id} ref={index === 0 ? firstMenuAction : undefined} testID={`downloads-entry-menu-item-${action.id}`}
+        onPress={() => {setEntryMenu(undefined); action.onSelect();}} style={{height: 54, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 14}}>
+        {action.icon && <Icon name={action.icon} size={22} color={action.destructive ? theme.colors.record : theme.colors.textSecondary}/>}
+        <Text style={[browseType(theme, 16, 600), {color: action.destructive ? theme.colors.record : theme.colors.text}]}>{action.label}</Text>
+      </Focusable>)}</View>
+    </BottomSheet> : <Menu testID="downloads-entry-menu" title={undefined} open={!!menu} onOpenChange={open => {if (!open) setEntryMenu(undefined);}} anchorRef={entryMenu?.anchor} returnFocusRef={entryMenu?.anchor} accessibilityLabel={menu?.title}
+      context={menu && <DownloadMenuContext entry={menu} copy={copy}/>} items={menuItems} presentation={theme.isTV ? 'sideSheet' : 'anchored'}/>}
     <Menu testID="downloads-storage-limit" open={pickingLimit} onOpenChange={setPickingLimit} anchorRef={limitRef} returnFocusRef={limitRef} title={t('downloads.storageLimit')}
       items={limits.map(value => ({id: String(value), label: value ? defaultI18n.bytes(value) : t('downloads.noLimit'), selected: snapshot.settings.limitBytes === value,
         onSelect: () => save({limitBytes: value})}))} presentation={dimensions.width < 600 ? 'sheet' : 'anchored'}/>
@@ -118,30 +140,50 @@ function DownloadsRules({settings, pending, copy, save, onLimit, limitRef}: {set
 }
 
 function localArtwork(entry: OfflineEntry) {
-  return entry.artworkUrl ? {uri: entry.artworkUrl, cacheKey: JSON.stringify([entry.owner, entry.receipt?.receiptId, entry.id, entry.artworkUrl])} : undefined;
+  return entry.artworkUrl ? {uri: entry.artworkUrl, cacheKey: JSON.stringify([downloadEntryIdentity(entry), entry.artworkUrl])} : undefined;
 }
 
-function DownloadRow({entry, device, copy, separator, onMenu, onPlay, onRetry}: {entry: OfflineEntry; device: NativeOfflineDownloadsAdapter; copy: NativeDownloadsCopy; separator: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay: () => void; onRetry: () => void}) {
-  const theme = useTheme(), blocked = entry.state === 'ready' ? device.playable(entry) : '', opener = useRef<View>(null);
+function DownloadMenuContext({entry, copy}: {entry: OfflineEntry; copy: NativeDownloadsCopy}) {
+  const theme = useTheme(), progress = downloadTransferProgress(entry);
+  const percent = progress === undefined ? undefined : Math.round(progress * 100);
+  return <>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 2, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>
+      <Artwork source={localArtwork(entry)} width={36} height={54} style={{borderRadius: 5}}/>
+      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 16, 700), {color: theme.colors.text}]}>{entry.title}</Text>
+        {entry.state === 'failed' && percent !== undefined && <Text style={[browseType(theme, 13, 600), {color: theme.colors.record, marginTop: 2}]}>{t(copy.stoppedAt, {percent})}</Text>}
+      </View>
+    </View>
+    {entry.state === 'failed' && percent !== undefined && <Text style={[browseType(theme, 13, 400, 0, 19.5), {color: theme.colors.textTertiary, marginTop: 10, marginHorizontal: 20, marginBottom: 2}]}>{t(copy.stoppedHelp, {percent})}</Text>}
+  </>;
+}
+
+function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry}: {entry: OfflineEntry; device: NativeOfflineDownloadsAdapter; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay: () => void; onRetry: () => void}) {
+  const theme = useTheme(), blocked = entry.state === 'ready' ? device.playabilityReason(entry) : null, opener = useRef<View>(null);
+  const facts = useDownloadArtwork(device, entry), text = downloadRowText(entry, facts, blocked, copy, runtime.text);
   const menu = () => onMenu(opener);
-  const warning = entry.waiting || blocked, stopped = entry.state === 'failed';
-  const reason = entry.waiting ? t(entry.waiting === 'wifi' ? 'downloads.waiting.wifi' : 'downloads.waiting.network')
-    : blocked || device.note(entry) || (stopped ? t(copy.stoppedBody) : entry.state === 'paused' ? t('downloads.paused') : '');
+  const playable = entry.state === 'ready' && !blocked, progress = downloadTransferProgress(entry);
+  const backdrop = entry.info?.kind === 'episode' ? facts?.backdropUrl : undefined;
+  const artwork = backdrop ? {uri: backdrop, cacheKey: JSON.stringify([downloadEntryIdentity(entry), backdrop])} : localArtwork(entry);
   return <View style={{position: 'relative', paddingVertical: 9, paddingLeft: 14, paddingRight: 12, flexDirection: 'row', alignItems: 'center', gap: 13}}>
     {separator && <View style={{position: 'absolute', top: 0, left: 74, right: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
-    <Focusable ref={opener} testID={`download-${encodeURIComponent(entry.id)}`} accessibilityLabel={entry.title} onPress={entry.state === 'ready' && !blocked ? onPlay : menu} onLongPressAction={menu}
-      style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 13}}>
-      <Artwork source={localArtwork(entry)} width={46} height={69} style={{borderRadius: 6}}/>
-      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.title}</Text>
-        {entry.subtitle && <Text style={[browseType(theme, 12.5, 400, 0, 17.5), {color: theme.colors.textTertiary, marginTop: 2}]}>{entry.subtitle}</Text>}
-        {!!reason && <Text style={[browseType(theme, 12.5, 400, 0, 17.5), {color: stopped ? theme.colors.record : warning ? theme.colors.amber : theme.colors.textTertiary, marginTop: 2}]}>{reason}</Text>}
-        {entry.state === 'downloading' && !entry.waiting && <><Text style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, marginTop: 2}]}>{t(copy.downloading, {percent: Math.round(100 * Math.min(1, entry.bytes > 0 ? entry.bytesDone / entry.bytes : 0))})}</Text><View style={{height: 3, backgroundColor: theme.colors.raisedBright, marginTop: 7, borderRadius: 2, overflow: 'hidden'}}><View style={{height: 3, width: `${100 * Math.min(1, entry.bytes > 0 ? entry.bytesDone / entry.bytes : 0)}%`, backgroundColor: theme.colors.accentStrong}}/></View></>}
-      </View>
-    </Focusable>
-    {stopped && <Button testID={`download-retry-${encodeURIComponent(entry.id)}`} variant="glass" size="compact" icon="i-retry" onPress={onRetry}>{t('action.tryAgain')}</Button>}
-    <Focusable testID={`download-action-${encodeURIComponent(entry.id)}`} accessibilityLabel={t(entry.state === 'ready' && !blocked ? 'action.play' : 'card.more', {title: entry.title})}
-      onPress={entry.state === 'ready' && !blocked ? onPlay : menu} style={{width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: entry.state === 'ready' && !blocked ? theme.colors.text : undefined}}>
-      <Icon name={entry.state === 'ready' && !blocked ? 'i-play' : 'i-more'} size={entry.state === 'ready' && !blocked ? 16 : 20} color={entry.state === 'ready' && !blocked ? theme.colors.ink : theme.colors.textTertiary}/>
+    <View style={{flex: 1, minWidth: 0}}>
+      <CardFrame title={entry.title} menuAnchorRef={opener} moreExpanded={menuOpen} testID={`download-${encodeURIComponent(entry.id)}`}
+        onNavigate={playable ? onPlay : menu} onMore={menu} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13}}>
+        {() => <>
+          <Artwork source={artwork} width={46} height={69} zoom={backdrop ? 2.2 : 1} saturation={backdrop ? .55 : 1} brightness={backdrop ? .45 : 1} style={{borderRadius: 6}}/>
+          <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.title}</Text>
+            {!!text.metadata.length && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 2}}>{text.metadata.map((value, index) => <Text key={index} numberOfLines={1} style={[browseType(theme, 12.5, 400, 0, 17.5), {color: theme.colors.textTertiary}]}>{value}</Text>)}</View>}
+            {!!text.reason && <Text style={[browseType(theme, 12.5, 400, 0, 17.5), {color: text.stopped ? theme.colors.record : text.warning ? theme.colors.amber : theme.colors.textTertiary, marginTop: 2}]}>{text.reason}</Text>}
+            {entry.state === 'downloading' && !entry.waiting && progress !== undefined && <><Text style={[browseType(theme, 12.5, 400, 0, 17.5), {color: theme.colors.textTertiary, marginTop: 2}]}>{t(copy.downloading, {percent: Math.round(100 * progress)})}</Text><View style={{height: 3, backgroundColor: theme.colors.raisedBright, marginTop: 7, borderRadius: 2, overflow: 'hidden'}}><View style={{height: 3, width: `${100 * progress}%`, backgroundColor: theme.colors.accentStrong}}/></View></>}
+            {text.stopped && <View style={{height: 37}}/>}
+          </View>
+        </>}
+      </CardFrame>
+      {text.stopped && <Chip testID={`download-retry-${encodeURIComponent(entry.id)}`} icon="i-retry" iconSize={14} onPress={onRetry} style={{position: 'absolute', bottom: 0, left: 59, height: 30, paddingHorizontal: 11}} textStyle={browseType(theme, 13, 700)}>{t('action.tryAgain')}</Chip>}
+    </View>
+    <Focusable testID={`download-action-${encodeURIComponent(entry.id)}`} accessibilityLabel={t(playable ? 'action.play' : 'card.more', {title: entry.title})}
+      onPress={playable ? onPlay : menu} style={{width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: playable ? theme.colors.text : undefined}}>
+      <Icon name={playable ? 'i-play' : 'i-more'} size={playable ? 16 : 20} color={playable ? theme.colors.ink : theme.colors.textTertiary}/>
     </Focusable>
   </View>;
 }
