@@ -39,7 +39,7 @@ export function nativeShellBackTransition(dock: PlaybackDock, snapshot: Pick<Nat
 export type NativeShellSurfaceProps = Readonly<{
   /** Window coordinates measured from the actual art slot; undefined until mounted/measured. */
   dockBounds?: NativeShellBounds;
-  expandedBounds: NativeShellBounds;
+  expandedBounds?: NativeShellBounds;
   docked: boolean;
   subtitlesVisible: boolean;
   /** Producer composition only; false only while a current-fence real snapshot covers it. */
