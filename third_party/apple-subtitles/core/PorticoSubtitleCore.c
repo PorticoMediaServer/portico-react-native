@@ -8,13 +8,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 enum { PS_BYTES = 64 * 1024 * 1024, PS_PIXELS = 4096 * 2304 };
 typedef struct { uint8_t *data; size_t size; int64_t at; } PSBytes;
 struct PSRenderer {
     ASS_Library *library; ASS_Renderer *ass; ASS_Track *track;
     AVFormatContext *format; AVCodecContext *decoder;
-    const char *demuxer;enum AVCodecID codec_id; AVIOContext *io, *pair_io;
+    const char *demuxer;enum AVCodecID codec_id; AVIOContext *io;
     PSBytes bytes, pair; int stream; AVPacket *packet;
     AVSubtitle displayed, pending; int has_displayed, has_pending, eof;
     int64_t display_start, display_end, pending_start, pending_end, last_us;
@@ -39,14 +42,27 @@ static AVIOContext *ps_io(PSBytes *b) {
     return io;
 }
 static int ps_io_open(AVFormatContext *format,AVIOContext **io,const char *url,int flags,AVDictionary **options) {
-    (void)options;PSRenderer *r=format->opaque;
-    /* VobSub's sole companion is supplied by the scoped bridge; no other protocol is opened. */
-    if(flags!=AVIO_FLAG_READ || !r->pair.size || strcmp(url,"memory.sub")){fprintf(stderr,"denied subtitle open %s flags=%d\n",url,flags);return AVERROR(EACCES);}
-    r->pair.at=0;*io=r->pair_io=ps_io(&r->pair);return *io?0:AVERROR(ENOMEM);
+    (void)format;(void)io;(void)url;(void)flags;(void)options;
+    return AVERROR(EACCES);
 }
 static int ps_io_close(AVFormatContext *format,AVIOContext *io) {
-    PSRenderer *r=format->opaque;if(io==r->pair_io)r->pair_io=NULL;
+    (void)format;
     av_freep(&io->buffer);avio_context_free(&io);return 0;
+}
+/* VobSub opens a private nested MPEG demuxer without inheriting io_open. Its SUB must
+ * be seekable. Only the already-authorized bounded companion is spooled; no IDX path
+ * is ever opened. The generated 0600 path is unlinked as soon as FFmpeg owns its FD. */
+static int ps_companion_file(PSRenderer *r,char *path,size_t size) {
+    const char *tmp=getenv("TMPDIR");
+    if(!tmp||tmp[0]!='/'||snprintf(path,size,"%s/portico-vobsub-XXXXXX",tmp)>=(int)size)return -1;
+    int fd=mkstemp(path);if(fd<0)return -1;
+    if(fcntl(fd,F_SETFD,FD_CLOEXEC)<0){unlink(path);close(fd);return -1;}
+    size_t at=0;while(at<r->pair.size){
+        ssize_t n=write(fd,r->pair.data+at,r->pair.size-at);
+        if(n<0&&errno==EINTR)continue;
+        if(n<=0){unlink(path);close(fd);return -1;}at+=(size_t)n;
+    }
+    return fd;
 }
 void ps_blend(uint8_t *rgba,int width,int height,int x,int y,int w,int h,const uint8_t *mask,int stride,uint32_t color) {
     unsigned opacity=255-(color&255),red=color>>24,green=(color>>16)&255,blue=(color>>8)&255;
@@ -68,7 +84,14 @@ static int ps_bitmap_open(PSRenderer *r) {
     r->io=ps_io(&r->bytes);r->format=avformat_alloc_context();if(!r->io||!r->format)return 0;
     r->format->pb=r->io;r->format->flags|=AVFMT_FLAG_CUSTOM_IO;r->format->opaque=r;r->format->io_open=ps_io_open;r->format->io_close2=ps_io_close;
     r->format->probesize=8*1024*1024;r->format->max_analyze_duration=5*AV_TIME_BASE;
-    if(avformat_open_input(&r->format,"memory.idx",av_find_input_format(r->demuxer),NULL)<0)return 0;
+    AVDictionary *options=NULL;char path[PATH_MAX]={0};int fd=-1;
+    if(r->pair.size){
+        fd=ps_companion_file(r,path,sizeof(path));if(fd<0)return 0;
+        if(av_dict_set(&options,"sub_name",path,0)<0||av_dict_set(&options,"protocol_whitelist","file",0)<0){av_dict_free(&options);unlink(path);close(fd);return 0;}
+    }
+    int opened=avformat_open_input(&r->format,"memory.idx",av_find_input_format(r->demuxer),&options);
+    av_dict_free(&options);if(fd>=0){unlink(path);close(fd);}
+    if(opened<0)return 0;
     r->stream=-1;for(unsigned i=0;i<r->format->nb_streams;i++)if(r->format->streams[i]->codecpar->codec_id==r->codec_id){r->stream=(int)i;break;}
     if(r->stream<0)return 0;
     r->decoder=avcodec_alloc_context3(avcodec_find_decoder(r->codec_id));if(!r->decoder)return 0;
@@ -108,7 +131,6 @@ void ps_close(PSRenderer *r) {
     if(r->has_displayed)avsubtitle_free(&r->displayed);
     if(r->has_pending)avsubtitle_free(&r->pending);
     av_packet_free(&r->packet);avcodec_free_context(&r->decoder);avformat_close_input(&r->format);
-    if(r->pair_io){av_freep(&r->pair_io->buffer);avio_context_free(&r->pair_io);}
     if(r->io){av_freep(&r->io->buffer);avio_context_free(&r->io);}
     av_free(r->bytes.data);av_free(r->pair.data);free(r->canvas);free(r);
 }
@@ -155,7 +177,6 @@ const uint8_t *ps_render(PSRenderer *r,int64_t us,int width,int height,int *ow,i
             if(r->has_displayed)avsubtitle_free(&r->displayed);
             r->has_pending=r->has_displayed=r->eof=0;
             avcodec_free_context(&r->decoder);avformat_close_input(&r->format);
-            if(r->pair_io){av_freep(&r->pair_io->buffer);avio_context_free(&r->pair_io);}
             if(r->io){av_freep(&r->io->buffer);avio_context_free(&r->io);}
             r->bytes.at=r->pair.at=0;if(!ps_bitmap_open(r))return NULL;
         }

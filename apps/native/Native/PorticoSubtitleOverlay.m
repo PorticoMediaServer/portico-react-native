@@ -67,6 +67,19 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
   [s->_fetches removeObject:f];if(!data){s->_loading=NO;s->_authorized=0;if(s.onImage)s.onImage(nil);if(s.onStatus)s.onStatus(error.length?error:@"subtitle_payload_empty");return;}done(data);
  }];
 }
+- (void)loadFonts:(NSArray *)named index:(NSUInteger)index total:(NSUInteger)total fonts:(NSMutableArray *)fonts resource:(NSString *)resource epoch:(NSUInteger)epoch done:(void (^)(NSArray *))done {
+ if(_epoch!=epoch||!_active)return;
+ if(index==named.count){done(fonts);return;}
+ NSDictionary *font=[named[index] isKindOfClass:NSDictionary.class]?named[index]:nil;
+ NSString *name=font[@"name"];NSURL *address=[self scoped:font[@"url"] source:_source resource:resource];
+ if(!address||![name isKindOfClass:NSString.class]||name.length>160||!name.length||total>=32*1024*1024){_loading=NO;if(self.onStatus)self.onStatus(@"subtitle_font_invalid");return;}
+ __weak PorticoSubtitleOverlay *weakSelf=self;
+ [self fetch:address limit:MIN(8*1024*1024,32*1024*1024-total) epoch:epoch done:^(NSData *bytes){
+  PorticoSubtitleOverlay *view=weakSelf;if(!view||view->_epoch!=epoch)return;
+  [fonts addObject:@{@"name":name,@"data":bytes}];
+  [view loadFonts:named index:index+1 total:total+bytes.length fonts:fonts resource:resource epoch:epoch done:done];
+ }];
+}
 - (void)apply:(NSDictionary *)command source:(NSString *)source {
  NSDictionary *render=[command[@"render"] isKindOfClass:NSDictionary.class]?command[@"render"]:nil;
  NSString *kind=render[@"kind"];
@@ -114,14 +127,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
   }
   NSArray *named=[render[@"fonts"] isKindOfClass:NSArray.class]?render[@"fonts"]:@[];
   if(named.count>16){s->_loading=NO;return;}
-  NSMutableArray *fonts=[NSMutableArray new];__block NSUInteger index=0,total=0;__block void (^nextFont)(void);
-  nextFont=^{PorticoSubtitleOverlay *view=weakSelf;if(!view||view->_epoch!=epoch){nextFont=nil;return;}
-   if(index==named.count){finish(nil,fonts);nextFont=nil;return;}
-   NSDictionary *font=[named[index++] isKindOfClass:NSDictionary.class]?named[index-1]:nil;
-   NSString *name=font[@"name"];NSURL *address=[view scoped:font[@"url"] source:view->_source resource:resource];
-   if(!address||![name isKindOfClass:NSString.class]||name.length>160||!name.length){view->_loading=NO;nextFont=nil;return;}
-   [view fetch:address limit:MIN(8*1024*1024,32*1024*1024-total) epoch:epoch done:^(NSData *bytes){total+=bytes.length;[fonts addObject:@{@"name":name,@"data":bytes}];if(nextFont)nextFont();}];
-  };nextFont();
+  [s loadFonts:named index:0 total:0 fonts:[NSMutableArray new] resource:resource epoch:epoch done:^(NSArray *fonts){finish(nil,fonts);}];
  }];
 }
 - (void)renderAtSourceTime:(double)seconds size:(CGSize)pixels {
@@ -134,10 +140,12 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
  id raw=_command[@"offsetUs"];double offset=[raw isKindOfClass:NSString.class]?[raw doubleValue]:0;
  double intrinsic=PSNumber(_command[@"render"][@"offsetMs"],-86400000,86400000)?[_command[@"render"][@"offsetMs"] doubleValue]*1000:0;
  BOOL hasFileOffset=PSNumber(_command[@"render"][@"offsetMs"],-86400000,86400000);
- int64_t us=(int64_t)llround(seconds*1000000-(hasFileOffset?intrinsic:offset));NSUInteger epoch=_epoch;_busy=YES;
+ int64_t us=(int64_t)llround(seconds*1000000-(hasFileOffset?intrinsic:offset));
+ if(us<0){if(self.onImage)self.onImage(nil);return;}
+ NSUInteger epoch=_epoch;_busy=YES;
  __weak PorticoSubtitleOverlay *weakSelf=self;
  dispatch_async(_queue,^{
-  int w=0,h=0,changed=0;const uint8_t *rgba=ps_render(self->_renderer,MAX(0,us),width,height,&w,&h,&changed);
+  int w=0,h=0,changed=0;const uint8_t *rgba=ps_render(self->_renderer,us,width,height,&w,&h,&changed);
   UIImage *image=nil;if(rgba&&changed&&w>0&&h>0){
    NSData *copy=[NSData dataWithBytes:rgba length:(NSUInteger)w*h*4];CGDataProviderRef provider=CGDataProviderCreateWithCFData((__bridge CFDataRef)copy);
    CGColorSpaceRef color=CGColorSpaceCreateWithName(kCGColorSpaceSRGB);

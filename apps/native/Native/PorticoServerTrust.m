@@ -68,15 +68,19 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
 @interface PorticoTrustProofDelegate : NSObject <NSURLSessionDataDelegate>
 @property(nonatomic, copy) NSString *key;
 @property(nonatomic, copy) NSString *fingerprint;
+@property(nonatomic, copy) NSString *tlsLeafFingerprint;
 @end
 @implementation PorticoTrustProofDelegate
 - (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
   NSURLProtectionSpace *space = challenge.protectionSpace;
   SecTrustRef trust = space.serverTrust;
+  NSString *actualLeaf = trust ? PorticoTrustFingerprint(trust) : nil;
   if ([space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] && trust &&
       challenge.previousFailureCount == 0 && [space.protocol.lowercaseString isEqualToString:@"https"] &&
       [PorticoTrustKey(space.host, space.port) isEqualToString:self.key] &&
-      [PorticoTrustFingerprint(trust) isEqualToString:self.fingerprint]) {
+      [actualLeaf isEqualToString:self.fingerprint]) {
+    // The result fact comes from this session's actual challenge, never its input fingerprint.
+    self.tlsLeafFingerprint = actualLeaf;
     completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]);
     return;
   }
@@ -284,10 +288,10 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
     [session finishTasksAndInvalidate];
     NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
     NSString *text = data.length <= 8192 ? [[NSString alloc] initWithData:data ?: [NSData data] encoding:NSUTF8StringEncoding] : nil;
-    if (error || !http || !text || (http.statusCode >= 300 && http.statusCode < 400)) { completion(nil); return; }
+    if (error || !http || !text || !delegate.tlsLeafFingerprint.length || ![http.URL isEqual:url] || (http.statusCode >= 300 && http.statusCode < 400)) { completion(nil); return; }
     NSMutableDictionary *headers = [NSMutableDictionary dictionary];
     for (id name in http.allHeaderFields) headers[[name description]] = [http.allHeaderFields[name] description];
-    completion(@{@"status": @(http.statusCode), @"headers": headers, @"body": text});
+    completion(@{@"status": @(http.statusCode), @"headers": headers, @"body": text, @"tlsLeafFingerprint": delegate.tlsLeafFingerprint});
   }] resume];
 }
 
