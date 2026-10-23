@@ -8,7 +8,7 @@ import {NativeHomeCustomizeController} from './customize-controller';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
-import type {NativeRouteRenderer} from '../../shell/route-registry';
+import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 
 type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService}>;
 
@@ -71,3 +71,5 @@ function Customization({source, runtime, copy, close}: {source: Source; runtime:
       views={{items: views.resources, loading: views.loading, error: views.error, retry,
         renderError: (error, again) => <StateView variant="centered" {...runtime.error(error, again)}/>}}/>;
 }
+
+nativeShellRoutes.registerRoute('home-customize', createNativeHomeCustomizeRenderer);
