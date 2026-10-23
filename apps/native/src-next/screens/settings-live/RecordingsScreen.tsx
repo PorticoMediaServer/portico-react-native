@@ -3,6 +3,7 @@ import {FlatList, ScrollView, Text, View} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {activeRecording, mutableRecording, playableRecording, type DeletePreview, type DVRView, type Recording, type RecordingDetail, type RecordingGroups, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../../packages/client-core/src/dvr';
 import {titleTintHue} from '../../../../../packages/client-core/src/presentation/title-page';
+import {programmeTimeRange} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import {validateContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {encodedRoutePath} from '../../../../../packages/contracts/src/routes';
@@ -136,8 +137,9 @@ function RecordingCard({value, runtime, onOpen}: {value: Group; runtime: NativeS
 }
 function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu}: {recording: Recording; history: boolean; runtime: NativeShellRuntime; refNode: (node: View | null) => void; onOpen: () => void; onMenu: () => void}) {
   const theme = useTheme(), t = defaultI18n.t, conflict = recording.state === 'conflicted', reason = reasonLabels[recording.reason];
+  const range = programmeTimeRange(Date.parse(recording.programme.start), Date.parse(recording.programme.end), runtime.text);
   return <Focusable ref={conflict ? undefined : refNode} focusable={!conflict} focusId={recording.id} testID={`recordings-row-${recording.id}`} focusKind="row" onPress={onOpen} onLongPressAction={onMenu} style={{height: theme.isTV ? history ? 112 : 124 : 100, paddingHorizontal: theme.isTV ? 24 : 8, marginBottom: 6, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 28 : 12, backgroundColor: conflict ? theme.colors.raised : undefined}}>
-    {theme.width >= 700 && <View style={{width: theme.isTV ? 190 : 110, gap: 6}}><ScreenText>{history ? defaultI18n.formatDate(recording.start, {month: 'short', day: 'numeric'}) : defaultI18n.time(recording.start)}</ScreenText><ScreenText secondary>{t('guide.range', {start: defaultI18n.time(recording.programme.start), end: defaultI18n.time(recording.programme.end)})}</ScreenText></View>}
+    {theme.width >= 700 && <View style={{width: theme.isTV ? 190 : 110, gap: 6}}><ScreenText>{history ? defaultI18n.formatDate(recording.programme.start, {month: 'short', day: 'numeric'}) : defaultI18n.time(recording.programme.start)}</ScreenText><ScreenText secondary>{range?.text}</ScreenText></View>}
     <ProgrammeArt title={recording.programme.title} seed={recording.occurrence.channelId} image={recording.programme.image} runtime={runtime} width={theme.isTV ? 192 : 110}/>
     <View style={{flex: 1, gap: 8}}><Text numberOfLines={1} style={[shellType(theme.isTV ? 26 : 17, 700, 'normal', -.01), {color: theme.colors.text}]}>{recording.programme.title}</Text><ScreenText secondary>{recording.channel?.name}</ScreenText>{history && reason && <ScreenText secondary>{t(reason)}</ScreenText>}</View>
     {(history || recording.state !== 'scheduled') && <View style={{paddingHorizontal: 16, paddingVertical: 6, borderRadius: 10, backgroundColor: theme.colors.raisedHigh}}><ScreenText secondary>{t(stateLabels[recording.state])}</ScreenText></View>}
