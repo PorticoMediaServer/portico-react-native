@@ -42,6 +42,8 @@ export type SidePanelProps = SurfaceProps & {
   closeOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
   showClose?: boolean;
+  /** TV-only authored canvas; style applies inside its uniformly scaled physical portal. */
+  logicalCanvas?: {width: number; height: number};
 };
 export type BottomSheetProps = SurfaceProps & {
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */

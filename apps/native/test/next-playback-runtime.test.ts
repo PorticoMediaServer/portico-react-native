@@ -150,6 +150,37 @@ function fixture(groupedVersions = false) {
   };
 }
 
+test('subtitle controls use the real source service and retire with its session and authority', async () => {
+  const d = fixture();
+  d.respond(request => {
+    const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
+    if (match) return {status: 200, headers: {}, body: {version: 1, sessionId: decodeURIComponent(match[2]), generation: d.runtime.playback.getSnapshot().session!.generation,
+      sourceId: 'physical-source-1', revision: 1, catalogRevision: 1, renderer: 'external_text', mode: 'off', offAvailable: true, offsetUs: '0', selected: null, resources: [], discovered: []}};
+    if (request.method === 'GET' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path)) return {status: 200, headers: {}, body: {version: 1,
+      itemId: decodeURIComponent(request.path.split('/')[3]), revision: 1, canShare: false,
+      sources: [{id: 'physical-source-1', durationUs: '180000000', inventoryRevision: 1, available: true, timingKnown: true}], resources: [], discovered: [], provider: {id: 'provider', enabled: true}}};
+    if (request.method === 'POST' && request.path.endsWith('/subtitles/search')) return {status: 200, headers: {}, body: {version: 1, page: 1, candidates: []}};
+  });
+  try {
+    assert.equal(d.runtime.getSnapshot().fence, undefined);
+    await d.start('movie-1');
+    const fence = d.runtime.getSnapshot().fence!, controls = d.runtime.subtitleControls(fence);
+    assert.ok(controls, 'controls require the actual loaded plan for this session/generation');
+    await controls.search('en', 'provider query', 1);
+    assert.ok(d.requests.some(request => request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles/search' && record(request.body) && request.body.sourceId === 'physical-source-1'));
+    await d.start('movie-2');
+    const count = d.requests.length;
+    await assert.rejects(controls.search('en', 'stale query'));
+    assert.equal(d.requests.length, count, 'a retained old sheet sends no command to the replaced source');
+    assert.equal(d.runtime.subtitleControls(fence), undefined);
+    const current = d.runtime.getSnapshot().fence!, currentControls = d.runtime.subtitleControls(current);
+    assert.ok(currentControls);
+    d.changeAuthority();
+    await assert.rejects(currentControls.refresh());
+    assert.equal(d.runtime.subtitleControls(current), undefined);
+  } finally { d.runtime.dispose(); }
+});
+
 test('a start creates the actual queue and session and commands the native port at the requested position', async () => {
   const d = fixture();
   try {
