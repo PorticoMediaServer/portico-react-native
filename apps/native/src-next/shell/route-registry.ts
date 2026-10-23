@@ -8,18 +8,20 @@ export type NativeRouteRenderer = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   /** The module retains its real history views, native refs and visibility gates. */
   renderRetained?: (runtime: NativeShellRuntime) => ReactNode;
+  renderOverlays?: (runtime: NativeShellRuntime) => ReactNode;
   scrollToTop?: (route: NativeShellRoute) => void;
   dispose?: () => void;
 }>;
 type RouteKind = NativeShellRoute['kind'];
 export type NativeRouteFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer;
-export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; renderRetained?: (runtime: NativeShellRuntime) => ReactNode; back?: () => boolean; dispose?: () => void}>;
+export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; renderRetained?: (runtime: NativeShellRuntime) => ReactNode; renderOverlays?: (runtime: NativeShellRuntime) => ReactNode; back?: () => boolean; dispose?: () => void}>;
 export type NativeWatchFactory = (context: NativeShellBootstrapContext) => NativeWatchRenderer;
 type RendererFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer | NativeWatchRenderer;
 export type NativeBoundRoutes = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   renderWatch: (runtime: NativeShellRuntime) => ReactNode;
   renderRetained: (runtime: NativeShellRuntime) => ReactNode;
+  renderOverlays: (runtime: NativeShellRuntime) => ReactNode;
   scrollToTop: (route: NativeShellRoute) => void;
   back: () => boolean;
   dispose: () => void;
@@ -85,6 +87,7 @@ export class NativeShellRouteRegistry {
       // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       renderRetained: runtime => current() ? [...instances.values()].map(value => value.renderRetained?.(runtime)) : null,
+      renderOverlays: runtime => current() ? [...instances.values()].map(value => value.renderOverlays?.(runtime)) : null,
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},

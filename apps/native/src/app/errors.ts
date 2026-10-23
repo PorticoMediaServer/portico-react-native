@@ -48,10 +48,11 @@ const signInCodes: Record<string, MessageId> = {
   invalid_pin: 'signIn.error.pinInvalid',
   expired_token: 'signIn.error.expired',
   challenge_expired: 'signIn.error.expired',
-  // The owner's own certificate and Apple's local-only plain HTTP (bridge/certificate-trust.ts).
-  certificate_changed: 'connection.certificate.changed',
-  certificate_unverified: 'connection.certificate.unverified',
-  certificate_untrusted: 'connection.certificate.untrusted',
+  // A refused certificate alone does not establish a changed server identity.
+  // Keep the request blocked and direct the person to the canonical identity check.
+  certificate_changed: 'connection.identity.checkBody',
+  certificate_unverified: 'connection.identity.checkBody',
+  certificate_untrusted: 'connection.identity.checkBody',
   plain_http_remote: 'connection.plainHttp.appleRemote',
 };
 

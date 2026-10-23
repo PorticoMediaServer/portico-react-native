@@ -30,7 +30,7 @@ type Row = Readonly<{kind: 'heading'; id: string; title: string}> | Readonly<{ki
 
 /** Cursor pages remain bounded server pages. Full TV paging awaits the canonical window
  * projection; this screen never scans the inventory or invents an offset/loaded-page total. */
-export function NativeRecordingsScreen({controller, ports, runtime, onGuide}: {controller: NativeRecordingsController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onGuide: () => void}) {
+export function NativeRecordingsScreen({controller, ports, runtime, onGuide}: {controller: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime; onGuide: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), query = state.query;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), tabs = ids.surface('recordings.views'), body = ids.surface('recordings.page');
