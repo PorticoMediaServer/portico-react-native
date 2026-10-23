@@ -34,10 +34,22 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const [headerHeight, setHeaderHeight] = useState(64);
   const [footerHeight, setFooterHeight] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const revealFocusedInput = () => {
     if (!avoidKeyboard || keyboardTop === undefined || !open) return;
     const input = TextInput.State?.currentlyFocusedInput();
-    if (input) scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(input, footerHeight + 16, true);
+    const scroll = scrollRef.current;
+    if (!input || !scroll) return;
+    // Both measurements use window coordinates. The generic ScrollView keyboard
+    // helper mixes content-relative input Y with screen Y inside an inset sheet.
+    scroll.getNativeScrollRef()?.measureInWindow((_x, top, _width, height) => {
+      input.measureInWindow((_inputX, inputTop, _inputWidth, inputHeight) => {
+        if (TextInput.State.currentlyFocusedInput() !== input) return;
+        const visibleBottom = Math.min(top + height, keyboardTop) - footerHeight - 16;
+        const obscured = inputTop + inputHeight - visibleBottom;
+        if (obscured > 0) scroll.scrollTo({y: scrollOffset.current + obscured, animated: true});
+      });
+    });
   };
   const naturalHeight = bodyHeight + headerHeight + footerHeight + (footer == null ? insets.bottom : 0) + 8;
   const heights = useMemo(() => sheetHeights(fitContent ? [naturalHeight] : detents, availableHeight, insets.top), [fitContent, naturalHeight, detents, availableHeight, insets.top]);
@@ -97,7 +109,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
   if (!present) return null;
   const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
-  const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
+  const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
     <View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', 0.64)}, scrimStyle]} pointerEvents="none"/>

@@ -554,15 +554,18 @@ test('States link and inline recipes retain real actions and avoid inventing sur
 
 test('Selection keyboard layout reveals the actual native input above the measured footer and preserves default inset recipe', () => {
   const previous=state.theme, viewport=state.viewport; state.theme=createTheme({isTV:false,width:390}); state.viewport={width:390,height:844,scale:1,fontScale:1}; const calls:unknown[]=[];
-  const input={measureLayout(){}}; Object.assign(globalThis,{__porticoSelectionFocusedInput:input});
+  let inputTop=700;
+  const input={measureInWindow(callback:any){callback(20,inputTop,350,42);}}; Object.assign(globalThis,{__porticoSelectionFocusedInput:input});
   const sheet=mount(BottomSheet,{open:true,onOpenChange(){},title:'Actual confirmation',children:null,footer:React.createElement('Button'),keyboardAvoiding:true,footerPadding:{top:10,bottom:30,keyboardBottom:12}});
   const flatten=(s:any):any=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   try {
-    let scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.ref.current={scrollResponderScrollNativeHandleToKeyboard:(...args:unknown[])=>calls.push(args)};
+    let scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.ref.current={getNativeScrollRef:()=>({measureInWindow(callback:any){callback(0,140,390,404);}}),scrollTo:(value:unknown)=>calls.push(value)};
     scroll.props.onLayout({}); assert.deepEqual(calls,[]);
     const footer=elements(sheet.tree).find(n=>flatten(n.props.style).paddingTop===10 && n.props.onLayout)!; footer.props.onLayout({nativeEvent:{layout:{height:100}}});
     keyboardListeners.get('keyboardDidShow')!({endCoordinates:{screenY:544,height:300}}); sheet.host.rerender();
-    scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.onLayout({}); assert.deepEqual(calls,[[input,116,true]]);
+    scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.onLayout({}); assert.deepEqual(calls,[{y:314,animated:true}], 'native input bottom742 must clear measured footer at444 plus16 breathing room');
+    scroll.props.onScroll({nativeEvent:{contentOffset:{y:314}}}); inputTop=386; scroll.props.onLayout({}); assert.equal(calls.length,1,'already visible focus must not jump or lose its scroll position');
+    inputTop=460; scroll.props.onLayout({}); assert.deepEqual(calls.at(-1),{y:388,animated:true},'a later resize adds only the newly obscured distance to actual native offset');
     assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===12));
     keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender(); assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===30));
   } finally {sheet.host.unmount(); state.theme=previous;state.viewport=viewport;Object.assign(globalThis,{__porticoSelectionFocusedInput:undefined});}
