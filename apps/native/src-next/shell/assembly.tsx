@@ -220,7 +220,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     actions: {
-      navigate: entry => {if (currentHome()) open(titleRoute(entry));},
+      navigate: entry => {
+        if (!currentHome()) return;
+        const document = context.home.getSnapshot().document!;
+        if (!document.spotlight.some(value => value.entry === entry) && !document.rows.some(row => row.entries.includes(entry))) {reportError(failure('unoffered_home_entry')); return;}
+        open(titleRoute(entry));
+      },
       play: (entry, target) => {
         homeActionDiagnostics.action('home-assembly', 'primary-play');
         if (!currentHome() || !homeEntryCapabilities(entry, platform).playable) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'guard-refused'); return;}

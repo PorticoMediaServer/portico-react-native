@@ -55,7 +55,8 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     const tree = h.render(() => HomeScreen({runtime, authority}));
     const rowElement = nodes(tree).find(node => node.type === 'Row');
     const actual = home.getSnapshot().document!.rows[0].entries[0];
-    const element = rowElement.props.renderItem({entry: actual}, {index: 0, selection: itemSelection(selection, actual.id)});
+    const content = rowElement.props.renderItem({entry: actual}, {index: 0, selection: itemSelection(selection, actual.id)});
+    const element = nodes(content).find(node => node.type?.name === 'HomeCard');
     // The parent and real private card have separate retained hook hosts.
     const renderCard = () => {hookOwner = child; return child.render(() => element.type(element.props));};
     const card = nodes(renderCard()).find(node => node.type === 'WideCard');
