@@ -12,7 +12,7 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false, footerPadding, backdropOpacity = 0.64}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false, footerPadding, backdropOpacity = 0.64}: BottomSheetProps) {
   const theme = useTheme();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
@@ -118,14 +118,14 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
       <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle]} pointerEvents="none"/>
       <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {side ? <Animated.View testID={testID} style={[styles.tv, {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20, backgroundColor: theme.colors.raised}, tvStyle, style]}>
-        {theme.isTV && <PanelBackground/>}<FocusBoundary modal testID={testID} style={styles.root}>{headerContext}<SurfaceHeader side inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction}/>{body}{(footer != null || showClose) && <View style={{paddingTop: 20}}>{footer ?? close}</View>}</FocusBoundary>
+        {theme.isTV && <PanelBackground/>}<FocusBoundary modal testID={testID} style={styles.root}>{headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader side inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction}/>}{body}{(footer != null || showClose) && <View style={{paddingTop: 20}}>{footer ?? close}</View>}</FocusBoundary>
       </Animated.View> : <>
         <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[styles.sheet, {height: max, backgroundColor: theme.colors.raised, borderColor: alpha(theme.colors.text, 0.08)}, sheetStyle, style]}>
           <GestureDetector gesture={pan}><Animated.View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}><View accessible accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
             accessibilityActions={[{name: 'increment', label: defaultI18n.t('next.overlays.native.expandSheet')}, {name: 'decrement', label: defaultI18n.t('next.overlays.native.collapseSheet')}, ...(dismissOnGesture ? [{name: 'dismiss' as const, label: defaultI18n.t('action.close')}] : [])]}
             onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'dismiss') {if (dismissOnGesture) dismiss('gesture');} else choose(index + (event.nativeEvent.actionName === 'increment' ? 1 : -1));}}>
             <View style={[styles.grabber, {backgroundColor: theme.colors.lineStrong}]}/></View>
-            {headerContext}<SurfaceHeader title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (showClose ? close : undefined)}/>
+            {headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (showClose ? close : undefined)}/>}
           </Animated.View></GestureDetector>
           {body}
         </Animated.View>
