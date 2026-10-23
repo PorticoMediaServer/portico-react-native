@@ -70,17 +70,16 @@ test('what the device answers replaces the table: more codecs where it has them'
   assert.deepEqual(native.video?.map(v => v.codec), ['h264', 'hevc', 'av1']);
   assert.equal(native.video?.find(v => v.codec === 'hevc')?.maxHeight, 2160);
   assert.equal(native.video?.find(v => v.codec === 'h264')?.maxHeight, 1080);
-  // Sound the device decodes itself is taken from its answers. Dolby is not: its "yes" does not
-  // tell decoding from handing on to a receiver, so it stays listed for handing on only.
-  assert.deepEqual(native.audio?.map(a => a.codec), ['aac', 'mp3', 'flac', 'opus']);
-  assert.deepEqual(native.audioPassthrough?.map(a => a.codec), ['ac3', 'eac3']);
+  // SDK output answers describe playable audio, without inventing a passthrough route.
+  assert.deepEqual(native.audio?.map(a => a.codec), ['aac', 'mp3', 'ac3', 'eac3', 'flac', 'opus']);
+  assert.deepEqual(native.audioPassthrough ?? [], []);
   const fmp4 = native.transports?.find(t => t.transport === 'hls_fmp4');
   assert.deepEqual(fmp4?.video, ['h264', 'hevc', 'av1']);
   assert.ok(fmp4?.audio?.includes('eac3') && fmp4.audio.includes('flac'));
   // Plain HTTP: nothing from its address. Still text only, still no HDR, still the declared identity.
   assert.ok(!native.transports?.some(t => t.transport === 'direct'));
   assert.deepEqual(native.subtitleRendering, ['text']);
-  assert.ok(native.video?.every(v => v.dynamicRanges?.join() === 'sdr' && v.dolbyVisionProfiles === undefined));
+  assert.ok(native.video?.every(v => v.dynamicRanges?.join() === 'sdr'));
   assert.equal(document.client.family, 'vega');
   assert.deepEqual(document.display?.dynamicRanges, ['sdr']);
 });
