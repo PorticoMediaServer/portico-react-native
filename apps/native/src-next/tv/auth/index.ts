@@ -9,3 +9,5 @@ export type {TVProfilePINFormProps} from './TVProfilePINForm';
 export {TVNumericPad, TVCodeBoxes} from './TVNumericPad';
 export {TVRequiredSetupHandoff, TVManagementHandoff, TVForgotPINHandoff} from './TVHandoff';
 export type {TVRequiredSetupHandoffProps, TVForgotPINHandoffProps} from './TVHandoff';
+export {TVFrontDoor} from './TVFrontDoor';
+export type {TVFrontDoorProps} from './TVFrontDoor';

@@ -54,6 +54,7 @@
 		A9E200000000000000000001 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E200000000000000000101 /* InfoPlist.xcstrings */; };
 		A9E300000000000000000001 /* PorticoSystemText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E300000000000000000101 /* PorticoSystemText.swift */; };
 		A9E300000000000000000002 /* PorticoSystem.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E300000000000000000102 /* PorticoSystem.xcstrings */; };
+		A9E400000000000000000001 /* PorticoShelfFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E400000000000000000101 /* PorticoShelfFeed.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,6 +138,7 @@
 		A9E200000000000000000101 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A9E300000000000000000101 /* PorticoSystemText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PorticoSystemText.swift; sourceTree = "<group>"; };
 		A9E300000000000000000102 /* PorticoSystem.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Strings/PorticoSystem.xcstrings; sourceTree = "<group>"; };
+		A9E400000000000000000101 /* PorticoShelfFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PorticoShelfFeed.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -195,6 +197,7 @@
 			isa = PBXGroup;
 			children = (
 				A9E300000000000000000101 /* PorticoSystemText.swift */,
+				A9E400000000000000000101 /* PorticoShelfFeed.swift */,
 				A9E300000000000000000102 /* PorticoSystem.xcstrings */,
 				86D38A58CA4529526A82409E /* ContentProvider.swift */,
 				A6C000000000000000000002 /* PrivacyInfo.xcprivacy */,
@@ -542,6 +545,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A9E300000000000000000001 /* PorticoSystemText.swift in Sources */,
+				A9E400000000000000000001 /* PorticoShelfFeed.swift in Sources */,
 				0F1E02691F589249EE203F88 /* ContentProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
