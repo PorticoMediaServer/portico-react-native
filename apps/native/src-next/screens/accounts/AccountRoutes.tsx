@@ -67,7 +67,7 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   };
   const close = () => {approver.current?.dispose(); approver.current = undefined; setPreview(undefined); setCode(''); setError(undefined); setPanel('servers');};
   const cancel = () => {if (panel === 'servers') onBack?.(); else close();};
-  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+  useEffect(() => {if (panel === 'add') return; const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
     if (busy) return true;
     if (panel === 'servers' && !onBack) return false;
     cancel(); return true;
