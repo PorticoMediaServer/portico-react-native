@@ -28,6 +28,25 @@ const filterCapabilities: BrowseCapabilities = {...capabilities,
     {id: 'year', labelKey: 'filter.field.year', type: 'number', operators: ['in'], controlHint: 'number-range', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']},
     {id: 'decade', labelKey: 'filter.field.year', type: 'number', operators: ['in'], controlHint: 'facet-multi-select', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']}],
 };
+
+test('Save view captures the real staged query and sort independently of later Library edits', async () => {
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) =>
+    (path.includes('capabilities') ? capabilities : page(body as BrowseRequestBody, 3)) as T};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  const staged = {field: 'favorite', operator: 'equals', value: true} as const;
+  assert.throws(() => destination.captureSavedView({predicates: [staged], sort: {field: 'title', direction: 'desc'}}));
+  await destination.load();
+  const definition = destination.captureSavedView({predicates: [staged], sort: {field: 'title', direction: 'desc'}});
+  assert.equal(definition.libraryId, library.id); assert.equal(definition.pivot, 'movies');
+  assert.deepEqual(definition.query, staged); assert.deepEqual(definition.sort, [{field: 'title', direction: 'desc'}]);
+  assert.equal(definition.presentation, 'grid'); assert.deepEqual(destination.getSnapshot().predicates, [], 'staged Save does not apply the panel to the grid');
+  destination.setQuery([], {field: 'title', direction: 'asc'});
+  assert.deepEqual(definition.query, staged); assert.equal(definition.sort[0].direction, 'desc');
+  assert.equal(Object.isFrozen(definition.query), true); assert.equal(Object.isFrozen(definition.sort[0]), true);
+  assert.throws(() => destination.captureSavedView({predicates: [staged], sort: {field: 'invented', direction: 'asc'}}));
+  destination.dispose();
+  assert.throws(() => destination.captureSavedView({predicates: [], sort: {field: 'title', direction: 'asc'}}));
+});
 function page(body: BrowseRequestBody, total = 50000) {
   const start = body.range?.start ?? 0, count = Math.min(body.limit ?? 40, total - start);
   return {pivot: body.pivot, applied: {query: body.query ?? null, sort: body.sort, seek: null},

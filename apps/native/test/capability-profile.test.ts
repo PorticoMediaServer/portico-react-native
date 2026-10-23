@@ -23,10 +23,27 @@ test('the document says what kind of device this is, what its player plays and w
   assert.ok(native.transports!.some(t => t.transport === 'direct' && t.containers!.includes('mp4')));
   assert.ok(native.transports!.some(t => t.transport === 'hls_fmp4') && native.transports!.some(t => t.transport === 'hls_ts'));
   assert.ok(native.video!.some(v => v.codec === 'hevc'));
-  assert.ok(native.audio!.some(a => a.codec === 'eac3' && a.objectAudio?.includes('atmos')));
+  assert.ok(native.audio!.some(a => a.codec === 'eac3'), 'the declared EAC3 decoder remains available');
+  assert.ok(native.audio!.every(a => !a.objectAudio?.length), 'without native eligibility and route observations, no object-audio grant');
   assert.equal(document({...phone, television: true}).client.form, 'tv');
   assert.equal(document({...phone, pad: true}).client.form, 'tablet');
   assert.equal(document({television: true, pad: false, family: 'firetv'}).client.family, 'firetv');
+});
+
+test('Atmos requires both observed EAC3-JOC eligibility and an observed spatial output route', () => {
+  type AudioFacts = NonNullable<import('../../../packages/client-core/src/client-profile.ts').AppleNativeFacts['audio']>;
+  const eac3For = (audio: AudioFacts) => {
+    const d = deviceCapabilityDocument({setting: 'automatic', native: {audio}, mpv: null, mpvAvailable: false, appVersion: '1.0', device: phone});
+    assert.equal(capabilityDocumentProblem(d), null);
+    return d.engines.native.audio!.find(a => a.codec === 'eac3');
+  };
+  assert.deepEqual(eac3For({eac3JocEligible: true, spatial: true, route: 'HDMI'})?.objectAudio, ['atmos']);
+  for (const audio of [
+    {spatial: true, route: 'HDMI'},
+    {eac3JocEligible: false, spatial: true, route: 'HDMI'},
+    {eac3JocEligible: true, spatial: false, route: 'HDMI'},
+    {eac3JocEligible: true, spatial: true},
+  ]) assert.equal(eac3For(audio)?.objectAudio, undefined, 'partial/negative observations must not grant Atmos');
 });
 
 test('audioDecode declares only the fixture-proven pairs; Ogg Opus is left to the server on Apple', () => {
