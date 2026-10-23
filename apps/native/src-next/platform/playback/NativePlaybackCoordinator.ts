@@ -379,7 +379,7 @@ export class NativePlaybackCoordinator {
     if(f.type==='audioPrepared'){this.service.audioPrepared(f.token);return;}
     if(f.type==='audioCommit'){this.service.audioCommit(f.token);return;}
     if(f.type==='audioBoundary'){this.service.audioBoundary(f.token,f.position);return;}
-    if(f.type==='audioPreparationFailed'){this.service.audioPreparationFailed(serviceText('queuePlayer.startFailed'));return;}
+    if(f.type==='audioPreparationFailed'){this.service.audioPreparationFailed();return;}
     if(f.type==='audioRenderFailed'){this.service.audioRenderFailed(serviceText('queuePlayer.startFailed'));return;}
     this.accept(f);
   };
