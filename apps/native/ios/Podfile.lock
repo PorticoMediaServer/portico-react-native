@@ -2059,6 +2059,34 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-webview (16.0.0):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - React-NativeModulesApple (0.83.10-1):
     - boost
     - DoubleConversion
@@ -3052,6 +3080,7 @@ DEPENDENCIES:
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
   - "react-native-blur (from `../node_modules/@react-native-community/blur`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - react-native-webview (from `../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -3193,6 +3222,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/blur"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-webview:
+    :path: "../node_modules/react-native-webview"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -3322,6 +3353,7 @@ SPEC CHECKSUMS:
   React-mutationobservernativemodule: a1a4231f96db780ab890e6a8c1dd899ddcd0d6b7
   react-native-blur: 6af83e7e3c4c1446a188d9b2c493600fc4beb173
   react-native-safe-area-context: 6cf08f4151132f9cf2adb948dc6c4ac387f8d30f
+  react-native-webview: 1452b1902d8925429669e0b59569fe021d506aec
   React-NativeModulesApple: e28be53160623e22284294621791940c74390685
   React-networking: efeae4f51c9e48e8f85438edcdc34c599e580315
   React-oscompat: d53bf1ae7e140b9f8ae5a4f98f741d3c8986ff72
@@ -3353,17 +3385,17 @@ SPEC CHECKSUMS:
   React-utils: ab21f8d5c663e586e44d32f2def76ae51e4c843a
   React-webperformancenativemodule: 2435df7a70843c6ba189061473fcfcbdd05f729a
   ReactAppDependencyProvider: 292d2fc019a82a4c66bb39e753d5e398e2514702
-  ReactCodegen: 4b4cb17b0cee30428e79bce140becd663343ae81
+  ReactCodegen: 03d0fcbbb9fa056606237a9ee99f183d5cc08dbd
   ReactCommon: d1a4e96fdce97e0fa3403242c07fea2659ca7373
   RNCMaskedView: 5ef8c95cbab95334a32763b72896a7b7d07e6299
   RNGestureHandler: cd4be101cfa17ea6bbd438710caa02e286a84381
-  RNReanimated: ce4646323911dd8bc738d1a3fa6ace1b3278629a
+  RNReanimated: edc6c86900a3b955b4333169c0a0a617569f6211
   RNScreens: afaf526a9c804c3b4503f950cf3e67ed81e29ada
   RNSVG: 6470d6f2636d71bd4bbc44a4f27fb7444e437b2f
-  RNWorklets: e98b358113778b9ca1f77e41ede816e145f71b84
+  RNWorklets: 691f50e91ec5408281f71e05413ff8313254ca3a
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 09a4a97c2ceb42c5d699c3505bbd486bfec8d5ed
 
-PODFILE CHECKSUM: d91054e33c1e29ec060326bb1a395479bc6dc749
+PODFILE CHECKSUM: 4929852ac98f2ab368f65f98058187105217b534
 
 COCOAPODS: 1.17.0

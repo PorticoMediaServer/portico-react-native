@@ -8,15 +8,18 @@ import {NativeRecordingsController, type NativeRecordingService} from '../src-ne
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
 import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
+import {nativeTogetherLobbyFaces} from '../src-next/screens/settings-live/together-presentation';
+import {NativeTogetherMedia} from '../src-next/screens/settings-live/together-media';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
 import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/directory';
-import {nativeGuideCellWindow, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
+import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
+import type {GroupMember} from '../../../packages/client-core/src/social-playback';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
 
@@ -76,6 +79,15 @@ test('Guide keeps a clipped title inside the visible time lane during a pan', ()
   assert.deepEqual(nativeGuideCellWindow(20, 500, 300, -120), {cutLeft: 100, width: 300});
   assert.equal(nativeGuideCellWindow(-200, 100, 300, 0).width, 0);
   assert.equal(nativeGuideCellWindow(301, 100, 300, 0).width, 0);
+});
+
+test('Guide elapsed fill ends at the actual now line after the drawn gutter and clipping', () => {
+  // phone-guide1: now is105pt into the lane, cell begins2pt in, so fill is103pt.
+  assert.equal(nativeGuideElapsedWidth(2, 176, 105), 103);
+  // A cell mounted half a span before the visible lane retains time coordinates.
+  assert.equal(nativeGuideElapsedWidth(-178, 448, 105) - 178, 105);
+  assert.equal(nativeGuideElapsedWidth(2, 176, -75), 0);
+  assert.equal(nativeGuideElapsedWidth(2, 176, 400), 176);
 });
 
 test('guide favorite waits for receipt and retries the exact operation key and selected revision', async () => {
@@ -359,6 +371,48 @@ function togetherService() {
   };
   return {calls, service, listeners};
 }
+
+test('Together lobby faces use only joined members and strip private identity before rendering', () => {
+  const member = (id: string, displayName: string, privateViewer = false, state: GroupMember['state'] = 'joined'): GroupMember => ({id, displayName, private: privateViewer, role: 'member', state, readiness: 'ready', positionUs: '0', reportedAt: null, presence: 'connected', joinedAt: '2026-10-23T15:00:00Z'});
+  const viewer = {id: 'selected-profile', initial: 'V', color: 'violet' as const};
+  const faces = nativeTogetherLobbyFaces({viewerMemberId: 'viewer-member', members: [member('invited', 'Unjoined', false, 'invited'), member('private', 'Never reveal this name', true), member('viewer-member', 'Viewer nickname'), member('other', 'Other'), member('fourth', 'Fourth')]}, viewer);
+  assert.deepEqual(faces, [{id: 'private', private: true}, {id: 'viewer-member', private: false, initial: 'V', color: 'violet', source: undefined}, {id: 'other', private: false, initial: 'O'}]);
+  assert.equal(JSON.stringify(faces).includes('Never reveal'), false);
+  // A matching name is never sufficient to borrow the selected profile's art.
+  assert.deepEqual(nativeTogetherLobbyFaces({viewerMemberId: 'different-member', members: [member('other', 'Viewer nickname')]}, viewer), [{id: 'other', private: false, initial: 'V'}]);
+  assert.deepEqual(nativeTogetherLobbyFaces(undefined, viewer), [{id: 'profile:selected-profile', private: false, initial: 'V', color: 'violet', source: undefined}]);
+});
+
+test('Together media stays bounded across cancelled viewports and never accepts a different item', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner);
+  const pending: {id: string; finish: (value: unknown) => void}[] = [];
+  let active = 0, peak = 0;
+  const reader = new NativeTogetherMedia(lifetime, {request: <T>(path: string) => {
+    const id = decodeURIComponent(path.split('/').pop()!);
+    active++; peak = Math.max(peak, active);
+    // Deliberately ignore AbortSignal: an old transport still occupies its slot.
+    return new Promise<T>(resolve => pending.push({id, finish: value => {active--; resolve(value as T);}}));
+  }});
+  const item = (id: string) => ({id, libraryId: 'library', kind: 'movie', title: id, available: true, durationMs: 1000, progressMs: 0});
+  reader.select(Array.from({length: 20}, (_, index) => `old${index}`));
+  assert.equal(Object.keys(reader.getSnapshot().items).length, 9);
+  assert.equal(pending.length, 2);
+  reader.select(['current', 'visible']);
+  assert.equal(pending.length, 2);
+  pending[0].finish(item('old0')); pending[1].finish(item('old1'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(peak, 2);
+  assert.deepEqual(Object.keys(reader.getSnapshot().items), ['current', 'visible']);
+  assert.deepEqual(pending.slice(2).map(value => value.id), ['current', 'visible']);
+  pending[2].finish(item('different-authorized-item')); pending[3].finish(item('visible'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reader.getSnapshot().items.current.phase, 'error');
+  assert.equal(reader.getSnapshot().items.visible.phase, 'ready');
+  owner.replace({profileId: 'other', viewerFence: 'next-home-fence'});
+  assert.deepEqual(reader.getSnapshot().items, {});
+  assert.equal(active, 0);
+  reader.dispose(); lifetime.dispose();
+});
 
 test('Together teardown releases its subscription without disposing or calling the borrowed app service', async () => {
   const lifetime = new NativeScreenLifetime(authority()), {service, calls, listeners} = togetherService();

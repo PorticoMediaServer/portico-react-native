@@ -6,9 +6,9 @@ import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 
-// Only the selected platform loads its screen-owned registration modules.
 if (!Platform.isTV) require('./screens/downloads/register');
 require('./screens/home/CustomizeRoute');
+require('./screens/settings-live/TogetherRoute');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
