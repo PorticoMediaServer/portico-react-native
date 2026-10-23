@@ -1086,10 +1086,12 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
         if (phone) {
           assert.match(content, /Playlist and collection entries and saved places go too\./);
           assert.doesNotMatch(content, /Actual target|Artwork actual-|12 playlists/);
+          assert.equal(ofType(dialog.tree, TextField)[0]!.props.keyboardType, 'default', 'the drawn phone count confirmation uses the native text keyboard');
           const toggle = ofType(dialog.tree, Switch)[0]!;
           assert.ok(toggle.props.accessibilityHint, 'the real removal consequence remains available to accessibility');
           assert.equal(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), false, 'the compact bulk frame omits the separate removal helper');
         } else {
+          assert.equal(ofType(dialog.tree, TextField)[0]!.props.keyboardType, 'number-pad');
           assert.match(content, /Actual target 0/);
           assert.match(content, /Actual target 4/);
           assert.doesNotMatch(content, /Actual target 5/);

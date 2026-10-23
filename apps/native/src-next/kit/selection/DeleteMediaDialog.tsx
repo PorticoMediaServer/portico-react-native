@@ -65,7 +65,7 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
           <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending} fieldStyle={phone ? {height: 46} : undefined}
             label={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
             accessibilityLabel={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
-            keyboardType={preview.confirmationKind === 'count' ? 'number-pad' : 'default'} autoCapitalize="none" autoCorrect={false}
+            keyboardType={!phone && preview.confirmationKind === 'count' ? 'number-pad' : 'default'} autoCapitalize="none" autoCorrect={false}
             description={preview.confirmationKind === 'title' ? preview.confirmation : undefined} />
         </>}
       {props.error ? <SelectionText style={{color: colors.danger}}>{props.error}</SelectionText> : null}
