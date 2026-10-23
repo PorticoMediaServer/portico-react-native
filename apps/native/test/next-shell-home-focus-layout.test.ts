@@ -68,6 +68,20 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     assert.ok(descendants(tree).some(node => node.type === 'FocusPreviewHero'));
     rowBox(tree).props.onLayout({nativeEvent: {layout: {y: 588, height: 300}}});
     assert.deepEqual(anchors.at(-1), [588, 300, 1080, 1080, 588, 96]);
+    // A real Up can arrive before the previous row's layout/RAF work.
+    actions[0].props.onFocus();
+    tree = render();
+    descendants(tree).find(node => node.type === 'Row').props.onItemFocus({entry});
+    const pendingRowTree = render();
+    descendants(pendingRowTree).find(node => node.type === 'Hero').props.renderActions(candidate).props.children[0].props.onFocus();
+    const beforeUpSettled = anchors.length;
+    rowBox(pendingRowTree).props.onLayout({nativeEvent: {layout: {y: 820, height: 300}}});
+    frames.shift()!(0);
+    assert.equal(anchors.length, beforeUpSettled, 'obsolete row layout and delayed row scroll cannot undo newer Spotlight focus');
+    tree = render();
+    descendants(tree).find(node => node.type === 'Row').props.onItemFocus({entry});
+    frames.shift()!(0);
+    tree = render();
     const count = anchors.length;
     for (const props of [{railExpanded: true}, {active: false}]) rowBox(render(props)).props.onLayout({nativeEvent: {layout: {y: 820, height: 300}}});
     currentAuthority = {serverId: 'foreign'};
