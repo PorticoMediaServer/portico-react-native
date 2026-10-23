@@ -13,6 +13,8 @@ import type {AdminSession} from '../../../packages/client-core/src/playback-v1/t
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
 import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
+import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/directory';
+import {nativeGuideCellWindow, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
@@ -30,6 +32,51 @@ function authority() {
 function guideChannel(): GuideChannel {
   return {id: 'channel', sourceId: 'source', provenance: 'live-source', generation: 'generation', name: 'Guide test channel', number: '201', group: '', programmes: [], tuneAvailable: true, recordAvailable: true, tuneUnavailableReason: '', recordUnavailableReason: '', favorite: false, hidden: false, preferenceRevision: 7};
 }
+
+test('Guide keeps view and sort per source only within its actual factory lifetime', () => {
+  const lifetime = new NativeScreenLifetime(authority());
+  const api: ChannelApi = {request: async () => {throw new Error('No request expected for local view state');}};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax');
+  controller.chooseView('guide'); controller.select({sort: 'name'});
+  controller.select({kind: 'live-source', sourceId: 'source'});
+  assert.equal(controller.getSnapshot().view, undefined);
+  assert.equal(controller.getSnapshot().options.sort, 'number');
+  controller.chooseView('list');
+  controller.select({kind: 'all', sourceId: ''});
+  assert.equal(controller.getSnapshot().view, 'guide');
+  assert.equal(controller.getSnapshot().options.sort, 'name');
+  controller.select({kind: 'live-source', sourceId: 'source'});
+  assert.equal(controller.getSnapshot().view, 'list');
+  controller.dispose();
+  const fresh = new NativeLiveController(lifetime, api, 'America/Halifax');
+  assert.equal(fresh.getSnapshot().view, undefined);
+  assert.equal(fresh.getSnapshot().options.sort, 'number');
+  fresh.dispose(); lifetime.dispose();
+});
+
+test('Guide panning uses published absolute coverage including a 25-hour device day', () => {
+  const source: GuideSourceSummary = {id: 'source', name: 'Guide test source', generation: 'generation', publishedAt: '2026-11-01T03:00:00Z', availableStart: '2026-11-01T03:00:00Z', availableEnd: '2026-11-02T04:00:00Z', provenance: 'live-source', refreshState: 'ready', position: 0, recordAvailable: true, guideDays: 1, channelCount: 1, favoriteCount: 0, groups: [], groupCounts: [], unavailableReasons: {}};
+  const span = 2 * 60 * 60 * 1000, first = Date.parse(source.availableStart), until = Date.parse(source.availableEnd);
+  assert.equal(until - first, 25 * 60 * 60 * 1000);
+  const range = nativeGuidePanRange([source], span);
+  assert.deepEqual(range, {first, last: until - span});
+  assert.equal(nativeGuidePanTarget(first - span, span, range), first);
+  assert.equal(nativeGuidePanTarget(until, span, range), until - span);
+  assert.equal(nativeGuidePanTarget(first + 123456, span, range), first + 123456);
+  assert.equal(nativeGuidePanRange([source, {...source, id: 'unreported', availableStart: ''}], span), undefined);
+  assert.equal(nativeGuidePanRange([], span), undefined);
+  assert.equal(nativeGuidePanRange([source], until - first), undefined);
+  assert.equal(nativeGuidePanTarget(NaN, span, range), undefined);
+  assert.equal(nativeGuidePanTarget(first, span, {first: Infinity, last: until}), undefined);
+});
+
+test('Guide keeps a clipped title inside the visible time lane during a pan', () => {
+  assert.deepEqual(nativeGuideCellWindow(-90, 180, 300, 0), {cutLeft: 90, width: 90});
+  assert.deepEqual(nativeGuideCellWindow(20, 500, 300, 0), {cutLeft: 0, width: 280});
+  assert.deepEqual(nativeGuideCellWindow(20, 500, 300, -120), {cutLeft: 100, width: 300});
+  assert.equal(nativeGuideCellWindow(-200, 100, 300, 0).width, 0);
+  assert.equal(nativeGuideCellWindow(301, 100, 300, 0).width, 0);
+});
 
 test('guide favorite waits for receipt and retries the exact operation key and selected revision', async () => {
   const owner = authority(), lifetime = new NativeScreenLifetime(owner), sent: unknown[] = [];
