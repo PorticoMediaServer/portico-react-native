@@ -86,6 +86,7 @@ function fixture(groupedVersions = false) {
     const supplied = await respond?.(request);
     if (supplied) response = supplied;
     else if (path === routePath('get_capabilities')) response = {status: 200, headers: {}, body: {features: {playback_v1_kinds: 'movie,episode,song,audiobook_file', playback_v1_channels: 'enabled'}}};
+    else if (path.startsWith(routePath('get_guide_sources') + '?')) response = guideSources();
     else if (/^\/v1\/items\/[^/]+$/.test(path)) {
       const id = decodeURIComponent(url.pathname.split('/').at(-1)!);
       response = {status: 200, headers: {}, body: {id, libraryId: 'library', kind: itemKind(id), title: id, durationMs: 180000, progressMs: 0, available: true}};
@@ -734,6 +735,52 @@ test('a changed Home revision after a queue read prevents every enqueue write', 
     assert.equal(d.requests.some(request => request.method === 'POST' && request.path.endsWith('/segments')), false);
     assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-current');
   } finally { release?.(); d.runtime.dispose(); }
+});
+
+function guideSources(overrides: Record<string, unknown> = {}): FakeResponse {
+  return {status: 200, headers: {}, body: {protocolVersion: '1.0', serverId: 'server', viewerFence: homeFence, revision: 'directory-1', sources: [
+    {...homeChannel().source, position: 0, recordAvailable: false, guideDays: 1, channelCount: 1, favoriteCount: 0, groups: [], groupCounts: [], unavailableReasons: {}, ...overrides},
+  ]}};
+}
+
+test('a genuine channel route resolves the current directory generation and adopts the existing queue-free engine', async () => {
+  const d = fixture();
+  try {
+    d.respond(request => request.path.startsWith(routePath('get_guide_sources') + '?') ? guideSources({generation: 'g2'}) : undefined);
+    await d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'America/Halifax', lifetime: versionLifetime()}); await settle();
+    const snapshot = d.runtime.getSnapshot(), fence = snapshot.fence;
+    assert.ok(fence?.kind === 'channel'); assert.equal(fence.channelGeneration, 'g2');
+    assert.equal(fence.sourceId, 'source-1'); assert.equal(fence.channelId, 'channel-1');
+    assert.equal(snapshot.session, undefined); assert.equal(snapshot.dock.local?.queue, null);
+    assert.equal(d.engine.lastCommand.binding.sessionId, fence.sessionId);
+    assert.ok(d.requests.some(request => request.path === routePath('get_guide_sources') + '?timezone=America%2FHalifax'));
+    assert.equal(d.requests.some(request => request.method === 'POST' && request.path === routePath('create_queue')), false);
+  } finally {d.runtime.dispose();}
+});
+
+for (const retirement of ['signal', 'member', 'authority'] as const) test(`channel directory revalidation cannot adopt after route caller retirement: ${retirement}`, async () => {
+  const d = fixture(), controller = new AbortController(); let current = true, release!: () => void, entered = false;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  try {
+    d.intercept(async request => {if (request.path.startsWith(routePath('get_guide_sources') + '?')) {entered = true; await held;}});
+    const pending = d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: {signal: controller.signal, isCurrent: () => current}});
+    await settle(); assert.equal(entered, true);
+    if (retirement === 'signal') controller.abort(); else if (retirement === 'member') current = false; else d.changeAuthority();
+    release(); await pending; await settle();
+    assert.equal(d.runtime.getSnapshot().fence, undefined);
+    assert.equal(d.requests.some(request => request.method === 'POST' && record(request.body) && 'channelId' in request.body), false);
+  } finally {release?.(); d.runtime.dispose();}
+});
+
+test('an absent source or mismatched library-channel target never starts a channel session', async () => {
+  for (const overrides of [{id: 'different-source'}, {provenance: 'library-channel'}]) {
+    const d = fixture();
+    try {
+      d.respond(request => request.path.startsWith(routePath('get_guide_sources') + '?') ? guideSources(overrides) : undefined);
+      await assert.rejects(d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime()}), /channel_source_unavailable|invalid_channel_target/);
+      assert.equal(d.requests.some(request => request.method === 'POST' && record(request.body) && 'channelId' in request.body), false);
+    } finally {d.runtime.dispose();}
+  }
 });
 
 test('the real channel control mounts a queue-free channel fence and rejects retired channel controls', async () => {

@@ -12,7 +12,7 @@ test('actual bound registry shares one Watch/title clock, Back and disposal per 
     './module': {createNativeWatchModule: (context: any, bindings: any) => {
       assert.equal(bindings.context, context); const identity = ++created;
       const entryMenu = {identity}; menus.push(entryMenu);
-      return {entryMenu, render: (runtime: any) => ({watch: identity, runtime}), title: {render: (route: any, runtime: any) => ({title: identity, route, runtime})},
+      return {entryMenu, channel: {render: (route: any) => ({channel: identity, route})}, render: (runtime: any) => ({watch: identity, runtime}), title: {render: (route: any, runtime: any) => ({title: identity, route, runtime})},
         renderOverlays: () => ({overlay: identity}), back: () => identity === 1, dispose: () => {disposed++;}};
     }},
   });
@@ -24,6 +24,8 @@ test('actual bound registry shares one Watch/title clock, Back and disposal per 
   assert.equal(created, 0); assert.equal(nativeWatchEntryMenu(context), undefined); assert.equal(created, 0);
   assert.equal((first.render(route, runtime) as any).title, 1);
   assert.equal((first.renderWatch(runtime) as any).watch, 1);
+  assert.equal((first.render({kind: 'channel', sourceId: 'real-source', channelId: 'real-channel'} as any, runtime) as any).channel, 1);
+  assert.equal(created, 1, 'channel/title/watch borrow the same module');
   assert.equal(nativeWatchEntryMenu(context), menus[0]);
   assert.equal(first.back(), true); assert.equal(created, 1);
   assert.deepEqual(first.renderOverlays(runtime), [{overlay: 1}]); assert.equal(created, 1);

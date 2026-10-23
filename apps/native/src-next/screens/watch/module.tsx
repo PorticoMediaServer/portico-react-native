@@ -13,6 +13,7 @@ import {NativeWatchPanelOptions} from './panel-options';
 import type {NativeWatchHostBindings} from './WatchHost';
 import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
+import {NativeWatchChannelRoute} from './ChannelRoute';
 import {createNativeWatchPanelNames} from './panel-names';
 
 export type NativeWatchEntryMenu = Readonly<{
@@ -92,6 +93,8 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     entryMenu,
     render: (runtime: NativeShellRuntime) => current() ? screens.watch.render(runtime) : null,
     title: screens.title,
+    channel: {render: (route: import('../../shell/routes').NativeShellRoute) => current() && route.kind === 'channel'
+      ? <NativeWatchChannelRoute key={JSON.stringify([route.sourceId, route.channelId])} context={context} route={route} title={bindings.title}/> : null},
     renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
     back: () => current() && screens.watch.back(),
     screens,
