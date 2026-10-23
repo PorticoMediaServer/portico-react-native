@@ -24,6 +24,8 @@ export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
   presentation?: NativeWatchHostBindings['presentation'];
   onPictureInPicture?: ReturnType<NativeWatchHostBindings['chrome']>['onPictureInPicture'];
   onFullWindow?: ReturnType<NativeWatchHostBindings['chrome']>['onFullWindow'];
+  renderOverlays?: (runtime: NativeShellRuntime) => React.ReactNode;
+  dispose?: () => void;
 }>;
 
 /** Current session identities only. An offered default/ceiling is never a
@@ -73,8 +75,9 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   return Object.freeze({
     render: (runtime: NativeShellRuntime) => current() ? screens.watch.render(runtime) : null,
     title: screens.title,
+    renderOverlays: (runtime: NativeShellRuntime) => current() ? bindings.renderOverlays?.(runtime) : null,
     back: () => current() && screens.watch.back(),
     screens,
-    dispose: () => {if (disposed) return; disposed = true; options.dispose(); screens.dispose(); bindings.presentation?.(undefined);},
+    dispose: () => {if (disposed) return; disposed = true; options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }

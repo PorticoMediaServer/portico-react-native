@@ -120,6 +120,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
    return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
  };}
  export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
+ export const Share={share(){throw Error('Unexpected native Share operation in Home fixture')}};
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
@@ -136,11 +137,13 @@ const animatedURL = data(`import React from ${JSON.stringify(
 )};import {View,ScrollView} from ${JSON.stringify(nativeURL)};
  export const useSharedValue=value=>React.useRef({value}).current,useAnimatedStyle=fn=>fn(),useAnimatedRef=()=>React.useRef(null),useAnimatedScrollHandler=fn=>fn,useDerivedValue=fn=>({value:fn()}),cancelAnimation=()=>{},scrollTo=()=>{},runOnJS=fn=>fn,runOnUI=fn=>fn;
  export const useAnimatedReaction=(prepare,reaction)=>{const prior=React.useRef(null);React.useEffect(()=>{const next=prepare();reaction(next,prior.current);prior.current=next;});};
+ export const withDecay=()=>{throw Error('Unexpected Guide decay in Home fixture')};
  export const withTiming=(value,config,done)=>{if(done)setImmediate(()=>done(true));return value},withSpring=withTiming,withDelay=(_,value)=>value;
  export const Easing={bezier:()=>x=>x,linear:x=>x},ReduceMotion={Never:'never'};export default{View,ScrollView,createAnimatedComponent:x=>x};`);
 const svgNames = [
   'Svg',
   'Defs',
+  'Pattern',
   'LinearGradient',
   'RadialGradient',
   'Rect',
@@ -216,7 +219,7 @@ const loader = registerHooks({
       return next(specifier, context);
     } catch (error) {
       if (
-        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
           error.code,
         ) ||
         !specifier.startsWith('.')
@@ -227,7 +230,7 @@ const loader = registerHooks({
           return next(specifier + suffix, context);
         } catch (retry) {
           if (
-            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
               retry.code,
             )
           )
@@ -451,6 +454,7 @@ export async function standardHomeApp({
     'playback.defaultSpeed': 1,
     'audiobooks.defaultSpeed': 1,
     'playback.skipBackMs': 10000,
+    'playback.skipForwardMs': 30000,
     'playback.introSkip': 'ask',
     'playback.recapSkip': 'ask',
     'playback.creditsSkip': 'off',

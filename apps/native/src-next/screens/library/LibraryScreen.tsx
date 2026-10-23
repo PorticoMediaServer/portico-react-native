@@ -8,9 +8,9 @@ import {browseToolbarModel} from '../../../../../packages/client-core/src/presen
 import {libraryTabs} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
-import {Chip, Focusable} from '../../kit/controls';
-import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
-import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, FiltersButton, QuickToggle, SaveViewButton, type BrowseLabels} from '../../kit/browse';
+import {Focusable} from '../../kit/controls';
+import {FocusRegion, useFocusRegistry} from '../../kit/focus';
+import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, type BrowseLabels} from '../../kit/browse';
 import {Menu} from '../../kit/overlays';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
@@ -22,7 +22,7 @@ import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {NativeLibraryDestination, nativeLibraryEntryKey, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
-import {LibrarySortMenu} from './LibrarySortMenu';
+import {LibraryToolbar} from './LibraryToolbar';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
 import type {NativeLibraryFilterDraft} from './filters';
@@ -36,6 +36,8 @@ export type NativeLibraryActions = Readonly<{
   saveView: (destination: NativeLibraryDestination, draft: NativeLibraryViewDraft) => void;
 }>;
 export type NativeLibrarySelectionPort = Readonly<{
+  /** Enter this library's actual current selection context without selecting an item. */
+  start: () => void;
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => LayoutSelection;
   register: (source: NativeLibrarySnapshot, entries: readonly ContentEntry[], first: number, last: number) => () => void;
@@ -92,9 +94,16 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
       : state.collection ? <LibraryGrid {...props} source={state} entryRequest={entryRequest} onEntered={onEntered}/>
-      : state.tab.shows === 'rows' ? <ScrollView>{state.discover.appended.map(section => <View key={section.id}>
+      : state.tab.shows === 'rows' ? <ScrollView>
+        {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
+        {state.discover.appended.map(section => <View key={section.id}>
         <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: theme.gutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
-        <ScrollView horizontal contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}>
+        <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: theme.gutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
+          onScroll={event => {
+            if (!active.visible || !section.nextCursor) return;
+            const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+            if (contentOffset.x + layoutMeasurement.width >= contentSize.width - 10 * (theme.isTV ? 228 : 122)) void destination.nextDiscover(section.id).catch(runtime.reportError);
+          }}>
           {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
         </ScrollView>
       </View>)}</ScrollView> : null}
@@ -152,16 +161,13 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const width = theme.isTV ? 200 : Math.floor((dimensions.width - 62) / 3), gap = theme.isTV ? 32 : 10;
   const columns = theme.isTV ? 7 : 3;
   return <View style={{flex: 1}}>
-    <FocusRegion id={ids.libraryToolbar(source.library.id)} entry="sort" orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
-      <View style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 16 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 14 : 8}}>
-        <LibrarySortMenu sorts={toolbar.sorts} value={toolbar.sort} label={labels.sort} onValueChange={sort => destination.setQuery(source.predicates, sort)}
-          onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}/>
-        <FocusItem focusId="filters"><FiltersButton count={source.predicates.length} open={filterState?.open ?? false} onPress={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}/></FocusItem>
-        {theme.isTV && <Chip ref={jumpAnchor} focusId="jump" disabled={!state.positionIndex || !Object.keys(state.positionIndex).length} onPress={() => setJumpOpen(true)}>{defaultI18n.t('next.browse.native.jumpTo')}</Chip>}
-        <View style={{width: theme.isTV ? 1.5 : 1, height: theme.isTV ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-        {toolbar.quick.map(preset => <FocusItem key={preset.id} focusId={`quick:${preset.id}`}><QuickToggle checked={preset.active} onCheckedChange={value => destination.setQuick(preset.id, value)}>{preset.label?.text ?? labels.quick(preset)}</QuickToggle></FocusItem>)}
-        {theme.isTV && <View style={{marginLeft: 'auto'}}><FocusItem focusId="save"><SaveViewButton canSave={source.predicates.length > 0} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}/></FocusItem></View>}
-      </View>
+    <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
+      <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
+        onFilters={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}
+        onSort={sort => destination.setQuery(source.predicates, sort)} onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}
+        onQuick={destination.setQuick} onSave={() => actions.saveView(destination, {predicates: source.predicates, sort: source.sort!})}
+        onJump={() => setJumpOpen(true)} jumpEnabled={!!state.positionIndex && !!Object.keys(state.positionIndex).length} jumpAnchor={jumpAnchor}
+        onSelect={selection?.start} selecting={selected?.active ?? false}/>
     </FocusRegion>
     {!!applied.length ? <FocusRegion id={appliedRegion} entry={applied[0].id} orientation="horizontal" enabled={active.visible}
       edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: ids.libraryCard(source.library.id, firstKey)} : {})}}

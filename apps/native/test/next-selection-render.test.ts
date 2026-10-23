@@ -241,6 +241,37 @@ test('the genuine TV surface retains the existing side-sheet recipe, initial/ret
   } finally {surface.host.unmount();}
 });
 
+test('compact selection headers opt into phone frame spacing while preserving explicit and nonphone headers', () => {
+  const previous = state.theme;
+  const action = React.createElement('Button', {testID: 'real-header-action'});
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 1024}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const props = {open: true, onOpenChange() {}, title: 'Actual title', description: 'Actual description', children: null, compactHeader: true, headerAction: action};
+      const surface = mount(SelectionSurface, props);
+      try {
+        const sheet = surface.tree as Element, header = sheet.props.headerContent;
+        if (state.theme.platform === 'phone') {
+          assert.equal(header.type, SurfaceHeader); assert.equal(header.props.action, action);
+          const rendered = mount(SurfaceHeader, header.props);
+          try {
+            assert.equal((rendered.tree as Element).props.style.paddingTop, 4);
+            assert.equal((rendered.tree as Element).props.style.paddingBottom, 10);
+            const texts = ofType(rendered.tree, 'Text');
+            assert.equal(text(texts[0]), props.title); assert.equal(text(texts[1]), props.description);
+            const description = flattenStyle(texts[1].props.style);
+            assert.equal(description.color, state.theme.colors.textTertiary); assert.equal(description.marginTop, 4);
+            assert.equal(description.fontSize, 13.5 * state.theme.textScale); assert.equal(description.lineHeight, 19.575 * state.theme.textScale);
+          } finally {rendered.host.unmount();}
+        } else assert.equal(header, undefined);
+        surface.update({...props, fullHeight: true}); assert.equal((surface.tree as Element).props.headerContent, undefined);
+        surface.update({...props, headerContent: null}); assert.equal((surface.tree as Element).props.headerContent, null);
+        surface.update({...props, compactHeader: false}); assert.equal((surface.tree as Element).props.headerContent, undefined);
+      } finally {surface.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('TV More presents only supplied owner commands and preserves denial explanations and callbacks', () => {
   const calls: unknown[] = [];
   const props: SelectionBarProps = {count: 4, selectAllLabel: 'Select all', onSelectAll() {}, onCancel() {}, actions: [{id: 'more'}, {id: 'edit'}, {id: 'refresh'}, {id: 'delete', disabled: true, reason: 'One library required'}, {id: 'download'}], onAction: action => calls.push(action), menu: 'more', onMenuChange() {}};
@@ -492,6 +523,7 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
     try {
       const surface = menu.tree as Element;
       assert.equal(surface.type, SelectionSurface); assert.equal(surface.props.title, 'Add 3 episodes to the queue');
+      assert.equal(surface.props.compactHeader, true);
       assert.equal(surface.props.description, 'In the order you picked them');
       const rows = ofType(surface, SelectionActionRow);
       assert.equal(rows[0].props.description, 'After what’s playing now');

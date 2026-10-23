@@ -551,6 +551,21 @@
    ]
   },
   {
+   "id": "native-npm:react-native-webview@16.0.0",
+   "name": "react-native-webview",
+   "version": "16.0.0",
+   "licence": "MIT",
+   "group": "apple",
+   "url": "https://github.com/react-native-webview/react-native-webview",
+   "only": [
+    "ios"
+   ],
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2015-present, Facebook, Inc."
+   ]
+  },
+  {
    "id": "pod:SocketRocket@0.7.1",
    "name": "SocketRocket",
    "version": "0.7.1",
@@ -613,12 +628,12 @@
  ],
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
-  "apps/native/ios/Podfile.lock": "31651ff28498cd60d8ff808f4ff40851c5167374f6110fad0fc3744902cb9c8d",
+  "apps/native/ios/Podfile.lock": "8248330026f0efd324e35ab616ef26268cf6742ea42ee89a767ed6ac33a6286c",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-ios.txt": "e9d48f139ff0b13e65dcc430c0ba89b8d1859ca283bcf2423779ac9d665f1d35",
-  "apps/native/licences/native-npm.json": "f84a1e04c23bd8197f4449640b16a8c072b586602635460da21f3e077cd8f35f",
-  "apps/native/package-lock.json": "2ad5e45d374e282cb94a5a3d7c01d9325ed0c7e800df8a586ecdb5fddb131fd3",
-  "apps/native/tvos/Podfile.lock": "e0a691755326bbc71c389e6356684b2f77b85b98ef09f02aa5d37c859f3e61c4",
+  "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
+  "apps/native/package-lock.json": "8362012e85e0723ae7f98d2f8064aa18a2568048ab4ab3339c96ea8b4b320e49",
+  "apps/native/tvos/Podfile.lock": "65d04db2b6c90f2527019878b03d0633fc1498a38a85abb6a89890bdfe2a54fc",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
   "third_party/apple-subtitles/jellyfin-ffmpeg.source.lock.json": "f1f5d7cd05ae46e4d4ef25132fe4eb889f5dd7e0a03b84359f5df27c6adcdab5",

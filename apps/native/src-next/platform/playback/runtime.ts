@@ -398,25 +398,33 @@ export class NativePlaybackRuntime {
   }
 
   start = async (input: NativePlaybackStart): Promise<void> => {
+    const caller = input.lifetime;
+    const callerCurrent = () => !caller?.signal.aborted && caller?.isCurrent() !== false;
+    if (!callerCurrent()) return;
     this.connect();
     if (!this.active()) return;
     if (!wireId(input.target.itemId) || input.target.startSeconds !== undefined && (!Number.isFinite(input.target.startSeconds) || input.target.startSeconds < 0)) throw new Error('Invalid playback target.');
     const epoch = this.beginOperation();
-    await this.queue.cancel();
-    if (!this.active() || epoch !== this.startEpoch) return;
-    this.startController?.abort();
     const controller = new AbortController(); this.startController = controller;
-    await this.o.capabilitiesReady();
-    if (!this.active() || epoch !== this.startEpoch) return;
-    let offered: PlaybackOptions, capabilities: unknown;
+    const abort = () => controller.abort();
+    caller?.signal.addEventListener('abort', abort, {once: true});
+    if (caller?.signal.aborted) abort();
+    const current = () => this.active() && epoch === this.startEpoch && !controller.signal.aborted && callerCurrent();
+    const scoped = this.selectionScope(controller.signal, current);
     try {
-      [offered, capabilities] = await Promise.all([
-        this.optionsClient.options(input.target.itemId, {}, controller.signal),
-        this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, controller.signal),
+      await this.queue.cancel(); if (!current()) return;
+      await this.o.capabilitiesReady(); if (!current()) return;
+      const [offered, capabilities] = await Promise.all([
+        this.optionsClient.options(input.target.itemId, {}, scoped.signal),
+        this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
       ]);
-    } catch (error) { if (epoch !== this.startEpoch || controller.signal.aborted || !this.active()) return; throw error; }
-    if (!this.active() || epoch !== this.startEpoch) return;
-    await this.startOffered(input, offered, capabilities, epoch);
+      if (!current()) return;
+      await this.startOffered(input, offered, capabilities, epoch, undefined, {signal: scoped.signal, isCurrent: current});
+    } catch (error) {if (current()) throw error;}
+    finally {
+      caller?.signal.removeEventListener('abort', abort); scoped.close();
+      if (this.startController === controller) this.startController = undefined;
+    }
   };
 
   /** Play the server-owned whole group, never the screen's loaded preview.

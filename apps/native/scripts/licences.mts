@@ -81,8 +81,8 @@ function folderLicence(dir: string): string | undefined {
 // JavaScript bundles
 
 /** `--record`: the npm packages in each bundle, from Metro's own graph (the source map's files). */
-async function recordBundles() {
-  for (const client of ['android', 'apple', 'vega'] as Client[]) {
+async function recordBundles(clients: readonly Client[]) {
+  for (const client of clients) {
     const {app, platform} = BUNDLES[client];
     const appDir = path.join(root, app);
     const require = createRequire(path.join(appDir, 'package.json'));
@@ -397,6 +397,23 @@ function nativeNpm(client: NativeClient, represented: Set<string>, read: (rel: s
   }, (name, file) => readFileSync(path.join(root, 'apps/native/node_modules', name, file), 'utf8'));
 }
 
+// Apple has separate actual Pod graphs. A library disabled for tvOS must not
+// acquire a tvOS native-code notice merely because the iOS CLI links it.
+function appleNativeScope(components: CollectedComponent[], read: (rel: string) => string): CollectedComponent[] {
+  const variants = new Map<string, string[]>();
+  for (const variant of ['ios', 'tvos']) {
+    const names = new Set([...podSources(read(`apps/native/${variant}/Podfile.lock`)).values()]
+      .map(source => (source.path ?? source.podspec)?.match(/^\.\.\/node_modules\/((?:@[^/]+\/)?[^/]+)/)?.[1])
+      .filter((name): name is string => !!name));
+    for (const name of names) variants.set(name, [...(variants.get(name) ?? []), variant]);
+  }
+  return components.map(component => {
+    const only = variants.get(component.name);
+    if (!only?.length) throw new Error(`Apple native library is absent from both installed Pod graphs: ${component.name}`);
+    return only.length === 2 ? component : {...component, only};
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
 
 export function generate(client: Client): LicenceData {
@@ -407,7 +424,7 @@ export function generate(client: Client): LicenceData {
   const components: CollectedComponent[] = [
     {id: 'portico', name: 'Portico apps', licence: 'GPL-3.0-or-later', group: 'portico', text: read('LICENSE'), url: APPS_SOURCE},
     ...npm,
-    ...native,
+    ...(client === 'apple' ? appleNativeScope(native, read) : native),
     ...assetComponents(read),
   ];
   if (client === 'android') components.push(...engineComponents('android', read), ...mavenComponents(read), ...nativeLibraryComponents(read, 'android'));
@@ -415,10 +432,19 @@ export function generate(client: Client): LicenceData {
   return buildLicenceData({client, sources, components, inputs});
 }
 
+export function selectedClients(args: readonly string[]): Client[] {
+  const index = args.indexOf('--client');
+  if (index < 0) return Object.keys(OUTPUTS) as Client[];
+  const client = args[index + 1];
+  if (client !== 'android' && client !== 'apple' && client !== 'vega') throw new Error('--client requires android, apple or vega');
+  return [client];
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.includes('--record')) await recordBundles();
+  const clients = selectedClients(process.argv.slice(2));
+  if (process.argv.includes('--record')) await recordBundles(clients);
   let stale = 0;
-  for (const client of Object.keys(OUTPUTS) as Client[]) {
+  for (const client of clients) {
     const text = serialiseLicenceData(generate(client));
     const file = path.join(root, OUTPUTS[client]);
     const data = JSON.parse(text) as LicenceData;

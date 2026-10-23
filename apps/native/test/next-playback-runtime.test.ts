@@ -1602,3 +1602,41 @@ test('whole-group caller retirement during capabilities prevents a late queue cr
     } finally {d.runtime.dispose();}
   }
 });
+
+test('regular start caller lifetime rejects a retired row during its real options read', async () => {
+  for (const closing of ['abort', 'member'] as const) {
+    const d = fixture(), controller = new AbortController(); let owned = true, release = () => {}, entered = false;
+    try {
+      const held = new Promise<void>(resolve => {release = resolve;});
+      d.respond(async request => {if (request.path.includes('/movie-2/playback-options')) {entered = true; await held;} return undefined;});
+      const start = d.runtime.start({entry: {id: 'movie-2', kind: 'movie', title: 'Actual row', libraryId: 'library'}, target: {itemId: 'movie-2', startSeconds: 17},
+        lifetime: {signal: controller.signal, isCurrent: () => owned}});
+      await settle(); assert.equal(entered, true);
+      if (closing === 'abort') controller.abort(); else owned = false;
+      release(); await start; await settle();
+      assert.equal(d.requests.some(request => request.method === 'POST' && request.path === routePath('start_playback_session')), false);
+      assert.equal(d.runtime.getSnapshot().session, undefined);
+    } finally {release(); d.runtime.dispose();}
+  }
+});
+
+test('regular start lifetime abandons the actual late 201 session after row retirement', async () => {
+  const d = fixture(), controller = new AbortController(); let owned = true, entered = false, created = '', release = () => {};
+  try {
+    const held = new Promise<void>(resolve => {release = resolve;});
+    d.respond(async request => {
+      if (request.method !== 'POST' || request.path !== routePath('start_playback_session') || entered) return;
+      entered = true; await held;
+      const response = await d.server.handle(request);
+      assert.equal(response.status, 201); assert.ok(record(response.body) && typeof response.body.id === 'string');
+      created = response.body.id; return response;
+    });
+    const start = d.runtime.start({entry: {id: 'movie-2', kind: 'movie', title: 'Actual row', libraryId: 'library'}, target: {itemId: 'movie-2', startSeconds: 17},
+      lifetime: {signal: controller.signal, isCurrent: () => owned}});
+    await settle(); assert.equal(entered, true); owned = false;
+    release(); await start; await settle();
+    assert.ok(created); assert.equal(d.runtime.getSnapshot().session, undefined);
+    assert.ok(d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session', {id: encodeURIComponent(created)})));
+    assert.equal(d.server.session(created)?.ended, true);
+  } finally {release(); d.runtime.dispose();}
+});

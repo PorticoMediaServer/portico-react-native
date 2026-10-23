@@ -38,3 +38,23 @@ test('upright body reuses real title memory and toggles only the existing exact 
     source = old;
   } finally {host.unmount();}
 });
+
+test('title My List reads actual Detail actions and personal state after the first lazy read', async () => {
+  const calls: unknown[] = [], entry = {id: 'item', kind: 'movie', title: 'Actual title'};
+  let snapshot: any = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [], detail: {phase: 'idle', data: null}}, tree: any;
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, open: async () => {},
+    personal: async (intent: unknown) => {calls.push(intent);}};
+  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+    back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
+  host.mount();
+  try {
+    assert.equal(descendants(tree).some(node => node.props.accessibilityLabel === defaultI18n.t('entry.addToWatchlist')), false);
+    snapshot = {...snapshot, detail: {phase: 'ready', data: {item: entry, actions: [{id: 'watchlist', enabled: true}], personal: {watchlisted: false}, metadata: {genres: [], ratings: [], credits: []}}}};
+    host.rerender();
+    descendants(tree).find(node => node.props.accessibilityLabel === defaultI18n.t('entry.addToWatchlist')).props.onPress();
+    await Promise.resolve(); assert.deepEqual(calls, [{action: 'watchlist', value: true}]);
+    snapshot = {...snapshot, detail: {...snapshot.detail, data: {...snapshot.detail.data, personal: {watchlisted: true}}}};
+    host.rerender();
+    assert.ok(descendants(tree).some(node => node.props.accessibilityLabel === defaultI18n.t('entry.removeFromWatchlist')));
+  } finally {host.unmount();}
+});

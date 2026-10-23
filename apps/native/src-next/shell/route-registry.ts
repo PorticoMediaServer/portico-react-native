@@ -8,18 +8,20 @@ export type NativeRouteRenderer = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   /** The module retains its real history views, native refs and visibility gates. */
   renderRetained?: (runtime: NativeShellRuntime) => ReactNode;
+  renderOverlays?: (runtime: NativeShellRuntime) => ReactNode;
   scrollToTop?: (route: NativeShellRoute) => void;
   dispose?: () => void;
 }>;
 type RouteKind = NativeShellRoute['kind'];
 export type NativeRouteFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer;
-export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; renderRetained?: (runtime: NativeShellRuntime) => ReactNode; back?: () => boolean; dispose?: () => void}>;
+export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; renderRetained?: (runtime: NativeShellRuntime) => ReactNode; renderOverlays?: (runtime: NativeShellRuntime) => ReactNode; back?: () => boolean; dispose?: () => void}>;
 export type NativeWatchFactory = (context: NativeShellBootstrapContext) => NativeWatchRenderer;
 type RendererFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer | NativeWatchRenderer;
 export type NativeBoundRoutes = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   renderWatch: (runtime: NativeShellRuntime) => ReactNode;
   renderRetained: (runtime: NativeShellRuntime) => ReactNode;
+  renderOverlays: (runtime: NativeShellRuntime) => ReactNode;
   scrollToTop: (route: NativeShellRoute) => void;
   back: () => boolean;
   dispose: () => void;
@@ -37,7 +39,11 @@ export class NativeShellRouteRegistry {
   register(kind: RouteKind, renderer: NativeRouteRenderer): () => void {
     if (this.renderers.has(kind) || this.routes.has(kind)) throw new Error('native_route_already_registered');
     this.renderers.set(kind, renderer); this.changed();
-    return () => {if (this.renderers.get(kind) === renderer) {this.renderers.delete(kind); this.changed();}};
+    // Legacy objects belong to their registration, not to any one bound viewer.
+    return () => {if (this.renderers.get(kind) === renderer) {
+      this.renderers.delete(kind);
+      try {renderer.dispose?.();} finally {this.changed();}
+    }};
   }
   get(kind: RouteKind): NativeRouteRenderer | undefined {return this.renderers.get(kind);}
   registerRoute(kind: RouteKind, create: NativeRouteFactory): () => void {
@@ -77,8 +83,11 @@ export class NativeShellRouteRegistry {
     const current = () => alive && context.current();
     return Object.freeze({
       render: (route, runtime) => current() && context.navigation.allows(route) ? renderer(route)?.render(route, runtime) : null,
+      // Persistent media has its own current-fence guard; page admission does
+      // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       renderRetained: runtime => current() ? [...instances.values()].map(value => value.renderRetained?.(runtime)) : null,
+      renderOverlays: runtime => current() ? [...instances.values()].map(value => value.renderOverlays?.(runtime)) : null,
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},

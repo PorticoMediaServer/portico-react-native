@@ -16,7 +16,7 @@ export function registerNativeWatch(createBindings: (context: NativeShellBootstr
     function render(value: NativeShellRoute | NativeShellRuntime, runtime?: NativeShellRuntime): ReactNode {
       return 'kind' in value ? runtime ? module.title.render(value, runtime) : null : module.render(value);
     }
-    return Object.freeze({render, back: module.back, dispose: module.dispose});
+    return Object.freeze({render, renderOverlays: module.renderOverlays, back: module.back, dispose: module.dispose});
   };
   const offTitle = registry.registerRoute('title', create);
   let offWatch: () => void;

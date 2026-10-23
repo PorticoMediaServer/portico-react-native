@@ -1,13 +1,13 @@
 import React from 'react';
 import type {MessageId} from '../../../../../packages/i18n/src';
-import type {NativeOfflineDownloadsAdapter} from '../../platform/offline-downloads';
+import type {NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import {SearchScreen} from '../search/SearchScreen';
 import {NativeSearchDestination} from '../search/model';
 import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchSelectionPort, NativeSearchTVCopy} from '../search/types';
-import {SavedScreen, type NativeSavedActions, type NativeSavedSelectionPort} from '../saved/SavedScreen';
-import {NativeSavedDestination} from '../saved/model';
+import type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
+import {createNativeSavedRenderer} from '../saved/renderer';
 import type {NativeSavedDownloadsCopy} from '../saved/SavedDownloadCard';
 import {DownloadsScreen, type NativeDownloadsCopy} from '../downloads/DownloadsScreen';
 import type {OfflineEntry} from '../../platform/offline-downloads';
@@ -27,7 +27,7 @@ export type NativeDestinationPorts = Readonly<{
   savedActions: NativeSavedActions;
   savedSelection?: NativeSavedSelectionPort;
   savedDownloadsCopy: NativeSavedDownloadsCopy;
-  offline: NativeOfflineDownloadsAdapter;
+  offline: NativeOfflineDownloadsDevice;
   downloads: Readonly<{copy: NativeDownloadsCopy; back: () => void; openTitle: (entry: OfflineEntry) => void}>;
   onThisPhone: MessageId;
 }>;
@@ -39,7 +39,7 @@ export type NativeDestinationRenderers = Readonly<{
 }>;
 
 export type NativeDownloadsRendererPorts = Readonly<{
-  offline: NativeOfflineDownloadsAdapter;
+  offline: NativeOfflineDownloadsDevice;
   copy: NativeDownloadsCopy; back: () => void; openTitle: (entry: OfflineEntry) => void;
 }>;
 
@@ -57,12 +57,11 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
   let disposed = false;
   const current = () => !disposed && lifetime.current();
   const search = new NativeSearchDestination({api: ports.context.api, scope: lifetime.scope, current, rememberHistory: ports.rememberHistory, reportError: ports.reportError});
-  const saved = new NativeSavedDestination({api: ports.context.api, scope: lifetime.scope, current, requestId: ports.requestId});
+  const saved = createNativeSavedRenderer(ports.context, {...ports, activation: ports.activation('saved')});
   return Object.freeze({
     search: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'search'
       ? <SearchScreen destination={search} runtime={runtime} explore={ports.searchExplore} actions={ports.searchActions} selection={ports.searchSelection} activation={ports.activation('search')} tvCopy={ports.searchTVCopy}/> : null},
-    saved: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'saved'
-      ? <SavedScreen destination={saved} runtime={runtime} device={ports.offline} actions={ports.savedActions} selection={ports.savedSelection} downloadsCopy={ports.savedDownloadsCopy} onThisPhone={ports.onThisPhone} activation={ports.activation('saved')}/> : null},
+    saved,
     downloads: {render: (_route, runtime) => current() ? <DownloadsScreen runtime={runtime} device={ports.offline} {...ports.downloads}/> : null},
     dispose: () => {if (disposed) return; disposed = true; search.dispose(); saved.dispose();},
   } satisfies NativeDestinationRenderers);
@@ -71,6 +70,8 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
 export type {NativeSearchActions, NativeSearchExplorePort, NativeSearchExploreSnapshot, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from '../search/types';
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
 export type {NativeSavedDownloadsCopy} from '../saved/SavedDownloadCard';
+export {createNativeSavedRenderer};
+export type {NativeSavedRendererPorts} from '../saved/renderer';
 export type {NativeDownloadsCopy} from '../downloads/DownloadsScreen';
 export {NativeTVKeyboard} from '../search/TVKeyboard';
 export type {NativeTVKeyboardProps} from '../search/TVKeyboard';

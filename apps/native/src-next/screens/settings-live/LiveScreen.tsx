@@ -30,7 +30,7 @@ import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
 
-export function NativeLiveScreen({controller, recordings, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeLiveScreen({controller, recordings, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);
