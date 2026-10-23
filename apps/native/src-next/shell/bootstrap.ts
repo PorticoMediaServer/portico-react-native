@@ -27,6 +27,7 @@ import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
+import {nativeReadRouteAllowed} from '../screens/read/platform';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
@@ -160,7 +161,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     libraries = Object.freeze(librariesResult.items);
     let hasLiveTV = initialFacts.hasLiveTV;
     const events = new EventsClient({http: localV1Http(local)});
-    navigation = new NativeShellNavigation(authority, () => authority);
+    navigation = new NativeShellNavigation(authority, () => authority,
+      (route, origin) => nativeReadRouteAllowed(route, libraries, Platform.isTV, origin));
     const contextBase: Omit<NativeShellBootstrapContext, 'playback' | 'watch'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
