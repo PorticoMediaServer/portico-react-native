@@ -1,4 +1,4 @@
-import {SavedService, type SavedApi, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import {SavedService, fetchSavedSummary, type SavedApi, type SavedLandingSummary, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {PersonalSavedService, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
 import {readPinOrder, type PinnedResource} from '../../../../../packages/client-core/src/library-pins';
 
@@ -7,6 +7,7 @@ export type NativeSavedSnapshot = Readonly<{
   myList: SavedSnapshot; favorites: SavedSnapshot; playlists: SavedSnapshot;
   collections: PersonalSavedSnapshot; views: PersonalSavedSnapshot;
   pins: readonly PinnedResource[]; error?: unknown;
+  summary?: SavedLandingSummary;
 }>;
 
 /** The Saved hub reads bounded canonical projections. It never fetches an entire
@@ -50,15 +51,14 @@ export class NativeSavedDestination {
     if (this.pending) return this.pending;
     this.controller?.abort(); const controller = new AbortController(); this.controller = controller;
     const revision = ++this.revision;
-    this.publish({phase: 'loading', error: undefined});
+    this.publish({phase: 'loading', error: undefined, summary: undefined});
     const task = Promise.all([
-      this.myList.select({view: 'watchlist', shape: 'posters'}), this.favorites.select({view: 'favorites'}), this.playlists.select({view: 'playlists'}),
-      this.collections.select({view: 'collections'}), this.views.select({view: 'views'}),
+      this.myList.select({view: 'watchlist', shape: 'posters'}), fetchSavedSummary(this.options.api, this.options.scope, controller.signal),
       readPinOrder(this.options.api, this.options.scope.serverId, controller.signal),
     ]).then(results => {
       if (!this.current() || revision !== this.revision || controller.signal.aborted) return;
-      const failure = [this.myList, this.favorites, this.playlists, this.collections, this.views].map(service => service.getSnapshot().error).find(Boolean);
-      this.publish({phase: failure ? 'error' : 'ready', pins: results[5].order, error: failure});
+      const failure = this.myList.getSnapshot().error;
+      this.publish({phase: failure ? 'error' : 'ready', summary: results[1], pins: results[2].order, error: failure ?? undefined});
     }).catch(error => {if (this.current() && revision === this.revision && !controller.signal.aborted) this.publish({phase: 'error', error});})
       .finally(() => {if (this.pending === task) this.pending = undefined;});
     this.pending = task; return task;

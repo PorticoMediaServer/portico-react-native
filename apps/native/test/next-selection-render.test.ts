@@ -79,6 +79,7 @@ const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
 const {Dialog, FocusBoundary, SurfaceHeader, SidePanel} = await import('../src-next/kit/overlays/surface.tsx');
+const {OverlaysProvider} = await import('../src-next/kit/overlays/OverlayHost.tsx');
 const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
@@ -465,6 +466,54 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
 });
 
 
+test('phone Selection action line boxes retain their type and exclude additional native font padding', () => {
+  const previous = state.theme;
+  try {
+    for (const width of [390, 820]) {
+      state.theme = createTheme({isTV: false, width, textScale: 1.2});
+      const calls: string[] = [], ref = {current: null};
+      const row = mount(SelectionActionRow, {label: 'Actual queue action', description: 'Actual queue order', icon: 'i-queue', ref, onPress: () => calls.push('press')});
+      try {
+        const [label, description] = ofType(row.tree, SelectionText), phone = width === 390;
+        assert.equal(label.props.weight, 600); assert.equal(description.props.weight, 500);
+        assert.equal(label.props.style.includeFontPadding, phone ? false : undefined);
+        assert.equal(description.props.style.includeFontPadding, phone ? false : undefined);
+        assert.equal(label.props.style.lineHeight, phone ? undefined : 24, 'the phone label inherits the actual font normal line metrics as drawn');
+        assert.equal(description.props.style.lineHeight, phone ? 16.875 * state.theme.textScale : 16.875);
+        assert.equal(description.props.style.marginTop, 2);
+        const native = row.tree as Element;
+        assert.equal(native.props.ref, ref); assert.equal(native.props.focusKind, 'row');
+        assert.equal(flattenStyle(native.props.style({focused: false, hovered: false, pressed: false})).minHeight, 56);
+        native.props.onPress(); assert.deepEqual(calls, ['press']);
+      } finally {row.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('phone More paints its owner border inside the group without adding a layout inset or changing actions', () => {
+  const previous = state.theme;
+  try {
+    for (const width of [390, 820]) {
+      state.theme = createTheme({isTV: false, width});
+      const calls: unknown[] = [], ownerTag = React.createElement('View', {testID: 'actual-policy-badge'});
+      const props: SelectionBarProps = {testID: 'actual.owner.more', count: 1, selectionLabel: '1 movie', selectAllLabel: 'All', menu: 'more', ownerTag,
+        onSelectAll() {}, onCancel() {}, onAction: action => calls.push(action), onMenuChange: menu => calls.push(menu), actions: [{id: 'edit'}, {id: 'delete'}]};
+      const bar = mount(SelectionBar, props), element = elements(bar.tree).find(node => node.props.menu === 'more' && node.type !== SelectionBar)!;
+      const menu = mount(element.type, element.props);
+      try {
+        const group = elements(menu.tree).find(node => node.props.style?.backgroundColor === '#0b1822')!;
+        assert.ok(group); assert.equal(group.props.style.borderWidth, width === 390 ? 0 : 1);
+        const border = elements(group.props.children).find(node => node.props.style?.borderWidth === 1);
+        assert.equal(!!border, width === 390);
+        if (border) {assert.equal(border.props.pointerEvents, 'none'); assert.equal(border.props.style.position, 'absolute'); assert.equal(border.props.style.borderColor, 'rgba(92,179,226,.18)');}
+        assert.ok(elements(group).includes(ownerTag));
+        const rows = ofType(group, SelectionActionRow); assert.equal(rows.length, 2); assert.ok(rows[0].props.ref);
+        assert.deepEqual(calls, []); rows[0].props.onPress(); assert.deepEqual(calls, ['edit', null]);
+      } finally {menu.host.unmount(); bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('content-fit Selection surfaces do not reserve an empty footer or default Done control', () => {
   const surface = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual queue', children: null});
   try {const sheet = surface.tree as Element; assert.equal(sheet.props.footer, undefined); assert.equal(sheet.props.showClose, false); assert.equal(sheet.props.fitContent, true);} finally {surface.host.unmount();}
@@ -603,6 +652,9 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
   };
   try {
     const actualSurface = dialog.tree as Element, close = ofType(actualSurface.props.footer, Button)[0]!;
+    assert.deepEqual(actualSurface.props.footerPadding, {top: 0, bottom: 34, keyboardBottom: 12});
+    assert.equal(actualSurface.props.showFooterSeparator, false);
+    assert.equal(flatten(footer().props.style).borderTopWidth, 0, 'the phone deletion frame has no divider above its actions');
     assert.equal(actualSurface.props.initialFocusRef, close.props.ref);
     assert.equal(nativeControlID(close), controlID(props.testID, 'dismiss'));
     assert.match(text(dialog.tree), /Actual kept title/); assert.match(text(dialog.tree), /Kept, because/);
@@ -614,6 +666,47 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
     assert.equal(elements(sheet.tree).find(n => n.props.testID === `${props.testID}-keyboard-boundary`)!.props.accessibilityViewIsModal, true);
     assert.deepEqual(calls, [], 'geometry measurement must not invoke any dialog operation');
   } finally {sheet.host.unmount(); surface.host.unmount(); dialog.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
+});
+
+test('phone Delete applies its authored context gap and text flow without changing other Selection footer recipes', () => {
+  const previous = state.theme;
+  const ownerHeader = React.createElement('View', {testID: 'actual.owner.context'});
+  const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader, owner: true, selectionCount: 1,
+    preview: {revision: 7, confirmation: 'Actual title', confirmationKind: 'title', totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]},
+    confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}};
+  try {
+    for (const [isTV, width] of [[false, 390], [false, 820], [true, 1920]] as const) {
+      state.theme = createTheme({isTV, width, textScale: 1.2});
+      const phone = width === 390;
+      const dialog = mount(DeleteMediaDialog, props);
+      const ordinary = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual selection surface', children: null});
+      const surface = mount(SelectionSurface, (dialog.tree as Element).props);
+      try {
+        const deletion = dialog.tree as Element, sheet = surface.tree as Element;
+        assert.deepEqual((ordinary.tree as Element).props.footerPadding, isTV ? undefined : {top: 10, bottom: 30, keyboardBottom: 12});
+        assert.equal((ordinary.tree as Element).props.showFooterSeparator, undefined, 'ordinary Selection retains the BottomSheet divider default');
+        assert.deepEqual(sheet.props.footerPadding, phone ? {top: 0, bottom: 34, keyboardBottom: 12} : isTV ? undefined : {top: 10, bottom: 30, keyboardBottom: 12});
+        assert.equal(sheet.props.showFooterSeparator, phone ? false : undefined);
+        if (phone) {
+          assert.equal(deletion.props.headerContext.props.style.paddingBottom, 10);
+          assert.equal(deletion.props.headerContext.props.children, ownerHeader, 'the actual caller-owned identity remains intact');
+          assert.equal(deletion.props.titleTextStyle.includeFontPadding, false);
+        } else assert.equal(deletion.props.headerContext, ownerHeader);
+        const facts = ofType(dialog.tree, SelectionText).find(node => text(node).includes('0 B'))!;
+        const copy = mount(SelectionText, facts.props);
+        try {
+          assert.equal((copy.tree as Element).props.style[0].fontFamily, fontFamilies[phone ? 400 : 500]);
+          assert.equal(facts.props.style.lineHeight, isTV ? undefined : phone ? 25.2 : 21);
+          if (phone) assert.equal(facts.props.style.color, state.theme.colors.textSecondary);
+          assert.equal(ofType(facts, SelectionText)[1].props.weight, 700, 'actual file facts retain their drawn emphasis');
+        } finally {copy.host.unmount();}
+        if (phone) {
+          const help = ofType(dialog.tree, SelectionText).find(node => text(node).startsWith('The files are deleted'))!;
+          assert.equal(help.props.weight, 400); assert.equal(help.props.style.lineHeight, 18 * state.theme.textScale);
+        }
+      } finally {surface.host.unmount(); ordinary.host.unmount(); dialog.host.unmount();}
+    }
+  } finally {state.theme = previous;}
 });
 
 test('fitted footer accounting preserves no-footer, explicit detent, long-content and side-panel behavior', () => {
@@ -678,6 +771,53 @@ test('SidePanel can omit its standard close action while retaining supplied cont
     (heading().props.action as Element).props.onPress();
     assert.deepEqual(calls.at(-1), [false, 'close-button']);
   } finally {panel.host.unmount(); state.theme = previousTheme;}
+});
+
+test('an authored TV side-panel canvas scales inside its physical portal without replacing slide or focus lifecycle', t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.theme = createTheme({isTV: true, width: 1920});
+  state.viewport = {width: 1920, height: 1080, scale: 1, fontScale: 1};
+  const provider = mount(OverlaysProvider, {children: null});
+  const contextElement = (provider.tree as Element).props.children as Element;
+  const context = contextElement.type as any, previousContext = context._currentValue;
+  context._currentValue = {...contextElement.props.value, frame: {x: 10, y: 30, width: 1280, height: 720}};
+  const calls: unknown[] = [], focused: string[] = [];
+  const child = React.createElement('View', {testID: 'actual-layout-rows'}), footer = React.createElement('View', {testID: 'actual-layout-footer'});
+  const props = {open: true, title: 'Actual customization', children: child, footer, width: 860, topInset: 0, showClose: false,
+    logicalCanvas: {width: 860, height: 1080}, style: {paddingTop: 60, paddingLeft: 60}, testID: 'actual-logical-panel',
+    initialFocusRef: {current: {requestTVFocus() {focused.push('initial');}}}, returnFocusRef: {current: {requestTVFocus() {focused.push('return');}}},
+    onOpenChange: (...args: unknown[]) => calls.push(args)};
+  const panel = mount(SidePanel, props);
+  const outer = () => elements(panel.tree).find(node => node.props.testID === props.testID)!;
+  const canvas = () => elements(panel.tree).find(node => flattenStyle(node.props.style).transformOrigin === 'top left')!;
+  try {
+    const physicalWidth = 860 * (720 / 1080);
+    assert.deepEqual((panel.tree as Element).props.rect, {x: 10 + 1280 - physicalWidth, y: 30, width: physicalWidth, height: 720});
+    assert.equal(flattenStyle(outer().props.style).width, physicalWidth);
+    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: physicalWidth}], 'opening begins outside the physical portal');
+    assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 2 / 3}]);
+    assert.equal(flattenStyle(canvas().props.style).width, 860); assert.equal(flattenStyle(canvas().props.style).height, 1080);
+    assert.equal(flattenStyle(canvas().props.style).paddingTop, 60); assert.equal(flattenStyle(canvas().props.style).paddingLeft, 60);
+    assert.equal(ofType(canvas(), FocusBoundary)[0].props.modal, true);
+    assert.ok(elements(canvas()).includes(child)); assert.ok(elements(canvas()).includes(footer));
+    assert.equal(ofType(panel.tree, SurfaceHeader)[0].props.action, undefined);
+    t.mock.timers.tick(320); panel.host.rerender();
+    assert.deepEqual(focused, ['initial']); assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 0}]);
+    outer().props.onAccessibilityEscape(); assert.deepEqual(calls, [[false, 'escape']]);
+    context._currentValue = {...context._currentValue, frame: {x: 0, y: 0, width: 1920, height: 1080}};
+    panel.host.rerender();
+    assert.equal((panel.tree as Element).props.rect.width, 860); assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 1}]);
+    panel.update({...props, logicalCanvas: undefined});
+    assert.equal(canvas(), undefined, 'ordinary panels retain the existing unscaled composition');
+    assert.equal(flattenStyle(outer().props.style).paddingTop, 60);
+    panel.update({...props, open: false}); panel.host.rerender();
+    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 860}], 'closing translates the outer panel while the inner scale remains separate');
+    assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 1}]);
+  } finally {
+    panel.host.unmount(); provider.host.unmount(); context._currentValue = previousContext; state.theme = previousTheme; state.viewport = previousViewport;
+  }
+  assert.deepEqual(focused, ['initial', 'return']);
 });
 
 test('a supplied BottomSheet heading replaces the standard row while retaining context and measured sheet anatomy', () => {

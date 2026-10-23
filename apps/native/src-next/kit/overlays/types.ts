@@ -42,6 +42,8 @@ export type SidePanelProps = SurfaceProps & {
   closeOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
   showClose?: boolean;
+  /** TV-only authored canvas; style applies inside its uniformly scaled physical portal. */
+  logicalCanvas?: {width: number; height: number};
 };
 export type BottomSheetProps = SurfaceProps & {
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */
@@ -60,6 +62,8 @@ export type BottomSheetProps = SurfaceProps & {
   keyboardAvoiding?: boolean;
   /** Authored footer padding; bottom includes the actual safe area minimum. */
   footerPadding?: {top: number; bottom: number; keyboardBottom: number};
+  /** Footer divider is present unless the authored surface omits it. */
+  showFooterSeparator?: boolean;
   headerAction?: React.ReactNode;
   /** Replaces only the standard heading row; context and sheet gestures remain. */
   headerContent?: React.ReactNode;
