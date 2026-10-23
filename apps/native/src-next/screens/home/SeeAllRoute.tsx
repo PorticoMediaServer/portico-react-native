@@ -44,7 +44,8 @@ function HomeRowsCanvas({children}: {children: React.ReactNode}) {
 export function createNativeHomeRows(context: NativeShellBootstrapContext, reportError: (error: unknown) => void) {
   const rows = new Map<RowRoute, RowLifetime>();
   let alive = true, sequence = 0;
-  const retained = () => alive && context.current() ? context.navigation.retainedRoutes() : [];
+  const retained = () => alive && context.current()
+    ? [...context.navigation.retainedRoutes(), context.navigation.getSnapshot().route] : [];
   const current = (source: RowLifetime) => alive && context.current() && rows.get(source.route) === source && context.navigation.getSnapshot().route === source.route;
   const reconcile = () => {
     const keep = new Set(retained());
