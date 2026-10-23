@@ -32,7 +32,7 @@ test('Library reads the actual ID and vocabulary, with bounded sparse pages even
   }};
   const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
   try {
-    await destination.load(); await tick();
+    const loading = destination.load(); assert.equal(destination.load(), loading, 'focus and OK share the same pending producer read'); await loading; await tick();
     const state = destination.getSnapshot(), collection = state.collection!;
     assert.equal(state.phase, 'ready'); assert.equal(calls[0].path, '/v1/libraries/actual-movies/browse-capabilities?pivot=movies');
     assert.equal(collection.itemAt(0)?.id, 'actual-0'); assert.equal(collection.getSnapshot().total, 50000);
@@ -42,8 +42,12 @@ test('Library reads the actual ID and vocabulary, with bounded sparse pages even
     assert.ok(calls.filter(call => call.body).every(call => call.body!.limit === 60));
     assert.ok(calls.slice(2).filter(call => call.body).every(call => call.body!.range?.revision === 'catalogue-1'));
     destination.remember(48000, 32000);
-    assert.equal(destination.getSnapshot().memory.firstVisibleId, nativeLibraryEntryKey(collection.itemAt(48000)!));
-    assert.equal(destination.getSnapshot().memory.offset, 32000);
+    assert.equal(destination.getMemory().firstVisibleId, nativeLibraryEntryKey(collection.itemAt(48000)!));
+    assert.equal(destination.getMemory().offset, 32000);
+    let changes = 0; const unsubscribe = destination.subscribe(() => {changes++;});
+    destination.remember(48000, 32007.75);
+    assert.equal(destination.getMemory().offset, 32007.75); assert.equal(changes, 0, 'measured movement within the same visible row does not rerender the page per pixel');
+    unsubscribe();
   } finally {destination.dispose();}
 });
 

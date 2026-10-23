@@ -36,6 +36,9 @@ export class NativeLibraryDestination {
   private controller?: AbortController;
   private operation = 0;
   private disposed = false;
+  private memory: NativeLibraryMemory = {firstVisibleIndex: 0, offset: 0};
+  private pending?: Promise<void>;
+  private pendingTab?: LibraryTabId;
 
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
@@ -52,13 +55,22 @@ export class NativeLibraryDestination {
     return result;
   };
   getSnapshot = (): NativeLibrarySnapshot => {this.current(); return this.state;};
+  /** Exact latest native measurement; it does not cause a React render per pixel. */
+  getMemory = (): NativeLibraryMemory => {this.current(); return this.memory;};
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<NativeLibrarySnapshot>): void {
     if (!this.current()) return;
-    this.state = Object.freeze({...this.state, ...patch});
+    if (patch.memory) this.memory = patch.memory;
+    this.state = Object.freeze({...this.state, ...patch, memory: this.memory});
     for (const listener of [...this.listeners]) listener();
   }
-  load = async (tabId: LibraryTabId = this.state.tab.id): Promise<void> => {
+  load = (tabId: LibraryTabId = this.state.tab.id): Promise<void> => {
+    if (!this.current()) return Promise.resolve();
+    if (this.pending && this.pendingTab === tabId) return this.pending;
+    const task = this.loadTab(tabId).finally(() => {if (this.pending === task) {this.pending = undefined; this.pendingTab = undefined;}});
+    this.pending = task; this.pendingTab = tabId; return task;
+  };
+  private async loadTab(tabId: LibraryTabId): Promise<void> {
     if (!this.current()) return;
     const tab = libraryTabs(this.options.library.kind).find(value => value.id === tabId);
     if (!tab) throw new Error('native_library_tab_not_offered');
@@ -92,7 +104,7 @@ export class NativeLibraryDestination {
       this.publish({phase: 'ready', capabilities, predicates, sort, collection});
       collection.ensureRange(0, 0);
     } catch (error) {if (this.current() && revision === this.operation && !controller.signal.aborted) this.publish({phase: 'error', error});}
-  };
+  }
   private build(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection, start: number, count: number, revision?: string) {
     const builder = new BrowseQueryBuilder(capabilities, tab.pivot);
     for (const node of predicates) builder.add(node);
@@ -130,15 +142,17 @@ export class NativeLibraryDestination {
   remember = (firstVisibleIndex: number, offset: number): void => {
     if (!this.current() || !Number.isSafeInteger(firstVisibleIndex) || firstVisibleIndex < 0 || !Number.isFinite(offset) || offset < 0) return;
     const first = this.state.collection?.itemAt(firstVisibleIndex);
-    const firstVisibleId = first && nativeLibraryEntryKey(first), before = this.state.memory;
+    const firstVisibleId = first && nativeLibraryEntryKey(first), before = this.memory;
     if (before.firstVisibleIndex === firstVisibleIndex && before.offset === offset && before.firstVisibleId === firstVisibleId) return;
-    this.publish({memory: {firstVisibleIndex, offset, ...(firstVisibleId ? {firstVisibleId} : {})}});
+    this.memory = Object.freeze({firstVisibleIndex, offset, ...(firstVisibleId ? {firstVisibleId} : {})});
+    if (before.firstVisibleIndex !== firstVisibleIndex || before.firstVisibleId !== firstVisibleId) this.publish({});
   };
   retry = (): void => {if (this.state.phase === 'error') void this.load(); else this.state.collection?.retry();};
   dispose = (): void => {
     if (this.disposed) return;
-    this.disposed = true; this.operation++; this.controller?.abort(); this.unsubscribe();
+    this.disposed = true; this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose();
+    this.memory = {firstVisibleIndex: 0, offset: 0};
     this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined,
       discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, error: undefined});
     this.listeners.clear();
