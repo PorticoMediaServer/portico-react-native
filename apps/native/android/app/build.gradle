@@ -138,7 +138,7 @@ dependencies {
     // The second player engine: libmpv (LGPL build) and its JNI bridge. See portico-mpv/build.gradle.
     implementation project(":portico-mpv")
     // Google Cast: only in the build for devices with Google Play services (never Fire OS).
-    googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
+    googleImplementation "com.google.android.gms:play-services-cast-framework:23.0.0"
     // The provider sign-in browser (PorticoAccountAuth).
     implementation("androidx.browser:browser:1.8.0")
     // Read-only window/fold facts; no presentation or playback ownership in this module.
