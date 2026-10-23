@@ -5,7 +5,7 @@ import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PinnedResource} from '../../../../../packages/client-core/src/library-pins';
 import type {SavedEntry, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
-import {PosterCard, SquareCard, WideCard, type CardSelection} from '../../kit/cards';
+import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {Focusable} from '../../kit/controls';
 import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
@@ -15,6 +15,7 @@ import {groupOfflineEntries, type NativeOfflineDownloadsAdapter} from '../../pla
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
+import {SavedDownloadCard, type NativeSavedDownloadsCopy} from './SavedDownloadCard';
 
 const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
@@ -31,11 +32,12 @@ export type NativeSavedSelectionPort = Readonly<{
 export type NativeSavedScreenProps = Readonly<{
   destination: NativeSavedDestination; runtime: NativeShellRuntime; device: NativeOfflineDownloadsAdapter;
   actions: NativeSavedActions; selection?: NativeSavedSelectionPort; onThisPhone: MessageId;
+  downloadsCopy: NativeSavedDownloadsCopy;
 }>;
 
 /** phone-app9: Saved is the genuine hub, with My List and actual device downloads.
  * Every other row opens its existing SavedRoute; pins keep the producer's order. */
-export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone}: NativeSavedScreenProps) {
+export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy}: NativeSavedScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), scroll = useRef<ScrollView>(null);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const downloads = useSyncExternalStore(device.subscribe, device.getSnapshot);
@@ -66,12 +68,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       {downloads.supported && <>
         <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(downloads.usedBytes)})} onPress={actions.openDownloads}/>
         {!!localGroups.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
-          {localGroups.map(group => {
-            const first = group.entries[0], total = group.entries.reduce((sum, entry) => sum + (entry.state === 'ready' ? entry.bytes : entry.bytesDone), 0);
-            return <WideCard key={group.key} testID={`saved-download-${encodeURIComponent(group.key)}`} title={group.title || first.title} width={214}
-              caption={[{id: 'size', role: 'supplement', text: defaultI18n.bytes(total)}]} artwork={group.artworkUrl ? {uri: group.artworkUrl, cacheKey: JSON.stringify([first.owner, first.receipt?.receiptId, group.key, group.artworkUrl])} : undefined}
-              onNavigate={actions.openDownloads}/>;
-          })}
+          {localGroups.map(group => <SavedDownloadCard key={group.key} group={group} device={device} copy={downloadsCopy} onOpen={actions.openDownloads}/>)}
         </ScrollView>}
       </>}
       <View style={{marginHorizontal: 16, marginTop: 24, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>

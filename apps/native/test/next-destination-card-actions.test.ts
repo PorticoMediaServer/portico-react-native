@@ -85,6 +85,7 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
     '../../kit/theme': {useTheme: () => theme}, '../../platform/offline-downloads': {groupOfflineEntries: () => []}, '../home/model': {homeCardText: () => ({caption: []})},
     './model': {savedProjectionCount: () => undefined, savedDirectoryCount: () => undefined},
+    './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
   });
   const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => state}, runtime, device: {subscribe() {}, getSnapshot: () => ({entries: []})},
     actions, selection: {item: () => selected, render: () => 'actual-toolbar'}}));
