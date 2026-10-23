@@ -294,6 +294,20 @@ static OSStatus ARAACInput(AudioConverterRef converter,UInt32 *count,AudioBuffer
 // The bytes from an index entry on, as a file of their own (a packet boundary starts a valid stream).
 static OSStatus ARShiftedRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:d->_base+position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
 static SInt64 ARShiftedSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;long long size=d->_bytes.size;return size>d->_base?size-d->_base:0;}
+/** Priming-method control usually belongs to a sample-rate converter. A same-rate AAC
+ * decoder can omit that property: accept only its actual zero-prime, no-resampling case.
+ * The file encoder's raw priming is still removed exactly once by the measured plan. */
+static BOOL ARAACRawPriming(AudioConverterRef converter) {
+ UInt32 none=kConverterPrimeMethod_None;OSStatus status=AudioConverterSetProperty(converter,kAudioConverterPrimeMethod,sizeof(none),&none);
+ if(status==noErr)return YES;
+ if(status!=kAudioConverterErr_PropertyNotSupported)return NO;
+ AudioConverterPrimeInfo prime={0};UInt32 size=sizeof(prime);
+ if(AudioConverterGetProperty(converter,kAudioConverterPrimeInfo,&size,&prime)!=noErr||prime.leadingFrames||prime.trailingFrames)return NO;
+ AudioStreamBasicDescription input={0},output={0};size=sizeof(input);
+ if(AudioConverterGetProperty(converter,kAudioConverterCurrentInputStreamDescription,&size,&input)!=noErr)return NO;
+ size=sizeof(output);if(AudioConverterGetProperty(converter,kAudioConverterCurrentOutputStreamDescription,&size,&output)!=noErr)return NO;
+ return isfinite(input.mSampleRate)&&isfinite(output.mSampleRate)&&input.mSampleRate>0&&fabs(input.mSampleRate-output.mSampleRate)<.01;
+}
 static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBufferList *data,AudioStreamPacketDescription **descriptions,void *client){
  ARDecoder *d=(__bridge ARDecoder *)client;
  UInt32 packets=MIN(*count,128),bytes=d->_ixCapacity;
@@ -347,8 +361,6 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
   double rate=[_plan[@"sampleRate"] doubleValue];
   _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:channels];client=*_format.streamDescription;
   if(AudioConverterNew(&source,&client,&_aac)!=noErr)return @"This AAC configuration couldn’t be decoded.";
-  UInt32 prime=kConverterPrimeMethod_None;
-  if(AudioConverterSetProperty(_aac,kAudioConverterPrimeMethod,sizeof(prime),&prime)!=noErr)return @"This AAC decoder cannot expose its measured audio frames.";
   UInt32 cookieSize=0,writable=0;
   if(AudioFileGetPropertyInfo(_file,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0){
    if(cookieSize>65536)return @"The AAC configuration exceeds its limit.";
@@ -357,6 +369,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
    if(got==noErr)got=AudioConverterSetProperty(_aac,kAudioConverterDecompressionMagicCookie,cookieSize,cookie);free(cookie);
    if(got!=noErr)return @"This AAC configuration couldn’t be read.";
   }
+  if(!ARAACRawPriming(_aac))return @"This AAC decoder cannot expose its measured audio frames.";
   UInt32 maxPacket=0,packetSize=sizeof(maxPacket);
   if(AudioFileGetProperty(_file,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768)return @"The AAC packet size exceeds its limit.";
   _packetCapacity=maxPacket*128;_packetBuffer=malloc(_packetCapacity);_packetDescriptions=calloc(128,sizeof(AudioStreamPacketDescription));
