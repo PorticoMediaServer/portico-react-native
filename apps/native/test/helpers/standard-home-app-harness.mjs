@@ -547,6 +547,12 @@ export async function standardHomeApp({
           authority: 'local',
           serverId: pin.serverId,
           canManage: accountRole === 'owner',
+          capabilities: {
+            manageAccount: accountRole === 'owner',
+            managePeople: accountRole === 'owner',
+            manageServer: accountRole === 'owner',
+            manageSignIn: accountRole === 'owner',
+          },
           account: {
             id: 'account',
             username: 'fixture_member',

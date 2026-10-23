@@ -74,6 +74,7 @@ test('separate setup uses genuine React form, core auth, verified route and nati
             authority: 'local',
             serverId: fixture.pin.serverId,
             canManage: false,
+            capabilities: {manageAccount: false, managePeople: false, manageServer: false, manageSignIn: false},
             account: {
               id: 'account',
               username: 'synthetic_user',
