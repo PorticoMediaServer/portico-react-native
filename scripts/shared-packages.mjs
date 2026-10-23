@@ -24,7 +24,7 @@ const LOCK = path.join(here, 'packages/portico-server.lock.json');
 const readLock = () => JSON.parse(readFileSync(LOCK, 'utf8'));
 const SHARED = {
   'packages/player-core': ['src', 'test', 'scripts', 'package.json', 'tsconfig.json'],
-  'packages/client-core': ['src', 'package.json', 'tsconfig.json'],
+  'packages/client-core': ['src', 'test/fixtures/channel-tint-vectors.json', 'package.json', 'tsconfig.json'],
   'packages/contracts': ['src', 'package.json'],
   'packages/design': ['src', 'package.json', 'COMPONENTS.md', 'LICENSE-LUCIDE'],
   'packages/i18n': ['src', 'scripts', 'baselines', 'package.json'],
