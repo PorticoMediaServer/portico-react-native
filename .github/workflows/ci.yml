@@ -81,6 +81,10 @@ jobs:
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with: {distribution: temurin, java-version: '17'}
+      - name: Check corresponding-source recipe requirements
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
+          TMPDIR="$GITHUB_WORKSPACE/.scratch/android-ci/tmp" python3 -B third_party/media-engine/test_source_bundle.py
       - name: Prepare the pinned Android toolchain
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
