@@ -1,4 +1,5 @@
-import type {ReactNode} from 'react';
+import type {ReactNode, RefObject} from 'react';
+import type {View} from 'react-native';
 import type {Library} from '../../../../packages/client-core/src/index';
 import type {HomeService} from '../../../../packages/client-core/src/home-service';
 import type {HomeChannel, HomeCollection, HomeRow, HomeSeeAll} from '../../../../packages/client-core/src/home';
@@ -30,11 +31,11 @@ export type NativeShellSnapshot = Readonly<{
 export type NativeHomeActions = Readonly<{
   navigate: (entry: ContentEntry) => void;
   play: (entry: ContentEntry, target: NonNullable<ContentEntry['playback']>) => void;
-  more: (entry: ContentEntry, rowId?: string) => void;
+  more: (entry: ContentEntry, rowId?: string, anchorRef?: RefObject<View | null>) => void;
   myList: (entry: ContentEntry, selected: boolean) => Promise<void>;
   channel: (channel: HomeChannel) => void;
-  channelMore: (channel: HomeChannel) => void;
-  collectionMore: (collection: HomeCollection, rowId: string) => void;
+  channelMore: (channel: HomeChannel, anchorRef?: RefObject<View | null>) => void;
+  collectionMore: (collection: HomeCollection, rowId: string, anchorRef?: RefObject<View | null>) => void;
   seeAll: (destination: HomeSeeAll) => void;
   customize: () => void;
 }>;
