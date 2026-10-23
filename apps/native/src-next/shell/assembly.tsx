@@ -224,7 +224,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const document = context.home.getSnapshot().document!;
         const offered = homeSpotlightModels(document).some(value => value.entry === entry && same(value.primary?.entry.playback, target)) || document.rows.some(row => row.entries.includes(entry) && same(homePlayTarget(row, entry)?.playback, target));
         if (!offered) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'unoffered'); reportError(failure('unoffered_home_playback')); return;}
-        const navigation = context.navigation.getSnapshot(), selected = find(entry);
+        const navigation = context.navigation.getSnapshot();
+        const selected = (() => {try {return find(entry);} catch (error) {reportError(error); return undefined;}})();
+        if (!selected) return;
         const signal = new AbortController(); operations.add(signal);
         const operation = nativeHomeEntryLifetime(() => {
           if (!currentHome() || context.navigation.getSnapshot() !== navigation || context.home.getSnapshot().document !== document) return false;
