@@ -38,6 +38,8 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   assert.equal(input(password).props.autoComplete, 'current-password');
   assert.equal(input(password).props.autoCorrect, false);
   assert.equal(input(password).props.showSoftInputOnFocus, undefined, 'the platform keyboard is not suppressed');
+  assert.equal(input(password).props.focusable, false, 'native entry begins only after OK on the drawn field');
+  assert.ok(nodes(password).some(node => node.type === 'Focusable' && typeof node.props.onPress === 'function'));
   input(username).props.onSubmitEditing(); input(password).props.onSubmitEditing();
   assert.deepEqual(focused, [{regionId: `tv.auth.${kind}.credentials`, childId: 'password'}, {regionId: `tv.auth.${kind}.credentials`, childId: 'submit'}]);
   const buttons = nodes(tree).filter(node => node.type === 'Button');

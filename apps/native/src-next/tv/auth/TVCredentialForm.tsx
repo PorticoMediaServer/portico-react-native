@@ -1,8 +1,8 @@
-import React, {useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Text, TextInput, View} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
-import {Button} from '../../kit/controls';
-import {FocusProvider, FocusRegion, useFocusRegistry, useFocusTarget} from '../../kit/focus';
+import {Button, Focusable} from '../../kit/controls';
+import {FocusProvider, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {TVAuthLayout} from './TVAuthLayout';
@@ -20,20 +20,25 @@ function CredentialField({id, label, value, onChangeText, password, placeholder,
   id: string; label: string; value: string; onChangeText: (value: string) => void; password?: boolean;
   placeholder?: string; busy: boolean; onSubmitEditing: () => void;
 }) {
-  const theme = useTheme(), [focused, setFocused] = useState(false);
-  const binding = useFocusTarget<TextInput>({focusId: id, disabled: busy});
+  const theme = useTheme(), [editing, setEditing] = useState(false), input = useRef<TextInput>(null);
+  useEffect(() => {if (editing && !busy) input.current?.focus();}, [editing, busy]);
+  const finish = () => {input.current?.blur(); setEditing(false); onSubmitEditing();};
   return <View style={{gap: 8}}>
     <Text style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{label}</Text>
-    <TextInput {...binding} accessibilityLabel={label} value={value} onChangeText={onChangeText} editable={!busy}
+    <Focusable focusId={id} accessibilityLabel={label} disabled={busy} focusable={!editing} focusTreatment="none"
+      onPress={() => {if (!busy) setEditing(true);}}
+      style={({focused}) => ({width: 860, height: 84, borderRadius: 16, backgroundColor: `${theme.colors.ink}9E`, borderWidth: 1.5,
+        borderColor: focused || editing ? theme.colors.accentStrong : theme.colors.lineStrong})}>
+    <TextInput ref={input} accessibilityLabel={label} value={value} onChangeText={onChangeText} editable={!busy} focusable={editing}
       secureTextEntry={password === true} textContentType={password ? 'password' : 'username'}
       autoComplete={password ? 'current-password' : 'username'} importantForAutofill="yes"
       autoCapitalize="none" autoCorrect={false} placeholder={placeholder} placeholderTextColor={theme.colors.textTertiary}
       cursorColor={theme.colors.accentStrong} selectionColor={theme.colors.accentStrong} underlineColorAndroid="transparent"
-      returnKeyType={password ? 'done' : 'next'} submitBehavior="blurAndSubmit" onSubmitEditing={onSubmitEditing}
-      onFocus={() => {binding.onFocus(); setFocused(true);}} onBlur={() => {binding.onBlur(); setFocused(false);}}
-      style={[nativeType({size: 32, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {width: 860, height: 84,
-        paddingHorizontal: 28, paddingVertical: 0, borderRadius: 16, color: theme.colors.text, backgroundColor: `${theme.colors.ink}9E`,
-        borderWidth: 1.5, borderColor: focused ? theme.colors.accentStrong : theme.colors.lineStrong}]}/>
+      returnKeyType={password ? 'done' : 'next'} submitBehavior="blurAndSubmit" onSubmitEditing={finish}
+      onBlur={() => setEditing(false)}
+      style={[nativeType({size: 32, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1,
+        paddingHorizontal: 28, paddingVertical: 0, color: theme.colors.text}]}/>
+    </Focusable>
   </View>;
 }
 
