@@ -55,5 +55,8 @@ export async function readNativeFileInfo(api: DetailApi, scope: DetailScope, tar
   const locations: readonly NativeFileInfoLocation[] | undefined = model.owner ? groups.flatMap(({version, members}) => members.map(file => ({
     id: file.id, versionId: version.id, path: file.path, actions: model.owner!.locations.find(location => location.id === version.id)?.actions ?? [],
   }))) : undefined;
-  return Object.freeze({model, locations, groups: Object.freeze(groups)});
+  return Object.freeze({model, locations, groups: Object.freeze(groups), scope: first.scope, revision: first.revision, kind: first.kind,
+    files: Object.freeze(files), manage: first.manage});
 }
+
+export type NativeFileInfo = Awaited<ReturnType<typeof readNativeFileInfo>>;
