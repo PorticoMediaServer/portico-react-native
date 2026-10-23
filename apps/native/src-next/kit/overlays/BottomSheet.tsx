@@ -12,7 +12,7 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false, footerPadding, backdropOpacity = 0.64}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
   const theme = useTheme();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
@@ -129,7 +129,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
           </Animated.View></GestureDetector>
           {body}
         </Animated.View>
-        {footer != null && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footer, {backgroundColor: theme.colors.raised, paddingTop: footerPadding?.top ?? 14, paddingBottom: footerPadding ? keyboardTop !== undefined ? footerPadding.keyboardBottom : Math.max(insets.bottom, footerPadding.bottom) : (keyboardInset > 0 ? 0 : insets.bottom) + 16, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer}</Animated.View>}
+        {footer != null && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} style={[styles.footer, {backgroundColor: theme.colors.raised, paddingTop: footerPadding?.top ?? 14, paddingBottom: footerPadding ? keyboardTop !== undefined ? footerPadding.keyboardBottom : Math.max(insets.bottom, footerPadding.bottom) : (keyboardInset > 0 ? 0 : insets.bottom) + 16, borderTopWidth: showFooterSeparator ? 1 : 0, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer}</Animated.View>}
       </>}
     </View></View>
   </Modal>;
