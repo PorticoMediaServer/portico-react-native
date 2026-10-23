@@ -124,7 +124,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
-      setIdentityAddress(origin.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
+      setIdentityAddress(origin);
       setServer(undefined); setIdentityCode(''); setIdentityWrong(false); setStage('identity-code'); return;
     }
     if (!value) throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -147,7 +147,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
   const failure = error ? presentError(error, 'sign-in') : undefined;
   const status = failure ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
-  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
+  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode, kicker?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} kicker={kicker} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
@@ -165,9 +165,9 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
       }}/>) }{status}</>}
     primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
-  if (stage === 'local') return layout(server!.name, t('accounts.signIn.local'), fields(field(t('auth.username'), username, setUsername), field(t('auth.password'), password, setPassword, true)),
-    action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
-    <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);
+  if (stage === 'local') return layout(server!.name, t('accounts.signIn.localBody'), fields(field(t('accounts.signIn.username'), username, setUsername), field(t('accounts.signIn.password'), password, setPassword, true)),
+    action('local-sign-in', t('accounts.signIn.submit'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
+    <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>, <Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('accounts.signIn.to')}</Text>);
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else consume(await operation.current!.completeSecondFactor(code));
     setCode('');
