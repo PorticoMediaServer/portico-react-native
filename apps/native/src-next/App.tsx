@@ -6,11 +6,7 @@ import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 
-if (!Platform.isTV) {
-  require('./screens/downloads/register');
-  const {registerNativeWatch, createNativeWatchBindings} = require('./screens/watch') as typeof import('./screens/watch');
-  registerNativeWatch(createNativeWatchBindings);
-}
+if (!Platform.isTV) require('./screens/downloads/register');
 require('./screens/home/CustomizeRoute');
 require('./screens/home/SeeAllRoute');
 require('./screens/settings-live/LiveRoute');
