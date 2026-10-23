@@ -168,7 +168,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
 
 function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
-  const props = {focusId, disabled, title: entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched,
+  const props = {focusId, disabled, title: entry.displayTitle || entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched,
     onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef), selection: selected,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry), onFocus, onBlur};
   return ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind) ? <SquareCard {...props}/> : <PosterCard {...props}/>;
