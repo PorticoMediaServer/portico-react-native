@@ -1,4 +1,4 @@
-import type {V1Http, V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
+import type {V1Http, V1Request, V1Response} from '../../../../../packages/client-core/src/playback-v1/http';
 
 /** Cancels the previous principal's work and refuses both late responses and new sends. */
 export class PlaybackScopeHttp implements V1Http {
@@ -7,7 +7,10 @@ export class PlaybackScopeHttp implements V1Http {
   private guards = new WeakMap<AbortSignal, () => boolean>();
   private inner: V1Http;
   private current: () => boolean;
-  constructor(inner: V1Http, current: () => boolean) { this.inner = inner; this.current = current; }
+  private retiredResponse?: (request: V1Request, response: V1Response) => void;
+  constructor(inner: V1Http, current: () => boolean, retiredResponse?: (request: V1Request, response: V1Response) => void) {
+    this.inner = inner; this.current = current; this.retiredResponse = retiredResponse;
+  }
   /** A caller-owned operation fence follows this exact signal through the core's reads. Each
    * in-flight send retains its guard even after the caller removes the registration. */
   guard(signal: AbortSignal, current: () => boolean): () => void {
@@ -29,6 +32,9 @@ export class PlaybackScopeHttp implements V1Http {
         // A transport may finish before its owner receives an authority notification.
         // Retire this exact request before releasing its cancellation registration.
         controller.abort();
+        // A cancelled create can still return a genuine resource. Its owner may clean up
+        // that resource under its original principal; the response still never reaches callers.
+        try { this.retiredResponse?.(request, response); } catch { /* Retirement must still reject. */ }
         throw new Error('Playback authority retired.');
       }
       return response;
