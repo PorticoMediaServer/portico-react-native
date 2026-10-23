@@ -31,6 +31,16 @@ test('missing or unknown system identity is omitted without inventing a model', 
   assert.equal(vegaCapabilityDocument({model: ' AFTKRT '}).client.model, 'AFTKRT');
 });
 
+test('a bounded SDK model describes identity without changing decoder or output facts', () => {
+  const unnamed = vegaCapabilityDocument({});
+  const named = vegaCapabilityDocument({model: `  ${'x'.repeat(64)}  `});
+  assert.equal(capabilityDocumentProblem(named), null);
+  assert.equal(named.client.model, 'x'.repeat(64));
+  assert.deepEqual(named.engines, unnamed.engines);
+  assert.deepEqual(named.display, unnamed.display);
+  assert.deepEqual(named.audioOutput, unnamed.audioOutput);
+});
+
 test('one engine, text subtitles only, no track switching inside a file, no HDR', () => {
   for (const origin of ['https://media.example.test', 'http://192.168.1.20:32500', null]) {
     const native = vegaCapabilityDocument(facts, origin).engines.native;
