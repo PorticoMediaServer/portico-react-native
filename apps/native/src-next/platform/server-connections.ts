@@ -2,6 +2,7 @@ import {revisionRequiredFetch} from './revision-required-fetch';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import {
   HttpLocalApi,
+  assertFirstContactIdentity,
   type CredentialSessionService,
   type LocalSession,
 } from '../../../../packages/client-core/src/index.ts';
@@ -15,53 +16,21 @@ import {
   type RouteConnection,
   type DiscoveryRoute,
   sessionRoute,
+  bonjourProvesHome,
 } from '../../../../packages/client-core/src/route-connection.ts';
 import {
   forgetNativeSession,
   restoreNativeSession,
   type ConnectionEnvironment,
-  type ServerConnectionStorage,
-  type RememberedServer,
   type HostedConnectionSource,
 } from '../../../../packages/client-core/src/server-connections.ts';
-import { NativeQueueStore } from './queue-storage';
+import {nativeAppSessions} from './app-session-storage';
+import {knownServerRoutes, type NewServerConnection} from '../../../../packages/client-core/src/app-sessions';
 import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
 import { isAccountAuthority } from './account-authority';
 import {homeActionDiagnostics} from './home-action-diagnostics';
-import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
-const storageKey = 'network.selected.v1';
-const store = new NativeQueueStore();
-// A saved connection that is there but can never be read ends the sign-in (the shared code tells
-// it by this code); a store that cannot be read right now keeps it. A change treats the damaged
-// record as absent, so the next sign-in saves over it and anything else leaves it untouched.
-const damaged = () =>
-  new RouteError(
-    'invalid_saved_connection',
-    'Saved server credentials are incomplete.',
-  );
-const storage: ServerConnectionStorage = {
-  read: () =>
-    store.change(
-      storageKey,
-      raw => ({
-        record: raw,
-        value: raw === null ? undefined : (raw as RememberedServer),
-      }),
-      { error: damaged },
-    ),
-  change: async update => {
-    await store.change(
-      storageKey,
-      raw => ({
-        record:
-          update(raw === null ? undefined : (raw as RememberedServer)) ?? null,
-        value: undefined,
-      }),
-      { error: damaged, replace: true },
-    );
-  },
-};
+import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, pendingCertificate, type CertificateContext, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 /** One request through the native transport, as it is. */
 const nativeRequest: typeof fetch = async (input, options = {}) => {
   if (
@@ -108,18 +77,44 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
  * network is refused here with the reason (the system would refuse it anyway). A request that
  * meets the owner's own certificate settles it (`certificate-trust.ts`) and is retried once.
  */
-export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (input, options = {}) => {
+function nativeFetchForIdentity(expected?: string): typeof fetch {return revisionRequiredFetch(async (input, options = {}) => {
   if (Platform.OS === 'ios' && typeof input === 'string') checkApplePlainHttp(input);
+  const origin = typeof input === 'string' && !isAccountAuthority(input) ? certificateOrigin(input) : undefined;
+  if (origin && certificateTrustAvailable()) ensureMonitoring();
+  const networkRevision = revision;
+  const decision: CertificateContext = async (proof, fingerprint) => {
+    const state = await nativeAppSessions.read();
+    if (options.signal?.aborted) throw new RouteError('cancelled', 'certificate_decision_cancelled');
+    const knownRoutes = knownServerRoutes(state);
+    assertFirstContactIdentity(origin!, proof, {linkId: expected, knownRoutes});
+    // Only the exact proof's native TLS observation can qualify current-network
+    // discovery. TXT fp remains the identity-key hash; a private address alone
+    // never grants home trust (and CGNAT stays on the away path).
+    const records = await browseNearby('servers', options.signal ?? new AbortController().signal).catch(() => []);
+    if (options.signal?.aborted || networkRevision !== revision) throw new RouteError('cancelled', 'certificate_network_changed');
+    const home = bonjourProvesHome(origin!, proof, fingerprint, records as readonly DiscoveryRoute[]);
+    return {expected, home, knownServerIds: state.servers.map(value => value.connection.pin.serverId)};
+  };
+  // A pending code decision permits no normal request, including a public name
+  // read. The proof client below is separate and has one fixed method/path.
+  if (origin && pendingCertificate(origin)) throw new RouteError('identity_code_needed', 'identity_code_needed');
   try {
-    return await nativeRequest(input, options);
+    const result = await nativeRequest(input, options);
+    // A Portico-pinned leaf can complete TLS while the system still refuses it. It must
+    // pass the same identity decision, rather than masquerade as system trust.
+    if (origin && certificateTrustAvailable() && await nativeCertificatePlatform.refused(origin))
+      await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, decision, options.signal ?? undefined);
+    return result;
   } catch (error) {
     // An owner's own certificate is settled only for the owner's server, never the account service (NS-02).
-    const origin = typeof input === 'string' && (error as {code?: unknown})?.code === 'certificate_untrusted' && !isAccountAuthority(input) ? certificateOrigin(input) : undefined;
-    if (!origin || !certificateTrustAvailable()) throw error;
-    await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, options.signal ?? undefined);
+    if (!origin || (error as {code?: unknown})?.code !== 'certificate_untrusted' || !certificateTrustAvailable()) throw error;
+    await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, decision, options.signal ?? undefined);
     return nativeRequest(input, options);
   }
-});
+});}
+export const nativeNetworkFetch = nativeFetchForIdentity();
+/** Expected identity stays captured for every route probe and authenticated request. */
+export const nativeServerFetch = (serverId: string) => nativeFetchForIdentity(serverId);
 /** Whether this device can trust an owner's own certificate (Android and Apple; not Vega). */
 export function certificateTrustAvailable(): boolean {
   return typeof NativeModules.PorticoNetwork?.refusedCertificate === 'function';
@@ -133,6 +128,9 @@ export async function savedCertificates(): Promise<SavedCertificate[]> {
 export function forgetSavedCertificate(address: string): void {
   NativeModules.PorticoNetwork?.forgetCertificate?.(savedCertificateOrigin(address));
 }
+const proofTLSLeaves = new WeakMap<Response, string>();
+/** Native TLS metadata for this exact proof Response, never an HTTP header or TXT. */
+export function nativeProofTLSLeaf(response: Response): string | undefined {return proofTLSLeaves.get(response);}
 export const nativeCertificatePlatform: CertificatePlatform = {
   refused: async origin => {
     const found = await NativeModules.PorticoNetwork.refusedCertificate(origin);
@@ -146,12 +144,18 @@ export const nativeCertificatePlatform: CertificatePlatform = {
     await NativeModules.PorticoNetwork.pinCertificate(origin, pin.fingerprint, pin.serverId);
   },
   // The identity proof only: its exact address, method and body, over the one certificate.
+  observedTLSLeaf: nativeProofTLSLeaf,
   proofFetcher: (origin, fingerprint) => async (input, options = {}) => {
+    if (options.signal?.aborted) throw new RouteError('cancelled', 'certificate_proof_cancelled');
     if (typeof input !== 'string' || input !== origin + routePath('prove_network_identity') || options.method !== 'POST' || typeof options.body !== 'string')
       throw new RouteError('cancelled', 'Connection request cancelled.');
     const raw = await NativeModules.PorticoNetwork.proofRequest(origin, fingerprint, options.body);
     if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
-    return new Response(raw.body, {status: raw.status, headers: raw.headers});
+    const response = new Response(raw.body, {status: raw.status, headers: raw.headers});
+    if (typeof raw.tlsLeafFingerprint !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(raw.tlsLeafFingerprint) || raw.tlsLeafFingerprint !== fingerprint)
+      throw new RouteError('certificate_unverified', 'certificate_unverified');
+    proofTLSLeaves.set(response, raw.tlsLeafFingerprint);
+    return response;
   },
 };
 export const nativeRouteCrypto: RouteCrypto = {
@@ -205,13 +209,20 @@ export async function browseNearby(
     signal.removeEventListener('abort', cancel);
   }
 }
-export const nativeConnectionEnvironment: ConnectionEnvironment = {
-  storage,
+const nativeEnvironment = {
   fetcher: nativeNetworkFetch,
   crypto: nativeRouteCrypto,
-  discover: async signal =>
+  discover: async (signal: AbortSignal) =>
     (await browseNearby('servers', signal)) as readonly DiscoveryRoute[],
 };
+/** Capture one server for the whole runtime. A later switch never retargets its refresh writes. */
+export function nativeServerEnvironment(serverId: string, admission?: NewServerConnection): ConnectionEnvironment {
+  return {...nativeEnvironment, fetcher: nativeServerFetch(serverId), storage: nativeAppSessions.connectionStorage(serverId, admission)};
+}
+export function nativeSelectedConnectionEnvironment(): ConnectionEnvironment {
+  return {...nativeEnvironment, storage: nativeAppSessions.selectedStorage()};
+}
+
 let activeApi: HttpLocalApi | undefined,
   transport = 'unknown';
 let active: RouteConnection | undefined,
@@ -290,9 +301,10 @@ export async function restoreNativeConnection(
   origin: string,
   credentials: CredentialSessionService | undefined,
   expected: LocalSession,
+  env = nativeServerEnvironment(expected.viewer.serverId),
 ) {
   return restoreNativeSession(
-    nativeConnectionEnvironment,
+    env,
     record =>
       record.hosted && credentials && record.hosted.origin === origin
         ? nativeHostedSource(origin, credentials, record.hosted.accountId)
@@ -302,8 +314,9 @@ export async function restoreNativeConnection(
 }
 export async function forgetNativeConnection(session: LocalSession) {
   const captured = sessionRoute(session.accessToken);
-  await forgetNativeSession(nativeConnectionEnvironment, session);
-  const retained = await nativeConnectionEnvironment.storage.read();
+  const env = nativeServerEnvironment(session.viewer.serverId);
+  await forgetNativeSession(env, session);
+  const retained = await env.storage.read();
   if (retained && sessionRoute(retained.session.accessToken) === captured)
     return;
   if (active === captured) active = undefined;

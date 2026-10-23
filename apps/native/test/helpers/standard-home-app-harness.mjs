@@ -339,17 +339,18 @@ export async function standardHomeApp({
       ? []
       : [
           [
-            'network.selected.v1',
-            JSON.stringify({
+            'accounts.sessions.v1',
+            JSON.stringify({version: 1, revision: 1, selectedServerId: pin.serverId, servers: [{signIn: 'local', connection: {
               version: '1',
               logicalOrigin: origin,
               session,
               pin,
               routes: {paired: [origin]},
-            }),
+            }}]}),
           ],
         ],
   );
+  if (!setup) store.set('accounts.server-names.v1', JSON.stringify({version: 1, servers: [{serverId: pin.serverId, fingerprint: pin.fingerprint, name: 'Synthetic living room'}]}));
   const requests = [],
     receipts = [],
     commands = [],
@@ -510,6 +511,7 @@ export async function standardHomeApp({
       const response = await nativeResponse(request, {
         pin,
         viewer,
+        session: {...session, serverIdentity: {publicKey: pin.publicKey, fingerprint: pin.fingerprint}},
         installationId,
         origin,
       });
@@ -531,6 +533,7 @@ export async function standardHomeApp({
       });
       if (response) return response;
     }
+    if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false}};
     if (path === routePath('get_me')) return {status: 200, body: {viewer}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
     if (path === routePath('get_preferences'))
@@ -671,6 +674,7 @@ export async function standardHomeApp({
       pending.set(id, controller);
       const request = {
         method,
+        url,
         path: new URL(url).pathname + new URL(url).search,
         headers,
         body: body ? JSON.parse(body) : undefined,
