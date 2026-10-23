@@ -32,3 +32,21 @@ test('a genuine Local refresh advances its inactivity horizon without retiring H
     assert.equal(app.errors.length, 0);
   } finally {await app.unmount(); app.disposeLoader();}
 });
+
+for (const changed of ['installation', 'backwards-horizon'] as const) test(`Local renewal still retires private Home for ${changed}`, async t => {
+  t.mock.timers.enable({apis: ['Date'], now: Date.now()});
+  const app = await standardHomeApp({nativeResponse: async (request: any, fixture: any) => {
+    if (request.path !== '/v1/auth/refresh') return undefined;
+    return {status: 200, body: {...fixture.session,
+      accessToken: 'synthetic_refreshed_access', refreshToken: 'synthetic_refreshed_credential', tokenGeneration: '2',
+      ...(changed === 'installation' ? {installationId: fixture.installationId + '_changed'} : {}),
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      authorizationHorizon: new Date(Date.now() + (changed === 'backwards-horizon' ? 60 * 60_000 : 90 * 86_400_000)).toISOString()}};
+  }});
+  try {
+    t.mock.timers.tick(59 * 60_000);
+    await app.refresh();
+    assert.equal(app.hosts().some(host => host.props.testID === 'native-home'), false, 'the permitted Local advance does not admit a changed binding or shorter horizon');
+    assert.equal(app.hosts().some(host => host.name === 'PorticoPlayer'), false, 'the retired private runtime releases its persistent host');
+  } finally {await app.unmount(); app.disposeLoader();}
+});
