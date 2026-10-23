@@ -7,6 +7,7 @@
 #import "PorticoDownloadAttempt.h"
 #import "PorticoDownloadOwner.h"
 #import "PorticoServerTrust.h"
+#import "PorticoDownloadStorage.h"
 
 // Offline downloads for iPhone and iPad.
 //
@@ -782,7 +783,8 @@ static NSString *PorticoSafeFileName(NSString *value) {
     for (NSDictionary *entry in self->_entries.allValues) if ([entry[@"state"] isEqual:@"ready"]) used += [entry[@"bytes"] longLongValue];
     NSMutableDictionary *storage = [@{@"freeBytes": values[NSURLVolumeAvailableCapacityForImportantUsageKey] ?: @0, @"usedBytes": @(used)} mutableCopy];
     NSNumber *total = values[NSURLVolumeTotalCapacityKey];
-    if ([total isKindOfClass:NSNumber.class] && total.longLongValue > 0) storage[@"totalBytes"] = total;
+    if ([total isKindOfClass:NSNumber.class] && total.longLongValue > 0 && total.unsignedLongLongValue <= PorticoStorageMaxSafe) storage[@"totalBytes"] = total;
+    [storage addEntriesFromDictionary:PorticoDownloadStorage([self root])];
     resolve(storage);
   });
 }
