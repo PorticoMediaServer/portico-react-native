@@ -1078,3 +1078,64 @@ test('a forgotten receipt whose title is still being prepared is left for the ne
   assert.notEqual(device.metaOf('prep-a').changed, true);
   assert.deepEqual(device.removed, []);
 });
+
+async function offlineDisplayFixture(options:{expiresAt?:string;floor?:number}={}) {
+  const {offlineDownloads}=await bridge(),owner=ownerKeyOf(A);
+  device.state=JSON.stringify({version:3,keys:{'key-1':KEYS().keys[0]!.publicKey},resume:{[owner]:{'item-1':42}},clockFloor:options.floor??0});
+  device.seed({id:'prep-a',itemId:'item-1',dir:'file:///downloads/prep-a/',quality:'opaque-quality-id',meta:{owner,receipt:receipt({id:'r-a',viewer:A,itemId:'item-1',preparationId:'prep-a',expiresAt:options.expiresAt}),extras:['backdrop']}});
+  extra('prep-a').set('bundle.json',JSON.stringify({preparationId:'prep-a',itemId:'item-1',media:{container:'mkv',videoCodec:'hevc',audioCodec:'truehd',width:3840,height:2160}}));
+  offlineDownloads.adopt(A);await offlineDownloads.open();
+  return {offlineDownloads,entry:offlineDownloads.getSnapshot().entries[0]!};
+}
+
+test('typed offline facts use only the owned cached bundle and item bookmark, with no inferred completion', async () => {
+  const {offlineDownloads,entry}=await offlineDisplayFixture();
+  assert.equal(offlineDownloads.playabilityReason(entry),null);
+  assert.equal(offlineDownloads.playable(entry),'');
+  assert.deepEqual(await offlineDownloads.displayFacts(entry),{
+    resumePositionSeconds:42,backdropUrl:'file:///downloads/prep-a/extras/backdrop',
+    media:{container:'mkv',videoCodec:'hevc',audioCodec:'truehd',width:3840,height:2160},
+  });
+  extra('prep-a').set('bundle.json',JSON.stringify({preparationId:'prep-a',itemId:'other-item',media:{height:720}}));
+  assert.equal((await offlineDownloads.displayFacts(entry)).media,undefined,'a bundle for another item supplies no quality facts');
+  extra('prep-a').set('bundle.json','{broken');
+  const unknown=await offlineDownloads.displayFacts(entry);
+  assert.equal(unknown.media,undefined);assert.equal('completed'in unknown,false);
+  offlineDownloads.adopt(B);
+  await assert.rejects(offlineDownloads.displayFacts(entry));
+});
+
+test('typed needs-check-in uses the verified receipt clock floor, with the same legacy message decision', async () => {
+  const {offlineDownloads,entry}=await offlineDisplayFixture({expiresAt:'2030-01-01T00:00:00.000Z',floor:Date.parse('2031-01-01T00:00:00.000Z')});
+  assert.equal(offlineDownloads.playabilityReason(entry),'needs_check_in');
+  assert.equal(offlineDownloads.playable(entry),serviceText('downloads.offline.needsCheckIn'));
+});
+
+test('cached display and local media reads reject an owner change while native reads are pending', async () => {
+  const originalExtra=nativeDownloads.readExtra,originalFile=nativeDownloads.localFile;
+  try {
+    let release!:(value:string)=>void;
+    const a=await offlineDisplayFixture();
+    nativeDownloads.readExtra=()=>new Promise<string>(resolve=>{release=resolve;});
+    const reading=a.offlineDownloads.displayFacts(a.entry),rejected=assert.rejects(reading);
+    a.offlineDownloads.adopt(B);release('{}');await rejected;
+    nativeDownloads.readExtra=originalExtra;
+    const b=await offlineDisplayFixture();
+    let releaseFile!:(value:{url:string;durationSeconds:number})=>void;
+    nativeDownloads.localFile=()=>new Promise(resolve=>{releaseFile=resolve;});
+    const media=b.offlineDownloads.localMedia(b.entry),mediaRejected=assert.rejects(media);
+    b.offlineDownloads.adopt(B);releaseFile({url:'file:///downloads/prep-a/media',durationSeconds:1200});await mediaRejected;
+  } finally {nativeDownloads.readExtra=originalExtra;nativeDownloads.localFile=originalFile;}
+});
+
+test('private cached title keeps typed duration and episode facts after native JSON readback', async () => {
+  const {offlineDownloads}=await bridge(),owner=ownerKeyOf(A);
+  const {durationMs:_wire,...title}=TITLE();
+  const cached={...title,kind:'episode',durationSeconds:1200,parentTitle:'A series',groupNumber:2,number:3};
+  device.seed({id:'prep-a',itemId:'item-1',meta:{owner,title:cached}});
+  offlineDownloads.adopt(A);await offlineDownloads.open();
+  const entry=offlineDownloads.getSnapshot().entries[0]!;
+  assert.deepEqual(entry.info,cached);
+  assert.equal(entry.info?.durationSeconds,1200);
+  assert.equal(entry.info?.groupNumber,2);assert.equal(entry.info?.number,3);
+});

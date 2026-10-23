@@ -58,7 +58,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   }});
   const {dockX, dockFade} = morph;
   const prepareLayout = useCallback(async (fence: PlaybackFence) => {
-    if (Platform.OS !== 'android' || theme.isTV) return;
+    if (!['android', 'ios'].includes(Platform.OS) || theme.isTV) return;
     const revision = ++layoutCaptureRevision.current; layoutCapture.current = revision;
     try {
       await capture.prepare(fence, () => {
@@ -69,7 +69,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   }, [adapter, authority, capture, theme.isTV]);
   const preparePicture = useCallback(() => {
     const current = adapter.getSnapshot();
-    if (Platform.OS !== 'android' || theme.isTV || !alive.current || !sameAuthority(current.authority, authority) || !current.fence
+    if (!['android', 'ios'].includes(Platform.OS) || theme.isTV || !alive.current || !sameAuthority(current.authority, authority) || !current.fence
       || !current.dock.local || !['video', 'live'].includes(current.dock.local.kind)) return;
     const fence = current.fence;
     void capture.prepare(fence, () => {
@@ -150,7 +150,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
       <PlayerMorph controller={morph} fence={fence} docked={docked} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
-        onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} androidSnapshot={image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
+        onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} retainedSnapshot={image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
           failed: imageState?.image === image && imageState.state === 'failed', image: <Image source={{uri: image.image.uri}} onLoad={() => imageSettled('ready')} onError={() => imageSettled('failed')} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
         {context => <Surface dockBounds={dockBounds ? context.bounds : undefined} expandedBounds={expandedReady ? context.bounds : undefined} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
       </PlayerMorph>
