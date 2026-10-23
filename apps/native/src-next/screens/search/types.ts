@@ -3,6 +3,7 @@ import type {View} from 'react-native';
 import type {SearchEntry, SearchGroup, SearchGroupResult, SearchSnapshot} from '../../../../../packages/client-core/src/search';
 import type {MessageId} from '../../../../../packages/i18n/src';
 import type {CardSelection} from '../../kit/cards';
+import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 /** These are bounded, authorized producer tiles, never inferred from loaded results. */
 export type NativeSearchGenre = Readonly<{
@@ -28,6 +29,7 @@ export type NativeSearchSelectionPort = Readonly<{
   render: () => ReactNode;
 }>;
 export type NativeSearchActions = Readonly<{
+  menuState?: NativeEntryMenuState;
   open: (entry: SearchEntry, group: SearchGroup) => void;
   play: (entry: SearchEntry, group: SearchGroup) => void;
   menu: (entry: SearchEntry, group: SearchGroup, anchorRef?: RefObject<View | null>) => void;

@@ -29,9 +29,10 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
 
 test('Downloads storage authority retires old actions, requests and disconnects without touching a newer viewer', async () => {
   const host = hooks(), connections: any[] = []; let disposed = 0, disconnects = 0;
+  const deviceSnapshot = {entries: [], supported: true};
   const device = {
     connect: (...args: any[]) => {connections.push(args);}, disconnect: () => {disconnects++;}, adopt() {},
-    getSnapshot: () => ({entries: [], supported: true}), subscribe: () => () => {}, open: async () => {}, setSettings: async () => {},
+    getSnapshot: () => deviceSnapshot, subscribe: () => () => {}, open: async () => {}, setSettings: async () => {},
     pause: async () => {}, resume: async () => {}, remove: async () => {}, removeOthers: async () => {},
     displayFacts: async () => ({}), localMedia: async () => ({}), playable: () => '', playabilityReason: () => null, note: () => '',
   };
@@ -51,11 +52,12 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   assert.equal(connections[0][2], viewer);
   assert.equal(first.device.openOffline, undefined);
   const retainedSaved = createNativeDownloadsDevice(context);
-  assert.equal(retainedSaved.device, first.device, 'Saved and Downloads borrow the same authority-local native projection');
+  assert.equal(retainedSaved.device.getSnapshot(), first.device.getSnapshot(), 'Saved and Downloads read the same authority-local native snapshot');
   await retainedSaved.device.open();
   assert.equal(connections.length, 1, 'a route round trip cannot create a second native connection');
   first.dispose(); first.dispose();
   assert.equal(disconnects, 0, 'closing one borrower leaves the retained Saved hub connected');
+  assert.throws(() => first.device.setSettings({wifiOnly: false}), {code: 'cancelled'}, 'a disposed route cannot mutate through another retained borrower');
   assert.deepEqual(retainedSaved.device.getSnapshot().entries, []);
   const request = connections[0][0].request('/actual');
   current = false; finish({private: 'old'});

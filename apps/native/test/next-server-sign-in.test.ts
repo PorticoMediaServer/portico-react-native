@@ -5,6 +5,7 @@ import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 // Synthetic native module boundary; every production parser, signed proof, transport and store runs.
 test('current native local sign-in probes before credentials, verifies the pin and selects a server profile', async t => {
   let kind = 'local', suffix = '', held: (() => void) | undefined;
+  let requirement: 'password' | 'two-step' | 'both' | undefined, logoutFails = false;
   const app = await standardHomeApp({setup: true, setupResponse: async (request: any, f: any) => {
     if (request.path === '/v1/system') return {status: 200, body: {id: f.pin.serverId, name: 'Synthetic local server', signIn: kind,
       version: '1', move: null, setupRequired: false, hostedConfigured: false, hostedAttached: false}};
@@ -14,6 +15,11 @@ test('current native local sign-in probes before credentials, verifies the pin a
       profiles: [{id: 'profile', name: 'Actual server profile', primary: true, position: 0, art: 'mint', revision: 1, pinRevision: 1, pinRequired: true}]};
     if (request.path === '/v1/direct/sign-in') {
       if (request.body.password !== 'synthetic_password') return {status: 401, body: {error: {code: 'invalid_credentials'}}};
+      if (requirement) return {status: 200, body: {...snapshot, canManage: false,
+        capabilities: {manageAccount: false, managePeople: false, manageServer: false, manageSignIn: false},
+        ...(requirement !== 'password' ? {twoStepSetupRequired: true} : {}),
+        ...(requirement !== 'two-step' ? {passwordChangeRequired: true} : {}),
+        session: {...f.session, accessToken: 'restricted_account', sessionFamilyId: 'restricted_family', viewer: {...f.viewer, role: 'account'}}}};
       return {status: 200, body: {...snapshot, session: {...f.session, accessToken: 'account_access' + suffix, sessionFamilyId: 'current_account' + suffix, viewer: {...f.viewer, role: 'account'}}}};
     }
     if (request.path === '/v1/direct/profiles/profile/select') {
@@ -25,12 +31,50 @@ test('current native local sign-in probes before credentials, verifies the pin a
       if (held) await new Promise<void>(resolve => {held = resolve;});
       return {status: 200, body: {viewer: f.viewer}};
     }
-    if (request.path === '/v1/sessions/current') return {status: 204};
+    if (request.path === '/v1/sessions/current') return logoutFails ? {status: 503, body: {error: {code: 'unavailable'}}} : {status: 204};
     return undefined;
   }});
   const {NativeServerSignIn} = await import('../src-next/platform/server-sign-in.ts');
   const {nativeAppSessions, readNativeSelectedViewer} = await import('../src-next/platform/app-session-storage.ts');
   try {
+    for (const required of ['password', 'two-step', 'both'] as const) await t.test(`TV ${required} requirement retires the restricted grant before returning only public hand-off facts`, async () => {
+      requirement = required;
+      const signIn = new NativeServerSignIn(undefined, {requiredSetupHandoff: true}), before = app.requests.length;
+      const previous = await nativeAppSessions.read();
+      try {
+        await signIn.inspect('https://standard-home.test'); await signIn.confirmLocal(await signIn.inspectLocalIdentity());
+        const result = await signIn.signInLocal('synthetic_user', 'synthetic_password');
+        assert.deepEqual(result, {kind: 'required-setup', requirement: required === 'two-step' ? 'two-step' : 'password',
+          serverName: 'Synthetic local server', serverOrigin: 'https://standard-home.test'});
+        assert.deepEqual(await nativeAppSessions.read(), previous, 'restricted account never reaches durable admission');
+        const outgoing = app.requests.slice(before);
+        assert.equal(outgoing.filter((r: any) => r.path === '/v1/sessions/current').length, 1);
+        const retired = outgoing.find((r: any) => r.path === '/v1/sessions/current');
+        assert.equal(new Headers(retired.headers).get('Authorization'), 'Bearer restricted_account');
+        const after = app.requests.length;
+        await assert.rejects(signIn.chooseProfile('profile', '1234'));
+        assert.equal(app.requests.length, after, 'handoff retains no usable account/picker command');
+      } finally {requirement = undefined; signIn.dispose(); await app.settle();}
+    });
+    await t.test('TV drops the restricted grant even when server sign-out fails', async () => {
+      requirement = 'two-step'; logoutFails = true;
+      const signIn = new NativeServerSignIn(undefined, {requiredSetupHandoff: true});
+      try {
+        await signIn.inspect('https://standard-home.test'); await signIn.confirmLocal(await signIn.inspectLocalIdentity());
+        assert.equal((await signIn.signInLocal('synthetic_user', 'synthetic_password')).kind, 'required-setup');
+        await assert.rejects(signIn.chooseProfile('profile'));
+        assert.equal((await nativeAppSessions.read()).servers.length, 0);
+      } finally {requirement = undefined; logoutFails = false; signIn.dispose(); await app.settle();}
+    });
+    await t.test('a client without the TV handoff never exposes a required-setup grant as profiles', async () => {
+      requirement = 'two-step'; const signIn = new NativeServerSignIn();
+      try {
+        await signIn.inspect('https://standard-home.test'); await signIn.confirmLocal(await signIn.inspectLocalIdentity());
+        await assert.rejects(signIn.signInLocal('synthetic_user', 'synthetic_password'), (error: {code?: string}) => error.code === 'two_step_setup_required');
+        await assert.rejects(signIn.chooseProfile('profile'));
+        assert.equal((await nativeAppSessions.read()).servers.length, 0);
+      } finally {requirement = undefined; signIn.dispose(); await app.settle();}
+    });
     await t.test('Portico destination never exposes a local credential command', async () => {
       kind = 'portico'; const signIn = new NativeServerSignIn(), before = app.requests.length;
       try {

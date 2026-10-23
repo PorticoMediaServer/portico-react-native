@@ -34,6 +34,7 @@ export type NativeSearchScreenProps = Readonly<{
 
 /** Actual SearchService results and per-profile history. The shell owns authority lifetime. */
 export function SearchScreen({destination, runtime, explore, actions, selection, activation, tvCopy}: NativeSearchScreenProps) {
+  useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
