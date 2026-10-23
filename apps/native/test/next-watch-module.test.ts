@@ -4,12 +4,15 @@ import {screenModule, hooks} from './helpers/screen-harness.mjs';
 import {sameFence, playbackFence} from '../../../packages/player-core/src/index.ts';
 import {qualityOptionSelected} from '../../../packages/client-core/src/playback-v1/quality.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {createNativeWatchPanelNames} from '../src-next/screens/watch/panel-names.ts';
+import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = hooks();
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
   react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
+  '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {optionsDisposed++;}}},
   './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {title: {render: () => 'title'}, watch: {
     render: (runtime: any) => ports.player.chrome(ports.playback.getSnapshot(), runtime), body: () => 'body', back: () => true,
@@ -29,7 +32,7 @@ test('chrome facts use current selected IDs and never a preferred version or an 
   const live = source();
   assert.deepEqual(nativeWatchChromeFacts(live, names), {quality: '720p-high', audio: 'actual', subtitle: 'actual-subtitle'});
   assert.deepEqual(nativeWatchChromeFacts({...live, session: {...live.session, presentation: {...live.session.presentation, generation: 2}}}, names), {quality: ''});
-  assert.deepEqual(nativeWatchChromeFacts({...live, session: {...live.session, presentation: {...live.session.presentation, audioTrackId: undefined, subtitle: undefined}}}, names), {quality: '720p-high', audio: undefined, subtitle: undefined});
+  assert.deepEqual(nativeWatchChromeFacts({...live, session: {...live.session, presentation: {...live.session.presentation, audioTrackId: undefined, subtitle: undefined}}}, names), {quality: '720p-high', audio: undefined, subtitle: 'Off'});
 });
 
 test('module preserves the genuine adapter/outlet, current preferences, body and retirement lifetime', async () => {

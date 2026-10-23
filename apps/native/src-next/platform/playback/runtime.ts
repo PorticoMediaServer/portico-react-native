@@ -20,7 +20,7 @@ import {qualityOptionRequest, type QualityOption} from '../../../../../packages/
 import {SubtitleService} from '../../../../../packages/client-core/src/subtitles';
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker} from '../../../../../packages/player-core/src';
+import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker} from '../../../../../packages/player-core/src';
 import {NativePlaybackCoordinator} from './NativePlaybackCoordinator';
 import {NativePlayback, automaticSteps} from './native-playback';
 import {PlaybackScopeHttp} from './scope-http';
@@ -500,7 +500,7 @@ export class NativePlaybackRuntime {
       || data.item.id !== binding.itemId || data.item.libraryId !== binding.libraryId || data.scope.viewerFence !== binding.responseFence) return;
     return data;
   }
-  private fence(): PlaybackFence | undefined {
+  private fence(): QueuePlaybackFence | ChannelPlaybackFence | undefined {
     const state = this.playback.getSnapshot(), session = this.currentSession(), view = this.queue.getSnapshot().view;
     if (state.channel && state.session && state.session.generation > 0 && state.playbackRun > 0) {
       const reference = state.channel, common = {kind: 'channel' as const, playback: {scope: this.scope, run: state.playbackRun}, sessionId: state.session.id, generation: state.session.generation, channelId: reference.channelId, channelGeneration: reference.generation};
@@ -515,7 +515,7 @@ export class NativePlaybackRuntime {
       sourceId: session.versionId, entryId: session.queue.entryId, generation: state.session.generation,
       ...(episode?.showId ? {showId: episode.showId} : {}), ...(episode?.seasonId ? {seasonId: episode.seasonId} : {})});
   }
-  private local(fence: PlaybackFence): DockPlayback {
+  private local(fence: QueuePlaybackFence | ChannelPlaybackFence): DockPlayback {
     const state = this.playback.getSnapshot(), queue = this.queue.getSnapshot().view?.queue;
     const common = {positionSeconds: state.positionSeconds, playing: state.intent === 'playing' && state.phase !== 'error' && state.phase !== 'ended', expanded: this.expanded};
     if (fence.kind === 'channel') return {...common, fence, kind: 'live', queue: null};
