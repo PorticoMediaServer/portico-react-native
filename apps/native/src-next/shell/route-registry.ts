@@ -76,7 +76,7 @@ export class NativeShellRouteRegistry {
       render: (route, runtime) => current() && context.navigation.allows(route) ? renderer(route)?.render(route, runtime) : null,
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
-      scrollToTop: route => {if (current()) renderer(route)?.scrollToTop?.(route);},
+      scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},
     } satisfies NativeBoundRoutes);
   }
