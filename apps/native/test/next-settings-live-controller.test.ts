@@ -5,6 +5,14 @@ import {NativeSettingsController, type NativeSettingsReader} from '../src-next/s
 import {NativeDashboardController, type NativeDashboardAdmission, type NativeDashboardReaders} from '../src-next/screens/settings-live/dashboard-controller';
 import {NativeTogetherController, type NativeTogetherService} from '../src-next/screens/settings-live/together-controller';
 import {NativeRecordingsController, type NativeRecordingService} from '../src-next/screens/settings-live/recordings-controller';
+import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
+import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
+import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
+import {defaultI18n} from '../../../packages/i18n/src';
+import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
+import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
+import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
+import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
@@ -18,6 +26,93 @@ function authority() {
     replace: (next: Partial<ShellAuthority>) => {value = {...value, ...next}; for (const fn of [...listeners]) fn();},
     revoke: () => {valid = false; for (const fn of [...listeners]) fn();}};
 }
+
+function guideChannel(): GuideChannel {
+  return {id: 'channel', sourceId: 'source', provenance: 'live-source', generation: 'generation', name: 'Guide test channel', number: '201', group: '', programmes: [], tuneAvailable: true, recordAvailable: true, tuneUnavailableReason: '', recordUnavailableReason: '', favorite: false, hidden: false, preferenceRevision: 7};
+}
+
+test('guide favorite waits for receipt and retries the exact operation key and selected revision', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), sent: unknown[] = [];
+  let finish!: (value: unknown) => void, generated = 0;
+  const api: ChannelApi = {request: <T>(_path: string, method?: string, body?: unknown) => {
+    if (method === 'POST') {sent.push(body); if (sent.length === 1) return Promise.reject(new Error('unknown transport outcome')); return new Promise<T>(resolve => {finish = value => resolve(value as T);});}
+    return Promise.resolve({protocolVersion: '1.0', serverId: 'server', viewerFence: 'guide-domain-fence', revision: 'directory1', sources: []} as T);
+  }};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  const requestId = async () => {generated++; return 'ab'.repeat(24);};
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, requestId), undefined);
+  assert.equal(channel.favorite, false);
+  assert.ok(controller.getSnapshot().mutationError);
+  const pending = controller.channelPreference(channel, {favorite: true, hidden: false}, requestId);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(controller.getSnapshot().mutating, true);
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, requestId), undefined);
+  assert.equal(generated, 1);
+  assert.deepEqual(sent, [
+    {requestId: 'ab'.repeat(24), sourceId: 'source', channelId: 'channel', expectedRevision: 7, favorite: true, hidden: false},
+    {requestId: 'ab'.repeat(24), sourceId: 'source', channelId: 'channel', expectedRevision: 7, favorite: true, hidden: false},
+  ]);
+  assert.equal(channel.favorite, false);
+  finish({protocolVersion: '1.0', serverId: 'server', revision: 8});
+  const committed = await pending;
+  assert.equal(committed?.favorite, true);
+  assert.equal(committed && legacyChannel(committed)?.preferenceRevision, 8);
+  assert.equal(controller.getSnapshot().mutationError, undefined);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('guide refuses a late favorite receipt after profile authority changes', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner);
+  let finish!: (value: unknown) => void;
+  const api: ChannelApi = {request: <T>() => new Promise<T>(resolve => {finish = value => resolve(value as T);})};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  const pending = controller.channelPreference(channel, {favorite: true, hidden: false}, async () => 'cd'.repeat(24));
+  await Promise.resolve(); await Promise.resolve();
+  owner.replace({profileId: 'other', viewerFence: 'other-home-fence'});
+  finish({protocolVersion: '1.0', serverId: 'server', revision: 8});
+  assert.equal(await pending, undefined);
+  assert.equal(channel.favorite, false);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('a failed native operation-key generation sends no mutation and can be retried', async () => {
+  const lifetime = new NativeScreenLifetime(authority());
+  let requests = 0;
+  const api: ChannelApi = {request: async <T>() => {requests++; return {protocolVersion: '1.0', serverId: 'server', revision: 8} as T;}};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, async () => {throw new Error('native random unavailable');}), undefined);
+  assert.equal(requests, 0);
+  const result = await controller.channelPreference(channel, {favorite: true, hidden: false}, async () => 'ef'.repeat(24));
+  assert.equal(result?.favorite, true);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('guide clocks use actual device zone and omit TV day periods without changing the hour cycle', () => {
+  const at = Date.parse('2026-10-21T19:05:00Z');
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(at), '4:05');
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true, false)(at), '4:05 PM');
+  assert.equal(nativeGuideClock('en-GB', 'America/Halifax', false)(at), '16:05');
+  assert.equal(nativeGuideClock('en-US', 'not/a-zone', true)(at), undefined);
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(NaN), undefined);
+});
+
+test('guide captions preserve separate episode facts and omit unavailable time facts', () => {
+  const programme: GuideProgram = {id: 'programme', channelId: 'channel', title: 'Stored programme title', start: 1, end: 2, subtitle: 'Stored subtitle: Special Edition', episode: {season: 5, number: 2}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeProgrammeCaption(programme, true, false, () => undefined, text), ['S5 E2', 'Stored subtitle: Special Edition']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, at => at === 2 ? '4:30 PM' : '3:30 PM', text), ['Ends 4:30 PM']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, () => undefined, text), []);
+  assert.deepEqual(nativeProgrammeCaption(undefined, true, false, () => '4:30 PM', text), []);
+});
+
+test('Dashboard uses actual show identity and numbering without shortening stored titles', () => {
+  const session: AdminSession = {id: 'session', user: 'person', profile: 'profile', device: 'device', title: 'Episode: Special Edition', kind: 'vod', state: 'playing', positionMs: 1000, decision: {}, location: 'local', item: {id: 'episode', kind: 'episode', title: 'Episode: Special Edition', showId: 'show', showTitle: 'Show: Special Edition', seasonNumber: 1, episodeNumber: 3, episodeNumbering: 'seasonal', art: []}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeDashboardIdentity(session, text), {title: 'Show: Special Edition', secondary: ['S1 E3', 'Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, episodeNumbering: 'unrecognized'}}, text), {title: 'Show: Special Edition', secondary: ['Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, kind: 'movie', title: 'Film: Special Edition', year: 2001}}, text), {title: 'Film: Special Edition', secondary: ['2001']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: undefined}, text), {title: 'Episode: Special Edition', secondary: []});
+});
 function recordingService() {
   let accessChanged = () => {}, disposed = 0;
   const page: DVRPage = {recordings: [], rules: [], nextCursor: '', revision: 1, captureAvailable: true, captureUnavailableReason: '', deletionAvailable: true, usage: {bytes: 0, pendingDeleteBytes: 0, recordings: 0}};
