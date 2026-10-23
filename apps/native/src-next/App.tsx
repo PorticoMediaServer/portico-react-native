@@ -7,6 +7,7 @@ import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 
 require('./screens/home/CustomizeRoute');
+require('./screens/settings-live/TogetherRoute');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
