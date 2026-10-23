@@ -79,14 +79,13 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
     if (track != null) return
     try {
       val af = audioFormat!!
-      val device = output.selected()
-      output.prefer(device,af,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
+      val actualAttributes = attributes.audioAttributesV21.audioAttributes
+      output.prefer(output.anticipated(actualAttributes),af,actualAttributes,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
       val size = maxOf(AudioTrack.getMinBufferSize(format.sampleRate,af.channelMask,af.encoding),format.sampleRate * frameBytes / 5)
-      val builder = AudioTrack.Builder().setAudioAttributes(attributes.audioAttributesV21.audioAttributes).setAudioFormat(af).setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(size)
+      val builder = AudioTrack.Builder().setAudioAttributes(actualAttributes).setAudioFormat(af).setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(size)
       if (sessionId != 0) builder.setSessionId(sessionId)
       val made = builder.build()
       if (made.state != AudioTrack.STATE_INITIALIZED) { made.release(); error("AudioTrack did not initialize") }
-      if (device != null) made.preferredDevice = device
       made.setVolume(volume)
       track = made
       setPlaybackParameters(params)
@@ -112,7 +111,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
       pendingGain = dsp.processedGain.linear
     } else check(input === buffer) { "The renderer changed a pending PCM buffer" }
     val active = track!!
-    output.prefer(active.routedDevice ?: active.preferredDevice,audioFormat!!,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
+    output.prefer(active.routedDevice,audioFormat!!,attributes.audioAttributesV21.audioAttributes,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
     val data = pending!!
     if (data.hasRemaining()) {
       val written = active.write(data,data.remaining(),AudioTrack.WRITE_NON_BLOCKING)

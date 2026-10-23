@@ -26,7 +26,7 @@ internal object PorticoAudioVariants {
   }
   fun receiver(context: Context): List<Support> {
     val manager=context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val active=PorticoAudioOutput.selected(manager)
+    val active=PorticoAudioOutput.anticipated(manager,AudioAttributes.DEFAULT.audioAttributesV21.audioAttributes)
     if(active!=null && active.type !in PorticoAudioOutput.DIGITAL) return emptyList()
     val encodings=active?.encodings?.toMutableSet() ?: mutableSetOf()
     val caps=AudioCapabilities.getCapabilities(context,AudioAttributes.DEFAULT,null)

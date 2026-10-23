@@ -85,6 +85,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
           TMPDIR="$GITHUB_WORKSPACE/.scratch/android-ci/tmp" python3 -B third_party/media-engine/test_source_bundle.py
+          TMPDIR="$GITHUB_WORKSPACE/.scratch/android-ci/tmp" python3 -B third_party/media-engine/test_ffmpeg_features.py
       - name: Prepare the pinned Android toolchain
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"

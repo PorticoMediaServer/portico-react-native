@@ -10,34 +10,37 @@ import android.os.Build
 /** The requested format and Android's accepted mixer state, never a physical DAC claim. */
 internal class PorticoAudioOutput(context: Context) {
   private val manager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-  private val attributes = android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build()
+  private var mixerAttributes: android.media.AudioAttributes? = null
   private var mixerDevice: AudioDeviceInfo? = null
   private var mixerFormat: AudioFormat? = null
   var accepted = false; private set
   var reason = "mixer_not_requested"; private set
-  fun prefer(device: AudioDeviceInfo?, format: AudioFormat, transparent: Boolean) {
+  fun prefer(device: AudioDeviceInfo?, format: AudioFormat, attributes: android.media.AudioAttributes, transparent: Boolean) {
     if (Build.VERSION.SDK_INT < 34) { reason = "mixer_api_unavailable"; return }
     if (device == null || device.type !in USB || !transparent) { clear(); reason = if (!transparent) "mixer_processing_active" else "mixer_output_not_usb"; return }
-    if (mixerDevice?.id == device.id && mixerFormat == format && accepted) return
+    if (mixerDevice?.id == device.id && mixerFormat == format && mixerAttributes == attributes && accepted) return
     clear()
-    val match = manager.getSupportedMixerAttributes(device).firstOrNull { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT && it.format == format }
+    val supported = try { manager.getSupportedMixerAttributes(device) } catch (_: Exception) { reason = "mixer_query_unavailable"; return }
+    val match = supported.firstOrNull { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT && it.format == format }
     if (match == null) { reason = "mixer_format_unavailable"; return }
     accepted = try { manager.setPreferredMixerAttributes(attributes, device, match) } catch (_: Exception) { false }
-    if (accepted) { mixerDevice = device; mixerFormat = format }
+    if (accepted) { mixerDevice = device; mixerFormat = format; mixerAttributes = attributes }
     reason = if (accepted) "mixer_format_accepted" else "mixer_format_refused"
   }
   fun clear() {
-    if (Build.VERSION.SDK_INT >= 34) mixerDevice?.let { try { manager.clearPreferredMixerAttributes(attributes, it) } catch (_: Exception) {} }
-    mixerDevice = null; mixerFormat = null; accepted = false
+    if (Build.VERSION.SDK_INT >= 34) mixerDevice?.let { device -> mixerAttributes?.let { attributes ->
+      try { manager.clearPreferredMixerAttributes(attributes, device) } catch (_: Exception) {}
+    } }
+    mixerDevice = null; mixerFormat = null; mixerAttributes = null; accepted = false
   }
-  fun selected(): AudioDeviceInfo? = selected(manager)
+  fun anticipated(attributes: android.media.AudioAttributes): AudioDeviceInfo? = anticipated(manager, attributes)
   companion object {
     val USB = setOf(AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY)
     val DIGITAL = setOf(AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC, AudioDeviceInfo.TYPE_HDMI_EARC, AudioDeviceInfo.TYPE_LINE_DIGITAL)
-    fun selected(manager: AudioManager): AudioDeviceInfo? {
-      val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-      val priorities = listOf(setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER),setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES,AudioDeviceInfo.TYPE_WIRED_HEADSET),USB,DIGITAL,setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
-      return priorities.firstNotNullOfOrNull { types -> outputs.firstOrNull { it.type in types } }
+    /** Policy's anticipated route is a pre-open hint, never an observation of a playing track. */
+    fun anticipated(manager: AudioManager, attributes: android.media.AudioAttributes): AudioDeviceInfo? {
+      if (Build.VERSION.SDK_INT < 33) return null
+      return try { manager.getAudioDevicesForAttributes(attributes).singleOrNull() } catch (_: Exception) { null }
     }
   }
 }
