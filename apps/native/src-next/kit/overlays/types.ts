@@ -41,6 +41,7 @@ export type SidePanelProps = SurfaceProps & {
   width?: number;
   closeOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
+  showClose?: boolean;
 };
 export type BottomSheetProps = SurfaceProps & {
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */

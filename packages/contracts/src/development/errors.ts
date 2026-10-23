@@ -295,6 +295,12 @@ export const errors = [
     "retry": "never"
   },
   {
+    "code": "home_layout_conflict",
+    "status": 409,
+    "message": "Home changed on another device. Reload the layout before saving.",
+    "retry": "after_refresh"
+  },
+  {
     "code": "host_required",
     "status": 403,
     "message": "Only the group host may do that.",
@@ -347,6 +353,12 @@ export const errors = [
     "status": 401,
     "message": "Request a new download link.",
     "retry": "after_refresh"
+  },
+  {
+    "code": "invalid_query",
+    "status": 400,
+    "message": "Check the request and try again.",
+    "retry": "never"
   },
   {
     "code": "invalid_request",
@@ -567,13 +579,7 @@ export const errors = [
   {
     "code": "restore_pre_release",
     "status": 409,
-    "message": "This backup was created by an earlier pre-release Portico and can't be restored.",
-    "retry": "never"
-  },
-  {
-    "code": "restore_schema_newer",
-    "status": 409,
-    "message": "This backup was written by a newer Portico. Update this server before restoring it.",
+    "message": "This backup does not match this pre-release Portico baseline and can't be restored.",
     "retry": "never"
   },
   {
@@ -622,6 +628,18 @@ export const errors = [
     "code": "setup_already_complete",
     "status": 409,
     "message": "This server is already set up.",
+    "retry": "never"
+  },
+  {
+    "code": "sign_in_kind_local",
+    "status": 403,
+    "message": "This server uses local accounts. Sign in with its username and password.",
+    "retry": "never"
+  },
+  {
+    "code": "sign_in_kind_portico",
+    "status": 403,
+    "message": "This server uses Portico Accounts. Sign in with your Portico Account.",
     "retry": "never"
   },
   {
