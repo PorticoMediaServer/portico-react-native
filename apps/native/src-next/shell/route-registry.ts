@@ -11,12 +11,14 @@ export type NativeRouteRenderer = Readonly<{
 }>;
 type RouteKind = NativeShellRoute['kind'];
 export type NativeRouteFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer;
-export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; dispose?: () => void}>;
+export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; back?: () => boolean; dispose?: () => void}>;
 export type NativeWatchFactory = (context: NativeShellBootstrapContext) => NativeWatchRenderer;
+type RendererFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer | NativeWatchRenderer;
 export type NativeBoundRoutes = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   renderWatch: (runtime: NativeShellRuntime) => ReactNode;
   scrollToTop: (route: NativeShellRoute) => void;
+  back: () => boolean;
   dispose: () => void;
 }>;
 
@@ -54,9 +56,9 @@ export class NativeShellRouteRegistry {
   }
   bind(context: NativeShellBootstrapContext): NativeBoundRoutes {
     let alive = true;
-    const instances = new Map<NativeRouteFactory | NativeWatchFactory, NativeRouteRenderer | NativeWatchRenderer>();
-    const active = () => new Set<NativeRouteFactory | NativeWatchFactory>([...this.routes.values(), ...this.destinations.values(), ...(this.watch ? [this.watch] : [])]);
-    const release = (factory: NativeRouteFactory | NativeWatchFactory) => {
+    const instances = new Map<RendererFactory, NativeRouteRenderer | NativeWatchRenderer>();
+    const active = () => new Set<RendererFactory>([...this.routes.values(), ...this.destinations.values(), ...(this.watch ? [this.watch] : [])]);
+    const release = (factory: RendererFactory) => {
       const instance = instances.get(factory); instances.delete(factory); instance?.dispose?.();
     };
     const unsubscribe = this.subscribe(() => {const registered = active(); for (const factory of instances.keys()) if (!registered.has(factory)) release(factory);});
@@ -73,6 +75,7 @@ export class NativeShellRouteRegistry {
     return Object.freeze({
       render: (route, runtime) => current() ? renderer(route)?.render(route, runtime) : null,
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
+      back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current()) renderer(route)?.scrollToTop?.(route);},
       dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},
     } satisfies NativeBoundRoutes);

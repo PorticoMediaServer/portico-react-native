@@ -57,12 +57,13 @@ test('Watch uses the same captured context/runtime, and retired authority cannot
   const context = {current: () => current} as NativeShellBootstrapContext;
   const unregister = registry.registerWatch(value => {
     assert.equal(value, context); created++;
-    return {render: actual => {assert.equal(actual, runtime); return 'watch';}, dispose: () => {disposed++;}};
+    return {render: actual => {assert.equal(actual, runtime); return 'watch';}, back: () => true, dispose: () => {disposed++;}};
   });
   assert.throws(() => registry.registerWatch(() => ({render: () => null})), /already_registered/);
   const bound = registry.bind(context);
   current = false; assert.equal(bound.renderWatch(runtime), null); assert.equal(created, 0);
   current = true; assert.equal(bound.renderWatch(runtime), 'watch'); assert.equal(created, 1);
-  current = false; assert.equal(bound.renderWatch(runtime), null);
+  assert.equal(bound.back(), true);
+  current = false; assert.equal(bound.renderWatch(runtime), null); assert.equal(bound.back(), false);
   unregister(); assert.equal(disposed, 1); bound.dispose(); assert.equal(disposed, 1);
 });

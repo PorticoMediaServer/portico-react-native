@@ -193,6 +193,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     else if (state.menu) controller.closeMenu();
     else if (state.selection.active) controller.clear();
     else {
+      if (routes.back()) return true;
       if (context.playback.getSnapshot().dock.local?.expanded) return false;
       // Menus/selection own Back first, then the player, then the page.
       if (Platform.isTV && tvRailBack?.()) return true;
