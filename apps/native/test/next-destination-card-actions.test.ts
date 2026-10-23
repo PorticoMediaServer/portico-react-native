@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
 import {holdCard, type CardActions} from '../src-next/kit/cards/model.ts';
+import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles.ts';
+import {channelTint} from '../../../packages/client-core/src/presentation/kit-model/channels.ts';
 
 type Element = {type: any; props: Record<string, any>};
 function elements(node: any): Element[] {
@@ -28,6 +30,7 @@ async function searchFixture(group = 'all') {
     react: {...host.react, useId: () => 'gradient'}, 'react-native': {FlatList: 'FlatList', ScrollView: 'ScrollView', Text: 'Text', View: 'View', Keyboard: {}, useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-svg': {default: 'Svg'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}},
+    './genre-tiles': {nativeSearchGenreTiles}, '../../../../../packages/client-core/src/presentation/kit-model': {channelTint},
     '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups: (groups: unknown) => groups, SEARCH_CHIPS: [], searchGroupLabel: (id: string) => id, topSearchResult: () => undefined},
     '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
