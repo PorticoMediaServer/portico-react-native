@@ -28,7 +28,6 @@ import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
-import type {NativeShellPlaybackAdapter} from './playback';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';

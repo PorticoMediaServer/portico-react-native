@@ -82,10 +82,12 @@ const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
 const {default: stateGalleries} = await import('../src-next/dev/families/states/states.gallery.tsx');
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
+const {Icon} = await import('../src-next/kit/Icon.tsx');
 const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
+const {PlaylistPicker, MixedEditExplainer} = await import('../src-next/kit/selection/index.ts');
 const {default: overlayGalleries} = await import('../src-next/dev/families/overlays/overlays.gallery.tsx');
 type Element = ReactElement<Record<string, any>>;
 function nodes(node: ReactNode): Element[] {
@@ -390,6 +392,40 @@ test('actual selection galleries render list changes when native Intl.ListFormat
   }
 });
 
+test('optional DEV selection trace preserves exact close reasons, actual actions and the closed mutation fence', () => {
+  const previous = globalThis.__porticoNativeSelectionTrace, previousTheme = state.theme;
+  state.theme = createTheme({isTV: false, width: 390});
+  globalThis.__porticoNativeSelectionTrace = [];
+  try {
+    for (const [scenario, component] of [['playlist', PlaylistPicker], ['mixed', MixedEditExplainer]] as const) {
+      const gallery = mount(selectionGalleries.find(value => value.id === `selection-${scenario}`)!.render, {});
+      const exampleElement = (gallery.tree as Element).props.children as Element;
+      const example = mount(exampleElement.type, exampleElement.props);
+      try {
+        const surface = () => find(example.tree, component);
+        surface().props.onOpenChange(false, 'escape'); example.host.flush();
+        assert.equal(surface().props.open, false);
+        assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'escape'});
+        surface().props.onOpenChange(true, 'action'); example.host.flush();
+        assert.equal(surface().props.open, true);
+        if (scenario === 'playlist') {
+          assert.throws(() => surface().props.onAdd('family-movies'), /complete props from the actual fenced controller/);
+          assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'mutation-attempt'});
+          assert.equal(surface().props.open, true, 'the observer must not invent a successful add or dismissal');
+        } else {
+          surface().props.onKeepOnly('movie'); example.host.flush();
+          assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'action', scenario, action: 'keep-only', value: 'movie'});
+        }
+        for (let index = 0; index < 70; index++) surface().props.onOpenChange(index % 2 === 0, 'outside');
+        example.host.flush();
+        assert.equal(globalThis.__porticoNativeSelectionTrace.length, 64);
+        assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'outside'});
+        assert.equal(surface().props.open, false);
+      } finally {example.host.unmount(); gallery.host.unmount();}
+    }
+  } finally {globalThis.__porticoNativeSelectionTrace = previous; state.theme = previousTheme;}
+});
+
 
 test('TV panel artwork gets a full unpadded frame independent of the controls padding', () => {
   state.theme = createTheme({isTV: true, width: 1920});
@@ -421,7 +457,7 @@ test('real state galleries request initial TV focus only on TV, preserving the n
   }
 });
 
-test('state icon glass uses the drawn overlay on Android and retains Apple material and TV fill', () => {
+test('state icon glass excludes its Android foreground from root capture and retains Apple material and TV fill', () => {
   const previous = {theme: state.theme, os: state.os};
   try {
     for (const os of ['android', 'ios'] as const) {
@@ -433,9 +469,14 @@ test('state icon glass uses the drawn overlay on Android and retains Apple mater
           const blur = nodes(layout.tree).find(node => node.type === 'BlurView');
           const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
           assert.ok(disk);
-          assert.equal(disk.props.style.borderWidth, 1);
+          const androidGlass = os === 'android' && !isTV;
+          assert.equal(disk.props.style.borderWidth, androidGlass ? 0 : 1);
           assert.equal(disk.props.style.borderColor, `${state.theme.colors.text}1F`);
           assert.equal(disk.props.style.backgroundColor, os === 'android' && !isTV ? 'transparent' : `${state.theme.colors.text}1A`);
+          const icon = find(disk, Icon);
+          assert.equal(icon.props.name, 'i-download');
+          assert.equal(icon.props.size, isTV ? 40 : 26);
+          assert.equal(icon.props.color, state.theme.colors.text);
           if (os === 'android' && isTV) {
             assert.equal(blur, undefined, 'Android TV keeps the drawn translucent fill without video blur');
           } else {
@@ -444,6 +485,18 @@ test('state icon glass uses the drawn overlay on Android and retains Apple mater
             assert.equal(blur.props.blurType, 'dark');
             assert.equal(blur.props.overlayColor, os === 'android' ? `${state.theme.colors.text}1A` : undefined);
             assert.equal(blur.props.reducedTransparencyFallbackColor, state.theme.colors.raised);
+            if (androidGlass) {
+              assert.equal(disk.props.children, blur, 'Android must not capture any sibling foreground into its own blur');
+              assert.equal(find(blur, Icon), icon, 'the native root capture excludes the BlurView subtree');
+              const border = nodes(blur.props.children).find(node => node.props.style?.borderWidth === 1)!;
+              assert.ok(border, 'the drawn border remains in the excluded foreground subtree');
+              assert.equal(border.props.style.borderColor, `${state.theme.colors.text}1F`);
+              assert.equal(border.props.style.borderRadius, state.theme.baseRadii.pill);
+              assert.equal(blur.props.style.alignItems, 'center');
+              assert.equal(blur.props.style.justifyContent, 'center');
+            } else {
+              assert.equal(nodes(blur.props.children).includes(icon), false, 'Apple retains its existing native material composition');
+            }
           }
         } finally {layout.host.unmount();}
       }
