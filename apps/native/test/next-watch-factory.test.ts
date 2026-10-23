@@ -10,6 +10,7 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {nativeVersionChoices} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
@@ -19,7 +20,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController: class {}}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './VersionChoices': {NativeVersionChoices: 'Versions'},
+  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -27,7 +28,7 @@ const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryI
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
 const offered = {itemId: 'episode', versions: [{id: 'v1'}, {id: 'v2'}]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
-function fixture() {
+function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
   let bound = authority, revision = 3, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
   let respond = async (_url: URL) => offered as unknown;
@@ -40,7 +41,7 @@ function fixture() {
   const screens = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route: {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}}), subscribe: subscribe(routeListeners), back() {}},
     playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners)}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, openVersions: (...args: unknown[]) => {versions.push(args);}, openMenu: (...args: unknown[]) => {menus.push(args);},
+    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
   return {screens, requests, menus, versions, starts, errors,
@@ -59,16 +60,28 @@ test('episode menu retains its real show owner and sends the exact offered versi
     assert.equal(d.requests[0]?.path, '/v1/items/episode/playback-options');
     await d.menus[0][1].differentVersion();
     assert.equal(d.requests.length, 2);
-    const view = d.versions[0][1];
-    view.props.onChoose('unknown'); assert.equal(d.starts.length, 0);
-    view.props.onChoose('v2');
+    const destination = d.versions[0][1];
+    await destination.choose('unknown'); assert.equal(d.starts.length, 0);
+    await destination.choose('v2');
     assert.equal(d.starts[0][0].target.startSeconds, 17);
     assert.equal(d.starts[0][1].versionId, 'v2');
     assert.equal(d.starts[0][1].options.itemId, 'episode');
     assert.equal(d.starts[0][1].expectedFence, undefined);
-    d.route(); view.props.onChoose('v1'); assert.equal(d.starts.length, 1);
+    d.route(); await destination.choose('v1'); assert.equal(d.starts.length, 1); assert.equal(destination.isCurrent(), false);
   } finally {d.screens.dispose();}
   assert.equal(d.subscriptions(), 0);
+});
+
+test('no destination action is offered until a genuine approved presenter is installed', async () => {
+  const d = fixture(false);
+  try {
+    await d.screens.menu(entry, () => true);
+    assert.equal(d.menus[0][1].differentVersion, undefined);
+    assert.equal(typeof d.menus[0][1].fileInfo, 'function');
+    const captured = d.screens.capture(entry, () => true);
+    await d.screens.versions(captured);
+    assert.equal(d.requests.length, 1); assert.equal(d.versions.length, 0); assert.equal(d.starts.length, 0);
+  } finally {d.screens.dispose();}
 });
 
 test('opening the chooser refreshes the canonical offer and withholds a removed version group', async () => {
