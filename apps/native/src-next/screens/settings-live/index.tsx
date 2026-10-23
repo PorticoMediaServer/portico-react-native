@@ -7,6 +7,7 @@ import {createNativeSettingsController} from './settings-controller';
 import {NativeLiveController} from './live-controller';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
 import {NativeTogetherController} from './together-controller';
+import {NativeTogetherMedia} from './together-media';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeLiveScreen} from './LiveScreen';
@@ -33,6 +34,7 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const live = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone);
   const recordings = createNativeRecordingsController(lifetime, api, ports.dvrRequestId);
   const together = new NativeTogetherController(lifetime, ports.together);
+  const togetherMedia = new NativeTogetherMedia(lifetime, api);
   const admission = (): NativeDashboardAdmission => {
     if (!lifetime.current()) return 'denied';
     const account = context.account;
@@ -42,12 +44,12 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const dashboard = new NativeDashboardController(lifetime, admission, {sessions, console: new ConsoleClient(api, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId})});
   const unsubscribe = context.subscribePreferences(() => {if (lifetime.current()) settings.accept(context.preferences());});
   let disposed = false, releaseAuthority = () => {};
-  const dispose = () => {if (disposed) return; disposed = true; releaseAuthority(); unsubscribe(); settings.dispose(); live.dispose(); recordings.dispose(); together.dispose(); dashboard.dispose(); lifetime.dispose();};
+  const dispose = () => {if (disposed) return; disposed = true; releaseAuthority(); unsubscribe(); settings.dispose(); live.dispose(); recordings.dispose(); together.dispose(); togetherMedia.dispose(); dashboard.dispose(); lifetime.dispose();};
   releaseAuthority = context.subscribeAuthority(() => {if (!lifetime.current()) dispose();});
   return {
     settings: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'settings') throw new Error('native_settings_route_mismatch'); return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime}/>;}},
     live: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch'); return <NativeLiveScreen ports={ports} controller={live} recordings={recordings} runtime={runtime}/>;}},
-    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); return <NativeTogetherScreen ports={ports} controller={together} runtime={runtime}/>;}},
+    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); return <NativeTogetherScreen ports={ports} controller={together} media={togetherMedia} runtime={runtime}/>;}},
     serverDashboard: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'server-dashboard') throw new Error('native_dashboard_route_mismatch'); return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime}/>}/>;}},
     dispose,
   };

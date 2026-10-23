@@ -7,6 +7,7 @@ import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {TVAuthLayout} from './TVAuthLayout';
+import {TVCodeBoxes, TVNumericPad} from './TVNumericPad';
 
 export type TVVerificationFormProps = Readonly<{
   kind: 'portico' | 'local'; code: string; onCodeChange: (value: string) => void;
@@ -16,7 +17,6 @@ export type TVVerificationFormProps = Readonly<{
 }>;
 const recoveryCharacters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ-1234567890'];
 const recoveryRows = Array.from({length: Math.ceil(recoveryCharacters.length / 9)}, (_, row) => recoveryCharacters.slice(row * 9, row * 9 + 9));
-const padRows = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['delete', '0']];
 
 /** Controlled same-account MFA; the transaction owner clears a rejected code and maps its shared error. */
 export function TVVerificationForm(props: TVVerificationFormProps) {
@@ -54,31 +54,13 @@ function VerificationForm(props: TVVerificationFormProps) {
         : <Text style={[type(recovery ? span > 1 ? 22 : 28 : 48, 700), {color: recovery && /^\d$/.test(value) ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{label}</Text>}
     </Focusable>;
   };
-  const pad = !props.recovery && <View style={{position: 'absolute', right: 260, top: 0, bottom: 0, width: 484, justifyContent: 'center'}}>
-    <FocusRegion id={`${id}.pad`} entry="1" enabled={!props.busy}>
-      {padRows.map((row, index) => <FocusRegion key={index} id={`${id}.pad.${index}`} entry={row[0]} order={row} orientation="horizontal"
-        enabled={!props.busy} edges={{up: index > 0 ? `${id}.pad.${index - 1}` : undefined, down: index < 3 ? `${id}.pad.${index + 1}` : `${id}.recovery`}}
-        style={{flexDirection: 'row', gap: 20, marginBottom: index < 3 ? 20 : 0}}>{row.map(value => key(value))}</FocusRegion>)}
-    </FocusRegion>
-    <FocusRegion id={`${id}.recovery`} entry="recovery" enabled={!props.busy} edges={{up: `${id}.pad.3`}} style={{marginTop: 38}}>
-      <Button focusId="recovery" variant="glass" disabled={props.busy} onPress={() => props.onRecoveryChange(true)}
-        style={{height: 72, paddingHorizontal: 18, borderRadius: 14}} textStyle={{fontSize: 20 * theme.textScale}}>
-        {t('services.signin.lostPhone')}{' '}{t('services.signin.recovery')}
-      </Button>
-    </FocusRegion>
-  </View>;
+  const pad = !props.recovery && <TVNumericPad id={id} busy={props.busy} onDigit={digit} onDelete={remove}
+    onHelp={() => props.onRecoveryChange(true)} helpTextSize={20}
+    help={<>{t('services.signin.lostPhone')}{' '}{t('services.signin.recovery')}</>}/>;
   return <TVAuthLayout testID={`tv-${props.kind}-verification`} portico={props.kind === 'portico'}
     heading={t('web.direct.codeTitle')} body={t('services.signin.twoStep')} aside={pad}>
     {props.error && <View accessibilityRole="alert" style={{marginBottom: 16}}>{props.error}</View>}
-    {!props.recovery ? <View accessibilityLabel={t('auth.verificationCode')} accessibilityValue={{min: 0, max: 6, now: props.code.length}}
-      style={{flexDirection: 'row', gap: 18}}>
-      {Array.from({length: 6}, (_, index) => <View key={index} accessible={false} style={{width: 104, height: 116, borderRadius: 18,
-        alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.ink}9E`, borderWidth: 2,
-        borderColor: props.error ? theme.colors.danger : index === props.code.length ? theme.colors.accentStrong : theme.colors.lineStrong}}>
-        {props.code[index] ? <Text style={[type(28, 800), {color: theme.colors.text}]}>{props.code[index]}</Text>
-          : index === props.code.length && !props.busy ? <View style={{width: 3, height: 52, borderRadius: 1, backgroundColor: theme.colors.accentStrong}}/> : null}
-      </View>)}
-    </View> : <>
+    {!props.recovery ? <TVCodeBoxes code={props.code} length={6} busy={props.busy} error={!!props.error}/> : <>
       <Text style={[type(22, 700), {color: theme.colors.textTertiary, marginBottom: 8}]}>{t('services.signin.recovery')}</Text>
       <View style={{width: 860, height: 84, borderRadius: 16, paddingHorizontal: 28, flexDirection: 'row', alignItems: 'center',
         backgroundColor: `${theme.colors.ink}9E`, borderWidth: 1.5, borderColor: theme.colors.accentStrong}}>
