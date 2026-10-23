@@ -7,6 +7,7 @@ export type NativeWatchControlState = Readonly<{
   panel?: NativeWatchPanel;
   panelOffset: number;
   focus: 'surface' | 'toggle' | 'panel';
+  hideReason?: 'timer' | 'input';
 }>;
 export type NativeWatchControlContext = Readonly<{
   expanded: boolean;
@@ -36,6 +37,7 @@ export class NativeWatchControls {
   private readonly isTV: boolean;
   private readonly time: NativeWatchControlClock;
   private hiddenByBack = false;
+  private gestureScrubbing = false;
   constructor(isTV: boolean, time: NativeWatchControlClock = clock) {this.isTV = isTV; this.time = time;}
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   getSnapshot = (): NativeWatchControlState => this.state;
@@ -47,7 +49,7 @@ export class NativeWatchControls {
   }
   private cancel(): void {if (this.timer !== undefined) this.time.clear(this.timer); this.timer = undefined;}
   private current(fence: PlaybackFence): boolean {return !this.disposed && sameFence(this.state.fence, fence);}
-  private pinned(): boolean {return this.context.paused || this.context.scrubbing || this.context.focusHeld || !this.context.autoHide;}
+  private pinned(): boolean {return this.context.paused || this.context.scrubbing || this.gestureScrubbing || this.context.focusHeld || !this.context.autoHide;}
   private suppressed(): boolean {return !this.context.expanded || !!this.state.panel && this.context.hiddenByPanel;}
   source(fence: PlaybackFence | undefined, context: NativeWatchControlContext): void {
     const changed = fence ? !sameFence(this.state.fence, fence) : !!this.state.fence;
@@ -55,7 +57,7 @@ export class NativeWatchControls {
     this.context = context;
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
-      this.cancel(); this.deadline = 0; this.offsets.clear();
+      this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false;
       this.publish({fence, panel: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
@@ -73,14 +75,14 @@ export class NativeWatchControls {
       this.timer = undefined;
       if (!this.current(expected) || this.suppressed() || this.pinned() || this.state.panel) return;
       if (this.time.now() < this.deadline) {this.arm(); return;}
-      this.deadline = 0; this.publish({visible: false, focus: 'surface'});
+      this.deadline = 0; this.publish({visible: false, focus: 'surface', hideReason: 'timer'});
     }, Math.max(0, this.deadline - this.time.now()));
   }
   reveal(fence: PlaybackFence, deadline = this.time.now() + 4000): boolean {
     if (!this.current(fence) || this.suppressed()) return false;
     this.hiddenByBack = false;
     this.deadline = Math.max(this.time.now(), deadline);
-    this.publish({visible: true, focus: this.state.panel ? 'panel' : 'toggle'}); this.arm(); return true;
+    this.publish({visible: true, focus: this.state.panel ? 'panel' : 'toggle', hideReason: undefined}); this.arm(); return true;
   }
   /** Fold's geometry helper supplies its one-shot now+3000 deadline; panel close supplies none. */
   revealAfterLayout(fence: PlaybackFence, deadline: number): boolean {
@@ -91,7 +93,13 @@ export class NativeWatchControls {
   toggleVisibility(fence: PlaybackFence): void {
     if (!this.current(fence) || this.suppressed() || this.state.panel) return;
     if (!this.state.visible) {this.reveal(fence); return;}
-    if (!this.pinned()) {this.cancel(); this.deadline = 0; this.publish({visible: false, focus: 'surface'});}
+    if (!this.pinned()) {this.cancel(); this.deadline = 0; this.publish({visible: false, focus: 'surface', hideReason: 'input'});}
+  }
+  scrub(fence: PlaybackFence, scrubbing: boolean): void {
+    if (!this.current(fence)) return;
+    this.gestureScrubbing = scrubbing;
+    if (scrubbing) this.reveal(fence);
+    else this.arm();
   }
   open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
@@ -111,7 +119,7 @@ export class NativeWatchControls {
   back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'stale' {
     if (!this.current(fence)) return 'stale';
     if (this.closePanel(fence)) return 'panel';
-    if (this.state.visible) {this.cancel(); this.deadline = 0; this.hiddenByBack = true; this.publish({visible: false, focus: 'surface'}); return 'controls';}
+    if (this.state.visible) {this.cancel(); this.deadline = 0; this.hiddenByBack = true; this.publish({visible: false, focus: 'surface', hideReason: 'input'}); return 'controls';}
     return 'player';
   }
   dispose(): void {this.cancel(); this.disposed = true; this.offsets.clear(); this.listeners.clear();}

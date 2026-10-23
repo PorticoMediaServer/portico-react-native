@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {nativeWatchTracks, type NativeWatchTrackSource} from '../src-next/screens/watch/track-identity.ts';
 import {playbackFence} from '../../../packages/player-core/src/identity.ts';
-import type {NativePlaybackRuntimeSnapshot} from '../src-next/platform/playback/types.ts';
+import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.ts';
 
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version-2', entryId: 'entry', generation: 3});
-function source(): NativePlaybackRuntimeSnapshot {
+function source(): NativeWatchTrackSource {
   return {fence, retired: false, dock: {local: {fence}},
-    session: {id: 'session', itemId: 'item', versionId: 'version-2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'commentary', subtitle: {trackId: 'sidecar'}}},
-    options: {itemId: 'item', versions: [
+    session: {id: 'session', revision: '1', kind: 'vod', role: 'local', state: 'playing', lease: {reportEveryMs: 5000}, itemId: 'item', versionId: 'version-2', queue: {queueId: 'queue', entryId: 'entry'},
+      presentation: {generation: 3, mode: 'direct', url: '/v1/media/test/file', engine: 'native', startPositionMs: 0, subtitles: [], decision: {}, quality: {mode: 'original'}, audioTrackId: 'commentary', subtitle: {trackId: 'sidecar', kind: 'text', delivery: 'sidecar'}}},
+    options: parseOptions({itemId: 'item', versions: [
       {id: 'version-1', audio: [{id: 'default', default: true}], subtitles: [{id: 'embedded', default: true}]},
       {id: 'version-2', audio: [{id: 'default', default: true}, {id: 'commentary'}], subtitles: [{id: 'embedded', default: true}, {id: 'sidecar'}]},
-    ]},
-  } as NativePlaybackRuntimeSnapshot;
+    ]}),
+  };
 }
 
 test('selected tracks come only from exact current session/version IDs', () => {
