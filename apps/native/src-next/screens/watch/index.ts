@@ -16,3 +16,5 @@ export type {NativeWatchPanelsProps} from './WatchPanels';
 export {NativeWatchPanelOptions} from './panel-options';
 export {nativeWatchPanelRows} from './panel-model';
 export type {NativeWatchPanelNames, NativeWatchChoiceName, NativeWatchChoiceRow, NativeWatchSubtitleOffer} from './panel-model';
+export {NativeWatchEqualizer} from './Equalizer';
+export type {NativeWatchEqualizerProps, NativeEqualizerCopy, NativeEqualizerResponse} from './Equalizer';
