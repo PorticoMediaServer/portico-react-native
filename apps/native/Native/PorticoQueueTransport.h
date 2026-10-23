@@ -1,7 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <math.h>
-#import <React/RCTBridgeModule.h>
 #import "PorticoServerTrust.h"
+
+typedef void (^PorticoTransportResolve)(id result);
+typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError *error);
 
 // Queue HTTP requests carry a device proof. Never follow redirects, bypass TLS
 // validation, or accumulate an unbounded response. There is no background media
@@ -17,8 +19,8 @@
 @property(nonatomic,strong) NSURLRequest *wire;
 @property(nonatomic,strong) NSMutableData *data;
 @property(nonatomic,strong) NSHTTPURLResponse *response;
-@property(nonatomic,copy) RCTPromiseResolveBlock resolve;
-@property(nonatomic,copy) RCTPromiseRejectBlock reject;
+@property(nonatomic,copy) PorticoTransportResolve resolve;
+@property(nonatomic,copy) PorticoTransportReject reject;
 @property(nonatomic,copy) NSString *identifier;
 @property(nonatomic,weak) id owner;
 @property(nonatomic) BOOL completed;
@@ -143,7 +145,7 @@ static const NSInteger PorticoQueueMaxActive=12;
 
 /** Reading byte reads use the existing queue/trust/session/cancel machinery. This builder
  * grants no authority: the normal identity/certificate gate and server session still apply. */
-static PorticoQueueRequest *PorticoReadingBytesRequest(id identifier,id rawURL,id method,id headers,id byteLimit,id owner,RCTPromiseResolveBlock resolve,RCTPromiseRejectBlock reject) {
+static PorticoQueueRequest *PorticoReadingBytesRequest(id identifier,id rawURL,id method,id headers,id byteLimit,id owner,PorticoTransportResolve resolve,PorticoTransportReject reject) {
  BOOL valid=[identifier isKindOfClass:NSString.class]&&[identifier length]>0&&[identifier length]<=128&&[rawURL isKindOfClass:NSString.class]&&[rawURL length]>0&&[rawURL length]<=8192&&[method isKindOfClass:NSString.class]&&[@[@"GET",@"HEAD"] containsObject:method]&&[headers isKindOfClass:NSDictionary.class]&&[byteLimit isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)byteLimit)!=CFBooleanGetTypeID();
  double limit=valid?[byteLimit doubleValue]:0;
  valid=valid&&isfinite(limit)&&floor(limit)==limit&&limit>=1&&limit<=33554432;
