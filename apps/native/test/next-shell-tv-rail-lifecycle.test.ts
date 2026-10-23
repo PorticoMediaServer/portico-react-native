@@ -24,8 +24,9 @@ test('the real TV shell retains its exact page opener through rail, route and pl
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [];
-  const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
+  const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
     onDestination: (destination: unknown) => navigations.push(destination), scrollToTop: (destination: unknown) => tops.push(destination),
+    memory: {read: async () => undefined, remember: async () => {}},
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
@@ -76,6 +77,13 @@ test('the real TV shell retains its exact page opener through rail, route and pl
       registry.didFocus({regionId: ids.rail, childId: 'saved'}); rail().props.onExpandedChange(true);});
     assert.equal(railBack!(), true);
     assert.equal(requests.at(-1), 'library-card', 'rail return memory follows the actual destination page, not a former Home address');
+    await act(() => {snapshot = {...snapshot, destination: {kind: 'library', libraryId: 'movies'}, railDestination: {kind: 'library', libraryId: 'movies'},
+      contentVisible: false, libraries: [{id: 'movies'}]}; sessionHost!.rerender();});
+    assert.deepEqual(rail().props.destination, {kind: 'library', libraryId: 'movies'});
+    const topsBefore = tops.length;
+    await act(() => rail().props.onNavigate({kind: 'library', libraryId: 'movies'}));
+    assert.deepEqual(navigations.at(-1), {kind: 'library', libraryId: 'movies'}, 'OK on a title-highlighted library opens the real page');
+    assert.equal(tops.length, topsBefore, 'a retained hidden origin is not scrolled instead of navigating');
   } finally {
     sessionHost?.unmount(); rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;
