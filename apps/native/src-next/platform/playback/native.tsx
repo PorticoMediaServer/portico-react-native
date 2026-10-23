@@ -99,7 +99,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */
-  function Surface({dockBounds, expandedBounds, docked, subtitlesVisible}: NativePlaybackSurfaceProps) {
+  function Surface({dockBounds, expandedBounds, docked, subtitlesVisible, surfaceActive}: NativePlaybackSurfaceProps) {
     const owner = useRef<object>({});
     const surfaceRef = useCallback((node: ComponentRef<HostComponent<NativeSurfaceProps>> | null) => { runtime.setSurfaceTag(owner.current, node ? findNodeHandle(node) : null); }, []);
     const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -110,12 +110,13 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     const target = docked ? dockBounds : expandedBounds;
     const bounds = target && [target.x, target.y, target.width, target.height].every(Number.isFinite) && target.width > 0 && target.height > 0 ? target : undefined;
     const visible = !!bounds && !!state.fence && !!state.lease;
+    const producerActive = visible && surfaceActive === true;
     // Fabric can retain a native descendant's previous layout below a hidden
     // ancestor. Revoke Android producer composition through its own native prop
     // as well, including close before the asynchronous lease release completes.
     // Keep this host/ref/owner stable; expanded -> docked does not revoke it.
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
-      {...(Platform.OS === 'android' ? {surfaceActive: visible} : {})}
+      {...(Platform.OS === 'android' ? {surfaceActive: producerActive} : {})}
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {
