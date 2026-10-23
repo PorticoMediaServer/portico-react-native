@@ -6,6 +6,7 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import type {ExpandedSlotLayout, ExpandedSlotReader} from '../src-next/shell/watch-slot-layout.ts';
+import {resolvePlayerPresentation} from '../src-next/platform/layout/player-presentation.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -91,6 +92,22 @@ test('watch consumption waits for its accepted measured picture, converts origin
     assert.deepEqual(d.transitions, []);
   } finally {d.close();}
   assert.equal(d.outlet.subscriptions, 0);
+});
+
+test('the measured full-window pane retains letterbox space in native bounds and the expanded gesture', async () => {
+  const d = await layer(), wide = {width: 890, height: 626};
+  try {
+    await d.resize(wide);
+    const layout = resolvePlayerPresentation({window: wide, posture: {status: 'unavailable', window: null, folds: []}, docked: false, panelOpen: false})!;
+    assert.equal(layout.picture!.height, 500.625);
+    await d.outlet.publish({...slot, window: wide, frameInWindow: layout.surface!});
+    await act(() => d.callbacks.shift()!(0, 0));
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 890, height: 626});
+    assert.deepEqual(d.surface().props.expandedBounds, {x: 0, y: 0, width: 890, height: 626});
+    assert.deepEqual(nodes(d.tree).find(node => node.type === 'GestureDetector').props.children.props.style,
+      {position: 'absolute', left: 0, top: 0, width: 890, height: 626});
+    assert.deepEqual(d.transitions, []);
+  } finally {d.close();}
 });
 
 test('watch origin callbacks reject replacement slot, source, authority, window, host, reader, dock and unmount before notification', async () => {

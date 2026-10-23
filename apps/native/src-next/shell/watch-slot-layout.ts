@@ -8,6 +8,7 @@ export type ExpandedSlotLayout = Readonly<{
   fence: PlaybackFence;
   layoutRevision: number;
   window: Readonly<{width: number; height: number}>;
+  /** Measured player pane (layout.surface), including letterbox space; fitted image content is not another slot. */
   frameInWindow: NativeShellBounds;
 }>;
 export type ExpandedSlotReader = Readonly<{
