@@ -839,6 +839,44 @@ test('phone Delete separates full-width helper copy while preserving the real sw
   } finally {dialog.host.unmount(); state.theme = previous;}
 });
 
+test('phone Delete result keeps the drawn warning insets and type while preserving receipts and close focus', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390, textScale: 1.25}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const calls: unknown[] = [];
+      const props: DeleteMediaDialogProps = {open: true, onOpenChange: (...args) => calls.push(args), ownerHeader: null, owner: true, selectionCount: 2, preview: null,
+        result: {revision: 7, removed: 1, failed: 1, bytesDeleted: 0, filesRetained: true, receipts: [{itemId: 'removed', title: 'Actual removed title', removed: true, filesDeleted: 1, filesKept: 0, bytes: 0, code: ''}, {itemId: 'kept', title: 'Actual kept title', removed: false, filesDeleted: 0, filesKept: 1, bytes: 0, code: 'file_not_removed'}]},
+        confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: () => calls.push('delete')};
+      const dialog = mount(DeleteMediaDialog, props);
+      try {
+        const surface = dialog.tree as Element, phone = state.theme.platform === 'phone';
+        const warning = elements(surface).find(node => node.key === 'kept')!;
+        assert.ok(warning); assert.equal(elements(surface).some(node => node.key === 'removed'), false);
+        const box = flattenStyle(warning.props.style);
+        assert.equal(box.borderWidth, 1); assert.equal(box.gap, 10);
+        assert.equal(box.paddingVertical ?? box.padding, phone ? 10 : 12);
+        assert.equal(box.paddingHorizontal ?? box.padding, phone ? 11 : 12);
+        const copy = elements(warning).find(node => flattenStyle(node.props.style).flex === 1)!;
+        assert.equal(flattenStyle(copy.props.style).gap, phone ? 0 : 3);
+        const [title, helper] = ofType(warning, SelectionText);
+        assert.equal(text(title), 'Actual kept title'); assert.match(text(helper), /Kept, because the file could not be deleted/);
+        const titleHost = mount(SelectionText, title!.props), helperHost = mount(SelectionText, helper!.props);
+        try {
+          const titleStyle = flattenStyle((titleHost.tree as Element).props.style), helperStyle = flattenStyle((helperHost.tree as Element).props.style);
+          assert.equal(titleStyle.lineHeight, phone ? 20.3 * state.theme.textScale : undefined);
+          assert.equal(helperStyle.lineHeight, phone ? 19.575 * state.theme.textScale : state.theme.isTV ? 29 : 19.575);
+          assert.equal(helperStyle.color, phone ? state.theme.colors.textSecondary : state.theme.colors.textTertiary);
+        } finally {helperHost.host.unmount(); titleHost.host.unmount();}
+        const close = ofType(surface.props.footer, Button);
+        assert.equal(close.length, 1); assert.equal(close[0]!.props.ref, surface.props.initialFocusRef);
+        assert.equal(ofType(surface, Switch).length, 0); assert.equal(ofType(surface, TextField).length, 0);
+        close[0]!.props.onPress(); assert.deepEqual(calls, [[false, 'action']]);
+      } finally {dialog.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('phone Search uses the pinned heading and helper line boxes without changing other StateView recipes', () => {
   const previous = state.theme;
   try {
