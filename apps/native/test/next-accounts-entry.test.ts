@@ -78,3 +78,38 @@ test('the identity-code prompt keeps the complete address as typed and cannot di
   assert.equal(prompt.props.testID, 'accounts-identity-code');
   assert.equal(prompt.props.title, `Check this is ${typed}`);
 });
+
+test('local TV consent names the verified server and the issuing service verification address', async () => {
+  const {hooks, screenModule} = await import('./helpers/screen-harness.mjs');
+  const {defaultI18n} = await import('../../../packages/i18n/src');
+  const {createTheme} = await import('../src-next/kit/theme');
+  const h = hooks(), server = {id: 'synthetic-server', name: 'Verified synthetic server', signIn: 'local'};
+  const verificationUri = 'https://verified.example/device';
+  let notify = () => {};
+  const service = {subscribe: (listener: () => void) => {notify = listener; return () => {};},
+    getSnapshot: () => ({phase: 'waiting', userCode: 'ABCD-EFGH', verificationUri, verificationUriComplete: verificationUri + '?code=ABCD-EFGH'}),
+    start: async () => {notify();}};
+  class SignIn {
+    async inspect() {return server;}
+    needsIdentityCode() {return false;}
+    async inspectLocalIdentity() {}
+    async confirmLocal() {}
+    serverDescriptor() {return server;}
+    localTVSignIn() {return service;}
+    dispose() {}
+  }
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    react: h.react, 'react-native': {BackHandler: {}, NativeModules: {}, Platform: {isTV: true}, Text: 'Text', View: 'View'},
+    'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/client-core/src': {},
+    '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {},
+    '../../../../../packages/client-core/src/hosted-security': {}, '../../../../../packages/client-core/src/presentation/errors': {},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {StateLayout: 'StateLayout'},
+    '../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../kit/artwork': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})},
+    '../../platform/accounts': {}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
+    '../../platform/server-connections': {}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
+  });
+  const render = () => h.render(() => AccountEntry({onComplete() {throw new Error('consent is still pending');}, initialStage: 'address', initialAddress: 'https://verified.example'}));
+  render().props.primaryAction.onPress();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(render().props.body, `On a phone signed in to ${server.name}, open Portico › Settings › Link a TV, or on a computer open ${verificationUri}.`);
+});

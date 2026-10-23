@@ -65,7 +65,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
-    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './HomeRowDestination': {createNativeHomeRows: () => ({reconcile() {}, owns() {return false;}, render() {return null;}, dispose() {}})}, './routes': {nativeRailDestination, titleRoute},
+    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './HomeRowDestination': {createNativeHomeRows: () => ({reconcile() {}, owns() {return false;}, render() {return null;}, dispose() {}})}, './HomeCustomizeDestination': {createNativeHomeCustomization: () => ({reconcile() {}, owns() {return false;}, render() {return null;}, dispose() {}})}, './routes': {nativeRailDestination, titleRoute},
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': homeModel,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);

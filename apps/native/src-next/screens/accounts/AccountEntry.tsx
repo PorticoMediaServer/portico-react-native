@@ -204,7 +204,10 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} showTitle={false}
       onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>);
   if (stage === 'profile-pin') return layout(t('profile.pinTitle', {name: profile!.name}), undefined, fields(field(t('pin.fourDigit'), code, setCode, true)), action('profile-pin', t('action.continue'), () => choose(profile!.id, code), !/^\d{4}$/.test(code)));
-  return layout(t('activation.title'), t(server?.signIn === 'local' ? 'accounts.consent.local' : 'accounts.consent.portico'),
+  const consentBody = server?.signIn === 'local'
+    ? tvState.verificationUri ? t('accounts.consent.local', {server: server.name, address: tvState.verificationUri}) : undefined
+    : t('accounts.consent.portico');
+  return layout(t('activation.title'), consentBody,
     <View style={{gap: 16, marginBottom: 20}}>{tvState.verificationUriComplete && <QRCode value={tvState.verificationUriComplete} size={theme.isTV ? 240 : 180}/>}
       <Text selectable style={[theme.type.title, {color: theme.colors.text}]}>{tvState.userCode ?? t('activation.preparingCode')}</Text>
       {tvState.verificationUri && <Text selectable style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tvState.verificationUri}</Text>}
