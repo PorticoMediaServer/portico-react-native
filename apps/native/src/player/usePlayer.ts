@@ -565,7 +565,7 @@ export function usePlayerEngine() {
   const [captionBackground] = usePlaybackChoice('subtitleBackground', run, speedPreferences.value<string>('playback.subtitleBackground', 'translucent'));
   const captions = useMemo(() => captionStyle(captionSize, captionBackground), [captionSize, captionBackground]);
   // A styled track's attached fonts: the list is read once per track, for the engine to fetch.
-  const subtitleFontsUrl = engineKind === 'mpv' && !subtitles.suppressed ? fontsUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
+  const subtitleFontsUrl = engineFeatures(engineKind).subtitleRendering.includes('ass') && !subtitles.suppressed ? fontsUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
   const [subtitleFonts, setSubtitleFonts] = useState<SubtitleFonts | null>(null);
   useEffect(() => {
     if (!subtitleFontsUrl) { setSubtitleFonts(null); return; }
@@ -576,7 +576,7 @@ export function usePlayerEngine() {
   }, [api, subtitleFontsUrl]);
   // "Forced only" means something only for an image track that marks some lines forced and not
   // others (as the web decides from the lines it decodes): the server counts them, once per track.
-  const subtitleLinesUrl = engineKind === 'mpv' && !subtitles.suppressed ? linesUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
+  const subtitleLinesUrl = engineFeatures(engineKind).subtitleRendering.includes('ass') && !subtitles.suppressed ? linesUrlOf(subtitlePlan, presentation ? v1Session : undefined) : undefined;
   const [subtitleLines, setSubtitleLines] = useState<{key: string; mixed: boolean} | null>(null);
   useEffect(() => {
     if (!subtitleLinesUrl) { setSubtitleLines(null); return; }
@@ -607,7 +607,7 @@ export function usePlayerEngine() {
     // An engine that draws styled and image subtitles itself (mpv) is told where the track is;
     // the cue document, when there is one, is what it falls back to. The native engine draws the
     // cue document and is never given `render`.
-    const render = engineKind === 'mpv' ? engineSubtitleRender(plan, session, engineFeatures('mpv').subtitleRendering, path => new URL(path, api.baseUrl).href, subtitleFontsUrl ? (subtitleFonts?.key === subtitleFontsUrl ? subtitleFonts : 'pending') : undefined, presentation ? v1Session : undefined) : undefined;
+    const render = engineSubtitleRender(plan, session, engineFeatures(engineKind).subtitleRendering, path => new URL(path, api.baseUrl).href, subtitleFontsUrl ? (subtitleFonts?.key === subtitleFontsUrl ? subtitleFonts : 'pending') : undefined, presentation ? v1Session : undefined);
     const documentUrl = selected ? plan.documentUrl : undefined;
     if (!documentUrl && !render) return {binding, mode: 'off', revision: plan.revision};
     const track = selected ?? deviceTrack?.resource;

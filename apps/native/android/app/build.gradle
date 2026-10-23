@@ -34,6 +34,7 @@ android {
 
     namespace "tv.getportico.portico"
     defaultConfig {
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // One application for phones and televisions; `Platform.isTV` chooses the layout.
         applicationId "tv.getportico.portico"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -82,6 +83,9 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    // Both JNI consumers resolve these imports from the same checked engineDir.
+    packagingOptions { jniLibs { pickFirsts += ["**/libavcodec.so","**/libavformat.so","**/libavutil.so","**/libswresample.so","**/libass.so"] } }
 
     sourceSets {
         main.assets.srcDirs += layout.buildDirectory.dir("generated/portico/assets")
@@ -135,8 +139,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
     implementation("androidx.media3:media3-session:$media3")
-    // The second player engine: libmpv (LGPL build) and its JNI bridge. See portico-mpv/build.gradle.
+    // The second player engine: libmpv (source-built GPL bundle) and its JNI bridge. See portico-mpv/build.gradle.
     implementation project(":portico-mpv")
+    implementation project(":portico-media")
     // Google Cast: only in the build for devices with Google Play services (never Fire OS).
     googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
     // The provider sign-in browser (PorticoAccountAuth).
@@ -148,6 +153,8 @@ dependencies {
     // JVM unit tests of the logic that needs no device (app/src/test): never in the app.
     //   ./gradlew :app:testGoogleDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
 
 // Open-source licences (Settings › About). apps/native/licences/android-<flavour>.txt pin each

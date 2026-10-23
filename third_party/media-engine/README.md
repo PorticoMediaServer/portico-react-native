@@ -5,30 +5,27 @@ and every library it uses from pinned source, with one recipe for Android and Ap
 separate dynamic libraries. Nothing here is a prebuilt download except MoltenVK (Khronos's own
 release build of an Apache-2.0 library).
 
-## Why we build it ourselves (licensing in plain words)
+## Source and licensing
 
-Portico is GPLv3 and Justin owns all of its copyright, so his own code can go on the app
-stores. Third-party GPL code cannot, and LGPL code can only when it is used the way the LGPL
-expects: as **separate, replaceable dynamic libraries**, with the licence texts and the
-**corresponding source** shipped with the app. The engines used before did not fit that well:
+Android's source-built FFmpeg uses the server's checked Jellyfin source plus every ordered patch
+from `third_party/ffmpeg/sources.lock.json`. `scripts/prepare-ffmpeg-source.py` verifies the archive
+and all patches before preparation. It is configured GPLv3 with no nonfree components; mpv is
+built with GPL enabled. Portico is GPLv3. Every codec library remains separately replaceable,
+and `collect-notices.sh` ships licence notices and the corresponding source. Do not label this
+bundle LGPL-only. Apple uses AVPlayer; its legacy build files are retained only until the Apple
+removal change is integrated.
 
-- Apple used MPVKit, whose FFmpeg is LGPL **version 3** (forced by GMP) and **statically
-  linked**, and which bundles GnuTLS, Nettle, GMP, libbluray and uavs3d.
-- Android used media-kit's `libmpv.so`: FFmpeg 6.0 under LGPL version 3 with mbedTLS, all linked
-  statically into one library.
-
-This build is **LGPL 2.1 or later** throughout (FFmpeg with no `--enable-gpl`,
-`--enable-version3` or `--enable-nonfree`; mpv with `-Dgpl=false`), every library is its own
-`.so` / framework, and `collect-notices.sh` produces the notices and the source bundle a release
-must carry. FFmpeg is the **same version the Portico server pins**, so both ends decode alike.
+Media3's Apache-2.0 FFmpeg audio extension is compiled from the checksum-pinned sources in
+`third_party/media3-ffmpeg`. It and the subtitle overlay link the same shared libav/libass ABI
+as mpv. The Android build exports development headers as well as the shared objects.
 
 ## What is built
 
 | Component | Version | Licence | Why |
 |---|---|---|---|
-| FFmpeg | 8.1.2 (= server pin) | LGPL-2.1-or-later | Demuxing, decoding, parsing, network reads. Every decoder, demuxer, parser and bitstream filter; no encoders, muxers or devices; a small set of filters (the ones mpv inserts itself: deinterlacing, rotation, flips). Hardware decoding: MediaCodec (Android), VideoToolbox (Apple). |
+| FFmpeg | Jellyfin 8.1.3-1 (= server pin) | GPL-3.0-or-later | Demuxing, decoding, parsing, network reads. Every decoder, demuxer, parser and bitstream filter; no encoders, muxers or devices; a small set of filters (the ones mpv inserts itself: deinterlacing, rotation, flips). Hardware decoding: MediaCodec (Android), VideoToolbox (Apple). |
 | OpenSSL | 3.5.9 (LTS) | Apache-2.0 | TLS for FFmpeg's `https` (FFmpeg accepts OpenSSL 3 without `version3` when GPL is off). Client-side algorithms only. |
-| mpv | 0.41.0 | LGPL-2.1-or-later (`-Dgpl=false`) | The player core, `libmpv`. Android draws with `vo=gpu` (OpenGL ES); Apple with `vo=gpu-next` on Vulkan through MoltenVK. |
+| mpv | 0.41.0 | GPL-2.0-or-later (GPLv3 combined bundle) | The player core, `libmpv`. Android draws with `vo=gpu` (OpenGL ES); Apple with `vo=gpu-next` on Vulkan through MoltenVK. |
 | libass | 0.17.5 | ISC | Styled (ASS/SSA) subtitles. Fonts: CoreText on Apple, the app's own fonts folder on Android (with a patch that falls back letter by letter to any loaded font, see Patches). |
 | FreeType | 2.15.0 | FTL | Font rasterising for libass. |
 | HarfBuzz | 14.6.0 | MIT | Text shaping for libass. |

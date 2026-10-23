@@ -6,10 +6,10 @@
 
 What it checks, for every library of every architecture:
 
-  * FFmpeg is LGPL 2.1: its recorded configuration says "LGPL version 2.1 or later", has no
-    --enable-gpl, --enable-version3 or --enable-nonfree, and every FFmpeg library carries that
+  * FFmpeg is the checked Jellyfin GPLv3 build: its recorded configuration says "GPL version 3 or later", has
+    --enable-gpl and --enable-version3, but no --enable-nonfree, and every FFmpeg library carries that
     licence string (and no other).
-  * mpv was built with gpl=false (its config.h and the feature list compiled into libmpv).
+  * mpv was built with gpl=true (its config.h and the feature list compiled into libmpv).
   * No forbidden library is linked or embedded: GnuTLS, Nettle, GMP, mbedTLS, x264, x265,
     libbluray, libsmbclient, fdk-aac (dependency names, symbol names and tell-tale strings).
   * Each component is its own dynamic library: exactly the expected libraries exist, each one
@@ -95,7 +95,7 @@ REQUIRED_PLATFORM = {
                           "av1_videotoolbox", "mpeg2_videotoolbox"]},
 }
 # Components FFmpeg must never contain, whatever else changes.
-FORBIDDEN_FFMPEG_CONFIG = ["--enable-gpl", "--enable-version3", "--enable-nonfree", "--enable-gnutls",
+FORBIDDEN_FFMPEG_CONFIG = ["--enable-nonfree", "--enable-gnutls",
                            "--enable-mbedtls", "--enable-gmp", "--enable-libx264", "--enable-libx265",
                            "--enable-libbluray", "--enable-libsmbclient", "--enable-libfdk-aac",
                            "--enable-securetransport", "--enable-libxml2"]
@@ -318,7 +318,11 @@ def check_ffmpeg_meta(r: Report, meta: pathlib.Path, platform: str, where: str, 
     if not r.check(cfg.is_file(), f"{where}: FFmpeg's config.h was not recorded ({cfg})"):
         return
     licence = define(cfg, "FFMPEG_LICENSE")
-    r.check(licence == "LGPL version 2.1 or later", f"{where}: FFmpeg licence is {licence!r}, not LGPL 2.1")
+    r.check(licence == "GPL version 3 or later", f"{where}: FFmpeg licence is {licence!r}, not GPLv3")
+    receipt = meta / "ffmpeg-source-receipt.json"
+    canonical = json.loads((HERE.parent / "ffmpeg/sources.lock.json").read_text())["ffmpeg"]
+    observed = json.loads(receipt.read_text()) if receipt.is_file() else {}
+    r.check(observed.get("sourceCommit") == canonical["commit"] and observed.get("sourceSha256") == canonical["sha256"] and observed.get("patches") == canonical["patches"], f"{where}: missing/mismatched checked Jellyfin source patch receipt")
     configuration = define(cfg, "FFMPEG_CONFIGURATION") or ""
     for flag in FORBIDDEN_FFMPEG_CONFIG:
         r.check(not re.search(re.escape(flag) + r"(\s|$)", configuration), f"{where}: FFmpeg was configured with {flag}")
@@ -326,10 +330,10 @@ def check_ffmpeg_meta(r: Report, meta: pathlib.Path, platform: str, where: str, 
         blob = libs.get(stem)
         if blob is None:
             continue
-        r.check(b"LGPL version 2.1 or later" in blob, f"{where}: lib{stem} does not carry the LGPL 2.1 licence string")
-        for other in (b"GPL version 2 or later", b"GPL version 3 or later", b"LGPL version 3 or later",
+        r.check(b"GPL version 3 or later" in blob, f"{where}: lib{stem} does not carry the GPLv3 licence string")
+        for other in (b"GPL version 2 or later", b"LGPL version 2.1 or later", b"LGPL version 3 or later",
                       b"nonfree and unredistributable"):
-            r.check(other not in blob.replace(b"LGPL version 2.1 or later", b""), f"{where}: lib{stem} carries {other.decode()!r}")
+            r.check(other not in blob.replace(b"GPL version 3 or later", b""), f"{where}: lib{stem} carries {other.decode()!r}")
     if "avutil" in libs:
         r.check(configuration.encode() in libs["avutil"], f"{where}: libavutil's built-in configuration differs from the recorded config.h")
     comps = meta / "ffmpeg-config_components.h"
@@ -350,9 +354,9 @@ def check_mpv_meta(r: Report, meta: pathlib.Path, where: str, libmpv: bytes | No
     cfg = meta / "mpv-config.h"
     if not r.check(cfg.is_file(), f"{where}: mpv's config.h was not recorded"):
         return
-    r.check(define(cfg, "HAVE_GPL") == "0", f"{where}: mpv was not built with gpl=false")
+    r.check(define(cfg, "HAVE_GPL") == "1", f"{where}: mpv was not built with gpl=true")
     features = define(cfg, "FULLCONFIG") or ""
-    r.check("gpl" not in features.split(), f"{where}: mpv's feature list includes gpl")
+    r.check("gpl" in features.split(), f"{where}: mpv's feature list lacks gpl")
     for needed in ("ffmpeg", "libass", "libplacebo", "uchardet", "iconv", "lcms2", "zlib"):
         r.check(needed in features.split(), f"{where}: mpv was built without {needed}")
     for unwanted in ("libbluray", "dvdnav", "cdda", "libarchive", "lua", "javascript", "rubberband", "vapoursynth"):

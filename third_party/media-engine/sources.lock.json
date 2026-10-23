@@ -1,18 +1,28 @@
 {
   "schemaVersion": 1,
-  "revision": 1,
-  "policy": "Every source and tool the media engine is built from, pinned by version and SHA-256. Change a pin only on purpose, bump revision, rebuild both platforms and run verify.py. FFmpeg must match the server's third_party/ffmpeg/sources.lock.json (check-ffmpeg-pin.py).",
+  "revision": 2,
+  "policy": "Pinned source/checksum builds. FFmpeg is Jellyfin source with all checked canonical patches, configured GPLv3/no nonfree. Replaceable shared libraries; preserve corresponding source and notices.",
   "components": {
     "ffmpeg": {
-      "version": "8.1.2",
-      "tag": "n8.1.2",
-      "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-      "file": "ffmpeg-8.1.2.tar.xz",
-      "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
-      "licence": "LGPL-2.1-or-later (as configured here: no gpl, version3 or nonfree parts)",
-      "licenceFiles": ["COPYING.LGPLv2.1", "LICENSE.md", "CREDITS"],
-      "platforms": ["android", "apple"],
-      "why": "Demuxing, decoding, parsing, network reads and HTTPS for mpv."
+      "version": "8.1.3",
+      "tag": "v8.1.3-1",
+      "url": "https://codeload.github.com/jellyfin/jellyfin-ffmpeg/tar.gz/refs/tags/v8.1.3-1",
+      "file": "jellyfin-ffmpeg-8.1.3-1.tar.gz",
+      "sha256": "87bedcefc860cd234cdeddbebdcd3ce45aeedc81d0fbb258ed839ff778be3140",
+      "licence": "GPL-3.0-or-later (Jellyfin patched source; configured GPLv3, no nonfree)",
+      "licenceFiles": [
+        "COPYING.GPLv3",
+        "LICENSE.md",
+        "CREDITS"
+      ],
+      "platforms": [
+        "android",
+        "apple"
+      ],
+      "why": "Demuxing, decoding, parsing, network reads and HTTPS for mpv.",
+      "sourceContract": "third_party/ffmpeg/sources.lock.json",
+      "sourceContractCommit": "e278449caa84753b738ac13a8ac434cc33a81eb5",
+      "distributionVersion": "8.1.3-1"
     },
     "openssl": {
       "version": "3.5.9",
@@ -29,9 +39,16 @@
       "url": "https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz",
       "file": "mpv-0.41.0.tar.gz",
       "sha256": "ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209",
-      "licence": "LGPL-2.1-or-later (built -Dgpl=false)",
-      "licenceFiles": ["LICENSE.LGPL", "Copyright"],
-      "platforms": ["android", "apple"],
+      "licence": "GPL-2.0-or-later (combined with GPL-3.0-or-later FFmpeg)",
+      "licenceFiles": [
+        "LICENSE.GPL",
+        "LICENSE.LGPL",
+        "Copyright"
+      ],
+      "platforms": [
+        "android",
+        "apple"
+      ],
       "why": "The player core (libmpv)."
     },
     "libass": {

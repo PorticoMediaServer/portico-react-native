@@ -311,15 +311,15 @@ internal object PorticoMpvSupport {
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String
-    return if (value == "none" || value == "opaque") value else "translucent"
+    return if (value in setOf("none","outline","shadow","opaque")) value!! else "translucent"
   }
 
   fun captionColors(context: Context, style: Map<*, *>?): Pair<Int, Int> {
     val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
-    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
-    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else android.graphics.Color.WHITE
+    val system = try { if (style?.get("useSystemCaptionStyle") == true && manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
+    val text = if (system != null && system.hasForegroundColor()) system.foregroundColor else when(style?.get("color")) { "yellow" -> 0xFFFFFF00.toInt();"cyan" -> 0xFF00FFFF.toInt();"green" -> 0xFF00FF00.toInt();"pink" -> 0xFFFFC0CB.toInt();else -> android.graphics.Color.WHITE }
     val box = if (system != null && system.hasBackgroundColor()) system.backgroundColor
-      else when (styleBackground(style)) { "none" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
+      else when (styleBackground(style)) { "none", "outline", "shadow" -> android.graphics.Color.TRANSPARENT; "opaque" -> android.graphics.Color.BLACK; else -> 0xB3000000.toInt() }
     return text to box
   }
 
@@ -338,16 +338,16 @@ internal object PorticoMpvSupport {
    */
   fun styleCaptionLine(line: android.widget.TextView, context: Context, style: Map<*, *>?, base: Float, italic: Boolean) {
     val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
-    val system = try { if (manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
-    val size = base * captionScale(context).toFloat() * styleScale(style).toFloat()
+    val system = try { if (style?.get("useSystemCaptionStyle") == true && manager?.isEnabled == true) manager.userStyle else null } catch (_: Exception) { null }
+    val size = base * (if(style?.get("useSystemCaptionStyle") == true) captionScale(context).toFloat() else 1f) * styleScale(style).toFloat()
     line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size)
-    val face = try { system?.typeface } catch (_: Exception) { null } ?: android.graphics.Typeface.DEFAULT
+    val face = try { system?.typeface } catch (_: Exception) { null } ?: when(style?.get("font")) { "serif" -> android.graphics.Typeface.SERIF;"mono" -> android.graphics.Typeface.MONOSPACE;"rounded" -> android.graphics.Typeface.create("sans-serif-rounded",android.graphics.Typeface.NORMAL);else -> android.graphics.Typeface.DEFAULT }
     line.setTypeface(face, if (italic) android.graphics.Typeface.ITALIC else android.graphics.Typeface.NORMAL)
     val (text, box) = captionColors(context, style)
     line.setTextColor(text)
     line.setBackgroundColor(box)
     // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
-    if (android.graphics.Color.alpha(box) < 77) line.setShadowLayer(Math.max(2f, size * 0.08f), 0f, 0f, android.graphics.Color.BLACK) else line.setShadowLayer(0f, 0f, 0f, 0)
+    if (styleBackground(style) != "none" && android.graphics.Color.alpha(box) < 77) line.setShadowLayer(Math.max(2f, size * 0.08f), 0f, 0f, android.graphics.Color.BLACK) else line.setShadowLayer(0f, 0f, 0f, 0)
   }
 
   /** Text for mpv, which takes numbers in the C locale whatever the device's language. */

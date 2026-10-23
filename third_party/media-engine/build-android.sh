@@ -271,6 +271,7 @@ build_ffmpeg() {
     mkdir -p "$META"
     cp config.h "$META/ffmpeg-config.h"
     cp config_components.h "$META/ffmpeg-config_components.h"
+    cp "$ME_WORK/src/ffmpeg/portico-source-receipt.json" "$META/ffmpeg-source-receipt.json"
 }
 
 build_mpv() {
@@ -361,6 +362,10 @@ for abi in $ABIS; do
         mkdir -p "$ME_OUT/$PLATFORM/include"
         cp -R "$PREFIX/include/mpv" "$ME_OUT/$PLATFORM/include/"
     fi
+    # Refresh headers even on an incremental rebuild after the codec source pin changes.
+    for headers in libavcodec libavformat libavutil libswresample ass; do
+        cp -R "$PREFIX/include/$headers" "$ME_OUT/$PLATFORM/include/"
+    done
 done
 
 me_write_build_info "$PLATFORM" "$ME_OUT/$PLATFORM/build-info.json"

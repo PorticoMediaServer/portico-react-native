@@ -8,55 +8,41 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
-/** Music gain belongs in decoded PCM: ExoPlayer volume is attenuation only. */
+/** The same DSP is used for 16, packed 24, signed 32 and float PCM. */
 internal class PorticoAudioGain : BaseAudioProcessor() {
-  @Volatile var target = 1f
-  private var level = 1f
-  private var goal = 1f
-  private var remaining = 0
-  private var step = 0f
-
+  val dsp = PorticoPcmDsp()
+  var target: Float
+    get() = dsp.target.toFloat()
+    set(value) { dsp.target = value.toDouble() }
+  var equalizer: PorticoPcmDsp.Eq
+    get() = dsp.eq
+    set(value) { dsp.eq = value }
   override fun onConfigure(input: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-    if (input.encoding != C.ENCODING_PCM_16BIT) throw AudioProcessor.UnhandledAudioFormatException(input)
-    // Stay active at unity so a change of gain never has to recreate the sink.
-    return input
+    if (encoding(input.encoding) == null) throw AudioProcessor.UnhandledAudioFormatException(input)
+    dsp.configure(input.sampleRate, input.channelCount); return input
   }
-
   override fun queueInput(input: ByteBuffer) {
-    input.order(ByteOrder.nativeOrder())
-    val output = replaceOutputBuffer(input.remaining()).order(ByteOrder.nativeOrder())
-    val wanted = target.takeIf { it.isFinite() }?.coerceIn(0f, 32f) ?: 1f
-    if (wanted != goal) {
-      goal = wanted; remaining = (inputAudioFormat.sampleRate / 50).coerceAtLeast(1)
-      step = (goal - level) / remaining
-    }
-    while (input.remaining() >= inputAudioFormat.bytesPerFrame) {
-      if (remaining > 0) { level += step; if (--remaining == 0) level = goal }
-      repeat(inputAudioFormat.channelCount) {
-        val scaled = input.short.toFloat() * level
-        output.putShort(scaled.toInt().coerceIn(-32768, 32767).toShort())
-      }
-    }
-    output.flip()
+    val result = dsp.process(input, encoding(inputAudioFormat.encoding)!!)
+    replaceOutputBuffer(result.remaining()).put(result).flip()
   }
-
-  override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) { level = target; goal = target; remaining = 0 }
+  override fun onFlush(streamMetadata: AudioProcessor.StreamMetadata) { dsp.reset() }
+  companion object {
+    fun encoding(value: Int): PorticoPcmDsp.Encoding? = when(value) {
+      C.ENCODING_PCM_16BIT -> PorticoPcmDsp.Encoding.S16
+      C.ENCODING_PCM_24BIT -> PorticoPcmDsp.Encoding.S24
+      C.ENCODING_PCM_32BIT -> PorticoPcmDsp.Encoding.S32
+      C.ENCODING_PCM_FLOAT -> PorticoPcmDsp.Encoding.FLOAT
+      else -> null
+    }
+  }
 }
 
-/** Only listening players use this sink; video keeps its normal output format and passthrough. */
-internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain) : DefaultRenderersFactory(context) {
-  override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink {
-    val sink = DefaultAudioSink.Builder(context).setEnableFloatOutput(false)
-        .setAudioProcessors(arrayOf(gain)).build()
-    // Encoded output would bypass gain, including on HDMI routes. Music always reaches PCM.
-    return object : ForwardingAudioSink(sink) {
-      override fun getFormatSupport(format: Format): Int = if (format.sampleMimeType == MimeTypes.AUDIO_RAW) super.getFormatSupport(format) else AudioSink.SINK_FORMAT_UNSUPPORTED
-      override fun supportsFormat(format: Format): Boolean = format.sampleMimeType == MimeTypes.AUDIO_RAW && super.supportsFormat(format)
-    }
-  }
+/** Precision PCM never travels through DefaultAudioSink's 16-bit processor chain. */
+internal class PorticoAudioRenderers(context: Context, private val gain: PorticoAudioGain, private val allowPassthrough: Boolean) : DefaultRenderersFactory(context) {
+  init { setExtensionRendererMode(if(allowPassthrough && PorticoAudioVariants.receiver(context).isNotEmpty()) EXTENSION_RENDERER_MODE_ON else EXTENSION_RENDERER_MODE_PREFER) }
+  override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink =
+      PorticoPrecisionAudioSink(context, DefaultAudioSink.Builder(context).setEnableFloatOutput(true).build(), gain.dsp,allowPassthrough)
 }

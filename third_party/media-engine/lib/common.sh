@@ -182,6 +182,11 @@ me_extract() {
     local name="$1" file dest
     file=$(me_lock "$name" file)
     dest="$ME_WORK/src/$name"
+    if [[ "$name" == ffmpeg ]]; then
+        rm -rf "$dest"
+        python3 "$ME_ROOT/../../scripts/prepare-ffmpeg-source.py" "$dest" --archive "$ME_DOWNLOADS/$file" --lock "$ME_ROOT/../ffmpeg/sources.lock.json"
+        return
+    fi
     rm -rf "$dest"; mkdir -p "$dest"
     tar -xf "$ME_DOWNLOADS/$file" -C "$dest" --strip-components=1
     # Sub-sources (git submodules upstream) go where the upstream tree expects them.
@@ -278,7 +283,7 @@ me_tools() {
 # ---------------------------------------------------------------------------------------------
 # The shared recipe.
 
-# FFmpeg: LGPL 2.1 (no gpl, version3 or nonfree), shared libraries, a player's subset: every
+# FFmpeg: Jellyfin patched GPLv3 (no nonfree), shared libraries, a player's subset: every
 # decoder, demuxer, parser and bitstream filter; no encoders, muxers or devices; network
 # protocols for HTTP(S) and HLS; TLS through OpenSSL. Nothing is autodetected: each external
 # library is named, so a stray library on the build machine can never end up linked.
@@ -286,7 +291,7 @@ me_tools() {
 # around them; the engines set no user filters. (All filters would add about 3.5 MB.)
 me_ffmpeg_common_flags() {
     printf '%s\n' \
-        --disable-gpl --disable-version3 --disable-nonfree \
+        --enable-gpl --enable-version3 --disable-nonfree \
         --disable-autodetect \
         --enable-shared --disable-static --enable-pic \
         --disable-programs --disable-doc --disable-debug \
@@ -323,7 +328,7 @@ me_openssl_common_flags() {
 
 me_mpv_common_flags() {
     printf '%s\n' \
-        -Dgpl=false -Dlibmpv=true -Dcplayer=false -Dtests=false -Dfuzzers=false \
+        -Dgpl=true -Dlibmpv=true -Dcplayer=false -Dtests=false -Dfuzzers=false \
         -Dbuild-date=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled \
         -Dlua=disabled -Djavascript=disabled -Dcplugins=disabled \
         -Dlibarchive=disabled -Dlibbluray=disabled -Ddvdnav=disabled -Dcdda=disabled -Ddvbin=disabled \

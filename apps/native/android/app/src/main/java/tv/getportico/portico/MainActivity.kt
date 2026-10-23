@@ -34,6 +34,7 @@ class MainActivity : ReactActivity() {
     // A cold launch's link is filtered before React Native can read it.
     intent = PorticoUrlRoutes.filtered(intent)
     super.onCreate(null)
+    tv.getportico.portico.native.PorticoDisplayRate.attach(window)
   }
 
   /** The small window opened, or closed: back at full size when the activity is still on screen, dismissed otherwise. */

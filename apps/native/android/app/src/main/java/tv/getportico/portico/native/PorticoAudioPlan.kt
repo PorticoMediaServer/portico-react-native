@@ -13,8 +13,9 @@ import android.net.Uri
 internal object PorticoAudioPlan {
   /** The (container, codec) pairs ExoPlayer decodes on every supported Android. ALAC is absent: the server converts it. */
   private val PAIRS = mapOf(
-      "flac" to setOf("flac"), "mp4" to setOf("aac"), "m4a" to setOf("aac"), "adts" to setOf("aac"),
-      "mp3" to setOf("mp3"), "ogg" to setOf("opus", "vorbis"))
+      "flac" to setOf("flac"), "mp4" to setOf("aac", "alac", "eac3", "ac3"), "m4a" to setOf("aac", "alac", "eac3", "ac3"), "adts" to setOf("aac"),
+      "mp3" to setOf("mp3"), "ogg" to setOf("opus", "vorbis"),
+      "mkv" to setOf("flac", "alac", "truehd", "dts", "eac3", "ac3", "opus"), "mka" to setOf("flac", "alac", "truehd", "dts", "eac3", "ac3", "opus"))
 
   fun number(value: Any?): Double? = PorticoPlaybackController.number(value)
 
@@ -33,7 +34,11 @@ internal object PorticoAudioPlan {
   fun decodes(plan: Map<*, *>): Boolean {
     val container = plan["container"] as? String ?: return false
     val codec = plan["codec"] as? String ?: return false
-    if (container == "wav" || container == "aiff") return container == "wav" && codec.startsWith("pcm")
+    if (container == "wav") return codec.startsWith("pcm")
+    if (codec == "alac" || codec in setOf("truehd", "dts", "eac3", "ac3")) {
+      val mime = mapOf("alac" to "audio/alac", "truehd" to "audio/true-hd", "dts" to "audio/vnd.dts", "eac3" to "audio/eac3", "ac3" to "audio/ac3")[codec]!!
+      if (!PorticoFfmpegDecoders.supports(mime)) return false
+    }
     return PAIRS[container]?.contains(codec) == true
   }
 
@@ -48,7 +53,8 @@ internal object PorticoAudioPlan {
     val id = plan["id"] as? String ?: return false
     if (id.isEmpty() || id.length > 256 || !integer(plan["channels"], 1.0, 32.0)) return false
     val trim = plan["trim"] as? Map<*, *> ?: return false
-    if (!integer(trim["startFrames"], 0.0, MAX_INTEGER) || !integer(trim["endFrames"], 0.0, MAX_INTEGER)) return false
+    if (!integer(trim["startFrames"], 0.0, PorticoGaplessPcm.MAX_TRIM.toDouble()) || !integer(trim["endFrames"], 0.0, PorticoGaplessPcm.MAX_TRIM.toDouble())) return false
+    if ((number(trim["endFrames"]) ?: 0.0) * (number(plan["channels"]) ?: 0.0) * 4 > 16 * 1024 * 1024) return false
     val url = try { Uri.parse(plan["url"] as String) } catch (_: Exception) { return false }
     if (url.scheme != "http" && url.scheme != "https") return false
     if (url.scheme != origin.scheme || url.host?.lowercase() != origin.host?.lowercase() || url.port != origin.port || url.userInfo != null) return false

@@ -26,9 +26,10 @@ import com.facebook.react.uimanager.annotations.ReactProp
  * The picture: a surface letterboxed inside its bounds, with the app-drawn subtitle line over
  * it. Used by the `PorticoPlayer` view and by the Picture in Picture window.
  */
-internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
+internal class PorticoVideoStage(context: Context, private val richAllowed: Boolean = true) : FrameLayout(context) {
   val surface = SurfaceView(context)
   private val subtitle = TextView(context)
+  private val richSubtitle = PorticoRichSubtitleView(context)
   private val suppliedSurface: () -> android.view.Surface? = { surface.holder.surface }
   private val binding = PorticoSurfaceBinding<ExoPlayer>(
     visible = { active ->
@@ -71,6 +72,8 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     subtitle.visibility = View.GONE
     subtitle.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
     addView(subtitle)
+    addView(richSubtitle)
+    richSubtitle.visibility=if(richAllowed) View.VISIBLE else View.GONE
   }
 
   /** Shows [player]'s picture here (or nothing). A surface belongs to one player at a time. */
@@ -104,6 +107,8 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     val top = (height - h) / 2
     surface.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
     surface.layout(left, top, left + w, top + h)
+    richSubtitle.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+    richSubtitle.layout(left, top, left + w, top + h)
     if (subtitle.visibility != View.VISIBLE) return
     val density = resources.displayMetrics.density
     val line = (w * 0.9f).toInt()
@@ -112,7 +117,7 @@ internal class PorticoVideoStage(context: Context) : FrameLayout(context) {
     subtitle.measure(MeasureSpec.makeMeasureSpec(line, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec((h * 0.6f).toInt(), MeasureSpec.AT_MOST))
     val textHeight = subtitle.measuredHeight
     val x = left + (w - line) / 2
-    val y = if (controller?.subtitleCue?.top == true) top + (8 * density).toInt() else top + h - Math.max((8 * density).toInt(), (h * 0.08f).toInt()) - textHeight
+    val y = if (controller?.subtitleCue?.top == true || controller?.subtitleStyle?.get("position") == "top") top + (8 * density).toInt() else top + h - Math.max((8 * density).toInt(), (h * (if(controller?.subtitleStyle?.get("position") == "raised") 0.18f else 0.08f)).toInt()) - textHeight
     subtitle.layout(x, y, x + line, y + textHeight)
   }
 
@@ -322,7 +327,7 @@ internal object PorticoPictureInPicture {
     active = inPictureInPicture
     val content = activity.findViewById<ViewGroup>(android.R.id.content)
     if (inPictureInPicture) {
-      val stage = PorticoVideoStage(activity)
+      val stage = PorticoVideoStage(activity,richAllowed=false)
       overlay = stage
       content.addView(stage, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
       controller.subtitleListeners.add(refresh)
@@ -350,7 +355,7 @@ internal object PorticoPictureInPicture {
       putString("lease", controller.lease ?: "")
       putString("state", state)
       // The stage draws the app's subtitles in the small window too.
-      if (state == "started") putBoolean("subtitlesCarried", true)
+      if (state == "started") putBoolean("subtitlesCarried", !controller.richSubtitles.active)
     })
   }
 }

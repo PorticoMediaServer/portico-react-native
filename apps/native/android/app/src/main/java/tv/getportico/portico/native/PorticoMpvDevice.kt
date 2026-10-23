@@ -247,7 +247,7 @@ internal object PorticoMpvFonts {
   /** A styled track's attached fonts folder in use, which gets the same fallback faces. */
   private var attached: File? = null
   /** libass reads each file of the fonts folder into memory when a track opens. */
-  private const val FALLBACK_BYTES = 8_000_000L
+  private const val FALLBACK_BYTES = 32_000_000L
 
   /** mpv's configuration folder. It holds nothing but the font link and the fonts folder; mpv reads no settings from it. */
   fun configDirectory(context: Context): File = File(context.noBackupFilesDir, "mpv")

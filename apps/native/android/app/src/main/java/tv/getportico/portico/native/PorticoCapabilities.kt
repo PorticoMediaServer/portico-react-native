@@ -108,6 +108,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
       val codecs = try { MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder } } catch (_: Exception) { emptyList() }
       result.putArray("decoders", videoDecoders(codecs))
       result.putArray("audioDecoders", audioDecoders(codecs))
+      result.putArray("subtitleRendering", Arguments.fromList(listOf("text") + if(PorticoSubtitleNative.available) PorticoSubtitleOverlay.KINDS else emptyList<String>()))
       val display = displays.getDisplay(Display.DEFAULT_DISPLAY)
       result.putArray("displayHdr", displayHdr(display))
       result.putMap("screen", screen(display))
@@ -255,6 +256,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         found[codec] = maxOf(found[codec] ?: 0, channels.coerceIn(1, 16))
       }
     }
+    for((mime,codec) in PorticoFfmpegDecoders.mimeCodecs) if(PorticoFfmpegDecoders.supports(mime)) found[codec]=maxOf(found[codec] ?: 0, 8)
     val out = Arguments.createArray()
     for ((codec, channels) in found) out.pushMap(Arguments.createMap().apply { putString("codec", codec); putInt("maxChannels", channels) })
     return out
@@ -270,37 +272,11 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
    * bitstream the receiver could have taken has nowhere to go.
    */
   private fun passthrough(outputs: List<AudioDeviceInfo>): WritableArray {
-    val found = LinkedHashMap<String, Pair<Int, Boolean>>()
-    val active = activeOutput(outputs)
-    for (device in outputs) {
-      if (device.type !in DIGITAL_OUTPUTS) continue
-      if (active != null && active.type !in DIGITAL_OUTPUTS) continue
-      val channels = (device.channelCounts.maxOrNull() ?: 0)
-      for (encoding in device.encodings) {
-        val (codec, limit, atmos) = BITSTREAMS[encoding] ?: continue
-        val previous = found[codec]
-        found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
-      }
-    }
-    // The player's own answer as well: what its audio output would hand on untouched. It reads
-    // what the system says can be played directly, what the HDMI plug reported, and the surround
-    // setting some televisions and Fire TV keep instead, so a receiver the device list above says
-    // nothing about is still found. Asked only while sound is going to the digital output.
-    if (active == null || active.type in DIGITAL_OUTPUTS) {
-      val player = try { androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(reactApplicationContext, androidx.media3.common.AudioAttributes.DEFAULT, null) } catch (_: Throwable) { null }
-      if (player != null) for ((encoding, entry) in BITSTREAMS) {
-        if (!player.supportsEncoding(encoding)) continue
-        val (codec, limit, atmos) = entry
-        val channels = player.maxChannelCount
-        val previous = found[codec]
-        found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
-      }
-    }
     val out = Arguments.createArray()
-    for ((codec, value) in found) out.pushMap(Arguments.createMap().apply {
-      putString("codec", codec)
-      putInt("maxChannels", value.first)
-      if (value.second) putArray("objectAudio", Arguments.fromList(listOf("atmos")))
+    for(support in PorticoAudioVariants.receiver(reactApplicationContext)) out.pushMap(Arguments.createMap().apply {
+      putString("codec",support.codec);putInt("maxChannels",support.maxChannels)
+      putArray("variants",Arguments.fromList(support.variants.toList()))
+      if(support.objects.isNotEmpty()) putArray("objectAudio",Arguments.fromList(support.objects.toList()))
     })
     return out
   }
@@ -320,8 +296,19 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
       hdmiPlug()?.let { plugged -> route = "hdmi"; if (plugged > 0) channels = plugged }
     }
     return Arguments.createMap().apply {
-      putInt("maxOutputChannels", channels.coerceIn(2, 16))
+      putInt("maxOutputChannels", channels.coerceIn(1, 32))
       putString("route", route)
+      if(chosen != null) {
+        putString("outputKey",PorticoAudioOutput.key(chosen))
+        val mixerRates=if(Build.VERSION.SDK_INT>=34 && chosen.type in PorticoAudioOutput.USB) audio.getSupportedMixerAttributes(chosen).map { it.format.sampleRate } else emptyList()
+        val reported=(chosen.sampleRates.toList()+mixerRates).filter { it in 8000..768000 }.distinct().sorted()
+        // Empty device arrays state no finite limit. Report the actual system mixer rate then.
+        val rates=if(reported.isNotEmpty()) reported else listOf(android.media.AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC)).filter { it in 8000..768000 }
+        if(rates.isNotEmpty()) { putArray("sampleRates",Arguments.fromList(rates));putInt("maxSampleRate",rates.last()) }
+        val depths=chosen.encodings.toList().mapNotNull { when(it) { AudioFormat.ENCODING_PCM_16BIT -> 16;AudioFormat.ENCODING_PCM_24BIT_PACKED -> 24;AudioFormat.ENCODING_PCM_32BIT,AudioFormat.ENCODING_PCM_FLOAT -> 32;else -> null } }
+        if(depths.isNotEmpty()) putInt("maxBitDepth",depths.max())
+        if(Build.VERSION.SDK_INT>=34 && chosen.type in PorticoAudioOutput.USB) putBoolean("bitPerfectMixerAvailable",audio.getSupportedMixerAttributes(chosen).any { it.mixerBehavior==android.media.AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT })
+      }
     }
   }
 

@@ -5,4 +5,5 @@ rootProject.name = 'Portico'
 include ':app'
 // libmpv and its JNI bridge, for the mpv player engine.
 include ':portico-mpv'
+include ':portico-media'
 includeBuild('../node_modules/@react-native/gradle-plugin')

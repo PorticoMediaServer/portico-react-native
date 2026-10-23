@@ -52,8 +52,30 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
           "liveChannels" to true,
           "musicSessions" to true,
           "audioTrackSwitching" to false,
-          "subtitleRendering" to listOf("text"),
+          "subtitleRendering" to (listOf("text") + if(PorticoSubtitleNative.available) PorticoSubtitleOverlay.KINDS else emptyList()),
           "chapters" to false))
+
+  /** Engine controls for the drawn EQ UI once it lands. The owner/profile never supplies a device key. */
+  @ReactMethod fun outputEqualizer(value: ReadableMap?, promise: Promise) {
+    val raw = value?.toHashMap()
+    main.post {
+      try {
+        val audio = reactApplicationContext.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        val key = PorticoAudioOutput.key(PorticoAudioOutput.selected(audio))
+        val store = PorticoEqualizerStore(reactApplicationContext)
+        val next = if(raw == null) store.read(key) else if(raw["preset"] is String) {
+          val name=raw["preset"] as String
+          (PorticoEqualizerStore.presets[name] ?: error("Unknown EQ preset")).also { store.write(key,it,name) }
+        } else {
+          val bands=(raw["bands"] as? List<*>)?.map { (it as? Number)?.toDouble() ?: Double.NaN } ?: error("Missing EQ bands")
+          PorticoPcmDsp.Eq(raw["enabled"] as? Boolean ?: error("Missing EQ state"),(raw["preampDb"] as? Number)?.toDouble() ?: 0.0,bands).also { store.write(key,it) }
+        }
+        store.close()
+        if(raw != null)controller.applyEqualizer(next)
+        promise.resolve(Arguments.makeNativeMap(mapOf("enabled" to next.enabled,"preampDb" to next.preampDb,"bands" to next.bands,"outputKey" to key)))
+      } catch(e: Exception) { promise.reject("audio_eq","The output equalizer settings are invalid.",e) }
+    }
+  }
 
   @ReactMethod fun addListener(eventName: String) {}
 

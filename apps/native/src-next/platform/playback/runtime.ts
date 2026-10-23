@@ -612,7 +612,7 @@ export class NativePlaybackRuntime {
     if (plan) subtitles = {binding, mode: 'off', revision: plan.revision};
     if (visible && plan && (selected || drawn)) {
       // mediaUrl enforces the current selected origin/media grant. No raw URL concatenation.
-      const render = this.coordinator.getEngine() === 'mpv' ? engineSubtitleRender(plan, state.session, this.o.engineFeatures('mpv').subtitleRendering, path => this.o.api.mediaUrl(path), this.fonts, session) : undefined;
+      const render = engineSubtitleRender(plan, state.session, this.o.engineFeatures(this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native').subtitleRendering, path => this.o.api.mediaUrl(path), this.fonts, session);
       if (selected && plan.documentUrl || render) {
         const resource = selected ?? drawn?.resource;
         subtitles = {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? drawn?.id, resourceRevision: resource?.revision ?? 1,

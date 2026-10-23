@@ -78,7 +78,9 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var lastVideoSize: VideoSize = VideoSize.UNKNOWN
 
   /** The chosen subtitles are drawn by the app. */
-  val subtitleOverlayActive: Boolean get() = subtitles.overlayActive
+  val subtitleOverlayActive: Boolean get() = subtitles.overlayActive || richSubtitles.active
+  val richSubtitles = PorticoSubtitleOverlay(context)
+  fun subtitlePositionUs(): Long = (sourcePosition().takeIf { it.isFinite() }?.times(1_000_000)?.toLong() ?: 0L)
   val binding: Map<String, Any?>? get() = currentBinding
   val paused: Boolean get() = desiredPaused
   /** A picture is being decoded (music and audiobooks have none). */
@@ -183,6 +185,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     PorticoAppVisibility.listeners.add(visibility)
     subtitles.onText = { cue -> subtitleCue = cue; subtitleListeners.toList().forEach { it() } }
     subtitles.onStatus = { error -> emit("subtitleStatus", error) }
+    richSubtitles.onStatus = { error -> emit("subtitleStatus", error) }
     // A downloaded title's plain subtitles are a WebVTT file beside it, inside Downloads.
     subtitles.allowsLocalFile = { url -> allowedLocalSource(url) }
     audioSelection.onFact = { fact ->
@@ -216,7 +219,7 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   fun release(lease: String?) {
     if (lease == null || this.lease != lease) return
-    subtitles.invalidate()
+    subtitles.invalidate(); richSubtitles.invalidate()
     audioSelection.invalidate()
     unload()
     source = null
@@ -250,6 +253,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     release(lease)
     player?.release()
     player = null
+    richSubtitles.close()
   }
 
   // --- commands --------------------------------------------------------------------------
@@ -356,7 +360,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     command = next
     desiredPaused = next["paused"] as Boolean
     if (verifying) {
-      if (!routeSuspended) { subtitles.invalidate(); audioSelection.invalidate(); unload(); routeSeeking = false; seeking = false; seekWait = null }
+      if (!routeSuspended) { subtitles.invalidate(); richSubtitles.invalidate(); audioSelection.invalidate(); unload(); routeSeeking = false; seeking = false; seekWait = null }
       routeSuspended = true
       return
     }
@@ -377,7 +381,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     }
     if (reload) {
       routeEpoch++
-      subtitles.invalidate()
+      subtitles.invalidate(); richSubtitles.invalidate()
       audioSelection.invalidate()
       unload()
       seeking = false
@@ -415,7 +419,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     val chosenSubtitles = scoped(next["subtitles"])
     val style = chosenSubtitles?.get("style") as? Map<*, *>
     if (style != subtitleStyle) { subtitleStyle = style; subtitleListeners.toList().forEach { it() } }
-    subtitles.apply(chosenSubtitles, source)
+    richSubtitles.apply(chosenSubtitles, source)
+    subtitles.apply(if (richSubtitles.active) null else chosenSubtitles, source)
     applyRenderEdges(render)
     applyRouteResume()
     applyPendingSeek()
@@ -436,6 +441,14 @@ internal class PorticoPlaybackController(private val context: Context) {
 
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
+  fun applyEqualizer(value: PorticoPcmDsp.Eq) {
+    audioGains.values.forEach { it.equalizer = value }
+    if(listeningOwner != null && player != null && source != null) {
+      val position=sourcePosition();val url=parse((planOf(command?.get("audioRender"))?.get("url") as? String) ?: source!!)
+      player?.let { it.removeListener(listener);it.release();audioGains.remove(it) };player=null
+      if(url!=null)load(url,position.takeIf { it.isFinite() && it>=0 });applyIntent();attachmentListeners.toList().forEach { it() }
+    }
+  }
   private fun musicGain(engine: ExoPlayer, gain: Float) {
     val processor = audioGains[engine]
     if (processor != null) { processor.target = gain; engine.volume = 1f }
@@ -457,10 +470,15 @@ internal class PorticoPlaybackController(private val context: Context) {
     // A transport stream is searched further for the time asked for, so a seek in one lands.
     // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
-    val gain = if (listening) PorticoAudioGain() else null
-    val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
+    val gain = if (listening) PorticoAudioGain().apply {
+      target=PorticoAudioPlan.gain(planOf(command?.get("audioRender")),settings())
+      val manager=context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+      PorticoEqualizerStore(context).use { equalizer=it.read(PorticoAudioOutput.key(PorticoAudioOutput.selected(manager))) }
+    } else null
+    val untouched = settings()?.get("normalization") == "off" && (number(settings()?.get("crossfadeSeconds")) ?: 0.0) == 0.0 && gain?.equalizer?.enabled != true
+    val renderers = if (gain != null) PorticoAudioRenderers(context, gain,untouched) else DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
-        .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors))
+        .setMediaSourceFactory(PorticoPlanMediaSource.Factory(DefaultDataSource.Factory(context, http), extractors))
         .setLoadControl(load.build())
         .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(if (music) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE).build(), ownsFocus)
         .setHandleAudioBecomingNoisy(false)
@@ -526,7 +544,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val wanted = index != null && PorticoSeekIndex.cached(address) == null && (start != C.TIME_UNSET || routeResume || resuming || index.container == "adts")
     unindexedMedia = null
     if (!wanted) {
-      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.setMediaItem(PorticoPlanMediaSource.item(url.toString(),planOf(command?.get("audioRender"))), start)
       engine.prepare()
       // Started from the beginning, an MP3 plays at once; its index is read meanwhile, so a later
       // scrub lands exactly too (applyPendingSeek).
@@ -542,7 +560,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val item = itemInstanceId
     PorticoSeekIndex.load(mediaClient, address, index!!) {
       if (invalidated || player !== engine || itemInstanceId != item || source == null) return@load
-      engine.setMediaItem(MediaItem.fromUri(url), start)
+      engine.setMediaItem(PorticoPlanMediaSource.item(url.toString(),planOf(command?.get("audioRender"))), start)
       engine.prepare()
       applyRouteResume()
       applyPendingSeek()
@@ -643,7 +661,10 @@ internal class PorticoPlaybackController(private val context: Context) {
   // --- matching the display (television) ---------------------------------------------------
 
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
+    if (Build.VERSION.SDK_INT < 30) {
+      val display=(context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.getDisplay(Display.DEFAULT_DISPLAY)
+      return PorticoDisplayRate.vote(display,fps).also { if(it) frameRateVoted=true }
+    }
     return try {
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
@@ -661,7 +682,8 @@ internal class PorticoPlaybackController(private val context: Context) {
       val target = try { displaySurface?.invoke() } catch (_: Exception) { null }
       if (lease != null && player?.currentMediaItem != null) return@Runnable
       frameRateVoted = false
-      if (target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
+      if (Build.VERSION.SDK_INT < 30) { PorticoDisplayRate.clear(); return@Runnable }
+      if (target == null || !target.isValid) return@Runnable
       try { target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (_: Exception) {}
     }
     frameRateClear = work
@@ -949,7 +971,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (token == null || plan == null) { if (nextToken != null && committedToken == null) dropNext(); return }
     if (nextToken != token) {
       dropNext()
-      engine.addMediaItem(MediaItem.Builder().setUri(plan["url"] as String).setMediaId(token).build())
+      engine.addMediaItem(PorticoPlanMediaSource.item(plan["url"] as String,plan,token))
       engine.pauseAtEndOfMediaItems = true
       nextToken = token
       nextPlan = plan
@@ -1027,7 +1049,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val deck = build(music = true, ownsFocus = false)
     musicGain(deck, 0f)
     deck.addListener(incomingListener)
-    deck.setMediaItem(MediaItem.fromUri(plan["url"] as String))
+    deck.setMediaItem(PorticoPlanMediaSource.item(plan["url"] as String,plan))
     deck.setPlaybackSpeed(player?.playbackParameters?.speed ?: 1f)
     deck.prepare()
     deck.playWhenReady = true
@@ -1110,7 +1132,7 @@ internal class PorticoPlaybackController(private val context: Context) {
         "supportedRates" to RATES,
         "rateWaiting" to rates["rateWaiting"],
         "rateError" to rates["rateError"],
-        "rendering" to (enginePlan != null))
+        "rendering" to (enginePlan != null), "output" to (engine?.let { audioGains[it]?.dsp?.outputStatus } ?: emptyMap<String,Any?>()))
   }
 
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */
@@ -1155,7 +1177,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   fun resetListeningEngine(owner: String) {
     if (listeningOwner != owner) return
     listeningAttachment = currentBinding?.let { mapOf("binding" to it) } ?: listeningAttachment
-    subtitles.invalidate()
+    subtitles.invalidate(); richSubtitles.invalidate()
     audioSelection.invalidate()
     unload()
     source = null

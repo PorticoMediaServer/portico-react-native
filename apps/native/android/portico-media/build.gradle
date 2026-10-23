@@ -1,0 +1,40 @@
+// Source-built Media3 FFmpeg audio extension and independent subtitle overlay. FFmpeg and libass
+// are the SAME replaceable shared libraries used by mpv; there is no second codec bundle.
+apply plugin: "com.android.library"
+def engineDir = file(project.findProperty("porticoLibmpvDir")?.toString() ?: "${rootDir}/../../../third_party/media-engine/out/android")
+def sources = file("${rootDir}/../../../third_party/media3-ffmpeg")
+android {
+    namespace "tv.getportico.portico.media"
+    compileSdk rootProject.ext.compileSdkVersion
+    ndkVersion rootProject.ext.ndkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles "consumer-rules.pro"
+        externalNativeBuild { cmake { arguments "-DPORTICO_MEDIA_ENGINE=${engineDir.absolutePath}", "-DPORTICO_MEDIA3_SOURCE=${sources.absolutePath}", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
+    }
+    sourceSets { main.java.srcDirs += new File(sources,"src/main/java") }
+    externalNativeBuild { cmake { path file("src/main/cpp/CMakeLists.txt"); version "3.22.1" } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    implementation "androidx.media3:media3-exoplayer:1.10.1"
+    implementation "androidx.media3:media3-decoder:1.10.1"
+    compileOnly "androidx.annotation:annotation-jvm:1.6.0"
+    compileOnly "org.checkerframework:checker-qual:3.49.5"
+}
+tasks.register("checkMediaSources") {
+    doLast {
+        def lock = new groovy.json.JsonSlurper().parse(new File(sources,"sources.lock.json"))
+        lock.files.each { path, expected ->
+            def actual = java.security.MessageDigest.getInstance("SHA-256").digest(new File(sources,path).bytes).encodeHex().toString()
+            if(actual != expected) throw new GradleException("Media3 source checksum mismatch: ${path}")
+        }
+    }
+}
+def mediaNotices=tasks.register("stageMediaSourceNotices",Copy) {
+    from(new File(sources,"LICENSE"))
+    from(new File(sources,"sources.lock.json"))
+    into(layout.buildDirectory.dir("generated/media-assets/media3-ffmpeg"))
+}
+android.sourceSets.main.assets.srcDirs += layout.buildDirectory.dir("generated/media-assets")
+preBuild.dependsOn("checkMediaSources",mediaNotices)

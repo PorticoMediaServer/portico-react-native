@@ -507,7 +507,7 @@ internal class PorticoMpvController(private val context: Context) {
         "tls-verify" to "yes",
         // Sound: decoded on the device and handed to the system as PCM, in as many channels as
         // the output takes. Nothing is passed through as a bitstream.
-        "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
+        "audio-spdif" to "", "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
         "hr-seek" to "yes",
         "cache" to "yes", "demuxer-max-bytes" to (if (small) "48MiB" else "150MiB"), "demuxer-max-back-bytes" to (if (small) "8MiB" else "48MiB"),
         "network-timeout" to "30",
@@ -523,7 +523,7 @@ internal class PorticoMpvController(private val context: Context) {
         "sub-font-size" to "45", "sub-margin-y" to "58", "sub-color" to "1.0/1.0/1.0/1.0",
         "sub-border-style" to "background-box", "sub-back-color" to "0.0/0.0/0.0/0.7",
         "sub-outline-size" to "0", "sub-border-size" to "0", "sub-shadow-offset" to "0",
-        "sub-scale" to PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context), 2),
+        "sub-scale" to "1",
         "user-agent" to "Portico")
     return options
   }
@@ -1125,6 +1125,7 @@ internal class PorticoMpvController(private val context: Context) {
 
   /** What the file turned out to hold: its length, chapters, picture and tracks. */
   private fun publishMediaInfo() {
+    updatePassthrough()
     if (onFact == null || !ready()) return
     val video = selectedVideo()
     val picture = HashMap<String, Any?>()
@@ -1358,7 +1359,7 @@ internal class PorticoMpvController(private val context: Context) {
   private fun applyCaptionStyle(style: Map<*, *>?) {
     val same = style == captionStyle
     captionStyle = style
-    core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context) * PorticoMpvSupport.styleScale(style), 2))
+    core?.set("sub-scale", PorticoMpvSupport.decimal((if(style?.get("useSystemCaptionStyle")==true) PorticoMpvSupport.captionScale(context) else 1.0) * PorticoMpvSupport.styleScale(style), 2))
     val (text, box) = PorticoMpvSupport.captionColors(context, style)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
     core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
@@ -1679,7 +1680,10 @@ internal class PorticoMpvController(private val context: Context) {
 
   /** Tells the system the title's frame rate for this surface. False when the surface would not take it. */
   private fun voteFrameRate(target: Surface, fps: Float): Boolean {
-    if (Build.VERSION.SDK_INT < 30) return false
+    if (Build.VERSION.SDK_INT < 30) {
+      val display=(context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)?.getDisplay(Display.DEFAULT_DISPLAY)
+      return PorticoDisplayRate.vote(display,fps).also { if(it) frameRateVoted=true }
+    }
     return try {
       if (Build.VERSION.SDK_INT >= 31) target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
       else target.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
@@ -1724,7 +1728,7 @@ internal class PorticoMpvController(private val context: Context) {
       }, (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
       return
     }
-    if ((Build.VERSION.SDK_INT < 30 && !directOutput) || target == null || !target.isValid || (fps == null && !directOutput)) { done(); return }
+    if (target == null || !target.isValid || (fps == null && !directOutput)) { done(); return }
     val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
     // The viewer's setting, where the system has one (Android 12): never, only when the picture
     // does not break, or always.
@@ -1733,7 +1737,7 @@ internal class PorticoMpvController(private val context: Context) {
     if (never && !directOutput) { done(); return }
     val display = displays?.getDisplay(Display.DEFAULT_DISPLAY)
     val before = display?.mode
-    val voted = Build.VERSION.SDK_INT >= 30 && !never && fps != null && voteFrameRate(target, fps)
+    val voted = !never && fps != null && voteFrameRate(target, fps)
     if (Build.VERSION.SDK_INT >= 30 && !never && fps != null && !voted) { done(); return }
     // A phone or tablet changes rate without a break in the picture, and so does a television
     // set to switch only when there is none: nothing to wait for. A television that may
@@ -1784,7 +1788,9 @@ internal class PorticoMpvController(private val context: Context) {
     val target = surface
     val work = Runnable {
       frameRateClear = null
-      if (lease != null || !frameRateVoted || target == null || !target.isValid || Build.VERSION.SDK_INT < 30) return@Runnable
+      if (lease != null || !frameRateVoted) return@Runnable
+      if(Build.VERSION.SDK_INT<30) { PorticoDisplayRate.clear(); frameRateVoted=false; return@Runnable }
+      if(target == null || !target.isValid) return@Runnable
       frameRateVoted = false
       try { target.setFrameRate(0f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (_: Exception) {}
     }
@@ -1868,10 +1874,17 @@ internal class PorticoMpvController(private val context: Context) {
 
   /** Another output (a receiver, headphones) may take a different number of channels. */
   private fun audioOutputsChanged() {
+    updatePassthrough()
     val next = PorticoMpvDevice.outputChannels(context)
     if (next == outputChannels) return
     outputChannels = next
     core?.set("audio-channels", PorticoMpvDevice.channelLayouts(next))
+  }
+
+  private fun updatePassthrough() {
+    val selected=PorticoMpvSupport.tracks(tracks,"audio").firstOrNull { it["selected"]==true }
+    val profile=(selected?.get("codec-profile") as? String) ?: (selected?.get("codec-desc") as? String)
+    core?.set("audio-spdif",PorticoAudioVariants.mpv(context,selected?.get("codec") as? String,profile))
   }
 
   // --- app life --------------------------------------------------------------------------
