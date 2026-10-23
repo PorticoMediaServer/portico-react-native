@@ -27,8 +27,9 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
   const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry],
     privacySensitivity: '', policyState: '', priority: 1, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false,
     total: 1, start: 0, limit: 20, hasMore: false, nextCursor: '', endpoint: '', revision: {catalog: 1, viewer: 1}};
-  const home = new HomeService({request: async () => ({serverId: 'server', viewerFence: 'fence', rows: [row], spotlight: [],
-    layout: {revision: 1, rowOrder: ['continue'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-23T12:00:00Z'})});
+  const raw = {serverId: 'server', viewerFence: 'fence', rows: [row], spotlight: [],
+    layout: {revision: 1, rowOrder: ['continue'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-23T12:00:00Z'};
+  const home = new HomeService({request: async () => JSON.parse(JSON.stringify(raw))});
   await home.load();
   const h = hooks(), child = hooks(), registry = createFocusRegistry(), theme = createTheme({isTV: tv, width: tv ? 1920 : 390});
   let hookOwner = h;
