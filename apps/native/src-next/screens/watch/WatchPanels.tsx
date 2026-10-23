@@ -67,7 +67,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const chooseRow = <T,>(row: NativeWatchChoiceRow<T>, action: (value: T) => Promise<void>, preferred: boolean) => <Focusable key={row.id} ref={preferred ? first : undefined}
     focusId={`watch-choice-${row.id}`} testID={`watch-choice-${row.id}`} focusKind="row" focusRadius={theme.isTV ? 12 : 0}
     accessibilityRole="button" accessibilityLabel={[row.primary, row.secondary, row.unavailable ? t('player.opt.unavailable') : undefined].filter(Boolean).join(', ')}
-    accessibilityState={{selected: row.selected, busy: pending}} disabled={!current() || pending || row.unavailable}
+    accessibilityState={{selected: row.selected, busy: pending}} disabled={!current() || pending || row.unavailable === true}
     onPress={() => {if (!row.selected) void run(() => action(row.value));}}
     style={({focused}) => ({minHeight: theme.isTV ? 54 : 52, paddingVertical: 8, paddingHorizontal: theme.isTV ? 14 : 12,
       flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 14 : 12, borderRadius: theme.isTV ? 12 : 0,
