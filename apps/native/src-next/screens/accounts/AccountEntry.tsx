@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {BackHandler, NativeModules, Platform, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
-import type {ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
+import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
 import type {ServerPin} from '../../../../../packages/client-core/src/route-identity';
 import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
@@ -27,14 +27,14 @@ const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({onBack, onComplete}: {onBack?: () => void; onComplete: () => void}) {
-  const theme = useTheme(), [stage, setStage] = useState<Stage>('welcome'), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {onBack?: () => void; onComplete: () => void; initialStage?: 'welcome' | 'address'}) {
+  const theme = useTheme(), [stage, setStage] = useState<Stage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [pin, setPin] = useState<ServerPin>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [servers, setServers] = useState<HostedServer[]>([]), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
-  const [nearby, setNearby] = useState<readonly string[]>([]);
+  const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const lifetime = useRef(true), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
@@ -42,15 +42,29 @@ export function AccountEntry({onBack, onComplete}: {onBack?: () => void; onCompl
   useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {
     if (stage !== 'address') return;
-    const abort = new AbortController();
-    void browseNearby('servers', abort.signal).then(values => {
-      const origins = values.flatMap(value => {try {
+    const abort = new AbortController(), probes = new Set<ServerSignInProbe>();
+    setNearby([]);
+    void browseNearby('servers', abort.signal).then(async values => {
+      const found = values.flatMap(value => {try {
         if (!value || typeof value !== 'object' || !('baseUrl' in value) || typeof value.baseUrl !== 'string') return [];
-        return [routeOrigin(value.baseUrl)];
+        if (!('serverId' in value) || typeof value.serverId !== 'string') return [];
+        return [{origin: routeOrigin(value.baseUrl), serverId: value.serverId}];
       } catch {return [];}});
-      if (!abort.signal.aborted) setNearby([...new Set(origins)]);
-    }, failure => {if (!abort.signal.aborted) setError(failure);});
-    return () => abort.abort();
+      // Discovery supplies addresses, not display names. Ask each server's public system
+      // endpoint; never substitute a hostname or make a Portico Services request.
+      const unique = found.filter((value, index) => found.findIndex(item => item.serverId === value.serverId) === index);
+      for (let index = 0; index < unique.length && !abort.signal.aborted; index += 4) {
+        const rows = await Promise.all(unique.slice(index, index + 4).map(async value => {
+          if (abort.signal.aborted) return;
+          const probe = new ServerSignInProbe(nativeNetworkFetch, 3000); probes.add(probe);
+          try {const descriptor = await probe.inspect(value.origin);
+            return descriptor?.id === value.serverId ? {origin: value.origin, server: descriptor} : undefined;
+          } finally {probe.dispose(); probes.delete(probe);}
+        }));
+        if (!abort.signal.aborted) setNearby(current => [...current, ...rows.flatMap(value => value ? [value] : [])]);
+      }
+    }).catch(failure => {if (!abort.signal.aborted) setError(failure);});
+    return () => {abort.abort(); for (const probe of probes) probe.dispose();};
   }, [stage]);
   const run = async (work: () => Promise<void>) => {
     if (busy) return; setBusy(true); setError(undefined);
@@ -61,12 +75,12 @@ export function AccountEntry({onBack, onComplete}: {onBack?: () => void; onCompl
   };
   const reset = () => {operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
-    setPassword(''); setCode(''); setError(undefined); setStage('welcome');};
-  const back = () => {if (stage === 'welcome') onBack?.(); else reset();};
+    setPassword(''); setCode(''); setError(undefined); setStage(initialStage);};
+  const back = () => {if (stage === initialStage) onBack?.(); else reset();};
   useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {if (busy) return true; if (stage === 'welcome' && !onBack) return false; back(); return true;}); return () => listener.remove();});
   const consume = (result: Result) => {
     if (!lifetime.current) return;
-    if (result.kind === 'profiles') {setProfiles(result.profiles); setStage('profiles');}
+    if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setStage('factor');}
     else onComplete();
   };
@@ -121,13 +135,14 @@ export function AccountEntry({onBack, onComplete}: {onBack?: () => void; onCompl
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
-  if (stage === 'address') return layout(t('accounts.signIn.address'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()), nearby.length > 0 &&
+  if (stage === 'address') return layout(t('accounts.signIn.local'), undefined, fields(field(t('accounts.signIn.address'), address, setAddress)), action('inspect', t('action.continue'), () => inspect(), !address.trim()), nearby.length > 0 &&
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 18}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('playOn.onThisNetwork')}</Text>
-      {nearby.map(origin => <Button key={origin} variant="glass" disabled={busy} onPress={() => {setAddress(origin); void run(() => inspect(origin));}}>{origin}</Button>)}</View>);
+      {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}</Button>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
   if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico));
   if (stage === 'pin') return layout(t('accounts.signIn.confirmIdentity'), server!.name,
     <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('connection.certificate.fingerprint', {fingerprint: pin!.fingerprint})}</Text>,
-    action('confirm-server', t('action.continue'), async () => {await operation.current!.confirmLocal(pin!); if (Platform.isTV) await startTV('local'); else setStage('local');}));
+    action('confirm-server', t('action.continue'), async () => {await operation.current!.confirmLocal(pin!); setServer(operation.current!.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}));
   if (stage === 'local') return layout(server!.name, t('accounts.signIn.local'), fields(field(t('auth.username'), username, setUsername), field(t('auth.password'), password, setPassword, true)),
     action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
     <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);
@@ -157,12 +172,13 @@ export function AccountEntry({onBack, onComplete}: {onBack?: () => void; onCompl
   }, !code));
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
     <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{servers.filter(value => !server || server.signIn !== 'portico' || server.id === value.id).map(value => <Button key={value.id} variant="glass" disabled={busy} onPress={() => {void run(async () => {
-      operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(); const result = await next.connectPortico(value); setServer(next.probe.getSnapshot().server); consume(result);
+      operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(); const result = await next.connectPortico(value);
+      if (!lifetime.current) return; if (result.kind !== 'complete') setServer(next.serverDescriptor()); consume(result);
     });}}>{value.name}</Button>)}</View>, undefined,
     <Button variant="text" disabled={busy} onPress={() => setStage('account-sign-out')}>{t('accounts.signOut.portico')}</Button>);
   if (stage === 'account-sign-out') return layout(t('accounts.signOut.portico'), t('accounts.signOut.porticoBody'), undefined,
     action('account-sign-out', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope.current!); reset();}));
-  if (stage === 'profiles') return layout(t('accounts.profiles.onServer', {server: server?.name ?? ''}), t('accounts.session.' + (server?.signIn ?? 'portico') as 'accounts.session.portico' | 'accounts.session.local'),
+  if (stage === 'profiles') return layout(t('accounts.profiles.onServer', {server: server!.name}), t('accounts.session.' + server!.signIn as 'accounts.session.portico' | 'accounts.session.local'),
     <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} showTitle={false}
       onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>);
   if (stage === 'profile-pin') return layout(t('profile.pinTitle', {name: profile!.name}), undefined, fields(field(t('pin.fourDigit'), code, setCode, true)), action('profile-pin', t('action.continue'), () => choose(profile!.id, code), !/^\d{4}$/.test(code)));

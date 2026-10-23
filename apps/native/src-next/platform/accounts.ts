@@ -12,9 +12,10 @@ import {forgetSessionRoute} from '../../../../packages/client-core/src/route-con
 import {hostedUrl} from './account-authority';
 import {routePath as hostedPath} from '../../../../packages/contracts/src/hosted/routes';
 import {decodeMeGetResponse} from '../../../../packages/contracts/src/hosted/decoders';
+import {readNativeServerDisplays, rememberNativeServerDisplay} from './server-display';
 
 /** Headless native account/session owner. No Hosted credential is opened for local-only use.
- * Views receive opaque server ids, origins and localization keys, never bearer/refresh tokens. */
+ * Views receive server ids, verified names and localization keys, never bearer/refresh tokens. */
 export class NativeAccounts {
   readonly probe = new ServerSignInProbe(nativeNetworkFetch);
   private credentials?: ReturnType<typeof createCredentials>;
@@ -34,10 +35,12 @@ export class NativeAccounts {
   private fence(notify = true) {++this.generation; this.probe.cancel(); if (this.accountAttempt) void this.accountAttempt.logout().catch(() => {}); for (const listener of [...this.cancellations]) listener(); if (notify) for (const listener of [...this.fences]) listener();}
   private finishFence() {for (const listener of [...this.settled]) listener();}
   async snapshot() {
-    this.assertCurrent();
-    const state = await nativeAppSessions.read(); this.assertCurrent();
+    const generation = this.generation; this.assertCurrent(generation);
+    const state = await nativeAppSessions.read(); this.assertCurrent(generation);
+    const names = await readNativeServerDisplays(state.servers); this.assertCurrent(generation);
     return Object.freeze({selectedServerId: state.selectedServerId, servers: Object.freeze(state.servers.map(value => Object.freeze({
-      id: value.connection.pin.serverId, origin: value.connection.logicalOrigin, signIn: value.signIn,
+      id: value.connection.pin.serverId, name: names.find(name => name.serverId === value.connection.pin.serverId)!.name, signIn: value.signIn,
+      familyId: value.connection.session.sessionFamilyId, fingerprint: value.connection.pin.fingerprint,
       labelKey: signInLabelKey(value.signIn),
     })))});
   }
@@ -55,6 +58,9 @@ export class NativeAccounts {
     if (!current()) throw Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
     if ((['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session.viewer[key]))
       throw Object.assign(new Error('native_viewer_mismatch'), {code: 'identity_mismatch'});
+    await rememberNativeServerDisplay(api, {serverId: session.viewer.serverId, signIn: admission.signIn,
+      isCurrent: () => !this.disposed && generation === this.generation && current()});
+    this.assertCurrent(generation);
     const previous = (await nativeAppSessions.read()).servers.find(value => value.connection.pin.serverId === session.viewer.serverId);
     this.assertCurrent(generation);
     for (const listener of [...this.fences]) listener();

@@ -11,6 +11,7 @@ import {installationIdentity} from '../../../../packages/client-core/src/install
 import {nativeAccounts, type NativeAccounts} from './accounts';
 import {hostedUrl} from './account-authority';
 import {nativeNetworkFetch, nativeServerEnvironment, nativeHostedSource, nativeRouteCrypto} from './server-connections';
+import {rememberNativeServerDisplay} from './server-display';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -39,6 +40,7 @@ export class NativeServerSignIn {
   constructor(owner: NativeAccounts = nativeAccounts) {this.owner = owner; this.unfence = owner.onCancel(() => this.cancel());}
   private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation;
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
+  serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
   private async run<T>(work: () => Promise<T>): Promise<T> {
     this.assertCurrent(); if (this.busy || this.complete) throw cancelled(); this.busy = true;
     const pending = this.running = work();
@@ -67,6 +69,9 @@ export class NativeServerSignIn {
       this.admission = await this.owner.admission('local'); this.assertCurrent();
       const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
       this.api = connected.api; this.assertCurrent();
+      this.server = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'local',
+        signal: this.controller.signal, isCurrent: this.current});
+      this.assertCurrent();
     });
   }
   /** Explicit Portico path: identity and directory transport are opened only here. */
@@ -79,8 +84,8 @@ export class NativeServerSignIn {
       this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId: account.account.id});
       const connected = await connectHostedServer(server, nativeHostedSource(hostedUrl, credentials, account.account.id), nativeServerEnvironment(server.id), this.controller.signal);
       this.api = connected.api; this.hosted = connected.hosted; this.assertCurrent();
-      const system = await this.probe.inspect(connected.api.baseUrl); this.assertCurrent();
-      if (!system || system.id !== server.id || system.signIn !== 'portico' || system.setupRequired) throw mismatch();
+      const system = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico',
+        signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
       this.server = system;
       return this.consume(await porticoSignIn(new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch), hostedUrl,
         connected.api, server.id, {signal: this.controller.signal, crypto: nativeRouteCrypto}));

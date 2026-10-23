@@ -15,6 +15,7 @@ import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/cli
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
+import {rememberNativeServerDisplay} from '../platform/server-display';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
@@ -36,6 +37,7 @@ export type NativeShellBootstrapContext = Readonly<{
   preferences: () => PreferenceSnapshot;
   subscribePreferences: (listener: () => void) => () => void;
   appVersion: string;
+  serverName: string;
   current: () => boolean;
   playback: NativeShellPlaybackAdapter;
   account: DirectSnapshot;
@@ -110,11 +112,13 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     home = readers.home;
     const documentService = home;
     const identities = new IdentityClient(readers);
-    const [librariesResult, initialAccount, initialAvatars, initialFacts] = await Promise.all([
+    const [librariesResult, initialAccount, initialAvatars, initialFacts, server] = await Promise.all([
       readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList),
       readers.readAccount(),
       identities.avatars(signal.signal),
       readers.read(),
+      rememberNativeServerDisplay(local, {serverId: session.viewer.serverId,
+        signal: signal.signal, isCurrent: () => alive && installation.current()}),
       documentService.load(),
     ]);
     assertCurrent();
@@ -146,7 +150,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const contextBase: Omit<NativeShellBootstrapContext, 'playback'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
-      appVersion: installed.appVersion, current,
+      appVersion: installed.appVersion, serverName: server.name, current,
       get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});

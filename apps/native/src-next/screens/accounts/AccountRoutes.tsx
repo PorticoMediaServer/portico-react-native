@@ -38,7 +38,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) setError(failure);} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
-  return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('auth.whosWatching')}
+  return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
     beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <TextField label={t('pin.fourDigit')} value={pin} onChangeText={setPin} secureTextEntry keyboardType="number-pad" editable={!busy}/> :
       <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
         selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = context.account.profiles.find(item => item.id === id)!;
@@ -51,7 +51,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
 export function ServersRoute({context, onBack, onComplete}: {context?: NativeShellBootstrapContext; onBack?: () => void; onComplete?: () => void}) {
   const theme = useTheme(), [panel, setPanel] = useState<Panel>('servers'), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
-  const [captured, setCaptured] = useState<AppServerSession>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
+  const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
   const approver = useRef<TVConsentApprover | undefined>(undefined), alive = useRef(true);
   useEffect(() => {alive.current = true; let read = 0;
@@ -68,9 +68,9 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   const errorView = error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 12}]}>{presentError(error, 'account').body}</Text> : null;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-servers" title={title} body={body}
     beforeActions={<>{before}{errorView}</>} primaryAction={primary} secondaryAction={panel !== 'servers' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: cancel} : undefined}>{more}</StateLayout>;
-  if (panel === 'add') return <AccountEntry onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
-  if (panel === 'sign-out-server') return layout(t('accounts.signOut.server', {server: captured!.connection.logicalOrigin}), t('confirm.signOutThisDevice.body'), undefined,
-    action('sign-out-server', t('action.signOut'), async () => {await nativeAccounts.signOutServer(captured!.connection.pin.serverId, captured!.connection.session.sessionFamilyId); close(); onComplete?.();}));
+  if (panel === 'add') return <AccountEntry initialStage="address" onBack={close} onComplete={() => {close(); onComplete?.();}}/>;
+  if (panel === 'sign-out-server') return layout(t('accounts.signOut.server', {server: captured!.name}), t('confirm.signOutThisDevice.body'), undefined,
+    action('sign-out-server', t('action.signOut'), async () => {await nativeAccounts.signOutServer(captured!.session.connection.pin.serverId, captured!.session.connection.session.sessionFamilyId); close(); onComplete?.();}));
   if (panel === 'sign-out-account') return layout(t('accounts.signOut.portico'), t('accounts.signOut.porticoBody'), undefined,
     action('sign-out-account', t('action.signOut'), async () => {await nativeAccounts.signOutPorticoAccount(accountScope!); close(); onComplete?.();}));
   if (panel === 'consent-kind') return layout(t('settings.linkTV'), t('linkTV.enterCode'), <View style={{gap: 12, alignSelf: 'stretch', marginBottom: 20}}>
@@ -89,14 +89,16 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   if (panel === 'consent-done') return layout(done, undefined, undefined, action('done', t('action.done'), async () => close()));
   return layout(t('accounts.servers.title'), servers?.servers.length === 0 ? t('accounts.servers.empty') : undefined, <ScrollView style={{maxHeight: theme.isTV ? 500 : 340, alignSelf: 'stretch', marginBottom: 16}} contentContainerStyle={{gap: 14}}>
     {servers?.servers.map(value => <View key={value.id} style={{gap: 6}}>
-      <Button variant={value.id === servers.selectedServerId ? 'primary' : 'glass'} disabled={busy} onPress={() => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}>{value.origin}</Button>
+      <Button variant={value.id === servers.selectedServerId ? 'primary' : 'glass'} disabled={busy} onPress={() => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}>{value.name}</Button>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t(value.labelKey)}</Text>
       <Button variant="text" size="small" disabled={busy} onPress={() => {void run(async () => {
         const state = await nativeAppSessions.read(), found = state.servers.find(item => item.connection.pin.serverId === value.id);
-        if (found) {setCaptured(found); setPanel('sign-out-server');}
-      });}}>{t('accounts.signOut.server', {server: value.origin})}</Button>
+        if (!found || found.connection.session.sessionFamilyId !== value.familyId || found.connection.pin.fingerprint !== value.fingerprint)
+          throw Object.assign(new Error('native_server_changed'), {code: 'cancelled'});
+        setCaptured({session: found, name: value.name}); setPanel('sign-out-server');
+      });}}>{t('accounts.signOut.server', {server: value.name})}</Button>
     </View>)}
-  </ScrollView>, action('add-server', t('auth.signInToServer'), async () => setPanel('add')),
+  </ScrollView>, action('add-server', t('accounts.signIn.local'), async () => setPanel('add')),
   <View style={{alignSelf: 'stretch', gap: 8, marginTop: 10}}>
     <Button variant="text" disabled={busy} onPress={() => setPanel('consent-kind')}>{t('settings.linkTV')}</Button>
     {servers?.servers.some(value => value.signIn === 'portico') && <Button variant="text" disabled={busy} onPress={() => {void run(async () => {

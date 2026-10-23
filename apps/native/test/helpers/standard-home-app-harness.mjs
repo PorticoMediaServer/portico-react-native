@@ -532,6 +532,8 @@ export async function standardHomeApp({
       });
       if (response) return response;
     }
+    if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1',
+      signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false}};
     if (path === routePath('get_me')) return {status: 200, body: {viewer}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
     if (path === routePath('get_preferences'))

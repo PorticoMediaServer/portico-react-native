@@ -25,6 +25,7 @@ test('actual shell profile switch keeps its captured server, publishes the selec
   try {
     assert.ok(app.hosts().some((host: any) => host.name === 'Pressable' && app.nativeLabel(host) === 'Profiles'), JSON.stringify(app.hosts().filter((host: any) => host.name === 'Text' || host.name === 'Pressable').map((host: any) => app.nativeLabel(host))));
     await app.tapLabel('Profiles'); await app.tapLabel('Switch profile');
+    assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Who’s watching on Synthetic living room?'));
     assert.ok(app.hosts().some((host: any) => host.name === 'Pressable' && app.nativeLabel(host) === 'Second viewer'),
       JSON.stringify(app.hosts().filter((host: any) => host.name === 'Pressable').map((host: any) => app.nativeLabel(host))));
     await app.tapLabel('Second viewer');

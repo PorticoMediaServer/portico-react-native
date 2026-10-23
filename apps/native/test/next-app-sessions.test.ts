@@ -36,11 +36,16 @@ test('real native store keeps several server families while switching; viewer pr
     assert.deepEqual((await nativeAppSessions.read()).servers, [a, b]);
     assert.equal((await readNativeSelectedViewer())?.session.refreshToken, undefined);
     assert.equal((await readNativeSelectedViewer())?.session.sessionFamilyId, 'family_local_a');
+    f.records.set('accounts.server-names.v1', JSON.stringify({version: 1, servers: [
+      {serverId: 'local_a', fingerprint: a.connection.pin.fingerprint, name: 'Synthetic den'},
+      {serverId: 'portico_b', fingerprint: b.connection.pin.fingerprint, name: 'Synthetic shared room'},
+    ]}));
     const publicState = await owner.snapshot();
+    assert.deepEqual(publicState.servers.map(value => value.name), ['Synthetic den', 'Synthetic shared room']);
     assert.equal(publicState.servers[0].labelKey, 'accounts.session.local');
     assert.equal(publicState.servers[1].labelKey, 'accounts.session.portico');
     assert.doesNotMatch(JSON.stringify(publicState), /synthetic_|refreshToken|accessToken/);
-    assert.deepEqual(sent, []); assert.equal(f.records.size, 1);
+    assert.deepEqual(sent, []); assert.equal(f.records.size, 2);
   } finally {owner.dispose();}
 });
 
