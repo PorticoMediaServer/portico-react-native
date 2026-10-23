@@ -16,13 +16,15 @@ export type StateRetry = Readonly<{
   detail?: React.ReactNode;
 }>;
 export type StateLayoutProps = StateContentProps & Readonly<{
-  backdropShape?: 'side' | 'round' | 'top';
+  backdropShape?: 'side' | 'round' | 'top' | 'none';
   backdropHeight?: number;
   shell?: React.ReactNode;
   alive?: React.ReactNode;
   retry?: StateRetry;
   beforeActions?: React.ReactNode;
   detailsAction?: StateAction;
+  /** Compact centered link; actual action identity and callback remain caller-owned. */
+  detailsPresentation?: 'row' | 'link';
   details?: React.ReactNode;
   help?: React.ReactNode;
   kicker?: React.ReactNode;
@@ -34,7 +36,7 @@ export type StateLayoutProps = StateContentProps & Readonly<{
 
 /** Full-page state anatomy; all recovery, retry timing and navigation are supplied. */
 export function StateLayout({title, body, icon, tone = 'neutral', primaryAction, secondaryAction, additionalActions, variant = 'page', frozenPicture, playerChrome,
-  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, details, help, kicker, children, visible = true, contentTop, contentStyle, style, testID}: StateLayoutProps) {
+  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, detailsPresentation = 'row', details, help, kicker, children, visible = true, contentTop, contentStyle, style, testID}: StateLayoutProps) {
   const theme = useTheme();
   const policy = useMotion();
   const tv = theme.isTV;
@@ -54,7 +56,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
   const action = (item: StateAction, primary: boolean) => <StateActionButton testID={testID} key={item.id} action={item} size={player && !tv ? 'small' : 'hero'} variant={primary ? 'primary' : 'glass'} style={buttonStyle} textStyle={player && !tv ? {fontSize: 14.5 * theme.textScale} : undefined} />;
   return <View testID={testID} style={[{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}, style]}>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0}}>
-      {player ? frozenPicture : <ColourBackdrop shape={shape} height={backdropHeight} fill={shape !== 'top'} />}
+      {player ? frozenPicture : shape !== 'none' ? <ColourBackdrop shape={shape} height={backdropHeight} fill={shape !== 'top'} /> : null}
     </View>
     {shell}
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
@@ -66,14 +68,14 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
           {glass.nativeBlur && <BlurView pointerEvents="none" blurType="dark" blurAmount={20} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0}} />}
           <Icon name={icon} color={foreground} size={tv ? 40 : player ? 22 : 26} />
         </View>}
-        <Text accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
+        <Text accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
           {color: theme.colors.text, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 24 : player ? 8 : 10}]}>{title}</Text>
-        {body != null && <Text style={[nativeType({size: bodySize, lineHeight: bodySize * (tv ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale),
+        {body != null && <Text style={[{includeFontPadding: false},nativeType({size: bodySize, lineHeight: bodySize * (tv ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale),
           {maxWidth: tv ? 900 : undefined, color: theme.colors.textSecondary, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 28 : player ? 14 : 16}]}>{body}</Text>}
         {retry && <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: stacked ? 'center' : 'flex-start', gap: tv ? 16 : 12, marginBottom: tv ? 40 : 22}}>
           <CountdownRing progress={retry.progress} />
-          <Text style={[nativeType({size: tv ? 24 : 13.5, lineHeight: 'normal', weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{retry.label}</Text>
-          {retry.detail != null && <Text style={[nativeType({size: tv ? 24 : 13.5, lineHeight: 'normal', weight: 600, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, marginLeft: tv ? 16 : 0}]}>{retry.detail}</Text>}
+          <Text style={[{includeFontPadding: false},nativeType({size: tv ? 24 : 13.5, lineHeight: tv ? 'normal' : 20.25, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{retry.label}</Text>
+          {retry.detail != null && <Text style={[{includeFontPadding: false},nativeType({size: tv ? 24 : 13.5, lineHeight: tv ? 'normal' : 20.25, weight: 600, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, marginLeft: tv ? 16 : 0}]}>{retry.detail}</Text>}
         </View>}
         {alive}
         {beforeActions}
@@ -81,12 +83,12 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
           {primaryAction && action(primaryAction, true)}
           {secondaryAction && action(secondaryAction, false)}
           {additionalActions?.map(item => action(item, false))}
-          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, trailingIcon: detailsAction.trailingIcon ?? (tv ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined}
-            style={!tv ? {height: player ? 40 : 44, paddingHorizontal: 6} : undefined}
+          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, trailingIcon: detailsAction.trailingIcon ?? (tv || detailsPresentation === 'link' ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined}
+            style={!tv ? detailsPresentation === 'link' ? {height: 20, paddingHorizontal: 0, alignSelf: 'center'} : {height: player ? 40 : 44, paddingHorizontal: 6} : undefined}
             textStyle={!tv ? {fontSize: (player ? 14 : 14.5) * theme.textScale, color: theme.colors.textSecondary} : undefined} />}
         </View>
         {details}
-        {help != null && <Text style={[nativeType({size: tv ? 22 : 12.5, lineHeight: tv ? 33 : 18.75, weight: 400, tracking: 0}, theme.textScale), {maxWidth: tv ? 880 : undefined, color: theme.colors.textTertiary, textAlign: stacked ? 'center' : 'left', marginTop: tv ? 36 : 18, marginHorizontal: stacked ? 6 : 0}]}>{help}</Text>}
+        {help != null && <Text style={[{includeFontPadding: false},nativeType({size: tv ? 22 : 12.5, lineHeight: tv ? 33 : 18.75, weight: 400, tracking: 0}, theme.textScale), {maxWidth: tv ? 880 : undefined, color: theme.colors.textTertiary, textAlign: stacked ? 'center' : 'left', marginTop: tv ? 36 : 18, marginHorizontal: stacked ? 6 : 0}]}>{help}</Text>}
         {children}
       </View>
     </Animated.View>

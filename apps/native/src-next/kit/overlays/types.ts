@@ -55,6 +55,8 @@ export type BottomSheetProps = SurfaceProps & {
   fitContent?: boolean;
   /** Text-entry sheets move content and footer together above the native keyboard. */
   keyboardAvoiding?: boolean;
+  /** Authored footer padding; bottom includes the actual safe area minimum. */
+  footerPadding?: {top: number; bottom: number; keyboardBottom: number};
   headerAction?: React.ReactNode;
 };
 export type PopoverProps = SurfaceProps & {

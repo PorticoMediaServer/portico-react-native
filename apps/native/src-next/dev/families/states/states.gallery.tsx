@@ -114,10 +114,11 @@ function Empty({kind = 'saved', testID}: {testID?: string; kind?: 'saved' | 'mem
   const theme = useTheme();
   const title = kind === 'saved' ? t('next.states.myListEmpty') : kind === 'member' ? t('next.states.gettingReady', {server: fixture.server}) : kind === 'search' ? t('next.states.noMatches', {query: fixture.query}) : kind === 'recordings' ? t('next.states.noRecordings') : t('next.states.native.noDownloads');
   const body = kind === 'saved' ? t('next.states.myListEmptyBody') : kind === 'member' ? t('next.states.gettingReadyBody') : kind === 'search' ? t('next.states.noMatchesBody') : kind === 'recordings' ? t('next.states.noRecordingsBody', {title: fixture.programme, time: fixture.programmeTime}) : t('downloads.emptyBody');
+  if (kind === 'search' && !theme.isTV) return <Canvas><View style={{position: 'absolute', left: 20, right: 20, top: 130}}><StateView testID={`${prefix}.state`} variant="search" title={title} body={body} /></View></Canvas>;
   return <Canvas>{home ? <HomeSkeleton elapsedMs={1000} /> : theme.isTV ? <View style={{position: 'absolute', left: 510, top: 220, width: 900}}>
     <StateView testID={`${prefix}.view`} variant="centered" icon={kind === 'saved' ? 'i-bookmark' : kind === 'recordings' ? 'i-rec' : 'i-clock'} title={title} body={body}
       primaryAction={kind === 'member' || kind === 'downloads' ? undefined : {id: 'browse', label: t('next.states.goHome'), onPress: () => setHome(true), hasTVPreferredFocus: theme.isTV}} style={{paddingHorizontal: 0}} />
-  </View> : <StateLayout testID={`${prefix}.state`} title={title} body={body} icon={kind === 'saved' ? 'i-bookmark' : kind === 'recordings' ? 'i-rec' : kind === 'downloads' ? 'i-dl' : 'i-clock'} contentTop={kind === 'saved' ? 178 : kind === 'member' ? 286 : 250}
+  </View> : <StateLayout testID={`${prefix}.state`} title={title} body={body} icon={kind === 'saved' ? 'i-bookmark' : kind === 'recordings' ? 'i-rec' : kind === 'downloads' ? 'i-dl' : 'i-clock'} contentTop={kind === 'saved' ? 178 : kind === 'member' ? 286 : kind === 'downloads' ? 154 : 250} backdropShape={kind === 'downloads' ? 'none' : undefined} detailsPresentation={kind === 'member' ? 'link' : undefined}
     primaryAction={kind === 'recordings' ? {id: 'guide', label: t('next.states.openGuide'), icon: 'i-guide', onPress: () => setHome(true)} : undefined}
     detailsAction={kind === 'member' ? {id: 'switch', label: t('next.states.switchServer'), icon: 'i-server', onPress: () => setHome(true)} : undefined} />}</Canvas>;
 }

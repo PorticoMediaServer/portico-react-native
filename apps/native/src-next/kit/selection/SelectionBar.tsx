@@ -1,19 +1,22 @@
 import React, {useEffect, useId, useRef} from 'react';
 import {BackHandler, StyleSheet, View} from 'react-native';
-import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
+import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
+import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button} from '../controls/Button';
 import {Focusable} from '../controls/Focusable';
 import {Icon, type IconName} from '../Icon';
 import {Menu, MenuRow} from '../overlays/Menu';
 import type {FocusRef, MenuEntry} from '../overlays/types';
 import {useTheme} from '../theme';
+import {ServerMark} from '../shell/ServerIdentity';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
 import {SelectionSurface, SelectionText} from './surface';
+import {SelectionActionRow} from './SelectionActionRow';
 import type {SelectionAction, SelectionActionOffer, SelectionBarProps} from './types';
 
-const icons: Record<SelectionAction, IconName> = {play: 'i-play', queue: 'i-queue', playlist: 'i-listplus', myList: 'i-plus', watched: 'i-check', unwatched: 'i-eyeoff', collection: 'i-layers', favorite: 'i-heart', removeMyList: 'i-x', download: 'i-download', edit: 'i-edit', refresh: 'i-refresh', delete: 'i-trash', playNext: 'i-listplus', playLater: 'i-queue', more: 'i-more'};
+const icons: Record<SelectionAction, IconName> = {play: 'i-play', queue: 'i-queue', playlist: 'i-listplus', myList: 'i-plus', watched: 'i-check', unwatched: 'i-eyeoff', collection: 'i-layers', favorite: 'i-heart', removeMyList: 'i-x', download: 'i-download', edit: 'i-edit', refresh: 'i-refresh', delete: 'i-trash', playNext: 'i-queue', playLater: 'i-listadd', more: 'i-more'};
 const ownerActions: readonly SelectionAction[] = ['edit', 'refresh', 'delete'];
 const mainTV: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'watched', 'more'];
 const phoneMain: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'more'];
@@ -22,8 +25,9 @@ const label = (id: SelectionAction) => selectionText(`next.selection.native.acti
 // Admission belongs to the canonical model/server offers, including TV curation.
 function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'download');}
 function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
-  const {isTV} = useTheme();
+  const {isTV, colors} = useTheme();
   const queueFirst = useRef<View>(null);
+  const ownerGradient = useId().replace(/:/g, '');
   const retainedMenu = useRef(props.menu ?? 'more'), retainedReturn = useRef(props.returnFocusRef);
   if (props.menu !== null) {retainedMenu.current = props.menu; retainedReturn.current = props.returnFocusRef;}
   const menu = props.menu ?? retainedMenu.current;
@@ -34,8 +38,27 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
     const offer = actions.find(action => action.id === id);
     if (!offer || isTV && menu === 'more' && id === 'watched') continue;
     if (ownerActions.includes(id) && !items.some(item => 'section' in item)) items.push({id: 'owner', section: true, label: props.ownerTag, tone: 'owner'});
-    items.push({id, label: id === 'watched' ? selectionText('next.selection.native.markWatched') : label(id), icon: icons[id], description: offer.reason, disabled: offer.disabled,
+    items.push({id, label: id === 'watched' ? selectionText('next.selection.native.markWatched') : label(id), icon: icons[id], description: offer.reason ?? offer.description, disabled: offer.disabled,
       tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => props.onAction(id)});
+  }
+  const actionItems = items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry);
+  if (!isTV && (menu === 'queue' || menu === 'more')) {
+    const first = actionItems.find(entry => !entry.disabled);
+    const row = (entry: typeof actionItems[number], owner = false) => <SelectionActionRow key={entry.id} testID={`${controlID(props.testID, 'menu', menu)}-item-${entry.id}`} ref={entry === first ? queueFirst : undefined}
+      label={entry.label} icon={entry.icon} disabled={entry.disabled} destructive={entry.destructive} tone={entry.id === 'edit' ? 'owner' : undefined}
+      description={entry.description ?? (menu === 'queue' ? selectionText(entry.id === 'playNext' ? 'next.selection.native.queueNextDescription' : 'next.selection.native.queueLaterDescription') : entry.id === 'edit' ? defaultI18n.t('next.selection.moreEditDescription', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})}) : undefined)}
+      style={owner ? {paddingHorizontal: 14, paddingVertical: 6} : undefined} onPress={() => {if (!entry.disabled) {entry.onSelect(); props.onMenuChange(null);}}} />;
+    const owners = actionItems.filter(entry => ownerActions.includes(entry.id as SelectionAction));
+    return <SelectionSurface testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
+      title={menu === 'queue' ? selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})}) : props.menuTitle ?? defaultI18n.t('next.selection.selectedItems', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}
+      description={menu === 'queue' ? selectionText('next.selection.native.queueOrder') : undefined} initialFocusRef={queueFirst} returnFocusRef={props.returnFocusRef ?? retainedReturn.current}>
+      {actionItems.filter(entry => !ownerActions.includes(entry.id as SelectionAction)).map(entry => row(entry))}
+      {owners.length ? <View style={{marginHorizontal: 12, marginTop: 8, paddingVertical: 4, borderRadius: 16, backgroundColor: '#0b1822', borderWidth: 1, borderColor: 'rgba(92,179,226,.18)', overflow: 'hidden'}}>
+        <Svg pointerEvents="none" style={StyleSheet.absoluteFill} width="100%" height="100%"><Defs><RadialGradient id={ownerGradient} cx="100%" cy="0%" rx="120%" ry="100%"><Stop offset="0" stopColor={colors.accentDeep} stopOpacity={.24} /><Stop offset=".62" stopColor={colors.accentDeep} stopOpacity={0} /></RadialGradient></Defs><Rect width="100%" height="100%" fill={`url(#${ownerGradient})`} /></Svg>
+        <View style={{paddingTop: 10, paddingBottom: 2, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10}}><ServerMark variant="editorPhone" /><SelectionText size={13.5} weight={800}>{defaultI18n.t('next.selection.owner')}</SelectionText><View style={{flex: 1}} />{props.ownerTag}</View>
+        {owners.map(entry => row(entry, true))}
+      </View> : null}
+    </SelectionSurface>;
   }
   if (menu === 'queue') return <SelectionSurface testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
     title={selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}

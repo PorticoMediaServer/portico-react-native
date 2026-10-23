@@ -16,10 +16,12 @@ export type TextFieldProps = TextInputProps & {
   variant?: 'field' | 'search';
   containerStyle?: StyleProp<ViewStyle>;
   fieldStyle?: StyleProp<ViewStyle>;
+  /** Authored select.html phone field. Default and TV controls retain their recipe. */
+  appearance?: 'default' | 'selection';
 };
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
-  label, description, error, leadingIcon, iconSize, variant = 'field', containerStyle, fieldStyle,
+  label, description, error, leadingIcon, iconSize, variant = 'field', containerStyle, fieldStyle, appearance = 'default',
   editable = true, focusable, style, onFocus, onBlur, accessibilityLabel, accessibilityState,
   placeholderTextColor, nativeID, multiline, focusId, testID, ...props
 }, ref) {
@@ -29,21 +31,24 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   const [focused, setFocused] = useState(false);
   const id = useId();
   const search = variant === 'search';
+  const selection = appearance === 'selection' && !theme.isTV && !search;
   const height = search ? fieldSpec.search.height[theme.platform] : fieldSpec.height[theme.platform];
   const suppliedField = StyleSheet.flatten(fieldStyle);
   const suppliedHeight = suppliedField?.height;
   const inputHeight = typeof suppliedHeight === 'number' ? suppliedHeight : height;
   const radius = typeof suppliedField?.borderRadius === 'number' ? suppliedField.borderRadius : search ? fieldSpec.search.radius[theme.platform] : fieldSpec.radius[theme.platform];
   const color = error ? theme.colors.danger : focused ? theme.colors.accent : theme.colors.lineControl;
+  const selectionBorder = focused || error ? 2 : suppliedField?.borderWidth ?? 1;
   const labelID = `${id}-label`;
-  return <View style={[styles.container, containerStyle]}>
-    {label !== undefined ? <Text nativeID={labelID} style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{label}</Text> : null}
+  return <View style={[styles.container, selection ? {gap: 7} : undefined, containerStyle]}>
+    {label !== undefined ? <Text nativeID={labelID} style={[theme.type.captionStrong, {color: theme.colors.textSecondary}, selection ? {fontSize: 12.5 * theme.textScale, color: theme.colors.textTertiary} : undefined]}>{label}</Text> : null}
     <View style={[styles.field, {minHeight: inputHeight, height: multiline ? undefined : inputHeight, borderRadius: radius,
       paddingHorizontal: search ? fieldSpec.search.paddingX[theme.platform] : fieldSpec.paddingX[theme.platform],
       gap: search ? fieldSpec.search.gap[theme.platform] : 10,
       backgroundColor: search || focused ? theme.colors.raisedHigh : theme.colors.raised,
       borderWidth: search && !error ? 0 : fieldSpec.borderWidth[theme.platform], borderColor: color,
-      opacity: editable ? 1 : .45}, fieldStyle]}>
+      opacity: editable ? 1 : .45}, fieldStyle, selection ? {backgroundColor: suppliedField?.backgroundColor ?? theme.colors.ink, borderWidth: selectionBorder,
+        borderColor: error ? theme.colors.danger : focused ? theme.colors.focus : suppliedField?.borderColor ?? theme.colors.line} : undefined]}>
       {leadingIcon ? <Icon name={leadingIcon} size={iconSize ?? (theme.isTV ? 30 : 20)} color={theme.colors.textTertiary} /> : null}
       <TextInput {...binding} {...props} testID={binding.testID} ref={binding.ref} nativeID={nativeID ?? id} editable={editable} focusable={eligible} multiline={multiline}
         accessibilityLabel={accessibilityLabel ?? (typeof label === 'string' ? label : undefined)}
@@ -53,10 +58,10 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         underlineColorAndroid="transparent"
         onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event);}}
         onBlur={event => {binding.onBlur(); setFocused(false); onBlur?.(event);}}
-        style={[theme.type.body, styles.input, {fontFamily: search ? fontFamilies[500] : fontFamilies[400],
+        style={[theme.type.body, styles.input, {fontFamily: selection ? fontFamilies[600] : search ? fontFamilies[500] : fontFamilies[400],
           fontSize: search && !theme.isTV ? 15.5 * theme.textScale : theme.type.body.fontSize,
-          color: theme.colors.text, minHeight: inputHeight - 2 * fieldSpec.borderWidth[theme.platform]}, style]} />
-      {focused ? <View pointerEvents="none" style={[styles.ring, {borderColor: search ? colorAlpha(theme.colors.accent, fieldSpec.search.focusAlpha) : theme.colors.focus,
+          color: theme.colors.text, minHeight: inputHeight - 2 * (selection ? selectionBorder : fieldSpec.borderWidth[theme.platform])}, style]} />
+      {focused && !selection ? <View pointerEvents="none" style={[styles.ring, {borderColor: search ? colorAlpha(theme.colors.accent, fieldSpec.search.focusAlpha) : theme.colors.focus,
         borderWidth: theme.isTV ? 4 : 3, borderRadius: radius + 4}]} /> : null}
     </View>
     {error !== undefined ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={[theme.type.caption, {color: theme.colors.danger}]}>{error}</Text>

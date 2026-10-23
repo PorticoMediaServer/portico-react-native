@@ -7,7 +7,7 @@ import type {IconName} from '../Icon';
 
 export type SelectionSurfaceProps = Pick<SurfaceProps, 'open' | 'onOpenChange' | 'initialFocusRef' | 'returnFocusRef' | 'testID'>;
 export type SelectionAction = 'play' | 'queue' | 'playlist' | 'myList' | 'watched' | 'unwatched' | 'collection' | 'favorite' | 'removeMyList' | 'download' | 'edit' | 'refresh' | 'delete' | 'playNext' | 'playLater' | 'more';
-export type SelectionActionOffer = {id: SelectionAction; disabled?: boolean; reason?: string};
+export type SelectionActionOffer = {id: SelectionAction; disabled?: boolean; reason?: string; /** Actual caller-owned operation detail; never an invented estimate. */ description?: string};
 export type SelectionBarProps = {
   /** Caller-owned authority and surface identity, forwarded to each native control. */
   testID?: string;

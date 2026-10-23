@@ -21,7 +21,10 @@ const moduleURL = (source: string) => `data:text/javascript,${encodeURIComponent
 const nativeStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const Platform={OS:'android',isTV:true};
-  export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
+  export const View='View',Text='Text',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
+  export const Image='Image', ImageBackground='ImageBackground', PixelRatio={get:()=>1,getFontScale:()=>1,roundToNearestPixel:n=>n};
+  export const Animated={View:'NativeAnimatedView',createAnimatedComponent:c=>c,Value:class{constructor(value){this.value=value}}};
+  export const TextInput=Object.assign(()=>null,{State:{currentlyFocusedInput:()=>globalThis.__porticoSelectionFocusedInput}});
   export const Keyboard={addListener:(name,callback)=>{const m=globalThis.__porticoSelectionKeyboard;m.set(name,callback);return {remove(){m.delete(name);}};}};
   export const BackHandler={addEventListener:()=>({remove(){}})};
   export const useWindowDimensions=()=>globalThis.__porticoSelectionRenderTest.viewport;
@@ -41,6 +44,7 @@ registerHooks({
     if (specifier === 'react-native') return {url: native, shortCircuit: true};
     if (specifier === 'react-native-reanimated') return {url: reanimated, shortCircuit: true};
     if (specifier === 'react-native-gesture-handler') return {url: gesture, shortCircuit: true};
+    if (specifier === '@react-native-masked-view/masked-view') return {url: moduleURL(`export default 'MaskedView';`), shortCircuit: true};
     if (specifier === 'react-native-svg') return {url: svg, shortCircuit: true};
     if (specifier === '@react-native-community/blur') return {url: moduleURL(`export const BlurView='BlurView';`), shortCircuit: true};
     if (specifier === 'react-native-safe-area-context') return {url: moduleURL(`export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0});`), shortCircuit: true};
@@ -61,12 +65,17 @@ registerHooks({
     return {format: 'module', source: result.code, shortCircuit: true};
   },
 });
+const NativeInput = (await import('react-native')).TextInput;
 const {selectionControlID: controlID} = await import('../src-next/kit/selection/focus-ids.ts');
 const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {DeleteMediaDialog} = await import('../src-next/kit/selection/DeleteMediaDialog.tsx');
 const {MixedEditExplainer} = await import('../src-next/kit/selection/MixedEditExplainer.tsx');
 const {SelectionBar} = await import('../src-next/kit/selection/SelectionBar.tsx');
+const {Icon} = await import('../src-next/kit/Icon.tsx');
+const {SelectionActionRow} = await import('../src-next/kit/selection/SelectionActionRow.tsx');
+const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
+const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
 const {Dialog, FocusBoundary} = await import('../src-next/kit/overlays/surface.tsx');
@@ -121,7 +130,7 @@ test('TV BulkEditor binds real schema fields to native controls without writing 
       assert.equal(surface.props.initialFocusRef.current, focus, 'initial focus targets the actual first TextField');
       const control = mount(TextField, field.props);
       try {
-        const nativeInput = elements(control.tree).find(element => element.type === 'TextInput')!;
+        const nativeInput = elements(control.tree).find(element => element.type === NativeInput)!;
         assert.ok(nativeInput); assert.equal(nativeInput.props.keyboardType, 'numbers-and-punctuation');
         nativeInput.props.ref(focus);
         assert.equal(surface.props.initialFocusRef.current, focus, 'registry binding forwards the actual TextInput host');
@@ -355,12 +364,12 @@ test('picker destination identity survives translation/reorder and find/name IDs
     rows[0].row.props.onPress(); rows[1].row.props.onPress(); assert.deepEqual(calls, ['one/two']);
     const find = ofType(picker.tree, TextField)[0]!;
     const input = mount(TextField, find.props);
-    try {assert.equal(elements(input.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'find'));} finally {input.host.unmount();}
+    try {assert.equal(elements(input.tree).find(element => element.type === NativeInput)!.props.testID, controlID(prefix, 'find'));} finally {input.host.unmount();}
     picker.update({...props, kind: 'playlist', entries: [...props.entries].reverse().map(entry => ({...entry, title: 'Translated'}))});
     assert.deepEqual(rowIDs().map((entry: {id: string}) => entry.id), rows.map((entry: {id: string}) => entry.id).reverse());
     picker.update({...props, kind: 'playlist', creating: true});
     const name = mount(TextField, ofType(picker.tree, TextField)[0]!.props);
-    try {assert.equal(elements(name.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'name'));} finally {name.host.unmount();}
+    try {assert.equal(elements(name.tree).find(element => element.type === NativeInput)!.props.testID, controlID(prefix, 'name'));} finally {name.host.unmount();}
     picker.update({...props, kind: 'playlist', entries: []});
     const surface = ofType(picker.tree, SelectionSurface)[0]!;
     const create = ofType(surface, Focusable).find(element => element.props.testID === controlID(prefix, 'new'))!;
@@ -376,7 +385,7 @@ test('bulk field/value/result IDs use schema and entity keys while native lock/s
     const scalar = mount(scalarNode.type, scalarNode.props);
     try {
       const field = ofType(scalar.tree, TextField)[0]!, input = mount(TextField, field.props);
-      try {assert.equal(elements(input.tree).find(element => element.type === 'TextInput')!.props.testID, controlID(prefix, 'field', 'year', 'input'));} finally {input.host.unmount();}
+      try {assert.equal(elements(input.tree).find(element => element.type === NativeInput)!.props.testID, controlID(prefix, 'field', 'year', 'input'));} finally {input.host.unmount();}
     } finally {scalar.host.unmount();}
     const listNode = elements(editor.tree).find(element => element.props.field?.field === 'tags')!;
     const list = mount(listNode.type, listNode.props);
@@ -415,6 +424,12 @@ test('phone text-entry sheet moves body and footer together for keyboard events 
     assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-input'));
     assert.ok(flatten(getSheet().props.style).height <= 544);
     assert.deepEqual(calls, ['input'], 'keyboard movement must not steal focus');
+    const outer = sheet.tree as Element;
+    const measured = elements(outer).find(element => typeof element.props.onLayout === 'function' && element.type === 'View')!;
+    measured.props.onLayout({nativeEvent: {layout: {height: 544}}}); sheet.host.rerender();
+    assert.equal(flatten(boundary().props.style).marginBottom, 0, 'Android resize must not subtract the keyboard twice');
+    assert.ok(flatten(getSheet().props.style).height <= 544);
+    measured.props.onLayout({nativeEvent: {layout: {height: 844}}}); sheet.host.rerender();
     keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender();
     assert.equal(flatten(boundary().props.style).marginBottom, 0);
     assert.equal(flatten(getSheet().props.style).height, 800);
@@ -440,11 +455,115 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
       const surface = menu.tree as Element;
       assert.equal(surface.type, SelectionSurface); assert.equal(surface.props.title, 'Add 3 episodes to the queue');
       assert.equal(surface.props.description, 'In the order you picked them');
-      const rows = ofType(surface, MenuRow);
+      const rows = ofType(surface, SelectionActionRow);
       assert.equal(rows[0].props.description, 'After what’s playing now');
       assert.equal(rows[1].props.description, 'Actual unavailable reason'); assert.equal(rows[1].props.disabled, true);
       assert.equal(nativeControlID(rows[0]), `${controlID('phone.authority.queue', 'menu', 'queue')}-item-playNext`);
       rows[0].props.onPress(); assert.deepEqual(calls, ['playNext', null]);
     } finally {menu.host.unmount();}
   } finally {bar.host.unmount(); state.theme = previousTheme;}
+});
+
+
+test('content-fit Selection surfaces do not reserve an empty footer or default Done control', () => {
+  const surface = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual queue', children: null});
+  try {const sheet = surface.tree as Element; assert.equal(sheet.props.footer, undefined); assert.equal(sheet.props.showClose, false); assert.equal(sheet.props.fitContent, true);} finally {surface.host.unmount();}
+});
+
+
+test('a real deletion preview error stays unavailable and cannot invoke the destructive callback', () => {
+  const calls: unknown[] = [];
+  const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 4, preview: null, error: 'Actual preview unavailable', confirmation: '4', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: (...args) => calls.push(args)};
+  const dialog = mount(DeleteMediaDialog, props);
+  try {
+    assert.match(text(dialog.tree), /Actual preview unavailable/);
+    assert.doesNotMatch(text(dialog.tree), /Checking what would be removed/);
+    const button = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+    assert.equal(button.props.disabled, true); button.props.onPress(); assert.deepEqual(calls, []);
+  } finally {dialog.host.unmount();}
+});
+
+test('Selection input uses real native focus/blur/ref and keeps default and TV fields unchanged', () => {
+  const previous = state.theme; state.theme = createTheme({isTV: false, width: 390});
+  const forwarded = {current: null as any}; const calls: string[] = [];
+  const field = mount(TextField, {appearance: 'selection', label: 'Confirmation', value: '', fieldStyle: {height: 46}, ref: forwarded, onFocus: () => calls.push('focus'), onBlur: () => calls.push('blur')});
+  const flatten = (s: any): any => Array.isArray(s) ? Object.assign({}, ...s.map(flatten)) : s ?? {};
+  try {
+    let input = elements(field.tree).find(n => n.type === NativeInput)!;
+    const host = {focus() {calls.push('native-focus');}}; input.props.ref(host); assert.equal(forwarded.current, host); forwarded.current.focus();
+    input.props.onFocus({}); field.host.rerender();
+    input = elements(field.tree).find(n => n.type === NativeInput)!;
+    const face = elements(field.tree).find(n => flatten(n.props.style).borderWidth === 2)!;
+    assert.equal(flatten(face.props.style).borderColor, state.theme.colors.focus); assert.equal(flatten(face.props.style).backgroundColor, state.theme.colors.ink);
+    assert.equal(flatten(input.props.style).minHeight, 42); assert.equal(elements(field.tree).filter(n => flatten(n.props.style).inset === -4).length, 0);
+    input.props.onBlur({}); field.host.rerender(); assert.deepEqual(calls, ['native-focus', 'focus', 'blur']);
+    field.update({appearance: 'selection', value: '', error: 'Actual error', editable: false, multiline: true, ref: forwarded});
+    input = elements(field.tree).find(n => n.type === NativeInput)!; assert.equal(input.props.editable, false); assert.equal(input.props.multiline, true); assert.equal(input.props.accessibilityState.disabled, true); assert.match(text(field.tree), /Actual error/);
+    field.update({value: ''}); input = elements(field.tree).find(n => n.type === NativeInput)!; input.props.onFocus({}); field.host.rerender(); assert.ok(elements(field.tree).some(n => flatten(n.props.style).inset === -4), 'default retains existing ring');
+    state.theme = createTheme({isTV: true, width: 1920}); field.update({appearance: 'selection', value: ''}); assert.ok(elements(field.tree).some(n => flatten(n.props.style).inset === -4), 'TV retains existing ring');
+  } finally {field.host.unmount(); state.theme = previous;}
+  assert.equal(forwarded.current, null);
+});
+
+test('phone More uses real selected-kind/offer descriptions and cannot invent download facts or owner commands', () => {
+  const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: unknown[] = [];
+  const props: SelectionBarProps = {testID: 'actual.more', count: 2, selectionLabel: '2 tracks', selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction: id => calls.push(id), menu: 'more', onMenuChange: id => calls.push(id), actions: [{id: 'download'}, {id: 'edit', disabled: true, reason: 'Actual denial', description: 'Actual shared field information'}]};
+  const bar = mount(SelectionBar, props);
+  try {
+    const node = elements(bar.tree).find(n => n.props.menu === 'more' && n.type !== SelectionBar)!; const menu = mount(node.type, node.props);
+    try {
+      assert.equal((menu.tree as Element).props.title, '2 tracks selected'); let rows = ofType(menu.tree, SelectionActionRow); assert.equal(rows[0].props.description, undefined); assert.equal(rows[1].props.description, 'Actual denial');
+      rows[1].props.onPress(); assert.deepEqual(calls, []); rows[0].props.onPress(); assert.deepEqual(calls, ['download', null]);
+      menu.update({...node.props, actions: [{id: 'download', description: 'Actual 42 MB estimate at actual quality'}]}); rows = ofType(menu.tree, SelectionActionRow); assert.equal(rows.length, 1); assert.equal(rows[0].props.description, 'Actual 42 MB estimate at actual quality'); assert.doesNotMatch(text(menu.tree), /Owner/);
+    } finally {menu.host.unmount();}
+  } finally {bar.host.unmount(); state.theme = previous;}
+});
+
+test('phone destinations highlight only real focus state or supplied operation receipt', () => {
+  const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: string[] = [];
+  const props = {open: true, onOpenChange() {}, count: 1, selectionLabel: '1 movie', entries: [{id: 'actual', title: 'Actual destination', size: 2, canAdd: true}], query: '', onQueryChange() {}, creating: false, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd: (id: string) => calls.push(id), onRetry() {}, onViewDestination() {}, onResultDismiss() {}};
+  const wrapper = PlaylistPicker(props); const picker = mount(wrapper.type, wrapper.props);
+  try {
+    const list = elements(picker.tree).find(n => n.type === 'FlatList')!; const row = list.props.renderItem({item: props.entries[0]}) as Element;
+    assert.equal(row.props.children({focused: false, hovered: false, pressed: false}).props.style[1].backgroundColor, 'transparent');
+    assert.equal(row.props.children({focused: true, hovered: false, pressed: false}).props.style[1].backgroundColor, 'rgba(237,245,250,.06)'); assert.deepEqual(calls, []);
+    row.props.onPress(); assert.deepEqual(calls, ['actual']);
+    picker.update({...wrapper.props, result: {destination: props.entries[0], inserted: 0, failures: [{id:'failed', title:'Actual failed title', reason:'Actual reason'}], complete:true}});
+    assert.match(text(picker.tree), /0 added/); assert.match(text(picker.tree), /Actual reason/);
+  } finally {picker.host.unmount(); state.theme = previous;}
+});
+
+test('phone partial edit keeps only failed footer retry without narrowing reason into a duplicate control', () => {
+  const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: unknown[] = [];
+  const editor = mount(BulkEditor, bulk({result: {updated:1,failed:1,results:[{kind:'item',id:'a',ok:true},{kind:'item',id:'b',ok:false,code:'metadata_conflict'}]}, onRetry: ids => calls.push(ids)}));
+  try {
+    assert.equal(ofType(editor.tree, Button).filter(n => n.props.testID?.includes('result')).length, 0);
+    const footer = (editor.tree as Element).props.footer; ofType(footer, Button).at(-1)!.props.onPress(); assert.deepEqual(calls, [['b']]); assert.match(text(editor.tree), /Someone else changed this title/);
+  } finally {editor.host.unmount(); state.theme = previous;}
+});
+
+test('States link and inline recipes retain real actions and avoid inventing surrounding pages', () => {
+  const previous = state.theme; state.theme = createTheme({isTV:false,width:390}); const calls: string[]=[];
+  const layout=mount(StateLayout,{title:'Actual member state',detailsPresentation:'link',detailsAction:{id:'switch',label:'Switch server',icon:'i-server',onPress:()=>calls.push('switch')}});
+  const inline=mount(StateView,{variant:'search',title:'Actual no matches',body:'Actual query explanation',icon:'i-clock'});
+  try {
+    const action=elements(layout.tree).find(n=>n.props.action?.id==='switch')!; assert.equal(action.props.action.trailingIcon,undefined); assert.equal(action.props.style.alignSelf,'center'); action.props.action.onPress(); assert.deepEqual(calls,['switch']);
+    assert.equal(ofType(inline.tree,Icon).length,0); assert.match(text(inline.tree),/Actual query explanation/); assert.doesNotMatch(text(inline.tree),/Recent searches/);
+  } finally {layout.host.unmount();inline.host.unmount();state.theme=previous;}
+});
+
+test('Selection keyboard layout reveals the actual native input above the measured footer and preserves default inset recipe', () => {
+  const previous=state.theme, viewport=state.viewport; state.theme=createTheme({isTV:false,width:390}); state.viewport={width:390,height:844,scale:1,fontScale:1}; const calls:unknown[]=[];
+  const input={measureLayout(){}}; Object.assign(globalThis,{__porticoSelectionFocusedInput:input});
+  const sheet=mount(BottomSheet,{open:true,onOpenChange(){},title:'Actual confirmation',children:null,footer:React.createElement('Button'),keyboardAvoiding:true,footerPadding:{top:10,bottom:30,keyboardBottom:12}});
+  const flatten=(s:any):any=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
+  try {
+    let scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.ref.current={scrollResponderScrollNativeHandleToKeyboard:(...args:unknown[])=>calls.push(args)};
+    scroll.props.onLayout({}); assert.deepEqual(calls,[]);
+    const footer=elements(sheet.tree).find(n=>flatten(n.props.style).paddingTop===10 && n.props.onLayout)!; footer.props.onLayout({nativeEvent:{layout:{height:100}}});
+    keyboardListeners.get('keyboardDidShow')!({endCoordinates:{screenY:544,height:300}}); sheet.host.rerender();
+    scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.onLayout({}); assert.deepEqual(calls,[[input,116,true]]);
+    assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===12));
+    keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender(); assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===30));
+  } finally {sheet.host.unmount(); state.theme=previous;state.viewport=viewport;Object.assign(globalThis,{__porticoSelectionFocusedInput:undefined});}
 });
