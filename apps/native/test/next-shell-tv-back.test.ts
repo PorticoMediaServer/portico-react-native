@@ -4,6 +4,7 @@ import test from 'node:test';
 import * as homeSelection from '../../../packages/client-core/src/home-selection/index';
 import * as homeCapabilities from '../../../packages/client-core/src/home-selection';
 import {HomeService} from '../../../packages/client-core/src/home-service';
+import type {ContentEntry} from '../../../packages/client-core/src/library-content';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
 import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
@@ -12,7 +13,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('actual assembly sends Back to topmost Home menu before player, then TV page, then OS', async () => {
   const h = hooks(), authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
-  const entry = {id: 'movie', libraryId: 'movies', kind: 'movie', title: 'Movie', available: true,
+  const entry: ContentEntry = {id: 'movie', libraryId: 'movies', kind: 'movie', title: 'Movie', available: true,
     navigation: {view: 'item', entityId: 'movie'}, playback: {itemId: 'movie'}};
   const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry, {...entry, id: 'second'}, {...entry, id: 'third'}],
     privacySensitivity: '', policyState: '', priority: 1, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false,
