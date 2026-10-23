@@ -6,12 +6,13 @@ import {NativeDashboardController, type NativeDashboardAdmission, type NativeDas
 import {NativeTogetherController, type NativeTogetherService} from '../src-next/screens/settings-live/together-controller';
 import {NativeRecordingsController, type NativeRecordingService} from '../src-next/screens/settings-live/recordings-controller';
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
-import {nativeGuideClock} from '../src-next/screens/settings-live/guide-presentation';
+import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
 import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
+import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
@@ -93,6 +94,15 @@ test('guide clocks use actual device zone and omit TV day periods without changi
   assert.equal(nativeGuideClock('en-GB', 'America/Halifax', false)(at), '16:05');
   assert.equal(nativeGuideClock('en-US', 'not/a-zone', true)(at), undefined);
   assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(NaN), undefined);
+});
+
+test('guide captions preserve separate episode facts and omit unavailable time facts', () => {
+  const programme: GuideProgram = {id: 'programme', channelId: 'channel', title: 'Stored programme title', start: 1, end: 2, subtitle: 'Stored subtitle: Special Edition', episode: {season: 5, number: 2}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeProgrammeCaption(programme, true, false, () => undefined, text), ['S5 E2', 'Stored subtitle: Special Edition']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, at => at === 2 ? '4:30 PM' : '3:30 PM', text), ['Ends 4:30 PM']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, () => undefined, text), []);
+  assert.deepEqual(nativeProgrammeCaption(undefined, true, false, () => '4:30 PM', text), []);
 });
 
 test('Dashboard uses actual show identity and numbering without shortening stored titles', () => {
