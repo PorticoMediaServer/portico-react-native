@@ -17,10 +17,12 @@ import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
 import {SavedDownloadCard, type NativeSavedDownloadsCopy} from './SavedDownloadCard';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
+import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
 export type NativeSavedActions = Readonly<{
+  menuState?: NativeEntryMenuState;
   openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
   openDownloads: () => void; openPin: (pin: PinnedResource) => void; editPins: () => void;
@@ -40,6 +42,7 @@ export type NativeSavedScreenProps = Readonly<{
 /** phone-app9: Saved is the genuine hub, with My List and actual device downloads.
  * Every other row opens its existing SavedRoute; pins keep the producer's order. */
 export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation}: NativeSavedScreenProps) {
+  useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), scroll = useRef<ScrollView>(null);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const downloads = useSyncExternalStore(device.subscribe, device.getSnapshot);

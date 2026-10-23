@@ -1,7 +1,7 @@
 import {DownloadsService} from '../../../../../packages/client-core/src/downloads-service';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
-import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
+import {createNativeOfflineDownloadsAdapter, offlineDownloads, type NativeOfflineDownloadsDevice, type OfflineEntry} from '../../platform/offline-downloads';
 
 let connection: object | undefined;
 type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; dispose: () => void}>;
@@ -19,7 +19,26 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
   const current = shared;
   current.references++;
   let released = false;
-  return Object.freeze({device: current.lease.device, dispose: () => {
+  const assertBorrowed = () => {if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});};
+  const source = current.lease.device;
+  const borrowed: NativeOfflineDownloadsDevice = {
+    ...source,
+    getSnapshot: () => {assertBorrowed(); return source.getSnapshot();},
+    subscribe: listener => {assertBorrowed(); return source.subscribe(() => {if (!released) listener();});},
+    open: () => {assertBorrowed(); return source.open();},
+    setSettings: settings => {assertBorrowed(); return source.setSettings(settings);},
+    pause: entry => {assertBorrowed(); return source.pause(entry);},
+    resume: entry => {assertBorrowed(); return source.resume(entry);},
+    remove: entry => {assertBorrowed(); return source.remove(entry);},
+    removeOthers: () => {assertBorrowed(); return source.removeOthers();},
+    playable: entry => {assertBorrowed(); return source.playable(entry);},
+    playabilityReason: entry => {assertBorrowed(); return source.playabilityReason(entry);},
+    note: entry => {assertBorrowed(); return source.note(entry);},
+    displayFacts: async entry => {assertBorrowed(); const facts = await source.displayFacts(entry); assertBorrowed(); return facts;},
+    localMedia: async entry => {assertBorrowed(); const media = await source.localMedia(entry); assertBorrowed(); return media;},
+    ...(source.openOffline ? {openOffline: async (entry: OfflineEntry) => {assertBorrowed(); await source.openOffline!(entry);}} : {}),
+  };
+  return Object.freeze({device: Object.freeze(borrowed), dispose: () => {
     if (released) return;
     released = true;
     if (--current.references !== 0) return;
