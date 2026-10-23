@@ -13,11 +13,12 @@ export type FocusSnapshot = FocusAddress & Readonly<{
 const idPart = (value: string) => encodeURIComponent(value).replaceAll('.', '%2E');
 export const focusTestID = (regionId: string, childId: string): string => `portico.focus.${idPart(regionId)}.${idPart(childId)}`;
 const same = (a: FocusAddress | undefined, b: FocusAddress | undefined) => !!a && !!b && a.regionId === b.regionId && a.childId === b.childId;
-const request = (host: FocusHost | undefined): boolean => {
+/** The TV fork exposes its native View command on phones too; TextInput retains focus(). */
+export function requestNativeFocus(host: FocusHost | null | undefined): boolean {
   if (host?.requestTVFocus) {host.requestTVFocus(); return true;}
   if (host?.focus) {host.focus(); return true;}
   return false;
-};
+}
 const configKey = (c: FocusRegionConfig) => JSON.stringify([c.entry, c.entryPolicy, c.order, c.neighbors?.next, c.neighbors?.previous,
   c.screenStart?.regionId, c.screenStart?.childId, c.edges?.up, c.edges?.down, c.edges?.left, c.edges?.right, c.orientation, c.hold, c.enabled]);
 
@@ -55,7 +56,7 @@ export function createFocusRegistry() {
   };
   const focus = (address: FocusAddress): boolean => {
     const r = regions.get(address.regionId);
-    return r?.config.enabled !== false && request(r?.children.get(address.childId)?.host);
+    return r?.config.enabled !== false && requestNativeFocus(r?.children.get(address.childId)?.host);
   };
   const focusRegion = (id: string): boolean => {
     const r = regions.get(id);
@@ -64,7 +65,7 @@ export function createFocusRegistry() {
     if (first && focus({regionId: id, childId: first})) return true;
     if (r.config.entry && focus({regionId: id, childId: r.config.entry})) return true;
     for (const childId of order(r)) if (focus({regionId: id, childId})) return true;
-    return request(r.host);
+    return requestNativeFocus(r.host);
   };
   const restore = (saved: FocusSnapshot | undefined, visited = new Set<string>()): boolean => {
     if (!saved || visited.has(saved.regionId)) return false;
