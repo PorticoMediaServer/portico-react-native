@@ -25,6 +25,8 @@ test('normal product entry signs in locally through actual React/native bridges 
   }});
   try {
     app.resetSyntheticStorage(); await app.mount();
+    assert.ok(app.hosts().some((host: any) => host.name === 'Image' && host.props.accessibilityLabel === 'Portico'), 'signed-out phone renders the actual brand asset');
+    assert.ok(app.hosts().some((host: any) => host.props.testID === 'accounts-welcome-local'), 'the phone front door is mounted through the standard entry');
     assert.equal(app.requests.length, 0, 'empty local startup never synchronizes Portico credentials or contacts Hosted');
     await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
     assert.ok(app.hosts().some((host: any) => app.nativeLabel(host) === 'Synthetic living room uses Portico Accounts'));
