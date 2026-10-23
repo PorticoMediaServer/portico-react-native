@@ -78,7 +78,7 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
       : retryFailed ? <Button {...footerButton} testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} style={[footerButton.style, {flex: 1, alignSelf: 'stretch'}]} onPress={retry}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: failures[0]!.title}) : selectionText('next.selection.native.retry')}</Button> : null}
   </View>;
   return <>
-    <SelectionSurface scrollable={false} open={props.open} onOpenChange={props.onOpenChange} title={title}
+    <SelectionSurface compactHeader scrollable={false} open={props.open} onOpenChange={props.onOpenChange} title={title}
       contentFooterGap={theme.platform === 'phone' ? 0 : undefined} showFooterSeparator={theme.platform === 'phone' ? false : undefined} footerPadding={theme.platform === 'phone' ? {top: 12, bottom: 34, keyboardBottom: 12} : undefined}
       initialFocusRef={retryAvailable ? retryRef : props.creating ? props.initialFocusRef ?? nameRef : props.initialFocusRef ?? (props.result ? dismissRef : available.length ? entryRef : newRef)} returnFocusRef={props.returnFocusRef}
       testID={props.testID} footer={props.creating || props.result || recovering ? buttons : undefined} contentStyle={{paddingHorizontal: 0}}>
