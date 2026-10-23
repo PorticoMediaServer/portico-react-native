@@ -116,9 +116,10 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.ok(
           app.receipts.some(
             receipt =>
-              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.path.split('?')[0] === '/v1/items/movie/playback-options' &&
               receipt.status === 200,
           ),
+          JSON.stringify(app.receipts.filter(receipt => receipt.path.includes('/playback-options'))),
         );
         assert.equal(sessions().length, 1);
         assert.equal(
