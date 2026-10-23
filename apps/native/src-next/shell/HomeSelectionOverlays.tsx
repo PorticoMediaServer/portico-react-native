@@ -61,6 +61,7 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
       if (!current.selection.selectedKeys.includes(menu.key)) {
         const result = controller.toggle(menu.windowId, menu.key);
         if (!result.ok) {reportError(Object.assign(new Error(result.reason), {code: result.reason})); return;}
+        if (!current.selection.active && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
       }
       controller.closeMenu();
     }};
