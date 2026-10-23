@@ -40,7 +40,8 @@ export function libraryFilterField(field: BrowseFieldCapability, predicates: rea
   }
   const values = orderFilterValues(field, facet?.value?.values ?? []).map(value => ({...value,
     label: field.id === 'year' ? defaultI18n.t('next.kit.filter.decade', {year: value.value}) : value.label}));
-  return {...presentation, kind: 'values', included: [...new Set(included)], excluded: [...new Set(excluded)], mode,
+  const valueSummary = field.id === 'year' ? fieldSelectionSummary({...field, id: 'decade'}, direct, value => defaultI18n.t('next.kit.filter.decade', {year: String(value)})) : undefined;
+  return {...presentation, summary: valueSummary, kind: 'values', included: [...new Set(included)], excluded: [...new Set(excluded)], mode,
     allowAll: field.operators.includes('contains-all'), cycleExclusion: true, showMatchMode: false, values,
     search: facet?.search ?? '', total: facet?.value?.total, status: facet?.phase === 'error' ? 'error' : !facet || facet.phase === 'loading' || facet.phase === 'idle' ? 'loading' : 'ready'};
 }

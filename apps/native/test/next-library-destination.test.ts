@@ -158,6 +158,7 @@ test('Library filter controls preserve negative-only values, typed decades, fixe
   const alternative: BrowseNode = {any: [{field: 'genre', operator: 'contains-any', value: ['Comedy']}, fixed]};
   const changed = libraryFilterChange(filterCapabilities, year, [alternative, fixed], {kind: 'values', included: ['1980'], excluded: [], mode: 'any'}, [fixed], new Date());
   assert.deepEqual(changed, [alternative, fixed, {field: 'decade', operator: 'in', value: [1980]}]);
+  assert.equal(libraryFilterField(year, changed, undefined, new Date()).summary, '1980s');
 });
 
 test('An actual Library query change or destination disposal retires its open filter session', async () => {
