@@ -78,3 +78,6 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
 export type {NativeSearchActions, NativeSearchExplorePort, NativeSearchExploreSnapshot, NativeSearchGenre, NativeSearchSelectionPort} from '../search/types';
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
 export type {NativeDownloadsCopy} from '../downloads/DownloadsScreen';
+export {NativeTVKeyboard} from '../search/TVKeyboard';
+export type {NativeTVKeyboardProps} from '../search/TVKeyboard';
+export type {NativeDestinationActivation, NativeDestinationActivationPort} from './focus';
