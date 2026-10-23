@@ -2,7 +2,8 @@
 #import <AVFoundation/AVFoundation.h>
 
 // Render helper of PorticoPlaybackController. It never claims a session, renews a
-// lease, changes queue order, configures AVAudioSession or publishes Now Playing.
+// lease, changes queue order or publishes Now Playing. Device-local output requests
+// go through the sole PorticoAudioProcessing owner.
 @interface PorticoAudioRender : NSObject
 @property(nonatomic,copy) void (^onFact)(NSDictionary *fact);
 // Version 2 plans decode on the device.
