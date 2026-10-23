@@ -34,7 +34,7 @@ test('current native local sign-in probes before credentials, verifies the pin a
     await t.test('Portico destination never exposes a local credential command', async () => {
       kind = 'portico'; const signIn = new NativeServerSignIn(), before = app.requests.length;
       try {
-        assert.equal((await signIn.inspect('https://standard-home.test')).signIn, 'portico');
+        assert.equal((await signIn.inspect('https://standard-home.test'))!.signIn, 'portico');
         await assert.rejects(signIn.inspectLocalIdentity(), (error: {code?: string}) => error.code === 'sign_in_kind_portico');
         await assert.rejects(signIn.signInLocal('person', 'secret'));
         assert.deepEqual(app.requests.slice(before).map((request: any) => request.path), ['/v1/system']);

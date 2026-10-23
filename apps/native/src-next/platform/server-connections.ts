@@ -31,7 +31,7 @@ import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
 import { isAccountAuthority } from './account-authority';
 import {homeActionDiagnostics} from './home-action-diagnostics';
-import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificateContext, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
+import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, pendingCertificate, type CertificateContext, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 /** One request through the native transport, as it is. */
 const nativeRequest: typeof fetch = async (input, options = {}) => {
   if (
@@ -93,6 +93,9 @@ function nativeFetchForIdentity(expected?: string): typeof fetch {return revisio
     const home = privateRouteHost(new URL(origin!).hostname);
     return {expected, home, knownServerIds: state.servers.map(value => value.connection.pin.serverId)};
   };
+  // A pending code decision permits no normal request, including a public name
+  // read. The proof client below is separate and has one fixed method/path.
+  if (origin && pendingCertificate(origin)) throw new RouteError('identity_code_needed', 'identity_code_needed');
   try {
     const result = await nativeRequest(input, options);
     // A Portico-pinned leaf can complete TLS while the system still refuses it. It must
@@ -123,6 +126,10 @@ export async function savedCertificates(): Promise<SavedCertificate[]> {
 export function forgetSavedCertificate(address: string): void {
   NativeModules.PorticoNetwork?.forgetCertificate?.(savedCertificateOrigin(address));
 }
+const proofTLSLeaves = new WeakMap<Response, string>();
+/** Native TLS metadata for this exact proof Response, never an HTTP header or TXT.
+ * Prepared for canonical probeRoute.observedTLSLeaf after checked standard intake. */
+export function nativeProofTLSLeaf(response: Response): string | undefined {return proofTLSLeaves.get(response);}
 export const nativeCertificatePlatform: CertificatePlatform = {
   refused: async origin => {
     const found = await NativeModules.PorticoNetwork.refusedCertificate(origin);
@@ -141,7 +148,10 @@ export const nativeCertificatePlatform: CertificatePlatform = {
       throw new RouteError('cancelled', 'Connection request cancelled.');
     const raw = await NativeModules.PorticoNetwork.proofRequest(origin, fingerprint, options.body);
     if (options.signal?.aborted) throw new RouteError('cancelled', 'Connection request cancelled.');
-    return new Response(raw.body, {status: raw.status, headers: raw.headers});
+    const response = new Response(raw.body, {status: raw.status, headers: raw.headers});
+    if (typeof raw.tlsLeafFingerprint === 'string' && /^[A-Za-z0-9_-]{43}$/.test(raw.tlsLeafFingerprint) && raw.tlsLeafFingerprint === fingerprint)
+      proofTLSLeaves.set(response, raw.tlsLeafFingerprint);
+    return response;
   },
 };
 export const nativeRouteCrypto: RouteCrypto = {

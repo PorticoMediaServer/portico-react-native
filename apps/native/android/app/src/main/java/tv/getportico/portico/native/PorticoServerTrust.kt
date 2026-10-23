@@ -155,9 +155,16 @@ internal object PorticoServerTrust {
   /** One offline durable replacement. Failed storage leaves the in-memory pins unchanged. */
   fun forgetServer(serverId: String, origins: List<String>): Boolean {
     if (!SERVER_ID.matches(serverId) || origins.size > 256) return false
+    val originKeys = mutableSetOf<String>()
+    // Validate the complete HTTP/HTTPS origin set before mutating any pin.
+    for (origin in origins) {
+      val url = origin.toHttpUrlOrNull() ?: return false
+      if (url.username.isNotEmpty() || url.password.isNotEmpty() || url.encodedPath != "/" || url.query != null || url.fragment != null ||
+          origin != url.toString().removeSuffix("/")) return false
+      originKeys.add(key(url.host, url.port) ?: return false)
+    }
     load()
     synchronized(this) {
-      val originKeys = origins.mapNotNull(::key).toSet()
       val removed = pins.filter { (at, pin) -> pin.serverId == serverId || at in originKeys }
       if (removed.isEmpty()) return true
       for (at in removed.keys) pins.remove(at)
