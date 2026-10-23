@@ -48,6 +48,14 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.equal(sessions().length, 0);
       },
     );
+    await t.test('phone Continue short tap opens its title without starting playback', async () => {
+      const before = app.requests.length;
+      await app.tap();
+      assert.equal(sessions().length, 0);
+      assert.equal(app.requests.slice(before).some(request => request.path.endsWith('/playback-options')), false);
+      await app.back();
+      assert.ok(app.card(), 'Back restores the genuine mounted Home card');
+    });
     await t.test(
       'an HTTP boundary failure reaches the real Home toast and creates no session',
       async () => {
@@ -55,7 +63,8 @@ test('standard index/App Home actions use restored authority, current documents 
         const warning = console.warn;
         try {
           console.warn = () => {throw Error('throwing Home diagnostic sink');};
-          await app.tap();
+          await app.more();
+          await app.menuPlay();
         } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
@@ -85,7 +94,7 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.equal(
           app.requests.length,
           count,
-          'a deliberately retained stale callback cannot dispatch playback',
+          'a deliberately retained stale callback cannot dispatch a title or playback',
         );
         assert.equal(sessions().length, 0);
         assert.ok(
@@ -95,12 +104,13 @@ test('standard index/App Home actions use restored authority, current documents 
       },
     );
     await t.test(
-      'current native Continue onPress traverses real playback options and creates a protocol session',
+      'current native Continue menu Play traverses real options and creates a protocol session',
       async () => {
         const warning = console.warn;
         try {
           console.warn = () => {throw Error('throwing Home diagnostic sink');};
-          await app.tap();
+          await app.more();
+          await app.menuPlay();
         } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
