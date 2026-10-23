@@ -5,17 +5,21 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
 import {NativeHomeRowController} from '../src-next/screens/home/row-controller';
 import {NativeShellRouteRegistry} from '../src-next/shell/route-registry';
+import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
-test('real row outlet retains its exact controller through a title and cancels only pending navigation work', async () => {
-  const navigation = new NativeShellNavigation(authority, () => authority), starts: any[] = [];
-  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
-    react: {...React, default: React}, 'react-native': {View: 'View'}, '../../kit/focus': {},
+const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Platform: {isTV}, View: 'View'}, '../../kit/focus': {},
     './HomeSeeAll': {}, './HomeRowFilters': {},
     './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute},
     '../../shell/route-registry': {nativeShellRoutes: new NativeShellRouteRegistry()}, '../../shell/model': {}, '../../kit/theme': {},
+    '../read/platform': {hiddenReadingLibraryOnTV},
   });
+
+test('real row outlet retains its exact controller through a title and cancels only pending navigation work', async () => {
+  const navigation = new NativeShellNavigation(authority, () => authority), starts: any[] = [];
+  const {createNativeHomeRows} = await rowModule();
   let resolve!: () => void;
   const pending = new Promise<void>(done => {resolve = done;});
   const context = {navigation, current: () => true, authority: () => authority, api: {request() {throw new Error('unexpected eager request');}},
@@ -45,4 +49,19 @@ test('real row outlet retains its exact controller through a title and cancels o
     assert.deepEqual(rows.render({}), []); assert.equal(source.abort.signal.aborted, true);
     initial.props.onPlay(false); assert.equal(starts.length, 1, 'retired opener cannot recreate private work');
   } finally {resolve(); rows.dispose(); navigation.dispose();}
+});
+
+for (const isTV of [false, true]) test(`${isTV ? 'TV' : 'handheld'} SeeAll kind choices use actual platform Read eligibility`, async () => {
+  const {createNativeHomeRows} = await rowModule(isTV);
+  const navigation = new NativeShellNavigation(authority, () => authority);
+  const libraries = ['movie', 'book', 'comic', 'books', 'audiobook'].map(kind => ({id: kind, name: kind, kind}));
+  const context = {navigation, current: () => true, authority: () => authority, libraries: () => libraries,
+    api: {request() {throw new Error('unexpected eager request');}}};
+  const rows = createNativeHomeRows(context, (error: unknown) => {throw error;});
+  try {
+    navigation.open({kind: 'home-see-all', destination: {type: 'row', rowId: 'actual-row'}}, authority);
+    rows.reconcile();
+    assert.deepEqual(rows.render({})[0].props.source.controller.kinds.map((kind: {id: string}) => kind.id),
+      isTV ? ['movie', 'audiobook'] : ['movie', 'book', 'comic', 'books', 'audiobook']);
+  } finally {rows.dispose(); navigation.dispose();}
 });

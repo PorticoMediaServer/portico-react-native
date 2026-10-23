@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A6F700000000000000000001 /* PorticoReaderAssetOrigin.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F700000000000000000002 /* PorticoReaderAssetOrigin.m */; };
+		A6F700000000000000000003 /* PorticoReaderAssets.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F700000000000000000004 /* PorticoReaderAssets.m */; };
 		A6F400000000000000000001 /* PorticoPlayerView.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F400000000000000000002 /* PorticoPlayerView.m */; };
 		A6F300000000000000000001 /* PorticoVideoSnapshot.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F300000000000000000002 /* PorticoVideoSnapshot.m */; };
 		A6F100000000000000000001 /* PorticoHaptics.m in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000002 /* PorticoHaptics.m */; };
@@ -57,6 +59,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A6F700000000000000000002 /* PorticoReaderAssetOrigin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoReaderAssetOrigin.m; sourceTree = "<group>"; };
+		A6F700000000000000000004 /* PorticoReaderAssets.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoReaderAssets.m; sourceTree = "<group>"; };
 		A6F400000000000000000002 /* PorticoPlayerView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoPlayerView.m; sourceTree = "<group>"; };
 		A6F300000000000000000002 /* PorticoVideoSnapshot.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoVideoSnapshot.m; sourceTree = "<group>"; };
 		A6F100000000000000000002 /* PorticoHaptics.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoHaptics.m; sourceTree = "<group>"; };
@@ -191,6 +195,8 @@
 				A6F100000000000000000002 /* PorticoHaptics.m */,
 				A6F300000000000000000002 /* PorticoVideoSnapshot.m */,
 				A6F400000000000000000002 /* PorticoPlayerView.m */,
+				A6F700000000000000000002 /* PorticoReaderAssetOrigin.m */,
+				A6F700000000000000000004 /* PorticoReaderAssets.m */,
 				B7E2FD5150E6B9B324188541 /* PorticoURLRoutes.swift */,
 				B7023956C1361284A1D39FCC /* PorticoSystemMedia.m */,
 				A60900000000000000000004 /* PorticoNetworkBridge.m */,
@@ -423,6 +429,8 @@
 				A6F100000000000000000001 /* PorticoHaptics.m in Sources */,
 				A6F300000000000000000001 /* PorticoVideoSnapshot.m in Sources */,
 				A6F400000000000000000001 /* PorticoPlayerView.m in Sources */,
+				A6F700000000000000000001 /* PorticoReaderAssetOrigin.m in Sources */,
+				A6F700000000000000000003 /* PorticoReaderAssets.m in Sources */,
 				B8FD5150E6B9B324188541AF /* PorticoURLRoutes.swift in Sources */,
 				B83956C1361284A1D39FCC18 /* PorticoSystemMedia.m in Sources */,
 				A60900000000000000000003 /* PorticoNetworkBridge.m in Sources */,
