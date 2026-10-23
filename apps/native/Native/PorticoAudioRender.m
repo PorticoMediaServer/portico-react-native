@@ -108,7 +108,7 @@ static void AREvict(void){
 - (instancetype)initWithURL:(NSURL *)url key:(NSString *)key size:(long long)size limit:(long long)limit {
  if((self=[super init])){
   _url=url;_key=key;_lock=[NSCondition new];_have=[NSMutableIndexSet new];_size=size>0?size:-1;_limit=limit>0?limit:0;_limited=limit>0;_ahead=16*1024*1024;_fd=-1;_budget=ARCacheBudget();
-  if(url.isFileURL){_file=YES;_fd=open(url.fileSystemRepresentation,O_RDONLY);if(_fd<0){_failure=@"The audio file couldn’t be opened.";return self;}struct stat st;fstat(_fd,&st);_size=st.st_size;[_have addIndexesInRange:NSMakeRange(0,(NSUInteger)_size)];return self;}
+  if(url.isFileURL){_file=YES;_fd=open(url.fileSystemRepresentation,O_RDONLY);if(_fd<0){_failure=@"audio_file_open_failed";return self;}struct stat st;fstat(_fd,&st);_size=st.st_size;[_have addIndexesInRange:NSMakeRange(0,(NSUInteger)_size)];return self;}
   BOOL shared;@synchronized(ARActiveKeys()){shared=[ARActiveKeys() countForObject:key]>0;[ARActiveKeys() addObject:key];}
   AREvict();
   // INT T6: a second deck of one file (repeat one; the committed deck opening a track that is still
@@ -124,7 +124,7 @@ static void AREvict(void){
    bin=[dir URLByAppendingPathComponent:[_fileKey stringByAppendingPathExtension:@"bin"]].path;done=[dir URLByAppendingPathComponent:[_fileKey stringByAppendingPathExtension:@"done"]].path;
   }
   _fd=open(bin.fileSystemRepresentation,O_RDWR|O_CREAT,0600);
-  if(_fd<0){_failure=@"The audio cache is unavailable.";return self;}
+  if(_fd<0){_failure=@"audio_cache_unavailable";return self;}
   struct stat st;fstat(_fd,&st);
   if(!_private&&_size>0&&[NSFileManager.defaultManager fileExistsAtPath:done]&&st.st_size==_size){[_have addIndexesInRange:NSMakeRange(0,(NSUInteger)_size)];_whole=YES;}
   else{ftruncate(_fd,0);[NSFileManager.defaultManager removeItemAtPath:done error:nil];}
@@ -191,7 +191,7 @@ static void AREvict(void){
   ok=start==_taskAt;if(total>0&&_size<=0)_size=total;}
  else if(r.statusCode==200&&_taskAt==0){ok=YES;if(r.expectedContentLength>0)_size=r.expectedContentLength;}
  else if(r.statusCode==403&&_limited){_limitHit=YES;}
- else _failure=r.statusCode==404||r.statusCode==410?@"This audio is no longer available.":@"The audio couldn’t be fetched.";
+ else _failure=r.statusCode==404||r.statusCode==410?@"audio_source_unavailable":@"audio_fetch_failed";
  if(!ok){_task=nil;[_lock broadcast];}
  [_lock unlock];done(ok?NSURLSessionResponseAllow:NSURLSessionResponseCancel);
 }
@@ -200,14 +200,14 @@ static void AREvict(void){
  if(_closed||task!=_task){[_lock unlock];return;}
  long long at=_taskNext;__block BOOL wrote=YES;
  [data enumerateByteRangesUsingBlock:^(const void *bytes,NSRange range,BOOL *stop){if(pwrite(self->_fd,bytes,range.length,at+(long long)range.location)!=(ssize_t)range.length){wrote=NO;*stop=YES;}}];
- if(!wrote){_failure=@"The audio cache is full.";[task cancel];_task=nil;}
+ if(!wrote){_failure=@"audio_cache_write_failed";[task cancel];_task=nil;}
  else{[_have addIndexesInRange:NSMakeRange((NSUInteger)at,data.length)];_taskNext+=(long long)data.length;_fetched+=(long long)data.length;}
  [_lock broadcast];[_lock unlock];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  [_lock lock];
  if(task==_task){_task=nil;
-  if(error&&error.code!=NSURLErrorCancelled&&!_closed){_failure=@"The audio connection was interrupted.";}
+  if(error&&error.code!=NSURLErrorCancelled&&!_closed){_failure=@"audio_connection_interrupted";}
   if(!error&&_size<=0)_size=_taskNext; // a stream of unknown length has ended
   if([self complete]){fsync(_fd);NSString *done=[ARCacheDirectory() URLByAppendingPathComponent:[_fileKey stringByAppendingPathExtension:@"done"]].path;[NSFileManager.defaultManager createFileAtPath:done contents:nil attributes:nil];}
  }
@@ -328,59 +328,59 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 }
 - (NSString *)open {
  if(_bytes.failure)return _bytes.failure;
- if(![_plan[@"mode"] isEqual:@"converted"]&&[_bytes waitForSize]<=0)return _bytes.failure?:@"The audio file’s size is unknown.";
+ if(![_plan[@"mode"] isEqual:@"converted"]&&[_bytes waitForSize]<=0)return _bytes.failure?:@"audio_source_size_unknown";
  if([_plan[@"codec"] isEqual:@"opus"]){
   int rate=0,channels=0;_opus=ps_audio_open((__bridge void *)self,AROpusRead,AROpusSeek,&rate,&channels);
-  if(!_opus||rate!=[_plan[@"sampleRate"] intValue]||channels!=[_plan[@"channels"] intValue])return @"The Opus decoder differs from the measured audio plan.";
+  if(!_opus||rate!=[_plan[@"sampleRate"] intValue]||channels!=[_plan[@"channels"] intValue])return @"audio_opus_plan_mismatch";
   static const AudioChannelLabel labels[]={kAudioChannelLabel_Left,kAudioChannelLabel_Right,kAudioChannelLabel_Center,kAudioChannelLabel_LFEScreen,kAudioChannelLabel_LeftSurround,kAudioChannelLabel_RightSurround,kAudioChannelLabel_LeftCenter,kAudioChannelLabel_RightCenter,kAudioChannelLabel_CenterSurround,kAudioChannelLabel_LeftSurroundDirect,kAudioChannelLabel_RightSurroundDirect};
   size_t layoutSize=offsetof(AudioChannelLayout,mChannelDescriptions)+(size_t)channels*sizeof(AudioChannelDescription);AudioChannelLayout *layout=calloc(1,layoutSize);layout->mChannelLayoutTag=kAudioChannelLayoutTag_UseChannelDescriptions;layout->mNumberChannelDescriptions=channels;
   BOOL known=YES;for(int ch=0;ch<channels;ch++){int label=ps_audio_channel_at(_opus,ch);if(label<0||label>10){known=NO;break;}layout->mChannelDescriptions[ch].mChannelLabel=labels[label];}
-  AVAudioChannelLayout *order=known?[[AVAudioChannelLayout alloc]initWithLayout:layout]:nil;free(layout);if(!order)return @"This Opus channel layout is unsupported.";
+  AVAudioChannelLayout *order=known?[[AVAudioChannelLayout alloc]initWithLayout:layout]:nil;free(layout);if(!order)return @"audio_opus_layout_unsupported";
   _format=[[AVAudioFormat alloc]initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:rate interleaved:NO channelLayout:order];
   _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];return [self seek:0];
  }
  OSStatus status=AudioFileOpenWithCallbacks((__bridge void *)self,ARRead,NULL,ARSize,NULL,[ARDecoder hint:_plan],&_file);
- if(status!=noErr)return @"This audio file couldn’t be read.";
- status=ExtAudioFileWrapAudioFileID(_file,false,&_ext);if(status!=noErr)return @"This audio file couldn’t be decoded.";
+ if(status!=noErr)return @"audio_file_read_failed";
+ status=ExtAudioFileWrapAudioFileID(_file,false,&_ext);if(status!=noErr)return @"audio_file_decode_failed";
  AudioStreamBasicDescription source={0};UInt32 size=sizeof(source);
- if(ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileDataFormat,&size,&source)!=noErr||source.mSampleRate<=0)return @"This audio format isn’t supported here.";
+ if(ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileDataFormat,&size,&source)!=noErr||source.mSampleRate<=0)return @"audio_format_unsupported";
  AVAudioChannelCount channels=(AVAudioChannelCount)source.mChannelsPerFrame;
- if(channels<1||channels>32||channels!=[_plan[@"channels"] unsignedIntValue])return @"The decoded channel layout differs from the measured plan.";
+ if(channels<1||channels>32||channels!=[_plan[@"channels"] unsignedIntValue])return @"audio_channel_plan_mismatch";
  NSInteger maximum=AVAudioSession.sharedInstance.maximumOutputNumberOfChannels;
- if(maximum>0&&channels>(AVAudioChannelCount)maximum)return @"This output cannot carry every channel. Choose a server conversion for this route.";
+ if(maximum>0&&channels>(AVAudioChannelCount)maximum)return @"audio_output_channels_unsupported";
  _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:source.mSampleRate channels:channels];
  if(channels>2){
   UInt32 layoutSize=0;Boolean writable=false;
-  if(ExtAudioFileGetPropertyInfo(_ext,kExtAudioFileProperty_FileChannelLayout,&layoutSize,&writable)!=noErr||layoutSize<sizeof(AudioChannelLayout)||layoutSize>65536)return @"The multichannel file has no supported channel layout.";
+  if(ExtAudioFileGetPropertyInfo(_ext,kExtAudioFileProperty_FileChannelLayout,&layoutSize,&writable)!=noErr||layoutSize<sizeof(AudioChannelLayout)||layoutSize>65536)return @"audio_channel_layout_unsupported";
   AudioChannelLayout *layout=malloc(layoutSize);OSStatus result=ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileChannelLayout,&layoutSize,layout);
   AVAudioChannelLayout *known=result==noErr?[[AVAudioChannelLayout alloc]initWithLayout:layout]:nil;free(layout);
-  if(!known||known.channelCount!=channels)return @"The multichannel file has an inconsistent channel layout.";
+  if(!known||known.channelCount!=channels)return @"audio_channel_layout_invalid";
   _format=[[AVAudioFormat alloc]initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:source.mSampleRate interleaved:NO channelLayout:known];
  }
  AudioStreamBasicDescription client=*_format.streamDescription;
- if(ExtAudioFileSetProperty(_ext,kExtAudioFileProperty_ClientDataFormat,sizeof(client),&client)!=noErr)return @"This audio couldn’t be converted for playback.";
+ if(ExtAudioFileSetProperty(_ext,kExtAudioFileProperty_ClientDataFormat,sizeof(client),&client)!=noErr)return @"audio_client_format_unsupported";
  if([_plan[@"codec"] isEqual:@"aac"]){
   double rate=[_plan[@"sampleRate"] doubleValue];
   _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:rate channels:channels];client=*_format.streamDescription;
-  if(AudioConverterNew(&source,&client,&_aac)!=noErr)return @"This AAC configuration couldn’t be decoded.";
+  if(AudioConverterNew(&source,&client,&_aac)!=noErr)return @"audio_aac_configuration_failed";
   UInt32 cookieSize=0,writable=0;
   if(AudioFileGetPropertyInfo(_file,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0){
-   if(cookieSize>65536)return @"The AAC configuration exceeds its limit.";
-   void *cookie=malloc(cookieSize);if(!cookie)return @"The audio decoder is out of memory.";
+   if(cookieSize>65536)return @"audio_aac_configuration_limit";
+   void *cookie=malloc(cookieSize);if(!cookie)return @"audio_decoder_memory_unavailable";
    OSStatus got=AudioFileGetProperty(_file,kAudioFilePropertyMagicCookieData,&cookieSize,cookie);
    if(got==noErr)got=AudioConverterSetProperty(_aac,kAudioConverterDecompressionMagicCookie,cookieSize,cookie);free(cookie);
-   if(got!=noErr)return @"This AAC configuration couldn’t be read.";
+   if(got!=noErr)return @"audio_aac_configuration_read_failed";
   }
-  if(!ARAACRawPriming(_aac))return @"This AAC decoder cannot expose its measured audio frames.";
+  if(!ARAACRawPriming(_aac))return @"audio_aac_frames_unavailable";
   UInt32 maxPacket=0,packetSize=sizeof(maxPacket);
-  if(AudioFileGetProperty(_file,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768)return @"The AAC packet size exceeds its limit.";
+  if(AudioFileGetProperty(_file,kAudioFilePropertyMaximumPacketSize,&packetSize,&maxPacket)!=noErr||maxPacket==0||maxPacket>32768)return @"audio_aac_packet_limit";
   _packetCapacity=maxPacket*128;_packetBuffer=malloc(_packetCapacity);_packetDescriptions=calloc(128,sizeof(AudioStreamPacketDescription));
-  if(!_packetBuffer||!_packetDescriptions)return @"The audio decoder is out of memory.";
+  if(!_packetBuffer||!_packetDescriptions)return @"audio_decoder_memory_unavailable";
   UInt32 sourceSize=sizeof(source);
-  if(AudioConverterGetProperty(_aac,kAudioConverterCurrentInputStreamDescription,&sourceSize,&source)!=noErr||source.mSampleRate<=0)return @"The AAC decoder's clock isn’t available.";
+  if(AudioConverterGetProperty(_aac,kAudioConverterCurrentInputStreamDescription,&sourceSize,&source)!=noErr||source.mSampleRate<=0)return @"audio_aac_clock_unavailable";
   _aacInputChannels=source.mChannelsPerFrame;
   _packetFrames=llround(source.mFramesPerPacket*rate/source.mSampleRate);
-  if(_packetFrames<=0||_packetFrames>8192)return @"This AAC packet clock isn’t supported.";
+  if(_packetFrames<=0||_packetFrames>8192)return @"audio_aac_clock_unsupported";
   _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];
   // Converted AAC carries its new encoder delay in the output container, independently of
   // the original file's already-applied trim. Its presentation length remains the plan's.
@@ -388,7 +388,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
   // priming is the plan's trim (`aac-priming`, the converting encoder's own delay), kept above.
   if([_plan[@"mode"] isEqual:@"converted"]&&![_plan[@"container"] isEqual:@"adts"]){
    AudioFilePacketTableInfo table={0};UInt32 tableSize=sizeof(table);
-   if(AudioFileGetProperty(_file,kAudioFilePropertyPacketTableInfo,&tableSize,&table)!=noErr||table.mPrimingFrames<0)return @"The converted AAC priming isn’t available.";
+   if(AudioFileGetProperty(_file,kAudioFilePropertyPacketTableInfo,&tableSize,&table)!=noErr||table.mPrimingFrames<0)return @"audio_aac_priming_unavailable";
    _first=llround(table.mPrimingFrames*rate/source.mSampleRate);
   }
   return [self seek:0];
@@ -404,12 +404,12 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
  // recover already-discarded real samples: give this file to ordinary playback instead.
  long long end=[_plan[@"trim"][@"endFrames"] longLongValue];
  long long raw=start+_total+end;
- if(fabs(source.mSampleRate-[_plan[@"sampleRate"] doubleValue])>.01)return @"The decoder's audio clock differs from the file's measured clock.";
+ if(fabs(source.mSampleRate-[_plan[@"sampleRate"] doubleValue])>.01)return @"audio_clock_plan_mismatch";
  if(_fileFrames==_total)_first=0;
  else {
-  if(primed>start)return @"The decoder trimmed more audio than the file's measured priming.";
+  if(primed>start)return @"audio_priming_plan_mismatch";
   _first=start-primed;
-  if(_fileFrames>0&&(_first+_total>_fileFrames||_fileFrames>raw))return @"The decoder's audio length differs from the file's measured length.";
+  if(_fileFrames>0&&(_first+_total>_fileFrames||_fileFrames>raw))return @"audio_length_plan_mismatch";
  }
 
  return [self seek:0];
@@ -495,9 +495,9 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 - (NSString *)seek:(long long)frame {
  frame=MAX(0,MIN(frame,_total));
  if(_opus){
-  if(!ps_audio_rewind(_opus))return @"The Opus source could not seek.";
+  if(!ps_audio_rewind(_opus))return @"audio_opus_seek_failed";
   long long skip=_first+frame;AVAudioPCMBuffer *scratch=[[AVAudioPCMBuffer alloc]initWithPCMFormat:_format frameCapacity:4096];
-  while(skip>0){int got=ps_audio_read(_opus,scratch.floatChannelData,(int)MIN(4096LL,skip));if(got<=0)return @"The Opus source ended before its measured trim.";skip-=got;}
+  while(skip>0){int got=ps_audio_read(_opus,scratch.floatChannelData,(int)MIN(4096LL,skip));if(got<=0)return @"audio_opus_trim_unavailable";skip-=got;}
   _next=frame;return nil;
  }
  // A part-way position in a direct MP3 or ADTS file lands exactly by the server's index; Core
@@ -508,10 +508,10 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
   // Two complete packets warm the codec; discard their output plus the intra-packet offset.
   // Packet lookup is constant time and AudioFile reads the container's existing byte index.
   long long target=_first+frame;_packet=MAX(0,target/_packetFrames-2);_aacSkip=target-_packet*_packetFrames;
-  if(AudioConverterReset(_aac)!=noErr)return @"That AAC position couldn’t be reached.";
+  if(AudioConverterReset(_aac)!=noErr)return @"audio_aac_seek_failed";
   _next=frame;return nil;
  }
- if(ExtAudioFileSeek(_ext,_first+frame)!=noErr)return @"That position couldn’t be reached in this audio.";
+ if(ExtAudioFileSeek(_ext,_first+frame)!=noErr)return @"audio_seek_failed";
  _next=frame;return nil;
 }
 - (AVAudioPCMBuffer *)read:(AVAudioFrameCount)frames error:(NSString **)error {
@@ -520,7 +520,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
  AVAudioPCMBuffer *buffer=[[AVAudioPCMBuffer alloc] initWithPCMFormat:_format frameCapacity:want];
  buffer.frameLength=want; // sizes the buffer list for the read
  UInt32 got=want;OSStatus status=noErr;
- if(_opus){int read=ps_audio_read(_opus,buffer.floatChannelData,(int)want);if(read<0){if(error)*error=@"The Opus packets could not be decoded.";return nil;}got=(UInt32)read;}
+ if(_opus){int read=ps_audio_read(_opus,buffer.floatChannelData,(int)want);if(read<0){if(error)*error=@"audio_opus_packet_failed";return nil;}got=(UInt32)read;}
  else if(_aac&&!_ix){
   do {
    buffer.frameLength=want;got=want;
@@ -540,7 +540,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
    got-=drop;
   }while(got==0);
  }else status=ExtAudioFileRead(_ext,&got,buffer.mutableAudioBufferList);
- if(status!=noErr){if(error)*error=_bytes.failure?:@"The audio stopped arriving.";return nil;}
+ if(status!=noErr){if(error)*error=_bytes.failure?:@"audio_stream_read_failed";return nil;}
  if(got==0){_total=_next;return nil;} // the file ends before its plan says: stop cleanly
  buffer.frameLength=got;_next+=got;return buffer;
 }
@@ -629,9 +629,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source {
  NSURL *origin=[NSURL URLWithString:source?:@""];NSDictionary *settings=APDictionary(render[@"settings"]);
- if(!origin||!ARPlan(APDictionary(render[@"plan"]),origin))return @"Invalid audio render plan.";
+ if(!origin||!ARPlan(APDictionary(render[@"plan"]),origin))return @"audio_render_plan_invalid";
  if(!PorticoListeningEffectsValid(settings)||!APInteger(render[@"epoch"],0,9007199254740991.0)||!APNumber(render[@"startSeconds"],0,1e9))return @"audio_render_settings_invalid";
- for(NSString *key in @[@"prepared",@"committed"]){NSDictionary *p=APDictionary(render[key]);if(render[key]&&render[key]!=NSNull.null&&!p)return @"Invalid prepared audio.";if(p&&(!ARPlan(APDictionary(p[@"plan"]),origin)||!APID(p[@"token"])))return @"Invalid prepared audio binding.";}
+ for(NSString *key in @[@"prepared",@"committed"]){NSDictionary *p=APDictionary(render[key]);if(render[key]&&render[key]!=NSNull.null&&!p)return @"audio_prepared_invalid";if(p&&(!ARPlan(APDictionary(p[@"plan"]),origin)||!APID(p[@"token"])))return @"audio_prepared_binding_invalid";}
  return nil;
 }
 - (instancetype)init {if((self=[super init])){_seekRevision=-1;_rate=1;}return self;}
@@ -1033,7 +1033,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 static BOOL ARVersion2(NSDictionary *render){return [APDictionary(render)[@"plan"][@"version"] isEqual:@2];}
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source binding:(NSDictionary *)binding {
- return ARVersion2(render)?[PorticoFileRender validate:render source:source]:@"Invalid audio render binding.";
+ return ARVersion2(render)?[PorticoFileRender validate:render source:source]:@"audio_render_binding_invalid";
 }
 + (BOOL)playable:(NSDictionary *)plan {NSDictionary *p=APDictionary(plan);return [p[@"version"] isEqual:@2]&&[@[@"direct",@"converted"] containsObject:p[@"mode"]]&&[p[@"url"] isKindOfClass:NSString.class]&&[PorticoFileRender decodes:p]&&APInteger(p[@"durationFrames"],1,9007199254740991.0)&&APInteger(p[@"sampleRate"],8000,768000);}
 - (instancetype)init {if((self=[super init])){_file=[PorticoFileRender new];}return self;}
