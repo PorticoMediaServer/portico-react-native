@@ -24,7 +24,7 @@ async function fixture() {
     calls.push({path: url.pathname + url.search, method, body: init?.body && JSON.parse(String(init.body)), signal: init?.signal});
     return new Response(JSON.stringify(await respond(url.pathname, method)), {status: 200});
   });
-  const navigation = new NativeShellNavigation(authority);
+  const navigation = new NativeShellNavigation(authority, () => authority);
   navigation.open({kind: 'title', entry}, authority);
   const owner = {api, navigation, current: () => active, authority: () => authority, subscribeAuthority: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
   const common = new NativeScreenServices(owner, async () => '11111111-1111-4111-8111-111111111111');
@@ -89,5 +89,32 @@ test('a changed File info revision cannot become a matching owner action just be
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(d.presenters.getSnapshot()?.error);
     assert.equal(d.calls.some(call => call.path.includes('/delete/preview')), false);
+  } finally {d.dispose();}
+});
+
+const preview = {revision: 7, confirmation: 'Real title: Edition', confirmationKind: 'title', totalBytes: 1024, totalFiles: 1, totalBytesText: '1 KB', blocked: [], assetId: 'asset', previewKey: 'a'.repeat(64),
+  targets: [{itemId: 'movie', title: 'Real title: Edition', kind: 'movie', libraryId: 'library', libraryName: 'Movies', allowMediaDeletion: true, titles: 1, bytes: 1024,
+    files: [{assetId: 'asset', path: '/actual/asset.mkv', bytes: 1024, present: true, shared: false}], dependents: []}]};
+const deleted = {revision: 8, removed: 1, failed: 0, bytesDeleted: 1024, filesRetained: false, receipts: [{itemId: 'movie', title: 'Real title: Edition', removed: true, filesDeleted: 1, filesKept: 0, bytes: 1024, code: ''}]};
+
+test('real version preview owns confirmation and exact physical DELETE receipt, with one operation across retry', async () => {
+  const d = await fixture(); let attempt = 0;
+  try {
+    d.respond(async (path, method) => path.endsWith('/delete/preview') ? preview : method === 'DELETE' && ++attempt === 1
+      ? {...deleted, removed: 0, failed: 1, receipts: [{...deleted.receipts[0], removed: false, filesDeleted: 0, filesKept: 1, code: 'file_not_removed'}]} : method === 'DELETE' ? deleted : page);
+    d.presenters.manageFile(d.capture, 'delete-version', 'asset');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(d.presenters.getSnapshot()?.preview?.assetId, 'asset');
+    d.presenters.confirmation('wrong title'); await d.presenters.deleteVersion();
+    assert.equal(d.calls.filter(call => call.method === 'DELETE').length, 0);
+    d.presenters.confirmation(preview.confirmation); await d.presenters.deleteVersion();
+    assert.equal(d.changed(), 0); assert.ok(d.presenters.getSnapshot()?.error);
+    await d.presenters.deleteVersion();
+    const removes = d.calls.filter(call => call.method === 'DELETE');
+    assert.equal(removes.length, 2);
+    assert.deepEqual(removes[0]?.body, {confirmation: preview.confirmation, operationId: '11111111-1111-4111-8111-111111111111', previewKey: preview.previewKey});
+    assert.deepEqual(removes[1]?.body, removes[0]?.body);
+    assert.equal(removes[1]?.path, '/v1/admin/items/movie/files/asset');
+    assert.equal(d.changed(), 1); assert.equal(d.presenters.getSnapshot(), undefined);
   } finally {d.dispose();}
 });

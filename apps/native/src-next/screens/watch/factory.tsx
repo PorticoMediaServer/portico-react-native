@@ -79,11 +79,7 @@ export type NativeWatchFactoryPorts = Readonly<{
 }>;
 const titleKey = (entry: ContentEntry) => JSON.stringify([entry.libraryId, entry.kind, entry.id]);
 const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | undefined) => b ? sameFence(a, b) : !a;
-const personalMyList = (controller: NativeTitleController): NativeTitleScreenProps['myList'] => {
-  const snapshot = controller.getSnapshot(), detail = snapshot.detail?.data;
-  if (snapshot.retired || !detail?.actions.some(action => action.id === 'watchlist' && action.enabled)) return;
-  return {selected: detail.personal.watchlisted, change: value => controller.personal({action: 'watchlist', value})};
-};
+
 
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
@@ -173,7 +169,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
               || state.detail?.data?.related?.rows.some(row => row.entries.some(item => titleKey(item) === titleKey(entry))) === true);
           }, anchorRef).catch(ports.title.reportError);
         }}
-        myList={ports.title.myList?.(route.entry) ?? personalMyList(controller)} download={ports.title.download}/>;
+        myList={ports.title.myList?.(route.entry)} download={ports.title.download}/>;
     },
   };
   const offPlayback = ports.playback.subscribe(update), offAuthority = ports.subscribeCurrent(update), offRoute = ports.navigation.subscribe(update);
@@ -196,7 +192,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         const owner = controller;
         return <NativeTitleScreen {...ports.title} key={key} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
           watch={{source, playback: ports.playback, width: pane.width}} back={() => {ports.navigation.back(ports.authority);}}
-          myList={ports.title.myList?.(entry) ?? personalMyList(owner)} download={ports.title.download} more={(member, anchorRef) => {
+          myList={ports.title.myList?.(entry)} download={ports.title.download} more={(member, anchorRef) => {
             void menu(member, () => {
               const state = owner.getSnapshot(), active = ports.playback.getSnapshot();
               return !state.retired && !active.retired && active.dock.local?.expanded === true && !!active.entry && titleKey(active.entry) === titleKey(entry)
