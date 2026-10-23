@@ -1572,3 +1572,32 @@ test('late version cleanup survives ordinary disposal but never uses a replaceme
     } finally {release();d.runtime.dispose();}
   }
 });
+
+test('whole-group Play and Shuffle send the actual selector, never a loaded preview list', async () => {
+  const query = {libraryId: '*', pivot: 'titles', query: {field: 'homeRow', operator: 'equals' as const, value: 'actual-row'}, sort: [{field: 'groupOrder', direction: 'asc' as const}]};
+  for (const shuffle of [false, true]) {
+    const d = fixture();
+    try {
+      // This canonical fake has no query resolver. Keep its actual 422 rather
+      // than fabricate a positive server grouping or an adopted session.
+      await assert.rejects(d.runtime.startGroup({query, shuffle, signal: new AbortController().signal, isCurrent: () => true}));
+      const creates = d.requests.filter(request => request.method === 'POST' && request.path === routePath('create_queue'));
+      assert.equal(creates.length, 1);
+      assert.deepEqual((creates[0]!.body as any).segments, [{source: {query}, ...(shuffle ? {order: {mode: 'shuffle'}} : {})}]);
+      assert.equal(d.runtime.getSnapshot().fence, undefined);
+    } finally {d.runtime.dispose();}
+  }
+});
+
+test('whole-group caller retirement during capabilities prevents a late queue creation', async () => {
+  const query = {libraryId: '*', pivot: 'titles', query: {field: 'homeRow', operator: 'equals' as const, value: 'actual-row'}, sort: [{field: 'groupOrder', direction: 'asc' as const}]};
+  for (const retirement of ['signal', 'member'] as const) {
+    const d = fixture(), controller = new AbortController(); let current = true;
+    try {
+      d.intercept(async request => {if (request.path === routePath('get_capabilities')) {if (retirement === 'signal') controller.abort(); else current = false;}});
+      await assert.rejects(d.runtime.startGroup({query, shuffle: false, signal: controller.signal, isCurrent: () => current}));
+      assert.equal(d.requests.some(request => request.path === routePath('create_queue')), false);
+      assert.equal(d.runtime.getSnapshot().fence, undefined);
+    } finally {d.runtime.dispose();}
+  }
+});

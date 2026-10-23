@@ -1,6 +1,7 @@
 import {PlaybackService} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {WholeGroupQuery} from '../../../../../packages/client-core/src/presentation/browse-groups';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import {encodedRoutePath, routePath} from '../../../../../packages/contracts/src/routes';
 import {SessionsClient} from '../../../../../packages/client-core/src/playback-v1/sessions';
@@ -416,6 +417,34 @@ export class NativePlaybackRuntime {
     } catch (error) { if (epoch !== this.startEpoch || controller.signal.aborted || !this.active()) return; throw error; }
     if (!this.active() || epoch !== this.startEpoch) return;
     await this.startOffered(input, offered, capabilities, epoch);
+  };
+
+  /** Play the server-owned whole group, never the screen's loaded preview.
+   * The caller supplies its genuine route/member lifetime through adoption. */
+  startGroup = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
+    const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
+    if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
+    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
+    const scoped = this.selectionScope(input.signal, valid);
+    const assertCurrent = () => {if (!valid()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});};
+    try {
+      this.connect();
+      await this.queue.cancel(); assertCurrent();
+      await this.o.capabilitiesReady(); assertCurrent();
+      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal); assertCurrent();
+      this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
+      this.rememberCurrent(); assertCurrent();
+      this.entry = undefined; this.subject = undefined; this.options = undefined;
+      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
+      await this.queue.playSegments([{source: {query: input.query}, ...(input.shuffle ? {order: {mode: 'shuffle' as const}} : {})}], {signal: scoped.signal, isCurrent: valid});
+      assertCurrent();
+    } catch (error) {
+      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
+      throw error;
+    } finally {
+      scoped.close();
+      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+    }
   };
 
   /** A menu cannot start a version from another authority or replace a newer source. Its
