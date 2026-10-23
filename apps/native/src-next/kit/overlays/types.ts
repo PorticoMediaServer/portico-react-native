@@ -24,6 +24,8 @@ export type SurfaceProps = {
   titleType?: TypeStyle;
   titleTextStyle?: StyleProp<TextStyle>;
   descriptionTextStyle?: StyleProp<TextStyle>;
+  /** BottomSheet backdrop alpha; defaults to .64 unless a composition opts in. */
+  backdropOpacity?: number;
 };
 export type DialogProps = SurfaceProps & {
   size?: 'sm' | 'md' | 'lg';
@@ -58,6 +60,8 @@ export type BottomSheetProps = SurfaceProps & {
   /** Authored footer padding; bottom includes the actual safe area minimum. */
   footerPadding?: {top: number; bottom: number; keyboardBottom: number};
   headerAction?: React.ReactNode;
+  /** Replaces only the standard heading row; context and sheet gestures remain. */
+  headerContent?: React.ReactNode;
 };
 export type PopoverProps = SurfaceProps & {
   anchorRef: React.RefObject<View | null>;
