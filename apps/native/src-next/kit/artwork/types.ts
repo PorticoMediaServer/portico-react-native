@@ -127,7 +127,6 @@ export type ChannelMarkProps = Readonly<{
   mark: ChannelMarkModel;
   source?: ArtworkSource | null;
   size?: number;
-  tint?: string;
   alt?: string;
   visible?: boolean;
   style?: StyleProp<ViewStyle>;
