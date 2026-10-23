@@ -4,8 +4,8 @@
 androidx.activity:activity-ktx:1.8.0
 androidx.activity:activity:1.8.0
 androidx.annotation:annotation-experimental:1.4.1
-androidx.annotation:annotation-jvm:1.8.1
-androidx.annotation:annotation:1.8.1
+androidx.annotation:annotation-jvm:1.9.1
+androidx.annotation:annotation:1.9.1
 androidx.appcompat:appcompat-resources:1.7.0
 androidx.appcompat:appcompat:1.7.0
 androidx.arch.core:core-common:2.2.0
@@ -72,6 +72,10 @@ androidx.vectordrawable:vectordrawable:1.1.0
 androidx.versionedparcelable:versionedparcelable:1.1.1
 androidx.viewpager2:viewpager2:1.0.0
 androidx.viewpager:viewpager:1.0.0
+androidx.window:window-core-android:1.5.1
+androidx.window:window-core:1.5.1
+androidx.window:window-java:1.5.1
+androidx.window:window:1.5.1
 com.facebook.fbjni:fbjni:0.7.0
 com.facebook.fresco:drawee:3.6.0
 com.facebook.fresco:fbcore:3.6.0
