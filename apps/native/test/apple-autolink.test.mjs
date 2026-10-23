@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -56,6 +57,12 @@ test('tvOS target flag precedes CLI autolinking while both Apple deployment floo
     assert.ok(floors.length > 0);
     assert.ok(floors.every(match => match[1] === '15.1'));
   }
+});
+
+test('the refreshed tvOS lock belongs to the actual target-selecting Podfile', () => {
+  const checksum = createHash('sha1').update(readFileSync(path.join(root, 'tvos/Podfile'))).digest('hex');
+  const lock = readFileSync(path.join(root, 'tvos/Podfile.lock'), 'utf8');
+  assert.equal(/^PODFILE CHECKSUM: (\S+)$/m.exec(lock)?.[1], checksum);
 });
 
 test('actual installed CLI selects the tvOS project without changing Android or other dependency declarations', () => {
