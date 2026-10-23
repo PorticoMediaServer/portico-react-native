@@ -842,8 +842,8 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  snapshot[@"session"]=heard;snapshot[@"durationSeconds"]=@(_audible?_audibleDuration:_duration);snapshot[@"lastSeq"]=@(_audible?_audibleSeq:_seq);
  snapshot[@"queue"]=_queue?[_queue copy]:NSNull.null;
  snapshot[@"intent"]=(_safetyPaused||_interrupted||_ended||(![self allowed]&&Mono()>=_leaseUntil))?@"paused":_intent;
- snapshot[@"eqApplied"]=@(currentBinding&&[snapshot[@"eqApplied"] boolValue]);
- snapshot[@"levelingApplied"]=@(currentBinding&&[snapshot[@"levelingApplied"] boolValue]);
+ snapshot[@"eqApplied"]=@(currentBinding&&!_ended&&!_terminal&&[snapshot[@"eqApplied"] boolValue]);
+ snapshot[@"levelingApplied"]=@(currentBinding&&!_ended&&!_terminal&&[snapshot[@"levelingApplied"] boolValue]);
  snapshot[@"rate"]=@(_rate);snapshot[@"ended"]=@(_ended);snapshot[@"terminal"]=@(_terminal);snapshot[@"error"]=_error?:NSNull.null;
  snapshot[@"deadlines"]=[_deadlines copy];snapshot[@"timerStopped"]=@(_timerStopped);snapshot[@"expiredTimerRevision"]=@(_expiredTimerRevision);snapshot[@"policyRevision"]=_policy[@"revision"]?:@0;
  NSString *notice=_notice?:([self effectsWanted]?[_render notice:heard[@"presentation"]]:nil);if(notice)snapshot[@"noticeCode"]=notice;

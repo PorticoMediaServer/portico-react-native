@@ -69,6 +69,11 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
 @property(nonatomic, copy) NSString *key;
 @property(nonatomic, copy) NSString *fingerprint;
 @property(nonatomic, copy) NSString *tlsLeafFingerprint;
+@property(nonatomic, strong) NSURL *url;
+@property(nonatomic, strong) NSHTTPURLResponse *response;
+@property(nonatomic, strong) NSMutableData *data;
+@property(nonatomic, copy) void (^completion)(NSDictionary *);
+@property(nonatomic) BOOL completed;
 @end
 @implementation PorticoTrustProofDelegate
 - (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
@@ -91,6 +96,39 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completionHandler {
   completionHandler(nil);
+}
+- (void)finish:(NSURLSession *)session result:(NSDictionary *)result {
+  if (self.completed) return;
+  self.completed = YES;
+  void (^completion)(NSDictionary *) = self.completion;
+  self.completion = nil;
+  [session finishTasksAndInvalidate];
+  if (completion) completion(result);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)raw completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+  NSHTTPURLResponse *response = [raw isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)raw : nil;
+  if (!response || ![response.URL isEqual:self.url] || (response.statusCode >= 300 && response.statusCode < 400) || response.expectedContentLength > 8192) {
+    completionHandler(NSURLSessionResponseCancel);[self finish:session result:nil];return;
+  }
+  self.response = response;self.data = [NSMutableData data];
+  completionHandler(NSURLSessionResponseAllow);
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
+  if (self.completed) return;
+  // Enforce the limit while receiving, including chunked/unknown-length bodies. A completion
+  // handler's NSData would already have accumulated an unbounded response before checking it.
+  if (!self.response || data.length > 8192 - self.data.length) {
+    [task cancel];[self finish:session result:nil];return;
+  }
+  [self.data appendData:data];
+}
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+  if (self.completed) return;
+  NSString *text = !error && self.response && self.tlsLeafFingerprint.length ? [[NSString alloc] initWithData:self.data encoding:NSUTF8StringEncoding] : nil;
+  if (!text) {[self finish:session result:nil];return;}
+  NSMutableDictionary *headers = [NSMutableDictionary dictionary];
+  for (id name in self.response.allHeaderFields) headers[[name description]] = [self.response.allHeaderFields[name] description];
+  [self finish:session result:@{@"status": @(self.response.statusCode), @"headers": headers, @"body": text, @"tlsLeafFingerprint": self.tlsLeafFingerprint}];
 }
 @end
 
@@ -276,7 +314,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   NSURL *url = parts.URL;
   if (!url) { completion(nil); return; }
   PorticoTrustProofDelegate *delegate = [PorticoTrustProofDelegate new];
-  delegate.key = key; delegate.fingerprint = fingerprint;
+  delegate.key = key; delegate.fingerprint = fingerprint;delegate.url = url;delegate.completion = completion;
   NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
   configuration.HTTPCookieStorage = nil; configuration.HTTPShouldSetCookies = NO; configuration.URLCache = nil; configuration.URLCredentialStorage = nil;
   configuration.timeoutIntervalForRequest = 5; configuration.timeoutIntervalForResource = 5;
@@ -284,15 +322,7 @@ static NSMutableDictionary<NSString *, NSString *> *PorticoTrustRefused;
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
   request.HTTPMethod = @"POST"; request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding]; request.HTTPShouldHandleCookies = NO;
   [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"]; [request setValue:@"application/json; portico-route-proof=2" forHTTPHeaderField:@"Accept"];
-  [[session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-    [session finishTasksAndInvalidate];
-    NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
-    NSString *text = data.length <= 8192 ? [[NSString alloc] initWithData:data ?: [NSData data] encoding:NSUTF8StringEncoding] : nil;
-    if (error || !http || !text || !delegate.tlsLeafFingerprint.length || ![http.URL isEqual:url] || (http.statusCode >= 300 && http.statusCode < 400)) { completion(nil); return; }
-    NSMutableDictionary *headers = [NSMutableDictionary dictionary];
-    for (id name in http.allHeaderFields) headers[[name description]] = [http.allHeaderFields[name] description];
-    completion(@{@"status": @(http.statusCode), @"headers": headers, @"body": text, @"tlsLeafFingerprint": delegate.tlsLeafFingerprint});
-  }] resume];
+  [[session dataTaskWithRequest:request] resume];
 }
 
 @end

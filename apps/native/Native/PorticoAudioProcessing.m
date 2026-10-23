@@ -44,7 +44,7 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
 }
 - (void)routeChanged:(NSNotification *)note {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self routeChanged:note];});return;}
- _sessionConfigured=NO;[NSNotificationCenter.defaultCenter postNotificationName:PorticoAudioProcessingChanged object:self];
+ _sessionConfigured=NO;[NSNotificationCenter.defaultCenter postNotificationName:PorticoAudioProcessingChanged object:self userInfo:@{@"routeChanged":@YES}];
 }
 - (BOOL)setEqualizer:(NSDictionary *)settings error:(NSError **)error {
  NSArray *bands=[settings[@"bands"] isKindOfClass:NSArray.class]?settings[@"bands"]:nil;
@@ -78,6 +78,7 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
  if(changed){_sessionConfigured=NO;[NSNotificationCenter.defaultCenter postNotificationName:PorticoAudioProcessingChanged object:self userInfo:@{@"sampleRateMatching":mode}];}
  return YES;
 }
+- (NSString *)sampleRateMatching {return _mode;}
 - (BOOL)configureRate:(double)rate channels:(AVAudioChannelCount)channels error:(NSError **)error {
  NSString *mode=_mode;
  if(!isfinite(rate)||rate<8000||rate>768000||channels<1||channels>32||![@[@"smart",@"strict",@"off"] containsObject:mode]){if(error)*error=EQError(@"audio_rate_request_invalid");return NO;}
@@ -90,7 +91,9 @@ static NSError *EQError(NSString *message){return [NSError errorWithDomain:@"Por
   [audio setActive:NO error:&failure];
   if(!failure)[audio setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault options:0 error:&failure];
   if(@available(iOS 15.0,tvOS 15.0,*)){if(!failure)[audio setSupportsMultichannelContent:YES error:&failure];}
-  if(!failure&&![mode isEqual:@"off"])[audio setPreferredSampleRate:rate error:&failure];
+  // Zero explicitly withdraws our previous request. Merely skipping the setter in Off
+  // would leave the last song's preferred rate in the session.
+  if(!failure)[audio setPreferredSampleRate:requested error:&failure];
   if(!failure)[audio setActive:YES error:&failure];
   NSInteger maximum=audio.maximumOutputNumberOfChannels;
   if(!failure&&maximum>0)[audio setPreferredOutputNumberOfChannels:MIN((NSInteger)channels,maximum) error:&failure];

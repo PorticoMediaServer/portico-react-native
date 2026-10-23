@@ -168,6 +168,10 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (BOOL)listeningActive { return _listeningOwner != nil; }
 - (double)currentSourcePosition { return [self sourcePosition]; }
 - (BOOL)subtitleOverlayActive { return _subtitleOverlay.active||_subtitleSelection.overlayActive; }
+- (NSDictionary *)externalPresentationBinding {
+ if(!_lease.length||![_binding[@"lease"] isEqual:_lease]||_invalidated||_audioRender.active||_displayWaiting||_routeSuspended||_routeResume||_routeSeeking||_routeFailed||_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]||!_player.currentItem||_player.currentItem.status!=AVPlayerItemStatusReadyToPlay||_observedItem!=_player.currentItem)return nil;
+ return [_binding copy];
+}
 - (PorticoSubtitleOverlay *)subtitleOverlay { return _subtitleOverlay; }
 - (AVPlayer *)player { return _player; }
 - (NSString *)lease { return _lease; }
@@ -402,9 +406,14 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSDictionary *subtitles=[self scopedAudio:command[@"subtitles"] binding:_binding];
  NSDictionary *style=[subtitles[@"style"] isKindOfClass:NSDictionary.class]?subtitles[@"style"]:nil;
  if(!(style==_subtitleStyle||[style isEqual:_subtitleStyle])){_subtitleStyle=[style copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:self];}
+ BOOL wasOverlayActive=self.subtitleOverlayActive;
  [_subtitleOverlay apply:subtitles source:_source];
  if(_subtitleOverlay.active)[_subtitleSelection apply:nil item:_player.currentItem source:_source];
  else [_subtitleSelection apply:subtitles item:_player.currentItem source:_source];
+ // External AVPlayer output cannot carry our sibling UIKit caption layers. The runtime owns
+ // the same-session replan; enable external playback only after that command removes them.
+ _player.allowsExternalPlayback=!self.subtitleOverlayActive;
+ if(wasOverlayActive!=self.subtitleOverlayActive)[NSNotificationCenter.defaultCenter postNotificationName:@"PorticoPlaybackSubtitleChanged" object:self];
  [self applyRouteResume];[self applyPendingSeek];[self applyIntent];
 }
 // A transport rebind is not a new playback intent or a user seek. Restore the

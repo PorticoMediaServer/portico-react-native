@@ -3,10 +3,12 @@
 @class PorticoSubtitleOverlay;
 @interface PorticoPlaybackController : NSObject
 @property(nonatomic,copy) void (^onFact)(NSDictionary *fact);
-/** Picture in Picture changes from the player view, for JavaScript ({lease, state, subtitlesCarried}). */
+/** PiP events include the immutable request binding and requestId, so stale callbacks are rejected. */
 @property(nonatomic,copy) void (^onPictureInPicture)(NSDictionary *change);
 @property(nonatomic,readonly) AVPlayer *player;
 @property(nonatomic,readonly) NSString *lease;
+/** Current source-ready video binding; nil while replanning, seeking, suspended or unready. */
+@property(nonatomic,copy,readonly) NSDictionary *externalPresentationBinding;
 @property(nonatomic,readonly) NSString *subtitleText;
 @property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
 @property(nonatomic,readonly) NSDictionary *subtitleCue;

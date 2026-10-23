@@ -17,10 +17,11 @@
 @interface PorticoPlayerView : UIView <AVPictureInPictureControllerDelegate>
 @property(nonatomic,copy) NSString *lease;
 @property(nonatomic) NSInteger pictureInPictureRequest;
+@property(nonatomic,copy) NSDictionary *pictureInPictureBinding;
 @property(nonatomic,strong) AVPictureInPictureController *pictureInPicture;
 @property(nonatomic,strong) PorticoPlaybackController *controller;
 @end
-@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; UIImageView *_richSubtitle; CADisplayLink *_subtitleClock; }
+@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; UIImageView *_richSubtitle; CADisplayLink *_subtitleClock; NSDictionary *_activePictureBinding;NSInteger _submittedPictureRequest; }
 - (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];self.clipsToBounds=YES;
  _richSubtitle=[UIImageView new];_richSubtitle.userInteractionEnabled=NO;_richSubtitle.layer.contentsFormat=kCAContentsFormatRGBA8Uint;
  if(@available(iOS 17.0,tvOS 17.0,*))_richSubtitle.preferredImageDynamicRange=UIImageDynamicRangeStandard;
@@ -59,28 +60,48 @@
  if(![AVPictureInPictureController isPictureInPictureSupported]||!_lease.length||![_lease isEqual:_controller.lease]||!_layer.player)return;
  if(!self.pictureInPicture){self.pictureInPicture=[[AVPictureInPictureController alloc]initWithPlayerLayer:_layer];self.pictureInPicture.delegate=self;}
 #if !TARGET_OS_TV
- if(@available(iOS 14.2, *))self.pictureInPicture.canStartPictureInPictureAutomaticallyFromInline=YES;
+ if(@available(iOS 14.2, *))self.pictureInPicture.canStartPictureInPictureAutomaticallyFromInline=!_controller.subtitleOverlayActive;
 #endif
+ if(_controller.subtitleOverlayActive&&self.pictureInPicture.isPictureInPictureActive)[self.pictureInPicture stopPictureInPicture];
 }
 // Reported through the playback module's event channel, not a view event prop: old-style view
 // events reach JavaScript through RCTEventEmitter, which a New Architecture production bundle
 // never registers, so the first one (PiP "unavailable" on the simulator) crashed the app.
-- (void)pictureInPictureChanged:(NSDictionary *)change {NSMutableDictionary *body=[change mutableCopy];body[@"lease"]=_lease?:@"";if(_controller.onPictureInPicture)_controller.onPictureInPicture(body);}
+- (void)pictureInPictureChanged:(NSDictionary *)change {NSMutableDictionary *body=[change mutableCopy];body[@"lease"]=_lease?:@"";body[@"binding"]=_activePictureBinding?:_pictureInPictureBinding?:NSNull.null;body[@"requestId"]=@(_submittedPictureRequest);if(_controller.onPictureInPicture)_controller.onPictureInPicture(body);}
 - (void)setPictureInPictureRequest:(NSInteger)value {if(value==_pictureInPictureRequest)return;_pictureInPictureRequest=value;
+ // React may assign the request counter before its companion binding prop. Settle both
+ // on the same main loop, then check the actual source-ready native binding again.
+ __weak PorticoPlayerView *weakSelf=self;
+ dispatch_async(dispatch_get_main_queue(),^{PorticoPlayerView *view=weakSelf;if(!view||view->_pictureInPictureRequest!=value)return;[view requestPictureInPicture:value];});
+}
+- (void)requestPictureInPicture:(NSInteger)value {
+ _submittedPictureRequest=value;
+ NSDictionary *current=_controller.externalPresentationBinding;
+ if(![_pictureInPictureBinding isKindOfClass:NSDictionary.class]||!current||![_pictureInPictureBinding isEqual:current]){_activePictureBinding=nil;[self pictureInPictureChanged:@{@"state":@"unavailable"}];return;}
+ _activePictureBinding=[current copy];
  // tvOS 14+ supports Picture in Picture from an AVPlayerLayer too (OS-04); the TV player decides
  // whether to offer it. Unsupported hardware answers "unavailable" rather than doing nothing.
  if(![AVPictureInPictureController isPictureInPictureSupported]||!_lease.length||![_lease isEqual:_controller.lease]){[self pictureInPictureChanged:@{@"state":@"unavailable"}];return;}
  if(self.pictureInPicture.isPictureInPictureActive){[self.pictureInPicture stopPictureInPicture];return;}
+ // The coupled runtime command must finish the same-session burn/WebVTT replan first.
+ // UIKit PiP has no composition path for an app-drawn caption or ASS/bitmap overlay.
+ if(_controller.subtitleOverlayActive){[self pictureInPictureChanged:@{@"state":@"unavailable",@"subtitlesCarried":@NO}];return;}
  [self preparePictureInPicture];
  if(self.pictureInPicture.isPictureInPicturePossible)[self.pictureInPicture startPictureInPicture];else [self pictureInPictureChanged:@{@"state":@"unavailable"}];
 }
 // OS-02: `subtitlesCarried` is NO when the chosen subtitles are drawn by the app, which PiP can't
 // show; the player can say so instead of letting them vanish silently.
-- (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)controller {[self pictureInPictureChanged:@{@"state":@"started",@"subtitlesCarried":@(!_controller.subtitleOverlayActive)}];}
-- (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)controller {[self pictureInPictureChanged:@{@"state":@"stopped"}];}
-- (void)pictureInPictureController:(AVPictureInPictureController *)controller failedToStartPictureInPictureWithError:(NSError *)error {[self pictureInPictureChanged:@{@"state":@"unavailable"}];}
+- (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)controller {
+ if(_controller.subtitleOverlayActive||![_activePictureBinding isEqual:_controller.externalPresentationBinding]){[controller stopPictureInPicture];[self pictureInPictureChanged:@{@"state":@"unavailable",@"subtitlesCarried":@NO}];return;}
+ [self pictureInPictureChanged:@{@"state":@"started",@"subtitlesCarried":@YES}];
+}
+- (void)pictureInPictureControllerWillStartPictureInPicture:(AVPictureInPictureController *)controller {
+ if(!_activePictureBinding){_activePictureBinding=[_controller.externalPresentationBinding copy];_submittedPictureRequest=0;}
+}
+- (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)controller {[self pictureInPictureChanged:@{@"state":@"stopped"}];_activePictureBinding=nil;}
+- (void)pictureInPictureController:(AVPictureInPictureController *)controller failedToStartPictureInPictureWithError:(NSError *)error {[self pictureInPictureChanged:@{@"state":@"unavailable"}];_activePictureBinding=nil;}
 - (void)pictureInPictureController:(AVPictureInPictureController *)controller restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL restored))completionHandler {[self pictureInPictureChanged:@{@"state":@"restore"}];completionHandler(YES);}
-- (void)updateSubtitle {_subtitle.text=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.subtitleText:@"";_subtitle.hidden=!_subtitle.text.length;[self setNeedsLayout];}
+- (void)updateSubtitle {_subtitle.text=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.subtitleText:@"";_subtitle.hidden=!_subtitle.text.length;[self preparePictureInPicture];[self setNeedsLayout];}
 /**
  * The look of the line the app draws: Portico's caption style (the profile's size and background,
  * sent with the subtitle command) on top of the system's. The size the viewer set for captions in
@@ -138,6 +159,7 @@ RCT_EXPORT_MODULE(PorticoPlayer)
 - (UIView *)view {PorticoPlayerView *view=[PorticoPlayerView new];PorticoPlaybackController *controller=PorticoPlaybackController.shared;if(!controller){id module=[self.bridge moduleForClass:NSClassFromString(@"PorticoPlaybackModule")];controller=[module valueForKey:@"controller"];}view.controller=controller;return view;}
 RCT_EXPORT_VIEW_PROPERTY(lease,NSString)
 RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
+RCT_EXPORT_VIEW_PROPERTY(pictureInPictureBinding,NSDictionary)
 @end
 // Queue HTTP requests carry a device proof. Never follow redirects, bypass TLS
 // validation, or accumulate an unbounded response. There is no background media

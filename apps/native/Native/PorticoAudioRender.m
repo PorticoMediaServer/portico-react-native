@@ -551,6 +551,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 @property(nonatomic,strong) AVAudioUnitEQ *equalizer;
 @property(nonatomic) BOOL sharedNode;
 @property(nonatomic) double gain;
+@property(nonatomic) BOOL levelingSelected,levelingProcessed;
 @property(nonatomic) long long origin;      // track frame at `nodeOffset`
 @property(nonatomic) long long nodeOffset;  // node sample where this deck's frames begin
 @property(nonatomic) long long scheduled;   // frames of this deck on the node
@@ -623,6 +624,11 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 #pragma mark Gains
 
 /** `10^((dB + preamp)/20)`, limited so the peak stays at or under full scale (plan §9.6 rule 7). */
++ (BOOL)hasLevelingGain:(NSDictionary *)plan settings:(NSDictionary *)settings {
+ NSString *mode=settings[@"normalization"];NSDictionary *g=APDictionary(plan[@"gain"]);
+ if(!g||![@[@"track",@"album"] containsObject:mode])return NO;
+ return APNumber([mode isEqual:@"album"]?(g[@"albumDb"]?:g[@"trackDb"]):g[@"trackDb"],-60,30);
+}
 + (double)gainFor:(NSDictionary *)plan settings:(NSDictionary *)settings {
  NSString *mode=settings[@"normalization"];NSDictionary *g=APDictionary(plan[@"gain"]);
  if(!g||[mode isEqual:@"off"])return 1;
@@ -640,6 +646,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 - (ARDeck *)deck:(NSDictionary *)plan at:(long long)frame candidate:(BOOL)candidate {
  ARDeck *d=[ARDeck new];d.plan=plan;d.identity=plan[@"id"];d.origin=frame;d.total=[plan[@"durationFrames"] longLongValue];d.sampleRate=[plan[@"sampleRate"] doubleValue];d.seek=-1;d.candidate=candidate;d.holding=[NSMutableArray new];
  d.gain=[PorticoFileRender gainFor:plan settings:_command[@"audioRender"][@"settings"]];
+ d.levelingSelected=[PorticoFileRender hasLevelingGain:plan settings:_command[@"audioRender"][@"settings"]];
  NSString *url=plan[@"url"];BOOL converted=[plan[@"mode"] isEqual:@"converted"];
  if(converted&&frame>0)url=[url stringByAppendingFormat:@"%@fromFrame=%lld",[url containsString:@"?"]?@"&":@"?",frame];
  long long size=converted?-1:[plan[@"bytes"] longLongValue];
@@ -683,7 +690,11 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   }
   dispatch_async(dispatch_get_main_queue(),^{PorticoFileRender *self=weakSelf;ARDeck *deck=weakDeck;if(!self||!deck||deck.closed||deck.serial!=serial)return;
    deck.pumping=NO;
-   if(error){deck.failures++;deck.retryAfter=NSProcessInfo.processInfo.systemUptime+MIN(8.0,.5*pow(2,MIN(4,deck.failures-1)));
+   if(error){
+#if DEBUG
+    NSLog(@"Portico audio decoder diagnostic: %@",error);
+#endif
+    deck.failures++;deck.retryAfter=NSProcessInfo.processInfo.systemUptime+MIN(8.0,.5*pow(2,MIN(4,deck.failures-1)));
     if(deck.failures>=4||deck.candidate){deck.failed=YES;[self emit:deck.candidate?@"audioPreparationFailed":@"audioRenderFailed" extra:@{@"error":error}];}
     else{deck.opened=deck.opened||!open;if(open)deck.decoder=nil;}
     return;}
@@ -697,6 +708,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 /** Gain goes into the samples, so a gapless join switches it at exactly the right frame. */
 - (void)deliver:(AVAudioPCMBuffer *)b deck:(ARDeck *)d {
  if(fabs(d.gain-1)>.000001){float g=(float)d.gain;for(AVAudioChannelCount c=0;c<b.format.channelCount;c++){float *x=b.floatChannelData[c];for(AVAudioFrameCount i=0;i<b.frameLength;i++)x[i]*=g;}}
+ if(b.frameLength&&d.levelingSelected)d.levelingProcessed=YES;
  if(d.candidate&&!d.held){[d.holding addObject:b];d.heldFrames+=b.frameLength;return;}
  [self schedule:b deck:d];
 }
@@ -731,7 +743,12 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   return;
  }
  NSError *error=nil;
- if(!_engine.running&&![_engine startAndReturnError:&error]){[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_output_unavailable"}];return;}
+ if(!_engine.running&&![_engine startAndReturnError:&error]){
+#if DEBUG
+  NSLog(@"Portico audio output diagnostic: %@",error);
+#endif
+  [self emit:@"audioRenderFailed" extra:@{@"error":@"audio_output_unavailable"}];return;
+ }
 #if DEBUG
  if(!_capture){_capture=[PorticoAudioCapture new];[_capture start:_engine.mainMixerNode];}
 #endif
@@ -748,6 +765,10 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  ARDeck *next=_candidate;NSDictionary *committed=APDictionary(_command[@"audioRender"][@"committed"]);
  if(!next||_paused||!_primary||!_primary.eof||!committed||![committed[@"token"] isEqual:_token]||next.heldFrames<=0)return;
  if(_primary.scheduled+_primary.origin<_primary.total)return; // the current deck isn't fully on the node yet
+ // Strict deliberately ends this deck before the listening owner promotes its committed
+ // successor through the ordinary start path. That path requests the next file's rate even
+ // when the two rates match. Never append buffers across a session reconfiguration.
+ if([PorticoAudioProcessing.shared.sampleRateMatching isEqual:@"strict"])return;
  double requested=[_command[@"audioRender"][@"settings"][@"crossfadeSeconds"] doubleValue];
  BOOL sameAlbum=[committed[@"sameAlbum"] boolValue];
  double shorter=MIN(_primary.total/_primary.sampleRate,next.total/next.sampleRate);
@@ -845,7 +866,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 - (void)processingChanged:(NSNotification *)note {
  for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d!=NSNull.null&&d.equalizer)[PorticoAudioProcessing.shared applyEqualizer:d.equalizer];}
- if(note.userInfo[@"sampleRateMatching"]&&_active&&_command){_configChanged=YES;[self applyCommand:_command];}
+ if((note.userInfo[@"sampleRateMatching"]||note.userInfo[@"routeChanged"])&&_active&&_command){_configChanged=YES;[self applyCommand:_command];}
 }
 #if DEBUG
 /** The harness's stand-in for a route change: the engine stops and says its configuration changed. */
@@ -903,7 +924,8 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   NSDictionary *committed=APDictionary(_command[@"audioRender"][@"committed"]);
   if(committed&&[_token isEqual:committed[@"token"]]&&!_incoming)[self scheduleIncoming];
   NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;if(now-_lastFact>=.25){_lastFact=now;
-   BOOL holding=APDictionary(_command[@"audioRender"][@"prepared"])&&_committing;
+   BOOL strict=[PorticoAudioProcessing.shared.sampleRateMatching isEqual:@"strict"];
+   BOOL holding=!strict&&APDictionary(_command[@"audioRender"][@"prepared"])&&_committing;
    if(_primary.ended&&!_incoming&&!holding){if(!_endedSent){_endedSent=YES;[self emit:@"ended" extra:@{}];}}
    else if(_primary.started)[self emit:@"progress" extra:@{}];}
  }
@@ -912,7 +934,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  if(!_active||!self.onFact)return;
  NSDictionary *status=[self snapshot];
  NSMutableDictionary *fact=[@{@"type":type,@"position":status[@"positionSeconds"],@"paused":@(_paused),@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)} mutableCopy];
- for(NSString *key in @[@"effectiveRate",@"supportedRates",@"rateReady",@"rateWaiting",@"rateError"])fact[key]=status[key];
+ for(NSString *key in @[@"effectiveRate",@"supportedRates",@"rateReady",@"rateWaiting",@"rateError",@"eqApplied",@"levelingApplied"])fact[key]=status[key];
  [fact addEntriesFromDictionary:extra];
  // Decoder/OS diagnostic prose never becomes UI copy.
  if([fact[@"error"] isKindOfClass:NSString.class]&&[fact[@"error"] length])fact[@"error"]=[type isEqual:@"audioPreparationFailed"]?@"audio_preparation_failed":@"audio_render_failed";
@@ -936,8 +958,10 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 #endif
  facts[@"supportedRates"]=[_primary.plan[@"channels"] unsignedIntegerValue]>2?@[@1]:facts[@"supportedRates"];
  facts[@"audioPath"]=[PorticoAudioProcessing.shared snapshot];
- facts[@"eqApplied"]=@(_active&&PorticoEqualizerApplied(_primary.equalizer,_engine));
- facts[@"levelingApplied"]=@(_active&&![_command[@"audioRender"][@"settings"][@"normalization"] isEqual:@"off"]);
+ AVAudioTime *renderTime=ARPlayerTime(_primary.node,_primary.node.lastRenderTime);
+ BOOL heardCurrent=_active&&_primary.started&&!_primary.failed&&!_primary.ended&&!_endedSent&&renderTime.isSampleTimeValid&&renderTime.sampleTime>_primary.nodeOffset;
+ facts[@"eqApplied"]=@(heardCurrent&&PorticoEqualizerApplied(_primary.equalizer,_engine));
+ facts[@"levelingApplied"]=@(heardCurrent&&_primary.levelingProcessed);
  double frames=[_primary.plan[@"durationFrames"] doubleValue],rate=[_primary.plan[@"sampleRate"] doubleValue],bytes=[_primary.plan[@"bytes"] doubleValue];
  if(frames>0&&rate>0&&bytes>0)facts[@"containerAverageBitrateBps"]=@(llround(bytes*8*rate/frames));
  facts[@"sourceSampleRate"]=_primary.plan[@"sampleRate"]?:@0;facts[@"sourceChannels"]=_primary.plan[@"channels"]?:@0;

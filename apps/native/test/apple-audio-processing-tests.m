@@ -28,7 +28,10 @@ int main(void){@autoreleasepool{
  NSDictionary *reset=[reopened snapshot];
  ok=expect([reset[@"eqEnabled"] boolValue]&&[reset[@"eqPreampDb"] isEqual:@0]&&[reset[@"eqBands"] isEqual:flat[@"bands"]]&&[reset[@"sampleRateMatching"] isEqual:@"strict"],"reset preserves switch and separate local rate")&&ok;
  ok=expect([reopened setSampleRateMatching:@"off" error:&error]&&[[[PorticoAudioProcessing new] snapshot][@"sampleRateMatching"] isEqual:@"off"],"local off persists")&&ok;
- AVAudioSession *audio=AVAudioSession.sharedInstance;NSError *zeroError=nil;BOOL zero=[audio setPreferredSampleRate:0 error:&zeroError];
- printf("{\"localEqualizerAndRatePersistencePass\":%s,\"offZeroPreferenceAccepted\":%s,\"offZeroError\":%ld}\n",ok?"true":"false",zero?"true":"false",(long)zeroError.code);
+ AVAudioSession *audio=AVAudioSession.sharedInstance;NSError *zeroError=nil;
+ BOOL prior=[audio setPreferredSampleRate:44100 error:&zeroError]&&audio.preferredSampleRate==44100;
+ BOOL zero=[reopened configureRate:96000 channels:2 error:&zeroError];
+ ok=expect(prior&&zero&&audio.preferredSampleRate==0&&[[reopened snapshot][@"requestedSampleRate"] doubleValue]==0,"Off withdraws prior OS rate request")&&ok;
+ printf("{\"localEqualizerAndRatePersistencePass\":%s,\"offZeroPreferenceAccepted\":%s,\"offZeroError\":%ld,\"actualOutputSampleRate\":%.0f}\n",ok?"true":"false",zero?"true":"false",(long)zeroError.code,audio.sampleRate);
  return ok?0:1;
 }}

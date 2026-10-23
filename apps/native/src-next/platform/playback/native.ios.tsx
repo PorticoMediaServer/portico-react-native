@@ -4,7 +4,7 @@ import {CapabilityPublisher} from '../../../../../packages/client-core/src/playb
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {parseEngineFeatures} from './engine-choice';
-import {deviceCapabilityDocument} from './capability-document';
+import {deviceCapabilityDocument} from './capability-document.ios';
 import type {NativeFacts} from './device-profile';
 import {NativeListeningV1Adapter, type NativeListeningBridge} from './NativeListeningAdapter';
 import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
