@@ -8,7 +8,8 @@ import {nativeNetworkFetch, nativeServerEnvironment} from './server-connections'
 import {createCredentials} from './credentials';
 import {createNativeAccountClient} from './account-client';
 import {TVConsentApprover, type TVConsentAuthority} from '../../../../packages/client-core/src/tv-consent';
-import {forgetSessionRoute} from '../../../../packages/client-core/src/route-connection';
+import {forgetSessionRoute, sessionRoute} from '../../../../packages/client-core/src/route-connection';
+import {forgetStoredNativeServer, type NativeServerBinding} from './forget-server';
 import {hostedUrl} from './account-authority';
 import {routePath as hostedPath} from '../../../../packages/contracts/src/hosted/routes';
 import {decodeMeGetResponse} from '../../../../packages/contracts/src/hosted/decoders';
@@ -87,6 +88,32 @@ export class NativeAccounts {
     this.fence(active);
     try {const removed = await nativeAppSessions.signOutServer(serverId, familyId); await this.revoke(removed);}
     finally {if (active) this.finishFence();}
+  }
+  /** Forget a changed server without contacting whatever now answers there. */
+  async forgetServer(binding: NativeServerBinding) {
+    this.assertCurrent();
+    const selected = await nativeAppSessions.selected(); this.assertCurrent();
+    const active = selected?.connection.pin.serverId === binding.serverId && selected.connection.session.sessionFamilyId === binding.familyId;
+    this.fence(active); const generation = this.generation;
+    try {
+      await forgetStoredNativeServer(binding, {
+        sessions: nativeAppSessions,
+        current: () => !this.disposed && generation === this.generation,
+        forgetCertificates: async (serverId, origins) => {
+          if (typeof NativeModules.PorticoNetwork?.forgetServerCertificates !== 'function')
+            throw Object.assign(new Error('native_certificate_storage_unavailable'), {code: 'certificate_storage'});
+          await NativeModules.PorticoNetwork.forgetServerCertificates(serverId, origins);
+        },
+        retireRoutes: records => {
+          const retired = new Set<ReturnType<typeof sessionRoute>>();
+          for (const value of records) {
+            retired.add(sessionRoute(value.connection.session.accessToken));
+            forgetSessionRoute(value.connection.session.accessToken);
+          }
+          for (const route of retired) route?.dispose();
+        },
+      });
+    } finally {if (active) this.finishFence();}
   }
   async signOutPorticoAccount(expected: {accountId: string; familyId: string}) {
     this.assertCurrent(); const selected = await nativeAppSessions.selected(); this.assertCurrent();

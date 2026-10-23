@@ -16,6 +16,9 @@ import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {rememberNativeServerDisplay} from '../platform/server-display';
+import {readNativeServerDisplays} from '../platform/server-display';
+import {nativeAppSessions} from '../platform/app-session-storage';
+import {nativeIdentityFailure, nativeRouteIdentityFailure, type NativeIdentityFailure, type NativeIdentityServer} from '../platform/identity-failure';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
 import {LastLibraryMemory} from './library-memory';
@@ -60,7 +63,7 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
-export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
+export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void}): Promise<RestoredNativeShellRuntime | undefined> {
   const installation = beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
@@ -71,6 +74,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
   let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [];
   let installationSettings: unknown;
+  let identityServer: NativeIdentityServer | undefined;
   const cleanups: (() => void)[] = [], authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>(), listeners = new Set<() => void>();
   const signal = new AbortController();
   const dispose = () => {
@@ -82,7 +86,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
-  const end = () => {if (alive) {dispose(); options.onAuthorityEnded();}};
+  const end = (error?: NativeIdentityFailure) => {if (alive) {dispose(); options.onAuthorityEnded(error);}};
   const abort = () => dispose();
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
@@ -95,6 +99,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     if (!saved.viewer) {dispose(); return undefined;}
     const original = saved.viewer;
     nativeShellDirectViewer(original.session.viewer);
+    const selected = await nativeAppSessions.selected(); assertCurrent();
+    if (!selected || !sameViewer(original.session, selected.connection.session) || selected.connection.logicalOrigin !== original.serverUrl) throw cancelled();
+    const [display] = await readNativeServerDisplays([selected]); assertCurrent();
+    identityServer = Object.freeze({serverId: selected.connection.pin.serverId, familyId: selected.connection.session.sessionFamilyId,
+      fingerprint: selected.connection.pin.fingerprint, signIn: selected.signIn, name: display.name});
     // A server-local session renews locally even while Portico Services is unreachable.
     const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, undefined, original.session, env);
     api = restored?.api; assertCurrent();
@@ -203,7 +212,14 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         throw error;
       } finally {round.abort(); signal.signal.removeEventListener('abort', abortRound);}
     })().finally(() => {refreshing = undefined;});
-    cleanups.push(bound.subscribe(publish), local.subscribeRoute(publish), documentService.subscribe(() => {
+    const routeChanged = () => {
+      if (!alive) return;
+      const route = local.getRouteConnection()?.getSnapshot();
+      const failure = route && identityServer ? nativeRouteIdentityFailure(route, identityServer) : undefined;
+      if (failure) {end(failure); return;}
+      publish();
+    };
+    cleanups.push(bound.subscribe(publish), local.subscribeRoute(routeChanged), documentService.subscribe(() => {
       const next = documentService.getSnapshot().document;
       if (ready && current() && next && (next.serverId !== authority.serverId || next.viewerFence !== authority.viewerFence)) end();
     }));
@@ -231,5 +247,5 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     Object.defineProperty(runtime, 'account', {get: () => {assertCurrent(); return bound.account;}});
     bound.attach(runtime);
     return runtime;
-  } catch (error) {dispose(); throw error;}
+  } catch (error) {dispose(); throw nativeIdentityFailure(error, identityServer) ?? error;}
 }

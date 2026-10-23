@@ -9,6 +9,8 @@ import {readNativeSelectedViewer, subscribeNativeAppSessions} from '../platform/
 import {AccountEntry} from '../screens/accounts/AccountEntry';
 import {ServersRoute} from '../screens/accounts/AccountRoutes';
 import {defaultI18n} from '../../../../packages/i18n/src';
+import {NativeIdentityFailure} from '../platform/identity-failure';
+import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 
@@ -37,8 +39,8 @@ export function RestoredShell() {
     const started = Date.now(); setElapsed(0); setState({phase: 'loading'}); setShowAccounts(false);
     void nativeAccounts.snapshot().then(value => {if (alive) setRetained(value.servers.length > 0);}, () => {});
     const clock = setInterval(() => setElapsed(Date.now() - started), 120);
-    void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, onAuthorityEnded: () => {
-      if (alive && !abort.signal.aborted) setState({phase: 'ended'});
+    void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, onAuthorityEnded: error => {
+      if (alive && !abort.signal.aborted) {owned = undefined; setState({phase: 'ended', error});}
     }}).then(runtime => {
       clearInterval(clock);
       if (!alive || abort.signal.aborted) {runtime?.dispose(); return;}
@@ -50,6 +52,11 @@ export function RestoredShell() {
   if (state.runtime && state.phase === 'ready') return <NativeShell runtime={state.runtime}/>;
   if (state.phase === 'loading') return <HomeSkeleton elapsedMs={elapsed} visible/>;
   if (showAccounts || !state.error && retained) return <ServersRoute onComplete={complete} onBack={state.error ? () => setShowAccounts(false) : undefined}/>;
+  if (state.error instanceof NativeIdentityFailure) {
+    const failure = state.error;
+    return <ServerIdentityFailure failure={failure} onRetry={complete} onChoose={() => setShowAccounts(true)}
+      onForget={() => nativeAccounts.forgetServer(failure.server)} onError={error => setState({phase: 'ended', error})}/>;
+  }
   if (state.error) {
     const error = presentError(state.error, 'home');
     return <StateView variant="centered" title={error.title} body={error.body} tone="error"
