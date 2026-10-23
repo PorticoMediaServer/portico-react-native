@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 NSString *const PorticoReaderOrigin=@"portico-reader://bundle/index.html";
 static const off_t ReaderAssetLimit=64LL*1024*1024;
