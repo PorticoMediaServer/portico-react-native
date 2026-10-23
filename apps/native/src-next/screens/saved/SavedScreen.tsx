@@ -14,7 +14,7 @@ import {useTheme} from '../../kit/theme';
 import {groupOfflineEntries, type NativeOfflineDownloadsAdapter} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
-import {NativeSavedDestination, savedDirectoryCount, savedProjectionCount} from './model';
+import {NativeSavedDestination} from './model';
 
 const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
@@ -47,18 +47,19 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   // one mixed page locally could hide later posters and misstate its count.
   const items = snapshot.myList.projection?.sections.flatMap(section => section.entries.filter(content)) ?? [];
   const localGroups = groupOfflineEntries(downloads.entries);
+  const summary = snapshot.summary;
   const rows: readonly {id: string; label: MessageId; icon: IconName; count?: number; view: SavedRoute}[] = [
-    {id: 'favorites', label: 'saved.tab.favorites', icon: 'i-heart', count: savedProjectionCount(snapshot.favorites), view: {view: 'favorites'}},
-    {id: 'playlists', label: 'saved.tab.playlists', icon: 'i-queue', count: savedProjectionCount(snapshot.playlists), view: {view: 'playlists'}},
-    {id: 'collections', label: 'saved.tab.collections', icon: 'i-stack', count: savedDirectoryCount(snapshot.collections), view: {view: 'collections'}},
-    {id: 'views', label: 'saved.tab.savedViews', icon: 'i-filter', count: savedDirectoryCount(snapshot.views), view: {view: 'views'}},
+    {id: 'favorites', label: 'saved.tab.favorites', icon: 'i-heart', count: summary && summary.favorites.posters + summary.favorites.squares, view: {view: 'favorites'}},
+    {id: 'playlists', label: 'saved.tab.playlists', icon: 'i-queue', count: summary?.playlists, view: {view: 'playlists'}},
+    {id: 'collections', label: 'saved.tab.collections', icon: 'i-stack', count: summary?.collections, view: {view: 'collections'}},
+    {id: 'views', label: 'saved.tab.savedViews', icon: 'i-filter', count: summary?.savedViews, view: {view: 'views'}},
     {id: 'history', label: 'saved.tab.history', icon: 'i-clock', view: {view: 'history'}},
   ];
   return <View testID="native-saved-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} contentContainerStyle={{paddingTop: Math.max(58, insets.top), paddingBottom: 28}}>
       <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 18}]}>{t('saved.title')}</Text>
       {snapshot.phase === 'error' && <StateView {...runtime.error(snapshot.error, () => {void destination.load().catch(report);})}/>}
-      <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={savedProjectionCount(snapshot.myList) === undefined ? undefined : t('next.selection.titles', {count: savedProjectionCount(snapshot.myList)!})} onPress={() => actions.openView({view: 'watchlist'})}/>
+      <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
       {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
         {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)}/>)}
       </ScrollView>}

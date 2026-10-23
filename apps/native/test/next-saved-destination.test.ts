@@ -6,6 +6,8 @@ import type {SavedApi} from '../../../packages/client-core/src/saved.ts';
 const scope = {serverId: 'server-a', viewerId: 'local/account-a/profile-a'};
 function response(path: string) {
   const url = new URL(path, 'https://test.invalid');
+  if (url.pathname.endsWith('/saved/summary')) return {serverId: scope.serverId, viewerFence: 'summary-fence', revision: {catalog: 1, viewer: 1},
+    myList: {posters: 12, squares: 3}, favorites: {posters: 21, squares: 3}, playlists: 3, collections: 11, savedViews: 6};
   if (url.pathname.includes('saved-pins')) return {serverId: scope.serverId, viewerFence: 'pins-fence', revision: 1,
     order: [{kind: 'collection', id: 'second-by-name', name: 'Zebra', pinRevision: 1}, {kind: 'playlist', id: 'first-by-name', name: 'Alpha', pinRevision: 2}]};
   if (url.pathname.includes('saved-resources')) return {serverId: scope.serverId, viewerFence: 'resources-fence', revision: 1,
@@ -20,7 +22,7 @@ function response(path: string) {
   };
 }
 
-test('the Saved hub reads six bounded canonical projections and keeps real pin order', async () => {
+test('the Saved hub reads the canonical summary plus bounded poster preview and genuine pin order', async () => {
   const calls: string[] = [];
   const api: SavedApi = {request: async <T>(path: string) => {calls.push(path); return response(path) as T;}};
   const hub = new NativeSavedDestination({api, scope, requestId: async () => 'operation-id', current: () => true});
@@ -28,13 +30,15 @@ test('the Saved hub reads six bounded canonical projections and keeps real pin o
     const loading = hub.load(); assert.equal(hub.load(), loading, 'a concurrent mount shares the same bounded read');
     await loading;
     const snapshot = hub.getSnapshot();
-    assert.equal(snapshot.phase, 'ready'); assert.equal(calls.length, 6);
+    assert.equal(snapshot.phase, 'ready'); assert.equal(calls.length, 3);
     assert.ok(calls.every(path => !path.includes('cursor=')), 'the hub does not scan directories or whole libraries');
     assert.equal(new URL(calls.find(path => path.includes('view=watchlist'))!, 'https://test.invalid').searchParams.get('shape'), 'posters', 'the hub uses a real shape query, never a mixed first-page geometry filter');
     assert.deepEqual(snapshot.pins.map(pin => pin.id), ['second-by-name', 'first-by-name']);
     assert.equal(savedProjectionCount(snapshot.myList), 12);
-    assert.equal(savedDirectoryCount(snapshot.collections), undefined, 'one partial resource page is not the total');
-    assert.equal(savedDirectoryCount(snapshot.views), 0, 'an exhausted empty directory has a known count');
+    assert.equal(snapshot.summary?.myList.squares, 3, 'the hub total includes real squares outside the poster preview');
+    assert.equal(snapshot.summary?.collections, 11, 'the directory total comes from summary, never a first page');
+    assert.equal(savedDirectoryCount(snapshot.collections), undefined, 'an unread resource directory has no inferred total');
+    assert.equal(calls.some(path => path.includes('saved-resources')), false, 'the hub no longer fetches resource pages just to count them');
   } finally {hub.dispose();}
 });
 
@@ -48,6 +52,7 @@ test('retiring the actual viewer aborts pending reads and clears all private hub
   const closed = hub.getSnapshot();
   assert.equal(closed.phase, 'idle'); assert.deepEqual(closed.pins, []);
   assert.equal(closed.myList.projection, null); assert.deepEqual(closed.collections.resources, []);
+  assert.equal(closed.summary, undefined);
   assert.ok(pending.every(read => read.signal?.aborted));
   for (const read of pending) read.resolve(response(read.path));
   await loading;
@@ -56,7 +61,7 @@ test('retiring the actual viewer aborts pending reads and clears all private hub
 
 test('an authenticated producer failure is retained as an error, not an empty Saved success', async () => {
   const api: SavedApi = {request: async <T>(path: string) => {
-    if (path.includes('view=favorites')) throw Object.assign(new Error('private diagnostic'), {status: 403, code: 'forbidden'});
+    if (path.endsWith('/saved/summary')) throw Object.assign(new Error('private diagnostic'), {status: 403, code: 'forbidden'});
     return response(path) as T;
   }};
   const hub = new NativeSavedDestination({api, scope, requestId: async () => 'operation-id', current: () => true});
