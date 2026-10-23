@@ -275,15 +275,18 @@ export function onNetworkChange(listener: () => void): () => void {
 }
 export function nativeHostedSource(
   origin: string,
-  credentials: CredentialSessionService,
+  credentials: CredentialSessionService | (() => CredentialSessionService),
   accountId: string,
 ): HostedConnectionSource {
   return {
     origin,
     accountId,
     request: async <T>(path: string, signal: AbortSignal) => {
-      await credentials.synchronize();
-      const session = await credentials.accessSession();
+      if (signal.aborted) throw new RouteError('cancelled', 'account_route_cancelled');
+      const owner = typeof credentials === 'function' ? credentials() : credentials;
+      await owner.synchronize();
+      if (signal.aborted) throw new RouteError('cancelled', 'account_route_cancelled');
+      const session = await owner.accessSession();
       if (signal.aborted || session.account.id !== accountId)
         throw new RouteError(
           'account_changed',
@@ -299,7 +302,7 @@ export function nativeHostedSource(
 }
 export async function restoreNativeConnection(
   origin: string,
-  credentials: CredentialSessionService | undefined,
+  credentials: CredentialSessionService | (() => CredentialSessionService) | undefined,
   expected: LocalSession,
   env = nativeServerEnvironment(expected.viewer.serverId),
 ) {

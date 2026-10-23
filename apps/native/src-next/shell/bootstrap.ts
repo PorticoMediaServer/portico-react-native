@@ -18,6 +18,8 @@ import {NativeQueueStore} from '../platform/queue-storage';
 import {rememberNativeServerDisplay} from '../platform/server-display';
 import {readNativeServerDisplays} from '../platform/server-display';
 import {nativeAppSessions} from '../platform/app-session-storage';
+import {nativeAccounts} from '../platform/accounts';
+import {hostedUrl} from '../platform/account-authority';
 import {nativeIdentityFailure, nativeRouteIdentityFailure, type NativeIdentityFailure, type NativeIdentityServer} from '../platform/identity-failure';
 import {profilePictureSource} from '../platform/profile-avatars';
 import {nativeAmbientSource, type ProfileOption} from '../kit/artwork';
@@ -108,7 +110,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     identityServer = Object.freeze({serverId: selected.connection.pin.serverId, familyId: selected.connection.session.sessionFamilyId,
       fingerprint: selected.connection.pin.fingerprint, signIn: selected.signIn, name: display.name});
     // A server-local session renews locally even while Portico Services is unreachable.
-    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, undefined, original.session, env);
+    const hostedCredentials = connection?.hosted?.origin === hostedUrl ? () => nativeAccounts.accountCredentials() : undefined;
+    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env);
     api = restored?.api; assertCurrent();
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
     const reread = await readNativeSelectedViewer(); assertCurrent();
