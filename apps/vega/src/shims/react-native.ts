@@ -33,6 +33,23 @@ import {keyboardHasBack} from './typing';
 import {DebugConsole, debugConsole, trace} from '../debug';
 
 export * from '@amazon-devices/react-native-kepler';
+// BaseViewConfig.kepler accepts native numeric focus tags; the SDK's ViewProps
+// omits these while its FocusGuideProps declares the same supported fields.
+export interface ViewProps extends Vega.ViewProps {
+  nextFocusUp?: number; nextFocusDown?: number; nextFocusLeft?: number; nextFocusRight?: number; nextFocusForward?: number;
+}
+export type PressableProps = Vega.PressableProps & {tvParallaxProperties?: Readonly<Record<string, unknown>>};
+export type HWEvent = Vega.HWEvent & {tag?: number};
+export type FocusGuideMethods = {setDestinations(destinations: (number | Parameters<Vega.FocusGuideMethods['setDestinations']>[0][number])[]): void};
+/** The newer subscription shape over the SDK's actual enable/disable listener. */
+export class TVEventHandler extends Vega.TVEventHandler {
+  static addListener(listener: (event: HWEvent) => void): {remove(): void} {
+    const handler=new Vega.TVEventHandler();
+    handler.enable(undefined, (_component, event) => listener(event));
+    return {remove: () => handler.disable()};
+  }
+}
+
 export {Pressable} from './pressable';
 export {FlatList, ScrollView, View} from './snap';
 export {TextInput} from './text-input';
@@ -79,6 +96,8 @@ export class NativeEventEmitter {
   }
 }
 
+export function requireNativeComponent<T>(viewName: 'PorticoPlayer' | 'PorticoBackdrop' | 'PorticoAudioRoutePicker' | 'PorticoVolumeView'): React.ComponentType<T>;
+export function requireNativeComponent<T>(viewName: string): Vega.HostComponent<T>;
 export function requireNativeComponent<T>(viewName: string): React.ComponentType<T> {
   return (porticoViews[viewName] ?? Vega.requireNativeComponent<T>(viewName)) as React.ComponentType<T>;
 }

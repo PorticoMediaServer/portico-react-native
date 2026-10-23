@@ -28,6 +28,7 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
   const totals = new Map<string, number>();
   for (const target of preview?.targets ?? []) for (const dependent of target.dependents) totals.set(dependent.kind, (totals.get(dependent.kind) ?? 0) + dependent.count);
   const dependencies = [...totals].filter(([kind]) => kind !== 'progress').map(([kind, count]) => selectionText(kind === 'playlist' ? 'next.selection.native.dependent.playlist' : kind === 'collection' ? 'next.selection.native.dependent.collection' : kind === 'progress' ? 'next.selection.native.dependent.progress' : kind === 'saved' ? 'next.selection.native.dependent.saved' : kind === 'library-channel' ? 'next.selection.native.dependent.channel' : 'next.selection.native.dependent.recording', {count}));
+  const phoneSummary = phone && (preview?.targets.length ?? 0) > 1 && [...totals.keys()].every(kind => kind === 'playlist' || kind === 'collection' || kind === 'progress');
   const kept = result?.receipts.filter(receipt => !receipt.removed) ?? [];
   const removeFilesLabel = selectionText('next.selection.native.removeFiles');
   const removeFilesHelp = selectionText(props.removeFiles ? 'next.selection.native.irrecoverable' : 'next.selection.native.filesStay');
@@ -50,11 +51,11 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
             <SelectionText weight={700}>{selectionText('next.selection.native.descendants', {count: preview.targets.reduce((sum, target) => sum + target.titles, 0)})}</SelectionText>
             <SelectionText secondary>{selectionText('next.selection.native.everythingBeneath')}</SelectionText>
           </> : null}
-          {preview.targets.length > 1 ? <View style={{gap: 8}}>{preview.targets.slice(0, 5).map(target => <View key={target.itemId} style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+          {!phone && preview.targets.length > 1 ? <View style={{gap: 8}}>{preview.targets.slice(0, 5).map(target => <View key={target.itemId} style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
             {props.renderArtwork ? <View pointerEvents="none" style={{width: 24, height: 36}}>{props.renderArtwork(target.itemId)}</View> : null}
             <View style={{flex: 1}}><SelectionText size={isTV ? 24 : 13.5} weight={700}>{target.title}</SelectionText><SelectionText size={isTV ? 20 : 12} secondary>{selectionText('next.selection.native.fileFacts', {count: target.files.length, size: defaultI18n.bytes(target.bytes)})}</SelectionText></View>
           </View>)}{preview.targets.length > 5 ? <SelectionText size={isTV ? 22 : 13.5} secondary>{selectionText('next.selection.native.andMore', {count: preview.targets.length - 5})}</SelectionText> : null}</View> : null}
-          <SelectionText size={isTV ? undefined : 14} secondary style={{lineHeight: isTV ? undefined : 21}}><SelectionText weight={700}>{selectionText('next.selection.native.fileFacts', {count: preview.totalFiles, size: preview.totalBytesText})}</SelectionText>{dependencies.length ? selectionText('next.selection.native.dependencies', {dependencies: defaultI18n.list(dependencies)}) : ''}{totals.get('progress') ? selectionText('next.selection.native.savedPlaces', {count: totals.get('progress')!}) : ''}</SelectionText>
+          <SelectionText size={isTV ? undefined : 14} secondary style={{lineHeight: isTV ? undefined : 21}}><SelectionText weight={700}>{selectionText('next.selection.native.fileFacts', {count: preview.totalFiles, size: preview.totalBytesText})}</SelectionText>{phoneSummary ? totals.size ? ` ${defaultI18n.t('next.selection.dependentsMany')}` : '' : <>{dependencies.length ? selectionText('next.selection.native.dependencies', {dependencies: defaultI18n.list(dependencies)}) : ''}{totals.get('progress') ? selectionText('next.selection.native.savedPlaces', {count: totals.get('progress')!}) : ''}</>}</SelectionText>
           <Switch testID={controlID(props.testID, 'remove-files')} variant="selection" checked={props.removeFiles} onCheckedChange={props.onRemoveFilesChange} disabled={props.pending}
             accessibilityLabel={phone ? removeFilesLabel : undefined} accessibilityHint={phone ? removeFilesHelp : undefined}
             style={phone ? {minHeight: 26, paddingVertical: 0, gap: 14} : undefined} description={phone ? undefined : removeFilesHelp}>

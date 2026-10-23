@@ -1,5 +1,5 @@
 import React, {forwardRef} from 'react';
-import {ActivityIndicator, StyleSheet, Text, View, type TextStyle, type StyleProp} from 'react-native';
+import {ActivityIndicator, Platform, StyleSheet, Text, View, type TextStyle, type StyleProp} from 'react-native';
 import {buttonSpec} from '@portico/design';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {Icon, type IconName} from '../Icon';
@@ -52,7 +52,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
       const suppliedStyle = StyleSheet.flatten(typeof style === 'function' ? style(state) : style);
       return <>
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, {borderRadius: suppliedStyle?.borderRadius ?? radius, overflow: 'hidden'}]}>
-        {glass && recipe.nativeBlur ? <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh} /> : null}
+        {glass && recipe.nativeBlur ? <BlurView {...(Platform.OS === 'android' ? {overlayColor: 'transparent'} : {})} style={StyleSheet.absoluteFill} blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh} /> : null}
         <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />
       </View>
       <View pointerEvents="none" style={[styles.content, {gap: suppliedStyle?.columnGap ?? suppliedStyle?.gap ?? geometry.gap}]}>

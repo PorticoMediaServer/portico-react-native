@@ -237,4 +237,8 @@ const Guide = forwardRef<GuideNode, GuideProps>(function TVFocusGuideView(props,
     </Unreachable.Provider>
   );
 });
-export const TVFocusGuideView = Guide as unknown as typeof Vega.TVFocusGuideView;
+// The SDK implementation maps every destination through findNodeHandle, which
+// accepts existing numeric handles as well as host refs. Its declaration omits numbers.
+type Destination = Parameters<Vega.FocusGuideMethods['setDestinations']>[0][number] | number;
+type GuideHandle = Omit<GuideNode, 'setDestinations'> & {setDestinations(destinations: Destination[]): void};
+export const TVFocusGuideView = Guide as unknown as React.ForwardRefExoticComponent<GuideProps & React.RefAttributes<GuideHandle>>;

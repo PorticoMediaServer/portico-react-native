@@ -30,6 +30,7 @@ test('the Saved hub reads six bounded canonical projections and keeps real pin o
     const snapshot = hub.getSnapshot();
     assert.equal(snapshot.phase, 'ready'); assert.equal(calls.length, 6);
     assert.ok(calls.every(path => !path.includes('cursor=')), 'the hub does not scan directories or whole libraries');
+    assert.equal(new URL(calls.find(path => path.includes('view=watchlist'))!, 'https://test.invalid').searchParams.get('shape'), 'posters', 'the hub uses a real shape query, never a mixed first-page geometry filter');
     assert.deepEqual(snapshot.pins.map(pin => pin.id), ['second-by-name', 'first-by-name']);
     assert.equal(savedProjectionCount(snapshot.myList), 12);
     assert.equal(savedDirectoryCount(snapshot.collections), undefined, 'one partial resource page is not the total');
