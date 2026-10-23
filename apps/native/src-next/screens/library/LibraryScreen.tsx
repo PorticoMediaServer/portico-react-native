@@ -28,8 +28,10 @@ import {LibraryFilters} from './LibraryFilters';
 import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
+import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 export type NativeLibraryActions = Readonly<{
+  menuState?: NativeEntryMenuState;
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
   menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
@@ -63,6 +65,7 @@ const noSelection = () => undefined;
  * initial TV card is a real producer entity, never an index or placeholder. */
 export function LibraryScreen(props: NativeLibraryScreenProps) {
   const {destination, runtime, activation, directory, libraries, actions} = props, theme = useTheme(), registry = useFocusRegistry();
+  useSyncExternalStore(actions.menuState?.subscribe ?? noSubscribe, actions.menuState?.getSnapshot ?? (() => 0));
   const entryRequest = useMemo(() => createDestinationEntryFocus(registry), [registry]);
   const [entered, setEntered] = useState(false), onEntered = useCallback(() => setEntered(true), []);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);

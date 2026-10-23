@@ -32,6 +32,7 @@ export type NativeTVSearchScreenProps = Readonly<{
 /** The actual Search destination keeps its own service, IDs and navigation intent.
  * Only the shared keyboard requests entry focus; result arrival never moves it. */
 export function TVSearchScreen({destination, runtime, activation, explore, actions, selection, copy}: NativeTVSearchScreenProps) {
+  useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
