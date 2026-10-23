@@ -839,6 +839,46 @@ test('phone Delete separates full-width helper copy while preserving the real sw
   } finally {dialog.host.unmount(); state.theme = previous;}
 });
 
+test('phone multi-delete shows the drawn aggregate while retaining the complete preview and real count gate', () => {
+  const previous = state.theme;
+  const targets = Array.from({length: 6}, (_, index) => ({itemId: `actual-${index}`, title: `Actual target ${index}`, kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 1024, files: [], dependents: [{kind: 'playlist', count: 2, description: 'playlist entries'}, {kind: 'progress', count: 1, description: 'saved places'}]}));
+  const preview: NonNullable<DeleteMediaDialogProps['preview']> = {revision: 7, confirmation: '6', confirmationKind: 'count', totalBytes: 6144, totalFiles: 6, totalBytesText: '6 KB', blocked: [], targets};
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const phone = state.theme.platform === 'phone', calls: unknown[] = [];
+      const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 6, preview, confirmation: '5', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: (...args) => calls.push(args), renderArtwork: id => `Artwork ${id}`};
+      const dialog = mount(DeleteMediaDialog, props);
+      try {
+        const content = text(dialog.tree);
+        assert.match(content, /6 files, 6 KB\./);
+        if (phone) {
+          assert.match(content, /Playlist and collection entries and saved places go too\./);
+          assert.doesNotMatch(content, /Actual target|Artwork actual-|12 playlists/);
+        } else {
+          assert.match(content, /Actual target 0/);
+          assert.match(content, /Actual target 4/);
+          assert.doesNotMatch(content, /Actual target 5/);
+          assert.match(content, /and 1 more/);
+          assert.match(content, /12 playlists/);
+        }
+        let remove = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+        assert.equal(remove.props.disabled, true); remove.props.onPress(); assert.deepEqual(calls, []);
+        dialog.update({...props, confirmation: preview.confirmation});
+        remove = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+        assert.equal(remove.props.disabled, false); remove.props.onPress();
+        assert.deepEqual(calls, [[preview, '6', true]], 'complete preview and all targets reach the existing guarded mutation');
+        if (phone) {
+          const other = {...preview, targets: [{...targets[0]!, dependents: [{kind: 'library-channel', count: 2, description: 'scheduled library channel slots'}]}, targets[1]!]};
+          dialog.update({...props, preview: other});
+          assert.match(text(dialog.tree), /2 scheduled library channel slots/);
+          assert.doesNotMatch(text(dialog.tree), /Playlist and collection entries and saved places go too/);
+        }
+      } finally {dialog.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('phone Delete result keeps the drawn warning insets and type while preserving receipts and close focus', () => {
   const previous = state.theme;
   try {
