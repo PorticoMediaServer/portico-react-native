@@ -25,9 +25,9 @@ static NSUInteger checks;
 static void check(BOOL ok,const char *message){checks++;if(!ok){fprintf(stderr,"FAIL %s\n",message);exit(1);}}
 static PorticoQueueTransport *transport;
 static NSURLSession *session;
-static NSString *header(NSString *name){for(NSString *key in answer[@"headers"])if([key caseInsensitiveCompare:name]==NSOrderedSame)return answer[@"headers"][key];return nil;}
 static NSObject *owner;
 static NSDictionary *answer;
+static NSString *header(NSString *name){for(NSString *key in answer[@"headers"])if([key caseInsensitiveCompare:name]==NSOrderedSame)return answer[@"headers"][key];return nil;}
 static NSString *failure;
 static NSUInteger resolved,rejected;
 static PorticoQueueRequest *make(NSString *method,NSString *suffix,NSNumber *limit){
