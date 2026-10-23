@@ -39,9 +39,21 @@
   <string name="next_home_collection" formatted="false">Collection</string>
   <string name="next_home_continueBooks" formatted="false">Continue your books</string>
   <string name="next_home_continueWatching" formatted="false">Continue Watching</string>
+  <string name="next_home_customizeDescription" formatted="false">Choose which rows appear on Home, and in what order. This is only for this profile.</string>
   <string name="next_home_editSelection" formatted="false">Edit selected titles</string>
+  <string name="next_home_keepEditing" formatted="false">Keep editing</string>
   <string name="next_home_last30Days" formatted="false">Last 30 days</string>
+  <string name="next_home_layoutChangedBody" formatted="false">Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it to see the latest, then make your changes again.</string>
+  <string name="next_home_layoutChangedBodyCompact" formatted="false">Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it, then make your changes again.</string>
+  <string name="next_home_layoutChangedTitle" formatted="false">Home couldn’t be saved</string>
   <string name="next_home_layoutConflict" formatted="false">Home changed on another device. Refresh the layout before saving.</string>
+  <string name="next_home_layoutDropAction" formatted="false">Drop</string>
+  <string name="next_home_layoutLoadFailedBody" formatted="false">The list of rows didn’t arrive. Try again.</string>
+  <string name="next_home_layoutMoveAction" formatted="false">Move</string>
+  <string name="next_home_layoutMoveHint" formatted="false">Up and Down move it, Space drops it, Esc puts it back.</string>
+  <string name="next_home_layoutPicked" formatted="false">Picked up {title}. Position {position} of {count}.</string>
+  <string name="next_home_layoutPutBackAction" formatted="false">Put it back</string>
+  <string name="next_home_layoutTVInstruction" formatted="false">OK picks a row up. Up and Down move it, OK drops it. Left and Right reach each row’s switch.</string>
   <string name="next_home_listenNext" formatted="false">Listen next</string>
   <string name="next_home_moreFor" formatted="false">More for {title}</string>
   <string name="next_home_mostWatched" formatted="false">Most watched on this server</string>
@@ -52,6 +64,8 @@
   <string name="next_home_native_selectRow" formatted="false">Select row</string>
   <string name="next_home_newOnServer" formatted="false">New on your server</string>
   <string name="next_home_noRating" formatted="false">No rating</string>
+  <string name="next_home_noViewsBody" formatted="false">Save one from a library’s filters, then add it here.</string>
+  <string name="next_home_noViewsTitle" formatted="false">No saved views to add</string>
   <string name="next_home_onNow" formatted="false">On now</string>
   <string name="next_home_openCollection" formatted="false">Open collection</string>
   <string name="next_home_play" formatted="false">Play</string>
@@ -60,6 +74,7 @@
   <string name="next_home_reason_newIn" formatted="false">New in {library}</string>
   <string name="next_home_reason_recentTo" formatted="false">Recently added to {library}</string>
   <string name="next_home_reason_recommended" formatted="false">Recommended for you</string>
+  <string name="next_home_reloadLayout" formatted="false">Reload layout</string>
   <string name="next_home_removeMyList" formatted="false">Remove from My List</string>
   <string name="next_home_resume" formatted="false">Resume</string>
   <string name="next_home_resumeEpisode" formatted="false">Resume S{season} E{episode}</string>

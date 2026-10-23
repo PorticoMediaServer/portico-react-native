@@ -81,6 +81,19 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
     }
   }
 
+  /** Filter coefficients require a real configured PCM engine; unknown rates stay absent. */
+  @ReactMethod fun equalizerResponse(frequenciesHz: com.facebook.react.bridge.ReadableArray?, promise: Promise) {
+    val frequencies = frequenciesHz?.toArrayList()?.map { (it as? Number)?.toDouble() ?: Double.NaN }
+    main.post {
+      try {
+        check(!invalidated)
+        require(frequencies != null && frequencies.isNotEmpty() && frequencies.size <= 512 && frequencies.all { it.isFinite() && it > 0.0 && it <= 384000.0 })
+        val response = controller.equalizerResponse(frequencies)
+        promise.resolve(response?.let { Arguments.makeNativeMap(it) })
+      } catch (e: Exception) { promise.reject("audio_eq", "audio_eq_invalid", e) }
+    }
+  }
+
   @ReactMethod fun addListener(eventName: String) {}
 
   @ReactMethod fun removeListeners(count: Double) {}

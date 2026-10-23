@@ -443,6 +443,11 @@ internal class PorticoPlaybackController(private val context: Context) {
   fun applyEqualizer(value: PorticoPcmDsp.Eq) {
     audioGains.values.forEach { it.equalizer = value }
   }
+  fun equalizerResponse(frequencies: List<Double>): Map<String, Any?>? {
+    val engine = player ?: return null
+    if (invalidated || currentBinding == null || lease.isNullOrEmpty() || engine.playbackState == Player.STATE_ENDED) return null
+    return audioGains[engine]?.dsp?.frequencyResponse(frequencies)
+  }
   private fun musicGain(engine: ExoPlayer, gain: Float, normalization: Float = 1f) {
     val processor = audioGains[engine]
     if (processor != null) { processor.setGain(gain, normalization); engine.volume = 1f }

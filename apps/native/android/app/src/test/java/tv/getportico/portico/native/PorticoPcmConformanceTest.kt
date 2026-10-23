@@ -52,16 +52,35 @@ class PorticoPcmConformanceTest {
       val gains=MutableList(10) { 0.0 };gains[band]=6.0
       val dsp=PorticoPcmDsp();dsp.eq=PorticoPcmDsp.Eq(true,0.0,gains);dsp.configure(rate,2)
       val f=PorticoPcmDsp.CENTRES[band];val input=ByteBuffer.allocate(rate*2*4).order(ByteOrder.LITTLE_ENDIAN)
+      val response=dsp.frequencyResponse(listOf(f))!!
+      assertEquals(rate,response["sampleRate"])
+      val reported=(response["gainDb"] as List<*>).single() as Double
       repeat(rate) { input.putFloat((0.1*sin(2*PI*f*it/rate)).toFloat());input.putFloat(0f) };input.flip()
       val out=dsp.process(input,PorticoPcmDsp.Encoding.FLOAT)
       var a=0.0;var b=0.0
       repeat(rate) { n -> val x=out.float.toDouble();assertEquals("channel leak",0f,out.float,0f); if(n>rate/2) { a+=x*x;val y=0.1*sin(2*PI*f*n/rate);b+=y*y } }
       assertEquals("band $band",6.0,10*log10(a/b),0.06)
+      assertEquals("reported/processed band $band",reported,10*log10(a/b),0.06)
     }
   }
   @Test fun invalidAndNonfiniteEqIsRefused() {
     for(eq in listOf(List(9){0.0},List(10){Double.NaN},List(10){13.0})) {
       try { PorticoPcmDsp.Eq(true,0.0,eq);fail("accepted invalid EQ") } catch(_: IllegalArgumentException) {}
+    }
+  }
+
+  @Test fun responseNeedsARealConfiguredRateAndRespectsBypassPreampAndNyquist() {
+    val dsp=PorticoPcmDsp()
+    assertNull(dsp.frequencyResponse(listOf(1000.0)))
+    val gains=MutableList(10) { 0.0 };gains[5]=6.0
+    dsp.eq=PorticoPcmDsp.Eq(true,-3.0,gains);dsp.configure(48000,2)
+    val response=dsp.frequencyResponse(listOf(1000.0))!!
+    assertEquals(3.0,(response["gainDb"] as List<*>).single() as Double,1e-6)
+    dsp.eq=dsp.eq.copy(enabled=false)
+    assertEquals(0.0,(dsp.frequencyResponse(listOf(1000.0))!!["gainDb"] as List<*>).single() as Double,0.0)
+    assertFalse("filter intent is not a rendered-processing fact",response.containsKey("eqApplied"))
+    for(frequencies in listOf(emptyList(),listOf(Double.NaN),listOf(24001.0),List(513) { 1000.0 })) {
+      try { dsp.frequencyResponse(frequencies);fail("accepted invalid response domain") } catch(_: IllegalArgumentException) {}
     }
   }
 

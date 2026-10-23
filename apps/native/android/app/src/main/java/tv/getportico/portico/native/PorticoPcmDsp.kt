@@ -29,6 +29,7 @@ internal class PorticoPcmDsp {
   private var filters = emptyArray<Array<Biquad>>()
   private var channels = 0
   private var rate = 0
+  @Volatile private var responseSampleRate = 0
   private var level = 1.0
   private var goal = 1.0
   private var ramp = 0
@@ -41,6 +42,23 @@ internal class PorticoPcmDsp {
   fun configure(sampleRate: Int, channelCount: Int) {
     require(sampleRate in 8000..768000 && channelCount in 1..32)
     rate = sampleRate; channels = channelCount; rebuild(); reset()
+    responseSampleRate = sampleRate
+  }
+
+  /** Editor response from the exact coefficient factory used below. This is a small-signal
+   * filter response at the configured PCM input rate, not an observation of a DAC or output. */
+  fun frequencyResponse(frequencies: List<Double>): Map<String, Any?>? {
+    val sampleRate = responseSampleRate
+    if (sampleRate == 0) return null
+    require(frequencies.isNotEmpty() && frequencies.size <= 512 && frequencies.all { it.isFinite() && it > 0.0 && it <= sampleRate / 2.0 })
+    val value = eq
+    val coefficients = CENTRES.mapIndexed { band, frequency -> Biquad.peak(sampleRate, frequency, value.bands[band]) }
+    val gains = frequencies.map { frequency ->
+      if (!value.enabled) 0.0 else value.preampDb + coefficients.sumOf { it.gainDb(frequency, sampleRate) }
+    }
+    check(gains.all { it.isFinite() })
+    return mapOf("sampleRate" to sampleRate, "frequenciesHz" to frequencies.toList(), "gainDb" to gains,
+        "enabled" to value.enabled, "preampDb" to value.preampDb, "bands" to value.bands.toList())
   }
 
   fun reset() {
@@ -93,6 +111,12 @@ internal class PorticoPcmDsp {
     private var z1 = 0.0; private var z2 = 0.0
     fun process(x: Double): Double { val y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y }
     fun reset() { z1 = 0.0; z2 = 0.0 }
+    fun gainDb(frequency: Double, sampleRate: Int): Double {
+      val w = 2 * PI * frequency / sampleRate
+      val numerator = hypot(b0 + b1 * cos(w) + b2 * cos(2 * w), b1 * sin(w) + b2 * sin(2 * w))
+      val denominator = hypot(1 + a1 * cos(w) + a2 * cos(2 * w), a1 * sin(w) + a2 * sin(2 * w))
+      return 20 * log10(numerator / denominator)
+    }
     companion object {
       // RBJ peaking EQ, Q=sqrt(2), one octave bands. Above Nyquist is an identity filter.
       fun peak(rate: Int, frequency: Double, db: Double): Biquad {
