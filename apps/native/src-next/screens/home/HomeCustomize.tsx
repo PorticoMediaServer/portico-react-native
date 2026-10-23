@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {findNodeHandle, ScrollView, Text, TVEventHandler, View, useWindowDimensions} from 'react-native';
+import {findNodeHandle, ScrollView, Text, TVEventHandler, View} from 'react-native';
 import {defaultI18n, type I18n} from '../../../../../packages/i18n/src';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
@@ -9,7 +9,6 @@ import {Icon} from '../../kit/Icon';
 import {BottomSheet, Dialog, SidePanel} from '../../kit/overlays';
 import {focusTarget} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
-import {shellLayout} from '../../shell/model';
 import {NativeHomeCustomizeController} from './customize-controller';
 
 /** Exact catalogue values supplied by the canonical copy owner. No screen copy
@@ -26,7 +25,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   renderError?: (error: unknown, retry: () => void) => React.ReactNode;
   views?: Readonly<{items: readonly PersonalResource[]; loading: boolean; error?: unknown; renderError: (error: unknown, retry: () => void) => React.ReactNode; retry: () => void}>;
 }) {
-  const theme = useTheme(), viewport = useWindowDimensions(), registry = useFocusRegistry();
+  const theme = useTheme(), registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const first = useRef<View>(null), reload = useRef<View>(null), cancelReset = useRef<View>(null);
   const picked = useRef<View>(null), scroller = useRef<ScrollView>(null);
@@ -101,15 +100,14 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     onChoose={view => {if (controller.addSavedView(view)) setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
     <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
-  const scale = shellLayout(viewport.width, viewport.height, theme.isTV).scale;
   return <>
     {theme.isTV && state.pickedId && <View pointerEvents="none" style={{position: 'absolute', left: 200, right: 960, bottom: 56, flexDirection: 'row', justifyContent: 'center', gap: 28}}>
       {[['▲▼', copy.move], [defaultI18n.t('next.layout.ok'), copy.drop], [defaultI18n.t('action.back'), copy.putBack]].map(([key, label]) => <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Text style={[theme.type.captionStrong, {color: theme.colors.text, backgroundColor: theme.colors.raised, paddingHorizontal: 10, borderRadius: 6}]}>{key}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{label}</Text></View>)}
     </View>}
-    {theme.isTV ? <SidePanel open onOpenChange={open => {if (!open) back();}} title={choosing ? defaultI18n.t('home.customize.addView') : copy.title} description={choosing ? defaultI18n.t('home.customize.chooseView') : state.showConflict ? undefined : copy.instruction} width={860 * scale} topInset={0}
+    {theme.isTV ? <SidePanel open onOpenChange={open => {if (!open) back();}} title={choosing ? defaultI18n.t('home.customize.addView') : copy.title} description={choosing ? defaultI18n.t('home.customize.chooseView') : state.showConflict ? undefined : copy.instruction} width={860} topInset={0} logicalCanvas={{width: 860, height: 1080}}
       showClose={false} titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}}
       descriptionTextStyle={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 30.8}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 8}]} testID={testID} initialFocusRef={choosing ? firstView : first} footer={footer}
-      style={{width: 860, maxWidth: 860, height: 1080, paddingTop: 46, paddingLeft: 60, paddingRight: 96, transformOrigin: 'top right', transform: [{scale}]}}>{body}</SidePanel>
+      style={{paddingTop: 46, paddingLeft: 60, paddingRight: 96}}>{body}</SidePanel>
       : <BottomSheet open onOpenChange={open => {if (!open) back();}} title={choosing ? defaultI18n.t('home.customize.addView') : copy.title} description={defaultI18n.t(choosing ? 'home.customize.chooseView' : 'home.customize.subtitle')}
         testID={testID} initialFocusRef={choosing ? firstView : first} footer={footer}>{body}</BottomSheet>}
     <Dialog open={reset} onOpenChange={setReset} title={defaultI18n.t('confirm.resetHome.title')} description={defaultI18n.t('confirm.resetHome.body')}
