@@ -1,8 +1,8 @@
 import React, {createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {BackHandler, Platform, StyleSheet, View, type GestureResponderEvent} from 'react-native';
+import {BackHandler, StyleSheet, View, type GestureResponderEvent} from 'react-native';
 import {registerOverlayKeys} from '../../platform/overlay-keys';
 import {useTheme} from '../theme';
-import {FocusProvider, useOptionalFocusRegistry} from '../focus';
+import {FocusProvider, requestNativeFocus, useOptionalFocusRegistry} from '../focus';
 import {containsPoint, type Rect} from './geometry';
 import {createOverlayStack} from './overlay-stack';
 import type {FocusRef, FocusTarget, OverlayReason} from './types';
@@ -55,8 +55,7 @@ export function useOverlayFrame(): Rect {
 }
 
 export function focusTarget(target: FocusTarget | null | undefined) {
-  if (Platform.isTV && target?.requestTVFocus) target.requestTVFocus();
-  else target?.focus?.();
+  requestNativeFocus(target);
 }
 
 const stack = createOverlayStack();

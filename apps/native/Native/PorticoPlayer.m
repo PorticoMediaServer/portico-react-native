@@ -2,107 +2,20 @@
 #import <React/RCTViewManager.h>
 #import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
+#import <React/UIView+React.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AVKit/AVKit.h>
 #import <MediaAccessibility/MediaAccessibility.h>
 #import <CoreText/CoreText.h>
+#import <QuartzCore/QuartzCore.h>
 #import <Security/Security.h>
 #import "PorticoPlaybackController.h"
 #import "PorticoSubtitleSelection.h"
+#import "PorticoSubtitleOverlay.h"
 #import "PorticoSecureStorageRead.h"
 #import "PorticoProfileTrust.h"
 #import "PorticoServerTrust.h"
-@interface PorticoPlayerView : UIView <AVPictureInPictureControllerDelegate>
-@property(nonatomic,copy) NSString *lease;
-@property(nonatomic) NSInteger pictureInPictureRequest;
-@property(nonatomic,strong) AVPictureInPictureController *pictureInPicture;
-@property(nonatomic,strong) PorticoPlaybackController *controller;
-@end
-@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; }
-- (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];
- // The viewer's caption style in the device's Accessibility settings is followed as it changes.
- [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:(__bridge NSString *)kMACaptionAppearanceSettingsChangedNotification object:nil];}return self;}
-- (void)setLease:(NSString *)lease {_lease=[lease copy];[self attachLayer];}
-- (void)setController:(PorticoPlaybackController *)controller {_controller=controller;[self attachLayer];}
-- (void)attachLayer {if(![_lease isEqual:_controller.lease]){[self.pictureInPicture stopPictureInPicture];self.pictureInPicture=nil;}
-#if TARGET_OS_TV
- if(!_lease.length||![_lease isEqual:_controller.lease])self.window.avDisplayManager.preferredDisplayCriteria=nil;
- else if(self.window)_controller.displayWindow=self.window;
-#endif
- _layer.player=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.player:nil;[self updateSubtitle];[self preparePictureInPicture];}
-/** OS-04: the controller exists as soon as a video is attached, so leaving the app (Home swipe)
- * can continue the film in Picture in Picture, as the system's own players do. The system's
- * "Start PiP Automatically" setting still decides. This view stays the controller's only owner. */
-- (void)preparePictureInPicture {
- if(![AVPictureInPictureController isPictureInPictureSupported]||!_lease.length||![_lease isEqual:_controller.lease]||!_layer.player)return;
- if(!self.pictureInPicture){self.pictureInPicture=[[AVPictureInPictureController alloc]initWithPlayerLayer:_layer];self.pictureInPicture.delegate=self;}
-#if !TARGET_OS_TV
- if(@available(iOS 14.2, *))self.pictureInPicture.canStartPictureInPictureAutomaticallyFromInline=YES;
-#endif
-}
-// Reported through the playback module's event channel, not a view event prop: old-style view
-// events reach JavaScript through RCTEventEmitter, which a New Architecture production bundle
-// never registers, so the first one (PiP "unavailable" on the simulator) crashed the app.
-- (void)pictureInPictureChanged:(NSDictionary *)change {NSMutableDictionary *body=[change mutableCopy];body[@"lease"]=_lease?:@"";if(_controller.onPictureInPicture)_controller.onPictureInPicture(body);}
-- (void)setPictureInPictureRequest:(NSInteger)value {if(value==_pictureInPictureRequest)return;_pictureInPictureRequest=value;
- // tvOS 14+ supports Picture in Picture from an AVPlayerLayer too (OS-04); the TV player decides
- // whether to offer it. Unsupported hardware answers "unavailable" rather than doing nothing.
- if(![AVPictureInPictureController isPictureInPictureSupported]||!_lease.length||![_lease isEqual:_controller.lease]){[self pictureInPictureChanged:@{@"state":@"unavailable"}];return;}
- if(self.pictureInPicture.isPictureInPictureActive){[self.pictureInPicture stopPictureInPicture];return;}
- [self preparePictureInPicture];
- if(self.pictureInPicture.isPictureInPicturePossible)[self.pictureInPicture startPictureInPicture];else [self pictureInPictureChanged:@{@"state":@"unavailable"}];
-}
-// OS-02: `subtitlesCarried` is NO when the chosen subtitles are drawn by the app, which PiP can't
-// show; the player can say so instead of letting them vanish silently.
-- (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)controller {[self pictureInPictureChanged:@{@"state":@"started",@"subtitlesCarried":@(!_controller.subtitleOverlayActive)}];}
-- (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)controller {[self pictureInPictureChanged:@{@"state":@"stopped"}];}
-- (void)pictureInPictureController:(AVPictureInPictureController *)controller failedToStartPictureInPictureWithError:(NSError *)error {[self pictureInPictureChanged:@{@"state":@"unavailable"}];}
-- (void)pictureInPictureController:(AVPictureInPictureController *)controller restoreUserInterfaceForPictureInPictureStopWithCompletionHandler:(void (^)(BOOL restored))completionHandler {[self pictureInPictureChanged:@{@"state":@"restore"}];completionHandler(YES);}
-- (void)updateSubtitle {_subtitle.text=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.subtitleText:@"";_subtitle.hidden=!_subtitle.text.length;[self setNeedsLayout];}
-/**
- * The look of the line the app draws: Portico's caption style (the profile's size and background,
- * sent with the subtitle command) on top of the system's. The size the viewer set for captions in
- * Accessibility always multiplies. A colour, background or typeface is taken from the system only
- * where the viewer's style there says it overrides what a video provides; otherwise Portico's.
- */
-- (void)styleSubtitle:(CGFloat)base {
- [PorticoSubtitleSelection applyCaptionAppearanceToLabel:_subtitle baseSize:base style:_controller.subtitleStyle italic:[_controller.subtitleCue[@"italic"]boolValue]];
-}
-- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;CGFloat width=video.size.width*0.9;[self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,([_controller.subtitleCue[@"top"]boolValue]?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*0.08)-height),width,height);}
-// The display is matched to the title by the controller before the title is announced ready
-// (it used to be asked for here, at the first frame, when the title was already playing).
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==_layer&&_layer.readyForDisplay)[_controller displayReadyForLease:_lease];}
-- (void)didMoveToWindow {[super didMoveToWindow];
-#if TARGET_OS_TV
- if(self.window&&_lease.length&&[_lease isEqual:_controller.lease])_controller.displayWindow=self.window;
-#endif
-}
-- (void)willMoveToWindow:(UIWindow *)newWindow {
-#if TARGET_OS_TV
- if(self.window&&self.window!=newWindow)self.window.avDisplayManager.preferredDisplayCriteria=nil;
-#endif
- [super willMoveToWindow:newWindow];
-}
-- (void)dealloc{
-#if TARGET_OS_TV
- self.window.avDisplayManager.preferredDisplayCriteria=nil;
-#endif
- // This view is the app's strong owner of the PiP controller and its delegate is
- // weak, so teardown ends PiP here rather than leaving a controller running
- // against a layer whose player is about to go away. Exactly once: the property
- // is cleared immediately after.
- if(_pictureInPicture){[_pictureInPicture stopPictureInPicture];_pictureInPicture.delegate=nil;_pictureInPicture=nil;}
- [_layer removeObserver:self forKeyPath:@"readyForDisplay"];[[NSNotificationCenter defaultCenter]removeObserver:self];_layer.player=nil;}
-@end
-@interface PorticoPlayerManager : RCTViewManager @end
-@implementation PorticoPlayerManager
-RCT_EXPORT_MODULE(PorticoPlayer)
-// After a JavaScript reload the new playback module registers itself as the shared controller;
-// looking it up through the bridge could hand a new player view the previous, invalidated one.
-- (UIView *)view {PorticoPlayerView *view=[PorticoPlayerView new];PorticoPlaybackController *controller=PorticoPlaybackController.shared;if(!controller){id module=[self.bridge moduleForClass:NSClassFromString(@"PorticoPlaybackModule")];controller=[module valueForKey:@"controller"];}view.controller=controller;return view;}
-RCT_EXPORT_VIEW_PROPERTY(lease,NSString)
-RCT_EXPORT_VIEW_PROPERTY(pictureInPictureRequest,NSInteger)
-@end
+#import "PorticoVideoSnapshot.h"
 // Queue HTTP requests carry a device proof. Never follow redirects, bypass TLS
 // validation, or accumulate an unbounded response. There is no background media
 // player here; this is only the bounded JSON control transport.
