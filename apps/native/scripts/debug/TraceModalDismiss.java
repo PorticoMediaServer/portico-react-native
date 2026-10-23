@@ -1,4 +1,5 @@
 import com.sun.jdi.Bootstrap;
+import com.sun.jdi.BooleanValue;
 import com.sun.jdi.Location;
 import com.sun.jdi.ObjectReference;
 import com.sun.jdi.ReferenceType;
@@ -21,11 +22,28 @@ import java.util.Map;
  * variable/argument/authentication inspection. Never run without the device owner's interval. */
 public final class TraceModalDismiss {
   private static final String TYPE = "com.facebook.react.views.modal.ReactModalHostView";
+  private static ObjectReference objectField(ObjectReference owner, String name) {
+    var field = owner.referenceType().fieldByName(name);
+    if (field == null) throw new IllegalStateException("Required modal attachment field unavailable: " + name);
+    var value = owner.getValue(field);
+    if (value == null) return null;
+    if (!(value instanceof ObjectReference object)) throw new IllegalStateException("Unexpected modal attachment field type");
+    return object;
+  }
+  private static boolean showingAttached(ObjectReference host) {
+    ObjectReference dialog = objectField(host, "dialog"), root = objectField(host, "dialogRootViewGroup");
+    if (dialog == null || root == null) return false;
+    var showing = dialog.referenceType().fieldByName("mShowing");
+    if (showing == null) throw new IllegalStateException("Required dialog visibility field unavailable");
+    var value = dialog.getValue(showing);
+    if (!(value instanceof BooleanValue visible)) throw new IllegalStateException("Unexpected dialog visibility field type");
+    return visible.value() && objectField(root, "mParent") != null && objectField(root, "mAttachInfo") != null;
+  }
   private static String quoted(String value) {
     return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\"";
   }
   public static void main(String[] args) throws Exception {
-    if (args.length != 4) throw new IllegalArgumentException("PORT INSTANCE_ID_OR_single TIMEOUT_MS OUTPUT_JSON");
+    if (args.length != 4 || !args[1].equals("showing")) throw new IllegalArgumentException("PORT showing TIMEOUT_MS OUTPUT_JSON");
     int port = Integer.parseInt(args[0]), timeout = Integer.parseInt(args[2]);
     if (port < 1024 || port > 65535 || timeout < 1000 || timeout > 30000) throw new IllegalArgumentException("Invalid bounded attach");
     AttachingConnector connector = Bootstrap.virtualMachineManager().attachingConnectors().stream()
@@ -39,15 +57,13 @@ public final class TraceModalDismiss {
       List<ReferenceType> types = vm.classesByName(TYPE);
       if (types.size() != 1) throw new IllegalStateException("Modal class is not uniquely loaded");
       ReferenceType type = types.get(0);
-      List<ObjectReference> instances = type.instances(128);
-      ObjectReference target;
-      if (args[1].equals("single")) {
-        if (instances.size() != 1) throw new IllegalStateException("Select the exact current modal instance");
-        target = instances.get(0);
-      } else {
-        long id = Long.parseLong(args[1]);
-        target = instances.stream().filter(value -> value.uniqueID() == id).findFirst().orElseThrow();
-      }
+      List<ObjectReference> instances = type.instances(129);
+      if (instances.size() > 128) throw new IllegalStateException("Modal instance budget exceeded");
+      // Object IDs are scoped to this observer connection. Select by the real
+      // shown/attached fields here; never reuse a historical attachment's ID.
+      List<ObjectReference> shown = instances.stream().filter(TraceModalDismiss::showingAttached).toList();
+      if (shown.size() != 1) throw new IllegalStateException("Expected exactly one showing attached modal; found " + shown.size());
+      ObjectReference target = shown.get(0);
       var methods = type.methodsByName("dismiss", "()V");
       if (methods.size() != 1) throw new IllegalStateException("Unexpected modal dismiss signature");
       Location location = methods.get(0).location();
@@ -55,6 +71,7 @@ public final class TraceModalDismiss {
       request = vm.eventRequestManager().createBreakpointRequest(location);
       request.addInstanceFilter(target);
       request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+      if (!showingAttached(target)) throw new IllegalStateException("Selected modal attachment changed before arming");
       request.enable();
       System.out.println("READY instance=" + target.uniqueID() + " timeoutMs=" + timeout);
       System.out.flush();
