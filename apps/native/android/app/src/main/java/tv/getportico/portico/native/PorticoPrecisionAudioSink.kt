@@ -17,7 +17,8 @@ import java.nio.ByteBuffer
 
 /**
  * Integer PCM stays integer all the way to AudioTrack. DefaultAudioSink remains responsible for
- * encoded HDMI output. Gain/EQ require PCM; neither can silently disappear into passthrough.
+ * encoded HDMI output. EQ is applied to PCM only and its actual state is reported separately
+ * from the saved switch, including while the receiver gets an untouched bitstream.
  */
 internal class PorticoPrecisionAudioSink(private val context: Context, fallback: AudioSink, private val dsp: PorticoPcmDsp, private val allowPassthrough: Boolean) : ForwardingAudioSink(fallback) {
   private var raw = false
@@ -32,6 +33,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   private var playing = false
   private var ended = false
   private var pending: ByteBuffer? = null
+  private var pendingEqApplied = false
   private var input: ByteBuffer? = null
   private var bytesWritten = 0L
   private var headWraps = 0L
@@ -47,7 +49,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
 
   override fun setListener(listener: AudioSink.Listener) { this.listener = listener; super.setListener(listener) }
   override fun getFormatSupport(format: Format): Int {
-    if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return if (allowPassthrough && dsp.transparent) super.getFormatSupport(format) else AudioSink.SINK_FORMAT_UNSUPPORTED
+    if (format.sampleMimeType != MimeTypes.AUDIO_RAW) return if (allowPassthrough && dsp.target == 1.0) super.getFormatSupport(format) else AudioSink.SINK_FORMAT_UNSUPPORTED
     val e = PorticoAudioGain.encoding(format.pcmEncoding) ?: return AudioSink.SINK_FORMAT_UNSUPPORTED
     if (e in setOf(PorticoPcmDsp.Encoding.S24,PorticoPcmDsp.Encoding.S32) && Build.VERSION.SDK_INT < 31) return AudioSink.SINK_FORMAT_UNSUPPORTED
     val mask = Util.getAudioTrackChannelConfig(format.channelCount)
@@ -55,6 +57,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   }
   override fun supportsFormat(format: Format) = getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
   override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
+    dsp.outputStatus = emptyMap()
     val nextRaw = inputFormat.sampleMimeType == MimeTypes.AUDIO_RAW
     if (!nextRaw) {
       if (raw) releaseTrack()
@@ -91,21 +94,28 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
     }
   }
   override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
-    if (!raw) return super.handleBuffer(buffer,presentationTimeUs,encodedAccessUnitCount)
+    if (!raw) {
+      val position = buffer.position()
+      val handled = super.handleBuffer(buffer,presentationTimeUs,encodedAccessUnitCount)
+      if (buffer.position() > position) dsp.outputStatus = mapOf("eqEnabled" to dsp.eq.enabled, "eqApplied" to false, "eqNotBitPerfect" to false)
+      return handled
+    }
     ensureTrack()
     if (pending == null) {
       if (baseUs == C.TIME_UNSET || discontinuity) { if(presentationTimeUs > startTrim * 1_000_000L / format.sampleRate) trim.seek(); baseUs = maxOf(0,presentationTimeUs) - playedFrames() * 1_000_000L / format.sampleRate; discontinuity = false }
       input = buffer
       pending = dsp.process(trim.process(buffer),encoding)
+      pendingEqApplied = dsp.processedEqualizer.enabled
     } else check(input === buffer) { "The renderer changed a pending PCM buffer" }
     val active = track!!
     output.prefer(active.routedDevice ?: active.preferredDevice,audioFormat!!,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
-    dsp.outputStatus = mapOf("sampleRate" to format.sampleRate,"channels" to format.channelCount,"pcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"gain" to dsp.target,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"eqNotBitPerfect" to dsp.eq.enabled)
     val data = pending!!
     if (data.hasRemaining()) {
       val written = active.write(data,data.remaining(),AudioTrack.WRITE_NON_BLOCKING)
       if (written < 0) throw AudioSink.WriteException(written,format,false)
       bytesWritten += written
+      // AudioTrack's input format is not an observation of the hardware mixer/output rate.
+      if (written > 0) dsp.outputStatus = mapOf("inputSampleRate" to format.sampleRate,"inputChannels" to format.channelCount,"inputPcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"eqApplied" to pendingEqApplied,"gain" to dsp.target,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"eqNotBitPerfect" to pendingEqApplied)
     }
     if (data.hasRemaining()) return false
     pending = null; input = null; return true
@@ -135,10 +145,11 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   override fun setSkipSilenceEnabled(skipSilenceEnabled: Boolean) { if(!raw) super.setSkipSilenceEnabled(skipSilenceEnabled) }
   override fun getSkipSilenceEnabled() = if(raw) false else super.getSkipSilenceEnabled()
   override fun flush() {
+    dsp.outputStatus = emptyMap()
     if(raw) { track?.pause(); track?.flush(); pending = null; input = null; bytesWritten = 0; headWraps = 0; lastHead = 0; baseUs = C.TIME_UNSET; ended = false; trim.configure(frameBytes,startTrim,endTrim); dsp.reset(); if(playing)track?.play() }
     super.flush()
   }
-  private fun releaseTrack() { track?.let { it.pause(); it.flush(); it.release() }; track = null; output.clear(); pending = null; input = null; bytesWritten = 0; headWraps = 0; lastHead = 0; baseUs = C.TIME_UNSET }
+  private fun releaseTrack() { track?.let { it.pause(); it.flush(); it.release() }; track = null; output.clear(); dsp.outputStatus = emptyMap(); pending = null; input = null; bytesWritten = 0; headWraps = 0; lastHead = 0; baseUs = C.TIME_UNSET }
   override fun reset() { releaseTrack(); raw = false; super.reset() }
   override fun release() { releaseTrack(); super.release() }
   companion object {

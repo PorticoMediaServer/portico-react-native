@@ -8,12 +8,17 @@ import kotlin.math.*
 internal class PorticoPcmDsp {
   enum class Encoding(val bytes: Int) { S16(2), S24(3), S32(4), FLOAT(4) }
   data class Eq(val enabled: Boolean = false, val preampDb: Double = 0.0, val bands: List<Double> = List(10) { 0.0 }) {
-    init { require(preampDb.isFinite() && preampDb in -24.0..12.0 && bands.size == 10 && bands.all { it.isFinite() && it in -12.0..12.0 }) }
+    init { require(validGain(preampDb) && bands.size == 10 && bands.all(::validGain)) }
+    companion object {
+      private fun validGain(value: Double) = value.isFinite() && value in -12.0..12.0 && value * 2 == floor(value * 2)
+    }
   }
   @Volatile var outputStatus: Map<String,Any?> = emptyMap()
   @Volatile var target = 1.0
   @Volatile var eq = Eq()
   private var applied = Eq()
+  /** The settings used for the last processed buffer, rather than a later control update. */
+  val processedEqualizer: Eq get() = applied
   private var filters = emptyArray<Array<Biquad>>()
   private var channels = 0
   private var rate = 0

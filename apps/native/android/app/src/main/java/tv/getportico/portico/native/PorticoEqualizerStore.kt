@@ -8,8 +8,8 @@ import android.database.sqlite.SQLiteOpenHelper
 /** One app/device EQ. No account, profile, output selector, presets or serialized settings. */
 internal class PorticoEqualizerStore(context: Context) : SQLiteOpenHelper(context, "portico-equalizer.db", null, 1) {
   override fun onCreate(db: SQLiteDatabase) {
-    db.execSQL("CREATE TABLE equalizer_state (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), preamp_db REAL NOT NULL CHECK(preamp_db BETWEEN -24 AND 12))")
-    db.execSQL("CREATE TABLE equalizer_band (band INTEGER PRIMARY KEY CHECK(band BETWEEN 0 AND 9), gain_db REAL NOT NULL CHECK(gain_db BETWEEN -12 AND 12))")
+    db.execSQL("CREATE TABLE equalizer_state (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), preamp_db REAL NOT NULL CHECK(preamp_db BETWEEN -12 AND 12 AND preamp_db*2=CAST(preamp_db*2 AS INTEGER)))")
+    db.execSQL("CREATE TABLE equalizer_band (band INTEGER PRIMARY KEY CHECK(band BETWEEN 0 AND 9), gain_db REAL NOT NULL CHECK(gain_db BETWEEN -12 AND 12 AND gain_db*2=CAST(gain_db*2 AS INTEGER)))")
     save(db, PorticoPcmDsp.Eq())
   }
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Unsupported equalizer settings version") }

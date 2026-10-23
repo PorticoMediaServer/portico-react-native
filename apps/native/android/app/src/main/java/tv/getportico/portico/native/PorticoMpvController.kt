@@ -34,15 +34,35 @@ import tv.getportico.portico.mpv.PorticoMpvNative
 internal class PorticoMpvController(private val context: Context) {
   private var equalizer = PorticoEqualizerStore(context).use { it.read() }
   private var equalizerRevision = 0L
+  private var equalizerConfigured = false
+  private var equalizerUnavailable = false
+  private var audioProcessingKey: Triple<Int, String, String>? = null
 
   fun applyEqualizer(value: PorticoPcmDsp.Eq) {
+    if (equalizer != value) equalizerUnavailable = false
     equalizer = value
+    updateAudioProcessing()
+  }
+
+  private fun updateAudioProcessing() {
     val engine = core ?: return
+    val passthrough = passthrough()
+    val filter = if (passthrough.isEmpty() && !equalizerUnavailable) PorticoMpvEqualizer.filter(equalizer) else ""
+    val key = Triple(loadEpoch, filter, passthrough)
+    if (audioProcessingKey == key) return
+    audioProcessingKey = key
+    equalizerConfigured = false
     val revision = ++equalizerRevision
-    engine.configureAudioProcessing(PorticoMpvEqualizer.filter(value), passthrough()) { code ->
-      if (core !== engine || revision != equalizerRevision) return@configureAudioProcessing
-      if (code < 0) publishFailure(PorticoMpvNative.ERROR_UNSUPPORTED, "equalizer_filter_unavailable", emptyList())
-      else publishMediaInfo()
+    val epoch = loadEpoch
+    engine.configureAudioProcessing(filter, passthrough) { result ->
+      if (core !== engine || epoch != loadEpoch || revision != equalizerRevision) return@configureAudioProcessing
+      equalizerConfigured = result.eqConfigured
+      if (result.code < 0) {
+        equalizerUnavailable = true
+        val diagnostic = if (filter.isNotEmpty()) "equalizer_filter_unavailable" else "audio_output_configuration_failed"
+        android.util.Log.w("PorticoMpv", "$diagnostic code=${result.code} fallback=${result.fallbackCode}")
+      }
+      publishMediaInfo()
     }
   }
 
@@ -519,9 +539,9 @@ internal class PorticoMpvController(private val context: Context) {
         "stream-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
         "demuxer-lavf-o" to "protocol_whitelist=%20%file,http,tcp,crypto",
         "tls-verify" to "yes",
-        // Sound: decoded on the device and handed to the system as PCM, in as many channels as
-        // the output takes. Nothing is passed through as a bitstream.
-        "audio-spdif" to "", "af" to PorticoMpvEqualizer.filter(equalizer), "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
+        // Processing is configured with a checked fallback after startup, so a missing EQ
+        // filter cannot prevent the core from starting. Receiver variants are selected per track.
+        "audio-spdif" to "", "af" to "", "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
         "hr-seek" to "yes",
         "cache" to "yes", "demuxer-max-bytes" to (if (small) "48MiB" else "150MiB"), "demuxer-max-back-bytes" to (if (small) "8MiB" else "48MiB"),
         "network-timeout" to "30",
@@ -569,7 +589,6 @@ internal class PorticoMpvController(private val context: Context) {
       if (fileRequested) publishFailure(PorticoMpvNative.ERROR_VO_INIT_FAILED, "mpv could not start: $failure", emptyList())
       return
     }
-    applyEqualizer(equalizer)
     surface?.let { if (it.isValid) started.attachSurface(it, surfaceWidth, surfaceHeight) }
   }
 
@@ -577,6 +596,8 @@ internal class PorticoMpvController(private val context: Context) {
     val current = core
     if (current == null) { completion?.invoke(); return }
     core = null
+    audioProcessingKey = null
+    equalizerConfigured = false
     directOutput = false
     // The surface goes back before mpv ends, so nothing draws on it afterwards.
     current.detachSurface()
@@ -646,6 +667,9 @@ internal class PorticoMpvController(private val context: Context) {
       original.buildUpon().clearQuery().appendQueryParameter("at", Math.floor(linearAt!! * 1000).toLong().toString()).build() else original
     loadEpoch++
     val epoch = loadEpoch
+    equalizerUnavailable = false
+    equalizerConfigured = false
+    audioProcessingKey = null
     fileRequested = true
     loaded = false
     restarted = false
@@ -656,6 +680,7 @@ internal class PorticoMpvController(private val context: Context) {
     lastPosition = Double.NaN
     lastProgressFact = Double.NaN
     snapshot = PorticoMpvSnapshot()
+    tracks = emptyList()
     audioTrackHandled = -1
     refusedSubtitleKeys.clear()
     frameRateClear?.let { main.removeCallbacks(it) }
@@ -721,6 +746,7 @@ internal class PorticoMpvController(private val context: Context) {
       options["demuxer-lavf-format"] = "hls"
     }
     core.setAll(listOf("pause" to "yes", "sid" to "no", "aid" to "auto", "vid" to "auto", "sub-delay" to "0", "volume" to "100"))
+    updateAudioProcessing()
     core.load(address, options, epoch)
   }
 
@@ -740,6 +766,7 @@ internal class PorticoMpvController(private val context: Context) {
         loaded = true
         tracks = event.tracks
         chapters = event.chapters
+        updateAudioProcessing()
         applyAudio()
         applyAudioTrack()
         applySubtitles()
@@ -794,6 +821,7 @@ internal class PorticoMpvController(private val context: Context) {
         "aid" -> {
           sampleAudio()
           confirmAudioTrack()
+          if (ready()) publishMediaInfo()
         }
         "vid" -> pictureLost()
         "pause", "speed", "core-idle" -> {
@@ -823,6 +851,7 @@ internal class PorticoMpvController(private val context: Context) {
         }
       }
       is PorticoMpvEvent.Tick -> {
+        if (before.audioFormat != next.audioFormat && ready()) publishMediaInfo()
         // An end reached before the first frame was announced is announced now.
         if (next.eofReached) reachedEnd()
         finishRestartedSeek()
@@ -1174,7 +1203,8 @@ internal class PorticoMpvController(private val context: Context) {
     fact["durationSeconds"] = if (snapshot.duration.isFinite()) snapshot.duration else 0.0
     fact["chapters"] = marks
     fact["video"] = picture
-    fact["audioProcessing"] = mapOf("eqEnabled" to equalizer.enabled, "eqNotBitPerfect" to equalizer.enabled)
+    val eqApplied = equalizerConfigured && snapshot.aid != "no" && snapshot.audioFormat?.let { !it.startsWith("spdif") } == true
+    fact["audioProcessing"] = mapOf("eqEnabled" to equalizer.enabled, "eqApplied" to eqApplied, "eqNotBitPerfect" to eqApplied)
     fact["audioTracks"] = PorticoMpvSupport.tracks(tracks, "audio").take(64).map(describe)
     fact["subtitleTracks"] = PorticoMpvSupport.tracks(tracks, "sub").take(128).map(describe)
     publish(fact)
@@ -1898,12 +1928,11 @@ internal class PorticoMpvController(private val context: Context) {
   }
 
   private fun passthrough(): String {
-    if (equalizer.enabled) return ""
     val selected=PorticoMpvSupport.tracks(tracks,"audio").firstOrNull { it["selected"]==true }
     val profile=(selected?.get("codec-profile") as? String) ?: (selected?.get("codec-desc") as? String)
     return PorticoAudioVariants.mpv(context,selected?.get("codec") as? String,profile)
   }
-  private fun updatePassthrough() { core?.set("audio-spdif", passthrough()) }
+  private fun updatePassthrough() { updateAudioProcessing() }
 
   // --- app life --------------------------------------------------------------------------
 

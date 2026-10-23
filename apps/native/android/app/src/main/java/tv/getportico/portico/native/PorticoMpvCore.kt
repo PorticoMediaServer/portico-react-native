@@ -23,6 +23,8 @@ internal class PorticoMpvSnapshot(
     val vid: String = "no",
     /** The hardware decoder in use ("mediacodec", "mediacodec-copy"), or "no" for software. */
     val hwdec: String = "no",
+    /** Actual filter output sample format; absent until an audio output exists. */
+    val audioFormat: String? = null,
     /** How fast the cache is being filled, in bytes a second, and whether the reader is resting
      * because the cache is full (the speed then says nothing about the connection). */
     val cacheSpeed: Double = 0.0,
@@ -164,14 +166,19 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     queue.post { for ((name, value) in values) setNow(name, value) }
   }
 
-  /** Ordered and checked: EQ cannot silently disappear into encoded passthrough. */
-  fun configureAudioProcessing(filter: String, passthrough: String, result: (Int) -> Unit) {
+  data class AudioProcessing(val eqConfigured: Boolean, val code: Int, val fallbackCode: Int)
+
+  /** Failed processing is cleared without changing playback intent. The caller reports the loss. */
+  fun configureAudioProcessing(filter: String, passthrough: String, result: (AudioProcessing) -> Unit) {
     queue.post {
       val disabled = if (filter.isNotEmpty()) setNow("audio-spdif", "") else 0
       val filtered = if (disabled >= 0) setNow("af", filter) else disabled
       val code = if (filtered >= 0 && filter.isEmpty()) setNow("audio-spdif", passthrough) else filtered
-      if (code < 0) setNow("pause", "yes")
-      main.post { result(code) }
+      val fallback = if (code < 0) {
+        val cleared = setNow("af", "")
+        if (cleared >= 0) setNow("audio-spdif", passthrough) else cleared
+      } else 0
+      main.post { result(AudioProcessing(filter.isNotEmpty() && code >= 0, code, fallback)) }
     }
   }
 
@@ -384,6 +391,7 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       sid = string("sid") ?: "no",
       vid = string("vid") ?: "no",
       hwdec = string("hwdec-current") ?: "no",
+      audioFormat = string("audio-out-params/format")?.takeIf { it.isNotBlank() },
       cacheSpeed = double("cache-speed") ?: 0.0,
       cacheIdle = flag("demuxer-cache-idle") ?: true,
       cacheDuration = double("demuxer-cache-duration") ?: Double.NaN)

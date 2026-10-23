@@ -1094,6 +1094,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val binding = snapshot["binding"] as? Map<*, *>
     if (binding?.get("sessionId") != heard["id"] || num(binding?.get("generation")) != generation(heard)) {
       snapshot["binding"] = null; snapshot["ready"] = false; snapshot["observed"] = false
+      snapshot["eqApplied"] = false; snapshot["rendering"] = false
     } else snapshot["binding"] = mapOf("lease" to binding?.get("lease"), "intentId" to binding?.get("intentId"), "sessionId" to heard["id"], "generation" to generation(heard), "itemId" to heard["itemId"])
     snapshot["owner"] = activeOwner
     snapshot["sequence"] = sequence.toDouble()
@@ -1110,6 +1111,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     snapshot["timerStopped"] = timerStopped
     snapshot["expiredTimerRevision"] = expiredTimerRevision.toDouble()
     snapshot["policyRevision"] = num(policy?.get("revision")) ?: 0.0
+    snapshot["levelingApplied"] = snapshot["rendering"] == true && effects()["normalization"] != "off"
     (noticeCode ?: if (effectsWanted()) renderNoticeCode(presentation(heard)) else null)?.let { snapshot["noticeCode"] = it }
     end?.let { snapshot["end"] = it }
     snapshot["route"] = routeName()

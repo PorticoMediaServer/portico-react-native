@@ -441,16 +441,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
   fun applyEqualizer(value: PorticoPcmDsp.Eq) {
-    val modeChanged = audioGains.values.any { it.equalizer.enabled != value.enabled }
     audioGains.values.forEach { it.equalizer = value }
-    if(modeChanged && player != null && source != null) {
-      val preparedToken = nextToken
-      closeIncoming()
-      if (preparedToken != null) emit("audioPreparationFailed", "audio_preparation_failed", mapOf("token" to preparedToken))
-      val position=sourcePosition();val url=parse((planOf(command?.get("audioRender"))?.get("url") as? String) ?: source!!)
-      player?.let { it.removeListener(listener);it.release();audioGains.remove(it) };player=null
-      if(url!=null)load(url,position.takeIf { it.isFinite() && it>=0 });applyIntent();attachmentListeners.toList().forEach { it() }
-    }
   }
   private fun musicGain(engine: ExoPlayer, gain: Float) {
     val processor = audioGains[engine]
@@ -462,8 +453,8 @@ internal class PorticoPlaybackController(private val context: Context) {
    * One way to build a player, for the player itself and for the second one a music crossfade
    * starts under it (which then becomes the player): the same data source, the same memory limit
    * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
-   * Every player consumes the app/device EQ. Encoded passthrough is possible only with EQ off
-   * and no listening processing; enabling EQ switches to the same PCM biquad stage.
+   * Every decoded player consumes the app/device EQ. A receiver's encoded bitstream stays
+   * untouched and reports EQ not applied; changing the EQ never replaces the player.
    */
   private fun build(music: Boolean, ownsFocus: Boolean, listening: Boolean = music): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
@@ -477,7 +468,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       target = if (listening) PorticoAudioPlan.gain(planOf(command?.get("audioRender")), settings()) else 1f
       PorticoEqualizerStore(context).use { equalizer = it.read() }
     }
-    val untouched = (!listening || (settings()?.get("normalization") == "off" && (number(settings()?.get("crossfadeSeconds")) ?: 0.0) == 0.0)) && !gain.equalizer.enabled
+    val untouched = !listening || (settings()?.get("normalization") == "off" && (number(settings()?.get("crossfadeSeconds")) ?: 0.0) == 0.0)
     val renderers = PorticoAudioRenderers(context, gain, untouched)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(PorticoPlanMediaSource.Factory(DefaultDataSource.Factory(context, http), extractors))
@@ -1123,6 +1114,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val state = engine?.playbackState ?: Player.STATE_IDLE
     val ready = loaded && (state == Player.STATE_READY || state == Player.STATE_ENDED)
     val rates = rateFacts()
+    val output = engine?.let { audioGains[it]?.dsp?.outputStatus } ?: emptyMap<String, Any?>()
     return hashMapOf(
         "binding" to currentBinding,
         "commandRevision" to commandRevision.toDouble(),
@@ -1134,7 +1126,9 @@ internal class PorticoPlaybackController(private val context: Context) {
         "supportedRates" to RATES,
         "rateWaiting" to rates["rateWaiting"],
         "rateError" to rates["rateError"],
-        "rendering" to (enginePlan != null), "output" to (engine?.let { audioGains[it]?.dsp?.outputStatus } ?: emptyMap<String,Any?>()))
+        "rendering" to (enginePlan != null),
+        "eqApplied" to (loaded && output["eqApplied"] == true),
+        "output" to output)
   }
 
   /** The owner's whole intent for the engine: what plays, whether it may, where it starts, and its audio plan. */

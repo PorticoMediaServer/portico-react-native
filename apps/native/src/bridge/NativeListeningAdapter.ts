@@ -31,10 +31,21 @@ export interface NativeListeningBridge {
 }
 // Keep the bridge capability bounds aligned with the Apple and Android producers.
 const nativeListeningRates: readonly number[] = [.5,.75,1,1.25,1.5,1.75,2,2.5,3];
+// Transient native notices are diagnostic only. Never retain their prose in UI state.
+const loggedNativeNotices = new Set<string>();
+function logNativeNotice(raw:any):void {
+ const code=raw.noticeCode??(raw.notice?(/^[a-z][a-z0-9_]{0,127}$/.test(raw.notice)?raw.notice:'native_notice_text_suppressed'):undefined);
+ if(!code)return;
+ const key=JSON.stringify([raw.owner,raw.session.id,code]);
+ if(loggedNativeNotices.has(key))return;
+ if(loggedNativeNotices.size>=128)loggedNativeNotices.delete(loggedNativeNotices.values().next().value!);
+ loggedNativeNotices.add(key);
+ console.info('[native-listening]',code);
+}
 /** The checks every native listening snapshot passes. */
 function checkNativeStatus(raw:any,owner:string){
  if(!raw||raw.owner!==owner||!Number.isSafeInteger(raw.sequence)||raw.sequence<1||!['playing','paused'].includes(raw.intent)||!Number.isFinite(raw.positionSeconds)||raw.positionSeconds<0||!Number.isFinite(raw.rate)||raw.rate<=0||!Number.isSafeInteger(raw.commandRevision)||raw.commandRevision<0||typeof raw.route!=='string'||raw.route.length>4096||![raw.observed,raw.ready,raw.seeking,raw.ended,raw.terminal].every(v=>typeof v==='boolean')||raw.error!==null&&typeof raw.error!=='string'||!listeningDeadline(raw.deadlines?.sleepAtMs)||!listeningDeadline(raw.deadlines?.passoutAtMs))throw new Error('Invalid native listening snapshot.');
- for(const key of ['rendering','timerStopped','rateWaiting'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
+ for(const key of ['rendering','timerStopped','rateWaiting','eqApplied','levelingApplied'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
  if(raw.effectiveRate!==undefined&&(!Number.isFinite(raw.effectiveRate)||raw.effectiveRate<0||raw.effectiveRate>3))throw new Error('Invalid native effective rate.');
  if(raw.supportedRates!==undefined&&(!Array.isArray(raw.supportedRates)||raw.supportedRates.length>nativeListeningRates.length||raw.supportedRates.some((rate:unknown)=>typeof rate!=='number'||!nativeListeningRates.includes(rate))))throw new Error('Invalid native supported rates.');
  if(raw.rateError!==undefined&&(typeof raw.rateError!=='string'||raw.rateError.length>4096))throw new Error('Invalid native rate error.');
@@ -64,9 +75,10 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  const b=raw.binding;
  if(b!==null&&(!b||!wireID(b.lease)||!Number.isSafeInteger(b.intentId)||b.intentId<1||b.sessionId!==session.id||b.generation!==session.presentation.generation||b.itemId!==session.itemId))throw new Error('Native engine binding changed.');
  const end=raw.terminal?parseSessionEnd(raw.end):undefined;
- // Notice facts have no approved frame/catalogue copy yet; keep them outside UI state.
+ // Transient engine events stay silent; only the shared listening policy owns UI notices.
+ logNativeNotice(raw);
  const status={...raw};delete status.notice;delete status.noticeCode;
- return Object.freeze({...status,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
+ return Object.freeze({...status,eqApplied:b!==null&&raw.eqApplied===true,levelingApplied:b!==null&&raw.levelingApplied===true,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
 }
 
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are
