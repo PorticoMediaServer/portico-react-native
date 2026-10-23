@@ -63,7 +63,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   }, [focused, pressed, holding, disabled, theme.isTV, theme.spec.focus.scale.card.tv, motion, scale]);
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const label = waiting ? defaultI18n.t('next.selection.native.loading') : accessibilityLabel ?? title;
-  const frame = <Animated.View style={[{width}, theme.isTV && style, animated]}>
+  const frame = <Animated.View style={[{width, flex: pressableStyle ? 1 : undefined}, theme.isTV && style, animated]}>
     <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} style={pressableStyle} testID={binding.testID} disabled={disabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{...native.accessibilityState, busy: waiting || native.accessibilityState?.busy, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
       accessibilityActions={waiting ? [] : [

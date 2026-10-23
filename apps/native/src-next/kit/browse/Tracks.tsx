@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {FlatList, Text, View, VirtualizedList, type ViewToken} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
@@ -21,7 +21,8 @@ export type TrackSelection = Readonly<{
   renderControl: (row: TrackRowData, selected: boolean, onPress: () => void) => ReactNode;
 }>;
 type TrackActions = Readonly<{
-  onPlay: (id: string) => void; onMore?: (id: string) => void;
+  onPlay: (id: string) => void; onMore?: (id: string, anchor?: RefObject<View | null>) => void;
+  isMenuOpen?: (id: string) => boolean;
   onToggleFavorite?: (id: string, favorite: boolean) => void;
 }>;
 type TrackVariant = 'album' | 'top-songs' | 'songs' | 'chapters';
@@ -72,15 +73,16 @@ function TVTrackRow({row, onPress, onMenu, selection, selected, selectionMode = 
 }
 
 /** The row's title/caption are already canonical parts, never a parsed subtitle. */
-export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onEnter, ranked = false}: TrackActions & {
+export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onEnter, isMenuOpen, ranked = false}: TrackActions & {
   row: TrackRowData; selection?: ReactNode; selected?: boolean; onSelectionChange?: () => void; onEnter: () => void; ranked?: boolean;
 }) {
   const theme = useTheme(), tv = theme.isTV, duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
+  const menuAnchorRef = useRef<View>(null);
   const caption = row.text.caption.filter(part => part.id === (ranked ? 'album' : 'artist'));
   if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={onSelectionChange !== undefined} selection={selection} onPress={onSelectionChange ?? (() => onPlay(row.id))} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork showCaption/>;
   return <View style={{height: tv ? 92 : ranked ? 62 : 58, flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 14, paddingLeft: 6, paddingRight: 12, borderRadius: 10, backgroundColor: selected ? alpha(theme.colors.accent, .18) : undefined}}>
     {selection}
-    <CardFrame title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id) : undefined}
+    <CardFrame menuAnchorRef={menuAnchorRef} moreExpanded={isMenuOpen?.(row.id)} title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id, menuAnchorRef) : undefined}
       selection={{active: !!onSelectionChange, selected, onToggle: onSelectionChange ?? onEnter, onEnter}}
       accessibilityLabel={onSelectionChange ? row.text.title : t('next.browse.native.play', {title: row.text.title})} style={{flex: 1, height: '100%'}} pressableStyle={{flex: 1, justifyContent: 'center'}}>
       {() =>
@@ -95,7 +97,7 @@ export function SongRow({row, onPlay, onMore, selection, selected = false, onSel
       </View>
       }
     </CardFrame>
-    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id)}/>}
+    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id, menuAnchorRef)}/>}
   </View>;
 }
 
@@ -106,21 +108,22 @@ function columnStyle(column: TrackColumn, variant: TrackVariant) {
   return {width: column === 'number' ? 44 : column === 'duration' ? variant === 'songs' ? 86 : variant === 'chapters' ? 90 : 80 : column === 'plays' ? variant === 'songs' ? 64 : 90 : 124};
 }
 
-export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite}: TrackActions & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
+export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite, isMenuOpen}: TrackActions & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
   const theme = useTheme(), phone = theme.platform === 'phone', tv = theme.isTV, selected = selection.isSelected(row.id);
+  const menuAnchorRef = useRef<View>(null);
   const duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
   const progress = boundedProgress(row.progress ?? row.text.progress), remaining = row.text.detail.find(part => part.id === 'remaining');
   if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={selection.active} selection={selection.active ? selection.renderControl(row, selected, () => selection.onToggle(row.id)) : undefined} onPress={() => selection.active ? selection.onToggle(row.id) : onPlay(row.id)} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork={variant === 'top-songs' || variant === 'songs'} showCaption={variant === 'top-songs' || variant === 'songs'}/>;
   const actions = <View style={{width: phone ? 44 : variant === 'chapters' ? 60 : 84, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center'}}>
     {variant === 'chapters' ? <Button variant="icon" size="small" iconOnly icon="i-play" accessibilityLabel={t('next.browse.native.play', {title: row.text.title})} onPress={() => onPlay(row.id)}/> : <>
     {row.favorite !== undefined && onToggleFavorite && !phone && <Button variant="icon" size="small" iconOnly icon={row.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(row.favorite ? 'next.browse.native.unfavorite' : 'next.browse.native.favorite')} accessibilityState={{checked: row.favorite}} onPress={() => onToggleFavorite(row.id, !row.favorite)}/>}
-    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id)}/>}
+    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id, menuAnchorRef)}/>}
     </>}
   </View>;
   const select = () => selection.onToggle(row.id);
   return <View style={{height: tv ? 92 : phone ? 54 : variant === 'chapters' && row.current ? 76 : variant === 'songs' ? 56 : 60, paddingLeft: phone ? 20 : 8, paddingRight: 12, flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 16, borderRadius: 10, backgroundColor: selected ? alpha(theme.colors.accent, .18) : !phone && (row.playing || row.current) ? alpha(theme.colors.text, .08) : undefined}}>
     {selection.active && selection.renderControl(row, selected, select)}
-    <CardFrame title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id) : undefined}
+    <CardFrame menuAnchorRef={menuAnchorRef} moreExpanded={isMenuOpen?.(row.id)} title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id, menuAnchorRef) : undefined}
       selection={{active: selection.active, selected, onToggle: select, onEnter: () => selection.onEnter(row.id)}}
       accessibilityLabel={selection.active ? row.text.title : t('next.browse.native.play', {title: row.text.title})} style={{flex: 1, height: '100%'}} pressableStyle={{flex: 1, justifyContent: 'center'}}>
       {() =>
