@@ -43,7 +43,10 @@ export class NativeWatchPresenters {
   private off: (() => void)[];
   private searchService?: SearchService;
   private disposed = false;
-  constructor(private context: NativeShellBootstrapContext, private common: NativeScreenServices) {
+  private readonly context: NativeShellBootstrapContext;
+  private readonly common: NativeScreenServices;
+  constructor(context: NativeShellBootstrapContext, common: NativeScreenServices) {
+    this.context = context; this.common = common;
     this.off = [context.navigation.subscribe(this.invalidate), context.subscribeAuthority(this.invalidate), context.playback.subscribe(this.invalidate)];
   }
   getSnapshot = () => this.value;
