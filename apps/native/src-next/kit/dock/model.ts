@@ -3,6 +3,11 @@ import {clockText, timelineFacts, type FactPart} from '../../../../../packages/c
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import type {DockAction, DockCommand, DockHostProps, DockOccupant} from './types';
 
+/** Text changes follow the actual media source, including a local play without a queue. */
+export function dockSourceIdentity(fence: Readonly<{kind: 'local'; playId: string}> | Readonly<{kind: 'queue' | 'channel'; sourceId?: string}>) {
+  return fence.kind === 'local' ? fence.playId : fence.sourceId;
+}
+
 export function currentOccupant(dock: PlaybackDock, snapshot: DockState, presentation: DockHostProps['presentation']): DockOccupant | null {
   // A stale React render may not bind new-source artwork/text to an older native surface.
   if (dock.getSnapshot() !== snapshot) return null;
