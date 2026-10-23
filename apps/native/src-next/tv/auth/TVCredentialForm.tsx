@@ -8,13 +8,12 @@ import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus
 import {TVAuthLayout} from './TVAuthLayout';
 
 export type TVCredentialFormProps = Readonly<{
-  kind: 'portico' | 'local'; serverName?: string;
   username: string; password: string;
   onUsernameChange: (value: string) => void; onPasswordChange: (value: string) => void;
   /** Exact drawn placeholder, provided by the canonical catalogue. */
   usernamePlaceholder: MessageId;
   busy: boolean; error?: React.ReactNode; onSubmit: () => void; onBack: () => void;
-}>;
+}> & Readonly<{kind: 'portico'; serverName?: string} | {kind: 'local'; serverName: string}>;
 
 function CredentialField({id, label, value, onChangeText, password, placeholder, busy, onSubmitEditing}: {
   id: string; label: string; value: string; onChangeText: (value: string) => void; password?: boolean;
@@ -44,7 +43,7 @@ export function TVCredentialForm(props: TVCredentialFormProps) {
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: 0}, {regionId: id, childId: initial.current});
   const t = defaultI18n.t, submit = () => {if (!busy && username && password) props.onSubmit();};
   return <TVAuthLayout testID={`tv-${kind}-credentials`} portico={kind === 'portico'}
-    heading={kind === 'portico' ? t('auth.welcomeHome') : props.serverName ?? ''}
+    heading={props.kind === 'portico' ? t('auth.welcomeHome') : props.serverName}
     eyebrow={kind === 'local' ? t('accounts.signIn.to') : undefined}
     body={t(kind === 'portico' ? 'auth.accountLead' : 'auth.direct.lead')}>
     <FocusRegion id={id} entry={initial.current} order={['username', 'password', 'submit', 'back']} enabled={!busy}>

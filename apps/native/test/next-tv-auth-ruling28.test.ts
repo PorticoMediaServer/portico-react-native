@@ -50,6 +50,7 @@ test('both actual TV code modes expose the drawn credential route without starti
   const h = hooks(), calls: string[] = [];
   const {TVCodePresenter} = await screenModule(new URL('../src-next/tv/auth/TVCodePresenter.tsx', import.meta.url), {
     ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'}, '../../kit/focus': {FocusRegion: 'Region'},
+    '../../platform/native-blur': {BlurView: 'Blur', glassRecipe: () => ({nativeBlur: true})},
   });
   for (const mode of ['portico', 'local'] as const) {
     const tree = h.render(() => TVCodePresenter({mode, serverName: 'Actual server', body: 'actual owner copy', userCode: 'ACTUAL-CODE',
@@ -57,11 +58,12 @@ test('both actual TV code modes expose the drawn credential route without starti
       onTypeCredentials: () => calls.push(mode), onBack: () => calls.push('back')}));
     const buttons = nodes(tree).filter(node => node.type === 'Button');
     assert.equal(buttons[0].props.children.flat().join(''), defaultI18n.t(mode === 'portico' ? 'accounts.signIn.onTV' : 'quickConnect.usePassword'));
-    buttons[0].props.onPress(); buttons[1].props.onPress();
+    buttons[0].props.onPress(); if (mode === 'portico') buttons[1].props.onPress();
+    else assert.equal(buttons.length, 1, 'local code frame9 has one drawn password button; hardware Back is owned by AccountEntry');
     assert.equal(nodes(tree.props.aside).find(node => node.type === 'QR').props.value, 'https://account.example/device?user_code=ACTUAL-CODE');
     assert.equal(tree.props.portico, mode === 'portico');
   }
-  assert.deepEqual(calls, ['portico', 'back', 'local', 'back']);
+  assert.deepEqual(calls, ['portico', 'back', 'local']);
 });
 
 test('sixth MFA digit submits once, rejected controlled state can retry, and Play/Pause deletes without a system input', async () => {

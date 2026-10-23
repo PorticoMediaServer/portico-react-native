@@ -41,7 +41,7 @@ export function TVVerificationForm(props: TVVerificationFormProps) {
     if (props.busy) return;
     props.onRecoveryCodeChange(key === 'delete' ? props.recoveryCode.slice(0, -1) : key === 'clear' ? '' : props.recoveryCode + (key === 'space' ? ' ' : key));
   };
-  const key = (value: string, row: number, span = 1) => {
+  const key = (value: string, span = 1) => {
     const recovery = props.recovery, label = value === 'delete' ? t('action.delete') : value === 'space' ? t('next.states.key.Space') : value === 'clear' ? t('filter.clear') : value;
     return <Focusable key={value} focusId={value} testID={`${id}-${recovery ? 'keyboard' : 'pad'}-${value}`} disabled={props.busy}
       accessibilityLabel={label} onPress={() => {if (recovery) recoveryKey(value); else digit(value);}} focusRadius={recovery ? 14 : 20}
@@ -55,7 +55,7 @@ export function TVVerificationForm(props: TVVerificationFormProps) {
     <FocusRegion id={`${id}.pad`} entry="1" enabled={!props.busy}>
       {padRows.map((row, index) => <FocusRegion key={index} id={`${id}.pad.${index}`} entry={row[0]} order={row} orientation="horizontal"
         enabled={!props.busy} edges={{up: index > 0 ? `${id}.pad.${index - 1}` : undefined, down: index < 3 ? `${id}.pad.${index + 1}` : `${id}.recovery`}}
-        style={{flexDirection: 'row', gap: 20, marginBottom: index < 3 ? 20 : 0}}>{row.map(value => key(value, index))}</FocusRegion>)}
+        style={{flexDirection: 'row', gap: 20, marginBottom: index < 3 ? 20 : 0}}>{row.map(value => key(value))}</FocusRegion>)}
     </FocusRegion>
     <FocusRegion id={`${id}.recovery`} entry="recovery" enabled={!props.busy} edges={{up: `${id}.pad.3`}} style={{marginTop: 38}}>
       <Button focusId="recovery" variant="glass" disabled={props.busy} onPress={() => props.onRecoveryChange(true)}
@@ -87,7 +87,7 @@ export function TVVerificationForm(props: TVVerificationFormProps) {
           const last = index === recoveryRows.length - 1, order = last ? [...row, 'space', 'delete', 'clear'] : row;
           return <FocusRegion key={index} id={`${id}.keyboard.${index}`} entry={row[0]} order={order} orientation="horizontal" enabled={!props.busy}
             edges={{up: index > 0 ? `${id}.keyboard.${index - 1}` : undefined, down: last ? `${id}.actions` : `${id}.keyboard.${index + 1}`}}
-            style={{flexDirection: 'row', gap: 10}}>{row.map(value => key(value, index))}{last && <>{key('space', index, 3)}{key('delete', index)}{key('clear', index, 2)}</>}</FocusRegion>;
+            style={{flexDirection: 'row', gap: 10}}>{row.map(value => key(value))}{last && <>{key('space', 3)}{key('delete')}{key('clear', 2)}</>}</FocusRegion>;
         })}
       </FocusRegion>
       <FocusRegion id={`${id}.actions`} entry="submit" enabled={!props.busy} edges={{up: `${id}.keyboard.${recoveryRows.length - 1}`}} style={{flexDirection: 'row', gap: 20, marginTop: 24}}>
