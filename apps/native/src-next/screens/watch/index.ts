@@ -9,3 +9,6 @@ export {NativeFileInfoContent} from './FileInfoContent';
 export {nativeVersionChoices} from './version-options';
 export {NativeWatchHost} from './WatchHost';
 export type {NativeWatchHostBindings, NativeWatchHostContext} from './WatchHost';
+export {NativeVersionChooser} from './VersionChooser';
+export type {NativeVersionChooserProps} from './VersionChooser';
+export type {NativeVersionPresentation, NativeVersionRow, NativeVersionRowText} from './version-options';

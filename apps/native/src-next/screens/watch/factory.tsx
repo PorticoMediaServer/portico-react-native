@@ -3,13 +3,12 @@ import type {View} from 'react-native';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src';
 import type {DetailScope} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import type {ManageAction} from '../../../../../packages/client-core/src/presentation/kit-model';
+import type {ManageAction, TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
-import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {NativePlaybackAdapter, NativePlaybackStart} from '../../platform/playback/types';
+import type {NativePlaybackAdapter, NativePlaybackVersionSelection} from '../../platform/playback/types';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeShellNavigation} from '../../shell/routes';
@@ -20,7 +19,7 @@ import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo} from './file-info';
 import {nativeWatchTracks} from './track-identity';
-import {nativeVersionChoices} from './version-options';
+import {nativeVersionChoices, type NativeVersionPresentation} from './version-options';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
@@ -34,22 +33,21 @@ export type NativeWatchCapture = Readonly<{
   /** The actual entry owner's lifetime, including removal or a replaced row. */
   current: () => boolean;
 }>;
-export type NativeVersionStartSelection = Readonly<{
-  authority: ShellAuthority;
-  options: PlaybackOptions;
-  versionId: string;
-  expectedFence: PlaybackFence | undefined;
-}>;
+export type NativeVersionStartSelection = NativePlaybackVersionSelection;
 export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>}>;
 export type NativeVersionDestination = Readonly<{
+  title: string;
+  subject: string;
   options: PlaybackOptions;
   rows: ReturnType<typeof nativeVersionChoices>;
   selectedVersionId?: string;
   isCurrent: () => boolean;
-  choose: (versionId: string) => Promise<void>;
+  subscribe: (listener: () => void) => () => void;
+  choose: (versionId: string) => Promise<boolean>;
 }>;
 export type NativeWatchFactoryPorts = Readonly<{
   api: HttpLocalApi;
+  text: TextEnvironment;
   scope: DetailScope;
   authority: ShellAuthority;
   current: () => ShellAuthority;
@@ -61,16 +59,18 @@ export type NativeWatchFactoryPorts = Readonly<{
   player?: NativeWatchHostBindings;
   requestId: () => Promise<string>;
   isTV: boolean;
-  /** Bound to Android's real fenced runtime command after it lands on MAIN. */
-  startVersion: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
+  /** Exact localized ruling-21 copy/facts supplied by the canonical formatter. */
+  versionPresentation?: NativeVersionPresentation;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate'> & Readonly<{
     myList: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
     download?: NativeTitleScreenProps['download'];
+    menu?: NativeTitleScreenProps['menu'];
+    selection?: NativeTitleScreenProps['selection'];
   }>;
 }>;
 const titleKey = (entry: ContentEntry) => JSON.stringify([entry.libraryId, entry.kind, entry.id]);
@@ -109,21 +109,30 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (!captured.entry.libraryId) return;
     const info = await request(captured, async signal => {
       const offered = await options.options(captured.entry.id, {}, signal);
-      return readNativeFileInfo(ports.api, ports.scope, {libraryId: captured.entry.libraryId!, itemId: captured.entry.id}, offered, {t: defaultI18n.t}, ports.isTV, signal);
+      return readNativeFileInfo(ports.api, ports.scope, {libraryId: captured.entry.libraryId!, itemId: captured.entry.id}, offered, ports.text, ports.isTV, signal);
     });
     if (!info || !current(captured)) return;
     ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>);
   };
-  const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions) => {
-    if (!ports.openVersions || !current(captured) || offered.itemId !== captured.entry.id || offered.versions.length < 2 || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
+  const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions, excludeVersionId?: string, minimum = 2) => {
+    if (!ports.openVersions || !ports.versionPresentation || !current(captured)) return;
+    const rows = nativeVersionChoices(offered, captured.entry.id, ports.text, ports.versionPresentation, excludeVersionId, minimum);
+    if (!rows.length) return;
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, {t: defaultI18n.t}), selectedVersionId,
+    ports.openVersions(captured, Object.freeze({title: ports.versionPresentation.title, subject: captured.entry.title, options: offered, rows, selectedVersionId,
+      subscribe: (listener: () => void) => {const off = [ports.subscribeCurrent(listener), ports.navigation.subscribe(listener), ports.playback.subscribe(listener)]; return () => {for (const dispose of off) dispose();};},
       isCurrent: () => current(captured), choose: async (versionId: string) => {
-        if (!current(captured) || !offered.versions.some(version => version.id === versionId)) return;
+        if (!current(captured) || !rows.some(version => version.id === versionId)) return false;
         const target = captured.entry.playback;
-        if (!target || target.itemId !== captured.entry.id) return;
-        await ports.startVersion({entry: captured.entry, target}, {authority: captured.authority, options: offered, versionId, expectedFence: captured.expectedFence});
+        if (!target || target.itemId !== captured.entry.id) return false;
+        const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
+        if (!fresh || fresh.itemId !== captured.entry.id || new Set(fresh.versions.map(version => version.id)).size !== fresh.versions.length
+          || !fresh.versions.some(version => version.id === versionId) || versionId === excludeVersionId) return false;
+        const resumeMs = fresh.resume?.positionMs ?? 0;
+        if (!Number.isFinite(resumeMs) || resumeMs < 0) return false;
+        await ports.playback.startVersion({entry: captured.entry, target: {...target, startSeconds: resumeMs / 1000}}, {authority: captured.authority, options: fresh, versionId, expectedFence: captured.expectedFence});
+        return true;
       }}));
   };
   const versions = async (captured: NativeWatchCapture): Promise<void> => {
@@ -131,13 +140,22 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
     if (fresh) publishVersions(captured, fresh);
   };
+  const versionsAfterFailure = async (captured: NativeWatchCapture, failed: Readonly<{fence: PlaybackFence; versionId: string}>): Promise<void> => {
+    if (!ports.openVersions || !ports.versionPresentation || !current(captured) || failed.fence.kind !== 'queue' || !sameFence(captured.expectedFence, failed.fence)) return;
+    const source = ports.playback.getSnapshot(), session = source.session;
+    if (source.retired || !sameFence(source.fence, failed.fence) || !session || session.itemId !== captured.entry.id
+      || session.itemId !== failed.fence.itemId || session.id !== failed.fence.sessionId || session.versionId !== failed.versionId
+      || session.versionId !== failed.fence.sourceId || session.presentation.generation !== failed.fence.generation || session.queue?.entryId !== failed.fence.entryId) return;
+    const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
+    if (fresh) publishVersions(captured, fresh, failed.versionId, 1);
+  };
   const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>): Promise<void> => {
     const captured = capture(entry, entryCurrent);
     if (!captured) return;
     // A failed options read must not replace the independent real File info action.
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
-    const hasVersions = !!ports.openVersions && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
+    const hasVersions = !!ports.openVersions && !!ports.versionPresentation && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
     ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
@@ -175,6 +193,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     menu,
     fileInfo,
     versions,
+    versionsAfterFailure,
     capture,
     isCurrent: current,
     setPresentation,

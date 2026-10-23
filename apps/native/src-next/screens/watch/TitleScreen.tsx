@@ -28,11 +28,19 @@ export type NativeTitleScreenProps = Readonly<{
   download?: (entry: ContentEntry) => void;
   /** Current producer state and command, never a fabricated default grant. */
   myList?: Readonly<{selected: boolean; change: (selected: boolean) => Promise<void>}>;
+  /** Live captured entry from the actual menu owner, not local open state. */
+  menu?: Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => ContentEntry | undefined}>;
+  /** Keep the actual selection port even while inactive for accessibility. */
+  selection?: (entry: ContentEntry) => EpisodeTileProps['selection'];
 }>;
+const noMenuSubscribe = () => () => {};
+const noMenuSnapshot = () => undefined;
 
 /** The retained title route. Technical facts exist only in its separate File info surface. */
 export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const {controller, text} = props, snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const menuEntry = useSyncExternalStore(props.menu?.subscribe ?? noMenuSubscribe, props.menu?.getSnapshot ?? noMenuSnapshot);
+  const menuIsOpen = (entry: ContentEntry) => !!menuEntry && menuEntry.id === entry.id && menuEntry.kind === entry.kind && menuEntry.libraryId === entry.libraryId;
   const theme = useTheme(), viewport = useWindowDimensions(), t = defaultI18n.t;
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
@@ -112,7 +120,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             {playback && <Button testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>}
             {props.myList && <Button variant="glass" icon={props.myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} accessibilityLabel={t(props.myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void props.myList!.change(!props.myList!.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
             {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}/>}
-            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => props.more(snapshot.entry, titleMore)}/>
+            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
           </View>
           {resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 10}}>
             <View style={{height: 4, backgroundColor: '#edf5fa26'}}><View style={{height: 4, width: `${Math.min(1, progress / duration) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
@@ -133,14 +141,14 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View>
           {episodes.map(entry => {
             const model = cardText({id: entry.id, kind: entry.kind, title: entry.title, episode: entry.absoluteNumber !== undefined ? {mode: 'absolute', number: entry.absoluteNumber} : entry.seasonNumber === 0 ? {mode: 'special'} : {mode: 'seasonal', season: entry.seasonNumber, episode: entry.episodeNumber}, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
-            return cell(entry.id, <TitleEpisode entry={entry} more={props.more} title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
+            return cell(entry.id, <TitleEpisode entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
               artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={entry.overview}
               {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
               onNavigate={() => props.navigate(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
           })}
         </>}
         {selectedTab === 'related' && detail?.related?.rows.map(row => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} title={entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (viewport.width - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (viewport.width - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
         {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
           <Text style={[theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}

@@ -13,14 +13,16 @@ test('each real title card retains its own native ref and unchanged TV/keyboard/
   for (const render of [TitleEpisode, TitleRelated]) {
     const entry = {id: 'real', kind: 'episode', title: 'Real member'}, selected: any[] = [];
     const onNavigate = () => {}, onPlay = () => {};
+    const selection = {active: false, selected: false, onEnter() {}, onToggle() {}};
     let tree: any;
-    const host = createHookHost(() => {tree = render({entry, title: entry.title, primaryAction: 'play', onPlay, onNavigate, moreExpanded: true, more: (...args: unknown[]) => {selected.push(args);}});});
+    const host = createHookHost(() => {tree = render({entry, title: entry.title, primaryAction: 'play', onPlay, onNavigate, selection, moreExpanded: true, more: (...args: unknown[]) => {selected.push(args);}});});
     host.mount();
     try {
       const ref = tree.props.menuAnchorRef; ref.current = {nativeTag: 42};
       assert.equal(tree.props.onMore.length, 0); tree.props.onMore();
       assert.equal(selected[0][0], entry); assert.equal(selected[0][1], ref);
       host.rerender(); assert.equal(tree.props.menuAnchorRef, ref);
+      assert.equal(tree.props.selection, selection);
       assert.equal(tree.props.onPlay, onPlay); assert.equal(tree.props.onNavigate, onNavigate); assert.equal(tree.props.moreExpanded, true);
     } finally {host.unmount();}
   }
