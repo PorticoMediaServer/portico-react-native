@@ -88,7 +88,8 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
   });
   const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => state}, runtime, device: {subscribe() {}, getSnapshot: () => ({entries: []})},
-    actions, selection: {item: () => selected, render: () => 'actual-toolbar'}}));
+    actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {item: () => selected, render: () => 'actual-toolbar'}}));
+  assert.equal(tree.props.pointerEvents, 'none'); assert.equal(tree.props.accessibilityElementsHidden, true, 'a retained hidden Saved screen has no active pointer or accessibility targets');
   const child = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
   const card = host.render(() => child.type(child.props));
   assert.equal(card.props.selection, selected); assert.equal(card.props.moreExpanded, true);

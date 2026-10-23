@@ -62,7 +62,7 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
     search: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'search'
       ? <SearchScreen destination={search} runtime={runtime} explore={ports.searchExplore} actions={ports.searchActions} selection={ports.searchSelection} activation={ports.activation('search')} tvCopy={ports.searchTVCopy}/> : null},
     saved: {render: (route, runtime) => current() && route.kind === 'shell' && route.destination.kind === 'saved'
-      ? <SavedScreen destination={saved} runtime={runtime} device={ports.offline} actions={ports.savedActions} selection={ports.savedSelection} downloadsCopy={ports.savedDownloadsCopy} onThisPhone={ports.onThisPhone}/> : null},
+      ? <SavedScreen destination={saved} runtime={runtime} device={ports.offline} actions={ports.savedActions} selection={ports.savedSelection} downloadsCopy={ports.savedDownloadsCopy} onThisPhone={ports.onThisPhone} activation={ports.activation('saved')}/> : null},
     downloads: {render: (_route, runtime) => current() ? <DownloadsScreen runtime={runtime} device={ports.offline} {...ports.downloads}/> : null},
     dispose: () => {if (disposed) return; disposed = true; search.dispose(); saved.dispose();},
   } satisfies NativeDestinationRenderers);

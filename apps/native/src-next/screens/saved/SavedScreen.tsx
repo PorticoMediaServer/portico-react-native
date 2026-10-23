@@ -16,6 +16,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
 import {SavedDownloadCard, type NativeSavedDownloadsCopy} from './SavedDownloadCard';
+import type {NativeDestinationActivationPort} from '../destinations/focus';
 
 const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
@@ -33,14 +34,16 @@ export type NativeSavedScreenProps = Readonly<{
   destination: NativeSavedDestination; runtime: NativeShellRuntime; device: NativeOfflineDownloadsAdapter;
   actions: NativeSavedActions; selection?: NativeSavedSelectionPort; onThisPhone: MessageId;
   downloadsCopy: NativeSavedDownloadsCopy;
+  activation: NativeDestinationActivationPort;
 }>;
 
 /** phone-app9: Saved is the genuine hub, with My List and actual device downloads.
  * Every other row opens its existing SavedRoute; pins keep the producer's order. */
-export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy}: NativeSavedScreenProps) {
+export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation}: NativeSavedScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), scroll = useRef<ScrollView>(null);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const downloads = useSyncExternalStore(device.subscribe, device.getSnapshot);
+  const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const report = useCallback((error: unknown) => runtime.reportError(error), [runtime]);
   useEffect(() => {void destination.load().catch(report); void device.open().catch(report);}, [destination, device, report]);
   useEffect(() => selection?.register(snapshot.myList), [selection, snapshot.myList]);
@@ -57,7 +60,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     {id: 'views', label: 'saved.tab.savedViews', icon: 'i-filter', count: summary?.savedViews, view: {view: 'views'}},
     {id: 'history', label: 'saved.tab.history', icon: 'i-clock', view: {view: 'history'}},
   ];
-  return <View testID="native-saved-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-saved-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} contentContainerStyle={{paddingTop: Math.max(58, insets.top), paddingBottom: 28}}>
       <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 18}]}>{t('saved.title')}</Text>
       {snapshot.phase === 'error' && <StateView {...runtime.error(snapshot.error, () => {void destination.load().catch(report);})}/>}
