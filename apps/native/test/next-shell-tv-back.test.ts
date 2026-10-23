@@ -9,6 +9,7 @@ import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
 import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import {homePlayTarget} from '../src-next/screens/home/model';
+import * as readPlatform from '../src-next/screens/read/platform';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('actual assembly sends Back to topmost Home menu before player, then TV page, then OS', async () => {
@@ -22,6 +23,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   // A real HomeService parses and owns the in-memory document; no transport/API call occurs.
   const home = new HomeService({request: async () => JSON.parse(JSON.stringify(raw))});
   await home.load();
+  const renderOrder: string[] = [];
   let back: () => boolean = () => false, expanded = false, pageCalls = 0, pageConsumes = true;
   const {createNativeShellBindings} = await screenModule(new URL('../src-next/shell/assembly.tsx', import.meta.url), {
     react: h.react, 'react-native': {BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back = fn; return {remove() {}};}}, NativeModules: {}, Platform: {isTV: true}, View: 'View'},
@@ -33,7 +35,8 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows},
-    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': {homePlayTarget},
+    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return 'retained';}, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
+    '../screens/read/platform': readPlatform,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}), current: () => true,
@@ -72,5 +75,9 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   navigation.back(authority);
   assert.deepEqual(bindings.getState().railDestination, {kind: 'saved'});
   assert.equal(bindings.getState().contentVisible, true);
+  navigation.open({kind: 'home-customize'}, authority);
+  const routes = bindings.renderRoutes();
+  assert.deepEqual(renderOrder, ['active', 'retained'], 'current module exists before its retained native views are requested');
+  assert.deepEqual(routes.props.children, ['retained', 'active'], 'retained views stay mounted below the active route');
   cleanup(); bindings.dispose(); navigation.dispose(); home.dispose();
 });

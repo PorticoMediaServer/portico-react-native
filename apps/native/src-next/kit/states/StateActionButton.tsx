@@ -4,7 +4,7 @@ import {Button, type ButtonProps} from '../controls/Button';
 import type {StateAction} from './types';
 
 /** Keep semantic action IDs and copy out of the native Pressable's props. */
-export function StateActionButton({action, ...props}: {action: StateAction} & Pick<ButtonProps, 'variant' | 'size' | 'style' | 'textStyle' | 'hitSlop' | 'iconSize' | 'testID'>) {
+export function StateActionButton({action, ...props}: {action: StateAction} & Pick<ButtonProps, 'variant' | 'size' | 'style' | 'textStyle' | 'hitSlop' | 'iconSize' | 'iconColor' | 'testID'>) {
   const {id, label, ...native} = action;
   return <Button {...props} {...native} testID={native.testID ?? controlID(props.testID, 'action', id)}>{label}</Button>;
 }

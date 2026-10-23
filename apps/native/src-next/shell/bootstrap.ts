@@ -27,6 +27,7 @@ import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
+import {nativeReadRouteAllowed} from '../screens/read/platform';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
@@ -66,7 +67,7 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
-export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void}): Promise<RestoredNativeShellRuntime | undefined> {
+export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
   const installation = beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
@@ -160,7 +161,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     libraries = Object.freeze(librariesResult.items);
     let hasLiveTV = initialFacts.hasLiveTV;
     const events = new EventsClient({http: localV1Http(local)});
-    navigation = new NativeShellNavigation(authority, () => authority);
+    navigation = new NativeShellNavigation(authority, () => authority,
+      (route, origin) => nativeReadRouteAllowed(route, libraries, Platform.isTV, origin));
     const contextBase: Omit<NativeShellBootstrapContext, 'playback' | 'watch'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
@@ -186,7 +188,32 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     publish();
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
-      if (!current() || !sameViewer(session!, renewed) || renewed.authorizationHorizon !== session!.authorizationHorizon) {end(); return;}
+      if (!current() || !sameViewer(session!, renewed)) {end(); return;}
+      if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
+        // Local renewal slides its inactivity horizon. Re-enter the normal
+        // bootstrap from the committed selection instead of treating a new
+        // authorization epoch as either signed out or already admitted.
+        const localAdvance = selected.signIn === 'local'
+          && renewed.installationId === session!.installationId && renewed.deviceId === session!.deviceId
+          && BigInt(renewed.tokenGeneration) > BigInt(session!.tokenGeneration)
+          && Date.parse(renewed.authorizationHorizon) > Date.parse(session!.authorizationHorizon);
+        if (!localAdvance) {end(); return;}
+        session = renewed;
+        void readNativeSelectedViewer().then(selectedViewer => {
+          if (!alive || session !== renewed) return;
+          if (!current() || !selectedViewer || selectedViewer.serverUrl !== original.serverUrl
+            || !sameViewer(selectedViewer.session, renewed)
+            || selectedViewer.session.installationId !== renewed.installationId
+            || selectedViewer.session.deviceId !== renewed.deviceId
+            || selectedViewer.session.tokenGeneration !== renewed.tokenGeneration
+            || selectedViewer.session.authorizationHorizon !== renewed.authorizationHorizon) {end(); return;}
+          // The restore owner first removes the rendered old shell; its effect
+          // cleanup then aborts/disposes this runtime. Disposing before that
+          // render would make a still-mounted external-store reader throw.
+          if (options.onSessionRenewed) options.onSessionRenewed(); else end();
+        }, () => end());
+        return;
+      }
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();

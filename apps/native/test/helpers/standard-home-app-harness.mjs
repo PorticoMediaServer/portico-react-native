@@ -49,6 +49,7 @@ const timeouts = new Set(),
   intervals = new Set();
 // Delegate real clocks during the test. Keep handles only so final test disposal
 // also clears app-global delayed connection retirement, without waiting 16s.
+function installNativeClocks() {
 globalThis.setTimeout = (callback, delay, ...args) => {
   const handle = before.timeout(() => {
     timeouts.delete(handle);
@@ -70,6 +71,8 @@ globalThis.clearInterval = handle => {
   intervals.delete(handle);
   before.clearInterval(handle);
 };
+}
+installNativeClocks();
 const state = {
   React,
   hosts: new Map(),
@@ -84,7 +87,7 @@ const state = {
 globalThis[globalKey] = state;
 globalThis.__DEV__ = false;
 let frameId = 0;
-globalThis.requestAnimationFrame = callback => {
+const nativeFrame = callback => {
   const id = ++frameId;
   const timer = setImmediate(() => {
     state.frames.delete(id);
@@ -93,10 +96,12 @@ globalThis.requestAnimationFrame = callback => {
   state.frames.set(id, timer);
   return id;
 };
-globalThis.cancelAnimationFrame = id => {
+const nativeCancelFrame = id => {
   clearImmediate(state.frames.get(id));
   state.frames.delete(id);
 };
+globalThis.requestAnimationFrame = nativeFrame;
+globalThis.cancelAnimationFrame = nativeCancelFrame;
 const reactURL = data(
   `const R=globalThis.${globalKey}.React;export default R;export const {${Object.keys(
     React,
@@ -282,6 +287,11 @@ export async function standardHomeApp({
   nativeResponse,
   setupResponse,
 } = {}) {
+  installNativeClocks();
+  globalThis[globalKey] = state;
+  globalThis.__DEV__ = false;
+  globalThis.requestAnimationFrame = nativeFrame;
+  globalThis.cancelAnimationFrame = nativeCancelFrame;
   const {FakePlaybackServer} = await import(
     '../../../../packages/client-core/src/playback-v1/testing/fake-server.ts'
   );
