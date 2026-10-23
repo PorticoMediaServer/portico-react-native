@@ -1,19 +1,28 @@
 import {useEffect, useRef, useState} from 'react';
-import type {GestureResponderEvent} from 'react-native';
+import {AppState, type GestureResponderEvent} from 'react-native';
 import {createTouchHold, type TouchHoldPhase} from './touch-hold';
 
 /** The native timer owns the threshold; Pressability's wider retention area cannot fire it. */
 export function useTouchHold(onFire: () => void, enabled: boolean) {
-  const callback = useRef(onFire), allowed = useRef(enabled); callback.current = onFire; allowed.current = enabled;
+  const callback = useRef(onFire), allowed = useRef(enabled), foreground = useRef(AppState.currentState === 'active');
+  callback.current = onFire; allowed.current = enabled;
   const [phase, setPhase] = useState<TouchHoldPhase>('idle');
-  const [hold] = useState(() => createTouchHold(() => {if (allowed.current) callback.current();}, setPhase, {
+  const [hold] = useState(() => createTouchHold(() => {if (allowed.current && foreground.current) callback.current();}, setPhase, {
     schedule: (run, delay) => setTimeout(run, delay), cancel: ticket => clearTimeout(ticket as ReturnType<typeof setTimeout>),
   }));
   useEffect(() => () => hold.dispose(), [hold]);
+  useEffect(() => {
+    const state = AppState.addEventListener('change', next => {
+      foreground.current = next === 'active';
+      if (!foreground.current) hold.cancel();
+    });
+    const focus = AppState.addEventListener('blur', () => hold.cancel());
+    return () => {state.remove(); focus.remove();};
+  }, [hold]);
   useEffect(() => {if (!enabled) hold.cancel();}, [enabled, hold]);
   return {phase, consumePress: hold.consumePress, cancel: hold.cancel, end: hold.end, handlers: {
     onTouchStart(event: GestureResponderEvent) {
-      if (!enabled) return;
+      if (!enabled || !foreground.current) return;
       if (event.nativeEvent.touches.length !== 1) {hold.cancel(); return;}
       hold.start({x: event.nativeEvent.pageX, y: event.nativeEvent.pageY});
     },
