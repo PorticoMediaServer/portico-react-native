@@ -603,6 +603,9 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
   };
   try {
     const actualSurface = dialog.tree as Element, close = ofType(actualSurface.props.footer, Button)[0]!;
+    assert.deepEqual(actualSurface.props.footerPadding, {top: 0, bottom: 34, keyboardBottom: 12});
+    assert.equal(actualSurface.props.showFooterSeparator, false);
+    assert.equal(flatten(footer().props.style).borderTopWidth, 0, 'the phone deletion frame has no divider above its actions');
     assert.equal(actualSurface.props.initialFocusRef, close.props.ref);
     assert.equal(nativeControlID(close), controlID(props.testID, 'dismiss'));
     assert.match(text(dialog.tree), /Actual kept title/); assert.match(text(dialog.tree), /Kept, because/);
@@ -614,6 +617,47 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
     assert.equal(elements(sheet.tree).find(n => n.props.testID === `${props.testID}-keyboard-boundary`)!.props.accessibilityViewIsModal, true);
     assert.deepEqual(calls, [], 'geometry measurement must not invoke any dialog operation');
   } finally {sheet.host.unmount(); surface.host.unmount(); dialog.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
+});
+
+test('phone Delete applies its authored context gap and text flow without changing other Selection footer recipes', () => {
+  const previous = state.theme;
+  const ownerHeader = React.createElement('View', {testID: 'actual.owner.context'});
+  const props: DeleteMediaDialogProps = {open: true, onOpenChange() {}, ownerHeader, owner: true, selectionCount: 1,
+    preview: {revision: 7, confirmation: 'Actual title', confirmationKind: 'title', totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]},
+    confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}};
+  try {
+    for (const [isTV, width] of [[false, 390], [false, 820], [true, 1920]] as const) {
+      state.theme = createTheme({isTV, width, textScale: 1.2});
+      const phone = width === 390;
+      const dialog = mount(DeleteMediaDialog, props);
+      const ordinary = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual selection surface', children: null});
+      const surface = mount(SelectionSurface, (dialog.tree as Element).props);
+      try {
+        const deletion = dialog.tree as Element, sheet = surface.tree as Element;
+        assert.deepEqual((ordinary.tree as Element).props.footerPadding, isTV ? undefined : {top: 10, bottom: 30, keyboardBottom: 12});
+        assert.equal((ordinary.tree as Element).props.showFooterSeparator, undefined, 'ordinary Selection retains the BottomSheet divider default');
+        assert.deepEqual(sheet.props.footerPadding, phone ? {top: 0, bottom: 34, keyboardBottom: 12} : isTV ? undefined : {top: 10, bottom: 30, keyboardBottom: 12});
+        assert.equal(sheet.props.showFooterSeparator, phone ? false : undefined);
+        if (phone) {
+          assert.equal(deletion.props.headerContext.props.style.paddingBottom, 10);
+          assert.equal(deletion.props.headerContext.props.children, ownerHeader, 'the actual caller-owned identity remains intact');
+          assert.equal(deletion.props.titleTextStyle.includeFontPadding, false);
+        } else assert.equal(deletion.props.headerContext, ownerHeader);
+        const facts = ofType(dialog.tree, SelectionText).find(node => text(node).includes('0 B'))!;
+        const copy = mount(SelectionText, facts.props);
+        try {
+          assert.equal((copy.tree as Element).props.style[0].fontFamily, fontFamilies[phone ? 400 : 500]);
+          assert.equal(facts.props.style.lineHeight, isTV ? undefined : phone ? 25.2 : 21);
+          if (phone) assert.equal(facts.props.style.color, state.theme.colors.textSecondary);
+          assert.equal(ofType(facts, SelectionText)[1].props.weight, 700, 'actual file facts retain their drawn emphasis');
+        } finally {copy.host.unmount();}
+        if (phone) {
+          const help = ofType(dialog.tree, SelectionText).find(node => text(node).startsWith('The files are deleted'))!;
+          assert.equal(help.props.weight, 400); assert.equal(help.props.style.lineHeight, 18 * state.theme.textScale);
+        }
+      } finally {surface.host.unmount(); ordinary.host.unmount(); dialog.host.unmount();}
+    }
+  } finally {state.theme = previous;}
 });
 
 test('fitted footer accounting preserves no-footer, explicit detent, long-content and side-panel behavior', () => {
