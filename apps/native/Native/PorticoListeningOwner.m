@@ -116,9 +116,8 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 }
 - (BOOL)renders:(NSDictionary *)presentation { return [PorticoAudioRender playable:V1DecodePlan(presentation)]; }
 - (NSString *)notice:(NSDictionary *)presentation {
- NSDictionary *plan=V1DecodePlan(presentation);
  if([self renders:presentation])return nil;
- return Text(plan[@"reason"])&&[plan[@"reason"] length]<=512?plan[@"reason"]:@"Gapless playback and volume leveling aren’t available for this audio.";
+ return @"audio_processing_unavailable";
 }
 - (BOOL)accepts:(NSDictionary *)presentation origin:(NSString *)origin {
  NSDictionary *plan=[self plan:presentation origin:origin];
@@ -227,7 +226,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(![self persist]){if(error)*error=ListeningError(@"Listening journal could not be saved.");[self retire:_owner stop:NO];return NO;}
  if (@available(iOS 15.0, tvOS 15.0, *)) { [[AVAudioSession sharedInstance] setSupportsMultichannelContent:YES error:nil]; }
  NSError *audioError=nil;[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault routeSharingPolicy:AVAudioSessionRouteSharingPolicyLongFormAudio options:0 error:&audioError];if(audioError){audioError=nil;[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback mode:AVAudioSessionModeDefault options:0 error:&audioError];}
- if(audioError){_error=@"The system audio session is unavailable. Press Retry.";_safetyPaused=YES;}
+ if(audioError){_error=@"audio_session_unavailable";_safetyPaused=YES;}
  if(transport&&![self route:transport owner:_owner]){if(error)*error=ListeningError(@"Invalid verified transport.");[self retire:_owner stop:NO];return NO;}
  [self installRemoteCommands];[self apply];[self emit];[self loadCurrentMetadata];
  __weak PorticoListeningSessionOwner *weakSelf=self;
@@ -239,7 +238,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  NSDictionary *commit=_commitWanted&&_prepared?@{@"token":_prepared[@"token"],@"queueId":_queue[@"id"]?:@""}:_lostCommit;
  NSDictionary *row=@{@"version":@1,@"sessionId":_session[@"id"],@"queueId":_queue[@"id"]?:NSNull.null,@"seq":@(_seq),@"commit":commit?:NSNull.null,@"deadlines":_deadlines?:@{},@"timerStopped":@(_timerStopped),@"expiredTimerRevision":@(_expiredTimerRevision)};
  NSError *error=nil;BOOL ok=[PorticoQueuePlaybackStore write:_journalKey value:row error:&error];
- if(!ok){_safetyPaused=YES;_error=@"Playback storage is unavailable. Playback paused.";[self apply];}
+ if(!ok){_safetyPaused=YES;_error=@"playback_storage_unavailable";[self apply];}
  return ok;
 }
 
@@ -277,7 +276,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 }
 - (void)apply {
  if(!_owner)return;
- if([self allowed]&&[_intent isEqual:@"playing"]){NSError *error=nil;[[AVAudioSession sharedInstance] setActive:YES error:&error];if(error){_safetyPaused=YES;_error=@"The system audio session could not resume. Press Play to retry.";}}
+ if([self allowed]&&[_intent isEqual:@"playing"]){NSError *error=nil;[[AVAudioSession sharedInstance] setActive:YES error:&error];if(error){_safetyPaused=YES;_error=@"audio_session_resume_failed";}}
  BOOL playing=[self allowed]&&[_intent isEqual:@"playing"];
  if(_wasPlaying&&!playing&&_pausedAt==0)_pausedAt=PauseClock();
  if(!_wasPlaying&&playing&&_pausedAt>0){
@@ -308,9 +307,9 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   PorticoListeningSessionOwner *self=weakSelf;if(!self||![self->_owner isEqual:owner]||self->_request!=request||self->_terminal)return;
   self->_request=nil;self->_busy=NO;
   if(status==401&&![self->_token isEqual:requestToken]){self->_retryAt=Mono()+0.5;return;}
-  if(status==401||(status==403&&[V1ErrorCode(value) isEqual:@"forbidden"])){[self fail:@"Playback authorization is no longer valid. Reopen playback after signing in." terminal:YES];return;}
+  if(status==401||(status==403&&[V1ErrorCode(value) isEqual:@"forbidden"])){[self fail:@"playback_authorization_expired" terminal:YES];return;}
   if(status==0||status>=500||status==429){self->_failures++;NSArray *steps=@[@1,@2,@5,@10,@30];self->_backoff=[steps[(NSUInteger)MIN(self->_failures-1,4)] doubleValue];self->_retryAt=Mono()+(status==429?V1RetryAfter(request,value):fast?0.5:self->_backoff);
-   if(Mono()<self->_leaseUntil){self->_error=@"Reconnecting to the server. Audio keeps playing for now.";}
+   if(Mono()<self->_leaseUntil){self->_error=@"playback_reconnecting";}
    [self apply];[self emit];return;}
   self->_failures=0;
   completion(status,value,started,request);
@@ -329,7 +328,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   // Ended as completed while a commit's answer was lost: that commit landed. Take its session.
   if([end[@"reason"] isEqual:@"completed"]&&self->_lostCommit){[self replayLostCommit];return;}
   self->_end=Text(end[@"reason"])?@{@"reason":end[@"reason"],@"message":Text(end[@"message"])?end[@"message"]:NSNull.null}:@{@"reason":@"stopped",@"message":NSNull.null};
-  [self fail:Text(end[@"message"])?end[@"message"]:@"Playback ended on the server." terminal:YES];
+  [self fail:@"playback_session_ended" terminal:YES];
  }];
 }
 - (BOOL)sessionGone:(NSInteger)status value:(id)value {
@@ -349,7 +348,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(!_actions.count&&!_busy&&!_commitWanted&&!_patchWanted)[self endControlGrace];
  // Audible authority ends 120 s after the last accepted report, whatever the network is doing.
  // Like a pause the listener made: Play (or Retry) resumes once the server answers again.
- if(Mono()>=_leaseUntil&&!_terminal&&!_safetyPaused&&[_intent isEqual:@"playing"]){_safetyPaused=YES;[self dropPrepared:nil];_error=@"Playback paused: the server hasn’t confirmed it for two minutes. Press Play to try again.";[self apply];[self emit];}
+ if(Mono()>=_leaseUntil&&!_terminal&&!_safetyPaused&&[_intent isEqual:@"playing"]){_safetyPaused=YES;[self dropPrepared:nil];_error=@"playback_confirmation_expired";[self apply];[self emit];}
  if(!_routeReady||_terminal||_busy||Mono()<_retryAt)return;
  if(_commitWanted){[self commit];return;}
  if(_lostCommit&&_actions.count){[self replayLostCommit];return;} // before any :advance
@@ -381,7 +380,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   if(![self->_session[@"id"] isEqual:session])return;
   if(status>=200&&status<300){
    self->_seq=MAX(self->_seq,seq);self->_leaseUntil=started+120;
-   if([self->_error hasPrefix:@"Reconnecting"]||[self->_error hasPrefix:@"Playback paused: the server"])self->_error=nil;
+   if([self->_error isEqual:@"playback_reconnecting"]||[self->_error isEqual:@"playback_confirmation_expired"])self->_error=nil;
    NSString *every=nil;for(NSString *key in request.responseHeaders)if([key caseInsensitiveCompare:@"Report-Every-Ms"]==NSOrderedSame)every=request.responseHeaders[key];
    if(every.doubleValue>0)self->_reportEvery=MAX(1,every.doubleValue/1000.0);
    self->_nextReport=Mono()+([state isEqual:@"paused"]?MAX(30,self->_reportEvery):self->_reportEvery);
@@ -407,7 +406,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
    return;
   }
   if([self sessionGone:status value:value]){self->_patchWanted=NO;[self learnEnd];return;}
-  self->_patchWanted=NO;self->_error=@"The server didn’t accept that change. Playback continues here.";[self emit];
+  self->_patchWanted=NO;self->_error=@"playback_change_rejected";[self emit];
  }];
 }
 /** A PATCH answer carries the presentation the server has; a new generation is a new source. */
@@ -465,14 +464,14 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
    if(self->_parkedCommit){self->_lostCommit=self->_parkedCommit;self->_parkedCommit=nil;self->_replayTries=0;if(V1Queue(current))[self acceptQueue:current];return;}
    [self->_actions removeObjectAtIndex:0];
    if(V1Queue(current)&&[action[@"tries"] integerValue]<1){[self acceptQueue:current];NSMutableDictionary *again=[action mutableCopy];again[@"key"]=NewID();again[@"tries"]=@1;[self->_actions insertObject:again atIndex:0];}
-   else{self->_error=@"The queue changed. Open it to choose what plays next.";[self emit];}
+   else{self->_error=@"playback_queue_changed";[self emit];}
    return;
   }
   if(status==503){self->_retryAt=Mono()+V1RetryAfter(request,value);return;} // queue_building: the same request again
   [self->_actions removeObjectAtIndex:0];
   if(status==409&&[V1ErrorCode(value) isEqual:@"queue_ended"]){self->_safetyPaused=YES;[self apply];[self emit];return;}
   NSDictionary *result=V1Dictionary(value),*queue=V1Dictionary(result[@"queue"])?:result;
-  if(status<200||status>=300||!V1Queue(queue)){self->_error=[self sessionGone:status value:value]?@"The queue is no longer available.":@"The queue couldn’t move on. Try again.";[self emit];return;}
+  if(status<200||status>=300||!V1Queue(queue)){self->_error=[self sessionGone:status value:value]?@"playback_queue_unavailable":@"playback_queue_advance_failed";[self emit];return;}
   [self acceptQueue:queue];
   if(V1Session(result[@"session"])){[self moveTo:result[@"session"] started:started queue:queue];return;}
   NSDictionary *current=V1Dictionary(queue[@"current"]);
@@ -494,7 +493,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   if(status==202){double wait=[V1Dictionary(value)[@"retryAfterMs"] doubleValue]/1000.0;self->_retryAt=Mono()+MIN(10,MAX(.25,isfinite(wait)&&wait>0?wait:1));return;} // preparing: the same request again
   self->_startPending=nil;
   if((status==200||status==201)&&V1Session(value)){[self moveTo:value started:started queue:V1Dictionary(pending[@"queue"])];return;}
-  [self fail:@"The next item couldn’t start. Open the queue to choose it again." terminal:NO];
+  [self fail:@"playback_next_failed" terminal:NO];
  }];
 }
 - (void)acceptQueue:(NSDictionary *)queue {
@@ -653,18 +652,18 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([type isEqual:@"audioBoundary"]){[self boundary:fact];return;}
  // The successor failed, or the old deck ended with no boundary: promote it with an ordinary start.
  if(_committed&&[@[@"ended",@"audioPreparationFailed",@"audioRenderFailed",@"error"] containsObject:type]){[self promoteCommitted];return;}
- if([type isEqual:@"audioPreparationFailed"])[self dropPrepared:@"The next track couldn’t be buffered; it plays normally."];
+ if([type isEqual:@"audioPreparationFailed"])[self dropPrepared:@"audio_transition_unavailable"];
  if([type isEqual:@"seekApplied"]&&[fact[@"seekRevision"] isEqual:_nativeSeek[@"revision"]]){_nativeSeek=nil;_reportNow=YES;[self apply];}
- if([type isEqual:@"seekFailed"]){_nativeSeek=nil;_safetyPaused=YES;_error=@"That position isn’t available. Seek again or press Retry.";[self dropPrepared:nil];[self apply];}
+ if([type isEqual:@"seekFailed"]){_nativeSeek=nil;_safetyPaused=YES;_error=@"playback_seek_unavailable";[self dropPrepared:nil];[self apply];}
  if([type isEqual:@"ended"]&&!_ended&&!_committed){_ended=YES;_reportNow=YES;[self checkDeadlines];}
  if([type isEqual:@"audioRenderFailed"]&&++_renderFailures>=1&&![_noRender isEqual:heard[@"id"]]){
   // Rendering keeps failing: play this session's ordinary stream from here, and say so quietly.
   double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
   _noRender=heard[@"id"];_rendering=NO;[self dropPrepared:nil];[_controller resetListeningEngine:_owner];
   _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(isfinite(position)?MAX(0,position):0)};
-  _notice=@"Gapless playback isn’t available for this track right now; it plays normally.";_reportNow=YES;[self apply];[self emit];return;
+  _notice=@"audio_gapless_unavailable";_reportNow=YES;[self apply];[self emit];return;
  }
- if([type isEqual:@"error"]||[type isEqual:@"audioRenderFailed"]){_safetyPaused=YES;_error=@"This audio couldn’t be played. Press Retry.";_reportNow=YES;[self dropPrepared:nil];[self apply];}
+ if([type isEqual:@"error"]||[type isEqual:@"audioRenderFailed"]){_safetyPaused=YES;_error=@"audio_render_failed";_reportNow=YES;[self dropPrepared:nil];[self apply];}
  if([type isEqual:@"progress"]){
   [self checkDeadlines];
   // While paused nothing moves: no snapshot per engine tick (INT T13).
@@ -844,7 +843,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  snapshot[@"intent"]=(_safetyPaused||_interrupted||_ended||(![self allowed]&&Mono()>=_leaseUntil))?@"paused":_intent;
  snapshot[@"rate"]=@(_rate);snapshot[@"ended"]=@(_ended);snapshot[@"terminal"]=@(_terminal);snapshot[@"error"]=_error?:NSNull.null;
  snapshot[@"deadlines"]=[_deadlines copy];snapshot[@"timerStopped"]=@(_timerStopped);snapshot[@"expiredTimerRevision"]=@(_expiredTimerRevision);snapshot[@"policyRevision"]=_policy[@"revision"]?:@0;
- NSString *notice=_notice?:([self effectsWanted]?[_render notice:heard[@"presentation"]]:nil);if(notice)snapshot[@"notice"]=notice;
+ NSString *notice=_notice?:([self effectsWanted]?[_render notice:heard[@"presentation"]]:nil);if(notice)snapshot[@"noticeCode"]=notice;
  if(_end)snapshot[@"end"]=_end;
  NSMutableArray *routes=[NSMutableArray new];for(AVAudioSessionPortDescription *port in AVAudioSession.sharedInstance.currentRoute.outputs)[routes addObject:port.portName];snapshot[@"route"]=[routes componentsJoinedByString:@", "];
  if(_transition)snapshot[@"transition"]=_transition;
@@ -871,7 +870,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (void)updateNowPlaying {
  if(!_owner||_terminal)return;
  NSDictionary *engine=[_controller listeningSnapshot];
- NSMutableDictionary *info=[@{MPMediaItemPropertyTitle:_metadata[@"title"]?:@"Portico Audio",MPMediaItemPropertyArtist:_metadata[@"artist"]?:@"",MPMediaItemPropertyAlbumTitle:_metadata[@"album"]?:@"",MPMediaItemPropertyPlaybackDuration:@(_audible?_audibleDuration:_duration),MPNowPlayingInfoPropertyElapsedPlaybackTime:engine[@"positionSeconds"]?:@0,MPNowPlayingInfoPropertyPlaybackRate:engine[@"effectiveRate"]?:@0,MPNowPlayingInfoPropertyDefaultPlaybackRate:@1,MPNowPlayingInfoPropertyMediaType:@(MPNowPlayingInfoMediaTypeAudio)} mutableCopy];
+ NSMutableDictionary *info=[@{MPMediaItemPropertyTitle:_metadata[@"title"]?:@"",MPMediaItemPropertyArtist:_metadata[@"artist"]?:@"",MPMediaItemPropertyAlbumTitle:_metadata[@"album"]?:@"",MPMediaItemPropertyPlaybackDuration:@(_audible?_audibleDuration:_duration),MPNowPlayingInfoPropertyElapsedPlaybackTime:engine[@"positionSeconds"]?:@0,MPNowPlayingInfoPropertyPlaybackRate:engine[@"effectiveRate"]?:@0,MPNowPlayingInfoPropertyDefaultPlaybackRate:@1,MPNowPlayingInfoPropertyMediaType:@(MPNowPlayingInfoMediaTypeAudio)} mutableCopy];
  if(_artwork)info[MPMediaItemPropertyArtwork]=_artwork;MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo=info;
 }
 - (void)loadCurrentMetadata {
@@ -883,7 +882,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   if(status!=200||![value isKindOfClass:NSDictionary.class]||![value[@"id"] isEqual:item])return;
   NSDictionary *song=[value[@"song"] isKindOfClass:NSDictionary.class]?value[@"song"]:@{},*book=[value[@"bookFile"] isKindOfClass:NSDictionary.class]?value[@"bookFile"]:@{};
   double duration=[value[@"durationMs"] doubleValue]/1000.0;if(self->_duration<=0&&isfinite(duration)&&duration>0&&!self->_audible)self->_duration=duration;
-  [self metadata:@{@"playbackId":playback,@"itemId":item,@"title":value[@"title"]?:@"Audio",@"artist":song[@"artist"]?:@"",@"album":song[@"albumTitle"]?:book[@"bookTitle"]?:@"",@"kind":[value[@"kind"] isKindOfClass:NSString.class]?value[@"kind"]:@"",@"posterUrl":value[@"posterUrl"]?:NSNull.null,@"albumId":Text(song[@"albumId"])?song[@"albumId"]:@"",@"discNumber":[song[@"discNumber"] isKindOfClass:NSNumber.class]?song[@"discNumber"]:@0,@"trackNumber":[song[@"trackNumber"] isKindOfClass:NSNumber.class]?song[@"trackNumber"]:@0} owner:owner];
+  [self metadata:@{@"playbackId":playback,@"itemId":item,@"title":value[@"title"]?:@"",@"artist":song[@"artist"]?:@"",@"album":song[@"albumTitle"]?:book[@"bookTitle"]?:@"",@"kind":[value[@"kind"] isKindOfClass:NSString.class]?value[@"kind"]:@"",@"posterUrl":value[@"posterUrl"]?:NSNull.null,@"albumId":Text(song[@"albumId"])?song[@"albumId"]:@"",@"discNumber":[song[@"discNumber"] isKindOfClass:NSNumber.class]?song[@"discNumber"]:@0,@"trackNumber":[song[@"trackNumber"] isKindOfClass:NSNumber.class]?song[@"trackNumber"]:@0} owner:owner];
  };[request start:[NSURL URLWithString:[_origin stringByAppendingFormat:@"/v1/items/%@",item]] token:_token body:nil];
 }
 - (void)clearArtwork {[_artworkRequest cancel];_artworkRequest=nil;_artworkPath=nil;_artwork=nil;}
@@ -950,7 +949,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (void)mediaReset:(NSNotification *)notification {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self mediaReset:notification];});return;}
  if(!_owner||_terminal)return;
- _safetyPaused=YES;[self dropPrepared:nil];_error=@"The system audio service restarted. Press Retry to continue.";_reportNow=YES;[self apply];[self emit];
+ _safetyPaused=YES;[self dropPrepared:nil];_error=@"audio_service_restarted";_reportNow=YES;[self apply];[self emit];
 }
 - (void)foreground:(NSNotification *)notification {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self foreground:notification];});return;}if(_owner&&!_terminal){[self checkDeadlines];[self emit];[self tick];}}
@@ -1080,8 +1079,8 @@ static PorticoListeningHarness *harness;
   owner.onSnapshot=^(NSDictionary *s){PorticoListeningHarness *h=me;h->_last=s;
    // Each session's plan as the server sent it (exit tests (a) and (h)).
    NSDictionary *plan=s[@"session"][@"presentation"][@"audioRender"];NSString *sid=s[@"session"][@"id"];
-   if(h->_real&&[sid isKindOfClass:NSString.class]&&!h->_plans[sid])h->_plans[sid]=@{@"itemId":s[@"session"][@"itemId"]?:@"",@"mode":plan[@"mode"]?:@"none",@"durationFrames":plan[@"durationFrames"]?:@0,@"sampleRate":plan[@"sampleRate"]?:@0,@"codec":plan[@"codec"]?:@"",@"reason":plan[@"reason"]?:@"",@"notice":s[@"notice"]?:@"",@"error":s[@"error"]?:@""};
-   else if(h->_real&&[sid isKindOfClass:NSString.class]&&[s[@"notice"] length]&&![h->_plans[sid][@"notice"] length]){NSMutableDictionary *p=[h->_plans[sid] mutableCopy];p[@"notice"]=s[@"notice"];h->_plans[sid]=p;}
+   if(h->_real&&[sid isKindOfClass:NSString.class]&&!h->_plans[sid])h->_plans[sid]=@{@"itemId":s[@"session"][@"itemId"]?:@"",@"mode":plan[@"mode"]?:@"none",@"durationFrames":plan[@"durationFrames"]?:@0,@"sampleRate":plan[@"sampleRate"]?:@0,@"codec":plan[@"codec"]?:@"",@"reason":plan[@"reason"]?:@"",@"noticeCode":s[@"noticeCode"]?:@"",@"error":s[@"error"]?:@""};
+   else if(h->_real&&[sid isKindOfClass:NSString.class]&&[s[@"noticeCode"] length]&&![h->_plans[sid][@"noticeCode"] length]){NSMutableDictionary *p=[h->_plans[sid] mutableCopy];p[@"noticeCode"]=s[@"noticeCode"];h->_plans[sid]=p;}
    NSDictionary *prev=snapshots.lastObject;if(![prev[@"session"] isEqual:s[@"session"][@"id"]]||![prev[@"error"] isEqual:s[@"error"]]||![prev[@"terminal"] isEqual:s[@"terminal"]]||![prev[@"intent"] isEqual:s[@"intent"]])
     [snapshots addObject:@{@"session":s[@"session"][@"id"]?:@"",@"item":s[@"session"][@"itemId"]?:@"",@"intent":s[@"intent"]?:@"",@"error":s[@"error"]?:NSNull.null,@"terminal":s[@"terminal"]?:@NO,@"end":s[@"end"]?:NSNull.null,@"at":@(NSProcessInfo.processInfo.systemUptime)}];};
   NSString *ownerId=[NSString stringWithFormat:@"harness%ld",(long)self->_serial];
@@ -1282,8 +1281,8 @@ static double HarnessFootprintMB(void){task_vm_info_data_t info;mach_msg_type_nu
   [self start:[self ids:names] effects:effects seek:0 done:^(NSDictionary *session){if(!session){done(@{@"error":@"start failed"});return;}
    [me wait:^BOOL{return [[me->_controller listeningSnapshot][@"positionSeconds"] doubleValue]>1.5||[me->_last[@"terminal"] boolValue];} timeout:45 then:^(BOOL played){
     [me after:1 then:^{PorticoListeningHarness *self=me;NSMutableArray *plans=[NSMutableArray new];for(NSString *k in self->_plans)[plans addObject:self->_plans[k]];
-     NSDictionary *first=plans.firstObject;BOOL quiet=[first[@"mode"] isEqual:@"unavailable"]&&[first[@"notice"] length]>0&&![self->_last[@"error"] isKindOfClass:NSString.class];
-     done(@{@"played":@(played),@"plans":plans,@"error":self->_last[@"error"]?:NSNull.null,@"notice":self->_last[@"notice"]?:NSNull.null,@"snapshots":self->_snapshots,@"pass":@(played&&quiet)});}];
+     NSDictionary *first=plans.firstObject;BOOL quiet=[first[@"mode"] isEqual:@"unavailable"]&&[first[@"noticeCode"] length]>0&&![self->_last[@"error"] isKindOfClass:NSString.class];
+     done(@{@"played":@(played),@"plans":plans,@"error":self->_last[@"error"]?:NSNull.null,@"noticeCode":self->_last[@"noticeCode"]?:NSNull.null,@"snapshots":self->_snapshots,@"pass":@(played&&quiet)});}];
    }];
   }];return;
  }

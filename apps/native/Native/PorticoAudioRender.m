@@ -730,7 +730,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
   return;
  }
  NSError *error=nil;
- if(!_engine.running&&![_engine startAndReturnError:&error]){[self emit:@"audioRenderFailed" extra:@{@"error":@"The audio output couldn’t start. Retry playback."}];return;}
+ if(!_engine.running&&![_engine startAndReturnError:&error]){[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_output_unavailable"}];return;}
 #if DEBUG
  if(!_capture){_capture=[PorticoAudioCapture new];[_capture start:_engine.mainMixerNode];}
 #endif
@@ -809,14 +809,14 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL changed=!_primary||![_primary.identity isEqual:plan[@"id"]],seek=pending&&[pending[@"revision"] integerValue]!=_seekRevision;
  double oldGain=[PorticoFileRender gainFor:plan settings:_command[@"audioRender"][@"settings"]];
  BOOL wasPaused=_paused;_command=[command copy];_paused=[command[@"paused"] boolValue];_active=YES;
- if([plan[@"channels"] unsignedIntegerValue]>2&&fabs(rate-1)>.00001){[self emit:@"rateStatus" extra:@{@"rateError":@"Speed changes are unavailable on this multichannel output."}];rate=1;}
+ if([plan[@"channels"] unsignedIntegerValue]>2&&fabs(rate-1)>.00001){[self emit:@"rateStatus" extra:@{@"rateError":@"audio_multichannel_rate_unavailable"}];rate=1;}
  if(fabs(_rate-rate)>.00001){_rate=rate;_configChanged=YES;for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d==NSNull.null)continue;d.speed.rate=rate;d.speed.bypass=fabs(rate-1)<.00001;}}
  BOOL regain=!changed&&_primary&&fabs([PorticoFileRender gainFor:plan settings:render[@"settings"]]-oldGain)>.000001;
  double position=seek?[pending[@"positionSeconds"] doubleValue]:changed?[render[@"startSeconds"] doubleValue]:[self position];
  if(changed||_configChanged){
   [_engine stop];NSString *matching=[render[@"settings"][@"sampleRateMatching"] isKindOfClass:NSString.class]?render[@"settings"][@"sampleRateMatching"]:@"smart";
   NSError *sessionError=nil;
-  if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] mode:matching error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":sessionError.localizedDescription?:@"The audio route could not be configured."}];return;}
+  if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] mode:matching error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":@"audio_route_unavailable"}];return;}
  }
  if(changed||seek||regain||_configChanged){
   // A route or format change mid-edge: the committed successor comes back as a buffered candidate
@@ -911,7 +911,11 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  NSDictionary *status=[self snapshot];
  NSMutableDictionary *fact=[@{@"type":type,@"position":status[@"positionSeconds"],@"paused":@(_paused),@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)} mutableCopy];
  for(NSString *key in @[@"effectiveRate",@"supportedRates",@"rateReady",@"rateWaiting",@"rateError"])fact[key]=status[key];
- [fact addEntriesFromDictionary:extra];self.onFact(fact);
+ [fact addEntriesFromDictionary:extra];
+ // Decoder/OS diagnostic prose never becomes UI copy.
+ if([fact[@"error"] isKindOfClass:NSString.class]&&[fact[@"error"] length])fact[@"error"]=[type isEqual:@"audioPreparationFailed"]?@"audio_preparation_failed":@"audio_render_failed";
+ if([fact[@"rateError"] isKindOfClass:NSString.class]&&[fact[@"rateError"] length])fact[@"rateError"]=@"audio_rate_unavailable";
+ self.onFact(fact);
 }
 - (NSDictionary *)snapshot {
  BOOL ready=_active&&_primary&&_primary.started;

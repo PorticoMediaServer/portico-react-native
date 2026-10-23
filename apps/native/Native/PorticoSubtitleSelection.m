@@ -94,12 +94,12 @@ static BOOL PlainText(id value){
   [self disableEmbedded:item];[self setText:@""];return;
  }
  int64_t offset=0;
- if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"The subtitle command is invalid."];return;}
+ if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"subtitle_command_invalid"];return;}
  NSURL *url=[NSURL URLWithString:command[@"documentUrl"]],*media=[NSURL URLWithString:source];
  // A downloaded title: its subtitles are a WebVTT file beside it, inside the app's Downloads
  // folder. Only a download may name one, and only there.
  if(url.isFileURL){
-  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;}
+  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"subtitle_source_invalid"];return;}
   if(_item==item&&_local&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]]){_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;[self tick:_time];return;}
   [self invalidate];_item=item;_url=url;_local=YES;_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
   [self disableEmbedded:item];[self readLocal:url];return;
@@ -112,7 +112,7 @@ static BOOL PlainText(id value){
  // The document travels the way the media does: the same scheme, host and port, under the media's
  // own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
  if(!url||!media||(![url.scheme isEqual:@"https"]&&![url.scheme isEqual:@"http"])||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
-  [self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;
+  [self invalidate];[self status:@"subtitle_source_invalid"];return;
  }
  if(_item==item&&[_command[@"binding"] isEqual:command[@"binding"]]&&[command[@"revision"] integerValue]<_revision)return;
  BOOL refreshRequested=![_command[@"refreshRevision"] isEqual:command[@"refreshRevision"]];
@@ -173,7 +173,7 @@ static BOOL PlainText(id value){
   NSMutableArray *ends=[NSMutableArray new];int64_t maxEnd=0;for(NSDictionary *cue in cues){maxEnd=MAX(maxEnd,[cue[@"end"] longLongValue]);[ends addObject:@(maxEnd)];}
   dispatch_async(dispatch_get_main_queue(),^{
    PorticoSubtitleSelection *self=weakSelf;if(!self||self->_localEpoch!=epoch||!self->_local)return;
-   if(!text){[self status:@"Subtitles could not be read from this download."];return;}
+   if(!text){[self status:@"subtitle_download_unavailable"];return;}
    self->_cues=cues;self->_prefixEnds=ends;self->_authorizedUntil=DBL_MAX;[self status:@""];[self tick:self->_time];
   });
  });
@@ -194,18 +194,18 @@ static BOOL PlainText(id value){
  // 304 is the server saying: checked in full, still yours, unchanged. Only ever in answer to the
  // validator sent above; the cache policy never lets the system answer on the server's behalf.
  if(http.statusCode==304&&_etag.length&&_cues){_notModified=YES;completionHandler(NSURLSessionResponseCancel);return;}
- if(http.statusCode>=500&&http.statusCode<=599){_failed=YES;_transientFailure=YES;[self status:@"Subtitles could not be read. Check the server connection."];completionHandler(NSURLSessionResponseCancel);return;}
+ if(http.statusCode>=500&&http.statusCode<=599){_failed=YES;_transientFailure=YES;[self status:@"subtitle_connection_failed"];completionHandler(NSURLSessionResponseCancel);return;}
  id tag=[http valueForHTTPHeaderField:@"ETag"];_responseEtag=([tag isKindOfClass:NSString.class]&&[tag length]<=256)?[tag copy]:nil;
- if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitles are unavailable or access was revoked."];completionHandler(NSURLSessionResponseCancel);return;}
+ if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_unavailable"];completionHandler(NSURLSessionResponseCancel);return;}
  completionHandler(NSURLSessionResponseAllow);
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
- if(task!=_task||_failed)return;if(_bytes.length+data.length>SubtitleByteLimit){_failed=YES;[_task cancel];_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitle data exceeded the supported limit."];return;}[_bytes appendData:data];
+ if(task!=_task||_failed)return;if(_bytes.length+data.length>SubtitleByteLimit){_failed=YES;[_task cancel];_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_size_exceeded"];return;}[_bytes appendData:data];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  if(task!=_task)return;_task=nil;
  if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];return;}
- if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=NSProcessInfo.processInfo.systemUptime-20;[self tick:_time];if(!_failed)[self status:@"Subtitles could not be read. Check the server connection."];return;}
+ if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=NSProcessInfo.processInfo.systemUptime-20;[self tick:_time];if(!_failed)[self status:@"subtitle_connection_failed"];return;}
  id document=[NSJSONSerialization JSONObjectWithData:_bytes options:0 error:nil];_bytes=nil;
  BOOL valid=[document isKindOfClass:NSDictionary.class]&&PositiveInteger(document[@"version"])&&[document[@"version"] isEqual:@1]&&[document[@"timeDomain"] isEqual:@"source-relative"]&&[document[@"cues"] isKindOfClass:NSArray.class]&&[document[@"cues"] count]<=20000;
  NSMutableArray *cues=[NSMutableArray new],*ends=[NSMutableArray new];int64_t previous=-1,maxEnd=0;NSUInteger textBytes=0;
@@ -216,7 +216,7 @@ static BOOL PlainText(id value){
   previous=start;maxEnd=MAX(maxEnd,end);[cues addObject:@{@"start":@(start),@"end":@(end),@"text":cue[@"text"],@"italic":@([cue[@"italic"]isEqual:@YES]),@"top":@([cue[@"top"]isEqual:@YES])}];[ends addObject:@(maxEnd)];
  }
  if(valid&&cues.count==0&&[document[@"cues"] count]>0)valid=NO;
- if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"The server returned invalid subtitle timing or text."];return;}
+ if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_document_invalid"];return;}
  _etag=_responseEtag;_cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
 }
 - (void)tick:(CMTime)time {

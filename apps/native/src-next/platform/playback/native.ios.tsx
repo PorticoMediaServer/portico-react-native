@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ComponentRef} from 'react';
-import {AppState, Dimensions, NativeEventEmitter, NativeModules, Platform, UIManager, findNodeHandle, requireNativeComponent, type HostComponent, type ViewProps} from 'react-native';
+import {AppState, NativeEventEmitter, NativeModules, Platform, UIManager, findNodeHandle, requireNativeComponent, type HostComponent, type ViewProps} from 'react-native';
 import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
@@ -24,7 +24,7 @@ type EngineModule = NativeListeningBridge & {
   features?: unknown;
   purgeAudioCache?: () => Promise<unknown>;
 };
-type NativeSurfaceProps = ViewProps & {lease: string; surfaceActive?: boolean};
+type NativeSurfaceProps = ViewProps & {lease: string};
 const views: Partial<Record<EngineKind, HostComponent<NativeSurfaceProps>>> = {};
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
@@ -40,11 +40,10 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const native = NativeModules[names.native.module] as EngineModule | undefined;
   const requestId = NativeModules.PorticoRuntime?.playbackRequestId as undefined | (() => string);
   if (!native || !requestId || !viewAvailable(names.native.view)) throw new Error(serviceText('player.nativeHandoverFailed'));
-  const mpvAvailable = false;
   const nativeFeatures = parseEngineFeatures(moduleConstants(native).features);
   const nativeTransport = transport(native, names.native.fact);
   const viewer = options.session()?.viewer;
-  if (!viewer || !['local', 'hosted'].includes(viewer.authority)) throw new Error('Invalid playback authority.');
+  if (!viewer || !['local', 'hosted'].includes(viewer.authority)) throw new Error(serviceText('player.nativeHandoverFailed'));
   const initialAuthority = options.authority();
   const authority = [initialAuthority.serverId, initialAuthority.accountId, initialAuthority.profileId, initialAuthority.epoch, initialAuthority.viewerFence].join('\n');
   const capabilityHttp = new PlaybackScopeHttp(localV1Http(options.api), () => [options.authority().serverId, options.authority().accountId, options.authority().profileId, options.authority().epoch, options.authority().viewerFence].join('\n') === authority && options.session()?.viewer.profileId === viewer.profileId);
@@ -54,16 +53,10 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     publishing = publishing.then(async () => {
       if (closed) return;
       const settings = options.settings();
-      const [facts, mpvFacts] = await Promise.all([
-        (NativeModules.PorticoCapabilities?.facts?.() as Promise<NativeFacts | null> | undefined)?.catch(() => null) ?? Promise.resolve(null),
-        Promise.resolve(null),
-      ]);
+      const facts = await ((NativeModules.PorticoCapabilities?.facts?.() as Promise<NativeFacts | null> | undefined)?.catch(() => null) ?? Promise.resolve(null));
       if (closed) return;
-      const android = Platform.OS === 'android', amazon = android && String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon';
-      const screen = Dimensions.get('screen');
-      const pad = !Platform.isTV && (android ? Math.min(screen.width, screen.height) >= 600 : (Platform as {isPad?: boolean}).isPad === true);
-      const document = deviceCapabilityDocument({setting: settings.engine, overrides: settings.overrides, native: facts, mpv: mpvFacts, mpvAvailable, appVersion: options.appVersion,
-        device: {television: Platform.isTV, pad, family: android ? Platform.isTV ? amazon ? 'firetv' : 'androidtv' : 'android' : undefined, osVersion: String(Platform.Version)}});
+      const document = deviceCapabilityDocument({overrides: settings.overrides, native: facts, appVersion: options.appVersion,
+        device: {television: Platform.isTV, pad: !Platform.isTV && (Platform as {isPad?: boolean}).isPad === true, osVersion: String(Platform.Version)}});
       await publisher.publish(document);
     }).catch(() => {});
     return publishing;
@@ -99,12 +92,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     const target = docked ? dockBounds : expandedBounds;
     const bounds = target && [target.x, target.y, target.width, target.height].every(Number.isFinite) && target.width > 0 && target.height > 0 ? target : undefined;
     const visible = !!bounds && !!state.fence && !!state.lease;
-    // Fabric can retain a native descendant's previous layout below a hidden
-    // ancestor. Revoke Android producer composition through its own native prop
-    // as well, including close before the asynchronous lease release completes.
-    // Keep this host/ref/owner stable; expanded -> docked does not revoke it.
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
-      {...(Platform.OS === 'android' && kind === 'native' ? {surfaceActive: visible} : {})}
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {

@@ -1,12 +1,11 @@
 import type {ComponentType} from 'react';
 import {NativeEventEmitter, NativeModules, type ViewProps} from 'react-native';
+import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
 import {NativePlayer} from './NativeViews';
 import {nativeEngineFeatures, parseEngineFeatures, type EngineFeatures, type EngineKind} from '../player/engine-choice';
 
-/** Apple video has one engine, AVPlayer. A stored Android mpv preference never changes it. */
-const factEvents: Record<EngineKind, string> = {native: 'PorticoPlaybackFact', mpv: ''};
-const pictureEvents: Record<EngineKind, string> = {native: 'PorticoPictureInPicture', mpv: ''};
+/** Apple video has one engine, AVPlayer. */
 type EngineModule = {
   acquire(owner: string): Promise<Readonly<{lease: string; instanceId: string}>>;
   command(value: Record<string, unknown>): Promise<unknown>;
@@ -54,7 +53,7 @@ export function engineTransport(kind: EngineKind): NativePlaybackTransport | und
     command: value => module.command(value),
     release: lease => module.release(lease),
     subscribe: listener => {
-      const subscription = emitter.addListener(factEvents[kind], listener);
+      const subscription = emitter.addListener('PorticoPlaybackFact', listener);
       return () => subscription.remove();
     },
   };
@@ -66,12 +65,9 @@ export function engineTransport(kind: EngineKind): NativePlaybackTransport | und
 export function subscribePictureInPicture(kind: EngineKind, listener: (change: {lease?: string; state: string; subtitlesCarried?: boolean}) => void): () => void {
   const module = moduleOf(kind);
   if (!module) return () => {};
-  const subscription = new NativeEventEmitter(module as never).addListener(pictureEvents[kind], listener);
+  const subscription = new NativeEventEmitter(module as never).addListener('PorticoPictureInPicture', listener);
   return () => subscription.remove();
 }
-
-/** What the mpv engine's module reports about this device, for its capability profile; null when it cannot be asked. */
-export async function mpvDeviceFacts(): Promise<null> { return null; }
 
 export type EnginePlayerProps = ViewProps & {
   lease: string;
@@ -85,6 +81,6 @@ const NativeEnginePlayer = NativePlayer as ComponentType<EnginePlayerProps>;
 
 /** The view that shows an engine's picture for a lease. */
 export function enginePlayerView(kind: EngineKind): ComponentType<EnginePlayerProps> {
-  if (kind !== 'native') throw new Error('Apple playback requires AVPlayer.');
+  if (kind !== 'native') throw new Error(serviceText('player.nativeHandoverFailed'));
   return NativeEnginePlayer;
 }

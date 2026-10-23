@@ -37,7 +37,6 @@ for name, entry in lock["components"].items():
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
             combined.append(data.decode("utf-8", errors="replace"))
-(notices / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(combined))
 shutil.copyfile(lock_path, source / "sources.lock.json")
 shutil.copyfile(ffmpeg_lock, source / ffmpeg_lock.name)
 shutil.copyfile(receipt, source / receipt.name)

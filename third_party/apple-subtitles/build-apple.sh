@@ -2,8 +2,8 @@
 # Builds only libass and FFmpeg subtitle/Opus decoding for AVPlayer overlays.
 # Run on macOS with Xcode: third_party/apple-subtitles/build-apple.sh [--clean]
 # Pinned archives, licences and corresponding source accompany every build.
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../media-engine/lib/common.sh"
 ME_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ME_ROOT/lib/common.sh"
 ME_LOCK="$ME_ROOT/sources.lock.json"
 ME_WORK="${APPLE_SUBTITLE_WORK_DIR:-$ME_ROOT/work}"
 ME_OUT="${APPLE_SUBTITLE_OUT_DIR:-$ME_ROOT/out}"
@@ -28,7 +28,7 @@ NATIVE="$ME_ROOT/../../apps/native"
 # Fail early: wrong machine, missing or old Xcode, missing tools, deployment targets that no
 # longer match the Xcode projects.
 
-[[ "$(uname -s)" == Darwin ]] || me_die "build-apple.sh runs on a Mac (Android: build-android.sh)."
+[[ "$(uname -s)" == Darwin ]] || me_die "build-apple.sh runs on a Mac."
 command -v xcodebuild >/dev/null || me_die "Xcode is not installed (xcodebuild is missing)."
 XCODE_VERSION=$(xcodebuild -version 2>/dev/null | sed -n 's/^Xcode //p')
 [[ -n "$XCODE_VERSION" ]] || me_die "xcodebuild did not report a version. Run: sudo xcode-select -s /Applications/Xcode.app"
@@ -93,8 +93,8 @@ set_target() {
         tvos)           SDK=appletvos;        MIN=$TVOS_MIN; TRIPLE="$ARCH-apple-tvos$MIN";           SUBSYSTEM=tvos ;;
         tvos-simulator) SDK=appletvsimulator; MIN=$TVOS_MIN; TRIPLE="$ARCH-apple-tvos$MIN-simulator"; SUBSYSTEM=tvos-simulator ;;
     esac
-    [[ "$ARCH" == arm64 ]] && { CPU_FAMILY=aarch64; FF_ARCH=aarch64; OSSL=portico-apple-arm64; } \
-                           || { CPU_FAMILY=x86_64;  FF_ARCH=x86_64;  OSSL=portico-apple-x86_64; }
+    [[ "$ARCH" == arm64 ]] && { CPU_FAMILY=aarch64; FF_ARCH=aarch64; } \
+                           || { CPU_FAMILY=x86_64;  FF_ARCH=x86_64; }
     SYSROOT=$(xcrun --sdk "$SDK" --show-sdk-path)
     TAG="$SLICE-$ARCH"
     PREFIX="$ME_WORK/prefix/$PLATFORM/$TAG"
@@ -105,11 +105,10 @@ set_target() {
     export NM="$(xcrun --sdk "$SDK" -f nm)" STRIP="$(xcrun --sdk "$SDK" -f strip)"
     export SDKROOT="$SYSROOT"
     export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" PKG_CONFIG_PATH="" PKG_CONFIG_SYSROOT_DIR=""
-    # Deployment targets for anything that reads them from the environment (Rust, CMake).
+    # Deployment targets for the selected Apple toolchain.
     unset IPHONEOS_DEPLOYMENT_TARGET TVOS_DEPLOYMENT_TARGET
     [[ "$SLICE" == ios* ]] && export IPHONEOS_DEPLOYMENT_TARGET="$MIN" || export TVOS_DEPLOYMENT_TARGET="$MIN"
-    # Joined forms (--target=, -isysroot<dir>): OpenSSL's Configure would read a separate
-    # argument as a target name. The SDK path has no spaces in a standard Xcode install.
+    # Joined forms keep target and SDK arguments together through configure scripts.
     [[ "$SYSROOT" != *" "* ]] || me_die "The SDK path contains a space: $SYSROOT"
     # No build-machine folders in the libraries (lib/common.sh, "Neutral paths").
     CFLAGS_T="--target=$TRIPLE -isysroot$SYSROOT -fPIC -fstack-protector-strong $(me_path_map_cflags "$DEVELOPER_DIR_PATH")"
@@ -169,22 +168,6 @@ meson_build() {
     [[ -f "$dir/config.h" ]] && me_neutralize "$DEVELOPER_DIR_PATH" "$dir/config.h"
     ninja -C "$dir" -j "$ME_JOBS"
     ninja -C "$dir" install
-}
-
-cmake_apple() {  # <name> <source dir> <cmake args...>
-    local name="$1" src="$2" dir="$BUILD/$1"; shift 2
-    local system=iOS; [[ "$SLICE" == tvos* ]] && system=tvOS
-    rm -rf "$dir"
-    cmake -S "$src" -B "$dir" -G Ninja \
-        -DCMAKE_SYSTEM_NAME="$system" -DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN" -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
-        -DCMAKE_C_FLAGS="$CFLAGS_T" -DCMAKE_CXX_FLAGS="$CFLAGS_T" \
-        -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS_T" -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS_T" \
-        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib \
-        -DCMAKE_INSTALL_NAME_DIR="$PREFIX/lib" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_MACOSX_BUNDLE=OFF "$@"
-    cmake --build "$dir" -j "$ME_JOBS"
-    cmake --install "$dir"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -262,13 +245,12 @@ component_key() {
     {
         echo "$previous"; echo "$XCODE_VERSION"
         python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["components"][sys.argv[2]], sort_keys=True))' "$ME_LOCK" "$name"
-        declare -f "build_$name" set_target write_cross_file meson_build cmake_apple
+        declare -f "build_$name" set_target write_cross_file meson_build
         declare -f me_path_forms me_path_map_pairs me_path_map_cflags me_neutralize
         declare -f me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags
         if [[ "$name" == ffmpeg ]]; then
             cat "$ME_ROOT/jellyfin-ffmpeg.source.lock.json" "$ME_ROOT/prepare-ffmpeg-source.py"
         fi
-        cat "$ME_ROOT/patches/$name"/*.patch 2>/dev/null || true
     } | shasum -a 256 | cut -d' ' -f1
 }
 
@@ -364,7 +346,7 @@ short = ".".join((re.findall(r"\d+", version) + ["0", "0"])[:3])
 plistlib.dump({
     "CFBundleDevelopmentRegion": "en",
     "CFBundleExecutable": name,
-    "CFBundleIdentifier": "tv.getportico.media-engine." + name.lower(),
+    "CFBundleIdentifier": "tv.getportico.apple-subtitles." + name.lower(),
     "CFBundleInfoDictionaryVersion": "6.0",
     "CFBundleName": name,
     "CFBundlePackageType": "FMWK",
@@ -414,7 +396,7 @@ notice_for() {  # <framework dir> <component>
     {
         echo "$2 $(me_lock "$2" version) — $(me_lock "$2" licence)"
         echo "Source: $(me_lock "$2" url)"
-        echo "All third-party notices for the Portico media engine: THIRD-PARTY-NOTICES.txt in Libporticosubtitle.framework."
+        echo "All third-party notices for Portico Apple subtitles: THIRD-PARTY-NOTICES.txt in Libporticosubtitle.framework."
         echo
         find "$ME_OUT/$PLATFORM/notices/$2" -type f | sort | while read -r f; do
             echo "--- ${f#"$ME_OUT/$PLATFORM/notices/"} ---"; cat "$f"; echo
@@ -439,8 +421,6 @@ for slice in $SLICES; do
         otool -L "$fw/$name" | tail -n +2 | awk '{print $1}' | while read -r dep; do
             other=$(stem_of_install_name "$dep")
             [[ -n "$other" && "$other" != "$stem" ]] && install_name_tool -change "$dep" "@rpath/Lib$other.framework/Lib$other" "$fw/$name"
-            [[ "$dep" == *MoltenVK.framework/MoltenVK && "$dep" != "@rpath/MoltenVK.framework/MoltenVK" ]] \
-                && install_name_tool -change "$dep" "@rpath/MoltenVK.framework/MoltenVK" "$fw/$name"
             true
         done
         # No build-machine paths stay behind.

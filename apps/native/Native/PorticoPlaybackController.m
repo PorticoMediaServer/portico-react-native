@@ -340,6 +340,13 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(error){[_player pause];[_audioRender pauseOutput];[self publish:[@{@"type":@"error",@"error":error,@"position":@([self sourcePosition])} mutableCopy]];}
 }
 - (void)publish:(NSMutableDictionary *)fact {
+ // The native bridge carries status codes. The common UI boundary owns catalogue copy.
+ for(NSString *key in @[@"error",@"rateError"]){
+  id value=fact[key];if(![value isKindOfClass:NSString.class]||![value length])continue;
+  NSCharacterSet *invalid=[[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789_"] invertedSet];
+  if([value length]>96||[value rangeOfCharacterFromSet:invalid].location!=NSNotFound)fact[key]=[key isEqual:@"rateError"]?@"playback_rate_unavailable":@"playback_failed";
+ }
+
  if(!self.onFact||!_binding||!_lease||_routeSuspended||((_routeResume||_routeSeeking||_routeFailed)&&![fact[@"type"] isEqual:@"error"]))return;
  fact[@"itemInstanceId"]=_itemInstanceId?:@"";fact[@"binding"]=_binding;fact[@"factSequence"]=@(++_factSequence);fact[@"lastCommandRevision"]=@(_commandRevision);fact[@"seeking"]=@((BOOL)(_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]));
  self.onFact(fact);
@@ -380,12 +387,12 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   [self endDisplayObservation];
 #endif
   [_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[_player.currentItem cancelPendingSeeks];_seeking=NO;_routeSeeking=NO;[_player pause];[_player replaceCurrentItemWithPlayerItem:nil];_intentId=nextId;_source=[source copy];_seekRevision=-1;
-  if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!PorticoAllowedSource(url)){[self emit:@"error" error:@"Invalid media address."];return;}
+  if(source.length){NSURL *url=[NSURL URLWithString:source];if(!url||!PorticoAllowedSource(url)){[self emit:@"error" error:@"playback_source_invalid"];return;}
    [self configureVideoAudioSession];
    // The owner's own certificate is answered the way every Portico connection answers it.
    AVURLAsset *asset=[AVURLAsset URLAssetWithURL:url options:nil];[asset.resourceLoader setDelegate:PorticoServerTrust.resourceLoaderDelegate queue:PorticoServerTrust.resourceLoaderQueue];
    AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:asset];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
-   if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"Connection restored, but the retained position is not available. Your playback session was not replaced."];}});}
+   if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"playback_retained_position_unavailable"];}});}
   }
  }
  NSDictionary *pending=[command[@"pendingSeek"] isKindOfClass:NSDictionary.class]?command[@"pendingSeek"]:nil;
@@ -408,7 +415,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(_timelineOriginMS&&!_player.currentItem.currentDate)return;
  _routeSeeking=YES;[_player pause];AVPlayerItem *item=_player.currentItem;NSDictionary *binding=_binding;NSInteger routeEpoch=_routeEpoch;double target=_routePosition;__weak PorticoPlaybackController *weakSelf=self;
  void (^complete)(BOOL)=^(BOOL finished){dispatch_async(dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(!view||view->_invalidated||view->_routeEpoch!=routeEpoch||view->_player.currentItem!=item||![view->_binding isEqual:binding]||!view->_routeResume)return;view->_routeSeeking=NO;double actual=[view sourcePosition];
-  if(!finished||!isfinite(actual)||fabs(actual-target)>0.5){view->_routeResume=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player pause];[view emit:@"error" error:@"The previous playback position is unavailable on this connection. Your position has been retained."];return;}
+  if(!finished||!isfinite(actual)||fabs(actual-target)>0.5){view->_routeResume=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player pause];[view emit:@"error" error:@"playback_retained_position_unavailable"];return;}
   view->_routeResume=NO;[view emit:@"ready" error:nil];[view applyIntent];
  });};
  if(_timelineOriginMS)[_player seekToDate:[NSDate dateWithTimeIntervalSince1970:[_timelineOriginMS doubleValue]/1000.0+target] completionHandler:complete];
@@ -436,7 +443,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
    view->_seeking=NO;
    double observed=[view sourcePosition];
    BOOL applied=finished&&isfinite(observed)&&fabs(observed-target)<=0.5;
-   if(view.onFact){NSMutableDictionary *fact=[@{@"instanceId":view->_instanceId,@"type":applied?@"seekApplied":@"seekFailed",@"intentId":@(intent),@"seekRevision":@(revision),@"position":@(isfinite(observed)?observed:0),@"paused":@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume)),@"error":applied?@"":@"That position is not available yet. Try seeking again."} mutableCopy];
+   if(view.onFact){NSMutableDictionary *fact=[@{@"instanceId":view->_instanceId,@"type":applied?@"seekApplied":@"seekFailed",@"intentId":@(intent),@"seekRevision":@(revision),@"position":@(isfinite(observed)?observed:0),@"paused":@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume)),@"error":applied?@"":@"playback_seek_unavailable"} mutableCopy];
 #if DEBUG
     fact[@"requestedTarget"]=@(target);fact[@"seekFinished"]=@(finished);NSMutableArray *ranges=[NSMutableArray new];for(NSValue *value in item.seekableTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end))[ranges addObject:@[@(start),@(end)]];}fact[@"seekableRanges"]=ranges;
 #endif
@@ -482,7 +489,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (NSDictionary *)rateFacts {
  BOOL ready=_player.currentItem.status==AVPlayerItemStatusReadyToPlay;double desired=[self desiredRate];
  BOOL valid=[[self supportedRates] containsObject:@(desired)];
- return @{@"effectiveRate":@(_player.rate),@"supportedRates":[self supportedRates],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)),@"rateError":ready&&!valid?@"This speed is unavailable for this media. Choose a supported speed, then press Play.":@"",@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)};
+ return @{@"effectiveRate":@(_player.rate),@"supportedRates":[self supportedRates],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate)),@"rateError":ready&&!valid?@"playback_rate_unavailable":@"",@"monotonicSeconds":@(NSProcessInfo.processInfo.systemUptime)};
 }
 - (void)applyIntent {
  if(_audioRender.active)return;
@@ -611,7 +618,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSError *under=top.userInfo[NSUnderlyingErrorKey];
  NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
  double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];
- NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"The media connection was interrupted. Verifying another route.":@"This media could not be played. Check its format or try again."} mutableCopy];
+ NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"playback_connection_interrupted":@"playback_failed"} mutableCopy];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
 - (void)stalled:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self stalled:note];});return;}if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}

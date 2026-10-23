@@ -32,7 +32,7 @@
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  void (^done)(NSData *,NSString *)=self.done;NSData *bytes=self.bytes;self.done=nil;[self.session finishTasksAndInvalidate];self.session=nil;self.task=nil;
- if(done)done(!error&&bytes.length?bytes:nil,error?@"The subtitle file is unavailable or access expired.":@"");
+ if(done)done(!error&&bytes.length?bytes:nil,error?@"subtitle_unavailable":@"");
 }
 - (void)dealloc {[self cancel];}
 @end
@@ -64,7 +64,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
 - (void)fetch:(NSURL *)url limit:(NSUInteger)limit epoch:(NSUInteger)epoch done:(void (^)(NSData *))done {
  PSFetch *f=[PSFetch new];[_fetches addObject:f];__weak PorticoSubtitleOverlay *weakSelf=self;
  [f start:url limit:limit done:^(NSData *data,NSString *error){PorticoSubtitleOverlay *s=weakSelf;if(!s||s->_epoch!=epoch)return;
-  [s->_fetches removeObject:f];if(!data){s->_loading=NO;s->_authorized=0;if(s.onImage)s.onImage(nil);if(s.onStatus)s.onStatus(error.length?error:@"The subtitle payload is empty.");return;}done(data);
+  [s->_fetches removeObject:f];if(!data){s->_loading=NO;s->_authorized=0;if(s.onImage)s.onImage(nil);if(s.onStatus)s.onStatus(error.length?error:@"subtitle_payload_empty");return;}done(data);
  }];
 }
 - (void)apply:(NSDictionary *)command source:(NSString *)source {
@@ -72,7 +72,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
  NSString *kind=render[@"kind"];
  if(![@[@"ass",@"pgs",@"vobsub",@"dvb"] containsObject:kind]){if(_active)[self invalidate];return;}
  NSURL *url=[self scoped:render[@"url"] source:source resource:nil];
- if(!url){[self invalidate];if(self.onStatus)self.onStatus(@"The subtitle file does not belong to this playback grant.");return;}
+ if(!url){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  if([_command isEqual:command]&&[_source isEqual:source])return;
  [self invalidate];_active=YES;_command=[command copy];_source=[source copy];[self load];
 }
@@ -94,12 +94,12 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
   PorticoSubtitleOverlay *s=weakSelf;if(!s)return;
   void (^finish)(NSData *,NSArray *)=^(NSData *pair,NSArray *fonts){
    PorticoSubtitleOverlay *owner=weakSelf;if(!owner||owner->_epoch!=epoch)return;
-   if(data.length+pair.length>64*1024*1024){owner->_loading=NO;if(owner.onStatus)owner.onStatus(@"The subtitle payload exceeds its limit.");return;}
+   if(data.length+pair.length>64*1024*1024){owner->_loading=NO;if(owner.onStatus)owner.onStatus(@"subtitle_size_exceeded");return;}
    dispatch_async(owner->_queue,^{
     PSFont attached[16]={0};for(NSUInteger i=0;i<fonts.count;i++){attached[i].name=[fonts[i][@"name"] UTF8String];attached[i].bytes=[fonts[i][@"data"] bytes];attached[i].size=[fonts[i][@"data"] length];}
     char error[256]={0};PSRenderer *next=ps_open(kind.UTF8String,data.bytes,data.length,pair.bytes,pair.length,attached,fonts.count,error,sizeof(error));
     if(next&&overrideStyle){BOOL box=[@[@"translucent",@"opaque"] containsObject:style[@"background"]];PSStyle override={fontName.UTF8String,fontSize,foreground,background,box?3:1,[style[@"position"] isEqual:@"top"]?8:2,[style[@"background"] isEqual:@"none"]?0:2,[style[@"background"] isEqual:@"shadow"]?2:0,[style[@"position"] isEqual:@"raised"]?.20:.08};ps_style(next,&override);}
-    NSString *failure=next?@"":[NSString stringWithUTF8String:error];
+    NSString *failure=next?@"":@"subtitle_decode_failed";
     dispatch_async(dispatch_get_main_queue(),^{PorticoSubtitleOverlay *view=weakSelf;if(!view||view->_epoch!=epoch){dispatch_async(owner->_queue,^{ps_close(next);});return;}
      view->_loading=NO;view->_authorized=next?NSProcessInfo.processInfo.systemUptime+40:0;
      dispatch_async(view->_queue,^{ps_close(view->_renderer);view->_renderer=next;});
