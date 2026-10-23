@@ -1,5 +1,7 @@
 package tv.getportico.portico.native
 
+import tv.getportico.portico.policy.PorticoListeningPolicy
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -875,7 +877,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun action(action: String?, value: Double?, owner: String): Boolean {
     if (activeOwner != owner || terminal || action !in ACTIONS) return false
     if ((action == "seek" || action == "rate") && (value == null || !value.isFinite() || value < 0 || value > 1e9)) return false
-    if (action == "rate" && value !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return false
+    if (action == "rate" && !PorticoListeningPolicy.rateAllowed(kind() == "audiobook_file", value, BOOK_RATES)) return false
     if (action == "retry" && value != null && (!value.isFinite() || value < 0 || value > 1e9)) return false
     if (action == "next" || action == "previous") return advance(action, null, owner)
     checkDeadlines(); resetInactivity()

@@ -1,4 +1,4 @@
-package tv.getportico.portico.native;
+package tv.getportico.portico.policy;
 
 import java.util.Map;
 import java.util.Set;
@@ -9,7 +9,7 @@ public final class PorticoListeningPolicy {
   private PorticoListeningPolicy() {}
   public static boolean validPreferences(Object value, Set<Double> bookRates, Set<Double> passoutMinutes) {
     if (value == null) return true;
-    if (!(value instanceof Map<?, ?> preferences)) return false;
+    if (!(value instanceof Map<?, ?> preferences) || preferences.size() != 2) return false;
     return member(preferences.get("bookRate"), bookRates) && member(preferences.get("passoutMinutes"), passoutMinutes);
   }
   private static boolean member(Object value, Set<Double> values) {
@@ -22,5 +22,8 @@ public final class PorticoListeningPolicy {
     if (!audiobook) return 1.0;
     if (!(value instanceof Map<?, ?> preferences) || !(preferences.get("bookRate") instanceof Number number)) return null;
     return Double.isFinite(number.doubleValue()) ? number.doubleValue() : null;
+  }
+  public static boolean rateAllowed(boolean audiobook, Double rate, Set<Double> bookRates) {
+    return rate != null && Double.isFinite(rate) && (audiobook ? bookRates.contains(rate) : rate == 1.0);
   }
 }
