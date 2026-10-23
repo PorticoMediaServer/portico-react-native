@@ -1,4 +1,4 @@
-import {AppState, Platform} from 'react-native';
+import {AppState, Dimensions, Platform} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
@@ -28,6 +28,7 @@ import {authorityKey, type ShellAuthority} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import type {NativeShellPlaybackAdapter} from './playback';
 import {NativeShellNavigation} from './routes';
+import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
 
 export type NativeShellBootstrapContext = Readonly<{
@@ -43,6 +44,7 @@ export type NativeShellBootstrapContext = Readonly<{
   serverName: string;
   current: () => boolean;
   playback: NativeShellPlaybackAdapter;
+  watch: NativeWatchOutlet;
   account: DirectSnapshot;
   libraries: () => readonly Library[];
   navigation: NativeShellNavigation;
@@ -50,7 +52,7 @@ export type NativeShellBootstrapContext = Readonly<{
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
 export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
-  getState: () => Pick<NativeShellSnapshot, 'destination' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
+  getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
   subscribe: (listener: () => void) => () => void;
   dispose: () => void;
@@ -69,6 +71,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
   let playback: ReturnType<typeof createNativeShellPlaybackAdapter> | undefined;
   let navigation: NativeShellNavigation | undefined;
+  let watch: NativeWatchOutlet | undefined;
   let session: LocalSession | undefined;
   let services: NativeShellBootstrapServices | undefined;
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
@@ -79,7 +82,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const signal = new AbortController();
   const dispose = () => {
     alive = false; installation.dispose(); signal.abort(); refresher?.stop(); services?.dispose(); home?.dispose();
-    playback?.dispose(); bindings?.dispose(); navigation?.dispose();
+    watch?.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
     snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; installationSettings = undefined;
@@ -156,14 +159,18 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     let hasLiveTV = initialFacts.hasLiveTV;
     const events = new EventsClient({http: localV1Http(local)});
     navigation = new NativeShellNavigation(authority, () => authority);
-    const contextBase: Omit<NativeShellBootstrapContext, 'playback'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
+    const contextBase: Omit<NativeShellBootstrapContext, 'playback' | 'watch'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
       appVersion: installed.appVersion, serverName: server.name, current,
       get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation};
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
       settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
-    const context: NativeShellBootstrapContext = {...contextBase, playback, get account() {return currentAccount();}};
+    watch = new NativeWatchOutlet(() => current() ? {authority, fence: playback!.getSnapshot().fence, window: Dimensions.get('window')} : undefined);
+    cleanups.push(playback.subscribe(watch.invalidate));
+    const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
+    cleanups.push(() => windowSubscription.remove());
+    const context: NativeShellBootstrapContext = {...contextBase, playback, watch, get account() {return currentAccount();}};
     bindings = await makeBindings(context); assertCurrent();
     const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
@@ -180,7 +187,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
-    }, onSignedOut: end});
+    }, onSignedOut: () => end()});
     let refreshing: Promise<void> | undefined;
     const refresh = () => refreshing ??= (async () => {
       assertCurrent();
@@ -234,7 +241,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: {t: defaultI18n.t, locale: 'en-US'},
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;

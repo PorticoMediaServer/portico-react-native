@@ -26,9 +26,9 @@ const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {onBack?: () => void; onComplete: () => void; initialStage?: 'welcome' | 'address'}) {
+export function AccountEntry({onBack, onComplete, initialStage = 'welcome', initialAddress = ''}: {onBack?: () => void; onComplete: () => void; initialStage?: 'welcome' | 'address'; initialAddress?: string}) {
   const theme = useTheme(), [stage, setStage] = useState<Stage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
-  const [address, setAddress] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
+  const [address, setAddress] = useState(initialAddress), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');

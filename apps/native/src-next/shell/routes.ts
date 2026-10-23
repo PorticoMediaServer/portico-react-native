@@ -24,6 +24,14 @@ export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.free
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
 
+/** A title highlights its actual authorized library without replacing the
+ * mounted origin destination or the history used to return to it. */
+export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
+  const route = snapshot.route;
+  return route.kind === 'title' && libraries.some(library => library.id === route.entry.libraryId)
+    ? {kind: 'library', libraryId: route.entry.libraryId} : snapshot.destination;
+}
+
 /** One authority lifetime and one history. Async callers must retain the authority they read. */
 export class NativeShellNavigation {
   private snapshot: NativeRouteSnapshot;

@@ -13,10 +13,13 @@ import type {StateViewProps} from '../kit/states';
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
+import type {NativeWatchOutlet} from './watch-outlet';
 
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
   destination: ShellDestination;
+  /** Title context may highlight a library while its origin stays mounted. */
+  railDestination?: ShellDestination;
   selectionActive: boolean;
   homeObscured: boolean;
   homeVisible: boolean;
@@ -70,6 +73,8 @@ export interface NativeShellRuntime {
   registerTVPageBack?: (handler: () => boolean) => () => void;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
+  /** Real measured expanded picture slot; never a second playback surface. */
+  watch?: NativeWatchOutlet;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
   /** Only installed when a real device destination control exists. */
