@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {authorityKey, librariesDestination, phoneBarHeight, phoneHeaderGeometry, phoneTabs, sameAuthority, selectedTab, shellLayout, visibleLibraries} from '../src-next/shell/model';
+import {authorityKey, canOpenLibrary, librariesDestination, phoneBarHeight, phoneHeaderGeometry, phoneTabs, sameAuthority, selectedTab, shellLayout, visibleLibraries} from '../src-next/shell/model';
 import {LastLibraryMemory, type LibraryRecordStore} from '../src-next/shell/library-memory';
 import {authorizedHome, homePlayTarget, homeSubject, initialHomeFocus, pageAtVisibleEnd, platformRows} from '../src-next/screens/home/model';
 import type {ShellAuthority} from '../src-next/shell/model';
@@ -31,9 +31,13 @@ test('phone navigation preserves the exact order and removes Live TV when unavai
 });
 
 test('TV library order is server-owned and Read never enters the rail', () => {
-  const libraries = [{id: 'z', name: 'z', kind: 'music'}, {id: 'r', name: 'r', kind: 'books'}, {id: 'a', name: 'a', kind: 'audiobook'}];
+  const libraries = [{id: 'z', name: 'z', kind: 'music'}, {id: 'r', name: 'r', kind: 'book'}, {id: 'c', name: 'c', kind: 'comic'}, {id: 'old', name: 'old', kind: 'books'}, {id: 'a', name: 'a', kind: 'audiobook'}];
   assert.strictEqual(visibleLibraries(libraries, false), libraries);
   assert.deepEqual(visibleLibraries(libraries, true).map(library => library.id), ['z', 'a']);
+  for (const id of ['r', 'c', 'old', 'removed']) assert.equal(canOpenLibrary(libraries, id, true), false, id);
+  assert.equal(canOpenLibrary(libraries, 'a', true), true);
+  assert.equal(canOpenLibrary(libraries, 'r', false), true);
+  assert.equal(canOpenLibrary(libraries, 'c', false), true);
 });
 
 test('native breakpoint and safe area geometry retains the drawn bar and scales TV as a unit', () => {

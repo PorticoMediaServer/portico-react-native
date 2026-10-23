@@ -22,6 +22,7 @@ import {nativeRailDestination, titleRoute, type NativeShellRoute} from './routes
 import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
+import {isReadingLibraryKind} from '../screens/read/platform';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
 
@@ -271,7 +272,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
     libraryMenu: library => {
-      const common = {read: library.kind === 'books', onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
+      const common = {read: isReadingLibraryKind(library.kind), onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
         onMarkAll: () => open({kind: 'library-mark-all', libraryId: library.id}), onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};
       return management ? {...common, owner: true as const, ownerTag, onLibrarySettings: () => open({kind: 'library-settings', libraryId: library.id}), onScan: () => run(async () => {
         if (!context.current()) return; await management.selectLibrary(library.id);
