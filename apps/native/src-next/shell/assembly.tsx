@@ -266,7 +266,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     homeMenuRow: id => [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.row,
     renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
-    renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
+    renderRoutes: () => {
+      const route = context.navigation.getSnapshot().route;
+      // Instantiate the current module before asking it for retained native views.
+      const active = route.kind === 'shell' ? null : render(route);
+      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{routes.renderRetained(runtime)}{active}</View> : null;
+    },
     renderDestination: destination => render({kind: 'shell', destination}),
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
