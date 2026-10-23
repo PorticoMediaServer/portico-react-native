@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createTheme} from '../src-next/kit/theme.ts';
+import {nativeDestinationFocusIds} from '../src-next/screens/destinations/focus.ts';
+import {nativeSearchEntryKey} from '../src-next/screens/search/model.ts';
+
+type Element = {type: any; props: Record<string, any>};
+function elements(node: any): Element[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  return node && typeof node === 'object' && 'props' in node ? [node, ...elements(node.props.children)] : [];
+}
+
+test('the actual TV Search caller binds genuine query, navigation activation and Rail Search without a fake selection port', async () => {
+  const host = hooks(), calls: string[] = [], theme = createTheme({isTV: true, width: 1920});
+  const authority = {serverId: 'server-id', accountId: 'account-id', profileId: 'profile-id', epoch: 'epoch', viewerFence: 'home-fence'};
+  const ids = nativeDestinationFocusIds(authority), entry = {id: 'actual-entry', kind: 'movie', libraryId: 'actual-library', title: 'Actual result'};
+  const group = {id: 'movies', status: 'success', items: [entry], totalCount: 1, totalCountExact: true};
+  const state = {text: 'actual query', group: 'all', groups: [group], search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
+  let activation = {visible: true, intent: 'enter', revision: 5};
+  const {TVSearchScreen} = await screenModule(new URL('../src-next/screens/search/TVSearchScreen.tsx', import.meta.url), {
+    react: {...host.react, useId: () => 'gradient'}, 'react-native': {ScrollView: 'ScrollView', View: 'View', Text: 'Text', useWindowDimensions: () => ({width: 1920, height: 1080})},
+    'react-native-svg': {default: 'Svg'}, '../../../../../packages/client-core/src/presentation/kit-model': {},
+    '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups: (groups: unknown) => groups, SEARCH_CHIPS: [], topSearchResult: () => undefined, searchGroupLabel: (id: string) => id},
+    '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}}, '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards/primitives': {},
+    '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {}, '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
+    '../../kit/theme': {useTheme: () => theme}, '../destinations/focus': {nativeDestinationFocusIds}, '../home/model': {}, './model': {nativeSearchEntryKey},
+    './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
+  });
+  const props = {destination: {subscribe() {}, getSnapshot: () => state, setText: (text: string) => calls.push(text)},
+    runtime: {getSnapshot: () => ({authority})}, activation: {subscribe() {}, getSnapshot: () => activation}, explore: {subscribe() {}, getSnapshot: () => ({genres: []})},
+    actions: {}, copy: {preferToTalk: 'voice-title', voiceHint: 'voice-body'}};
+  const tree = host.render(() => TVSearchScreen(props));
+  const keyboard = elements(tree).find(node => node.type === 'NativeTVKeyboard')!;
+  assert.equal(keyboard.props.value, state.text); assert.equal(keyboard.props.activation, activation);
+  assert.equal(keyboard.props.id, ids.searchKeyboard); assert.equal(keyboard.props.leftRegionId, ids.rail);
+  assert.equal(keyboard.props.rightRegionId, ids.searchResults); keyboard.props.onChangeText('actual query a'); assert.deepEqual(calls, ['actual query a']);
+  const resultRegion = elements(tree).find(node => node.type === 'FocusRegion')!;
+  assert.equal(resultRegion.props.entry, nativeSearchEntryKey('movies', entry)); assert.equal(resultRegion.props.edges.left, ids.searchKeyboard);
+  const card = elements(tree).find(node => node.type === 'SearchGridCard')!;
+  assert.equal(card.props.entry, entry); assert.equal(card.props.selection, undefined); assert.equal(card.props.group, 'movies');
+  activation = {visible: false, intent: 'restore', revision: 6};
+  const held = host.render(() => TVSearchScreen(props));
+  assert.equal(held.props.pointerEvents, 'none'); assert.equal(elements(held).find(node => node.type === 'FocusRegion')!.props.enabled, false);
+  assert.equal(elements(held).find(node => node.type === 'NativeTVKeyboard')!.props.activation, activation);
+});

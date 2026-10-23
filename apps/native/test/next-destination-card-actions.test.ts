@@ -20,6 +20,10 @@ async function searchFixture(group = 'all') {
     search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}};
   const actions = {open: (...args: any[]) => calls.push(['open', ...args]), play() {}, menu: (...args: any[]) => calls.push(['menu', ...args]),
     isMenuOpen: (item: any, kind: string) => item === entry && kind === 'movies'};
+  const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
+    react: host.react, 'react-native': {View: 'View'}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
+    '../home/model': {homeCardText: () => ({caption: []})}, './model': {nativeSearchEntryKey: (kind: string, item: any) => JSON.stringify([kind, item.kind, item.id])},
+  });
   const {SearchScreen} = await screenModule(new URL('../src-next/screens/search/SearchScreen.tsx', import.meta.url), {
     react: {...host.react, useId: () => 'gradient'}, 'react-native': {FlatList: 'FlatList', ScrollView: 'ScrollView', Text: 'Text', View: 'View', Keyboard: {}, useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-svg': {default: 'Svg'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
@@ -29,9 +33,11 @@ async function searchFixture(group = 'all') {
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
     '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme},
     '../home/model': {homeCardText: () => ({caption: []})}, './model': {nativeSearchEntryKey: (kind: string, item: any) => JSON.stringify([kind, item.kind, item.id])},
+    './SearchGridCard': {SearchGridCard}, './TVSearchScreen': {TVSearchScreen: 'TVSearchScreen'},
   });
   const tree = host.render(() => SearchScreen({destination: {subscribe() {}, getSnapshot: () => snapshot, setText() {}}, runtime,
-    explore: {subscribe() {}, getSnapshot: () => ({genres: []})}, actions, selection: {item: () => selected, render: () => 'real-selection-toolbar'}}));
+    explore: {subscribe() {}, getSnapshot: () => ({genres: []})}, actions, activation: {subscribe() {}, getSnapshot: () => ({visible: true, intent: 'enter', revision: 1})},
+    selection: {item: () => selected, render: () => 'real-selection-toolbar'}}));
   return {host, tree, entry, actions, selected, calls};
 }
 

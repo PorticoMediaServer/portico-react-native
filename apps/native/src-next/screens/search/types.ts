@@ -33,3 +33,4 @@ export type NativeSearchActions = Readonly<{
   menu: (entry: SearchEntry, group: SearchGroup, anchorRef?: RefObject<View | null>) => void;
   isMenuOpen?: (entry: SearchEntry, group: SearchGroup) => boolean;
 }>;
+export type NativeSearchTVCopy = Readonly<{preferToTalk: MessageId; voiceHint: MessageId}>;
