@@ -50,7 +50,7 @@ test('Forgot PIN reuses the drawn QR/link part and returns through the actual Ba
     assert.equal(nodes(tree).find(node => node.type === 'QR').props.value, url);
     assert.equal(nodes(tree).filter(node => node.type === 'TextInput' || node.type === 'Button').length, 0);
     const address = nodes(tree).find(node => node.type === 'Text' && node.props.style?.fontWeight === '700');
-    assert.deepEqual(address.props.children, ['server.example/settings?scope=account&section=profile']);
+    assert.equal(address.props.children, 'server.example/settings?scope=account&section=profile');
     assert.equal([...listeners][0]!(), true);
     tree.props.onAccessibilityEscape();
     assert.deepEqual(calls, ['back', 'back']);
