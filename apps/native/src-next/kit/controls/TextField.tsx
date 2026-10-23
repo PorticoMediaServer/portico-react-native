@@ -1,5 +1,5 @@
 import React, {forwardRef, useId, useState} from 'react';
-import {StyleSheet, Text, TextInput, View, type TextInputProps, type StyleProp, type ViewStyle} from 'react-native';
+import {Platform, StyleSheet, Text, TextInput, View, type TextInputProps, type StyleProp, type ViewStyle} from 'react-native';
 import {fieldSpec} from '@portico/design';
 import {Icon, type IconName} from '../Icon';
 import {fontFamilies, useTheme} from '../theme';
@@ -23,7 +23,7 @@ export type TextFieldProps = TextInputProps & {
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField({
   label, description, error, leadingIcon, iconSize, variant = 'field', containerStyle, fieldStyle, appearance = 'default',
   editable = true, focusable, style, onFocus, onBlur, accessibilityLabel, accessibilityState,
-  placeholderTextColor, nativeID, multiline, focusId, testID, ...props
+  placeholderTextColor, cursorColor, selectionColor, nativeID, multiline, focusId, testID, ...props
 }, ref) {
   const theme = useTheme();
   const eligible = editable && focusable !== false;
@@ -55,6 +55,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         accessibilityLabelledBy={label === undefined ? props.accessibilityLabelledBy : labelID}
         accessibilityState={{...accessibilityState, disabled: !editable, busy: waiting || accessibilityState?.busy}}
         placeholderTextColor={placeholderTextColor ?? theme.colors.placeholder}
+        cursorColor={cursorColor ?? (selection && Platform.OS === 'android' ? theme.colors.accentStrong : undefined)}
+        selectionColor={selectionColor ?? (selection && Platform.OS === 'ios' ? theme.colors.accentStrong : undefined)}
         underlineColorAndroid="transparent"
         onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event);}}
         onBlur={event => {binding.onBlur(); setFocused(false); onBlur?.(event);}}
