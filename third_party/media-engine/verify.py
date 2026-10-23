@@ -91,7 +91,7 @@ REQUIRED = {
 REQUIRED_PLATFORM = {
     "android": {"decoder": ["h264_mediacodec", "hevc_mediacodec", "vp9_mediacodec", "av1_mediacodec",
                             "mpeg2_mediacodec", "vp8_mediacodec", "mpeg4_mediacodec",
-                            "ape", "wavpack", "tta", "mpc7", "mpc8",
+                            "ac4", "ape", "wavpack", "tta", "mpc7", "mpc8",
                             "dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar"]},
     "apple": {"hwaccel": ["h264_videotoolbox", "hevc_videotoolbox", "vp9_videotoolbox",
                           "av1_videotoolbox", "mpeg2_videotoolbox"]},

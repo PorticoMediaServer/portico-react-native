@@ -3,6 +3,7 @@ package tv.getportico.portico.native
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.graphics.Bitmap
+import androidx.media3.common.MimeTypes
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +15,7 @@ class PorticoMediaNativeTest {
   private fun fixture(name: String): File = File(instrumentation.targetContext.cacheDir,"r29-$name").also { file -> instrumentation.context.assets.open(name).use { input -> file.outputStream().use(input::copyTo) } }
   @Test fun compiledFfmpegActuallyContainsTheRequiredAudioDecoders() {
     for(mime in listOf("audio/true-hd","audio/vnd.dts","audio/vnd.dts.hd","audio/ac3","audio/eac3","audio/alac","audio/flac","audio/opus")) assertTrue(mime,PorticoFfmpegDecoders.supports(mime))
+    for(mime in listOf(MimeTypes.AUDIO_AC4,MimeTypes.AUDIO_DTS_EXPRESS)) assertTrue(mime,PorticoFfmpegDecoders.supports(mime))
     assertFalse(PorticoFfmpegDecoders.supports("audio/not-a-codec"))
   }
   @Test fun generatedPgsIsClockedCroppedAndClearedByItsOwnComposition() {

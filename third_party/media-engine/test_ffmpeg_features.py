@@ -11,7 +11,7 @@ verify = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify)
 
 # FFmpeg names both Musepack generations separately; neither implies the other.
-MUSIC = ("ape", "wavpack", "tta", "mpc7", "mpc8", "dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar")
+MUSIC = ("ac4", "ape", "wavpack", "tta", "mpc7", "mpc8", "dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar")
 
 
 class FfmpegMusicInventoryTest(unittest.TestCase):
