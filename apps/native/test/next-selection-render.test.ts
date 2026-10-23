@@ -78,7 +78,7 @@ const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
-const {Dialog, FocusBoundary} = await import('../src-next/kit/overlays/surface.tsx');
+const {Dialog, FocusBoundary, SurfaceHeader} = await import('../src-next/kit/overlays/surface.tsx');
 const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
@@ -647,6 +647,39 @@ test('fitted footer accounting preserves no-footer, explicit detent, long-conten
 });
 
 const flattenStyle = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flattenStyle)) : style ?? {};
+
+test('a supplied BottomSheet heading replaces the standard row while retaining context and measured sheet anatomy', () => {
+  const previousTheme = state.theme;
+  const context = React.createElement('View', {testID: 'actual-owner-context'});
+  const custom = React.createElement('View', {testID: 'actual-member-header'});
+  const props = {open: true, title: 'Actual member', description: 'Actual kind and year', onOpenChange() {}, headerContext: context, children: React.createElement('View', {testID: 'actual-menu-rows'}), fitContent: true, testID: 'actual-sheet'};
+  try {
+    for (const screen of [{isTV: false, width: 390}, {isTV: false, width: 900}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(screen);
+      const sheet = mount(BottomSheet, props);
+      try {
+        assert.equal(ofType(sheet.tree, SurfaceHeader).length, 1);
+        sheet.update({...props, headerContent: custom});
+        assert.equal(ofType(sheet.tree, SurfaceHeader).length, 0);
+        assert.equal(elements(sheet.tree).filter(element => element === custom).length, 1);
+        assert.equal(elements(sheet.tree).filter(element => element === context).length, 1);
+        assert.ok(ofType(sheet.tree, 'ScrollView').length);
+        if (state.theme.platform === 'phone') {
+          const header = ofType(sheet.tree, 'GestureDetector')[0]!.props.children;
+          assert.equal(typeof header.props.onLayout, 'function');
+          header.props.onLayout({nativeEvent: {layout: {height: 110}}});
+          sheet.host.rerender();
+          const grabber = elements(header).find(element => element.props.accessibilityRole === 'adjustable')!;
+          assert.ok(grabber.props.accessibilityActions.some((action: {name: string}) => action.name === 'dismiss'));
+        } else assert.equal(ofType(sheet.tree, FocusBoundary)[0]!.props.modal, true);
+        sheet.update({...props, headerContent: null});
+        assert.equal(ofType(sheet.tree, SurfaceHeader).length, 0);
+        sheet.update(props);
+        assert.equal(ofType(sheet.tree, SurfaceHeader).length, 1);
+      } finally {sheet.host.unmount();}
+    }
+  } finally {state.theme = previousTheme;}
+});
 
 test('a BottomSheet composition can opt into its backdrop alpha without changing dismissal', () => {
   const previousTheme = state.theme;
