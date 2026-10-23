@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {View, useWindowDimensions} from 'react-native';
+import {Platform, View, useWindowDimensions} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
 import {HomeSeeAll} from './HomeSeeAll';
 import {HomeRowFilters} from './HomeRowFilters';
@@ -11,6 +11,7 @@ import {titleRoute, type NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
+import {hiddenReadingLibraryOnTV} from '../read/platform';
 
 type RowRoute = Extract<NativeShellRoute, {kind: 'home-see-all'}>;
 type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
@@ -54,7 +55,7 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
       if (route.kind !== 'home-see-all' || route.destination.type !== 'row' || rows.has(route)) continue;
       const controller = new NativeHomeRowController({api: context.api, rowId: route.destination.rowId, viewerFence: context.authority().viewerFence,
         current: () => alive && context.current() && rows.has(route),
-        kinds: context.libraries().filter(library => library.kind !== 'books').map(library => ({id: library.id, libraryIds: [library.id]}))});
+        kinds: context.libraries().filter(library => !Platform.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => ({id: library.id, libraryIds: [library.id]}))});
       rows.set(route, {route, controller, abort: new AbortController(), key: ++sequence, labels: new Map(context.libraries().map(library => [library.id, library.name]))});
     }
   };
