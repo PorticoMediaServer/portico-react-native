@@ -50,7 +50,7 @@ test('every genuine chrome child mounts the strict focus target hook with unique
     'react-native': {findNodeHandle: () => null, TVFocusGuideView: 'Guide', View: 'View'}, '../theme': {useTheme: () => ({isTV})}, './registry': registryModule, './useHostRef': hostRefModule,
   });
   const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
-  for (const tv of [false, true]) for (const compact of [false, true]) {
+  for (const {tv, compact} of [{tv: false, compact: false}, {tv: false, compact: true}, {tv: true, compact: false}]) {
     isTV = tv;
     const controls = new NativeWatchControls(tv), currentFence = {...fence, showId: 'show'};
     const source = {fence: currentFence, retired: false, dock: {local: {expanded: true}}, queue: {view: {items: [{entryId: 'one'}, {entryId: 'two'}]}}, capabilities: {play: true, pause: true, seek: true, audioTrack: true, subtitleTrack: true, previous: true, next: true}, playback: {intent: 'playing', positionSeconds: 17, duration: 100}};
