@@ -1,5 +1,5 @@
 import React, {useRef, useState, type ReactNode} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {ScrollView, useWindowDimensions, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {BrowseSortCapability, BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {sortDirectionKind} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
@@ -93,8 +93,8 @@ export function AppliedFilterChips({filters, onRemove, onClear, platform, childr
 }
 
 /** The host pins this measured block above its windowed grid; it never owns scrolling data. */
-export function BrowseToolbar({model, platform, sticky = false, resultCount, onQuickChange, onFilters, onSortChange, onReshuffle, labels, applied = [], onRemoveFilter, onClearFilters, view, cardSize, save, onJump, selection, children, testID}: BrowseToolbarProps) {
-  const theme = useTheme(), target = browsePlatform(theme, platform), phone = target === 'phone', tv = target === 'tv';
+export function BrowseToolbar({model, platform, sticky = false, resultCount, onQuickChange, onFilters, onSortChange, onReshuffle, labels, applied = [], onRemoveFilter, onClearFilters, view, cardSize, save, onJump, onSelect, selection, children, testID}: BrowseToolbarProps) {
+  const theme = useTheme(), {width} = useWindowDimensions(), target = browsePlatform(theme, platform), phone = target === 'phone', tv = target === 'tv';
   if (applied.length > 0 && !onRemoveFilter) throw new Error('Applied browse filters need a real remove callback.');
   if (selection) return <View testID={testID}>{selection}</View>;
   const sort = <SortMenu sorts={model.sorts} value={model.sort} label={labels.sort} onValueChange={onSortChange} onReshuffle={onReshuffle}/>;
@@ -103,12 +103,12 @@ export function BrowseToolbar({model, platform, sticky = false, resultCount, onQ
   const count = <Text accessibilityLiveRegion="polite" style={[browseType(theme, tv ? 22 : phone ? 13 : 14.5, 600), {color: phone || tv ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{resultCount}</Text>;
   return <View testID={testID} accessibilityLabel={t('next.browse.native.toolbar')} style={{zIndex: sticky ? theme.layers.sticky : undefined, backgroundColor: sticky ? alpha(theme.colors.ink, .86) : undefined, paddingTop: phone ? 10 : sticky ? 12 : 20, paddingBottom: sticky ? 12 : 0}}>
     {phone ? <>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, gap: 8, alignItems: 'center'}}>{filters}{sort}{quick}{children}</ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, gap: 8, alignItems: 'center'}}>{filters}{sort}{onSelect && width >= 600 && <Button variant="glass" size="small" onPress={onSelect}>{t('next.selection.select')}</Button>}{quick}{children}</ScrollView>
       <View style={{paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 10}}>
         {count}<View style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 8}}>{view && <ViewToggle {...view}/>} {cardSize && <CardSizeButton {...cardSize}/>} {save && <SaveViewButton {...save}/>}</View>
       </View>
     </> : <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingHorizontal: theme.gutter}}>
-      {tv ? <>{sort}{filters}{onJump && <Chip onPress={onJump}>{t('next.browse.native.jumpTo')}</Chip>}</> : filters}
+      {tv ? <>{sort}{filters}{onJump && <Chip onPress={onJump}>{t('next.browse.native.jumpTo')}</Chip>}</> : <>{filters}{onSelect && width >= 600 && <Button variant="glass" size="small" onPress={onSelect}>{t('next.selection.select')}</Button>}</>}
       <View style={{height: tv ? 40 : 24, width: tv ? 1.5 : 1, marginHorizontal: 6, backgroundColor: theme.colors.line}}/>
       {quick}{children}
       <View style={{marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 8}}>

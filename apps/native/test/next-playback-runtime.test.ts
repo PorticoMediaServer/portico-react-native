@@ -237,7 +237,7 @@ test('presentation replacement rejects stale completion and a dismissed error do
     await d.start('movie-1');
     const original = d.runtime.getSnapshot(), oldCommand = d.engine.lastCommand, listener = d.engine.listener!;
     d.runtime.collapse(original.fence!);
-    await d.runtime.chooseQuality(original.fence!, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!); await settle();
+    await d.runtime.chooseQuality(original.fence!, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!); await settle();
     const replacement = d.runtime.getSnapshot(), fence = replacement.fence!;
     assert.equal(replacement.playback.phase, 'ready');
     assert.equal(fence.sessionId, original.fence!.sessionId);
@@ -255,7 +255,7 @@ test('presentation replacement rejects stale completion and a dismissed error do
     d.runtime.collapse(fence);
     // Replanning an errored session genuinely replaces the session instead of bumping
     // its presentation generation. Its real new identity must get fresh error attention.
-    await d.runtime.chooseQuality(fence, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!); await settle();
+    await d.runtime.chooseQuality(fence, original.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!); await settle();
     const retried = d.runtime.getSnapshot();
     assert.equal(retried.playback.phase, 'ready');
     assert.notEqual(retried.fence?.sessionId, fence.sessionId);
@@ -512,12 +512,12 @@ test('quality and audio changes replan the real session and fence old generation
     const before = d.runtime.getSnapshot(), original = before.fence!, oldCommand = d.engine.lastCommand, listener = d.engine.listener!;
     d.runtime.setRate(original, 1.5); await settle();
     assert.equal(d.engine.lastCommand.rate, 1.5);
-    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!;
     await d.runtime.chooseQuality(original, quality); await settle();
     const changed = d.runtime.getSnapshot();
     assert.equal(changed.fence?.sessionId, original.sessionId);
     assert.ok(changed.fence!.generation > original.generation);
-    assert.equal(changed.session?.presentation.quality.id, '720p');
+    assert.equal(changed.session?.presentation.quality.id, '720p-high');
     assert.equal(d.engine.lastCommand.rate, 1.5);
     const stablePosition = changed.playback.positionSeconds;
     listener({type: 'progress', instanceId: 'engine-instance', binding: oldCommand.binding, intentId: oldCommand.binding.intentId, factSequence: 999999,
@@ -1026,7 +1026,7 @@ test('a late detail response for the same item cannot cross an actual presentati
       return detailResponse(episodeDetail('episode-1', 'c'.repeat(64), 'show-current'));
     });
     await d.start('episode-1'); const before = d.runtime.getSnapshot(); assert.ok(before.fence && oldRequest);
-    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!;
     await d.runtime.chooseQuality(before.fence, quality); await settle();
     assert.ok(d.runtime.getSnapshot().fence!.generation > before.fence.generation);
     assert.equal(d.runtime.getSnapshot().fence!.sessionId, before.fence.sessionId);
@@ -1046,7 +1046,7 @@ test('same-item source replacement clears old detail metadata while its new genu
     await d.start('episode-1'); assertEpisodeDetail(d, 'show-1');
     const before = d.runtime.getSnapshot(); assert.ok(before.fence);
     d.respond(request => { if (request.path === detailPath('episode-1')) { pending = request; return new Promise(resolve => { finish = resolve; }); } });
-    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!;
+    const quality = before.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!;
     await d.runtime.chooseQuality(before.fence, quality); await settle(); assert.ok(pending);
     assertEpisodeDetail(d);
     finish(detailResponse(episodeDetail('episode-1', 'c'.repeat(64), 'show-new-source'))); await settle();
@@ -1260,7 +1260,7 @@ test('Fabric playback facts, source replacements, controls and unmount retain na
       await ui.adapter.onTransition(ui.adapter.dock.collapse(first.fence!)); await ui.settle();
       ui.adapter.open(first.fence!); ui.adapter.open(first.fence!); await ui.settle();
       assert.equal(d.runtime.getSnapshot().dock.local?.expanded, true);
-      await d.runtime.chooseQuality(first.fence!, first.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p')!);
+      await d.runtime.chooseQuality(first.fence!, first.options!.qualities.find(option => option.mode === 'fixed' && option.id === '720p-high')!);
       await ui.settle();
       const replacement = d.runtime.getSnapshot();
       assert.equal(replacement.fence?.sessionId, first.fence?.sessionId);
