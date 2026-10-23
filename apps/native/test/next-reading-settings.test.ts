@@ -4,6 +4,8 @@ import {HttpLocalApi} from '../../../packages/client-core/src';
 import {parsePreferenceSnapshot, type PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {nativeReadingPreferencesAvailable, nativeReadingSettingsPreferences, nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
+import {NativeShellNavigation} from '../src-next/shell/routes';
+import {openNativeReadingSettings} from '../src-next/screens/settings/reading-entry';
 
 const allRows = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows);
 const fields = allRows.map(row => {
@@ -125,4 +127,25 @@ test('Reading settings eligibility uses actual published preferences and never a
   assert.equal(nativeReadingPreferencesAvailable({...actual, registry: {...actual.registry,
     fields: actual.registry.fields.map(field => ({...field, scopes: ['profile-device-class']}))}}), false);
   assert.equal(nativeReadingPreferencesAvailable({...actual, effective: {}, registry: {...actual.registry, fields: []}}), false);
+});
+
+test('the Reading settings entry preserves the exact publication and library history instead of opening General', () => {
+  const f = fixture(), authority = f.owner.authority(), navigation = new NativeShellNavigation(authority, f.owner.authority);
+  const publication = {kind: 'read' as const, itemId: 'unit-publication', sourceId: 'unit-source'};
+  try {
+    navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'unit-library'}}, authority);
+    navigation.open(publication, authority);
+    assert.equal(openNativeReadingSettings({...f.owner, navigation}), true);
+    assert.deepEqual(navigation.getSnapshot().route, {kind: 'settings-page', scope: 'account', page: 'reading'});
+    assert.ok(navigation.retainedRoutes().includes(publication));
+    assert.equal(navigation.back(authority), true);
+    assert.equal(navigation.getSnapshot().route, publication, 'Back preserves actual route identity for the same retained controller');
+    assert.deepEqual(navigation.getSnapshot().destination, {kind: 'library', libraryId: 'unit-library'});
+    const before = navigation.getSnapshot();
+    assert.equal(openNativeReadingSettings({...f.owner, navigation, preferences: () => ({...snapshot(), documents: []})}), false);
+    assert.equal(navigation.getSnapshot(), before, 'an unavailable page never falls back to General or mutates history');
+    f.close();
+    assert.equal(openNativeReadingSettings({...f.owner, navigation}), false);
+    assert.equal(navigation.getSnapshot(), before);
+  } finally {f.close(); navigation.dispose();}
 });

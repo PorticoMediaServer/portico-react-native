@@ -3,16 +3,11 @@ import {Platform} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {NativeReadingSettingsScreen} from './ReadingSettingsScreen';
-import {nativeReadingPreferencesAvailable, nativeReadingSettingsPreferences} from './reading-preferences';
+import {nativeReadingSettingsPreferences} from './reading-preferences';
 
 export {nativeReadingSettingsPreferences} from './reading-preferences';
 export type {NativeReadingSettingsPreferences} from './reading-preferences';
-
-/** A real Settings child route; Back restores the retained publication's exact history. */
-export function openNativeReadingSettings(context: NativeShellBootstrapContext): boolean {
-  if (Platform.isTV || !context.current() || !nativeReadingPreferencesAvailable(context.preferences())) return false;
-  return context.navigation.open({kind: 'settings-page', scope: 'account', page: 'reading'}, context.authority());
-}
+export {openNativeReadingSettings} from './reading-entry';
 
 export function createNativeReadingSettingsRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const source = nativeReadingSettingsPreferences(context);
