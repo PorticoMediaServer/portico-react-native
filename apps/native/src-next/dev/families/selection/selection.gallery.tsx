@@ -20,8 +20,18 @@ import {referenceFields, referenceSingleItemFields} from './reference-fields';
 // Static reference observations are DEV-only. Mutations require genuine supplied evidence.
 type SelectionGallerySnapshot = Readonly<{picker?: DestinationPickerProps; editor?: BulkEditorProps; deletion?: DeleteMediaDialogProps}>;
 type SelectionGalleryEvidence = {getSnapshot: () => SelectionGallerySnapshot; subscribe: (changed: () => void) => () => void};
-declare global {var __porticoNativeSelectionEvidence: SelectionGalleryEvidence | undefined; var __PORTICO_NATIVE_SELECTION_PREVIEW_URL__: string | undefined;}
+type SelectionGalleryEvent = Readonly<{kind: 'open-change'; scenario: Scenario; surface: string; next: boolean; reason: Parameters<DeleteMediaDialogProps['onOpenChange']>[1]}>
+  | Readonly<{kind: 'action'; scenario: Scenario; action: SelectionAction | 'keep-only'; value?: string}>
+  | Readonly<{kind: 'mutation-attempt'}>;
+declare global {var __porticoNativeSelectionEvidence: SelectionGalleryEvidence | undefined; var __PORTICO_NATIVE_SELECTION_PREVIEW_URL__: string | undefined; var __porticoNativeSelectionTrace: SelectionGalleryEvent[] | undefined;}
+function traceSelection(event: SelectionGalleryEvent) {
+  const events = globalThis.__porticoNativeSelectionTrace;
+  if (!events) return;
+  events.push(event);
+  if (events.length > 64) events.splice(0, events.length - 64);
+}
 function requireSelectionEvidence(): never {
+  traceSelection({kind: 'mutation-attempt'});
   throw new Error('Selection gallery mutations require complete props from the actual fenced controller evidence adapter.');
 }
 const reference = `${globalThis.__PORTICO_NATIVE_FAMILY_ASSET_BASE__ ?? 'http://100.120.50.24:8787/assets/'}pool/movies/`;
@@ -97,8 +107,8 @@ function SelectionExample({scenario, deniedDestination = false, previewReadURL}:
   const pageSize = theme.isTV ? 2 : 8;
   const windowStart = page * pageSize, windowEntries = matching.slice(windowStart, windowStart + pageSize);
   const bulkResult = bulkReceipts.length ? bulkReceiptView(bulkReceipts) : undefined;
-  const close = (next: boolean) => setOpen(next);
-  const onAction = (action: SelectionAction) => {setLastAction(action);};
+  const close = (next: boolean, reason: Parameters<DeleteMediaDialogProps['onOpenChange']>[1]) => {traceSelection({kind: 'open-change', scenario, surface: `${prefix}.surface`, next, reason}); setOpen(next);};
+  const onAction = (action: SelectionAction) => {traceSelection({kind: 'action', scenario, action}); setLastAction(action);};
   const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: defaultI18n.t('next.selection.movie', {count: selected.length}), selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: <OwnerTag compact variant="badge" />};
   const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 6, paddingBottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8}}><ServerMark variant="editorPhone" /><OwnerTag compact variant="badge" /></View>};
   const isPicker = ['playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario);
@@ -145,7 +155,7 @@ function SelectionExample({scenario, deniedDestination = false, previewReadURL}:
       resultEntries={movieEntries.map(movie => ({id: movie.id, title: movie.title, artwork: <Artwork source={art(movie.artworkIndex)} width={30} height={45} />}))}
       onRetry={requireSelectionEvidence}
       singleItemFields={referenceSingleItemFields(editorKind)} summary={summary} {...evidence?.editor} /> : null}
-    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
+    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-music'] as const)[index]}))} onKeepOnly={kind => {traceSelection({kind: 'action', scenario, action: 'keep-only', value: kind}); setSelected([kind]);}} /> : null}
     {scenario.startsWith('delete') ? <DeleteMediaDialog {...base} owner selectionCount={scenario === 'deleteLimit' ? 240 : scenario === 'deleteOne' || scenario === 'deleteShow' || scenario === 'deleteBlocked' ? 1 : 4}
       preview={previewReadURL ? null : deletionPreview(scenario)} loading={previewRead.loading} error={previewRead.error} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
       onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(movieEntries.find(movie => movie.id === id)?.artworkIndex ?? 0)} width={24} height={36} />} {...evidence?.deletion} /> : null}
