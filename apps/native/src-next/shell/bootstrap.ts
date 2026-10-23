@@ -45,7 +45,7 @@ export type NativeShellBootstrapContext = Readonly<{
   appVersion: string;
   serverName: string;
   current: () => boolean;
-  playback: NativeShellPlaybackAdapter;
+  playback: ReturnType<typeof createNativeShellPlaybackAdapter>;
   watch: NativeWatchOutlet;
   account: DirectSnapshot;
   libraries: () => readonly Library[];
