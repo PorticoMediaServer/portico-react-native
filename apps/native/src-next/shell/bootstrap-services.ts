@@ -68,7 +68,8 @@ export class NativeShellBootstrapServices {
       catch (error) {if (batch === this.readingController && !batch?.signal.aborted) this.inboxFailure = error; throw error;}
       finally {signal?.removeEventListener('abort', noteCancelled);}
     }});
-    this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('home', path, method, body, signal)});
+    this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('home', path, method, body, signal)},
+      options.deviceClass === 'television' ? {initialLimit: 20} : {});
     // Core disposal aborts owned reads but retains its last snapshot. A retained runtime
     // must never expose that body after this authority has been retired.
     const readHome = this.home.getSnapshot;
