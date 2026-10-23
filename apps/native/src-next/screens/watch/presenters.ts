@@ -104,7 +104,8 @@ export class NativeWatchPresenters {
     const viewer = this.context.session()?.viewer;
     if (!viewer) throw cancelled();
     const fresh = await readFileInfo(api, {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])}, {libraryId: entry.libraryId, itemId: entry.id}, {limit: 1}, signal);
-    if (!fresh.manage?.[action] || fresh.scope.viewerFence !== info.scope.viewerFence || fresh.revision.catalog !== info.revision.catalog || fresh.revision.viewer !== info.revision.viewer) throw cancelled();
+    if (!fresh.manage?.[action]) throw Object.assign(new Error('file_management_forbidden'), {code: 'forbidden'});
+    if (fresh.scope.viewerFence !== info.scope.viewerFence || fresh.revision.catalog !== info.revision.catalog || fresh.revision.viewer !== info.revision.viewer) throw Object.assign(new Error('file_info_changed'), {code: 'revision_conflict'});
   }
   manageFile = (capture: NativeWatchCapture, action: 'delete-version' | 'split-versions' | 'merge-title', fileId?: string) => {
     const value = this.value, info = value?.owner?.info;
