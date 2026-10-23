@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src';
@@ -26,7 +26,8 @@ import {NativeLibraryDirectory} from './directory';
 export type NativeLibraryActions = Readonly<{
   open: (entry: ContentEntry) => void;
   play: (entry: ContentEntry) => void;
-  menu: (entry: ContentEntry) => void;
+  menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
+  isMenuOpen?: (entry: ContentEntry) => boolean;
   filters: (destination: NativeLibraryDestination) => void;
   saveView: (destination: NativeLibraryDestination) => void;
 }>;
@@ -165,9 +166,9 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
 }
 
 function LibraryCard({entry, width, runtime, actions, selected, disabled, focusId, onFocus, onBlur}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; actions: NativeLibraryActions; selected?: CardSelection; disabled?: boolean; focusId?: string; onFocus?: () => void; onBlur?: () => void}) {
-  const text = homeCardText(entry, false, runtime.text);
+  const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
   const props = {focusId, disabled, title: entry.title, width, titleLines: 2 as const, caption: text.caption, artwork: runtime.artwork(entry.posterUrl), watched: entry.watched,
-    onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry), selection: selected?.active ? selected : undefined,
-    onFocus, onBlur};
+    onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, menuAnchorRef), selection: selected,
+    menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry), onFocus, onBlur};
   return ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind) ? <SquareCard {...props}/> : <PosterCard {...props}/>;
 }
