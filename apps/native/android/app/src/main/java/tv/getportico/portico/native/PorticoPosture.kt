@@ -88,11 +88,13 @@ class PorticoPosture(context: ReactApplicationContext) : PorticoEventModule(cont
     } catch (_: Exception) { retire() }
   }
   private fun detach() {
-    val old = callback
-    callback = null
-    if (old != null) tracker?.removeWindowLayoutInfoListener(old)
-    decor?.removeOnLayoutChangeListener(layout)
+    val old = callback; val oldTracker = tracker; val oldDecor = decor
     tracker = null; decor = null; host = null; metrics = null
+    callback = null
+    // Vendor window extensions may fail during Activity teardown. Retire our ownership first
+    // and still remove the decor listener even if removing the vendor callback throws.
+    if (old != null) runCatching { oldTracker?.removeWindowLayoutInfoListener(old) }
+    oldDecor?.removeOnLayoutChangeListener(layout)
   }
   private fun retire() { detach(); if (facts.clear()) changed() }
   private fun changed() { if (!closed && count > 0) emit(EVENT, wire()) }
