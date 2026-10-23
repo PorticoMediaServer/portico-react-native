@@ -93,6 +93,9 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     if (result.kind === 'required-setup') {
       if (!Platform.isTV) throw Object.assign(new Error('native_required_account_setup'), {code: 'access_refused'});
       setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setProfiles([]); setProfile(undefined);
+      setTransaction(undefined); setOptions(undefined); setName(''); setEmail(''); setMasked('');
+      setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined;
+      accountScope.current = undefined; contact.current = undefined;
       setRequiredSetup(result); setStage('tv-required-setup');
     }
     else if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
