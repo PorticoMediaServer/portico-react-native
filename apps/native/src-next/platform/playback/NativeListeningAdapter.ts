@@ -78,7 +78,8 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  // Transient engine events stay silent; only the shared listening policy owns UI notices.
  logNativeNotice(raw);
  const status={...raw};delete status.notice;delete status.noticeCode;
- return Object.freeze({...status,eqApplied:b!==null&&raw.eqApplied===true,levelingApplied:b!==null&&raw.levelingApplied===true,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
+ const processingCurrent=b!==null&&!raw.ended&&!raw.terminal;
+ return Object.freeze({...status,eqApplied:processingCurrent&&raw.eqApplied===true,levelingApplied:processingCurrent&&raw.levelingApplied===true,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
 }
 
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are

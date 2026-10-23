@@ -42,12 +42,28 @@ test('both native listening boundaries present catalogue errors while retaining 
   }
 });
 
-test('native notice facts cannot become UI text before the frame and catalogue contract exist', () => {
+test('transient native notice facts stay silent and never become UI text', () => {
   for (const parse of [parseNativeListeningV1Event, parseShellListeningEvent]) {
     const event = parse(raw('o', 1, session('s1'), {noticeCode: 'audio_gapless_unavailable', notice: 'Private diagnostic text'}), 'o', 's1');
     assert.equal(Object.hasOwn(event, 'notice'), false);
     assert.equal(Object.hasOwn(event, 'noticeCode'), false);
     assert.throws(() => parse(raw('o', 2, session('s1'), {noticeCode: 'Invalid prose'}), 'o', 's1'), /notice code/);
+  }
+});
+
+test('processing observations are current-song booleans, never saved intent or facts from ended audio', () => {
+  for (const parse of [parseNativeListeningV1Event, parseShellListeningEvent]) {
+    const read = (extra: Record<string, unknown>) => parse(raw('o', 1, session('s1'), extra), 'o', 's1') as any;
+    assert.equal(read({eqApplied: true, levelingApplied: true}).eqApplied, true);
+    assert.equal(read({eqApplied: true, levelingApplied: true}).levelingApplied, true);
+    for (const extra of [{}, {binding: null}, {ended: true}, {terminal: true, end: {reason: 'terminated', message: 'Maintenance'}}]) {
+      const value = read({...('ended' in extra || 'terminal' in extra || 'binding' in extra ? {eqApplied: true, levelingApplied: true} : {}), ...extra});
+      assert.equal(value.eqApplied, false);
+      assert.equal(value.levelingApplied, false);
+    }
+    for (const key of ['eqApplied', 'levelingApplied']) {
+      assert.throws(() => read({[key]: 'true'}), /native render status/);
+    }
   }
 });
 

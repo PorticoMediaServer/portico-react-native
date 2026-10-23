@@ -1111,6 +1111,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     snapshot["timerStopped"] = timerStopped
     snapshot["expiredTimerRevision"] = expiredTimerRevision.toDouble()
     snapshot["policyRevision"] = num(policy?.get("revision")) ?: 0.0
+    if (ended || terminal) { snapshot["rendering"] = false; snapshot["eqApplied"] = false }
     snapshot["levelingApplied"] = snapshot["rendering"] == true && effects()["normalization"] != "off"
     (noticeCode ?: if (effectsWanted()) renderNoticeCode(presentation(heard)) else null)?.let { snapshot["noticeCode"] = it }
     end?.let { snapshot["end"] = it }

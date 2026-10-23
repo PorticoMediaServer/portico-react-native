@@ -11,7 +11,7 @@ import android.net.Uri
  * ExoPlayer does, and joins two plans without a gap by playing them as one playlist.
  */
 internal object PorticoAudioPlan {
-  /** The (container, codec) pairs ExoPlayer decodes on every supported Android. ALAC is absent: the server converts it. */
+  /** Container/codec pairs the player can extract. Optional decoders also require the loaded FFmpeg inventory. */
   private val PAIRS = mapOf(
       "flac" to setOf("flac"), "mp4" to setOf("aac", "alac", "eac3", "ac3"), "m4a" to setOf("aac", "alac", "eac3", "ac3"), "adts" to setOf("aac"),
       "mp3" to setOf("mp3"), "ogg" to setOf("opus", "vorbis"),

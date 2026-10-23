@@ -12,11 +12,12 @@ class PorticoAudioPlanTest {
       "container" to "flac", "codec" to "flac", "durationFrames" to 441000.0, "sampleRate" to 44100.0)
 
   @Test
-  fun onlyPairsEveryAndroidDecodesAreDecodedHere() {
-    for ((container, codec) in listOf("flac" to "flac", "mp4" to "aac", "m4a" to "aac", "adts" to "aac", "mp3" to "mp3", "ogg" to "opus", "ogg" to "vorbis", "wav" to "pcm_s16le"))
+  fun containerPairsAndOptionalDecodersStayBounded() {
+    for ((container, codec) in listOf("flac" to "flac", "mp4" to "aac", "m4a" to "aac", "adts" to "aac", "mp3" to "mp3", "ogg" to "opus", "ogg" to "vorbis", "wav" to "pcm_s16le", "mkv" to "flac", "mka" to "flac"))
       assertTrue("$container/$codec", PorticoAudioPlan.decodes(mapOf("container" to container, "codec" to codec)))
-    for ((container, codec) in listOf("mp4" to "alac", "aiff" to "pcm_s16be", "mkv" to "flac", "wav" to "flac"))
+    for ((container, codec) in listOf("aiff" to "pcm_s16be", "mkv" to "aac", "wav" to "flac", "ogg" to "truehd"))
       assertFalse("$container/$codec", PorticoAudioPlan.decodes(mapOf("container" to container, "codec" to codec)))
+    assertEquals("ALAC needs the actual loaded extension", PorticoFfmpegDecoders.supports("audio/alac"), PorticoAudioPlan.decodes(mapOf("container" to "mp4", "codec" to "alac")))
     assertFalse(PorticoAudioPlan.decodes(mapOf("container" to "flac")))
   }
 
