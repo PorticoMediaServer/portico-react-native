@@ -143,6 +143,7 @@ const animatedURL = data(`import React from ${JSON.stringify(
 const svgNames = [
   'Svg',
   'Defs',
+  'Pattern',
   'LinearGradient',
   'RadialGradient',
   'Rect',
