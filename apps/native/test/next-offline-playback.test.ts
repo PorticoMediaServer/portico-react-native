@@ -19,7 +19,7 @@ function setup() {
   const inner: PlaybackApi = {createPlayback:async id => {network.push('create:'+id);throw new Error('unexpected network start');},progressPlayback:async id => {network.push('progress:'+id);},stopPlayback:async id => {network.push('stop:'+id);}};
   return {owner,entry,media,progress,network,api:owner.wrap(inner),getSession:() => session,setSession:(value:LocalSession|undefined) => {session=value;},setEntries:(entries: readonly OfflineEntry[]) => {snapshot={...snapshot,entries};},setReason:(value:typeof reason) => {reason=value;},setLoad:(value:typeof load) => {load=value;}};
 }
-const observed = {sequence:1,positionSeconds:51,state:'playing' as const};
+const observed = {generation:1,sequence:1,positionSeconds:51,state:'playing' as const};
 
 test('the admitted artifact uses the real local session and journal without a server session', async () => {
   const x = setup(), source = await x.owner.prepare(x.entry, () => true), session = source.session();
