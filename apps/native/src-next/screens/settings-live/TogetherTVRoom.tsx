@@ -68,7 +68,12 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const art = runtime.artwork(item?.backdropUrl), viewer = runtime.getSnapshot().profile;
   const currentMember = members.find(value => value.id === memberMenu), currentQueue = entries.find(value => value.entryId === queueMenu);
   const menuRead = currentQueue?.itemId ? reads.items[currentQueue.itemId] : undefined;
-  useEffect(() => {if (queueMenu && !currentQueue) setQueueMenu(undefined); if (memberMenu && !currentMember) setMemberMenu(undefined);}, [queueMenu, currentQueue, memberMenu, currentMember]);
+  useEffect(() => {
+    const hasQueueAction = currentQueue && (group.permissions.canManageQueue || canControl && !currentQueue.unavailable && !!currentQueue.itemId);
+    if (queueMenu && !hasQueueAction) setQueueMenu(undefined);
+    if (memberMenu && (!currentMember || !group.permissions.isHost || !eligibleHost(currentMember))) setMemberMenu(undefined);
+    if (confirm && !group.permissions.isHost) setConfirm(undefined);
+  }, [queueMenu, currentQueue, memberMenu, currentMember, canControl, confirm, group.permissions.canManageQueue, group.permissions.isHost]);
   const validInvite = state.invite && Date.parse(state.invite.expiresAt) > clock && state.invite.uses < state.invite.maxUses ? state.invite : undefined;
   const openQueueMenu = (entry: GroupQueueEntry) => {menuReturn.current = queueRefs.current.get(entry.entryId) ?? null; setQueueMenu(entry.entryId);};
   return <Screen style={{paddingTop: 0}}>
