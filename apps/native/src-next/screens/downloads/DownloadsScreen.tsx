@@ -10,7 +10,7 @@ import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
-import {type NativeOfflineDownloadsAdapter, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
+import {type NativeOfflineDownloadsDevice, type OfflineEntry, type OfflineSettings} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from './presentation';
 import {useDownloadArtwork} from './useDownloadArtwork';
@@ -20,7 +20,7 @@ const limits = [0, 5, 10, 25, 50, 100].map(gb => gb * 1073741824);
 
 export type {NativeDownloadsCopy} from './presentation';
 export type NativeDownloadsScreenProps = Readonly<{
-  device: NativeOfflineDownloadsAdapter; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
+  device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
   back: () => void; openTitle: (entry: OfflineEntry) => void;
 }>;
 
@@ -85,7 +85,7 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
             </View>}
             <View style={{marginHorizontal: 16, backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
               {group.entries.map((entry, index) => <DownloadRow key={entry.id} entry={entry} device={device} runtime={runtime} copy={copy} separator={index > 0} menuOpen={menu?.id === entry.id}
-                onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={() => run(() => device.openOffline(entry))} onRetry={() => run(() => device.resume(entry))}/>)}
+                onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={device.openOffline ? () => run(() => device.openOffline!(entry)) : undefined} onRetry={() => run(() => device.resume(entry))}/>)}
             </View>
           </View>)}</View>}
           <View style={dimensions.width >= 1024 && !empty ? {width: 360} : {flex: 1}}>{ruleList}
@@ -157,7 +157,7 @@ function DownloadMenuContext({entry, copy}: {entry: OfflineEntry; copy: NativeDo
   </>;
 }
 
-function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry}: {entry: OfflineEntry; device: NativeOfflineDownloadsAdapter; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay: () => void; onRetry: () => void}) {
+function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry}: {entry: OfflineEntry; device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay?: () => void; onRetry: () => void}) {
   const theme = useTheme(), blocked = entry.state === 'ready' ? device.playabilityReason(entry) : null, opener = useRef<View>(null);
   const facts = useDownloadArtwork(device, entry), text = downloadRowText(entry, facts, blocked, copy, runtime.text);
   const menu = () => onMenu(opener);
@@ -168,7 +168,7 @@ function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu,
     {separator && <View style={{position: 'absolute', top: 0, left: 74, right: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
     <View style={{flex: 1, minWidth: 0}}>
       <CardFrame title={entry.title} menuAnchorRef={opener} moreExpanded={menuOpen} testID={`download-${encodeURIComponent(entry.id)}`}
-        onNavigate={playable ? onPlay : menu} onMore={menu} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13}}>
+        onNavigate={playable && onPlay ? onPlay : menu} onMore={menu} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13}}>
         {() => <>
           <Artwork source={artwork} width={46} height={69} zoom={backdrop ? 2.2 : 1} saturation={backdrop ? .55 : 1} brightness={backdrop ? .45 : 1} style={{borderRadius: 6}}/>
           <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.title}</Text>
@@ -182,7 +182,7 @@ function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu,
       {text.stopped && <Chip testID={`download-retry-${encodeURIComponent(entry.id)}`} icon="i-retry" iconSize={14} onPress={onRetry} style={{position: 'absolute', bottom: 0, left: 59, height: 30, paddingHorizontal: 11}} textStyle={browseType(theme, 13, 700)}>{t('action.tryAgain')}</Chip>}
     </View>
     <Focusable testID={`download-action-${encodeURIComponent(entry.id)}`} accessibilityLabel={t(playable ? 'action.play' : 'card.more', {title: entry.title})}
-      onPress={playable ? onPlay : menu} style={{width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: playable ? theme.colors.text : undefined}}>
+      disabled={playable && !onPlay} onPress={playable ? onPlay : menu} style={{width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: playable ? theme.colors.text : undefined}}>
       <Icon name={playable ? 'i-play' : 'i-more'} size={playable ? 16 : 20} color={playable ? theme.colors.ink : theme.colors.textTertiary}/>
     </Focusable>
   </View>;

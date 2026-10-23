@@ -1,6 +1,6 @@
 import React from 'react';
 import type {MessageId} from '../../../../../packages/i18n/src';
-import type {NativeOfflineDownloadsAdapter} from '../../platform/offline-downloads';
+import type {NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import {SearchScreen} from '../search/SearchScreen';
@@ -27,7 +27,7 @@ export type NativeDestinationPorts = Readonly<{
   savedActions: NativeSavedActions;
   savedSelection?: NativeSavedSelectionPort;
   savedDownloadsCopy: NativeSavedDownloadsCopy;
-  offline: NativeOfflineDownloadsAdapter;
+  offline: NativeOfflineDownloadsDevice;
   downloads: Readonly<{copy: NativeDownloadsCopy; back: () => void; openTitle: (entry: OfflineEntry) => void}>;
   onThisPhone: MessageId;
 }>;
@@ -39,7 +39,7 @@ export type NativeDestinationRenderers = Readonly<{
 }>;
 
 export type NativeDownloadsRendererPorts = Readonly<{
-  offline: NativeOfflineDownloadsAdapter;
+  offline: NativeOfflineDownloadsDevice;
   copy: NativeDownloadsCopy; back: () => void; openTitle: (entry: OfflineEntry) => void;
 }>;
 

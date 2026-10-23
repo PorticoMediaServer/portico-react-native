@@ -14,6 +14,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'notifications'}
   | {kind: 'together'}
   | {kind: 'account'}
+  | {kind: 'downloads'}
   | {kind: 'saved-destination'; destination: Readonly<{kind: 'playlist' | 'collection'; id: string}>}
   | {kind: 'server-dashboard'}
   | {kind: 'library-save-view' | 'library-mark-all' | 'library-edit-pins' | 'library-settings'; libraryId: string}

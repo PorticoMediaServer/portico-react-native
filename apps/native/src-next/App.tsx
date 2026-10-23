@@ -6,6 +6,9 @@ import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 
+// Only the selected platform loads its screen-owned registration modules.
+if (!Platform.isTV) require('./screens/downloads/register');
+
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
 export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; runtime?: NativeShellRuntime; reduceMotion?: boolean; textScale?: number};
 
