@@ -430,7 +430,13 @@ internal object PorticoDownloadCenter {
     var used = 0.0
     for (entry in entries.values) if (entry["state"] == "ready") used += (entry["bytes"] as? Number)?.toDouble() ?: 0.0
     val volume = StatFs(root().absolutePath)
-    return mapOf("freeBytes" to volume.availableBytes.toDouble(), "totalBytes" to volume.totalBytes.toDouble(), "usedBytes" to used)
+    val measured = PorticoDownloadStorage.measure(root())
+    return mutableMapOf<String, Any?>("freeBytes" to volume.availableBytes.toDouble(), "totalBytes" to volume.totalBytes.toDouble(), "usedBytes" to used).apply {
+      if (measured != null) {
+        put("storedBytes", measured.storedBytes.toDouble())
+        put("allocatedBytes", measured.allocatedBytes.toDouble())
+      }
+    }
   }
 
   fun setCellular(allowed: Boolean) {

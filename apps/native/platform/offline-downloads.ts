@@ -79,7 +79,7 @@ export type OfflineEntry = Readonly<{
   changedOnServer: boolean;
 }>;
 export type OfflineSettings = Readonly<{wifiOnly: boolean; deleteWatched: boolean; autoNext: boolean; limitBytes: number}>;
-export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; error?: string}>;
+export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories, counted once per inode. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; error?: string}>;
 export type Viewer = Readonly<{authority: string; accountId: string; profileId: string; serverId: string}>;
 type Api = {baseUrl: string; mediaUrl(path: string): string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
 type Play = DeferredProgressEntry;
@@ -133,7 +133,7 @@ type Stored = {
 const native = NativeModules.PorticoDownloads as undefined | {
   list(): Promise<any[]>; start(request: Record<string, unknown>): Promise<any>; pause(id: string): Promise<void>; remove(id: string): Promise<void>;
   setMeta(id: string, meta: string): Promise<void>; setMetas(metas: Record<string, string>): Promise<void>;
-  storage(): Promise<{freeBytes: number; usedBytes: number; totalBytes?: number}>; setCellular(allowed: boolean): Promise<void>;
+  storage(): Promise<{freeBytes: number; usedBytes: number; totalBytes?: number; storedBytes?: number; allocatedBytes?: number}>; setCellular(allowed: boolean): Promise<void>;
   readState(): Promise<string>; writeState(json: string): Promise<void>;
   localFile(id: string): Promise<{url: string; durationSeconds: number}>;
   writeExtra(id: string, name: string, text: string): Promise<void>; readExtra(id: string, name: string): Promise<string>;
@@ -370,8 +370,9 @@ export class OfflineDownloads {
     if (!native) return;
     try {
       const s = await native.storage();
-      const totalBytes = typeof s.totalBytes === 'number' && Number.isFinite(s.totalBytes) && s.totalBytes > 0 ? s.totalBytes : undefined;
-      this.publish({freeBytes: s.freeBytes, usedBytes: s.usedBytes, totalBytes});
+      const totalBytes = typeof s.totalBytes === 'number' && Number.isSafeInteger(s.totalBytes) && s.totalBytes > 0 ? s.totalBytes : undefined;
+      const bytes = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+      this.publish({freeBytes: s.freeBytes, usedBytes: s.usedBytes, totalBytes, storedBytes:bytes(s.storedBytes), allocatedBytes:bytes(s.allocatedBytes)});
     } catch {}
   }
   /** Unsent plays for the connected viewer. Another viewer's queue is not
