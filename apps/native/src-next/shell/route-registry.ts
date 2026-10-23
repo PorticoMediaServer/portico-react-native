@@ -1,25 +1,82 @@
 import type {ReactNode} from 'react';
 import type {NativeShellRoute} from './routes';
 import type {NativeShellRuntime} from './runtime';
+import type {NativeShellBootstrapContext} from './bootstrap';
+import type {ShellDestination} from './model';
 
 export type NativeRouteRenderer = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   scrollToTop?: (route: NativeShellRoute) => void;
+  dispose?: () => void;
 }>;
 type RouteKind = NativeShellRoute['kind'];
+export type NativeRouteFactory = (context: NativeShellBootstrapContext) => NativeRouteRenderer;
+export type NativeWatchRenderer = Readonly<{render: (runtime: NativeShellRuntime) => ReactNode; dispose?: () => void}>;
+export type NativeWatchFactory = (context: NativeShellBootstrapContext) => NativeWatchRenderer;
+export type NativeBoundRoutes = Readonly<{
+  render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
+  renderWatch: (runtime: NativeShellRuntime) => ReactNode;
+  scrollToTop: (route: NativeShellRoute) => void;
+  dispose: () => void;
+}>;
 
-/** Later-phase owners register genuine renderers against these structural descriptors.
- * No old screen, generated screen, fallback business data or substitute screen is registered. */
+/** Screen modules register factories. Each restored viewer owns its created screens;
+ * importing a module never captures credentials or creates a shared screen controller. */
 export class NativeShellRouteRegistry {
   private renderers = new Map<RouteKind, NativeRouteRenderer>();
+  private routes = new Map<RouteKind, NativeRouteFactory>();
+  private destinations = new Map<ShellDestination['kind'], NativeRouteFactory>();
+  private watch?: NativeWatchFactory;
   private listeners = new Set<() => void>();
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   register(kind: RouteKind, renderer: NativeRouteRenderer): () => void {
-    if (this.renderers.has(kind)) throw new Error('native_route_already_registered');
+    if (this.renderers.has(kind) || this.routes.has(kind)) throw new Error('native_route_already_registered');
     this.renderers.set(kind, renderer); this.changed();
     return () => {if (this.renderers.get(kind) === renderer) {this.renderers.delete(kind); this.changed();}};
   }
   get(kind: RouteKind): NativeRouteRenderer | undefined {return this.renderers.get(kind);}
+  registerRoute(kind: RouteKind, create: NativeRouteFactory): () => void {
+    if (this.renderers.has(kind) || this.routes.has(kind)) throw new Error('native_route_already_registered');
+    return this.add(this.routes, kind, create);
+  }
+  registerDestination(kind: ShellDestination['kind'], create: NativeRouteFactory): () => void {
+    return this.add(this.destinations, kind, create);
+  }
+  registerWatch(create: NativeWatchFactory): () => void {
+    if (this.watch) throw new Error('native_watch_already_registered');
+    this.watch = create; this.changed();
+    return () => {if (this.watch === create) {this.watch = undefined; this.changed();}};
+  }
+  private add<K>(map: Map<K, NativeRouteFactory>, kind: K, create: NativeRouteFactory): () => void {
+    if (map.has(kind)) throw new Error('native_route_already_registered');
+    map.set(kind, create); this.changed();
+    return () => {if (map.get(kind) === create) {map.delete(kind); this.changed();}};
+  }
+  bind(context: NativeShellBootstrapContext): NativeBoundRoutes {
+    let alive = true;
+    const instances = new Map<NativeRouteFactory | NativeWatchFactory, NativeRouteRenderer | NativeWatchRenderer>();
+    const active = () => new Set<NativeRouteFactory | NativeWatchFactory>([...this.routes.values(), ...this.destinations.values(), ...(this.watch ? [this.watch] : [])]);
+    const release = (factory: NativeRouteFactory | NativeWatchFactory) => {
+      const instance = instances.get(factory); instances.delete(factory); instance?.dispose?.();
+    };
+    const unsubscribe = this.subscribe(() => {const registered = active(); for (const factory of instances.keys()) if (!registered.has(factory)) release(factory);});
+    const instance = <T extends NativeRouteRenderer | NativeWatchRenderer>(factory: (context: NativeShellBootstrapContext) => T): T => {
+      let value = instances.get(factory) as T | undefined;
+      if (!value) {value = factory(context); instances.set(factory, value);}
+      return value;
+    };
+    const renderer = (route: NativeShellRoute): NativeRouteRenderer | undefined => {
+      const create = (route.kind === 'shell' ? this.destinations.get(route.destination.kind) : undefined) ?? this.routes.get(route.kind);
+      return create ? instance(create) : this.get(route.kind);
+    };
+    const current = () => alive && context.current();
+    return Object.freeze({
+      render: (route, runtime) => current() ? renderer(route)?.render(route, runtime) : null,
+      renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
+      scrollToTop: route => {if (current()) renderer(route)?.scrollToTop?.(route);},
+      dispose: () => {if (!alive) return; alive = false; unsubscribe(); for (const factory of instances.keys()) release(factory);},
+    } satisfies NativeBoundRoutes);
+  }
   private changed() {for (const listener of [...this.listeners]) listener();}
 }
 
