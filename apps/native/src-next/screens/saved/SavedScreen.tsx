@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useRef, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
@@ -19,7 +19,8 @@ import {NativeSavedDestination, savedDirectoryCount, savedProjectionCount} from 
 const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry';
 export type NativeSavedActions = Readonly<{
-  openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry) => void;
+  openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
+  isMenuOpen?: (entry: ContentEntry) => boolean;
   openDownloads: () => void; openPin: (pin: PinnedResource) => void; editPins: () => void;
 }>;
 export type NativeSavedSelectionPort = Readonly<{
@@ -60,12 +61,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       {snapshot.phase === 'error' && <StateView {...runtime.error(snapshot.error, () => {void destination.load().catch(report);})}/>}
       <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={savedProjectionCount(snapshot.myList) === undefined ? undefined : t('next.selection.titles', {count: savedProjectionCount(snapshot.myList)!})} onPress={() => actions.openView({view: 'watchlist'})}/>
       {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16, gap: 10}}>
-        {items.map(entry => {
-          const text = homeCardText(entry, false, runtime.text), selected = selection.item(entry);
-          const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.title, caption: text.caption, width: 112,
-            artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry), ...(selected.active ? {selection: selected} : {})};
-          return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard key={entry.id} {...props}/> : <PosterCard key={entry.id} {...props}/>;
-        })}
+        {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection.item(entry)}/>)}
       </ScrollView>}
       {downloads.supported && <>
         <SavedRowHeading testID="saved-downloads" title={t('downloads.title')} detail={t(onThisPhone, {size: defaultI18n.bytes(downloads.usedBytes)})} onPress={actions.openDownloads}/>
@@ -92,6 +88,14 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     </ScrollView>
     {selection.render()}
   </View>;
+}
+
+function SavedMyListCard({entry, runtime, actions, selection}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection: CardSelection}) {
+  const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
+  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.title, caption: text.caption, width: 112,
+    artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef), selection,
+    menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry)};
+  return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard {...props}/> : <PosterCard {...props}/>;
 }
 
 function SavedRowHeading({title, detail, onPress, testID}: {title: string; detail?: string; onPress: () => void; testID: string}) {

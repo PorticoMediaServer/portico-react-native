@@ -21,7 +21,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController: class {}}, './TitleScreen': {NativeTitleScreen: 'Title'},
   './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices},
-  './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+  './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryId: 'library', playback: {itemId: 'episode', startSeconds: 17}};
@@ -120,6 +120,18 @@ test('one/duplicate/removed versions never grant a chooser; options failure keep
     assert.equal(typeof d.menus[0][1].fileInfo, 'function');
     assert.equal(d.menus[0][1].differentVersion, undefined);
     current = false; await d.menus[0][1].fileInfo();
+    assert.equal(d.requests.length, 1);
+  } finally {d.screens.dispose();}
+});
+
+
+test('menu forwards the measured card ref and retains the real owner lifetime', async () => {
+  const d = fixture(), anchor = {current: {nativeTag: 37}}; let memberCurrent = true;
+  try {
+    await d.screens.menu(entry, () => memberCurrent, anchor);
+    assert.equal(d.menus[0][2], anchor);
+    assert.equal(d.menus[0][0].entry, entry);
+    memberCurrent = false; await d.menus[0][1].fileInfo();
     assert.equal(d.requests.length, 1);
   } finally {d.screens.dispose();}
 });

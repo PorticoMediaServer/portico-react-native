@@ -1,17 +1,15 @@
+import type {PlatformFold, PlatformPostureSnapshot} from '../platformPostureStore';
+
 export type PlayerRect = Readonly<{x: number; y: number; width: number; height: number}>;
 /** foldable9: one layout cross-fade, omitted entirely with reduced motion. */
 export const playerPostureCrossFadeMs = 250;
 export type PlayerWindow = Readonly<{width: number; height: number}>;
 /** Geometry consumed from the posture publisher, never inferred from a device name. */
-export type PlayerFold = Readonly<{
-  bounds: Readonly<{left: number; top: number; right: number; bottom: number}>;
-  orientation: 'vertical' | 'horizontal';
-  state: 'flat' | 'half-opened';
-}>;
+export type PlayerFold = Pick<PlatformFold, 'bounds' | 'orientation' | 'state'>;
 export type PlayerPresentationInput = Readonly<{
   window: PlayerWindow;
   /** Only a report for the current window can reserve a hinge. */
-  posture: Readonly<{status: 'available' | 'pending' | 'unavailable'; window: PlayerWindow | null; folds: readonly PlayerFold[]}>;
+  posture: Readonly<Pick<PlatformPostureSnapshot, 'status' | 'window'> & {folds: readonly PlayerFold[]}>;
   docked: boolean;
   panelOpen: boolean;
 }>;

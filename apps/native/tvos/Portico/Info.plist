@@ -75,7 +75,7 @@
 		<string>_portico-player._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Find your Portico servers and nearby TVs. Manual addresses and TV codes also work without local network discovery.</string>
+	<string>Portico looks for servers and TVs on your network. Without it, addresses and sign-in codes still work.</string>
 	<key>PorticoHostedURL</key>
 	<string>$(PORTICO_HOSTED_URL)</string>
 	<key>UIAppFonts</key>

@@ -6,7 +6,6 @@
 #import <UIKit/UIKit.h>
 #import "PorticoPlaybackController.h"
 #import "PorticoServerTrust.h"
-#import "PorticoEngineClock.h"
 
 /**
  * Video's presence in the system: Now Playing on the lock screen, Control Centre, the Apple
@@ -56,8 +55,6 @@ RCT_EXPORT_MODULE()
     [center addObserver:self selector:@selector(interruption:) name:AVAudioSessionInterruptionNotification object:nil];
     [center addObserver:self selector:@selector(routeChanged:) name:AVAudioSessionRouteChangeNotification object:nil];
     [center addObserver:self selector:@selector(timeJumped:) name:AVPlayerItemTimeJumpedNotification object:nil];
-    // A second engine (mpv) has no AVPlayer to observe: it says when its rate or position jumps.
-    [center addObserver:self selector:@selector(engineClockChanged) name:PorticoEngineClockChangedNotification object:nil];
   }
   return self;
 }
@@ -105,7 +102,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   NSString *itemId = raw[@"itemId"], *title = raw[@"title"];
   if (!PorticoSMText(itemId, 128) || ![itemId length] || !PorticoSMText(title, 512) || ![title length]) return nil;
   NSMutableDictionary *out = [@{@"itemId": itemId, @"title": title} mutableCopy];
-  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"seriesTitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024};
+  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024};
   for (NSString *key in limits) if (PorticoSMText(raw[key], limits[key].unsignedIntegerValue) && [raw[key] length]) out[key] = raw[key];
   out[@"durationSeconds"] = PorticoSMNumber(raw[@"durationSeconds"]) && [raw[@"durationSeconds"] doubleValue] > 0 ? raw[@"durationSeconds"] : @0;
   out[@"live"] = @([raw[@"live"] boolValue]);
@@ -152,12 +149,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
 - (void)timeJumped:(NSNotification *)note { if (_active && note.object == _player.currentItem) dispatch_async(dispatch_get_main_queue(), ^{ [self publish]; }); }
 - (void)tick { if (!_active) { [_clock invalidate]; _clock = nil; return; } [self bindPlayer]; if ([self controller].listeningActive) { [self clearVideo]; return; } [self updateRoute]; [self publish]; }
 
-- (void)engineClockChanged { if (_active) [self publish]; }
-
 - (double)position {
-  // While another engine owns the picture, its clock is the video's clock.
-  id<PorticoEngineClockSource> engine = PorticoEngineClock.active;
-  if (engine) { double p = [engine engineClockPosition]; return isfinite(p) ? MAX(0, p) : 0; }
   PorticoPlaybackController *controller = [self controller];
   double p = controller ? [controller currentSourcePosition] : NAN;
   return isfinite(p) ? MAX(0, p) : 0;
@@ -189,19 +181,16 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   BOOL live = [_info[@"live"] boolValue];
   NSMutableDictionary *now = [NSMutableDictionary new];
   now[MPMediaItemPropertyTitle] = _info[@"title"];
-  if (_info[@"seriesTitle"]) now[MPMediaItemPropertyArtist] = _info[@"seriesTitle"];
-  if (_info[@"subtitle"]) now[MPMediaItemPropertyAlbumTitle] = _info[@"subtitle"];
+  if (_info[@"subtitle"]) now[MPMediaItemPropertyArtist] = _info[@"subtitle"];
   now[MPNowPlayingInfoPropertyMediaType] = @(MPNowPlayingInfoMediaTypeVideo);
   now[MPNowPlayingInfoPropertyIsLiveStream] = @(live);
   now[MPNowPlayingInfoPropertyExternalContentIdentifier] = _info[@"itemId"];
   now[MPNowPlayingInfoPropertyDefaultPlaybackRate] = @1;
-  id<PorticoEngineClockSource> engine = PorticoEngineClock.active;
-  float rate = engine ? (float)[engine engineClockRate] : (_player ? _player.rate : 0);
+  float rate = _player ? _player.rate : 0;
   now[MPNowPlayingInfoPropertyPlaybackRate] = @(rate);
   if (!live) {
     double duration = [_info[@"durationSeconds"] doubleValue];
-    if (duration <= 0 && engine) { double d = [engine engineClockDuration]; if (isfinite(d) && d > 0) duration = d; }
-    else if (duration <= 0 && _player.currentItem) { double d = CMTimeGetSeconds(_player.currentItem.duration); if (isfinite(d) && d > 0) duration = d; }
+    if (duration <= 0 && _player.currentItem) { double d = CMTimeGetSeconds(_player.currentItem.duration); if (isfinite(d) && d > 0) duration = d; }
     if (duration > 0) now[MPMediaItemPropertyPlaybackDuration] = @(duration);
     double position = [self position];
     now[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(duration > 0 ? MIN(position, duration) : position);

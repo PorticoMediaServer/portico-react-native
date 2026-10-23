@@ -1,5 +1,5 @@
 import React, {useEffect} from 'react';
-import {Text, View, type StyleProp, type ViewStyle} from 'react-native';
+import {Platform, Text, View, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {ColourBackdrop} from '../artwork';
 import {Icon} from '../Icon';
@@ -47,6 +47,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
   const iconSize = tv ? 88 : player ? 42 : 54;
   const foreground = tone === 'warning' ? theme.colors.amber : tone === 'error' ? theme.colors.record : tone === 'accent' ? theme.colors.accentStrong : theme.colors.text;
   const glass = glassRecipe();
+  const androidGlass = glass.nativeBlur && Platform.OS === 'android';
   const headingSize = tv ? player ? 72 : 88 : player ? 26 : 30;
   const bodySize = tv ? 28 : player ? 14 : 15;
   const stacked = !tv && !player;
@@ -64,8 +65,8 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
       <View style={[{marginLeft: left, marginRight: stacked ? 24 : tv ? 96 : undefined, width: stacked ? undefined : tv ? 1000 : 380, alignItems: stacked ? 'center' : 'flex-start'}, contentStyle]}>
         {kicker != null && <View style={{marginBottom: tv ? 24 : 18}}>{kicker}</View>}
         {icon && <View style={{width: iconSize, height: iconSize, borderRadius: theme.baseRadii.pill, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: `${theme.colors.text}1A`, borderWidth: 1, borderColor: `${theme.colors.text}1F`, marginBottom: tv ? 34 : player ? 12 : 18}}>
-          {glass.nativeBlur && <BlurView pointerEvents="none" blurType="dark" blurAmount={20} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0}} />}
+          backgroundColor: androidGlass ? 'transparent' : `${theme.colors.text}1A`, borderWidth: 1, borderColor: `${theme.colors.text}1F`, marginBottom: tv ? 34 : player ? 12 : 18}}>
+          {glass.nativeBlur && <BlurView pointerEvents="none" blurType="dark" blurAmount={20} {...(androidGlass ? {overlayColor: `${theme.colors.text}1A`} : {})} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0}} />}
           <Icon name={icon} color={foreground} size={tv ? 40 : player ? 22 : 26} />
         </View>}
         <Text accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),

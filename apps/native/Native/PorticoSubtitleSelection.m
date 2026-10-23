@@ -32,65 +32,32 @@ static BOOL PlainText(id value){
  BOOL _local;NSInteger _localEpoch;
 }
 + (void)applyCaptionAppearanceToLabel:(UILabel *)label baseSize:(CGFloat)base style:(NSDictionary *)style italic:(BOOL)italic {
- CGFloat scale=[style[@"scale"] isKindOfClass:NSNumber.class]?[style[@"scale"] doubleValue]:1;if(!isfinite(scale)||scale<0.5||scale>3)scale=1;
+ NSDictionary *scales=@{@"small":@0.8,@"medium":@1,@"large":@1.3,@"extra-large":@1.6};
+ CGFloat scale=[style[@"scale"] isKindOfClass:NSNumber.class]?[style[@"scale"] doubleValue]:[scales[style[@"size"]?:@"medium"] doubleValue];if(!isfinite(scale)||scale<0.5||scale>3)scale=1;
+ BOOL system=[style[@"useSystemCaptionStyle"] isEqual:@YES];MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CGFloat relative=system?MACaptionAppearanceGetRelativeCharacterSize(kMACaptionAppearanceDomainUser,&behavior):1;
+ if(!isfinite(relative)||relative<=0)relative=1;CGFloat size=base*scale*MAX(.5,MIN(3,relative));
+ NSString *family=style[@"font"];UIFont *font=italic?[UIFont italicSystemFontOfSize:size]:[UIFont systemFontOfSize:size weight:UIFontWeightMedium];
+ if([family isEqual:@"serif"]){UIFontDescriptor *d=[font.fontDescriptor fontDescriptorWithDesign:UIFontDescriptorSystemDesignSerif];if(d)font=[UIFont fontWithDescriptor:d size:size];}
+ else if([family isEqual:@"mono"])font=[UIFont monospacedSystemFontOfSize:size weight:UIFontWeightMedium];
+ else if([family isEqual:@"rounded"]){UIFontDescriptor *d=[font.fontDescriptor fontDescriptorWithDesign:UIFontDescriptorSystemDesignRounded];if(d)font=[UIFont fontWithDescriptor:d size:size];}
+ NSDictionary *colors=@{@"white":UIColor.whiteColor,@"yellow":UIColor.yellowColor,@"cyan":UIColor.cyanColor,@"green":UIColor.greenColor,@"pink":[UIColor colorWithRed:1 green:.5 blue:.75 alpha:1]};
+ UIColor *text=colors[style[@"color"]?:@"white"]?:UIColor.whiteColor;
  NSString *background=[style[@"background"] isKindOfClass:NSString.class]?style[@"background"]:@"translucent";
- MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGFloat system=MACaptionAppearanceGetRelativeCharacterSize(kMACaptionAppearanceDomainUser,&behavior);if(!isfinite(system)||system<=0)system=1;
- CGFloat fontSize=base*scale*MAX(0.5,MIN(3,system));
- UIFont *font=italic?[UIFont italicSystemFontOfSize:fontSize]:[UIFont systemFontOfSize:fontSize weight:UIFontWeightMedium];
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
- if(descriptor){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   UIFontDescriptor *chosen=(__bridge UIFontDescriptor *)descriptor;
-   if(italic){UIFontDescriptor *slanted=[chosen fontDescriptorWithSymbolicTraits:chosen.symbolicTraits|UIFontDescriptorTraitItalic];if(slanted)chosen=slanted;}
-   UIFont *custom=[UIFont fontWithDescriptor:chosen size:fontSize];if(custom)font=custom;
-  }
-  CFRelease(descriptor);
+ UIColor *box=([@[@"none",@"outline",@"shadow"] containsObject:background])?UIColor.clearColor:[UIColor colorWithWhite:0 alpha:[background isEqual:@"opaque"]?1:.7];
+ if(system){
+  CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
+  if(descriptor){if(behavior==kMACaptionAppearanceBehaviorUseValue)font=[UIFont fontWithDescriptor:(__bridge UIFontDescriptor *)descriptor size:size];CFRelease(descriptor);}
+  behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;CGColorRef foreground=MACaptionAppearanceCopyForegroundColor(kMACaptionAppearanceDomainUser,&behavior);
+  if(foreground){if(behavior==kMACaptionAppearanceBehaviorUseValue)text=[UIColor colorWithCGColor:foreground];CGColorRelease(foreground);}
+  behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;CGColorRef bg=MACaptionAppearanceCopyBackgroundColor(kMACaptionAppearanceDomainUser,&behavior);
+  if(bg){if(behavior==kMACaptionAppearanceBehaviorUseValue){MACaptionAppearanceBehavior opacityBehavior;CGFloat opacity=MACaptionAppearanceGetBackgroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);box=[[UIColor colorWithCGColor:bg] colorWithAlphaComponent:isfinite(opacity)?MAX(0,MIN(1,opacity)):.7];}CGColorRelease(bg);}
  }
- label.font=font;
- UIColor *text=UIColor.whiteColor;
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGColorRef foreground=MACaptionAppearanceCopyForegroundColor(kMACaptionAppearanceDomainUser,&behavior);
- if(foreground){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
-   CGFloat opacity=MACaptionAppearanceGetForegroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
-   text=[[UIColor colorWithCGColor:foreground] colorWithAlphaComponent:(opacityBehavior==kMACaptionAppearanceBehaviorUseValue&&isfinite(opacity))?MAX(0.25,MIN(1,opacity)):1];
-  }
-  CGColorRelease(foreground);
- }
- label.textColor=text;
- UIColor *box=[background isEqual:@"none"]?UIColor.clearColor:[UIColor colorWithWhite:0 alpha:[background isEqual:@"opaque"]?1:0.7];
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGColorRef systemBox=MACaptionAppearanceCopyBackgroundColor(kMACaptionAppearanceDomainUser,&behavior);
- if(systemBox){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
-   CGFloat opacity=MACaptionAppearanceGetBackgroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
-   box=[[UIColor colorWithCGColor:systemBox] colorWithAlphaComponent:isfinite(opacity)?MAX(0,MIN(1,opacity)):0.7];
-  }
-  CGColorRelease(systemBox);
- }
- label.backgroundColor=box;
- // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
- BOOL bare=CGColorGetAlpha(box.CGColor)<0.3;
- label.layer.shadowColor=UIColor.blackColor.CGColor;label.layer.shadowOffset=CGSizeZero;label.layer.shadowRadius=bare?MAX(2,fontSize*0.08):0;label.layer.shadowOpacity=bare?1:0;
-}
-
-+ (NSDictionary<NSString *,NSString *> *)mpvCaptionOptions:(NSDictionary *)style {
- UILabel *label=[UILabel new];[self applyCaptionAppearanceToLabel:label baseSize:45 style:style italic:NO];
- CGFloat red=1,green=1,blue=1,alpha=1;[label.textColor getRed:&red green:&green blue:&blue alpha:&alpha];
- NSString *foreground=[NSString stringWithFormat:@"%.4f/%.4f/%.4f/%.4f",red,green,blue,alpha];
- red=green=blue=0;alpha=0.7;[label.backgroundColor getRed:&red green:&green blue:&blue alpha:&alpha];
- NSString *background=[NSString stringWithFormat:@"%.4f/%.4f/%.4f/%.4f",red,green,blue,alpha];
- BOOL bare=alpha<0.3;
- MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
- NSString *font=descriptor&&behavior==kMACaptionAppearanceBehaviorUseValue?label.font.fontName:@"sans-serif";
- if(descriptor)CFRelease(descriptor);
- return @{@"sub-font":font?:@"sans-serif",@"sub-color":foreground,@"sub-back-color":background,
-          @"sub-border-style":bare?@"outline-and-shadow":@"background-box",@"sub-outline-size":bare?@"3":@"0"};
+ label.font=font;label.textColor=text;label.backgroundColor=box;
+ BOOL outline=[background isEqual:@"outline"],shadow=[background isEqual:@"shadow"]||CGColorGetAlpha(box.CGColor)<.3;
+ label.layer.shadowColor=UIColor.blackColor.CGColor;label.layer.shadowOffset=CGSizeMake(0,outline?0:2);label.layer.shadowRadius=shadow?MAX(2,size*.08):0;label.layer.shadowOpacity=shadow?1:0;
+ if(outline&&label.text.length)label.attributedText=[[NSAttributedString alloc]initWithString:label.text attributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:text,NSStrokeColorAttributeName:UIColor.blackColor,NSStrokeWidthAttributeName:@-3}];
+ else if(label.text.length)label.attributedText=[[NSAttributedString alloc]initWithString:label.text attributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:text}];
 }
 
 + (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {
@@ -127,12 +94,15 @@ static BOOL PlainText(id value){
   [self disableEmbedded:item];[self setText:@""];return;
  }
  int64_t offset=0;
- if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"The subtitle command is invalid."];return;}
+ if(!PositiveInteger(command[@"revision"])||!PositiveInteger(command[@"resourceRevision"])||!DecimalUS(command[@"offsetUs"],600000000,YES,&offset)||![command[@"documentUrl"] isKindOfClass:NSString.class]||![command[@"resourceId"] isKindOfClass:NSString.class]){[self invalidate];[self status:@"subtitle_command_invalid"];return;}
  NSURL *url=[NSURL URLWithString:command[@"documentUrl"]],*media=[NSURL URLWithString:source];
  // A downloaded title: its subtitles are a WebVTT file beside it, inside the app's Downloads
  // folder. Only a download may name one, and only there.
  if(url.isFileURL){
-  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;}
+  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"subtitle_source_invalid"];return;}
+  // Downloaded WebVTT already contains the server's complete correction. Only the raw
+  // source-relative cue document/original overlay uses a selection offset here.
+  offset=0;
   if(_item==item&&_local&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]]){_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;[self tick:_time];return;}
   [self invalidate];_item=item;_url=url;_local=YES;_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
   [self disableEmbedded:item];[self readLocal:url];return;
@@ -145,7 +115,7 @@ static BOOL PlainText(id value){
  // The document travels the way the media does: the same scheme, host and port, under the media's
  // own grant. A server reached over plain HTTP serves its subtitles over plain HTTP too.
  if(!url||!media||(![url.scheme isEqual:@"https"]&&![url.scheme isEqual:@"http"])||![url.scheme isEqual:media.scheme]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@0) isEqual:(media.port?:@0)]||url.user||url.password||url.query||url.fragment||![url.path isEqual:expected]||![route firstMatchInString:url.path options:0 range:NSMakeRange(0,url.path.length)]){
-  [self invalidate];[self status:@"The subtitle address does not belong to this playback session."];return;
+  [self invalidate];[self status:@"subtitle_source_invalid"];return;
  }
  if(_item==item&&[_command[@"binding"] isEqual:command[@"binding"]]&&[command[@"revision"] integerValue]<_revision)return;
  BOOL refreshRequested=![_command[@"refreshRevision"] isEqual:command[@"refreshRevision"]];
@@ -206,7 +176,7 @@ static BOOL PlainText(id value){
   NSMutableArray *ends=[NSMutableArray new];int64_t maxEnd=0;for(NSDictionary *cue in cues){maxEnd=MAX(maxEnd,[cue[@"end"] longLongValue]);[ends addObject:@(maxEnd)];}
   dispatch_async(dispatch_get_main_queue(),^{
    PorticoSubtitleSelection *self=weakSelf;if(!self||self->_localEpoch!=epoch||!self->_local)return;
-   if(!text){[self status:@"Subtitles could not be read from this download."];return;}
+   if(!text){[self status:@"subtitle_download_unavailable"];return;}
    self->_cues=cues;self->_prefixEnds=ends;self->_authorizedUntil=DBL_MAX;[self status:@""];[self tick:self->_time];
   });
  });
@@ -227,18 +197,18 @@ static BOOL PlainText(id value){
  // 304 is the server saying: checked in full, still yours, unchanged. Only ever in answer to the
  // validator sent above; the cache policy never lets the system answer on the server's behalf.
  if(http.statusCode==304&&_etag.length&&_cues){_notModified=YES;completionHandler(NSURLSessionResponseCancel);return;}
- if(http.statusCode>=500&&http.statusCode<=599){_failed=YES;_transientFailure=YES;[self status:@"Subtitles could not be read. Check the server connection."];completionHandler(NSURLSessionResponseCancel);return;}
+ if(http.statusCode>=500&&http.statusCode<=599){_failed=YES;_transientFailure=YES;[self status:@"subtitle_connection_failed"];completionHandler(NSURLSessionResponseCancel);return;}
  id tag=[http valueForHTTPHeaderField:@"ETag"];_responseEtag=([tag isKindOfClass:NSString.class]&&[tag length]<=256)?[tag copy]:nil;
- if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitles are unavailable or access was revoked."];completionHandler(NSURLSessionResponseCancel);return;}
+ if(http.statusCode!=200||![response.MIMEType.lowercaseString isEqual:@"application/json"]||response.expectedContentLength>(int64_t)SubtitleByteLimit){_failed=YES;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_unavailable"];completionHandler(NSURLSessionResponseCancel);return;}
  completionHandler(NSURLSessionResponseAllow);
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
- if(task!=_task||_failed)return;if(_bytes.length+data.length>SubtitleByteLimit){_failed=YES;[_task cancel];_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"Subtitle data exceeded the supported limit."];return;}[_bytes appendData:data];
+ if(task!=_task||_failed)return;if(_bytes.length+data.length>SubtitleByteLimit){_failed=YES;[_task cancel];_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_size_exceeded"];return;}[_bytes appendData:data];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  if(task!=_task)return;_task=nil;
  if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];return;}
- if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=NSProcessInfo.processInfo.systemUptime-20;[self tick:_time];if(!_failed)[self status:@"Subtitles could not be read. Check the server connection."];return;}
+ if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=NSProcessInfo.processInfo.systemUptime-20;[self tick:_time];if(!_failed)[self status:@"subtitle_connection_failed"];return;}
  id document=[NSJSONSerialization JSONObjectWithData:_bytes options:0 error:nil];_bytes=nil;
  BOOL valid=[document isKindOfClass:NSDictionary.class]&&PositiveInteger(document[@"version"])&&[document[@"version"] isEqual:@1]&&[document[@"timeDomain"] isEqual:@"source-relative"]&&[document[@"cues"] isKindOfClass:NSArray.class]&&[document[@"cues"] count]<=20000;
  NSMutableArray *cues=[NSMutableArray new],*ends=[NSMutableArray new];int64_t previous=-1,maxEnd=0;NSUInteger textBytes=0;
@@ -249,7 +219,7 @@ static BOOL PlainText(id value){
   previous=start;maxEnd=MAX(maxEnd,end);[cues addObject:@{@"start":@(start),@"end":@(end),@"text":cue[@"text"],@"italic":@([cue[@"italic"]isEqual:@YES]),@"top":@([cue[@"top"]isEqual:@YES])}];[ends addObject:@(maxEnd)];
  }
  if(valid&&cues.count==0&&[document[@"cues"] count]>0)valid=NO;
- if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"The server returned invalid subtitle timing or text."];return;}
+ if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_document_invalid"];return;}
  _etag=_responseEtag;_cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
 }
 - (void)tick:(CMTime)time {

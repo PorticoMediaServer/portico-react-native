@@ -14,6 +14,7 @@ import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/
 import type {SelectionContext} from '../../../packages/client-core/src/selection-model/index.ts';
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
+import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -1194,6 +1195,78 @@ test('production Fabric window settlement preserves the actual Surface owner/ref
   } finally {await ui?.unmount(); d.runtime.dispose();}
 });
 
+
+test('production Fabric canonical watch outlet and actual shell wrapper keep one Surface owner and engine lease', async () => {
+  const d = fixture(), owners: object[] = [], tags: (number | null)[] = [];
+  let window = {width: 1920, height: 1080}, lease: NativeWatchLease, subscriptions = 0;
+  let ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  const watch = new NativeWatchOutlet(() => ({authority: d.runtime.getSnapshot().authority, fence: d.runtime.getSnapshot().fence, window}));
+  const subscribe = watch.subscribe;
+  watch.subscribe = listener => {subscriptions++; const off = subscribe(listener); return () => {subscriptions--; off();};};
+  const attachSurface = d.runtime.attachSurface.bind(d.runtime), setSurfaceTag = d.runtime.setSurfaceTag.bind(d.runtime);
+  d.runtime.attachSurface = owner => {owners.push(owner); return attachSurface(owner);};
+  d.runtime.setSurfaceTag = (owner, tag) => {tags.push(tag); setSurfaceTag(owner, tag);};
+  const publish = async (next?: NativeExpandedVideoSlot) => {if (next) assert.equal(lease.publish(next), true); else lease.clear(); await ui!.settle();};
+  try {
+    await d.start('movie-1', 0);
+    const initial = d.runtime.getSnapshot(), commands = d.engine.commands.length, requests = d.requests.length;
+    lease = watch.register(initial.authority);
+    ui = await fabricPlayback(d.runtime, true, watch, true);
+    const ref = ui.nativeProps.at(-1)!.ref;
+    assert.equal(ui.nativeProps.at(-1)!.style.display, 'none', 'a real outlet without a picture cannot create a full-window host');
+    assert.equal(ui.watchWrapper.pointerEvents, 'box-none');
+    assert.equal(ui.watchWrapper.style.zIndex, 31);
+    assert.ok(ui.watchWrapper.style.zIndex < 40);
+    assert.equal(ui.chrome.mounts, 1);
+    window = {width: 840, height: 880}; watch.invalidate();
+    await ui.resize(840, 880);
+    for (const [revision, width, height] of [[1, 840, 472.5], [2, 445, 626], [3, 840, 880]]) {
+      await publish({authority: initial.authority, fence: initial.fence!, layoutRevision: revision, window: {width: 840, height: 880}, frameInWindow: {x: 0, y: 0, width, height}});
+      const props: {style: {width: number; height: number; display: string}; ref: unknown; lease: string} = ui.nativeProps.at(-1)!;
+      assert.equal(props.style.width, width);
+      assert.equal(props.style.height, height);
+      assert.equal(props.style.display, 'flex');
+      assert.strictEqual(props.ref, ref);
+      assert.equal(props.lease, initial.lease);
+      await publish();
+      assert.equal(ui.nativeProps.at(-1)!.style.display, 'none');
+      assert.strictEqual(ui.nativeProps.at(-1)!.ref, ref);
+      assert.strictEqual(d.runtime.getSnapshot().fence, initial.fence);
+      assert.equal(d.runtime.getSnapshot().retired, false);
+      assert.equal(owners.length, 1);
+      assert.deepEqual(tags, [71]);
+      assert.equal(d.engine.released.length, 0);
+      assert.equal(d.engine.commands.length, commands);
+      assert.equal(d.requests.length, requests);
+    }
+    await publish({authority: initial.authority, fence: initial.fence!, layoutRevision: 4, window, frameInWindow: {x: 0, y: 0, width: 840, height: 472.5}});
+    window = {width: 890, height: 626}; watch.invalidate();
+    await ui.resize(890, 626);
+    assert.equal(ui.nativeProps.at(-1)!.style.display, 'none', 'a window revision invalidates the real outlet without detaching Surface');
+    const oldLease = lease;
+    lease = watch.register(initial.authority);
+    assert.equal(oldLease.publish({authority: initial.authority, fence: initial.fence!, layoutRevision: 100, window, frameInWindow: {x: 0, y: 0, width: 890, height: 626}}), false);
+    await publish({authority: initial.authority, fence: initial.fence!, layoutRevision: 0, window, frameInWindow: {x: 0, y: 0, width: 890, height: 626}});
+    assert.equal(ui.nativeProps.at(-1)!.style.width, 890);
+    assert.equal(ui.nativeProps.at(-1)!.style.height, 626);
+    assert.strictEqual(ui.nativeProps.at(-1)!.ref, ref);
+    assert.equal(ui.chrome.mounts, 1);
+    assert.equal(ui.chrome.unmounts, 0);
+    await ui.adapter.onTransition(ui.adapter.dock.collapse(initial.fence!)); await ui.settle();
+    assert.equal(ui.adapter.getSnapshot().dock.local?.expanded, false);
+    await publish();
+    assert.equal(ui.adapter.getSnapshot().dock.local?.expanded, false, 'watch invalidation cannot expand a docked video');
+    assert.equal(owners.length, 1); assert.deepEqual(tags, [71]);
+    assert.equal(d.engine.commands.length, commands);
+    assert.equal(d.engine.released.length, 0);
+    assert.equal(ui.parentRenders, 1);
+    await ui.unmount(); ui = undefined;
+    assert.deepEqual(tags, [71, null]);
+    assert.equal(d.runtime.getSnapshot().retired, true);
+    assert.equal(d.engine.released.length, 1);
+    assert.equal(subscriptions, 0);
+  } finally {await ui?.unmount(); watch.dispose(); d.runtime.dispose();}
+});
 
 test('one accepted fact publishes its settled progress once and retains the current source identity', async () => {
   const d = fixture();

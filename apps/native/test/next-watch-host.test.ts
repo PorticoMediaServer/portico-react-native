@@ -1,0 +1,83 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as React from 'react';
+import {screenModule} from './helpers/screen-harness.mjs';
+import {act, createHookHost} from './hook-driver.ts';
+import {playbackFence, sameFence} from '../../../packages/player-core/src/index.ts';
+import {sameAuthority} from '../src-next/shell/model.ts';
+import {NativeWatchOutlet} from '../src-next/shell/watch-outlet.ts';
+import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
+import {resolvePlayerPresentation, playerControlsRevealDeadline} from '../src-next/platform/layout/player-presentation.ts';
+const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
+const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
+let window = {width: 890, height: 626};
+let posture: any = {status: 'unavailable', window: null, folds: []};
+const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
+  react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
+  '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
+  '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
+  '../../platform/platformPosture': {usePlatformPosture: () => posture},
+  './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+});
+const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
+  react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window},
+  '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
+});
+const child = (tree: any, id: string) => React.Children.toArray(tree?.props.children).find((value: any) => value?.props?.testID === id) as any;
+function fixture() {
+  window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
+  let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
+  const listeners = new Set<() => void>(), calls: string[] = [], reveals: number[] = [];
+  const controls = new NativeWatchControls(false);
+  const outlet = new NativeWatchOutlet(() => ({authority, fence: source.fence, window}));
+  const playback = {getSnapshot: () => source, subscribe: (f: () => void) => {listeners.add(f); return () => {listeners.delete(f);};}};
+  const setPresentation = (context: any) => {calls.push('presentation'); controls.source(source.fence, {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});};
+  const reveal = controls.revealAfterLayout.bind(controls);
+  controls.revealAfterLayout = (f, deadline) => {calls.push('reveal'); reveals.push(deadline); return reveal(f, deadline);};
+  const bindings = {chrome: () => ({quality: 'actual selected quality'}), panel: () => null, content: () => null};
+  let tree: any;
+  const current = () => authority;
+  const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation});});
+  host.mount();
+  return {host, controls, outlet, calls, reveals, tree: () => tree,
+    source: (change: any) => {source = {...source, ...change}; for (const listener of listeners) listener();},
+    dispose: () => {host.unmount(); controls.dispose(); outlet.dispose();}};
+}
+test('root uses the actual canonical outlet and full measured pane across book geometry', async () => {
+  const d = fixture(); let measured: any; const measurements: ((x: number, y: number, w: number, h: number) => void)[] = [];
+  const view = {measureInWindow: (callback: typeof measurements[number]) => {measurements.push(callback);}};
+  const picture = () => d.tree().props.children[0];
+  const measurementHost = createHookHost(() => {measured = NativeWatchPicture(picture().props); measured.props.ref.current = view;});
+  try {
+    await act(() => {});
+    assert.deepEqual(picture().props.style, {position: 'absolute', left: 0, top: 0, width: 890, height: 626});
+    measurementHost.mount(); measurements.at(-1)!(0, 0, 890, 626);
+    assert.deepEqual(d.outlet.getSnapshot()?.frameInWindow, {x: 0, y: 0, width: 890, height: 626});
+    const revision = d.outlet.getSnapshot()!.layoutRevision;
+    posture = {status: 'available', window, folds: [{bounds: {left: 445, right: 445, top: 0, bottom: 626}, orientation: 'vertical', state: 'half-opened'}]};
+    await act(() => d.host.rerender());
+    measurementHost.rerender(); measured.props.onLayout(); measurements.at(-1)!(0, 0, 445, 250.3125);
+    assert.ok(d.outlet.getSnapshot()!.layoutRevision > revision);
+    assert.deepEqual(d.outlet.getSnapshot()?.frameInWindow, {x: 0, y: 0, width: 445, height: 250.3125});
+    assert.equal(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets.right, 16);
+    assert.equal(d.reveals.length, 1); assert.deepEqual(d.calls.slice(-2), ['presentation', 'reveal']);
+  } finally {measurementHost.unmount(); d.dispose();}
+});
+test('panel state suppresses fold reveal, closing alone does not reveal, docked/pending output has no slot', async () => {
+  const d = fixture();
+  try {
+    await act(() => {});
+    await act(() => {d.controls.open('audio', fence);});
+    assert.equal(d.controls.getSnapshot().visible, false);
+    assert.equal(child(d.tree(), 'watch-panel-pane').props.style.width, 380);
+    assert.equal(d.tree().props.children[0].props.style.width, 510);
+    await act(() => {window = {width: 1000, height: 626}; d.host.rerender();});
+    assert.equal(d.reveals.length, 0);
+    await act(() => {d.controls.closePanel(fence);});
+    assert.equal(d.reveals.length, 0);
+    await act(() => {d.source({dock: {local: {fence, expanded: false, kind: 'video'}}});});
+    assert.equal(d.tree(), null); assert.equal(d.outlet.getSnapshot(), undefined);
+    await act(() => {d.source({fence: undefined, dock: {}});});
+    assert.equal(d.tree(), null);
+  } finally {d.dispose();}
+});
