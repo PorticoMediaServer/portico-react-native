@@ -547,5 +547,6 @@ test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without 
     const sheet = nodes(compact.tree).find(node => node.props.fitContent === true)!;
     assert.equal(sheet.props.backdropOpacity, .58);
     assert.equal(sheet.props.width, undefined);
+    assert.deepEqual(find(compact.tree, MenuRow).props.style, {minHeight: 44});
   } finally {compact.host.unmount();}
 });
