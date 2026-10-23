@@ -10,10 +10,11 @@ import {TVAuthLayout} from './TVAuthLayout';
 export type TVCredentialFormProps = Readonly<{
   username: string; password: string;
   onUsernameChange: (value: string) => void; onPasswordChange: (value: string) => void;
-  /** Exact drawn placeholder, provided by the canonical catalogue. */
-  usernamePlaceholder: MessageId;
   busy: boolean; error?: React.ReactNode; onSubmit: () => void; onBack: () => void;
-}> & Readonly<{kind: 'portico'; serverName?: string} | {kind: 'local'; serverName: string}>;
+}> & Readonly<
+  {kind: 'portico'; serverName?: string; usernamePlaceholder: MessageId} |
+  {kind: 'local'; serverName: string; usernamePlaceholder?: never}
+>;
 
 function CredentialField({id, label, value, onChangeText, password, placeholder, busy, onSubmitEditing}: {
   id: string; label: string; value: string; onChangeText: (value: string) => void; password?: boolean;
@@ -53,7 +54,7 @@ function CredentialForm(props: TVCredentialFormProps) {
       {props.error && <View accessibilityRole="alert" style={{marginBottom: 16}}>{props.error}</View>}
       <View style={{width: 860, gap: 22}}>
         <CredentialField id="username" label={t(kind === 'portico' ? 'auth.usernameOrEmail' : 'auth.username')} value={username}
-          onChangeText={props.onUsernameChange} placeholder={kind === 'portico' ? t(props.usernamePlaceholder) : undefined} busy={busy}
+          onChangeText={props.onUsernameChange} placeholder={props.kind === 'portico' ? t(props.usernamePlaceholder) : undefined} busy={busy}
           onSubmitEditing={() => {registry.focus({regionId: id, childId: 'password'});}}/>
         <CredentialField id="password" label={t('auth.password')} value={password} onChangeText={props.onPasswordChange} password busy={busy}
           onSubmitEditing={() => {registry.focus({regionId: id, childId: 'submit'});}}/>
