@@ -1,8 +1,16 @@
 import React from 'react';
 import {Text, type TextStyle, type StyleProp} from 'react-native';
 import {BottomSheet} from '../overlays/BottomSheet';
-import {fontFamilies, useTheme} from '../theme';
+import {fontFamilies, useTheme, type Theme} from '../theme';
 import type {SurfaceProps} from '../overlays/types';
+
+/** select.html's m-btns, es-foot and dsh actions override the common phone button. */
+export function selectionFooterProps({platform, textScale}: Pick<Theme, 'platform' | 'textScale'>) {
+  return platform === 'phone' ? {
+    style: {height: 48, paddingHorizontal: 20, borderRadius: 10, gap: 8},
+    textStyle: {fontSize: 15.5 * textScale},
+  } : {style: undefined, textStyle: undefined};
+}
 
 export function SelectionText({children, size, weight = 500, secondary = false, numberOfLines, style}: {children: React.ReactNode; size?: number; weight?: 400 | 500 | 600 | 700 | 800; secondary?: boolean; numberOfLines?: number; style?: StyleProp<TextStyle>}) {
   const theme = useTheme();
