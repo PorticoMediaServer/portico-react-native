@@ -2,7 +2,6 @@ import {NativeModules} from 'react-native';
 import {deviceModelName,devicePlatform} from './device-platform';
 import {HttpLocalApi,type HostedSession,type LocalSession,type DeviceAuthorization} from '../../../../packages/client-core/src/index';
 import {SetupCodeService,type SetupCodeStorage,type SetupCodeJournal,type SetupCodeEntry} from '../../../../packages/client-core/src/setup-code';
-import {parseAccountSession} from '../../../../packages/client-core/src/hosted-security';
 import {parseLocalSession} from '../../../../packages/client-core/src/local-session';
 import {hostedGate} from '../../../../packages/client-core/src/hosted-gate';
 import {activationGate} from './hosted-activation-gate';
@@ -13,6 +12,11 @@ const store=new NativeQueueStore();
 export function nativeSetupStorage<T>(authority:string):SetupCodeStorage<T>{
  const key='setup:'+authority;
  return {change:update=>store.change(key,raw=>{const record=update(raw===null?undefined:raw as SetupCodeJournal<T>);return{record,value:record};})};
+}
+function hostedGrant(raw:unknown):HostedSession{
+ const s=raw as HostedSession;
+ if(!s||typeof s.accessToken!=='string'||!s.accessToken||typeof s.refreshToken!=='string'||!s.refreshToken||typeof s.familyId!=='string'||!s.familyId||!s.account?.id||!Array.isArray(s.profiles)||!Number.isFinite(Date.parse(s.expiresAt))||!Number.isFinite(Date.parse(s.refreshExpiresAt)))throw new Error('The protected TV session was invalid.');
+ return s;
 }
 /** The only clear TV grant exists after native private-key decryption. Both
  * the private key and the redemption receipt survive process termination.
@@ -29,7 +33,7 @@ export function nativeTVActivation(origin:string){
  };
  const service=new SetupCodeService<HostedSession>(origin+'#tv-x25519-v1',{
   create:async(requestId,signal)=>{const publicKey=await NativeModules.PorticoNetwork.tvPublicKey(requestId);if(signal.aborted)throw new Error('Activation paused.');const identity=await deviceIdentity();return gate.run('create',()=>http.request<DeviceAuthorization>('/v1/device-authorizations','POST',{requestId,...identity,platform:devicePlatform,protocol:'tv-x25519-v1',publicKey},signal));},
-  poll:async(entry,signal)=>{const envelope=await gate.run('poll',()=>http.request<Record<string,unknown>>('/v1/tv-authorizations/token','POST',{deviceCode:entry.authorization.deviceCode},signal));const key=await NativeModules.PorticoNetwork.tvPublicKey(entry.requestId);if(envelope.issuer!==origin||envelope.requestId!==entry.requestId||envelope.recipientKey!==key)throw new Error('The TV approval does not belong to this device and account service.');return parseAccountSession(JSON.parse(await NativeModules.PorticoNetwork.openTVGrant(entry.requestId,envelope)),'native');},
+  poll:async(entry,signal)=>{const envelope=await gate.run('poll',()=>http.request<Record<string,unknown>>('/v1/tv-authorizations/token','POST',{deviceCode:entry.authorization.deviceCode},signal));const key=await NativeModules.PorticoNetwork.tvPublicKey(entry.requestId);if(envelope.issuer!==origin||envelope.requestId!==entry.requestId||envelope.recipientKey!==key)throw new Error('The TV approval does not belong to this device and account service.');return hostedGrant(JSON.parse(await NativeModules.PorticoNetwork.openTVGrant(entry.requestId,envelope)));},
   cancel:(entry,signal)=>gate.run('cancel',()=>http.request<void>('/v1/device-authorizations/cancel','POST',{deviceCode:entry.authorization.deviceCode},signal)),
   forgotten:entry=>{NativeModules.PorticoNetwork.forgetTVKey(entry.requestId);},displayed:display,
  },nativeSetupStorage(origin+'#tv-x25519-v1'),()=>NativeModules.PorticoRuntime.newRequestId().then((v:string)=>v.toLowerCase()));

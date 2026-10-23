@@ -630,13 +630,6 @@ export async function standardHomeApp({
           nextCursor: '',
         },
       };
-    if (fault && (fault.route ? path === routePath(fault.route) : path.includes('/playback-options')))
-      return {
-        status: fault.status,
-        body: {
-          error: {code: fault.code, message: 'Boundary playback failure'},
-        },
-      };
     if (path === routePath('get_capabilities'))
       return {
         status: 200,
@@ -645,6 +638,13 @@ export async function standardHomeApp({
             playback_v1_kinds: 'movie,episode,song,audiobook_file',
             playback_v1_channels: 'enabled',
           },
+        },
+      };
+    if (fault && path.includes('/playback-options'))
+      return {
+        status: fault.status,
+        body: {
+          error: {code: fault.code, message: 'Boundary playback failure'},
         },
       };
     if (/^\/v1\/items\/[^/]+$/.test(path))

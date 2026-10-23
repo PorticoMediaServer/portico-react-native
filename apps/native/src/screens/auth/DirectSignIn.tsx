@@ -158,7 +158,7 @@ function SetupOffer({address}: {address: string}) {
 /**
  * C45: the step a direct sign-in can stop at. A two-step code (authenticator or recovery code), a
  * new password the server requires (the password just typed is the current one; then Portico
- * signs in again with the new one).
+ * signs in again with the new one), or waiting for the owner to approve this device.
  */
 export function DirectStepScreen() {
   const session = useSession();
@@ -166,6 +166,13 @@ export function DirectStepScreen() {
   const {direct} = session;
   const [value, setValue] = useState('');
   const back = () => { session.clearError(); direct.cancelStep(); };
+  if (direct.step === 'device-pending') {
+    return (
+      <AuthFrame title={i18n.t('device.approval.titleThisDevice')} lead={i18n.t('device.approval.body')} onBack={back} error={session.error} onDismissError={session.clearError}>
+        <Button variant="primary" size="lg" label={i18n.t('device.approval.checkAgain')} fullWidth loading={session.busy} hasTVPreferredFocus onPress={() => void direct.retrySignIn()} />
+      </AuthFrame>
+    );
+  }
   if (direct.step === 'password-change') {
     const ok = passwordStrength(value).acceptable;
     return (

@@ -32,8 +32,6 @@ test('normal product entry signs in locally through actual React/native bridges 
     assert.deepEqual(app.requests.map((request: any) => request.path), ['/v1/system']);
     await app.tapLabel('Back'); kind = 'local';
     await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
-    assert.ok(app.hosts().some((host: any) => app.nativeLabel(host) === 'Use an account that lives on this server.'));
-    assert.ok(app.hosts().some((host: any) => app.nativeLabel(host) === 'Sign in to'));
     await app.fill('Username', 'synthetic_user'); await app.fill('Password', 'synthetic_password'); await app.tapLabel('Sign in');
     assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Who’s watching on Synthetic living room?'));
     await app.tapLabel('Synthetic viewer'); await app.fill('Four-digit PIN', '1234'); await app.tapLabel('Continue');
@@ -45,71 +43,4 @@ test('normal product entry signs in locally through actual React/native bridges 
     assert.ok(app.requests.every((request: any) => request.url.startsWith('https://standard-home.test')));
     assert.equal(app.requests.filter((request: any) => request.path === '/v1/sessions/current').length, 1, 'temporary account family is retired once, viewer stays');
   } finally {await app.unmount(); app.disposeLoader();}
-});
-
-
-test('the identity-code prompt keeps the complete address as typed and cannot display a claimed server name', async () => {
-  const {hooks, screenModule} = await import('./helpers/screen-harness.mjs');
-  const {defaultI18n} = await import('../../../packages/i18n/src');
-  const {createTheme} = await import('../src-next/kit/theme');
-  const {routeOrigin} = await import('../../../packages/client-core/src/route-identity');
-  const h = hooks(), typed = 'https://Media.Example.com:8443/';
-  const inspected: string[] = [];
-  class SignIn {
-    async inspect(address: string) {inspected.push(address); return undefined;}
-    needsIdentityCode() {return true;}
-    dispose() {}
-  }
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
-    react: h.react, 'react-native': {BackHandler: {}, NativeModules: {}, Platform: {isTV: false}, Text: 'Text', View: 'View'},
-    'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/client-core/src': {},
-    '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {routeOrigin},
-    '../../../../../packages/client-core/src/hosted-security': {}, '../../../../../packages/client-core/src/presentation/errors': {},
-    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {StateLayout: 'StateLayout'},
-    '../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../kit/artwork': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
-    '../../platform/accounts': {}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
-    '../../platform/server-connections': {}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
-  });
-  const render = () => h.render(() => AccountEntry({onComplete() {throw new Error('code has not matched');}, initialStage: 'address', initialAddress: typed}));
-  render().props.primaryAction.onPress();
-  await new Promise<void>(resolve => setImmediate(resolve));
-  const prompt = render();
-  assert.deepEqual(inspected, [typed]);
-  assert.equal(prompt.props.testID, 'accounts-identity-code');
-  assert.equal(prompt.props.title, `Check this is ${typed}`);
-});
-
-test('local TV consent names the verified server and the issuing service verification address', async () => {
-  const {hooks, screenModule} = await import('./helpers/screen-harness.mjs');
-  const {defaultI18n} = await import('../../../packages/i18n/src');
-  const {createTheme} = await import('../src-next/kit/theme');
-  const h = hooks(), server = {id: 'synthetic-server', name: 'Verified synthetic server', signIn: 'local'};
-  const verificationUri = 'https://verified.example/device';
-  let notify = () => {};
-  const service = {subscribe: (listener: () => void) => {notify = listener; return () => {};},
-    getSnapshot: () => ({phase: 'waiting', userCode: 'ABCD-EFGH', verificationUri, verificationUriComplete: verificationUri + '?code=ABCD-EFGH'}),
-    start: async () => {notify();}};
-  class SignIn {
-    async inspect() {return server;}
-    needsIdentityCode() {return false;}
-    async inspectLocalIdentity() {}
-    async confirmLocal() {}
-    serverDescriptor() {return server;}
-    localTVSignIn() {return service;}
-    dispose() {}
-  }
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
-    react: h.react, 'react-native': {BackHandler: {}, NativeModules: {}, Platform: {isTV: true}, Text: 'Text', View: 'View'},
-    'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/client-core/src': {},
-    '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {},
-    '../../../../../packages/client-core/src/hosted-security': {}, '../../../../../packages/client-core/src/presentation/errors': {},
-    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {StateLayout: 'StateLayout'},
-    '../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../kit/artwork': {}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})},
-    '../../platform/accounts': {}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {},
-    '../../platform/server-connections': {}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
-  });
-  const render = () => h.render(() => AccountEntry({onComplete() {throw new Error('consent is still pending');}, initialStage: 'address', initialAddress: 'https://verified.example'}));
-  render().props.primaryAction.onPress();
-  await new Promise<void>(resolve => setImmediate(resolve));
-  assert.equal(render().props.body, `On a phone signed in to ${server.name}, open Portico › Settings › Link a TV, or on a computer open ${verificationUri}.`);
 });

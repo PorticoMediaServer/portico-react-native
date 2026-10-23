@@ -124,7 +124,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
-      setIdentityAddress(origin);
+      setIdentityAddress(origin.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
       setServer(undefined); setIdentityCode(''); setIdentityWrong(false); setStage('identity-code'); return;
     }
     if (!value) throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -147,7 +147,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
   const failure = error ? presentError(error, 'sign-in') : undefined;
   const status = failure ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
-  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode, kicker?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} kicker={kicker} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
+  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (stage === 'welcome') return <StateLayout testID="accounts-welcome" title={t('web.signin.welcomeHome')} beforeActions={status}
     primaryAction={action('portico', t('accounts.signIn.portico'), portico)} secondaryAction={{id: 'local', label: t('accounts.signIn.local'), onPress: () => {setStage('address');}}}
     detailsAction={backAction}/>;
@@ -165,9 +165,9 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
       }}/>) }{status}</>}
     primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
     secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
-  if (stage === 'local') return layout(server!.name, t('accounts.signIn.localBody'), fields(field(t('accounts.signIn.username'), username, setUsername), field(t('accounts.signIn.password'), password, setPassword, true)),
-    action('local-sign-in', t('accounts.signIn.submit'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
-    <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>, <Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('accounts.signIn.to')}</Text>);
+  if (stage === 'local') return layout(server!.name, t('accounts.signIn.local'), fields(field(t('auth.username'), username, setUsername), field(t('auth.password'), password, setPassword, true)),
+    action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
+    <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);
   if (stage === 'factor') return layout(t('auth.enterVerificationCode'), undefined, fields(field(t('auth.verificationCode'), code, setCode)), action('factor', t('action.continue'), async () => {
     if (factorKind.current === 'portico') {await account.current!.factor(code); await directory();} else consume(await operation.current!.completeSecondFactor(code));
     setCode('');
@@ -204,10 +204,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} showTitle={false}
       onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>);
   if (stage === 'profile-pin') return layout(t('profile.pinTitle', {name: profile!.name}), undefined, fields(field(t('pin.fourDigit'), code, setCode, true)), action('profile-pin', t('action.continue'), () => choose(profile!.id, code), !/^\d{4}$/.test(code)));
-  const consentBody = server?.signIn === 'local'
-    ? tvState.verificationUri ? t('accounts.consent.local', {server: server.name, address: tvState.verificationUri}) : undefined
-    : t('accounts.consent.portico');
-  return layout(t('activation.title'), consentBody,
+  return layout(t('activation.title'), t(server?.signIn === 'local' ? 'accounts.consent.local' : 'accounts.consent.portico'),
     <View style={{gap: 16, marginBottom: 20}}>{tvState.verificationUriComplete && <QRCode value={tvState.verificationUriComplete} size={theme.isTV ? 240 : 180}/>}
       <Text selectable style={[theme.type.title, {color: theme.colors.text}]}>{tvState.userCode ?? t('activation.preparingCode')}</Text>
       {tvState.verificationUri && <Text selectable style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tvState.verificationUri}</Text>}

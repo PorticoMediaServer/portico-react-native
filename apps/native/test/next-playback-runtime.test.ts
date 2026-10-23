@@ -201,37 +201,6 @@ test('a start creates the actual queue and session and commands the native port 
   } finally { d.runtime.dispose(); }
 });
 
-test('whole-row Play and Shuffle send the complete captured selector rather than the preview cards', async () => {
-  const d = fixture(), signal = new AbortController().signal;
-  const query = {libraryId: '*', pivot: 'items', query: {all: [{field: 'homeRow', operator: 'equals' as const, value: 'continue'}]}, sort: [{field: 'groupOrder', direction: 'asc' as const}]};
-  try {
-    // The fixture backend resolves a real bounded container as its independent
-    // query evaluator; the native-to-API receipt below retains the exact query.
-    d.respond(request => request.method === 'POST' && request.path === routePath('create_queue') && record(request.body) && Array.isArray(request.body.segments)
-      ? d.server.handle({...request, body: {...request.body, segments: request.body.segments.map(segment => ({...segment, source: {container: {kind: 'show', id: 'episode-group'}}}))}})
-      : undefined);
-    for (const shuffle of [false, true]) {
-      await d.runtime.startGroup({query, shuffle, signal, isCurrent: () => true}); await settle();
-      const create = d.requests.filter(request => request.method === 'POST' && request.path === routePath('create_queue')).at(-1)!;
-      assert.deepEqual((create.body as any).segments, [{source: {query}, ...(shuffle ? {order: {mode: 'shuffle'}} : {})}]);
-      assert.equal(d.runtime.getSnapshot().queue.view?.total, 12, 'the backend resolves the entire grouping');
-      assert.ok(d.runtime.getSnapshot().fence);
-    }
-  } finally {d.runtime.dispose();}
-});
-
-test('whole-row late preparation cannot create a queue after its actual screen is retired', async () => {
-  const d = fixture(); let current = true;
-  try {
-    const query = {libraryId: '*', pivot: 'titles', query: {field: 'homeRow', operator: 'equals' as const, value: 'actual-row'}, sort: [{field: 'groupOrder', direction: 'asc' as const}]};
-    d.intercept(async request => {if (request.path === routePath('get_capabilities')) current = false;});
-    await assert.rejects(d.runtime.startGroup({query, shuffle: false, signal: new AbortController().signal, isCurrent: () => current}));
-    assert.equal(d.requests.some(request => request.path === routePath('create_queue')), false);
-    assert.equal(d.runtime.getSnapshot().fence, undefined);
-    await assert.rejects(d.runtime.startGroup({query, shuffle: false, signal: new AbortController().signal, isCurrent: () => false}));
-  } finally {d.runtime.dispose();}
-});
-
 test('pause, resume and a correlated seek change real engine commands, while stale fences do nothing', async () => {
   const d = fixture();
   try {
@@ -1512,24 +1481,4 @@ test('authority retirement during native fact delivery cannot expose old progres
     assert.equal(d.subscriptions, 0);
     assert.equal(ui.parentRenders, 1);
   } finally {await ui?.unmount(); d.runtime.dispose();}
-});
-
-
-test('the actual playback subject retains supplied display titles and otherwise keeps stored suffixes', async () => {
-  const d = fixture();
-  try {
-    await d.runtime.start({entry: {id: 'movie-1', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', displayTitle: 'Genuine supplied display title', playback: {itemId: 'movie-1'}}, target: {itemId: 'movie-1'}});
-    await settle();
-    const displayed = d.runtime.getSnapshot().subject;
-    assert.ok(displayed && 'item' in displayed);
-    assert.equal(displayed.item.title, 'Genuine supplied display title');
-    d.respond(request => request.path === '/v1/items/movie-2' ? {status: 200, headers: {}, body: {
-      id: 'movie-2', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', durationMs: 180000, progressMs: 0, available: true,
-    }} : undefined);
-    await d.runtime.start({entry: {id: 'movie-2', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', playback: {itemId: 'movie-2'}}, target: {itemId: 'movie-2'}});
-    await settle();
-    const stored = d.runtime.getSnapshot().subject;
-    assert.ok(stored && 'item' in stored);
-    assert.equal(stored.item.title, 'Stored title: Special Edition');
-  } finally {d.runtime.dispose();}
 });

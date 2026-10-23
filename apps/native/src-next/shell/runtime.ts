@@ -1,5 +1,4 @@
-import type {ReactNode, RefObject} from 'react';
-import type {View} from 'react-native';
+import type {ReactNode} from 'react';
 import type {Library} from '../../../../packages/client-core/src/index';
 import type {HomeService} from '../../../../packages/client-core/src/home-service';
 import type {HomeChannel, HomeCollection, HomeRow, HomeSeeAll} from '../../../../packages/client-core/src/home';
@@ -18,8 +17,6 @@ import type {NativeWatchOutletPort} from './watch-outlet';
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
   destination: ShellDestination;
-  railDestination?: ShellDestination;
-  contentVisible?: boolean;
   selectionActive: boolean;
   homeObscured: boolean;
   homeVisible: boolean;
@@ -28,19 +25,17 @@ export type NativeShellSnapshot = Readonly<{
   hasLiveTV: boolean;
   profile: ProfileOption;
   unreadNotifications: boolean;
-  serverName?: string;
-  unreadNotificationCount?: number;
   account: Pick<AccountMenuProps, 'accountLine' | 'actions' | 'profiles' | 'viewerRole' | 'serverAction'>;
 }>;
 
 export type NativeHomeActions = Readonly<{
   navigate: (entry: ContentEntry) => void;
   play: (entry: ContentEntry, target: NonNullable<ContentEntry['playback']>) => void;
-  more: (entry: ContentEntry, rowId?: string, anchorRef?: RefObject<View | null>) => void;
+  more: (entry: ContentEntry, rowId?: string) => void;
   myList: (entry: ContentEntry, selected: boolean) => Promise<void>;
   channel: (channel: HomeChannel) => void;
-  channelMore: (channel: HomeChannel, anchorRef?: RefObject<View | null>) => void;
-  collectionMore: (collection: HomeCollection, rowId: string, anchorRef?: RefObject<View | null>) => void;
+  channelMore: (channel: HomeChannel) => void;
+  collectionMore: (collection: HomeCollection, rowId: string) => void;
   seeAll: (destination: HomeSeeAll) => void;
   customize: () => void;
 }>;
@@ -56,13 +51,11 @@ export interface NativeShellRuntime {
   actions: NativeHomeActions;
   artwork: (path: string | undefined) => ArtworkSource | undefined;
   ambient: (path: string | undefined) => AmbientArtSource | undefined;
-  selection: (rowId: string) => LayoutSelection & {isMenuOpen?: (id: string) => boolean};
+  selection: (rowId: string) => LayoutSelection;
   setHomeWindow: (row: HomeRow, sectionOrder: number, first: number, last: number, visible: boolean, physicalIds?: readonly string[], retainedIds?: readonly string[], visibleIds?: readonly string[]) => void;
   homeMenuRow?: (windowId: string) => HomeRow | undefined;
   renderSelection: () => ReactNode;
   renderRoutes: () => ReactNode;
-  /** Retained content-level destinations share the shell canvas, below Rail. */
-  renderCanvasRoutes?: () => ReactNode;
   /** Persistent watch chrome above the one native picture surface. */
   renderWatch?: () => ReactNode;
   libraryMenu: (library: Library) => LibraryMenuProps;

@@ -11,7 +11,6 @@ import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../../pack
 import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
 import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
-import type {WholeGroupQuery} from '../../../../../packages/client-core/src/presentation/browse-groups';
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
@@ -41,7 +40,7 @@ const kindOf = (kind: string | undefined): DockPlayback['kind'] => kind === 'son
 const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubject => {
   const item = detail?.item, episode = item?.episode;
   const card: CardSubject = {
-    id: entry.id, kind: entry.kind, title: entry.displayTitle || entry.title,
+    id: entry.id, kind: entry.kind, title: entry.title,
     artist: item?.song?.artist ?? entry.artist?.name, album: item?.song?.albumTitle ?? entry.album?.name,
     author: entry.author, durationSeconds: entry.duration,
     ...(episode ? {show: {id: episode.showId, title: episode.showTitle}, episode: episode.numbering === 'date' ? {mode: 'date' as const, day: episode.airDate} : episode.numbering === 'absolute' ? {mode: 'absolute' as const, number: episode.number} : episode.numbering === 'special' ? {mode: 'special' as const} : {mode: 'seasonal' as const, season: episode.seasonNumber ?? undefined, episode: episode.number}} : entry.episodeNumber === undefined ? {} : {episode: {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber}}),
@@ -372,33 +371,6 @@ export class NativePlaybackRuntime {
       if (this.playback.getSnapshot().phase === 'error' || !this.playback.getSnapshot().session) throw new Error('channel_playback_failed');
     } catch (error) { close(); throw error; }
   }
-
-  startGroup = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
-    const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
-    if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
-    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
-    const scoped = this.selectionScope(input.signal, valid);
-    try {
-      this.connect();
-      await this.queue.cancel();
-      if (!valid()) throw new Error('native_group_retired');
-      await this.o.capabilitiesReady();
-      if (!valid()) throw new Error('native_group_retired');
-      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal);
-      if (!valid()) throw new Error('native_group_retired');
-      this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
-      this.rememberCurrent(); this.entry = undefined; this.subject = undefined; this.options = undefined;
-      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
-      await this.queue.playSegments([{source: {query: input.query}, ...(input.shuffle ? {order: {mode: 'shuffle' as const}} : {})}], {signal: scoped.signal, isCurrent: valid});
-      if (!valid()) throw new Error('native_group_retired');
-    } catch (error) {
-      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
-      throw error;
-    } finally {
-      scoped.close();
-      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
-    }
-  };
 
   start = async (input: NativePlaybackStart): Promise<void> => {
     this.connect();

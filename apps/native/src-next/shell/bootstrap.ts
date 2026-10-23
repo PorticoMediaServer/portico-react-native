@@ -51,9 +51,9 @@ export type NativeShellBootstrapContext = Readonly<{
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
-export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderCanvasRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
+export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
-  getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'contentVisible' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
+  getState: () => Pick<NativeShellSnapshot, 'destination' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
   subscribe: (listener: () => void) => () => void;
   dispose: () => void;
