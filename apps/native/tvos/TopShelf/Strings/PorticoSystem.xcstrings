@@ -914,6 +914,30 @@
         }
       }
     },
+    "next.home.customizeDescription" : {
+      "comment" : "next.home.customizeDescription. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which rows appear on Home, and in what order. This is only for this profile."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which rows appear on Home, and in what order. This is only for this profile."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which rows appear on Home, and in what order. This is only for this profile."
+          }
+        }
+      }
+    },
     "next.home.editSelection" : {
       "comment" : "next.home.editSelection. Generated from packages/i18n; do not edit.",
       "extractionState" : "manual",
@@ -934,6 +958,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Edit selected titles"
+          }
+        }
+      }
+    },
+    "next.home.keepEditing" : {
+      "comment" : "next.home.keepEditing. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep editing"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep editing"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep editing"
           }
         }
       }
@@ -962,6 +1010,78 @@
         }
       }
     },
+    "next.home.layoutChangedBody" : {
+      "comment" : "next.home.layoutChangedBody. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it to see the latest, then make your changes again."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it to see the latest, then make your changes again."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it to see the latest, then make your changes again."
+          }
+        }
+      }
+    },
+    "next.home.layoutChangedBodyCompact" : {
+      "comment" : "next.home.layoutChangedBodyCompact. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it, then make your changes again."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it, then make your changes again."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Home layout changed on another device after you opened this. Nothing was overwritten. Reload it, then make your changes again."
+          }
+        }
+      }
+    },
+    "next.home.layoutChangedTitle" : {
+      "comment" : "next.home.layoutChangedTitle. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home couldn’t be saved"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home couldn’t be saved"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home couldn’t be saved"
+          }
+        }
+      }
+    },
     "next.home.layoutConflict" : {
       "comment" : "next.home.layoutConflict. Generated from packages/i18n; do not edit.",
       "extractionState" : "manual",
@@ -982,6 +1102,174 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Home changed on another device. Refresh the layout before saving."
+          }
+        }
+      }
+    },
+    "next.home.layoutDropAction" : {
+      "comment" : "next.home.layoutDropAction. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop"
+          }
+        }
+      }
+    },
+    "next.home.layoutLoadFailedBody" : {
+      "comment" : "next.home.layoutLoadFailedBody. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The list of rows didn’t arrive. Try again."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The list of rows didn’t arrive. Try again."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The list of rows didn’t arrive. Try again."
+          }
+        }
+      }
+    },
+    "next.home.layoutMoveAction" : {
+      "comment" : "next.home.layoutMoveAction. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
+          }
+        }
+      }
+    },
+    "next.home.layoutMoveHint" : {
+      "comment" : "next.home.layoutMoveHint. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up and Down move it, Space drops it, Esc puts it back."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up and Down move it, Space drops it, Esc puts it back."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Up and Down move it, Space drops it, Esc puts it back."
+          }
+        }
+      }
+    },
+    "next.home.layoutPicked" : {
+      "comment" : "next.home.layoutPicked. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picked up {title}. Position {position} of {count}."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picked up {title}. Position {position} of {count}."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picked up {title}. Position {position} of {count}."
+          }
+        }
+      }
+    },
+    "next.home.layoutPutBackAction" : {
+      "comment" : "next.home.layoutPutBackAction. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put it back"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put it back"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Put it back"
+          }
+        }
+      }
+    },
+    "next.home.layoutTVInstruction" : {
+      "comment" : "next.home.layoutTVInstruction. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK picks a row up. Up and Down move it, OK drops it. Left and Right reach each row’s switch."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK picks a row up. Up and Down move it, OK drops it. Left and Right reach each row’s switch."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK picks a row up. Up and Down move it, OK drops it. Left and Right reach each row’s switch."
           }
         }
       }
@@ -1226,6 +1514,54 @@
         }
       }
     },
+    "next.home.noViewsBody" : {
+      "comment" : "next.home.noViewsBody. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save one from a library’s filters, then add it here."
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save one from a library’s filters, then add it here."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save one from a library’s filters, then add it here."
+          }
+        }
+      }
+    },
+    "next.home.noViewsTitle" : {
+      "comment" : "next.home.noViewsTitle. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No saved views to add"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No saved views to add"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No saved views to add"
+          }
+        }
+      }
+    },
     "next.home.onNow" : {
       "comment" : "next.home.onNow. Generated from packages/i18n; do not edit.",
       "extractionState" : "manual",
@@ -1414,6 +1750,30 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Recommended for you"
+          }
+        }
+      }
+    },
+    "next.home.reloadLayout" : {
+      "comment" : "next.home.reloadLayout. Generated from packages/i18n; do not edit.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload layout"
+          }
+        },
+        "en-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload layout"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload layout"
           }
         }
       }
