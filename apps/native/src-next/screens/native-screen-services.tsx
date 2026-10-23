@@ -16,9 +16,9 @@ export function nativeScreenServices(context: Owner): NativeScreenServices {
   let service = services.get(context);
   if (!service) {
     service = new NativeScreenServices(context, async () => {
-      const requestId = NativeModules.PorticoRuntime?.newRequestId;
-      if (typeof requestId !== 'function') throw new Error('native_request_id_unavailable');
-      return requestId();
+      const native = NativeModules.PorticoRuntime;
+      if (typeof native?.newRequestId !== 'function') throw new Error('native_request_id_unavailable');
+      return native.newRequestId();
     });
     services.set(context, service);
   }

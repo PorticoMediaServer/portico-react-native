@@ -18,8 +18,11 @@ export class NativeScreenServices {
   private sequence = 0;
   private off: () => void;
   private disposed = false;
+  private readonly owner: NativeScreenServicesOwner;
+  private readonly newRequestId: () => Promise<string>;
 
-  constructor(private readonly owner: NativeScreenServicesOwner, private readonly newRequestId: () => Promise<string>) {
+  constructor(owner: NativeScreenServicesOwner, newRequestId: () => Promise<string>) {
+    this.owner = owner; this.newRequestId = newRequestId;
     this.lifetime = new NativeScreenLifetime(owner);
     this.lifetime.assert();
     this.off = owner.subscribeAuthority(() => {if (!this.lifetime.current()) this.dispose();});
