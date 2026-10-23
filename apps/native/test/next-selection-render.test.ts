@@ -645,3 +645,128 @@ test('fitted footer accounting preserves no-footer, explicit detent, long-conten
     }
   } finally {state.theme = previousTheme; state.viewport = previousViewport;}
 });
+
+const flattenStyle = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flattenStyle)) : style ?? {};
+function withNativeControl(element: Element, inspect: (host: Element) => void) {
+  const mounted: ReturnType<typeof mount>[] = [];
+  try {
+    let current = element;
+    while (typeof current.type !== 'string') {
+      const instance = mount(current.type, current.props); mounted.push(instance); current = instance.tree as Element;
+    }
+    assert.equal(current.type, 'Pressable');
+    inspect(current);
+  } finally {for (const instance of mounted.reverse()) instance.host.unmount();}
+}
+
+test('Selection footer recipes reach actual buttons without changing other size classes or losing identity', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390, textScale: 1.25}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const instances: ReturnType<typeof mount>[] = [];
+      try {
+        instances.push(mount(BulkEditor, bulk({testID: 'footer.bulk'})));
+        instances.push(mount(DeleteMediaDialog, {testID: 'footer.delete', open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 1, preview: null, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}}));
+        instances.push(mount(MixedEditExplainer, {testID: 'footer.mixed', open: true, onOpenChange() {}, total: 0, groups: [], description: 'Actual explanation', onKeepOnly() {}}));
+        const wrapper = mount(PlaylistPicker, {testID: 'footer.picker', open: true, onOpenChange() {}, count: 1, selectionLabel: 'Actual selection', entries: [], creating: true, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onRetry() {}, onViewDestination() {}, onResultDismiss() {}});
+        instances.push(wrapper, mount((wrapper.tree as Element).type, (wrapper.tree as Element).props));
+        const phone = state.theme.platform === 'phone', tv = state.theme.isTV;
+        for (const instance of instances.filter(item => item !== wrapper)) {
+          const surface = ofType(instance.tree, SelectionSurface)[0]!;
+          for (const button of ofType(surface.props.footer, Button)) withNativeControl(button, host => {
+            const style = flattenStyle(host.props.style({pressed: false}));
+            assert.equal(host.props.testID, button.props.testID);
+            assert.equal(host.props.accessibilityRole, 'button');
+            assert.equal(!!host.props.disabled, !!button.props.disabled || !!button.props.loading);
+            assert.equal(style.height, phone ? 48 : tv ? 64 : 46);
+            assert.equal(style.paddingHorizontal, phone ? 20 : 26);
+            assert.equal(style.borderRadius, phone ? 10 : tv ? 14 : 12);
+            const content = host.props.children({pressed: false});
+            const label = ofType(content, 'Text')[0]!;
+            assert.equal(flattenStyle(label.props.style).fontSize, (phone ? 15.5 : tv ? 22 : 15) * state.theme.textScale);
+            assert.equal(text(label), text(button.props.children));
+          });
+        }
+      } finally {for (const instance of instances.reverse()) instance.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('phone receipt rows stay contiguous while retaining every outcome and the failed-only retry', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const calls: unknown[] = [];
+      const editor = mount(BulkEditor, bulk({result: {updated: 1, failed: 1, results: [{kind: 'item', id: 'a', ok: true}, {kind: 'item', id: 'b', ok: false, code: 'metadata_conflict'}]}, onRetry: ids => calls.push(ids)}));
+      try {
+        const rows = elements(editor.tree).find(node => Array.isArray(node.props.children) && node.props.children.length === 2 && node.props.children.every((child: any) => React.isValidElement<Record<string, any>>(child) && flattenStyle(child.props.style).paddingVertical === 9))!;
+        assert.ok(rows);
+        assert.equal(flattenStyle(rows.props.style).gap, state.theme.isTV ? 6 : 0);
+        assert.match(text(rows), /Actual saved title/); assert.match(text(rows), /Actual failed title/);
+        assert.match(text(rows), /Someone else changed this title/);
+        ofType((editor.tree as Element).props.footer, Button).at(-1)!.props.onPress();
+        assert.deepEqual(calls, [['b']]);
+      } finally {editor.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('phone Delete separates full-width helper copy while preserving the real switch and confirmation gate', () => {
+  const previous = state.theme; state.theme = createTheme({isTV: false, width: 390});
+  const calls: unknown[] = [];
+  const preview = {revision: 7, confirmation: 'Actual title', confirmationKind: 'title' as const, totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]};
+  const props: DeleteMediaDialogProps = {testID: 'phone.delete.helper', open: true, onOpenChange() {}, ownerHeader: null, owner: true, selectionCount: 1, preview, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange: value => calls.push(value), onDelete: (...args) => calls.push(args)};
+  const dialog = mount(DeleteMediaDialog, props);
+  try {
+    const toggle = ofType(dialog.tree, Switch)[0]!;
+    assert.equal(toggle.props.description, undefined);
+    const help = ofType(dialog.tree, SelectionText).find(node => node.props.size === 12 && text(node) === toggle.props.accessibilityHint)!;
+    assert.ok(help, 'helper remains outside the switch copy column');
+    assert.equal(toggle.props.accessibilityLabel, text(toggle.props.children));
+    assert.equal(toggle.props.style.minHeight, 26); assert.equal(toggle.props.style.paddingVertical, 0);
+    assert.equal(flattenStyle((dialog.tree as Element).props.footer.props.style).paddingHorizontal, 4);
+    const control = mount(Switch, toggle.props);
+    try {withNativeControl(control.tree as Element, host => {
+      assert.equal(host.props.testID, controlID(props.testID, 'remove-files'));
+      assert.equal(host.props.accessibilityRole, 'switch');
+      assert.equal(host.props.accessibilityState.checked, true);
+      assert.equal(host.props.accessibilityHint, text(help));
+      host.props.onPress({});
+    });} finally {control.host.unmount();}
+    assert.deepEqual(calls, [false]);
+    let remove = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+    assert.equal(remove.props.disabled, true); remove.props.onPress(); assert.deepEqual(calls, [false]);
+    dialog.update({...props, confirmation: preview.confirmation, removeFiles: false});
+    assert.match(text(dialog.tree), /The next scan finds the files again/);
+    remove = ofType((dialog.tree as Element).props.footer, Button).at(-1)!;
+    assert.equal(remove.props.disabled, false); remove.props.onPress(); assert.deepEqual(calls, [false, [preview, preview.confirmation, false]]);
+    dialog.update({...props, pending: true}); assert.equal(ofType(dialog.tree, Switch)[0]!.props.disabled, true);
+    dialog.update({...props, owner: false}); assert.equal(dialog.tree, null);
+  } finally {dialog.host.unmount(); state.theme = previous;}
+});
+
+test('phone Search uses the pinned heading and helper line boxes without changing other StateView recipes', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390, textScale: 1.25}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const view = mount(StateView, {variant: 'search', title: 'Actual no matches', body: 'Actual query explanation', icon: 'i-clock'});
+      try {
+        const [title, body] = ofType(view.tree, 'Text'), phone = state.theme.platform === 'phone', tv = state.theme.isTV, scale = state.theme.textScale;
+        const heading = flattenStyle(title!.props.style), helper = flattenStyle(body!.props.style);
+        assert.equal(heading.fontSize, (phone ? 24 : tv ? 44 : 22) * scale);
+        assert.ok(Math.abs(heading.lineHeight - (phone ? 27.6 : tv ? 47.52 : 26.4) * scale) < .0001);
+        assert.equal(helper.fontSize, (phone ? 14.5 : tv ? 24 : 14) * scale);
+        if (phone) {
+          assert.equal(helper.lineHeight, 21.75 * scale); assert.equal(helper.marginBottom, 0);
+          assert.equal(heading.includeFontPadding, false); assert.equal(helper.includeFontPadding, false);
+          assert.equal(heading.marginBottom, 6); assert.equal(heading.textAlign, 'left');
+        } else {assert.equal(heading.includeFontPadding, undefined); assert.equal(helper.includeFontPadding, undefined);}
+        assert.match(text(view.tree), /Actual no matches/); assert.match(text(view.tree), /Actual query explanation/);
+        assert.equal(ofType(view.tree, Icon).length, tv ? 1 : 0);
+      } finally {view.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
