@@ -99,3 +99,22 @@ test('primary and text Buttons still have no blur dependency', async () => {
     for (const variant of ['primary', 'text'] as const) assert.equal(actual.render(variant, {focused: false, hovered: false, pressed: false}).filter(node => node.type === 'BlurView').length, 0);
   }
 });
+
+test('explicit glyph color reaches leading, trailing and loading glyphs without changing labels or defaults', async () => {
+  const state = {focused: false, hovered: false, pressed: false};
+  for (const os of ['android', 'ios'] as const) for (const tv of [false, true]) {
+    const actual = await button(os, tv);
+    for (const variant of ['primary', 'text', 'glass', 'icon'] as const) for (const loading of [false, true]) {
+      const props = {loading, icon: 'i-server', trailingIcon: 'i-right', textStyle: {color: '#9e9e9e'}};
+      const defaultNodes = elements(actual.host(variant, props).props.children(state));
+      const nodes = elements(actual.host(variant, {...props, iconColor: '#828282'}).props.children(state));
+      const glyphs = nodes.filter(node => node.type === 'Icon' || node.type === 'ActivityIndicator');
+      assert.equal(glyphs.length, 2); assert.ok(glyphs.every(node => node.props.color === '#828282'));
+      const foreground = variant === 'primary' ? actual.theme.colors.ink : variant === 'text' ? actual.theme.colors.accentStrong : actual.theme.colors.text;
+      assert.ok(defaultNodes.filter(node => node.type === 'Icon' || node.type === 'ActivityIndicator').every(node => node.props.color === foreground));
+      assert.deepEqual(nodes.filter(node => node.type === 'Text').map(node => flatten(node.props.style)), defaultNodes.filter(node => node.type === 'Text').map(node => flatten(node.props.style)));
+      assert.ok(nodes.filter(node => node.type === 'Text').every(node => flatten(node.props.style).color === '#9e9e9e'));
+      assert.equal(Object.hasOwn(actual.host(variant, {iconColor: '#828282'}).props, 'iconColor'), false, 'the presentation prop never leaks to Focusable');
+    }
+  }
+});
