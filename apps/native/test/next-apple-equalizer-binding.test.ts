@@ -5,10 +5,11 @@ import * as store from '../platform/equalizer-store.ts';
 
 const flat = () => Array<number>(10).fill(0);
 const nativeValue = (eqEnabled = false, eqPreampDb = 0, eqBands = flat()) => ({eqEnabled, eqPreampDb, eqBands, sampleRateMatching: 'strict', outputSampleRate: 48000, bitPerfectVerified: false});
-async function binding(native?: Record<string, unknown>) {
+type AppleEqualizer = typeof import('../platform/equalizer.ios').nativeEqualizer;
+async function binding(native?: Record<string, unknown>): Promise<AppleEqualizer> {
   return (await screenModule(new URL('../platform/equalizer.ios.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeModules: {PorticoPlaybackModule: native}}, './equalizer-store': store,
-  })).nativeEqualizer as store.DeviceEqualizerStore;
+  })).nativeEqualizer as AppleEqualizer;
 }
 
 test('Apple binds only all three installed native commands, without fabricating a saved record', async () => {
