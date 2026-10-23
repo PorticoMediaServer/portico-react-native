@@ -732,7 +732,7 @@ test('phone picker fits its continuous body to the authored action inset above t
   state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
   const wrapper = mount(PlaylistPicker, {testID: 'phone.picker.flow', open: true, onOpenChange() {}, count: 4, entries: [], creating: true, onCreatingChange() {}, name: 'Actual name', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
   const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
-  const surface = mount(SelectionSurface, (picker.tree as Element).props);
+  const surface = mount(SelectionSurface, ofType(picker.tree, SelectionSurface)[0]!.props);
   const sheet = mount(BottomSheet, (surface.tree as Element).props);
   const panel = () => elements(sheet.tree).find(node => node.props.testID === 'phone.picker.flow')!;
   const header = () => ofType(sheet.tree, 'GestureDetector')[0]!.props.children;
