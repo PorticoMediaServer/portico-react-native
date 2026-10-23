@@ -17,7 +17,7 @@ test('selection toggles by the caller identity and never starts playback or navi
   activateCard(actions);
   holdCard(actions, false);
   holdCard(actions, true);
-  assert.deepEqual(calls, ['toggle:item-id', 'enter:item-id', 'menu']);
+  assert.deepEqual(calls, ['toggle:item-id', 'toggle:item-id', 'menu']);
 });
 
 test('TV menu remains a menu even when selection is active, and never invents Select', () => {
@@ -43,4 +43,13 @@ test('unknown and nonfinite progress stays unknown; measured fractions remain bo
   assert.equal(cardProgress(0), 0);
   assert.equal(cardProgress(0.38), 0.38);
   assert.equal(cardProgress(3), 1);
+});
+
+
+test('Q6 an unselected touch card opens More without entering selection', () => {
+  const calls: string[] = [];
+  holdCard({onNavigate() {}, onMore: () => calls.push('more'), selection: {
+    active: false, selected: false, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter'),
+  }}, false);
+  assert.deepEqual(calls, ['more']);
 });
