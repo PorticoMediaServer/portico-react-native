@@ -128,5 +128,5 @@ export function HomeSavedViewChoices({views, i18n, onChoose, firstRef}: {views: 
       <View style={{width: theme.isTV ? 52 : 36, height: theme.isTV ? 52 : 36, borderRadius: theme.isTV ? 13 : 9, alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.text}1A`}}><Icon name="i-filter" size={theme.isTV ? 28 : 20} color={theme.colors.textSecondary}/></View><View style={{flex: 1}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{view.name}</Text>
       {!!view.summary && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{view.summary}</Text>}</View>
-    </Focusable>)}{!eligible.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{i18n.t('home.customize.noViews')}</Text>}</ScrollView>;
+    </Focusable>)}{!eligible.length && <View style={{paddingVertical: 24}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{i18n.t('next.home.noViewsTitle')}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 8}]}>{i18n.t('next.home.noViewsBody')}</Text></View>}</ScrollView>;
 }

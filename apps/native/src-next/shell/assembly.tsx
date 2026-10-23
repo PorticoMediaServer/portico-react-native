@@ -20,6 +20,7 @@ import {nativeAccountMenu} from './account';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeRailDestination, titleRoute, type NativeShellRoute} from './routes';
 import {createNativeHomeRows} from './HomeRowDestination';
+import {createNativeHomeCustomization} from './HomeCustomizeDestination';
 import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
@@ -185,10 +186,17 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     registerSpotlights(document.spotlight); reconcileWindows(); publish();
   };
   const rowDestinations = createNativeHomeRows(context, reportError);
+  const customization = createNativeHomeCustomization(context, {
+    title: t('home.customize.action'), instruction: t(Platform.isTV ? 'next.home.layoutTVInstruction' : 'home.customize.subtitle'),
+    alwaysOn: t('home.customize.alwaysOn'), addView: t('home.customize.addView'), reset: t('action.reset'), save: t('action.save'),
+    conflictTitle: t('next.home.layoutChangedTitle'), conflictBody: t('next.home.layoutChangedBodyCompact'),
+    reload: t('next.home.reloadLayout'), keepEditing: t('next.home.keepEditing'),
+    move: t('next.home.layoutMoveAction'), drop: t('next.home.layoutDropAction'), putBack: t('next.home.layoutPutBackAction'),
+  });
   const scopeForServices = {serverId: scope.serverId, viewerId: JSON.stringify([scope.authority, scope.accountId, scope.profileId])};
   const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
   const cleanups = [context.home.subscribe(onDocument), controller.subscribe(() => {if (capturedMenu?.menu !== controller.getSnapshot().menu) capturedMenu = undefined; publish();}), context.navigation.subscribe(() => {
-    controller.clear(); rowDestinations.reconcile();
+    controller.clear(); rowDestinations.reconcile(); customization.reconcile();
     if (currentHome()) onDocument();
     publish();
   }), nativeShellRoutes.subscribe(publish)];
@@ -280,8 +288,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     homeMenuRow: id => [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.row,
     renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays anchorRef={capturedMenu?.menu === controller.getSnapshot().menu ? capturedMenu?.anchorRef : undefined} controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
-    renderCanvasRoutes: () => runtime && context.current() ? rowDestinations.render(runtime) : null,
-    renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' || rowDestinations.owns(route) ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
+    renderCanvasRoutes: () => runtime && context.current() ? <>{rowDestinations.render(runtime)}{customization.render(runtime)}</> : null,
+    renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' || rowDestinations.owns(route) || customization.owns(route) ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
     renderDestination: destination => render({kind: 'shell', destination}),
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
     libraryMenu: library => {
@@ -302,6 +310,6 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); rowDestinations.dispose(); management?.dispose(); scroll.clear(); capturedMenu = undefined; toast = null; runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); rowDestinations.dispose(); customization.dispose(); management?.dispose(); scroll.clear(); capturedMenu = undefined; toast = null; runtime = undefined; listeners.clear();},
   };
 }
