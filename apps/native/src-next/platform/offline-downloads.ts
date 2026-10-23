@@ -2,12 +2,12 @@ import {offlineDownloads, offlineOwnerKey, type OfflineDownloads, type OfflineEn
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 
 export {groupOfflineEntries} from '../../platform/offline-downloads';
-export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup} from '../../platform/offline-downloads';
+export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts} from '../../platform/offline-downloads';
 
 /** The shell alone binds the current viewer/server through adopt/connect/disconnect. */
 export {offlineDownloads};
 
-type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'note' | 'localMedia'>;
+type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
   getSnapshot: DeviceDownloads['getSnapshot'];
   subscribe: DeviceDownloads['subscribe'];
@@ -18,6 +18,8 @@ export type NativeOfflineDownloadsAdapter = Readonly<{
   remove: (entry: OfflineEntry) => Promise<void>;
   removeOthers: () => Promise<void>;
   playable: (entry: OfflineEntry) => string;
+  playabilityReason: (entry:OfflineEntry) => ReturnType<DeviceDownloads['playabilityReason']>;
+  displayFacts: DeviceDownloads['displayFacts'];
   note: (entry: OfflineEntry) => string;
   localMedia: DeviceDownloads['localMedia'];
   openOffline: (entry: OfflineEntry) => Promise<void>;
@@ -45,8 +47,14 @@ export function createNativeOfflineDownloadsAdapter(
     remove: entry => device.remove(current(entry)),
     removeOthers: () => device.removeOthers(),
     playable: entry => device.playable(current(entry)),
+    playabilityReason: entry => device.playabilityReason(current(entry)),
+    displayFacts: async entry => {const facts=await device.displayFacts(current(entry));current(entry);return facts;},
     note: entry => device.note(current(entry)),
-    localMedia: entry => device.localMedia(current(entry)),
+    localMedia: async entry => {
+      const media=await device.localMedia(current(entry));
+      const reason=device.playable(current(entry));if(reason)throw new Error(reason);
+      return media;
+    },
     openOffline: async entry => {
       const live = current(entry), reason = device.playable(live);
       if (reason) throw new Error(reason);

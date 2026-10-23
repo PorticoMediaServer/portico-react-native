@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, type TextInput} from 'react-native';
+import {ScrollView, Share, Text, View, type TextInput} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {MediaItem} from '../../../../../packages/client-core/src';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
@@ -7,7 +7,7 @@ import {encodedRoutePath} from '../../../../../packages/contracts/src/routes';
 import {groupTargetPositionUs, type GroupHostAuthority} from '../../../../../packages/client-core/src/social-playback';
 import {Button, Focusable, TextField} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
-import {Dialog, Banner} from '../../kit/overlays';
+import {Dialog, Banner, Menu} from '../../kit/overlays';
 import {Artwork} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
@@ -57,7 +57,7 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
         {state.directory.length > 0 && <View style={{width: theme.isTV ? 1180 : '100%', marginTop: theme.isTV ? 40 : 28, gap: 12}}>
           <ScreenText secondary>{t('web.together.yourGroups')}</ScreenText>
           {state.directory.map(value => <Focusable key={value.id} focusId={`group:${value.id}`} testID={`together-group-${value.id}`} accessibilityRole="button" accessibilityLabel={value.name} onPress={() => run(() => controller.open(value.id))} focusKind="row" style={{padding: theme.isTV ? 24 : 16, borderRadius: 16, backgroundColor: theme.colors.raised, flexDirection: 'row', alignItems: 'center', gap: 20}}>
-            <Icon name="i-people" size={theme.isTV ? 40 : 24}/><View style={{flex: 1, gap: 8}}><ScreenText>{value.name}</ScreenText><ScreenText secondary>{t('web.together.groupLine', {count: value.members.filter(member => member.state === 'joined').length, state: t(value.timeline.state === 'playing' ? 'web.together.state.playing' : value.timeline.state === 'paused' ? 'web.downloads.state.paused' : 'web.together.state.lobby')})}</ScreenText></View>{value.permissions.isHost && <ScreenText secondary>{t('web.together.youHost')}</ScreenText>}<Icon name="i-right" size={24}/>
+            <Icon name="i-people" size={theme.isTV ? 40 : 24}/><View style={{flex: 1, gap: 8}}><ScreenText>{value.name}</ScreenText><SpacedStatus text={t('web.together.groupLine', {count: value.members.filter(member => member.state === 'joined').length, state: t(value.timeline.state === 'playing' ? 'web.together.state.playing' : value.timeline.state === 'paused' ? 'web.downloads.state.paused' : 'web.together.state.lobby')})}/></View>{value.permissions.isHost && <ScreenText secondary>{t('web.together.youHost')}</ScreenText>}<Icon name="i-right" size={24}/>
           </Focusable>)}
         </View>}
       </FocusRegion>
@@ -75,10 +75,13 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
 }
 
 function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = defaultI18n.t, service = controller.service;
+  const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), group = state.group!;
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
   const [items, setItems] = useState<Readonly<Record<string, MediaItem | null>>>({}), [confirm, setConfirm] = useState<'end' | 'leave'>();
+  const [memberMenu, setMemberMenu] = useState<string>(), [queueMenu, setQueueMenu] = useState<string>();
+  const menuReturn = useRef<View | null>(null), memberRefs = useRef(new Map<string, View>()), queueRefs = useRef(new Map<string, View>());
+  const [clock, setClock] = useState(controller.serverNow);
   const cancel = useRef<View>(null), endRef = useRef<View>(null), leaveRef = useRef<View>(null);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), region = ids.surface('together.room');
   const canControl = group.permissions.canControl, playing = group.timeline.state === 'playing';
@@ -89,42 +92,61 @@ function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherC
     for (const id of JSON.parse(key) as string[]) void controller.lifetime.request(signal => ports.context.api.request(encodedRoutePath('get_items_id', {id: encodeURIComponent(id)}), 'GET', undefined, signal).then(parseMediaItem)).then(item => {if (active) setItems(value => ({...value, [id]: item}));}, () => {if (active && controller.lifetime.current()) setItems(value => ({...value, [id]: null}));});
     return () => {active = false;};
   }, [key, controller, ports]);
-  useEffect(() => {void service.refreshQueue();}, [service, group.queueRevision]);
+  useEffect(() => {void controller.refreshQueue().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime, group.queueRevision]);
+  useEffect(() => {const timer = setInterval(() => setClock(controller.serverNow()), 1000); return () => clearInterval(timer);}, [controller]);
   const run = (work: () => Promise<unknown>) => {controller.lifetime.assert(); void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   const now = group.timeline.itemId ? items[group.timeline.itemId] : undefined;
   const title = !group.timeline.itemId ? t(group.timeline.currentEntryId ? 'web.together.hiddenTitle' : 'web.together.nothingChosen') : now === null ? t('web.together.hiddenTitle') : now?.title ?? t('web.together.loadingTitle');
   const art = now?.backdropUrl ? runtime.artwork(now.backdropUrl) : undefined;
   const members = group.members.filter(value => value.state === 'joined');
+  const hostDeadline = group.timeline.state === 'playing' ? group.host.pauseAt : group.host.endAt;
+  const hostCountdown = hostDeadline ? defaultI18n.clock(Math.max(0, Math.ceil((Date.parse(hostDeadline) - clock) / 1000))) : undefined;
   return <Screen title={t('entry.group.together')}>
     <Text style={[shellType(theme.isTV ? 60 : 32, 800), {color: theme.colors.text, marginBottom: 32, marginHorizontal: theme.isTV ? 0 : 20}]}>{group.name}</Text>
     <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 64}}>
       {state.error && <Banner message={state.error} tone="warning"/>}
+      {state.phase === 'reconnecting' && <Banner message={t('web.together.reconnecting')} tone="warning"/>}
+      {group.host.presence !== 'connected' && <Banner message={[t('web.together.hostDropped'), hostCountdown ? t(group.timeline.state === 'playing' ? 'web.together.pausesIn' : 'web.together.endsIn', {time: hostCountdown}) : undefined].filter(Boolean).join(' ')} tone="warning"/>}
+      {state.refused && group.permissions.isHost && canControl && <Banner message={t('web.together.refused')} tone="warning" action={{label: t('web.together.goAhead'), onPress: () => run(() => controller.transport(state.refused!.command, {...state.refused!.input, allowUnavailable: true}))}}/>}
       <FocusRegion id={region} entry={canControl && group.timeline.itemId ? 'transport' : 'leave'} edges={{left: ids.rail}} onLayout={enter}>
         <View style={{flexDirection: theme.isTV || theme.width >= 700 ? 'row' : 'column', gap: theme.isTV ? 96 : 24}}>
           <View style={{flex: 1, gap: 22}}>
             <View style={{borderRadius: 22, overflow: 'hidden', minHeight: theme.isTV ? 300 : 180, justifyContent: 'flex-end', padding: 30, backgroundColor: theme.colors.raised}}>
               {art && <View style={{position: 'absolute', inset: 0, opacity: .35}}><Artwork source={art}/></View>}
-              <ScreenText secondary>{t(playing ? 'web.together.state.playing' : 'web.downloads.state.paused')}</ScreenText><Text style={[shellType(theme.isTV ? 40 : 25, 800), {color: theme.colors.text, marginVertical: 12}]}>{title}</Text>
-              {now?.duration && <ScreenText secondary>{t('web.together.positionOf', {position: defaultI18n.clock(Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), service.serverNow()) / 1000000n)), duration: defaultI18n.clock(now.duration)})}</ScreenText>}
-              <ScreenText secondary>{group.readiness.aggregate === 'ready' ? t('web.together.allReady') : t('web.together.waiting', {ready: group.readiness.ready, total: group.readiness.memberCount, count: group.readiness.buffering + group.readiness.lagging + group.readiness.stale})}</ScreenText>
+              <ScreenText secondary>{t(group.host.presence !== 'connected' ? 'web.together.state.hostReconnecting' : playing ? 'web.together.state.playing' : 'web.downloads.state.paused')}</ScreenText><Text style={[shellType(theme.isTV ? 40 : 25, 800), {color: theme.colors.text, marginVertical: 12}]}>{title}</Text>
+              {now?.duration && <ScreenText secondary>{t('web.together.positionOf', {position: defaultI18n.clock(Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), clock) / 1000000n)), duration: defaultI18n.clock(now.duration)})}</ScreenText>}
+              <SpacedStatus text={group.readiness.aggregate === 'ready' ? t('web.together.allReady') : t('web.together.waiting', {ready: group.readiness.ready, total: group.readiness.memberCount, count: group.readiness.buffering + group.readiness.lagging + group.readiness.stale})}/>
             </View>
-            <View style={{flexDirection: 'row', gap: 18}}>{canControl && group.timeline.currentEntryId && <Button focusId="transport" testID="together-transport" icon={playing ? 'i-pause' : 'i-play'} disabled={state.busy} onPress={() => run(() => service.transport(playing ? 'pause' : 'play'))}>{t(playing ? 'web.together.pauseAll' : 'web.together.playAll')}</Button>}
+            <View style={{flexDirection: 'row', gap: 18}}>{canControl && group.timeline.currentEntryId && <Button focusId="transport" testID="together-transport" icon={playing ? 'i-pause' : 'i-play'} disabled={state.busy} onPress={() => run(() => controller.transport(playing ? 'pause' : 'play'))}>{t(playing ? 'web.together.pauseAll' : 'web.together.playAll')}</Button>}
               {playback.fence && playback.playback.itemId === group.timeline.itemId && <Button testID="together-open-player" variant="glass" icon="i-tv" onPress={() => {controller.lifetime.assert(); const current = ports.context.playback.getSnapshot(); if (current.fence && current.playback.itemId === group.timeline.itemId) ports.context.playback.open(current.fence);}}>{t('web.together.openPlayer')}</Button>}
             </View>
+            {!canControl && <ScreenText secondary>{t('web.together.pill.hostControls')}</ScreenText>}
             <ScreenText secondary>{t('player.queue')}</ScreenText>
-            {(state.queue?.entries ?? []).map(value => <View key={value.entryId} style={{backgroundColor: theme.colors.raised, borderRadius: 12, padding: 18}}><ScreenText>{value.unavailable || !value.itemId || items[value.itemId] === null ? t('web.together.notAvailable') : items[value.itemId]?.title ?? t('web.together.loadingTitle')}</ScreenText></View>)}
-            <View style={{flexDirection: 'row', gap: 18, marginTop: 36}}><Button ref={leaveRef} focusId="leave" testID="together-leave" variant="glass" onPress={() => group.permissions.isHost && members.length > 1 ? setConfirm('leave') : run(() => service.leave())}>{t('web.together.leave')}</Button>{group.permissions.isHost && <Button ref={endRef} testID="together-end" variant="glass" onPress={() => setConfirm('end')}>{t('web.together.endAll')}</Button>}</View>
+            {!state.queue?.entries.length && <ScreenText secondary>{t(group.permissions.canManageQueue ? 'web.together.emptyQueueHost' : 'web.together.emptyQueue')}</ScreenText>}
+            {(state.queue?.entries ?? []).map(value => <Focusable key={value.entryId} ref={node => {if (node) queueRefs.current.set(value.entryId, node); else queueRefs.current.delete(value.entryId);}} testID={`together-queue-${value.entryId}`} accessibilityRole={group.permissions.canManageQueue || canControl ? 'button' : 'text'} accessibilityLabel={value.unavailable || !value.itemId || items[value.itemId] === null ? t('web.together.notAvailable') : items[value.itemId]?.title ?? t('web.together.loadingTitle')} onPress={group.permissions.canManageQueue || canControl ? () => {menuReturn.current = queueRefs.current.get(value.entryId) ?? null; setQueueMenu(value.entryId);} : undefined} focusKind="row" style={{backgroundColor: theme.colors.raised, borderRadius: 12, padding: 18}}><ScreenText>{value.unavailable || !value.itemId || items[value.itemId] === null ? t('web.together.notAvailable') : items[value.itemId]?.title ?? t('web.together.loadingTitle')}</ScreenText></Focusable>)}
+            <View style={{flexDirection: 'row', gap: 18, marginTop: 36}}><Button ref={leaveRef} focusId="leave" testID="together-leave" variant="glass" onPress={() => group.permissions.isHost && members.length > 1 ? setConfirm('leave') : run(() => controller.leave())}>{t('web.together.leave')}</Button>{group.permissions.isHost && <Button ref={endRef} testID="together-end" variant="glass" onPress={() => setConfirm('end')}>{t('web.together.endAll')}</Button>}</View>
           </View>
           <View style={{width: theme.isTV ? 680 : theme.width >= 700 ? 340 : '100%', gap: 18}}><ScreenText secondary>{t('web.together.people', {count: members.length})}</ScreenText>
-            <View style={{backgroundColor: theme.colors.raised, borderRadius: 20, overflow: 'hidden'}}>{members.map(member => <View key={member.id} style={{flexDirection: 'row', padding: 20, gap: 16, alignItems: 'center'}}><Icon name="i-user" size={32}/><View style={{flex: 1}}><ScreenText>{member.private ? t('together.privateViewer') : member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}</ScreenText>{member.role === 'host' && <ScreenText secondary>{t('web.together.pill.host')}</ScreenText>}</View><ScreenText secondary>{t(member.presence !== 'connected' ? 'web.together.away' : member.readiness === 'ready' ? 'web.together.inStep' : 'web.together.catchingUp')}</ScreenText></View>)}</View>
+            <View style={{backgroundColor: theme.colors.raised, borderRadius: 20, overflow: 'hidden'}}>{members.map(member => <Focusable key={member.id} ref={node => {if (node) memberRefs.current.set(member.id, node); else memberRefs.current.delete(member.id);}} testID={`together-member-${member.id}`} accessibilityRole={group.permissions.isHost && member.role !== 'host' && member.presence === 'connected' && member.readiness === 'ready' ? 'button' : 'text'} accessibilityLabel={member.private ? t('together.privateViewer') : member.displayName} onPress={group.permissions.isHost && member.role !== 'host' && member.presence === 'connected' && member.readiness === 'ready' ? () => {menuReturn.current = memberRefs.current.get(member.id) ?? null; setMemberMenu(member.id);} : undefined} focusKind="row" style={{flexDirection: 'row', padding: 20, gap: 16, alignItems: 'center'}}><Icon name="i-user" size={32}/><View style={{flex: 1}}><ScreenText>{member.private ? t('together.privateViewer') : member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}</ScreenText>{member.role === 'host' && <ScreenText secondary>{t('web.together.pill.host')}</ScreenText>}</View><ScreenText secondary>{t(member.presence !== 'connected' ? 'web.together.away' : member.readiness === 'ready' ? 'web.together.inStep' : member.readiness === 'buffering' ? 'web.together.loading' : 'web.together.catchingUp')}</ScreenText></Focusable>)}</View>
             {group.permissions.isHost && <><ScreenText secondary>{t('web.together.invite')}</ScreenText><View style={{backgroundColor: theme.colors.raised, padding: 30, borderRadius: 20, gap: 18}}>
-              {state.invite && Date.parse(state.invite.expiresAt) > service.serverNow() && <><Text style={[shellType(theme.isTV ? 70 : 34, 800), {color: theme.colors.text, letterSpacing: 8}]}>{state.invite.code.slice(0, 4)} {state.invite.code.slice(4)}</Text><ScreenText secondary>{t('web.together.inviteHelpJoin', {uses: state.invite.maxUses, time: defaultI18n.time(state.invite.expiresAt)})}</ScreenText></>}
-              <Button variant="glass" testID="together-new-code" disabled={state.busy} onPress={() => run(() => service.invite())}>{t(state.invite ? 'web.together.newCode' : 'web.together.getCode')}</Button>
+              {state.invite && Date.parse(state.invite.expiresAt) > clock && state.invite.uses < state.invite.maxUses && <><Text style={[shellType(theme.isTV ? 70 : 34, 800), {color: theme.colors.text, letterSpacing: 8}]}>{state.invite.code.slice(0, 4)} {state.invite.code.slice(4)}</Text><ScreenText secondary>{t('web.together.inviteHelpJoin', {uses: state.invite.maxUses - state.invite.uses, time: defaultI18n.time(state.invite.expiresAt)})}</ScreenText></>}
+              {!theme.isTV && state.invite && Date.parse(state.invite.expiresAt) > clock && state.invite.uses < state.invite.maxUses && <Button variant="glass" testID="together-share-code" onPress={() => {controller.lifetime.assert(); void Share.share({message: state.invite!.code}).catch(runtime.reportError);}}>{t('web.together.shareCode')}</Button>}
+              <Button variant="glass" testID="together-new-code" disabled={state.busy} onPress={() => run(() => controller.invite())}>{t(state.invite ? 'web.together.newCode' : 'web.together.getCode')}</Button>
             </View></>}
           </View>
         </View>
       </FocusRegion>
     </ScrollView>
-    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {await (confirm === 'end' ? service.end() : service.leave()); if (controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
+    <Menu testID="together-member-menu" open={memberMenu !== undefined} onOpenChange={open => {if (!open) setMemberMenu(undefined);}} title={members.find(member => member.id === memberMenu)?.private ? t('together.privateViewer') : members.find(member => member.id === memberMenu)?.displayName} presentation={theme.isTV ? 'sideSheet' : 'sheet'} returnFocusRef={menuReturn} items={memberMenu && group.permissions.isHost && members.some(member => member.id === memberMenu && member.role !== 'host' && member.presence === 'connected' && member.readiness === 'ready') ? [{id: 'host', label: t('web.together.makeHost'), disabled: state.busy, onSelect: () => run(() => controller.makeHost(memberMenu))}] : []}/>
+    <Menu testID="together-queue-menu" open={queueMenu !== undefined} onOpenChange={open => {if (!open) setQueueMenu(undefined);}} title={queueMenu ? items[state.queue?.entries.find(value => value.entryId === queueMenu)?.itemId ?? '']?.title ?? t('web.together.notAvailable') : undefined} presentation={theme.isTV ? 'sideSheet' : 'sheet'} returnFocusRef={menuReturn} items={queueMenu ? [
+      ...(canControl && state.queue?.entries.some(value => value.entryId === queueMenu && !value.unavailable && !!value.itemId) ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => run(() => controller.transport('load', {entryId: queueMenu}))}] : []),
+      ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => run(() => controller.queueRemove(queueMenu))}] : []),
+    ] : []}/>
+    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const ended = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (ended && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
   </Screen>;
+}
+
+/** The approved frames separate these catalogue facts with space, never a middle dot. */
+function SpacedStatus({text}: {text: string}) {
+  return <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 16}}>{text.split(' · ').map((part, index) => <ScreenText secondary key={index}>{part}</ScreenText>)}</View>;
 }

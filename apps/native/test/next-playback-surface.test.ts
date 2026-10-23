@@ -10,7 +10,8 @@ import {screenModule} from './helpers/screen-harness.mjs';
 
 // Runs the real factory/Surface and PlayerMorph with controlled native hosts,
 // external-store delivery and animation callbacks. This is prop/lifecycle proof;
-// Android layout, SurfaceFlinger visibility and pixels require device evidence.
+// Native layout, AVPlayerLayer/SurfaceFlinger visibility and pixels require
+// platform runtime evidence; controlled Images are not native decoded frames.
 const fence: PlaybackFence = {kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1},
   sessionId: 'session', sourceId: 'source', itemId: 'item', entryId: 'entry', generation: 1};
 const frame = {x: 0, y: 0, width: 1920, height: 1080};
@@ -120,7 +121,7 @@ test('a leased native host stays hidden for missing or invalid target bounds', a
     surface.update({...props, docked: true});
     assert.equal(flatten(surface.tree.props.style).display, 'none');
     assert.equal(surface.tree.props.surfaceActive, false);
-    for (const bounds of [{...frame, width: 0}, {...frame, height: -1}, {...frame, x: NaN}, {...frame, width: Infinity}]) {
+    for (const bounds of [undefined, {...frame, width: 0}, {...frame, height: -1}, {...frame, x: NaN}, {...frame, width: Infinity}]) {
       surface.update({...props, expandedBounds: bounds});
       assert.equal(flatten(surface.tree.props.style).display, 'none');
       assert.equal(surface.tree.props.surfaceActive, false);
@@ -267,28 +268,29 @@ async function postureMorphFixture(os: string, image?: {fence: PlaybackFence; im
     './morph-fence': {currentMorphFence}, './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
   });
   const child = React.createElement('PersistentNativeSurface'), controller = {progress: {value: 0}, velocity: {value: 0}, dragging: {value: false}};
-  const props = {controller, fence, docked: false, fullFrame: frame, dockFrame, androidSnapshot: image, prepareLayout,
+  const props = {controller, fence, docked: false, fullFrame: frame, dockFrame, retainedSnapshot: image, prepareLayout,
     children: (context: any) => {contexts.push(context); return child;}};
   const morph = mount(PlayerMorph, props);
   return {morph, props, contexts, reactions, fades, child};
 }
 
-test('same-fence geometry settles without a progress/dock event and fades once on Apple', async () => {
+test('Apple geometry without a decoded cover settles with live composition and no blanking fade', async () => {
   const d = await postureMorphFixture('ios'), next = {x: 0, y: 0, width: 890, height: 626};
   try {
     await act(() => d.morph.update({...d.props, fullFrame: next}));
     assert.deepEqual(d.contexts.at(-1).bounds, next);
     assert.equal(d.contexts.at(-1).surfaceActive, true);
     assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
-    assert.equal(d.fades.length, 1);
-    assert.equal(d.fades[0]!.duration, 250);
+    assert.equal(d.fades.length, 0);
+    assert.equal(flatten(d.morph.tree.props.children[0].props.style).opacity, 1);
     await act(() => d.morph.update({...d.props, fullFrame: {...next}}));
-    assert.equal(d.fades.length, 1, 'equal geometry cannot re-arm the consumed cross-fade');
+    assert.equal(d.fades.length, 0);
   } finally {d.morph.host.unmount();}
 });
 
-test('Android suppresses live composition only under a current-fence snapshot and restores it beneath one outgoing fade', async () => {
-  const image = {fence, image: React.createElement('CapturedFrame'), ready: true}, d = await postureMorphFixture('android', image);
+for (const os of ['android', 'ios']) {
+test(`${os} suppresses live composition only under a current-fence snapshot and restores it beneath one outgoing fade`, async () => {
+  const image = {fence, image: React.createElement('CapturedFrame'), ready: true}, d = await postureMorphFixture(os, image);
   try {
     const reaction = d.reactions.at(-1)!;
     d.props.controller.progress.value = .4; d.props.controller.velocity.value = .2;
@@ -302,17 +304,17 @@ test('Android suppresses live composition only under a current-fence snapshot an
     await act(() => d.fades[0]!.finish!(true));
     assert.equal(d.contexts.at(-1).moving, false);
     assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
-    await act(() => d.morph.update({...d.props, androidSnapshot: {...image, fence: {...fence, generation: 2}}}));
+    await act(() => d.morph.update({...d.props, retainedSnapshot: {...image, fence: {...fence, generation: 2}}}));
     d.props.controller.progress.value = .4; d.props.controller.velocity.value = .2;
     await act(() => d.reactions.at(-1)!({active: true, p: .4, v: .2, drag: false, goal: 0}, {active: true, p: 0, v: 0, drag: false, goal: 0}));
     assert.equal(d.contexts.at(-1).surfaceActive, true, 'a stale snapshot cannot hide the live producer');
   } finally {d.morph.host.unmount();}
 });
 
-test('Android geometry preparation keeps live video until capture is usable', async () => {
+test(`${os} geometry preparation keeps live video until capture is usable`, async () => {
     let ready!: () => void, requests = 0;
     const prepared = new Promise<void>(resolve => {ready = resolve;});
-    const d = await postureMorphFixture('android', undefined, async source => {assert.ok(sameFence(source, fence)); requests++; await prepared;});
+    const d = await postureMorphFixture(os, undefined, async source => {assert.ok(sameFence(source, fence)); requests++; await prepared;});
     const next = {x: 0, y: 0, width: 890, height: 626};
     try {
       await act(() => d.morph.update({...d.props, fullFrame: next}));
@@ -322,12 +324,12 @@ test('Android geometry preparation keeps live video until capture is usable', as
       await act(() => d.reactions.at(-1)!({active: true, p: 0, v: 0, drag: false, goal: 0}, null));
       assert.deepEqual(d.contexts.at(-1).bounds, frame, 'a first settled reaction cannot bypass capture');
       await act(async () => {
-        d.morph.update({...d.props, fullFrame: next, androidSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: false}});
+        d.morph.update({...d.props, fullFrame: next, retainedSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: false}});
         ready(); await prepared;
       });
       assert.deepEqual(d.contexts.at(-1).bounds, frame, 'capture completion alone is not image readiness');
       assert.equal(d.contexts.at(-1).surfaceActive, true);
-      await act(() => d.morph.update({...d.props, fullFrame: next, androidSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: true}}));
+      await act(() => d.morph.update({...d.props, fullFrame: next, retainedSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: true}}));
       assert.deepEqual(d.contexts.at(-1).bounds, next);
       assert.equal(d.contexts.at(-1).surfaceActive, true);
       assert.equal(d.fades.length, 1);
@@ -335,8 +337,12 @@ test('Android geometry preparation keeps live video until capture is usable', as
       await act(() => d.fades[0]!.finish!(true));
       assert.equal(d.contexts.at(-1).moving, false);
       assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
+      await act(() => d.morph.update({...d.props, fullFrame: {...next}, retainedSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: true}}));
+      assert.equal(d.fades.length, 1, 'equal geometry cannot re-arm the consumed one-pass fade');
     } finally {ready(); d.morph.host.unmount();}
 });
+
+}
 
 test('foldable9 omits geometry cross-fades entirely with reduced motion', async () => {
   for (const os of ['android', 'ios']) {
@@ -353,8 +359,25 @@ test('foldable9 omits geometry cross-fades entirely with reduced motion', async 
   }
 });
 
-test('failed geometry capture settles with live composition, and late preparation cannot resize a replacement source', async () => {
-  const d = await postureMorphFixture('android', undefined, async () => {throw new Error('capture unavailable');});
+for (const os of ['android', 'ios']) {
+  test(`${os} an image decode error cannot suppress live composition or start a cover fade`, async () => {
+    const image = {fence, image: React.createElement('CapturedFrame'), ready: false};
+    const d = await postureMorphFixture(os, image, async () => {}), next = {x: 0, y: 0, width: 890, height: 626};
+    try {
+      await act(() => d.morph.update({...d.props, fullFrame: next}));
+      assert.equal(d.contexts.at(-1).surfaceActive, true);
+      assert.deepEqual(d.contexts.at(-1).bounds, frame);
+      await act(() => d.morph.update({...d.props, fullFrame: next, retainedSnapshot: {...image, failed: true}}));
+      assert.deepEqual(d.contexts.at(-1).bounds, next);
+      assert.equal(d.contexts.at(-1).surfaceActive, true);
+      assert.equal(flatten(d.morph.tree.props.children[0].props.style).opacity, 1);
+      assert.equal(d.fades.length, 0);
+      assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
+    } finally {d.morph.host.unmount();}
+  });
+
+test(`${os} failed geometry capture stays live and late preparation cannot resize a replacement source`, async () => {
+  const d = await postureMorphFixture(os, undefined, async () => {throw new Error('capture unavailable');});
   const next = {x: 0, y: 0, width: 890, height: 626};
   try {
     await act(async () => {d.morph.update({...d.props, fullFrame: next}); await Promise.resolve(); await Promise.resolve();});
@@ -364,7 +387,7 @@ test('failed geometry capture settles with live composition, and late preparatio
   } finally {d.morph.host.unmount();}
   let ready!: () => void;
   const wait = new Promise<void>(resolve => {ready = resolve;});
-  const late = await postureMorphFixture('android', undefined, () => wait);
+  const late = await postureMorphFixture(os, undefined, () => wait);
   try {
     await act(() => late.morph.update({...late.props, fullFrame: next}));
     const replacement = {...fence, sessionId: 'replacement', generation: 2};
@@ -375,6 +398,8 @@ test('failed geometry capture settles with live composition, and late preparatio
     assert.equal(late.fades.length, 0);
   } finally {ready(); late.morph.host.unmount();}
 });
+
+}
 
 test('PlayerMorph projects close to its existing wrapper/child and rejects late settlement from the closed source', async () => {
   const reactions: ((value: any, previous: any) => void)[] = [];

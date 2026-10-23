@@ -1,6 +1,6 @@
 import {NativeModules, Platform} from 'react-native';
 import {installationIdentity, setInstallationIdentity, validInstallationId, type InstallationIdentity} from '../../../../packages/client-core/src/installation';
-import {readNativeSession, nativeConnectionEnvironment} from './session';
+import {readNativeSession, nativeSelectedConnectionEnvironment} from './session';
 import {profileInstallation} from './profile-trust';
 
 let generation = 0;
@@ -49,7 +49,8 @@ export function beginNativeInstallation(signal?: AbortSignal) {
     const id = saved.installation;
     if (!validInstallationId(id)) throw invalid();
     if (claim && claim.installationId !== id) throw mismatch();
-    const connection = await nativeConnectionEnvironment.storage.read(); assertCurrent();
+    const env = nativeSelectedConnectionEnvironment();
+    const connection = await env.storage.read(); assertCurrent();
     // A saved family may never be rebound to the current install after a reset or damaged read.
     for (const session of [saved.viewer?.session, connection?.session]) {
       if (session?.installationId !== undefined && session.installationId !== id) throw mismatch();
@@ -63,7 +64,7 @@ export function beginNativeInstallation(signal?: AbortSignal) {
     setInstallationIdentity({installationId: id, ...metadata, platform, app: 'Portico'});
     claim = installationIdentity();
     if (!claim) throw invalid();
-    return {saved, connection, identity: claim};
+    return {saved, connection, env, identity: claim};
   }
   return {prepare: () => preparing ??= prepare(), current, dispose};
 }

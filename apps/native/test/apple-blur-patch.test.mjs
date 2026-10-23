@@ -109,7 +109,7 @@ test('npm hook and both Apple Podfile entry paths run the same cwd-independent s
   cpSync(join(app, 'scripts/patch-apple-blur.mjs'), join(scripts, 'patch-apple-blur.mjs'));
   cpSync(join(app, 'scripts/patches'), join(scripts, 'patches'), {recursive: true});
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  assert.equal(manifest.scripts.postinstall, 'node scripts/patch-apple-blur.mjs');
+  assert.equal(manifest.scripts.postinstall.split(' && ')[0], 'node scripts/patch-apple-blur.mjs');
   for (const platform of ['ios', 'tvos']) {
     const podfile = readFileSync(join(app, platform, 'Podfile'), 'utf8');
     const invocation = "Pod::Executable.execute_command('node', [File.expand_path('../scripts/patch-apple-blur.mjs', __dir__)])";

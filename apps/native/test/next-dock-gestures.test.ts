@@ -6,6 +6,7 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
+import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import {act, createHookHost} from './hook-driver.ts';
@@ -105,6 +106,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)}, './playback': {nativeShellBackTransition: () => undefined},
+    './watch-slot-layout': watchSlotLayout,
     './video-snapshot': {NativeVideoSnapshotCapture: class {matches() {return true;} async clear() {} async prepare() {}}},
   });
   const runtime = {reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};
@@ -287,7 +289,7 @@ test('horizontal drag/fade transforms the actual common ancestor of chrome, Surf
     assert.equal(chrome.transform[0].translateX, 0, 'shared motion is applied once'); assert.equal(chrome.opacity, 1);
     const surface = elements(r.pictureTree).find(node => node.type === r.Surface); assert.ok(surface);
     await r.tick(); r.controller().dragging.value = true; r.controller().progress.value = .5;
-    await r.picture({androidSnapshot: {fence, image: 'last-frame'}}); await r.tick();
+    await r.picture({retainedSnapshot: {fence, image: 'last-frame'}}); await r.tick();
     assert.ok(elements(r.pictureTree).some(node => node.type === 'AnimatedView' && node.props.children === 'last-frame'));
     pan.callbacks.onEnd(horizontal, true); const fade = r.animations.filter(value => value.to === 0 && value.complete).at(-1)!;
     fade.apply?.(); assert.equal(read().opacity, 0);
@@ -350,7 +352,7 @@ for (const docked of [false, true]) for (const snapshotDuringProgress of [false,
       assert.equal(progress.owner.value, docked ? .6 : .4, 'first transition reaction observes intermediate progress, never the endpoint');
       if (snapshotDuringProgress) {
         r.dock.update({...r.dock.getSnapshot().local!, positionSeconds: 81}); await r.render();
-        await r.picture({androidSnapshot: {fence, image: 'actual-source-last-frame'}});
+        await r.picture({retainedSnapshot: {fence, image: 'actual-source-last-frame'}});
       }
       assert.equal(fadeCount(), count, `snapshot=${snapshotDuringProgress}: intermediate progress cannot reset opacity`);
       assert.equal(fade.owner.value, .65);
@@ -409,7 +411,7 @@ async function pausedCancel() {
   await r.layout();
   for (const animation of r.animations) if (!animation.cancelled) animation.apply?.();
   await r.motionTick(0);
-  await r.picture({androidSnapshot: {fence, image: 'paused-current-frame', ready: true}});
+  await r.picture({retainedSnapshot: {fence, image: 'paused-current-frame', ready: true}});
   const parentRenders = r.parentRenders, presentations = r.presentations.length;
   const surface = elements(r.pictureTree).find(node => node.type === r.Surface);
   const pan = () => elements(r.barTree).find(node => node.type === 'GestureDetector').props.gesture.gestures[1];
