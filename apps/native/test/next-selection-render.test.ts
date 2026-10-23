@@ -649,7 +649,13 @@ test('States link and inline recipes retain real actions and avoid inventing sur
   const inline=mount(StateView,{variant:'search',title:'Actual no matches',body:'Actual query explanation',icon:'i-clock'});
   try {
     const action=elements(layout.tree).find(n=>n.props.action?.id==='switch')!; assert.equal(action.props.action.trailingIcon,undefined); assert.equal(action.props.style.alignSelf,'center'); action.props.action.onPress(); assert.deepEqual(calls,['switch']);
+    assert.equal(action.props.iconColor, state.theme.colors.textSecondary);
+    const link = mount(action.type, action.props);
+    try {assert.equal(ofType(link.tree, Button)[0]!.props.iconColor, state.theme.colors.textSecondary);} finally {link.host.unmount();}
     assert.equal(ofType(inline.tree,Icon).length,0); assert.match(text(inline.tree),/Actual query explanation/); assert.doesNotMatch(text(inline.tree),/Recent searches/);
+    state.theme = createTheme({isTV: true, width: 1920});
+    layout.update({title: 'Actual TV state', detailsAction: action.props.action});
+    assert.equal(elements(layout.tree).find(node => node.props.action?.id === 'switch')!.props.iconColor, undefined, 'TV retains its existing button glyph colour');
   } finally {layout.host.unmount();inline.host.unmount();state.theme=previous;}
 });
 
