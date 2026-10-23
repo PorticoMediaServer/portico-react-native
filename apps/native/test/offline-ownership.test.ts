@@ -170,7 +170,7 @@ async function bridge(): Promise<typeof OfflineModule> {
   device.reset();
   extraStore.clear();
   crypto.accept = () => true;
-  previousBridge = (await import('../src/bridge/offline-downloads.ts?v=' + Math.random())) as typeof OfflineModule;
+  previousBridge = (await import('../platform/offline-downloads.ts?v=' + Math.random())) as typeof OfflineModule;
   return previousBridge;
 }
 /** `connect` starts a 60-second interval; nothing may be left running. */

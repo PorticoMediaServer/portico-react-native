@@ -111,40 +111,34 @@ function mount(component: any, initial: any, contexts: [any, unknown][] = []) {
 }
 const find = (tree: ReactNode, type: unknown) => nodes(tree).find(node => node.type === type)!;
 
-test('a real phone hold measures its point, selects once and cancels all pending animation frames', t => {
+test('Q6 a real touch hold opens More once, suppresses release, and cancels on scrolling', t => {
   state.theme = createTheme({isTV: false, width: 390});
-  const frames = new Map<number, FrameRequestCallback>(), cancelled: number[] = [];
-  let sequence = 0, now = 100;
-  t.mock.method(performance, 'now', () => now);
-  const originalRequest = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
-  const originalCancel = Object.getOwnPropertyDescriptor(globalThis, 'cancelAnimationFrame');
-  Object.assign(globalThis, {
-    requestAnimationFrame: (callback: FrameRequestCallback) => {frames.set(++sequence, callback); return sequence;},
-    cancelAnimationFrame: (id: number) => {cancelled.push(id); frames.delete(id);},
-  });
-  t.after(() => {
-    if (originalRequest) Object.defineProperty(globalThis, 'requestAnimationFrame', originalRequest); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
-    if (originalCancel) Object.defineProperty(globalThis, 'cancelAnimationFrame', originalCancel); else Reflect.deleteProperty(globalThis, 'cancelAnimationFrame');
-  });
+  t.mock.timers.enable({apis: ['setTimeout']});
   const actions: string[] = [], touches: unknown[] = [];
-  const card = mount(CardFrame, {title: 'Actual title', onNavigate: () => actions.push('navigate'), onMore: () => actions.push('more'),
+  const props = {title: 'Actual title', onNavigate: () => actions.push('navigate'), onMore: () => actions.push('more'),
     selection: {active: false, selected: false, onEnter: () => actions.push('enter'), onToggle: () => actions.push('toggle')},
-    onTouchMove: (event: unknown) => touches.push(event), children: () => null});
+    onTouchMove: (event: unknown) => touches.push(event), children: () => null};
+  const card = mount(CardFrame, props);
+  const point = (x: number, y: number) => ({nativeEvent: {pageX: x, pageY: y, touches: [{}]}});
   try {
     let press = find(card.tree, 'Pressable');
-    assert.equal(press.props.delayLongPress, 500);
-    press.props.onPressIn({nativeEvent: {locationX: 22, locationY: 40}}); card.host.flush();
+    assert.equal(press.props.onLongPress, undefined);
+    press.props.onTouchStart(point(20, 30)); card.host.flush();
+    assert.equal(find(card.tree, SelectionHoldFeedback).props.active, true);
     assert.equal(find(card.tree, SelectionHoldFeedback).props.progress, 0);
-    now = 350; frames.get(sequence)!(now); card.host.flush();
-    assert.equal(find(card.tree, SelectionHoldFeedback).props.progress, .5);
-    const moved = {nativeEvent: {locationX: 30, locationY: 50}};
-    find(card.tree, 'Pressable').props.onTouchMove(moved); card.host.flush();
-    assert.equal(find(card.tree, SelectionHoldFeedback).props.style.left, -12.5); assert.equal(touches[0], moved);
-    press = find(card.tree, 'Pressable'); press.props.onLongPress(); card.host.flush(); press.props.onPress();
-    assert.deepEqual(actions, ['enter']); assert.equal(find(card.tree, SelectionHoldFeedback), undefined);
-    assert.ok(cancelled.length > 0);
-    find(card.tree, 'Pressable').props.onPressIn({nativeEvent: {locationX: 1, locationY: 2}}); card.host.flush();
-    const pending = sequence; card.host.unmount(); assert.ok(cancelled.includes(pending));
+    t.mock.timers.tick(499); assert.deepEqual(actions, []);
+    t.mock.timers.tick(1); card.host.flush();
+    assert.deepEqual(actions, ['more']); assert.equal(find(card.tree, SelectionHoldFeedback).props.progress, 1);
+    press = find(card.tree, 'Pressable'); press.props.onTouchEnd(point(20, 30)); press.props.onPressOut(); press.props.onPress();
+    assert.deepEqual(actions, ['more']);
+    press.props.onTouchStart(point(20, 30)); const moved = point(31, 30); press.props.onTouchMove(moved); card.host.flush();
+    assert.equal(touches[0], moved); t.mock.timers.tick(500); press.props.onPress();
+    assert.deepEqual(actions, ['more']); assert.equal(find(card.tree, SelectionHoldFeedback).props.active, false);
+    card.update({...props, selection: {...props.selection, active: true}});
+    find(card.tree, 'Pressable').props.onTouchStart(point(20, 30)); t.mock.timers.tick(500); card.host.flush();
+    assert.deepEqual(actions, ['more', 'toggle']);
+    find(card.tree, 'Pressable').props.onTouchStart(point(0, 0)); card.host.unmount(); t.mock.timers.tick(500);
+    assert.deepEqual(actions, ['more', 'toggle']);
   } finally {card.host.unmount();}
 });
 
@@ -533,4 +527,25 @@ test('F13 separate Tabs and Segmented groups fence shared semantic values and pr
       firstTarget.host.unmount(); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
     } finally {firstTarget.host.unmount(); secondTarget.host.unmount();}
   } finally {a.host.unmount(); b.host.unmount(); explicit.host.unmount(); scope.unmount();}
+});
+
+
+test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without changing account defaults', () => {
+  const props = {title: 'Actual title', open: true, width: 420, onOpenChange() {}, anchorRef: {current: {measureInWindow(run: any) {run(100, 100, 150, 225);}}}, items: [{id: 'play', label: 'Play', onSelect() {}}]};
+  state.theme = createTheme({isTV: false, width: 820});
+  const touch = mount(Menu, {...props, touchContext: true});
+  try {
+    const surface = find(touch.tree, Popover);
+    assert.equal(surface.props.touchContext, true); assert.equal(surface.props.modal, true); assert.equal(surface.props.backdropOpacity, .58);
+    assert.equal(surface.props.width, 300);
+  } finally {touch.host.unmount();}
+  const account = mount(Menu, props);
+  try {assert.equal(find(account.tree, Popover).props.touchContext, false); assert.equal(find(account.tree, Popover).props.width, 420);} finally {account.host.unmount();}
+  state.theme = createTheme({isTV: false, width: 390});
+  const compact = mount(Menu, {...props, touchContext: true});
+  try {
+    const sheet = nodes(compact.tree).find(node => node.props.fitContent === true)!;
+    assert.equal(sheet.props.backdropOpacity, .58);
+    assert.equal(sheet.props.width, undefined);
+  } finally {compact.host.unmount();}
 });
