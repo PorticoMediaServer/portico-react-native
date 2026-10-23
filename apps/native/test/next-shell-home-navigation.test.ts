@@ -98,3 +98,22 @@ test('activation never admits a different library or retired viewer, and title r
   assert.equal(routes.top({kind: 'library', libraryId: 'movies'}, authority), false);
   routes.dispose();
 });
+
+
+test('nested destinations restore the actual retained origin of a non-shell page', () => {
+  const navigation = new NativeShellNavigation(authority, () => authority);
+  const seeAll = {kind: 'home-see-all' as const, destination: {type: 'row' as const, rowId: 'continue'}};
+  navigation.open(seeAll, authority);
+  navigation.open(titleRoute({id: 'film', libraryId: 'movies', kind: 'movie', title: 'Actual film'}), authority);
+  navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'movies'}}, authority);
+  assert.strictEqual(navigation.retainedRoutes()[1], seeAll, 'retain the genuine screen object while a title or another section is shown');
+  navigation.back(authority);
+  assert.equal(navigation.getSnapshot().route.kind, 'title');
+  assert.deepEqual(navigation.getSnapshot().destination, {kind: 'home'});
+  navigation.back(authority);
+  assert.strictEqual(navigation.getSnapshot().route, seeAll);
+  assert.deepEqual(navigation.getSnapshot().destination, {kind: 'home'});
+  assert.equal(navigation.getIntent(), 'restore');
+  navigation.dispose();
+  assert.deepEqual(navigation.retainedRoutes(), []);
+});

@@ -53,7 +53,7 @@ export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: 
 /** One authority lifetime and one history. Async callers must retain the authority they read. */
 export class NativeShellNavigation {
   private snapshot: NativeRouteSnapshot;
-  private history: NativeShellRoute[] = [];
+  private history: Readonly<{route: NativeShellRoute; destination: ShellDestination}>[] = [];
   private listeners = new Set<() => void>();
   private alive = true;
   private intent: NativeDestinationIntent = 'enter';
@@ -66,6 +66,8 @@ export class NativeShellNavigation {
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
   getIntent = (): NativeDestinationIntent => this.intent;
+  /** Exact private route objects still in this authority's actual history. */
+  retainedRoutes = (): readonly NativeShellRoute[] => this.isCurrent() ? [...this.history.map(value => value.route), this.snapshot.route] : [];
   isCurrent = (): boolean => this.current(this.snapshot.authority);
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private current(authority: ShellAuthority): boolean {
@@ -73,24 +75,24 @@ export class NativeShellNavigation {
   }
   open(route: NativeShellRoute, expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority)) return false;
-    this.history.push(this.snapshot.route);
+    this.history.push({route: this.snapshot.route, destination: this.snapshot.destination});
     this.publish(route, 'enter');
     return true;
   }
   back(expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority)) return false;
-    const route = this.history.pop();
-    if (!route) return false;
-    this.publish(route, 'restore');
+    const previous = this.history.pop();
+    if (!previous) return false;
+    this.publish(previous.route, 'restore', previous.destination);
     return true;
   }
   top(destination: ShellDestination, expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority) || this.snapshot.route.kind !== 'shell' || !sameDestination(destination, this.snapshot.route.destination)) return false;
     this.publish(this.snapshot.route, 'top'); return true;
   }
-  private publish(route: NativeShellRoute, intent: NativeDestinationIntent): void {
+  private publish(route: NativeShellRoute, intent: NativeDestinationIntent, destination = this.snapshot.destination): void {
     this.intent = intent;
-    this.snapshot = Object.freeze({...this.snapshot, route, destination: route.kind === 'shell' ? route.destination : this.snapshot.destination, revision: this.snapshot.revision + 1});
+    this.snapshot = Object.freeze({...this.snapshot, route, destination: route.kind === 'shell' ? route.destination : destination, revision: this.snapshot.revision + 1});
     for (const listener of [...this.listeners]) listener();
   }
   dispose(): void {

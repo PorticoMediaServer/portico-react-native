@@ -1,6 +1,6 @@
 import type {BrowseFieldCapability, BrowseNode, BrowseOperator} from '../../../../../packages/client-core/src/browse';
 import {filterValuesField, rangePresets} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
-import type {FilterFieldValue} from '../../kit/browse';
+import type {FilterFieldValue, FilterValueSelection} from '../../kit/browse/types';
 
 /** Only predicates wholly owned by this control can be replaced. A compound
  * across other fields remains intact, with its independent removal affordance. */
@@ -10,6 +10,19 @@ export function nativeRowFilterField(node: BrowseNode): string | undefined {
   const children = 'all' in node ? node.all : node.any;
   const field = children.length ? nativeRowFilterField(children[0]) : undefined;
   return field && children.every(child => nativeRowFilterField(child) === field) ? field : undefined;
+}
+
+/** Decode a negative-only facet as the drawn None mode, so editing a second
+ * value does not accidentally turn the first selection into a positive match. */
+export function nativeRowFilterValues(field: BrowseFieldCapability, filters: readonly BrowseNode[]): FilterValueSelection {
+  const target = filterValuesField(field).field;
+  const own = filters.filter(node => nativeRowFilterField(node) === target);
+  const leaves = (node: BrowseNode): readonly Extract<BrowseNode, {field: string}>[] => 'field' in node ? [node] : 'not' in node ? [] : ('all' in node ? node.all : node.any).flatMap(leaves);
+  const strings = (nodes: readonly Extract<BrowseNode, {field: string}>[]) => nodes.flatMap(node => Array.isArray(node.value) ? node.value.filter((value): value is string => typeof value === 'string') : []);
+  const direct = own.flatMap(leaves), negative = own.flatMap(node => 'not' in node ? leaves(node.not) : []);
+  const included = strings(direct), excluded = strings(negative);
+  return !included.length && excluded.length ? {kind: 'values', included: excluded, excluded: [], mode: 'none'}
+    : {kind: 'values', included, excluded, mode: direct.some(node => node.operator === 'contains-all') ? 'all' : 'any'};
 }
 
 export function nativeRowFilterChange(field: BrowseFieldCapability, value: FilterFieldValue, filters: readonly BrowseNode[], now: Date): readonly BrowseNode[] {

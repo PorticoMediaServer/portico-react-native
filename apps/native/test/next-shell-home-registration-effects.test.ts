@@ -20,7 +20,7 @@ import * as homeModel from '../src-next/screens/home/model';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
-import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import * as rowState from '../src-next/kit/layout/row-state';
 
@@ -65,12 +65,12 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
-    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute},
+    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './HomeRowDestination': {createNativeHomeRows: () => ({reconcile() {}, owns() {return false;}, render() {return null;}, dispose() {}})}, './routes': {nativeRailDestination, titleRoute},
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': homeModel,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),
-    account: {account: {role: 'member'}}, api: {}, events: {on: () => () => {}}, navigation,
+    libraries: () => [], account: {account: {role: 'member'}}, api: {}, events: {on: () => () => {}}, navigation,
     playback: {selectionPlayback: () => ({play() {throw new Error('unexpected playback');}, enqueue() {throw new Error('unexpected queue');}, playChannel() {throw new Error('unexpected channel');}}), getSnapshot: () => ({dock: {local: null}})}});
   const listeners = new Set<() => void>();
   let revision = 0, snapshot = {...bindings.getState(), authority, libraries: [], mediaExpanded: false, revision};

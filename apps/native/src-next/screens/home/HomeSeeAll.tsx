@@ -32,7 +32,7 @@ export function homeBrowseLabel(value: {id: string; labelKey?: string}): string 
 export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen, onPlayEntry, onMenu, onFilters, onReshuffle, kindLabel, selection}: {
   controller: NativeHomeRowController; runtime: NativeShellRuntime; active: boolean;
   onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry) => void; onPlayEntry: (entry: ContentEntry) => void;
-  onMenu: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
+  onMenu?: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
@@ -86,16 +86,16 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
           renderPlaceholder={index => <SkeletonBlock key={index} width={width} height={width * 1.5}/>}
           renderItem={(item, cell) => <FocusItem focusId={item.membershipId}><HomeRowCard entry={item.entry} runtime={runtime} width={width} onFocus={cell.onFocus} onBlur={cell.onBlur}
             onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}} onPlay={() => {if (controller.isCurrentItem(item, cell.index)) onPlayEntry(item.entry);}}
-            onMenu={anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);}}/></FocusItem>}/>
+            onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/></FocusItem>}/>
       }
     </FocusRegion>
   </View>;
 }
 
 function HomeRowCard({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, onBlur}: {entry: ContentEntry; runtime: NativeShellRuntime; width: number; onOpen: () => void; onPlay: () => void;
-  onMenu: (anchor: RefObject<View | null>) => void; onFocus: () => void; onBlur: () => void}) {
+  onMenu?: (anchor: RefObject<View | null>) => void; onFocus: () => void; onBlur: () => void}) {
   const anchor = useRef<View>(null), theme = useTheme(), text = homeCardText(entry, false, runtime.text);
   const allowed = homeEntryCapabilities(entry, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
   return <PosterCard title={text.title} caption={text.caption} detail={text.detail} width={width} artwork={runtime.artwork(entry.posterUrl)} density="grid" menuAnchorRef={anchor}
-    onNavigate={onOpen} primaryAction={theme.isTV && allowed.playable && entry.playback ? 'play' : 'navigate'} onPlay={onPlay} onFocus={onFocus} onBlur={onBlur} onMore={() => onMenu(anchor)}/>;
+    onNavigate={onOpen} primaryAction={theme.isTV && allowed.playable && entry.playback ? 'play' : 'navigate'} onPlay={onPlay} onFocus={onFocus} onBlur={onBlur} onMore={onMenu ? () => onMenu(anchor) : undefined}/>;
 }

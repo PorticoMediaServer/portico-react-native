@@ -10,7 +10,7 @@ import {BottomSheet, SidePanel} from '../../kit/overlays';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {NativeHomeRowController} from './row-controller';
-import {nativeRowFilterChange, nativeRowFilterField} from './row-filters';
+import {nativeRowFilterChange, nativeRowFilterField, nativeRowFilterValues} from './row-filters';
 import {homeBrowseLabel} from './HomeSeeAll';
 
 type Facet = Readonly<{search: string; status: 'loading' | 'ready' | 'error'; page?: BrowseFacetPage; error?: unknown}>;
@@ -42,10 +42,8 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
     const selected = state.filters.filter(node => nativeRowFilterField(node) === mapping.field), direct = selected.flatMap(leaves);
     const active = selected.length > 0;
     if (control === 'values') {
-      const included = direct.flatMap(node => Array.isArray(node.value) ? node.value.filter((value): value is string => typeof value === 'string') : []);
-      const excluded = selected.flatMap(node => 'not' in node ? leaves(node.not).flatMap(predicate => Array.isArray(predicate.value) ? predicate.value.filter((value): value is string => typeof value === 'string') : []) : []);
       const facet = facets[field.id];
-      fields[field.id] = {kind: 'values', included, excluded, mode: direct.some(node => node.operator === 'contains-all') ? 'all' : 'any', allowAll: field.operators.includes('contains-all'),
+      fields[field.id] = {...nativeRowFilterValues(field, state.filters), allowAll: field.operators.includes('contains-all'),
         showMatchMode: true, values: facet?.page ? orderFilterValues(field, facet.page.values) : [], status: facet?.status ?? 'loading', total: facet?.page?.total,
         search: facet?.search ?? '', active, ...(facet?.error ? {statusLabel: runtime.error(facet.error, () => {void load(field, facet.search);}).body} : {})};
     } else if (control === 'toggle') fields[field.id] = {kind: 'toggle', value: typeof direct[0]?.value === 'boolean' ? direct[0].value : null, active};
@@ -59,7 +57,7 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
   }
   const selectedCount = state.counts.find(count => count.id === (state.selectedKind ?? 'all'));
   const footer = selectedCount && !selectedCount.totalIsLowerBound ? <View style={{alignItems: 'stretch'}}><Button onPress={onClose}>{t('next.browse.native.showResults', {results: t('count.titles', {count: selectedCount.total})})}</Button></View> : undefined;
-  const body = <FilterBuilder model={model} labels={{field: homeBrowseLabel, sort: homeBrowseLabel, quick: homeBrowseLabel}} openFields={open} fields={fields}
+  const body = <FilterBuilder focusPrefix={`home-row-filters:${controller.rowId}`} model={model} labels={{field: homeBrowseLabel, sort: homeBrowseLabel, quick: homeBrowseLabel}} openFields={open} fields={fields}
     onFieldOpenChange={(id, next) => {setOpen(previous => next ? [...previous.filter(value => value !== id), id] : previous.filter(value => value !== id));
       const field = state.capabilities!.fields.find(value => value.id === id); if (next && field && filterControlOf(field) === 'values') void load(field, facets[id]?.search ?? '');}}
     onFieldChange={(id, value) => {const field = state.capabilities!.fields.find(candidate => candidate.id === id); if (!field) return;
