@@ -99,7 +99,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   </View>;
   const body = choosing && views ? views.loading ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} i18n={i18n} firstRef={firstView}
     onChoose={view => {if (controller.addSavedView(view)) setChoosing(false);}}/> : <>{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
-    <Icon name="i-warning" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
+    <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {void controller.save();})}{rows}</>;
   const scale = shellLayout(viewport.width, viewport.height, theme.isTV).scale;
   return <>
