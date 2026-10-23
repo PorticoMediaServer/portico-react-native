@@ -433,6 +433,8 @@ export class NativePlaybackRuntime {
   };
 
   private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string, lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> {
+    const current = () => this.active() && epoch === this.startEpoch && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false;
+    if (!current()) return;
     if (offered.itemId !== input.target.itemId || !offered.versions.length) throw new Error(serviceText('queuePlayer.unsupported'));
     this.serverKinds = serverPlaybackV1Kinds(capabilities);
     this.transitions = serverSupportsQueueTransitions(capabilities);
@@ -441,12 +443,14 @@ export class NativePlaybackRuntime {
       this.remember(old);
       if (this.snapshot.fence && sameFence(old.fence, this.snapshot.fence)) this.playback.pause();
     }
+    if (!current()) return; // A synchronous pause subscriber may retire the chooser or start another item.
     this.preparing = true;
     this.entry = input.entry.id === input.target.itemId ? input.entry : undefined;
     this.subject = this.entry ? subjectOf(this.entry) : undefined;
     this.options = offered;
     this.expanded = !audioKind(offered.kind);
     try {
+      if (!current()) return;
       await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined, lifetime);
       if (epoch === this.startEpoch && this.active() && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false && this.queue.getSnapshot().error) { this.playback.pause(); throw new Error(serviceText('queuePlayer.startFailed')); }
     }
