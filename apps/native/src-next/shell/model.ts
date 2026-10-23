@@ -1,5 +1,6 @@
 import type {Library} from '../../../../packages/client-core/src/index';
 import type {IconName} from '../kit/Icon';
+import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../screens/read/platform';
 
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
 export type ShellAuthority = ShellScope & Readonly<{epoch: string; viewerFence: string}>;
@@ -15,7 +16,11 @@ export const sameAuthority = (a: ShellAuthority, b: ShellAuthority): boolean => 
 
 /** The API's user order is authoritative. This never sorts libraries by name or kind. */
 export function visibleLibraries(libraries: readonly Library[], isTV: boolean): readonly Library[] {
-  return isTV ? libraries.filter(library => library.kind !== 'books') : libraries;
+  return isTV ? libraries.filter(library => !hiddenReadingLibraryOnTV(library.kind)) : libraries;
+}
+
+export function canOpenLibrary(libraries: readonly Library[], id: string, isTV: boolean): boolean {
+  return visibleLibraries(libraries, isTV).some(library => library.id === id);
 }
 
 export function phoneTabs(hasLiveTV: boolean): readonly ShellTab[] {
@@ -32,7 +37,7 @@ export function libraryIcon(kind: string): IconName {
   if (kind === 'movie') return 'i-film';
   if (kind === 'tv') return 'i-tvlib';
   if (kind === 'music') return 'i-music';
-  if (kind === 'audiobook' || kind === 'books') return 'i-book';
+  if (kind === 'audiobook' || kind === 'books' || isReadingLibraryKind(kind)) return 'i-book';
   return 'i-category';
 }
 
