@@ -39,7 +39,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
   const typed = !!state.text.trim(), groups = orderedSearchGroups(state.groups);
   const empty = typed && state.search.phase === 'ready' && groups.every(group => group.status === 'success' && group.totalCount === 0);
   const top = state.group === 'all' ? topSearchResult(state.text, groups) : undefined;
-  const shown = groups.filter(group => state.group === 'all' || state.group === group.id);
+  const shown = groups.filter(group => (state.group === 'all' || state.group === group.id) && (group.items.length > 0 || group.status === 'error'));
   const firstEntry = shown.flatMap(group => group.items.map(entry => ({entry, group: group.id})))[0];
   const firstResult = top ? nativeSearchEntryKey(top.group, top.entry) : firstEntry ? nativeSearchEntryKey(firstEntry.group, firstEntry.entry)
     : landing.genres[0] ? `genre:${landing.genres[0].id}` : state.recent[0] ? `recent:${state.recent[0].q}` : undefined;
@@ -74,7 +74,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         {typed && !empty && !problem && !!state.search.data && <View style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
           const group = groups.find(value => value.id === chip.id);
           const count = chip.id === 'all' ? groups.every(value => value.totalCountExact) ? groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
-          return <Chip key={chip.id} focusId={`chip:${chip.id}`} testID={`tv-search-chip-${chip.id}`} selected={state.group === chip.id} count={count}
+          return <Chip key={chip.id} focusId={`chip:${chip.id}`} testID={`tv-search-chip-${chip.id}`} selected={state.group === chip.id} count={count} retry={group?.status === 'error'}
             disabled={!active.visible} onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}</Chip>;
         })}</View>}
         {state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>}
@@ -94,6 +94,7 @@ export function TVSearchScreen({destination, runtime, activation, explore, actio
         {typed && !empty && !problem && shown.map(group => <View key={group.id} style={{marginTop: 42}}>
           <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 14}}><Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
             {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>
+          {group.status === 'error' && <StateView {...runtime.error({code: group.errorCode}, () => run(destination.retry()))}/>}
           <View style={{flexDirection: 'row', flexWrap: state.group === 'all' ? undefined : 'wrap', gap: 28, marginTop: 30}}>
             {group.items.slice(0, state.group === 'all' ? 4 : group.items.length).map(entry => <SearchGridCard key={nativeSearchEntryKey(group.id, entry)} entry={entry} group={group.id} width={196}
               runtime={runtime} actions={actions} selection={selection?.item(group.id, entry)} disabled={!active.visible}/>)}</View>
@@ -125,8 +126,9 @@ function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}
       <Artwork source={runtime.artwork(content?.backdropUrl ?? entry.posterUrl)} width={480} height={270}/></ArtFrame>
       <View style={{flex: 1}}><Text style={[browseType(theme, 20, 700), {color: theme.colors.accentStrong, marginBottom: 10}]}>{t('search.topResult')}</Text>
         <Text numberOfLines={3} style={[browseType(theme, 52, 800, -.04, 52), {color: theme.colors.text, marginBottom: 14}]}>{entry.title}</Text>
-        <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginBottom: 14}}>{text && <Parts parts={text.caption} style={browseType(theme, 20, 600)}/>}
-          {kind && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}</View>
+        <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginBottom: 14}}>{content?.year !== undefined && <Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{content.year}</Text>}
+          {kind && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
+          {text && <Parts parts={text.caption.filter(part => part.id !== 'year')} style={browseType(theme, 20, 600)}/>}</View>
         {!!content?.duration && content.progressSeconds !== undefined && <Progress value={content.progressSeconds / content.duration} style={{width: 180, marginBottom: 10}}/>}
         {text && <Parts parts={text.detail} style={browseType(theme, 20, 600)}/>}</View></>}
   </CardFrame>;

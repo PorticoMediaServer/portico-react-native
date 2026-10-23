@@ -14,7 +14,7 @@ function elements(node: any): Element[] {
 test('the actual TV Search caller binds genuine query, navigation activation and Rail Search without a fake selection port', async () => {
   const host = hooks(), calls: string[] = [], theme = createTheme({isTV: true, width: 1920});
   const authority = {serverId: 'server-id', accountId: 'account-id', profileId: 'profile-id', epoch: 'epoch', viewerFence: 'home-fence'};
-  const ids = nativeDestinationFocusIds(authority), entry = {id: 'actual-entry', kind: 'movie', libraryId: 'actual-library', title: 'Actual result'};
+  const ids = nativeDestinationFocusIds(authority), entry = {id: 'actual-entry', kind: 'movie' as const, libraryId: 'actual-library', title: 'Actual result'};
   const group = {id: 'movies', status: 'success', items: [entry], totalCount: 1, totalCountExact: true};
   const state = {text: 'actual query', group: 'all', groups: [group], search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
   let activation = {visible: true, intent: 'enter', revision: 5};
