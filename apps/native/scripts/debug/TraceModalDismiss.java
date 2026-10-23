@@ -70,6 +70,7 @@ public final class TraceModalDismiss {
       if (location == null) throw new IllegalStateException("No executable dismiss location");
       request = vm.eventRequestManager().createBreakpointRequest(location);
       request.addInstanceFilter(target);
+      request.addCountFilter(1);
       request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
       if (!showingAttached(target)) throw new IllegalStateException("Selected modal attachment changed before arming");
       request.enable();
