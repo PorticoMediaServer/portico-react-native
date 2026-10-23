@@ -1,3 +1,4 @@
+import {reportQuery,verifyReportInterval,type ReportContext} from './report-context.ts';
 import {routePath, routePrefix, encodedRoutePath} from "../../contracts/src/routes.ts";
 import {parseFFmpegValidation,type FFmpegValidation} from './storage-status.ts';
 import {wireInstants} from './wire-units.ts';
@@ -47,11 +48,11 @@ export type FeedbackReport={id:string;createdAt:number;updatedAt:number;revision
 export type SubmitFeedback={category:'playback'|'metadata'|'subtitles'|'other';message:string;itemId:string;diagnostic?:Diagnostic};
 export type Notice={id:string;createdAt:number;readAt:number|null;code:string;targetId?:string;message:string};
 export type Inbox=Page<Notice>&{unread:number};
-export type Job={id:string;kind:string;resource:string;trigger:string;state:'queued'|'running'|'paused'|'reconciling'|'cancellation-requested'|'cancelled'|'failed'|'succeeded';phase:string;revision:number;attempt:number;createdAt:number;updatedAt:number;nextAt:number;domainId?:string;errorCode?:string;predecessor?:string;settingsRevision:number;lane:string;actions:('cancel'|'retry'|'pause'|'resume')[];processed?:number};
+export type Job={id:string;kind:string;resource:string;trigger:string;state:'queued'|'running'|'paused'|'reconciling'|'cancellation-requested'|'cancelled'|'failed'|'succeeded';phase:string;revision:number;attempt:number;createdAt:number;updatedAt:number;nextAt:number;domainId?:string;errorCode?:string;predecessor?:string;settingsRevision:number;lane:string;actions:('cancel'|'retry'|'pause'|'resume')[];processed?:number;total?:number};
 export type Schedule={id:string;revision:number;kind:string;resource:string;enabled:boolean;timezone:string;startMinute:number;windowMinutes:number;catchUp:boolean;lastSlot:string;createdAt:number};
 export type StreamOptions={libraries:{id:string;label:string}[];viewers:{id:string;label:string}[]};
 export type JobKind={kind:string;lane:string;resourceRequired:boolean};
-export type Alert={id:string;code:string;severity:string;status:string;firstAt:number;lastAt:number;occurrences:number;revision:number};
+export type Alert={params:Readonly<Partial<Record<'title'|'channel'|'reason'|'time',string>>>;id:string;code:string;severity:string;status:string;firstAt:number;lastAt:number;occurrences:number;revision:number};
 export type Measurement={name:string;observedAt:number;freshUntil:number;facts:Record<string,{state:string;value:unknown;unit?:string;reason?:string}>};
 export type EvidenceRecord={sequence:number;at:number;lane?:string;severity?:string;component?:string;code?:string;action?:string;target?:string;hash?:string;previousHash?:string;fields?:Record<string,number>};
 export type SupportExport={id:string;expiresAt:number;manifest:{version:string;from:number;to:number;included:string[];excluded:string[];redaction:string;maxBytes:number};snapshot?:unknown;runtime?:Page<EvidenceRecord>;client?:Page<EvidenceRecord>;audit?:Page<EvidenceRecord>};
@@ -223,7 +224,7 @@ export class ConsoleClient {
  /** Transcoding capacity, probes and dependencies as this server reports them. */
  transcodeCapacity(){return this.call(routePath("get_admin_transcode_capacity"),'GET',undefined,parseTranscodeCapacity);}
  /** Charted host and GPU history. The server chooses the resolution per window. */
- telemetry(window:TelemetryWindow='10m'){return this.call(routePath("get_admin_telemetry") + "?window=" + (window),'GET',undefined,parseTelemetryReading);}
+ telemetry(window:TelemetryWindow,context:ReportContext){const q=reportQuery(context);q.set('window',window);return this.call(routePath('get_admin_telemetry')+'?'+q,'GET',undefined,v=>{const out=parseTelemetryReading(v);verifyReportInterval(out,context,window,window==='live'||window==='10m');return out;});}
  telemetryNow(){return this.call(routePath("get_admin_telemetry_now"),'GET',undefined,parseTelemetrySample);}
  attention(){return this.call(routePath("get_admin_attention"),'GET',undefined,parseAttention);}
  playbackHistory(period:PlaybackHistoryPeriod='24h',cursor='',limit=50){
