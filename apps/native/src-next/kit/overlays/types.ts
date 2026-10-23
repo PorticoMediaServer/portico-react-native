@@ -60,6 +60,8 @@ export type BottomSheetProps = SurfaceProps & {
   keyboardAvoiding?: boolean;
   /** Authored footer padding; bottom includes the actual safe area minimum. */
   footerPadding?: {top: number; bottom: number; keyboardBottom: number};
+  /** Footer divider is present unless the authored surface omits it. */
+  showFooterSeparator?: boolean;
   headerAction?: React.ReactNode;
   /** Replaces only the standard heading row; context and sheet gestures remain. */
   headerContent?: React.ReactNode;
