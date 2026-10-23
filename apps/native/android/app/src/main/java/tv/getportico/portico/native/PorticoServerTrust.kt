@@ -28,17 +28,17 @@ import okhttp3.OkHttpClient
  * The owner's own certificate. A Portico server may present a certificate no public authority
  * signed (self-signed, or from the owner's private authority). The app trusts such a certificate
  * for exactly the address it was seen at, once its fingerprint is bound into a verified
- * Portico identity proof or the person explicitly accepts it, and keeps it pinned there.
+ * Portico identity proof under the app's identity decision, and keeps it pinned there.
  *
  * Every HTTP client in the app takes its TLS checks from here (`porticoTrust()` on each OkHttp
  * builder, the React Native client factory and the platform default for anything else):
  *  - a certificate the system trusts for the name is accepted as before;
  *  - otherwise the leaf certificate's SHA-256 must equal the one pinned for that host and port;
  *  - anything else is refused, and its fingerprint is remembered (only in memory) so the app can
- *    check the signed certificate binding or ask the person before pinning it.
+ *    check the signed binding and, for an unknown identity away, ask for the identity code.
  *
  * A pin is the exact certificate at one address, so it is accepted whatever its dates and names
- * say: it was authorized by the signed binding or the owner's explicit choice.
+ * say: it was authorized by the identity decision, never by a Trust button.
  */
 internal object PorticoServerTrust {
   data class Pin(val fingerprint: String, val serverId: String)
@@ -134,9 +134,9 @@ internal object PorticoServerTrust {
     load()
     synchronized(this) {
       if (!pins.containsKey(key) && pins.size >= MAX_PINS) return false
-      pins[key] = Pin(fingerprint, serverId)
-      refused.remove(key)
-      return save()
+      val previous = pins.put(key, Pin(fingerprint, serverId))
+      if (!save()) { if (previous == null) pins.remove(key) else pins[key] = previous; return false }
+      return true
     }
   }
 
@@ -150,6 +150,28 @@ internal object PorticoServerTrust {
     val key = key(origin) ?: return
     load()
     synchronized(this) { if (pins.remove(key) != null) save() }
+  }
+
+  /** One offline durable replacement. Failed storage leaves the in-memory pins unchanged. */
+  fun forgetServer(serverId: String, origins: List<String>): Boolean {
+    if (!SERVER_ID.matches(serverId) || origins.size > 256) return false
+    val originKeys = mutableSetOf<String>()
+    // Validate the complete HTTP/HTTPS origin set before mutating any pin.
+    for (origin in origins) {
+      val url = origin.toHttpUrlOrNull() ?: return false
+      if (url.username.isNotEmpty() || url.password.isNotEmpty() || url.encodedPath != "/" || url.query != null || url.fragment != null ||
+          origin != url.toString().removeSuffix("/")) return false
+      originKeys.add(key(url.host, url.port) ?: return false)
+    }
+    load()
+    synchronized(this) {
+      val removed = pins.filter { (at, pin) -> pin.serverId == serverId || at in originKeys }
+      if (removed.isEmpty()) return true
+      for (at in removed.keys) pins.remove(at)
+      if (!save()) { pins.putAll(removed); return false }
+      for (at in removed.keys) refused.remove(at)
+      return true
+    }
   }
 
   /** The certificate most recently refused at an origin, if any. */
@@ -201,21 +223,24 @@ internal object PorticoServerTrust {
   private inline fun trustOrPinned(chain: Array<out X509Certificate>?, key: String?, system: () -> Unit) {
     try {
       system()
+      // Hostname verification can still refuse later and record that refusal.
+      if (key != null) refused.remove(key)
     } catch (e: CertificateException) {
       val leaf = chain?.firstOrNull() ?: throw e
-      if (pinnedAt(key, leaf)) return
       remember(key, fingerprint(leaf))
+      if (pinnedAt(key, leaf)) return
       throw e
     }
   }
 
   /** The system's name check, else the exact pinned certificate for the address. */
   val hostnames = HostnameVerifier { host, session ->
-    if (systemNames.verify(host, session)) return@HostnameVerifier true
     val leaf = leaf(session) ?: return@HostnameVerifier false
     val key = key(host, session.peerPort)
-    if (pinnedAt(key, leaf)) return@HostnameVerifier true
+    // A valid name alone is not system trust when the chain needed a Portico pin.
+    if (systemNames.verify(host, session)) return@HostnameVerifier true
     remember(key, fingerprint(leaf))
+    if (pinnedAt(key, leaf)) return@HostnameVerifier true
     false
   }
 
@@ -230,23 +255,19 @@ internal object PorticoServerTrust {
   }
 
   /**
-   * A client for one identity proof only: it trusts the system's authorities and, at `origin`, the
-   * one certificate `expected` names. It never carries credentials (the proof carries none).
+   * A client for one identity proof only, under exactly the observed leaf at `origin`.
+   * Even a system-trusted replacement must match; this grants no durable trust.
    */
   fun proofClient(base: OkHttpClient.Builder, origin: String, expected: String): OkHttpClient {
     val target = key(origin)
     val manager = object : X509ExtendedTrustManager() {
-      private fun accept(chain: Array<out X509Certificate>?, system: () -> Unit) {
-        try {
-          system()
-        } catch (e: CertificateException) {
-          val leaf = chain?.firstOrNull() ?: throw e
-          if (fingerprint(leaf) != expected) throw e
-        }
+      private fun accept(chain: Array<out X509Certificate>?) {
+        val leaf = chain?.firstOrNull() ?: throw CertificateException()
+        if (fingerprint(leaf) != expected) throw CertificateException()
       }
-      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) = accept(chain) { platform.checkServerTrusted(chain, authType) }
-      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) = accept(chain) { platform.checkServerTrusted(chain, authType) }
-      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = accept(chain) { platform.checkServerTrusted(chain, authType) }
+      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) = accept(chain)
+      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) = accept(chain)
+      override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = accept(chain)
       override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: Socket?) { throw CertificateException() }
       override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: SSLEngine?) { throw CertificateException() }
       override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) { throw CertificateException() }

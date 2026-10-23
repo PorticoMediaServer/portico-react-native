@@ -6,19 +6,23 @@ import {Icon} from '../kit/Icon';
 import {useTheme} from '../kit/theme';
 import {BlurView, glassRecipe} from '../platform/native-blur';
 import {discoverGalleries, galleriesForPlatform, kitSelectionFromURL} from './gallery-registry';
+import {accountProofFromURL} from './account-proof-entry';
+import {AccountProofHost} from './AccountProofHost';
 
 const galleries = discoverGalleries();
 
 /** This module, including URL handling, is reachable only through App's __DEV__ branch. */
 export function KitHost({shell: Shell}: {shell?: ComponentType}) {
-  const [selection, setSelection] = useState<{gallery?: string}>();
+  const [selection, setSelection] = useState<{gallery?: string} | {serverAddress: string}>();
   useEffect(() => {
     let live = true;
     let changed = false;
-    const subscription = Linking.addEventListener('url', event => {changed = true; setSelection(kitSelectionFromURL(event.url));});
-    void Linking.getInitialURL().then(url => {if (live && !changed) setSelection(kitSelectionFromURL(url));}, () => {});
+    const read = (url: string | null) => accountProofFromURL(url) ?? kitSelectionFromURL(url);
+    const subscription = Linking.addEventListener('url', event => {changed = true; setSelection(read(event.url));});
+    void Linking.getInitialURL().then(url => {if (live && !changed) setSelection(read(url));}, () => {});
     return () => {live = false; subscription.remove();};
   }, []);
+  if (selection && 'serverAddress' in selection) return <AccountProofHost key={selection.serverAddress} serverAddress={selection.serverAddress}/>;
   return selection || !Shell ? <Kit key={selection?.gallery ?? ''} initialGallery={selection?.gallery} /> : <Shell />;
 }
 
