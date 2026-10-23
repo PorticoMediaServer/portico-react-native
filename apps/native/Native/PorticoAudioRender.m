@@ -4,6 +4,7 @@
 #import "PorticoEqualizer.h"
 #import "PorticoAudioCapture.h"
 #import "PorticoAudioEffects.h"
+#import "PorticoListeningPolicy.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -629,7 +630,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source {
  NSURL *origin=[NSURL URLWithString:source?:@""];NSDictionary *settings=APDictionary(render[@"settings"]);
  if(!origin||!ARPlan(APDictionary(render[@"plan"]),origin))return @"Invalid audio render plan.";
- if(!settings||![settings[@"gapless"] isKindOfClass:NSNumber.class]||!APNumber(settings[@"crossfadeSeconds"],0,12)||![@[@"off",@"track",@"album"] containsObject:settings[@"normalization"]]||!APInteger(render[@"epoch"],0,9007199254740991.0)||!APNumber(render[@"startSeconds"],0,1e9))return @"Invalid audio render settings.";
+ if(!PorticoListeningEffectsValid(settings)||!APInteger(render[@"epoch"],0,9007199254740991.0)||!APNumber(render[@"startSeconds"],0,1e9))return @"audio_render_settings_invalid";
  for(NSString *key in @[@"prepared",@"committed"]){NSDictionary *p=APDictionary(render[key]);if(render[key]&&render[key]!=NSNull.null&&!p)return @"Invalid prepared audio.";if(p&&(!ARPlan(APDictionary(p[@"plan"]),origin)||!APID(p[@"token"])))return @"Invalid prepared audio binding.";}
  return nil;
 }
