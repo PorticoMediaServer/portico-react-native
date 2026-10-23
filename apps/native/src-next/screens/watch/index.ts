@@ -1,5 +1,5 @@
 export {createNativeWatchScreens} from './factory';
-export type {NativeWatchFactoryPorts, NativeWatchCapture, NativeVersionStartSelection, NativeVersionLifetime, NativeWatchMenuActions, NativeVersionDestination} from './factory';
+export type {NativeWatchFactoryPorts, NativeWatchCapture, NativeVersionStartSelection, NativeWatchMenuActions, NativeVersionDestination} from './factory';
 export {NativeTitleController} from './title-controller';
 export {NativeTitleScreen} from './TitleScreen';
 export type {NativeTitleScreenProps} from './TitleScreen';
@@ -11,9 +11,6 @@ export {NativeFileInfoContent} from './FileInfoContent';
 export {nativeVersionChoices} from './version-options';
 export {NativeWatchHost} from './WatchHost';
 export type {NativeWatchHostBindings, NativeWatchHostContext} from './WatchHost';
-export {NativeVersionChooser} from './VersionChooser';
-export type {NativeVersionChooserProps} from './VersionChooser';
-export type {NativeVersionPresentation, NativeVersionRow, NativeVersionRowText} from './version-options';
 export {NativeWatchPanels} from './WatchPanels';
 export type {NativeWatchPanelsProps} from './WatchPanels';
 export {NativeWatchPanelOptions} from './panel-options';

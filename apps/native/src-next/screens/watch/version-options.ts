@@ -1,27 +1,9 @@
-import type {AudioStream, PlaybackOptions, VideoStream} from '../../../../../packages/client-core/src/playback-v1/types';
-import type {TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
+import {versionModels, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 
-export type NativeVersionRowText = Readonly<{primary: string; secondary: string}>;
-export type NativeVersionRow = NativeVersionRowText & Readonly<{id: string}>;
-/** Native owns row composition. Inject canonical technical names and localized
- * size formatting, never a shared row helper, generic label or preferred track. */
-export type NativeVersionPresentation = Readonly<{
-  videoPictureName: (video: VideoStream, text: TextEnvironment) => string | undefined;
-  videoAudioFormatName: (audio: AudioStream, text: TextEnvironment) => string | undefined;
-  sizeName: (sizeBytes: number, text: TextEnvironment) => string | undefined;
-}>;
-
-/** Options owns grouped IDs and File info order. §23 describes each version's
- * file-default audio, otherwise its first actual stream, not viewer selection. */
-export function nativeVersionChoices(options: PlaybackOptions, itemId: string, text: TextEnvironment, presentation: NativeVersionPresentation, excludeVersionId?: string, minimum = 2): readonly NativeVersionRow[] {
-  if (options.itemId !== itemId || options.versions.length < minimum || new Set(options.versions.map(version => version.id)).size !== options.versions.length) return [];
-  const rows = options.versions.filter(version => version.id !== excludeVersionId).map(version => {
-    const video = version.video[0], audio = version.audio.find(track => track.default) ?? version.audio[0];
-    const picture = video ? presentation.videoPictureName(video, text) : undefined;
-    const audioName = audio ? presentation.videoAudioFormatName(audio, text) : undefined;
-    const size = version.sizeBytes !== undefined && Number.isFinite(version.sizeBytes) && version.sizeBytes >= 0 ? presentation.sizeName(version.sizeBytes, text) : undefined;
-    const edition = version.edition?.trim();
-    return Object.freeze({id: version.id, primary: edition || picture || '', secondary: [edition ? picture : undefined, audioName, size].filter(Boolean).join(', ')});
-  });
-  return rows.every(row => !!row.primary.trim()) ? Object.freeze(rows) : [];
+/** Real offered facts only. The destination UI awaits its approved frame/flow. */
+export function nativeVersionChoices(options: PlaybackOptions, itemId: string, text: TextEnvironment) {
+  if (options.itemId !== itemId || options.versions.length < 2 || new Set(options.versions.map(version => version.id)).size !== options.versions.length) return [];
+  return versionModels(options.versions.map(version => ({id: version.id, name: version.label, edition: version.edition, container: version.container,
+    height: version.video[0]?.height, videoCodec: version.video[0]?.codec, dynamicRange: version.video[0]?.hdr, bitRate: version.bitrateKbps === undefined ? undefined : version.bitrateKbps * 1000, sizeBytes: version.sizeBytes})), text);
 }
