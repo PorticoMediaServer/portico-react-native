@@ -1,0 +1,119 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {defaultI18n} from '../../../packages/i18n/src';
+import {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from '../src-next/screens/downloads/presentation';
+import type {OfflineEntry} from '../src-next/platform/offline-downloads';
+import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createTheme} from '../src-next/kit/theme';
+import {holdCard} from '../src-next/kit/cards/model';
+
+const copy: NativeDownloadsCopy = {emptyBody: 'downloads.emptyBody', storageLimitHelp: 'downloads.storageLimit', freeOnPhone: 'downloads.used', removeFromPhone: 'action.remove',
+  stoppedBody: 'downloads.paused', downloading: 'downloads.paused', needsCheckIn: 'downloads.offline.needsCheckIn', goneFromServer: 'downloads.offline.goneFromServer',
+  otherProfiles: 'downloads.used', stoppedAt: 'server.plays.stoppedAt', stoppedHelp: 'downloads.paused'};
+const text = {t: defaultI18n.t};
+function entry(patch: Partial<OfflineEntry> = {}): OfflineEntry {
+  return {id: 'local-copy', itemId: 'actual-item', owner: 'current-viewer', title: 'Stored title: Special Edition', subtitle: 'opaque legacy prose', quality: 'original', artworkUrl: '',
+    state: 'ready', error: '', waiting: '', held: false, bytes: 1024 ** 3, bytesDone: 1024 ** 3, addedAt: 1, onServer: true, changedOnServer: false, ...patch};
+}
+
+test('Downloads metadata uses actual cached file facts and episode numbering, never quality IDs or legacy prose', () => {
+  const episode = entry({info: {kind: 'episode', title: 'Stored episode', year: 2024, durationSeconds: 3000, parentId: 'show', parentTitle: 'Stored show', groupId: 'season', groupTitle: '', groupNumber: 1, number: 2, artist: '', onServer: true}});
+  const original = downloadRowText(episode, {resumePositionSeconds: 0}, null, copy, text);
+  assert.deepEqual(original.metadata, ['S1 E2', 'Original', defaultI18n.bytes(1024 ** 3)]);
+  const converted = {...episode, quality: '720p-high'};
+  assert.deepEqual(downloadRowText(converted, undefined, null, copy, text).metadata, ['S1 E2', defaultI18n.bytes(1024 ** 3)]);
+  assert.deepEqual(downloadRowText(converted, {media: {width: 1920, height: 800}}, null, copy, text).metadata, ['S1 E2', '1080p', defaultI18n.bytes(1024 ** 3)]);
+  assert.equal(original.metadata.some(value => value.includes('opaque')), false);
+  assert.deepEqual(downloadRowText({...episode, state: 'downloading'}, undefined, null, copy, text).metadata, ['S1 E2']);
+});
+
+test('Downloads reasons preserve truthful native playability, transfer and removed-title states', () => {
+  const waiting = downloadRowText(entry({state: 'downloading', waiting: 'wifi'}), undefined, null, copy, text);
+  assert.deepEqual(waiting.metadata, []); assert.equal(waiting.reason, defaultI18n.t('downloads.waiting.wifi')); assert.equal(waiting.warning, true);
+  const checkIn = downloadRowText(entry(), undefined, 'needs_check_in', copy, text);
+  assert.equal(checkIn.reason, defaultI18n.t(copy.needsCheckIn)); assert.deepEqual(checkIn.metadata, []);
+  const removed = downloadRowText(entry({onServer: false}), undefined, null, copy, text);
+  assert.equal(removed.reason, defaultI18n.t(copy.goneFromServer)); assert.equal(removed.warning, false, 'a removed server title still plays when its actual receipt is usable');
+  assert.equal(downloadRowText(entry({state: 'failed'}), undefined, null, copy, text).stopped, true);
+  assert.equal(downloadTransferProgress(entry({bytes: 0})), undefined);
+  assert.equal(downloadTransferProgress(entry({bytes: 100, bytesDone: 38})), .38);
+});
+
+test('Storage segments require actual volume allocation and never infer capacity from quota or free bytes', () => {
+  assert.equal(downloadStorageSegments({freeBytes: 100}), undefined);
+  assert.equal(downloadStorageSegments({totalBytes: 1000, freeBytes: 500}), undefined);
+  assert.equal(downloadStorageSegments({totalBytes: 1000, freeBytes: 500, allocatedBytes: 501}), undefined);
+  assert.equal(downloadStorageSegments({totalBytes: 1000, freeBytes: -1, allocatedBytes: 100}), undefined);
+  assert.deepEqual(downloadStorageSegments({totalBytes: 1000, freeBytes: 550, allocatedBytes: 70}), {downloads: .07, other: .38});
+});
+
+test('Menu and artwork identity follow receipt viewer ownership when no legacy owner field exists', () => {
+  const receipt: NonNullable<OfflineEntry['receipt']> = {receiptId: 'receipt', algorithm: 'ed25519', keyId: 'key', payload: 'signed', signature: 'signature', revision: 1,
+    claims: {kind: 'portico.download-receipt', version: '1', receiptId: 'receipt', keyId: 'key', viewer: {authority: 'authority', serverId: 'server', accountId: 'account', profileId: 'profile1'},
+      itemId: 'actual-item', preparationId: 'preparation', quality: 'original', qualityLabel: 'Original', artifact: {sha256: 'actual-artifact', bytes: 100}, issuedAt: '', expiresAt: ''}};
+  const first = entry({owner: undefined, receipt});
+  const other = {...first, receipt: {...receipt, claims: {...receipt.claims, viewer: {...receipt.claims.viewer, profileId: 'profile2'}}}};
+  assert.notEqual(downloadEntryIdentity(first), downloadEntryIdentity(other));
+  assert.equal(downloadEntryIdentity(first), downloadEntryIdentity({...first, bytesDone: 75}), 'transfer updates retain the same actual artifact');
+});
+
+test('Local groups count actual downloaded episodes and group genuine movies without classifying unknown entries', () => {
+  const episode = entry({id: 'e1', info: {kind: 'episode', title: 'Episode', year: 2024, durationSeconds: 10, parentId: 'show', parentTitle: 'Show', groupId: 'season', groupTitle: '', groupNumber: 1, number: 1, artist: '', onServer: true}});
+  const groups = downloadGroups([entry({id: 'movie1', kind: 'movie', addedAt: 5}), episode, {...episode, id: 'e2'}, entry({id: 'movie2', kind: 'movie'}), entry({id: 'unknown'})]);
+  assert.deepEqual(groups.find(group => group.key === 'kind:movie')?.entries.map(value => value.id), ['movie1', 'movie2']);
+  assert.equal(groups.find(group => group.key === 'parent:show')?.episodeCount, 2);
+  assert.deepEqual(groups.find(group => group.key === 'title:unknown')?.entries.map(value => value.id), ['unknown']);
+});
+
+test('Cached artwork consumer rejects late retired identities and does not reread bundle files for byte progress', async () => {
+  const host = hooks(), effects: Array<{effect: () => (() => void); deps: unknown[]; cleanup?: () => void}> = [];
+  let effectCursor = 0;
+  const react = {...host.react, useEffect(effect: () => (() => void), deps: unknown[]) {
+    const index = effectCursor++, previous = effects[index];
+    if (previous && deps.every((value, i) => value === previous.deps[i])) return;
+    previous?.cleanup?.(); effects[index] = {effect, deps};
+  }};
+  const {useDownloadArtwork} = await screenModule(new URL('../src-next/screens/downloads/useDownloadArtwork.ts', import.meta.url), {react, './presentation': {downloadEntryIdentity}});
+  const pending: Array<(facts: unknown) => void> = [];
+  const device = {displayFacts: () => new Promise(resolve => pending.push(resolve))};
+  const render = (value: OfflineEntry) => {effectCursor = 0; return host.render(() => useDownloadArtwork(device, value));};
+  const flush = () => effects.forEach(value => {if (!value.cleanup) value.cleanup = value.effect();});
+  const original = entry();
+  assert.equal(render(original), undefined); flush(); assert.equal(pending.length, 1);
+  render({...original, bytesDone: 100}); flush(); assert.equal(pending.length, 1);
+  const other = {...original, owner: 'different-viewer'};
+  assert.equal(render(other), undefined); flush(); assert.equal(pending.length, 2);
+  pending[0]({backdropUrl: 'file:///retired-viewer-art'}); await Promise.resolve();
+  assert.equal(render(other), undefined);
+  pending[1]({backdropUrl: 'file:///current-viewer-art', media: {width: 1280, height: 720}, resumePositionSeconds: 0}); await Promise.resolve();
+  assert.deepEqual(render(other), {backdropUrl: 'file:///current-viewer-art', media: {width: 1280, height: 720}});
+  effects.forEach(value => value.cleanup?.());
+});
+
+test('Downloads rows use the shared hold/menu boundary with their actual native anchor and current playability', async () => {
+  const host = hooks(), theme = createTheme({width: 390, isTV: false});
+  const current = entry(), calls: unknown[] = [];
+  const device = {getSnapshot: () => ({supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0}), subscribe() {},
+    playabilityReason: () => null};
+  const {DownloadsScreen} = await screenModule(new URL('../src-next/screens/downloads/DownloadsScreen.tsx', import.meta.url), {
+    react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
+    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''}, '../../kit/theme': {useTheme: () => theme},
+    './presentation': {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress}, './useDownloadArtwork': {useDownloadArtwork: () => ({})},
+  });
+  function nodes(node: any): any[] {
+    if (Array.isArray(node)) return node.flatMap(nodes);
+    return node && typeof node === 'object' && 'props' in node ? [node, ...nodes(node.props.children)] : [];
+  }
+  const tree = host.render(() => DownloadsScreen({device, runtime: {text}, copy, back() {}, openTitle() {}}));
+  const row = nodes(tree).find(node => node.type?.name === 'DownloadRow');
+  const rowTree = host.render(() => row.type({...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')}));
+  const card = nodes(rowTree).find(node => node.type === 'CardFrame');
+  assert.equal(card.props.moreExpanded, true);
+  const nativeHost = {actual: 'download-card'}; card.props.menuAnchorRef.current = nativeHost;
+  holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
+  card.props.onNavigate(); assert.equal(calls[1], 'local-play');
+  assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
+});
