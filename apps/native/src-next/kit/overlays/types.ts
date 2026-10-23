@@ -71,8 +71,10 @@ export type PopoverProps = SurfaceProps & {
   holdFocus?: boolean;
   showTitle?: boolean;
   backdropOpacity?: number;
-  placement?: 'bottom-start' | 'bottom-center' | 'bottom-end' | 'top-start' | 'top-center' | 'top-end';
+  placement?: 'bottom-start' | 'bottom-center' | 'bottom-end' | 'top-start' | 'top-center' | 'top-end' | 'right-end';
   offset?: number;
+  /** Cross-axis adjustment in the authored surface's points; positive moves down. */
+  alignOffset?: number;
   dismissOnOutsidePress?: boolean;
 };
 export type MenuAction = {
@@ -80,6 +82,7 @@ export type MenuAction = {
   label: React.ReactNode;
   icon?: IconName;
   description?: React.ReactNode;
+  trailing?: React.ReactNode;
   selected?: boolean;
   disabled?: boolean;
   destructive?: boolean;
@@ -94,6 +97,9 @@ export type MenuProps = Omit<SurfaceProps, 'children' | 'headerContext'> & {
   anchorRef?: React.RefObject<View | null>;
   width?: number;
   presentation?: 'anchored' | 'sheet' | 'sideSheet';
+  placement?: PopoverProps['placement'];
+  offset?: number;
+  alignOffset?: number;
   initialFocusId?: string;
   secondaryTitle?: React.ReactNode;
   context?: React.ReactNode;
