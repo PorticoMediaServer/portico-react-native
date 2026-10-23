@@ -61,11 +61,11 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
             style={phone ? {minHeight: 26, paddingVertical: 0, gap: 14} : undefined} description={phone ? undefined : removeFilesHelp}>
             {phone ? <SelectionText size={14.5} weight={700}>{removeFilesLabel}</SelectionText> : removeFilesLabel}
           </Switch>
-          {phone ? <SelectionText size={12} weight={400} secondary style={{lineHeight: 18 * theme.textScale, includeFontPadding: false}}>{removeFilesHelp}</SelectionText> : null}
-          <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending}
+          {phone && !phoneSummary ? <SelectionText size={12} weight={400} secondary style={{lineHeight: 18 * theme.textScale, includeFontPadding: false}}>{removeFilesHelp}</SelectionText> : null}
+          <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending} fieldStyle={phone ? {height: 46} : undefined}
             label={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
             accessibilityLabel={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
-            keyboardType={preview.confirmationKind === 'count' ? 'number-pad' : 'default'} autoCapitalize="none" autoCorrect={false}
+            keyboardType={!phone && preview.confirmationKind === 'count' ? 'number-pad' : 'default'} autoCapitalize="none" autoCorrect={false}
             description={preview.confirmationKind === 'title' ? preview.confirmation : undefined} />
         </>}
       {props.error ? <SelectionText style={{color: colors.danger}}>{props.error}</SelectionText> : null}

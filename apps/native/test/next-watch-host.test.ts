@@ -8,6 +8,7 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeWatchOutlet} from '../src-next/shell/watch-outlet.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {resolvePlayerPresentation, playerControlsRevealDeadline} from '../src-next/platform/layout/player-presentation.ts';
+import {nativeWatchTVPresentation} from '../src-next/screens/watch/tv-presentation.ts';
 const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
 let window = {width: 890, height: 626};
@@ -18,17 +19,18 @@ const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/
   '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
   '../../platform/platformPosture': {usePlatformPosture: () => posture},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+  './tv-presentation': {nativeWatchTVPresentation},
 });
 const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => window},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
 });
 const child = (tree: any, id: string) => React.Children.toArray(tree?.props.children).find((value: any) => value?.props?.testID === id) as any;
-function fixture() {
+function fixture(isTV = false) {
   window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
   let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
   const listeners = new Set<() => void>(), calls: string[] = [], reveals: number[] = [];
-  const controls = new NativeWatchControls(false);
+  const controls = new NativeWatchControls(isTV);
   const outlet = new NativeWatchOutlet(() => ({authority, fence: source.fence, window}));
   const playback = {getSnapshot: () => source, subscribe: (f: () => void) => {listeners.add(f); return () => {listeners.delete(f);};}};
   const setPresentation = (context: any) => {calls.push('presentation'); controls.source(source.fence, {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});};
@@ -37,7 +39,7 @@ function fixture() {
   const bindings = {chrome: () => ({quality: 'actual selected quality'}), panel: () => null, content: () => null};
   let tree: any;
   const current = () => authority;
-  const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation});});
+  const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation, isTV});});
   host.mount();
   return {host, controls, outlet, calls, reveals, tree: () => tree,
     source: (change: any) => {source = {...source, ...change}; for (const listener of listeners) listener();},
@@ -62,6 +64,25 @@ test('root uses the actual canonical outlet and full measured pane across book g
     assert.equal(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets.right, 16);
     assert.equal(d.reveals.length, 1); assert.deepEqual(d.calls.slice(-2), ['presentation', 'reveal']);
   } finally {measurementHost.unmount(); d.dispose();}
+});
+test('TV uses one logical canvas while its actual native pane remains whole and unscaled beneath Options and Info', async () => {
+  const d = fixture(true);
+  try {
+    await act(() => {window = {width: 960, height: 540}; d.host.rerender();});
+    const picture = d.tree().props.children[0];
+    assert.deepEqual(picture.props.style, {position: 'absolute', left: 0, top: 0, width: 960, height: 540});
+    const canvas = child(d.tree(), 'watch-tv-canvas');
+    assert.equal(canvas.props.style.width, 1920); assert.equal(canvas.props.style.height, 1080);
+    assert.deepEqual(canvas.props.style.transform, [{scale: .5}]);
+    for (const [panel, width, right] of [['audio', 680, 780], ['playback-info', 960, 1056]] as const) {
+      await act(() => {d.controls.open(panel, fence);});
+      const drawn = child(d.tree(), 'watch-tv-canvas').props.children;
+      assert.equal(child(drawn, 'watch-panel-pane').props.style.width, width);
+      assert.equal(child(drawn, 'watch-controls-pane').props.children.props.tvPanelRight, right);
+      assert.equal(d.tree().props.children[0].type, picture.type);
+      assert.deepEqual(d.tree().props.children[0].props.style, picture.props.style);
+    }
+  } finally {d.dispose();}
 });
 test('panel state suppresses fold reveal, closing alone does not reveal, docked/pending output has no slot', async () => {
   const d = fixture();

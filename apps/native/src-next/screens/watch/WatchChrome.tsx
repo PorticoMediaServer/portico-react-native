@@ -34,7 +34,9 @@ export type NativeWatchChromeProps = Readonly<{
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
-  onPanel: (panel: NativeWatchPanel, fence: PlaybackFence) => void;
+  onPanel?: (panel: NativeWatchPanel, fence: PlaybackFence) => void;
+  /** TV4 keeps only identity/seek dimmed behind the authored overlay. */
+  tvPanelRight?: number;
   reportError: (error: unknown) => void;
   onPictureInPicture?: (fence: PlaybackFence) => void;
   onCast?: (fence: PlaybackFence) => void;
@@ -76,9 +78,23 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (current()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
-  const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel(value, fence);};
+  const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
+  if (theme.isTV && state.panel && props.tvPanelRight !== undefined) return <View testID="watch-tv-panel-backdrop" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{width, height}}>
+    {identity && <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, top: 80}}>
+      <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.015, lineHeight: 52}), {color: theme.colors.text}]}>{identity.title}</Text>
+      <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text>
+    </View>}
+    <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, bottom: 118}}>
+      <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={false} enabled={false} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
+    </View>
+    <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, bottom: 80, flexDirection: 'row', justifyContent: 'space-between'}}>
+      <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary}]}>{clockText(source.playback.positionSeconds)}</Text>
+      <Text style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>
+    </View>
+    <View style={{position: 'absolute', inset: 0, backgroundColor: '#04090d80'}}/>
+  </View>;
   const big = theme.isTV ? 88 : compact ? 58 : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
   const icon = (name: IconName, label: string, onPress: () => void, primary = false, disabled = false) => <Button variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={visible} disabled={disabled || !visible} onPress={onPress} style={{width: primary ? big : small, height: primary ? big : small, borderRadius: (primary ? big : small) / 2}} iconSize={primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/>;

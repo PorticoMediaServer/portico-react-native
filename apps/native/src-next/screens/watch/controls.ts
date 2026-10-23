@@ -1,11 +1,12 @@
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 
-export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'episodes' | 'playback-info';
+export type NativeWatchPanel = 'options' | 'subtitles' | 'audio' | 'quality' | 'speed' | 'chapters' | 'episodes' | 'playback-info';
 export type NativeWatchControlState = Readonly<{
   fence?: PlaybackFence;
   visible: boolean;
   panel?: NativeWatchPanel;
   panelOffset: number;
+  panelFocus?: NativeWatchPanel;
   focus: 'surface' | 'toggle' | 'panel';
   hideReason?: 'timer' | 'input';
 }>;
@@ -58,7 +59,7 @@ export class NativeWatchControls {
     if (changed || unpinned && this.pinned()) this.hiddenByBack = false;
     if (changed) {
       this.cancel(); this.deadline = 0; this.offsets.clear(); this.gestureScrubbing = false;
-      this.publish({fence, panel: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
+      this.publish({fence, panel: undefined, panelFocus: undefined, panelOffset: 0, visible: !!fence && !this.isTV, focus: this.isTV ? 'surface' : 'toggle'});
     }
     if (!fence) {this.cancel(); this.publish({visible: false, panel: undefined, focus: 'surface'}); return;}
     if (this.suppressed()) {this.cancel(); this.deadline = 0; this.publish({visible: false, focus: this.state.panel ? 'panel' : 'surface'});}
@@ -104,7 +105,7 @@ export class NativeWatchControls {
   open(panel: NativeWatchPanel, fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.context.expanded) return false;
     this.cancel(); this.deadline = 0;
-    this.publish({panel, panelOffset: this.offsets.get(panel) ?? 0, visible: !this.context.hiddenByPanel, focus: 'panel'}); return true;
+    this.publish({panel, panelFocus: undefined, panelOffset: this.offsets.get(panel) ?? 0, visible: !this.context.hiddenByPanel, focus: 'panel'}); return true;
   }
   rememberPanel(fence: PlaybackFence, offset: number): void {
     if (!this.current(fence) || !this.state.panel || !Number.isFinite(offset) || offset < 0) return;
@@ -113,11 +114,15 @@ export class NativeWatchControls {
   closePanel(fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.state.panel) return false;
     // No fold reveal on closing a panel alone. Keep its opener and its scroll memory.
-    this.publish({panel: undefined, panelOffset: 0, visible: this.pinned(), focus: this.pinned() ? 'toggle' : 'surface'});
+    this.publish({panel: undefined, panelFocus: undefined, panelOffset: 0, visible: this.pinned(), focus: this.pinned() ? 'toggle' : 'surface'});
     this.arm(); return true;
   }
   back(fence: PlaybackFence): 'panel' | 'controls' | 'player' | 'stale' {
     if (!this.current(fence)) return 'stale';
+    if (this.state.panel && this.state.panel !== 'options' && this.state.panel !== 'episodes') {
+      const opener = this.state.panel;
+      this.open('options', fence); this.publish({panelFocus: opener}); return 'panel';
+    }
     if (this.closePanel(fence)) return 'panel';
     if (this.state.visible) {this.cancel(); this.deadline = 0; this.hiddenByBack = true; this.publish({visible: false, focus: 'surface', hideReason: 'input'}); return 'controls';}
     return 'player';
