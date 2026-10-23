@@ -589,7 +589,7 @@ test('phone sheet name and confirmation fields use the drawn 46pt height without
       const phone = state.theme.platform === 'phone';
       const wrapper = mount(PlaylistPicker, {open: true, onOpenChange() {}, count: 1, entries: [], creating: true, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
       const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
-      const deletion = mount(DeleteMediaDialog, {open: true, onOpenChange() {}, owner: true, selectionCount: 1, preview: {revision: 1, confirmationKind: 'title', confirmation: 'Actual title', totalFiles: 1, totalBytesText: '1 KB', totalBytes: 1024, blocked: [], targets: []}, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}});
+      const deletion = mount(DeleteMediaDialog, {open: true, onOpenChange() {}, owner: true, selectionCount: 1, preview: {revision: 1, confirmationKind: 'title', confirmation: 'Actual title', totalFiles: 1, totalBytesText: '1 KB', totalBytes: 1024, blocked: [], targets: [{itemId: 'actual', title: 'Actual title', kind: 'movie', libraryId: 'library', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 1024, files: [], dependents: []}]}, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}});
       const editor = mount(BulkEditor, bulk());
       try {
         for (const owner of [picker, deletion]) {
