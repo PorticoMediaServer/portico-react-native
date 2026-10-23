@@ -42,6 +42,8 @@ export type NativeShellSurfaceProps = Readonly<{
   expandedBounds: NativeShellBounds;
   docked: boolean;
   subtitlesVisible: boolean;
+  /** Producer composition only; false only while a current-fence real snapshot covers it. */
+  surfaceActive: boolean;
 }>;
 
 /** Shell contract for the genuine platform runtime. No engine/session state is synthesized here.

@@ -65,7 +65,7 @@ async function surfaceFixture(os = 'android') {
 
 test('the actual native host hides on close before lease release and keeps its type/ref/owner for the next source', async () => {
   const d = await surfaceFixture();
-  const props = {expandedBounds: frame, dockBounds: dockFrame, docked: false, subtitlesVisible: true};
+  const props = {expandedBounds: frame, dockBounds: dockFrame, docked: false, subtitlesVisible: true, surfaceActive: true};
   const surface = mount(d.adapter.Surface, props);
   const type = surface.tree.type, ref = surface.tree.props.ref;
   ref({tag: 71});
@@ -112,7 +112,7 @@ test('the actual native host hides on close before lease release and keeps its t
 test('a leased native host stays hidden for missing or invalid target bounds', async () => {
   const d = await surfaceFixture();
   await d.publish({engine: 'native', lease: 'actual-lease', fence});
-  const props = {expandedBounds: frame, docked: false, subtitlesVisible: false};
+  const props = {expandedBounds: frame, docked: false, subtitlesVisible: false, surfaceActive: true};
   const surface = mount(d.adapter.Surface, props);
   try {
     assert.equal(flatten(surface.tree.props.style).display, 'flex');
@@ -134,12 +134,93 @@ test('a leased native host stays hidden for missing or invalid target bounds', a
 
 test('Android producer admission is not sent to the Apple bridge', async () => {
   const d = await surfaceFixture('ios');
-  const surface = mount(d.adapter.Surface, {expandedBounds: frame, docked: false, subtitlesVisible: false});
+  const surface = mount(d.adapter.Surface, {expandedBounds: frame, docked: false, subtitlesVisible: false, surfaceActive: true});
   try {
     assert.equal('surfaceActive' in surface.tree.props, false);
     await d.publish({engine: 'native', lease: 'actual-lease', fence});
     assert.equal('surfaceActive' in surface.tree.props, false);
   } finally {surface.host.unmount();}
+});
+
+test('Q7 bounds-only changes preserve the actual Surface host/ref/owner/tag/subscription and lease', async () => {
+  const d = await surfaceFixture();
+  await d.publish({engine: 'native', lease: 'retained-lease', fence});
+  const props = {expandedBounds: frame, dockBounds: dockFrame, docked: false, subtitlesVisible: true, surfaceActive: true};
+  const surface = mount(d.adapter.Surface, props), type = surface.tree.type, ref = surface.tree.props.ref;
+  ref({tag: 71});
+  try {
+    for (const bounds of [
+      {x: 0, y: 0, width: 890, height: 626}, {x: 0, y: 0, width: 840, height: 472.5},
+      {x: 0, y: 0, width: 421, height: 236.8125}, {x: 0, y: 0, width: 880, height: 404},
+      {x: 0, y: 0, width: 800, height: 820},
+    ]) {
+      await act(() => surface.update({...props, expandedBounds: bounds}));
+      assert.strictEqual(surface.tree.type, type);
+      assert.strictEqual(surface.tree.props.ref, ref);
+      assert.equal(surface.tree.key, null);
+      assert.equal(surface.tree.props.lease, 'retained-lease');
+      assert.equal(flatten(surface.tree.props.style).width, bounds.width);
+      assert.equal(flatten(surface.tree.props.style).height, bounds.height);
+      assert.equal(d.attachments, 1);
+      assert.equal(d.detachments, 0);
+      assert.equal(d.tags.length, 1);
+      assert.equal(d.subscriptions, 1);
+    }
+  } finally {ref(null); surface.host.unmount();}
+  assert.strictEqual(d.tags[0]!.owner, d.tags[1]!.owner);
+  assert.equal(d.detachments, 1);
+});
+
+async function postureMorphFixture(os: string, image?: {fence: PlaybackFence; image: React.ReactNode}) {
+  const reactions: ((value: any, previous: any) => void)[] = [], fades: {value: number; finish?: (finished: boolean) => void}[] = [], contexts: any[] = [];
+  const {PlayerMorph} = await screenModule(new URL('../src-next/kit/dock/PlayerMorph.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Platform: {OS: os}, View: 'View'},
+    'react-native-gesture-handler': {Gesture: {}},
+    'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current,
+      useAnimatedStyle: (fn: () => any) => fn(), useAnimatedReaction: (_prepare: any, react: any) => {reactions.push(react);},
+      cancelAnimation() {}, runOnJS: (fn: any) => fn, withTiming: (value: number, _timing: any, finish: any) => {fades.push({value, finish}); return value;}},
+    '../../../../../packages/player-core/src/index': {}, '../Icon': {Icon: 'Icon'},
+    '../theme': {useTheme: () => ({layers: {player: 30}, colors: {shadow: '#000', dim: '#000'}})},
+    '../useMotion': {useMotion: () => ({reduce: false, transforms: true, timing: () => ({duration: 180})})},
+    './morph-fence': {currentMorphFence}, './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
+  });
+  const child = React.createElement('PersistentNativeSurface'), controller = {progress: {value: 0}, velocity: {value: 0}, dragging: {value: false}};
+  const props = {controller, fence, docked: false, fullFrame: frame, dockFrame, androidSnapshot: image,
+    children: (context: any) => {contexts.push(context); return child;}};
+  const morph = mount(PlayerMorph, props);
+  return {morph, props, contexts, reactions, fades, child};
+}
+
+test('same-fence geometry settles without a progress/dock event and fades once on Apple', async () => {
+  const d = await postureMorphFixture('ios'), next = {x: 0, y: 0, width: 890, height: 626};
+  try {
+    await act(() => d.morph.update({...d.props, fullFrame: next}));
+    assert.deepEqual(d.contexts.at(-1).bounds, next);
+    assert.equal(d.contexts.at(-1).surfaceActive, true);
+    assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
+    assert.equal(d.fades.length, 1);
+    await act(() => d.morph.update({...d.props, fullFrame: {...next}}));
+    assert.equal(d.fades.length, 1, 'equal geometry cannot re-arm the consumed cross-fade');
+  } finally {d.morph.host.unmount();}
+});
+
+test('Android suppresses live composition only under a current-fence snapshot and restores it beneath one outgoing fade', async () => {
+  const image = {fence, image: React.createElement('CapturedFrame')}, d = await postureMorphFixture('android', image);
+  try {
+    const reaction = d.reactions.at(-1)!;
+    await act(() => reaction({active: true, p: .4, v: .2, drag: false, goal: 0}, {active: true, p: 0, v: 0, drag: false, goal: 0}));
+    assert.equal(d.contexts.at(-1).surfaceActive, false);
+    await act(() => d.reactions.at(-1)!({active: true, p: 0, v: 0, drag: false, goal: 0}, {active: true, p: .4, v: .2, drag: false, goal: 0}));
+    assert.equal(d.contexts.at(-1).surfaceActive, true);
+    assert.equal(d.contexts.at(-1).moving, true, 'retain capture until its one fade completes');
+    assert.equal(d.fades.length, 1);
+    await act(() => d.fades[0]!.finish!(true));
+    assert.equal(d.contexts.at(-1).moving, false);
+    assert.strictEqual(d.morph.tree.props.children[0].props.children[0], d.child);
+    await act(() => d.morph.update({...d.props, androidSnapshot: {...image, fence: {...fence, generation: 2}}}));
+    await act(() => d.reactions.at(-1)!({active: true, p: .4, v: .2, drag: false, goal: 0}, {active: true, p: 0, v: 0, drag: false, goal: 0}));
+    assert.equal(d.contexts.at(-1).surfaceActive, true, 'a stale snapshot cannot hide the live producer');
+  } finally {d.morph.host.unmount();}
 });
 
 test('PlayerMorph projects close to its existing wrapper/child and rejects late settlement from the closed source', async () => {

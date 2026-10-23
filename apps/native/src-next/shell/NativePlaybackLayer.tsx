@@ -17,6 +17,7 @@ import {NativeVideoSnapshotCapture} from './video-snapshot';
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
+  const fullFrame = useMemo(() => ({x: 0, y: 0, width, height}), [width, height]);
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
@@ -95,12 +96,11 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
-  const fullFrame = {x: 0, y: 0, width, height};
   return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current);}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
       <PlayerMorph controller={morph} fence={fence} docked={docked && !!dockBounds} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
         onPresentationChange={onPresentationChange} androidSnapshot={image ? {fence: image.fence, image: <Image source={{uri: image.image.uri}} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
-        {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible}/>}
+        {context => <Surface dockBounds={context.bounds} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
       </PlayerMorph>
       {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
         <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>

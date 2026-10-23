@@ -19,7 +19,7 @@ import type {SelectionContext} from '../../../../../packages/client-core/src/sel
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
-export type NativePlaybackSurfaceProps = Readonly<{dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean}>;
+export type NativePlaybackSurfaceProps = Readonly<{dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean; surfaceActive: boolean}>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
 export type NativePlaybackSettings = Readonly<{
   engine: EngineSetting; overrides?: CapabilityOverrides;
