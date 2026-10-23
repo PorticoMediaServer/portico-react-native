@@ -6,6 +6,7 @@ import {type PlaybackFence} from '../../../../../packages/player-core/src/index'
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {playerPostureCrossFadeMs} from '../../platform/layout/player-presentation';
 import {currentMorphFence} from './morph-fence';
 import {releaseDock, validRect} from './model';
 import {alpha, dockStyles} from './visual';
@@ -136,7 +137,9 @@ export type PlayerMorphProps = {
   /** The SAME child/native surface stays under this parent across every layout state. */
   children: React.ReactNode | ((context: PlayerSurfaceContext) => React.ReactNode);
   /** Real native last-frame capture, fenced to this source. Never a fabricated backdrop/video clone. */
-  androidSnapshot?: Readonly<{fence: PlaybackFence; image: React.ReactNode}>;
+  androidSnapshot?: Readonly<{fence: PlaybackFence; image: React.ReactNode; ready?: boolean; failed?: boolean}>;
+  /** Retain a real current-source image before geometry-only Android settlement. */
+  prepareLayout?: (fence: PlaybackFence) => Promise<void>;
   onPresentationChange?: (state: Readonly<{fence: PlaybackFence; docked: boolean; moving: boolean; hideSubtitles: boolean}>) => void;
   testID?: string;
 };
@@ -145,7 +148,7 @@ export type PlayerSurfaceContext = Readonly<{active: boolean; bounds: DockRect; 
 const sameRect = (a: DockRect, b: DockRect) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
 /** Only transforms/opacity move. Native SurfaceView bounds change once on settlement. */
-export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, children, androidSnapshot, onPresentationChange, testID}: PlayerMorphProps) {
+export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, children, androidSnapshot, prepareLayout, onPresentationChange, testID}: PlayerMorphProps) {
   const theme = useTheme(), motion = useMotion();
   const {progress, dragging, velocity} = controller;
   const [frame, setFrame] = useState(docked && validRect(dockFrame) ? dockFrame : fullFrame);
@@ -154,7 +157,8 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   const moving = currentMorphFence(movingFor, fence);
   const fading = currentMorphFence(fadingFor, fence);
   const snapshot = Platform.OS === 'android' && androidSnapshot && currentMorphFence(androidSnapshot.fence, fence) ? androidSnapshot.image : null;
-  const currentSnapshot = useRef(snapshot); currentSnapshot.current = snapshot;
+  const snapshotReady = !!snapshot && androidSnapshot?.ready === true;
+  const currentSnapshot = useRef(snapshotReady); currentSnapshot.current = snapshotReady;
   const full = useSharedValue(fullFrame), dock = useSharedValue(dockFrame), base = useSharedValue(frame);
   const target = useSharedValue(docked ? 1 : 0), surfaceFade = useSharedValue(fence ? 1 : 0);
   const snapshotFade = useSharedValue(1), fadeTicket = useRef(0);
@@ -164,6 +168,8 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   if (lifetime.current.docked !== docked || !sameRect(lifetime.current.frame, targetFrame)
     || (lifetime.current.fence !== fence && !currentMorphFence(lifetime.current.fence, fence))) lifetime.current = {fence, docked, frame: targetFrame};
   const transition = lifetime.current;
+  const preparingLayout = useRef<typeof transition | undefined>(undefined), preparedLayout = useRef<typeof transition | undefined>(undefined);
+  const [layoutReady, setLayoutReady] = useState<typeof transition | undefined>(undefined);
   const settledTransition = useRef(transition), settledDragRun = useRef(0), wasMoving = useRef(false), mounted = useRef(false);
   useEffect(() => {mounted.current = true; return () => {mounted.current = false; fadeTicket.current++; cancelAnimation(surfaceFade); cancelAnimation(snapshotFade);};}, [surfaceFade, snapshotFade]);
   const currentFence = useRef(fence), previousFence = useRef<PlaybackFence | undefined>(undefined);
@@ -200,19 +206,25 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     // That timing's intermediate samples must not re-arm its consumed fade;
     // a genuine new drag can still fade once on return to the same goal.
     if (settledTransition.current !== transition || (motion.reduce ? settledDragRun.current !== observedDragRun : wasMoving.current)) {
-      if (Platform.OS === 'android') {
+      const previous = settledTransition.current;
+      const geometryOnly = previous.docked === transition.docked && currentMorphFence(previous.fence, transition.fence) && !sameRect(previous.frame, transition.frame);
+      const fade = geometryOnly ? {...motion.timing(), duration: playerPostureCrossFadeMs} : motion.timing();
+      if (geometryOnly && motion.reduce) {
+        cancelAnimation(surfaceFade); surfaceFade.value = 1;
+        cancelAnimation(snapshotFade); snapshotFade.value = 1; fadeTicket.current++; setFadingFor(undefined);
+      } else if (Platform.OS === 'android') {
         // Restore the same live producer at its settled bounds beneath the real
         // retained image, then fade that image away exactly once. SurfaceView
         // cannot cross-fade through an ancestor's opacity.
         if (currentSnapshot.current) {
           const ticket = ++fadeTicket.current;
           cancelAnimation(snapshotFade); snapshotFade.value = 1; setFadingFor(fence);
-          snapshotFade.value = withTiming(0, motion.timing(), finished => {if (finished) runOnJS(finishFade)(ticket);});
+          snapshotFade.value = withTiming(0, fade, finished => {if (finished) runOnJS(finishFade)(ticket);});
         }
       } else {
         cancelAnimation(surfaceFade);
         surfaceFade.value = 0;
-        surfaceFade.value = withTiming(1, motion.timing());
+        surfaceFade.value = withTiming(1, fade);
       }
     }
     settledTransition.current = transition; settledDragRun.current = observedDragRun; wasMoving.current = false;
@@ -223,14 +235,31 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       wasMoving.current = value; setMovingFor(value ? fence : undefined);
     }
   }, [fence, transition, dragRun, snapshotFade]);
-  useEffect(() => {if (motion.reduce && !dragging.value) settle(docked ? 1 : 0, dragRun.value);}, [docked, motion.reduce, dragging, settle, dragRun]);
+  useEffect(() => {
+    if (motion.reduce && !dragging.value) settle(docked ? 1 : 0, dragRun.value);
+  }, [docked, motion.reduce, dragging, settle, dragRun, prepareLayout, frame, transition]);
   useEffect(() => {
     // A fold/rotation can change only geometry while progress is already at
     // its goal. It must settle the existing native view without a new source,
     // drag or dock transition. Active drags settle through the reaction below.
     const goal = docked ? 1 : 0;
-    if (!dragging.value && Math.abs(progress.value - goal) < .002 && Math.abs(velocity.value) < .02) settle(goal, dragRun.value);
-  }, [transition, docked, dragging, progress, velocity, settle, dragRun]);
+    if (dragging.value || !motion.reduce && (Math.abs(progress.value - goal) >= .002 || Math.abs(velocity.value) >= .02)) return;
+    if (fence && !motion.reduce && Platform.OS === 'android' && prepareLayout && !sameRect(frame, transition.frame) && preparedLayout.current !== transition) {
+      if (preparingLayout.current === transition) return;
+      preparingLayout.current = transition; setMovingFor(fence);
+      // A failed/unsupported capture still settles with live composition active.
+      // Never blank the producer while waiting for a usable image.
+      void Promise.resolve().then(() => prepareLayout(fence)).catch(() => {}).then(() => {
+        if (!mounted.current || lifetime.current !== transition || !currentMorphFence(currentFence.current, fence)) return;
+        preparedLayout.current = transition; preparingLayout.current = undefined; setLayoutReady(transition);
+      });
+      return;
+    }
+    // The mounted retained Image must finish decoding before it may occlude a
+    // SurfaceView. An image error settles with the live producer still visible.
+    if (!motion.reduce && preparedLayout.current === transition && snapshot && !snapshotReady && !androidSnapshot?.failed) return;
+    settle(goal, dragRun.value);
+  }, [transition, docked, fence, frame, dragging, progress, velocity, settle, dragRun, prepareLayout, layoutReady, motion.reduce, snapshot, snapshotReady, androidSnapshot?.failed]);
   useAnimatedReaction(() => ({active: active.value, p: progress.value, v: velocity.value, drag: dragging.value, goal: target.value}), (now, previous) => {
     if (!now.active) return;
     const beganDrag = now.drag && !previous?.drag;
@@ -259,11 +288,11 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   // Android SurfaceView punches a native composition hole even beneath an alpha-zero
   // ancestor. Hide the idle host from native layout while retaining the SAME child.
   return <View testID={testID} pointerEvents="none" accessibilityElementsHidden={!fence} importantForAccessibility={fence ? 'auto' : 'no-hide-descendants'} style={[dockStyles.fill, {zIndex: theme.layers.player + 1, display: fence ? 'flex' : 'none'}]}>
-    <Animated.View style={[{position: 'absolute', left: frame.x, top: frame.y, width: frame.width, height: frame.height, overflow: 'hidden', borderRadius: docked && !moving ? 7 : 0, backgroundColor: theme.colors.shadow}, surfaceStyle, moving && snapshot ? {opacity: 0} : undefined]}>
+    <Animated.View style={[{position: 'absolute', left: frame.x, top: frame.y, width: frame.width, height: frame.height, overflow: 'hidden', borderRadius: docked && !moving ? 7 : 0, backgroundColor: theme.colors.shadow}, surfaceStyle, moving && snapshotReady ? {opacity: 0} : undefined]}>
       {typeof children === 'function' ? children({active: fence !== undefined, bounds: {x: 0, y: 0, width: frame.width, height: frame.height}, docked, moving: moving || fading,
-        subtitlesVisible: fence !== undefined && !docked && !moving && !fading, surfaceActive: !(moving && snapshot)}) : children}
+        subtitlesVisible: fence !== undefined && !docked && !moving && !fading, surfaceActive: !(moving && snapshotReady)}) : children}
       {fence && docked && !moving && <View style={[dockStyles.expand, {backgroundColor: alpha(theme.colors.dim, .62)}]}><Icon name="i-full" size={11}/></View>}
     </Animated.View>
-    {(moving || fading) && snapshot ? <Animated.View style={[{position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height, overflow: 'hidden'}, previewStyle]}>{snapshot}</Animated.View> : null}
+    {(moving || fading) && snapshot ? <Animated.View style={[{position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height, overflow: 'hidden', backgroundColor: theme.colors.shadow}, previewStyle]}>{snapshot}</Animated.View> : null}
   </View>;
 }

@@ -59,6 +59,8 @@ test('full-window panels take the exact right page or tablet-play380pt beside th
   const tablet = resolvePlayerPresentation({...input(1180, 820), panelOpen: true})!;
   assert.deepEqual(tablet.panel, {x: 800, y: 0, width: 380, height: 820});
   assert.deepEqual(tablet.picture, {x: 0, y: 185, width: 800, height: 450});
+  const medium = resolvePlayerPresentation({...input(626, 400), panelOpen: true})!;
+  assert.equal(medium.panel!.width, 380);
 });
 
 test('3f keeps the docked state and measured-slot authority through every posture', () => {

@@ -1,4 +1,6 @@
 export type PlayerRect = Readonly<{x: number; y: number; width: number; height: number}>;
+/** foldable9: one layout cross-fade, omitted entirely with reduced motion. */
+export const playerPostureCrossFadeMs = 250;
 export type PlayerWindow = Readonly<{width: number; height: number}>;
 /** Geometry consumed from the posture publisher, never inferred from a device name. */
 export type PlayerFold = Readonly<{
@@ -85,9 +87,9 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
       surface = rect(0, 0, fold.bounds.left, height);
       panel = rect(fold.bounds.right, 0, width - fold.bounds.right, height);
     } else {
-      // tablet-play2. Narrow compact windows retain the phone sheet container.
-      const panelWidth = width >= 700 ? 380 : 0;
-      if (panelWidth) {surface = rect(0, 0, width - panelWidth, height); panel = rect(width - panelWidth, 0, panelWidth, height);}
+      // Q7/tablet-play2: the unhinged full-window panel is380pt.
+      if (width <= 380) return;
+      surface = rect(0, 0, width - 380, height); panel = rect(width - 380, 0, 380, height);
     }
   }
   return {...common, mode: 'full-window', surface, picture: letterboxPlayerPicture(surface), controls: surface, panel, hideStatusBar: true};
@@ -95,7 +97,8 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
 
 function geometryKey(input: PlayerPresentationInput): string {
   const fold = currentFold(input);
-  return JSON.stringify([input.window.width, input.window.height, fold?.orientation, fold?.state, fold?.bounds]);
+  const b = fold?.bounds;
+  return JSON.stringify([input.window.width, input.window.height, fold?.orientation, fold?.state, b?.left, b?.top, b?.right, b?.bottom]);
 }
 
 /** notes/foldable9: fold, unfold or turn reveals controls for3s; panel/scroll events do not extend it. */
