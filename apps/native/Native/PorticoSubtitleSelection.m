@@ -32,65 +32,32 @@ static BOOL PlainText(id value){
  BOOL _local;NSInteger _localEpoch;
 }
 + (void)applyCaptionAppearanceToLabel:(UILabel *)label baseSize:(CGFloat)base style:(NSDictionary *)style italic:(BOOL)italic {
- CGFloat scale=[style[@"scale"] isKindOfClass:NSNumber.class]?[style[@"scale"] doubleValue]:1;if(!isfinite(scale)||scale<0.5||scale>3)scale=1;
+ NSDictionary *scales=@{@"small":@0.8,@"medium":@1,@"large":@1.3,@"extra-large":@1.6};
+ CGFloat scale=[style[@"scale"] isKindOfClass:NSNumber.class]?[style[@"scale"] doubleValue]:[scales[style[@"size"]?:@"medium"] doubleValue];if(!isfinite(scale)||scale<0.5||scale>3)scale=1;
+ BOOL system=[style[@"useSystemCaptionStyle"] isEqual:@YES];MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
+ CGFloat relative=system?MACaptionAppearanceGetRelativeCharacterSize(kMACaptionAppearanceDomainUser,&behavior):1;
+ if(!isfinite(relative)||relative<=0)relative=1;CGFloat size=base*scale*MAX(.5,MIN(3,relative));
+ NSString *family=style[@"font"];UIFont *font=italic?[UIFont italicSystemFontOfSize:size]:[UIFont systemFontOfSize:size weight:UIFontWeightMedium];
+ if([family isEqual:@"serif"]){UIFontDescriptor *d=[font.fontDescriptor fontDescriptorWithDesign:UIFontDescriptorSystemDesignSerif];if(d)font=[UIFont fontWithDescriptor:d size:size];}
+ else if([family isEqual:@"mono"])font=[UIFont monospacedSystemFontOfSize:size weight:UIFontWeightMedium];
+ else if([family isEqual:@"rounded"]){UIFontDescriptor *d=[font.fontDescriptor fontDescriptorWithDesign:UIFontDescriptorSystemDesignRounded];if(d)font=[UIFont fontWithDescriptor:d size:size];}
+ NSDictionary *colors=@{@"white":UIColor.whiteColor,@"yellow":UIColor.yellowColor,@"cyan":UIColor.cyanColor,@"green":UIColor.greenColor,@"pink":[UIColor colorWithRed:1 green:.5 blue:.75 alpha:1]};
+ UIColor *text=colors[style[@"color"]?:@"white"]?:UIColor.whiteColor;
  NSString *background=[style[@"background"] isKindOfClass:NSString.class]?style[@"background"]:@"translucent";
- MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGFloat system=MACaptionAppearanceGetRelativeCharacterSize(kMACaptionAppearanceDomainUser,&behavior);if(!isfinite(system)||system<=0)system=1;
- CGFloat fontSize=base*scale*MAX(0.5,MIN(3,system));
- UIFont *font=italic?[UIFont italicSystemFontOfSize:fontSize]:[UIFont systemFontOfSize:fontSize weight:UIFontWeightMedium];
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
- if(descriptor){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   UIFontDescriptor *chosen=(__bridge UIFontDescriptor *)descriptor;
-   if(italic){UIFontDescriptor *slanted=[chosen fontDescriptorWithSymbolicTraits:chosen.symbolicTraits|UIFontDescriptorTraitItalic];if(slanted)chosen=slanted;}
-   UIFont *custom=[UIFont fontWithDescriptor:chosen size:fontSize];if(custom)font=custom;
-  }
-  CFRelease(descriptor);
+ UIColor *box=([@[@"none",@"outline",@"shadow"] containsObject:background])?UIColor.clearColor:[UIColor colorWithWhite:0 alpha:[background isEqual:@"opaque"]?1:.7];
+ if(system){
+  CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
+  if(descriptor){if(behavior==kMACaptionAppearanceBehaviorUseValue)font=[UIFont fontWithDescriptor:(__bridge UIFontDescriptor *)descriptor size:size];CFRelease(descriptor);}
+  behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;CGColorRef foreground=MACaptionAppearanceCopyForegroundColor(kMACaptionAppearanceDomainUser,&behavior);
+  if(foreground){if(behavior==kMACaptionAppearanceBehaviorUseValue)text=[UIColor colorWithCGColor:foreground];CGColorRelease(foreground);}
+  behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;CGColorRef bg=MACaptionAppearanceCopyBackgroundColor(kMACaptionAppearanceDomainUser,&behavior);
+  if(bg){if(behavior==kMACaptionAppearanceBehaviorUseValue){MACaptionAppearanceBehavior opacityBehavior;CGFloat opacity=MACaptionAppearanceGetBackgroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);box=[[UIColor colorWithCGColor:bg] colorWithAlphaComponent:isfinite(opacity)?MAX(0,MIN(1,opacity)):.7];}CGColorRelease(bg);}
  }
- label.font=font;
- UIColor *text=UIColor.whiteColor;
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGColorRef foreground=MACaptionAppearanceCopyForegroundColor(kMACaptionAppearanceDomainUser,&behavior);
- if(foreground){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
-   CGFloat opacity=MACaptionAppearanceGetForegroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
-   text=[[UIColor colorWithCGColor:foreground] colorWithAlphaComponent:(opacityBehavior==kMACaptionAppearanceBehaviorUseValue&&isfinite(opacity))?MAX(0.25,MIN(1,opacity)):1];
-  }
-  CGColorRelease(foreground);
- }
- label.textColor=text;
- UIColor *box=[background isEqual:@"none"]?UIColor.clearColor:[UIColor colorWithWhite:0 alpha:[background isEqual:@"opaque"]?1:0.7];
- behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CGColorRef systemBox=MACaptionAppearanceCopyBackgroundColor(kMACaptionAppearanceDomainUser,&behavior);
- if(systemBox){
-  if(behavior==kMACaptionAppearanceBehaviorUseValue){
-   MACaptionAppearanceBehavior opacityBehavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
-   CGFloat opacity=MACaptionAppearanceGetBackgroundOpacity(kMACaptionAppearanceDomainUser,&opacityBehavior);
-   box=[[UIColor colorWithCGColor:systemBox] colorWithAlphaComponent:isfinite(opacity)?MAX(0,MIN(1,opacity)):0.7];
-  }
-  CGColorRelease(systemBox);
- }
- label.backgroundColor=box;
- // Without a box behind it the line needs an edge of its own to stay readable over a bright picture.
- BOOL bare=CGColorGetAlpha(box.CGColor)<0.3;
- label.layer.shadowColor=UIColor.blackColor.CGColor;label.layer.shadowOffset=CGSizeZero;label.layer.shadowRadius=bare?MAX(2,fontSize*0.08):0;label.layer.shadowOpacity=bare?1:0;
-}
-
-+ (NSDictionary<NSString *,NSString *> *)mpvCaptionOptions:(NSDictionary *)style {
- UILabel *label=[UILabel new];[self applyCaptionAppearanceToLabel:label baseSize:45 style:style italic:NO];
- CGFloat red=1,green=1,blue=1,alpha=1;[label.textColor getRed:&red green:&green blue:&blue alpha:&alpha];
- NSString *foreground=[NSString stringWithFormat:@"%.4f/%.4f/%.4f/%.4f",red,green,blue,alpha];
- red=green=blue=0;alpha=0.7;[label.backgroundColor getRed:&red green:&green blue:&blue alpha:&alpha];
- NSString *background=[NSString stringWithFormat:@"%.4f/%.4f/%.4f/%.4f",red,green,blue,alpha];
- BOOL bare=alpha<0.3;
- MACaptionAppearanceBehavior behavior=kMACaptionAppearanceBehaviorUseContentIfAvailable;
- CTFontDescriptorRef descriptor=MACaptionAppearanceCopyFontDescriptorForStyle(kMACaptionAppearanceDomainUser,&behavior,kMACaptionAppearanceFontStyleDefault);
- NSString *font=descriptor&&behavior==kMACaptionAppearanceBehaviorUseValue?label.font.fontName:@"sans-serif";
- if(descriptor)CFRelease(descriptor);
- return @{@"sub-font":font?:@"sans-serif",@"sub-color":foreground,@"sub-back-color":background,
-          @"sub-border-style":bare?@"outline-and-shadow":@"background-box",@"sub-outline-size":bare?@"3":@"0"};
+ label.font=font;label.textColor=text;label.backgroundColor=box;
+ BOOL outline=[background isEqual:@"outline"],shadow=[background isEqual:@"shadow"]||CGColorGetAlpha(box.CGColor)<.3;
+ label.layer.shadowColor=UIColor.blackColor.CGColor;label.layer.shadowOffset=CGSizeMake(0,outline?0:2);label.layer.shadowRadius=shadow?MAX(2,size*.08):0;label.layer.shadowOpacity=shadow?1:0;
+ if(outline&&label.text.length)label.attributedText=[[NSAttributedString alloc]initWithString:label.text attributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:text,NSStrokeColorAttributeName:UIColor.blackColor,NSStrokeWidthAttributeName:@-3}];
+ else if(label.text.length)label.attributedText=[[NSAttributedString alloc]initWithString:label.text attributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:text}];
 }
 
 + (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {

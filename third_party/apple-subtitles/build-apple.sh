@@ -1,26 +1,14 @@
 #!/usr/bin/env bash
-# Builds the media engine for iPhone, iPad and Apple TV from the pinned sources in
-# sources.lock.json, as one dynamic framework per library, each combined into an .xcframework.
-# Run it on a Mac before opening the Xcode projects (like `pod install`):
-#
-#   third_party/media-engine/build-apple.sh            # everything (about an hour the first time)
-#   third_party/media-engine/build-apple.sh --clean    # forget earlier builds first
-#
-# Slices: iOS device (arm64), iOS simulator (arm64 + x86_64), tvOS device (arm64), tvOS
-# simulator (arm64; Rust has no x86_64 tvOS simulator target, which libdovi needs).
-#
-# Output:
-#   out/apple/xcframeworks/<Name>.xcframework   Libmpv, Libavcodec, ... Libssl, Libcrypto, MoltenVK
-#   apple/Frameworks/                           the same, where the local Swift package
-#                                               (apple/Package.swift, product PorticoMediaEngine)
-#                                               that both Xcode projects use finds them
-#   out/apple/meta/<slice>/                     FFmpeg's configuration, mpv's feature list
-#   out/apple/notices/, out/apple/source/       licence texts and the corresponding source
-#
-# Needs: macOS with Xcode (see sources.lock.json for the minimum) and its command line tools,
-# rustup, python3, perl, pkg-config (brew install pkgconf), curl. meson, ninja, cmake, nasm and
-# cargo-c are installed into the work directory at their pinned versions.
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+# Builds only libass and FFmpeg subtitle/Opus decoding for AVPlayer overlays.
+# Run on macOS with Xcode: third_party/apple-subtitles/build-apple.sh [--clean]
+# Pinned archives, licences and corresponding source accompany every build.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../media-engine/lib/common.sh"
+ME_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ME_LOCK="$ME_ROOT/sources.lock.json"
+ME_WORK="${APPLE_SUBTITLE_WORK_DIR:-$ME_ROOT/work}"
+ME_OUT="${APPLE_SUBTITLE_OUT_DIR:-$ME_ROOT/out}"
+ME_DOWNLOADS="$ME_WORK/downloads"; ME_TOOLS="$ME_WORK/tools"; ME_LOGS="$ME_WORK/logs"
+ME_JOBS="${APPLE_SUBTITLE_JOBS:-4}"
 
 CLEAN=0
 while (( $# )); do
@@ -66,10 +54,28 @@ TVOS_MIN=$(deployment_target tvos)
 [[ "$IOS_MIN" == "$(me_lock tool apple-deployment ios)" && "$TVOS_MIN" == "$(me_lock tool apple-deployment tvos)" ]] \
     || me_die "The Xcode projects target iOS $IOS_MIN / tvOS $TVOS_MIN, sources.lock.json says $(me_lock tool apple-deployment ios) / $(me_lock tool apple-deployment tvos). Update the lock (and rebuild)."
 
-me_check_disk 30
+me_check_disk 5
 (( CLEAN )) && rm -rf "$ME_WORK/build/$PLATFORM" "$ME_WORK/prefix/$PLATFORM" "$ME_WORK/stamps/$PLATFORM" "$ME_WORK/frameworks" "$ME_OUT/$PLATFORM"
 mkdir -p "$ME_LOGS" "$ME_WORK/stamps/$PLATFORM"
-me_tools
+# No Rust, GPU renderer, TLS or video decoding toolchain is needed.
+python3 -m venv "$ME_TOOLS/venv"
+"$ME_TOOLS/venv/bin/pip" install --quiet --disable-pip-version-check "meson==$(me_lock tool meson version)" "ninja==$(me_lock tool ninja version)"
+export PATH="$ME_TOOLS/venv/bin:$PATH"
+    nasm_version=""; nasm_version=$(me_lock tool nasm version)
+    if [[ ! -x "$ME_TOOLS/nasm/bin/nasm" ]] || ! "$ME_TOOLS/nasm/bin/nasm" -v | grep -q "version $nasm_version "; then
+        me_say "Building nasm $nasm_version"
+        me_fetch "$(me_lock tool nasm file)" "$(me_lock tool nasm url)" "$(me_lock tool nasm sha256)"
+        rm -rf "$ME_TOOLS/nasm-src"; mkdir -p "$ME_TOOLS/nasm-src"
+        tar -xf "$ME_DOWNLOADS/$(me_lock tool nasm file)" -C "$ME_TOOLS/nasm-src" --strip-components=1
+        ( cd "$ME_TOOLS/nasm-src" && ./configure --prefix="$ME_TOOLS/nasm" >/dev/null \
+            && make -j"$ME_JOBS" nasm ndisasm >/dev/null && mkdir -p "$ME_TOOLS/nasm/bin" \
+            && cp nasm ndisasm "$ME_TOOLS/nasm/bin/" ) || me_die "nasm did not build."
+        rm -rf "$ME_TOOLS/nasm-src"
+    fi
+    export PATH="$ME_TOOLS/nasm/bin:$PATH"
+
+
+command -v pkg-config >/dev/null || me_die "pkg-config is required."
 
 # ---------------------------------------------------------------------------------------------
 # Per-target toolchain settings. A target is one slice and one architecture.
@@ -84,14 +90,6 @@ set_target() {
         ios-simulator)  SDK=iphonesimulator;  MIN=$IOS_MIN;  TRIPLE="$ARCH-apple-ios$MIN-simulator";  SUBSYSTEM=ios-simulator ;;
         tvos)           SDK=appletvos;        MIN=$TVOS_MIN; TRIPLE="$ARCH-apple-tvos$MIN";           SUBSYSTEM=tvos ;;
         tvos-simulator) SDK=appletvsimulator; MIN=$TVOS_MIN; TRIPLE="$ARCH-apple-tvos$MIN-simulator"; SUBSYSTEM=tvos-simulator ;;
-    esac
-    case "$SLICE:$ARCH" in
-        ios:arm64)            RUST=aarch64-apple-ios ;;
-        ios-simulator:arm64)  RUST=aarch64-apple-ios-sim ;;
-        ios-simulator:x86_64) RUST=x86_64-apple-ios ;;
-        tvos:arm64)           RUST=aarch64-apple-tvos ;;
-        tvos-simulator:arm64) RUST=aarch64-apple-tvos-sim ;;
-        *) me_die "No Rust target for $SLICE $ARCH" ;;
     esac
     [[ "$ARCH" == arm64 ]] && { CPU_FAMILY=aarch64; FF_ARCH=aarch64; OSSL=portico-apple-arm64; } \
                            || { CPU_FAMILY=x86_64;  FF_ARCH=x86_64;  OSSL=portico-apple-x86_64; }
@@ -116,6 +114,7 @@ set_target() {
     # Room for the install names the frameworks get later; only libraries actually used are linked.
     LDFLAGS_T="--target=$TRIPLE -isysroot$SYSROOT -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     write_cross_file
+    printf "[binaries]\nc = '%s'\ncpp = '%s'\n[built-in options]\nc_args = ['--target=$(uname -m)-apple-macosx14.0', '-isysroot%s']\nc_link_args = ['--target=$(uname -m)-apple-macosx14.0', '-isysroot%s']\ncpp_args = ['--target=$(uname -m)-apple-macosx14.0', '-isysroot%s']\ncpp_link_args = ['--target=$(uname -m)-apple-macosx14.0', '-isysroot%s']\n" "$(xcrun --sdk macosx -f clang)" "$(xcrun --sdk macosx -f clang++)" "$(xcrun --sdk macosx --show-sdk-path)" "$(xcrun --sdk macosx --show-sdk-path)" "$(xcrun --sdk macosx --show-sdk-path)" "$(xcrun --sdk macosx --show-sdk-path)" > "$BUILD/native.ini"
 }
 
 meson_list() { local out="" a; for a in "$@"; do out+="'$a', "; done; printf '[%s]' "${out%, }"; }
@@ -161,7 +160,7 @@ meson_build() {
     local name="$1"; shift
     local dir="$BUILD/$name"
     rm -rf "$dir"
-    meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" \
+    CC_FOR_BUILD="$(xcrun --sdk macosx -f clang)" CXX_FOR_BUILD="$(xcrun --sdk macosx -f clang++)" meson setup "$dir" "$ME_WORK/src/$name" --cross-file "$BUILD/cross.ini" --native-file "$BUILD/native.ini" \
         --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
         --wrap-mode nodownload "$@"
     # mpv writes its configure command line and config folder into config.h.
@@ -189,24 +188,6 @@ cmake_apple() {  # <name> <source dir> <cmake args...>
 # ---------------------------------------------------------------------------------------------
 # Components, in dependency order.
 
-build_openssl() {
-    cd "$ME_WORK/src/openssl"
-    make distclean >/dev/null 2>&1 || true
-    # OpenSSL's own iOS targets hard-code iphoneos and an old minimum OS; these two targets
-    # inherit its iOS settings (no async, which needs ucontext) and take the compiler and
-    # flags from here, so the same recipe serves iOS, tvOS and both simulators.
-    CC="$CC" ./Configure "$OSSL" --config="$ME_ROOT/apple/openssl-targets.conf" \
-        --prefix="$PREFIX" --libdir=lib --openssldir=/dev/null/portico-no-openssl-dir \
-        $(me_openssl_common_flags) $CFLAGS_T $LDFLAGS_T
-    # Engines and modules are not built (no-engine, no-module); their folders must not name the
-    # work directory either. The "compiler:" line OpenSSL_version() reports is made neutral.
-    local dirs=(ENGINESDIR=/dev/null/portico-no-engines MODULESDIR=/dev/null/portico-no-modules)
-    make "${dirs[@]}" crypto/buildinf.h
-    me_neutralize "$DEVELOPER_DIR_PATH" crypto/buildinf.h
-    make -j"$ME_JOBS" "${dirs[@]}" build_libs
-    make "${dirs[@]}" install_dev
-}
-
 build_fribidi() { meson_build fribidi $(me_fribidi_common_flags); }
 
 build_freetype() { meson_build freetype $(me_freetype_common_flags); }
@@ -216,8 +197,10 @@ build_harfbuzz() { meson_build harfbuzz $(me_harfbuzz_common_flags); }
 build_libunibreak() {
     cd "$ME_WORK/src/libunibreak"
     make distclean >/dev/null 2>&1 || true
+    printf '#!/bin/sh\nexec "%s" "--target=%s" "-isysroot%s" "$@"\n' "$CC" "$TRIPLE" "$SYSROOT" > "$BUILD/cc-unibreak"
+    chmod +x "$BUILD/cc-unibreak"
     ./configure --host="${ARCH/arm64/aarch64}-apple-darwin" --prefix="$PREFIX" --libdir="$PREFIX/lib" \
-        --enable-shared --disable-static CC="$CC" CFLAGS="$CFLAGS_T -O2" LDFLAGS="$LDFLAGS_T"
+        --enable-shared --disable-static CC="$BUILD/cc-unibreak" CFLAGS="$CFLAGS_T -O2" LDFLAGS="$LDFLAGS_T"
     make -j"$ME_JOBS"
     make install
     rm -f "$PREFIX"/lib/libunibreak.la
@@ -225,64 +208,6 @@ build_libunibreak() {
 
 build_libass() {
     meson_build libass $(me_libass_common_flags) -Dcoretext=enabled -Drequire-system-font-provider=true -Dasm=enabled
-}
-
-build_dav1d() { meson_build dav1d $(me_dav1d_common_flags) -Denable_asm=true; }
-
-build_lcms2() { meson_build lcms2 $(me_lcms2_common_flags); }
-
-build_libdovi() {
-    cd "$ME_WORK/src/libdovi/dolby_vision"
-    export CARGO_HOME="$ME_WORK/cargo-home"
-    # Source folders in panic messages: neutral names (flags separated by 0x1f).
-    local flags=() f
-    while read -r f; do flags+=("$f"); done < <(me_rust_remap_flags)
-    unset RUSTFLAGS
-    export CARGO_ENCODED_RUSTFLAGS="$(IFS=$'\x1f'; printf '%s' "${flags[*]}")"
-    rustup target list --installed | grep -qx "$RUST" || rustup target add "$RUST"
-    cargo cinstall --profile release-deploy --locked --offline --target "$RUST" --library-type cdylib \
-        --prefix "$PREFIX" --libdir "$PREFIX/lib" --target-dir "$BUILD/libdovi" -j "$ME_JOBS"
-}
-
-build_uchardet() {
-    cmake_apple uchardet "$ME_WORK/src/uchardet" -DBUILD_BINARY=OFF -DBUILD_STATIC=OFF -DBUILD_SHARED_LIBS=ON
-}
-
-build_glslang() {
-    # Static, no optimizer, no HLSL: only what libplacebo calls. Linked into libplacebo.
-    cmake_apple glslang "$ME_WORK/src/glslang" -DBUILD_SHARED_LIBS=OFF -DENABLE_OPT=OFF -DENABLE_HLSL=OFF \
-        -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF -DBUILD_EXTERNAL=OFF -DENABLE_PCH=OFF \
-        -DGLSLANG_ENABLE_INSTALL=ON
-}
-
-build_moltenvk() {
-    # Khronos's own dynamic framework for this slice, and a vulkan.pc that points at it with
-    # the Vulkan headers libplacebo is generated from.
-    local id
-    case "$SLICE" in
-        ios) id=ios-arm64 ;;
-        ios-simulator) id=ios-arm64_x86_64-simulator ;;
-        tvos) id=tvos-arm64_arm64e ;;
-        tvos-simulator) id=tvos-arm64_x86_64-simulator ;;
-    esac
-    rm -rf "$PREFIX/Frameworks/MoltenVK.framework"
-    cp -R "$ME_WORK/src/moltenvk/MoltenVK/dynamic/MoltenVK.xcframework/$id/MoltenVK.framework" "$PREFIX/Frameworks/"
-    local headers="$ME_WORK/src/libplacebo/3rdparty/Vulkan-Headers/include"
-    local version
-    version=$(sed -n 's/^#define VK_HEADER_VERSION \([0-9]*\)$/\1/p' "$headers/vulkan/vulkan_core.h")
-    [[ -n "$version" ]] || me_die "Could not read VK_HEADER_VERSION."
-    cat > "$PREFIX/lib/pkgconfig/vulkan.pc" <<EOF
-Name: Vulkan-Loader
-Description: Vulkan on Metal (MoltenVK $(me_lock moltenvk version))
-Version: 1.4.$version
-Libs: -F$PREFIX/Frameworks -framework MoltenVK
-Cflags: -I$headers
-EOF
-}
-
-build_libplacebo() {
-    meson_build libplacebo $(me_libplacebo_common_flags) -Dvulkan=enabled -Dvk-proc-addr=enabled \
-        -Dopengl=disabled -Dglslang=enabled -Dvulkan-sdk="$PREFIX"
 }
 
 build_ffmpeg() {
@@ -297,8 +222,11 @@ build_ffmpeg() {
         --host-cflags="-isysroot$(xcrun --sdk macosx --show-sdk-path)" --host-ldflags="-isysroot$(xcrun --sdk macosx --show-sdk-path)" \
         --extra-cflags="$CFLAGS_T -I$PREFIX/include" --extra-ldflags="$LDFLAGS_T -L$PREFIX/lib" \
         --install-name-dir='@rpath' \
-        $(me_ffmpeg_common_flags) \
-        --enable-videotoolbox \
+        --disable-autodetect --disable-everything --disable-programs --disable-doc --disable-network \
+        --enable-shared --disable-static --disable-avdevice --disable-avfilter --disable-swscale \
+        --enable-avformat --enable-avcodec --enable-avutil --enable-swresample \
+        --enable-decoder=pgssub,dvdsub,dvbsub,opus --enable-demuxer=sup,vobsub,matroska,ogg \
+        --enable-parser=dvdsub,dvbsub,opus --enable-protocol=file --disable-videotoolbox --disable-audiotoolbox --disable-asm \
         ${asm[@]+"${asm[@]}"}
     # av*_configuration() reports this command line: neutral folders only.
     me_neutralize "$DEVELOPER_DIR_PATH" config.h
@@ -311,24 +239,12 @@ build_ffmpeg() {
     fi
 }
 
-build_mpv() {
-    # mpv adds Objective-C (needed for its iOS/tvOS audio output and the MoltenVK context) only
-    # once it has found an SDK; these two variables give it the target SDK instead of macOS's.
-    MACOS_SDK="$SYSROOT" MACOS_SDK_VERSION="$(xcrun --sdk "$SDK" --show-sdk-version)" \
-    meson_build mpv $(me_mpv_common_flags) \
-        -Dcocoa=disabled -Dswift-build=disabled -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled \
-        -Dmacos-touchbar=disabled -Dcoreaudio=disabled -Davfoundation=disabled -Daudiounit=enabled \
-        -Dgl=disabled -Dplain-gl=disabled -Dios-gl=disabled -Dvideotoolbox-gl=disabled \
-        -Dvulkan=enabled -Dmoltenvk=enabled -Dvideotoolbox-pl=enabled
-    if [[ "$ARCH" == arm64 ]]; then
-        mkdir -p "$ME_OUT/$PLATFORM/meta/$SLICE"
-        cp "$BUILD/mpv/config.h" "$ME_OUT/$PLATFORM/meta/$SLICE/mpv-config.h"
-    fi
+build_core() {
+    "$CC" $CFLAGS_T -O2 -dynamiclib "$ME_ROOT/core/PorticoSubtitleCore.c" -I"$PREFIX/include" \
+      -L"$PREFIX/lib" -lass -lavformat -lavcodec -lavutil -o "$PREFIX/lib/libporticosubtitle.dylib" \
+      $LDFLAGS_T -Wl,-install_name,@rpath/libporticosubtitle.dylib
 }
-
-# ---------------------------------------------------------------------------------------------
-
-ORDER="openssl fribidi freetype harfbuzz libunibreak libass dav1d lcms2 libdovi uchardet glslang moltenvk libplacebo ffmpeg mpv"
+ORDER="fribidi freetype harfbuzz libunibreak libass ffmpeg"
 for name in $ORDER; do
     me_components "$PLATFORM" | grep -qx "$name" || me_die "Component $name is not in sources.lock.json for $PLATFORM."
 done
@@ -337,7 +253,7 @@ for name in $(me_components "$PLATFORM"); do
 done
 
 me_say "Checking sources"
-me_fetch_all "$PLATFORM"
+for name in $ORDER; do me_fetch "$(me_lock "$name" file)" "$(me_lock "$name" url)" "$(me_lock "$name" sha256)"; done
 mkdir -p "$ME_WORK/src"
 
 component_key() {
@@ -350,7 +266,7 @@ component_key() {
         declare -f me_ffmpeg_common_flags me_openssl_common_flags me_mpv_common_flags me_libplacebo_common_flags \
             me_libass_common_flags me_harfbuzz_common_flags me_freetype_common_flags me_fribidi_common_flags \
             me_dav1d_common_flags me_lcms2_common_flags
-        cat "$ME_ROOT/patches/$name"/*.patch "$ME_ROOT/apple/openssl-targets.conf" 2>/dev/null || true
+        cat "$ME_ROOT/patches/$name"/*.patch 2>/dev/null || true
     } | shasum -a 256 | cut -d' ' -f1
 }
 
@@ -358,18 +274,9 @@ EXTRACTED=" "
 prepare_source() {
     local name="$1"
     [[ "$EXTRACTED" == *" $name "* ]] && return
-    if [[ "$name" == moltenvk ]]; then
-        rm -rf "$ME_WORK/src/moltenvk"; mkdir -p "$ME_WORK/src/moltenvk"
-        tar -xf "$ME_DOWNLOADS/$(me_lock moltenvk file)" -C "$ME_WORK/src/moltenvk" --strip-components=1 \
-            MoltenVK/LICENSE MoltenVK/MoltenVK/dynamic/MoltenVK.xcframework
-    else
-        me_extract "$name"
-    fi
-    [[ "$name" == libdovi ]] && me_vendor_libdovi
+    me_extract "$name"
     EXTRACTED+="$name "
 }
-# libplacebo's Vulkan headers are needed by the MoltenVK step, before libplacebo itself.
-prepare_source libplacebo
 
 for target in $TARGETS; do
     set_target "$target"
@@ -396,18 +303,17 @@ for target in $TARGETS; do
         fi
         echo "$key" > "$stamp"
     done
+    build_core
 done
 
 # ---------------------------------------------------------------------------------------------
 # Frameworks.
 
 me_write_build_info "$PLATFORM" "$ME_OUT/$PLATFORM/build-info.json"
-"$ME_ROOT/collect-notices.sh" "$PLATFORM"
+python3 "$ME_ROOT/notices.py" "$ME_LOCK" "$ME_DOWNLOADS" "$ME_OUT/$PLATFORM"
 
 # library stem -> component (for the version and the notice)
-STEMS="avcodec:ffmpeg avformat:ffmpeg avutil:ffmpeg avfilter:ffmpeg swresample:ffmpeg swscale:ffmpeg
-ssl:openssl crypto:openssl mpv:mpv ass:libass freetype:freetype harfbuzz:harfbuzz fribidi:fribidi
-unibreak:libunibreak dav1d:dav1d placebo:libplacebo lcms2:lcms2 dovi:libdovi uchardet:uchardet"
+STEMS="avcodec:ffmpeg avformat:ffmpeg avutil:ffmpeg swresample:ffmpeg porticosubtitle:ffmpeg ass:libass freetype:freetype harfbuzz:harfbuzz fribidi:fribidi unibreak:libunibreak"
 REVISION=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$ME_LOCK")
 FW="$ME_WORK/frameworks"
 XC="$ME_OUT/$PLATFORM/xcframeworks"
@@ -426,6 +332,7 @@ stem_of_install_name() {  # an install name of one of our libraries -> its stem,
     local base; base=$(basename "$1")
     base=${base#lib}; base=${base%%.*}
     for pair in $STEMS; do [[ "${pair%%:*}" == "$base" ]] && { echo "$base"; return; }; done
+    return 0
 }
 
 platform_names() {  # <slice> -> CFBundleSupportedPlatforms value and UIDeviceFamily
@@ -496,7 +403,7 @@ notice_for() {  # <framework dir> <component>
     {
         echo "$2 $(me_lock "$2" version) — $(me_lock "$2" licence)"
         echo "Source: $(me_lock "$2" url)"
-        echo "All third-party notices for the Portico media engine: THIRD-PARTY-NOTICES.txt in Libmpv.framework."
+        echo "All third-party notices for the Portico media engine: THIRD-PARTY-NOTICES.txt in Libporticosubtitle.framework."
         echo
         find "$ME_OUT/$PLATFORM/notices/$2" -type f | sort | while read -r f; do
             echo "--- ${f#"$ME_OUT/$PLATFORM/notices/"} ---"; cat "$f"; echo
@@ -529,19 +436,14 @@ for slice in $SLICES; do
         otool -l "$fw/$name" | awk '/cmd LC_RPATH/ {getline; getline; print $2}' | sort -u | while read -r rp; do
             install_name_tool -delete_rpath "$rp" "$fw/$name"
         done
-        links=$(otool -L "$fw/$name")
+        links=$(otool -L "$fw/$name" | awk '/^[[:space:]]/')
         [[ "$links" != *"$ME_WORK"* ]] || me_die "$name still refers to the build directory: $links"
         # -S as well: the debug map's object-file paths (N_OSO) name the build folders.
         strip -x -S "$fw/$name"
-        if [[ "$stem" == mpv ]]; then
+        if [[ "$stem" == porticosubtitle ]]; then
             mkdir -p "$fw/Headers" "$fw/Modules"
-            cp "$ME_WORK/prefix/$PLATFORM/$slice-arm64/include/mpv/"*.h "$fw/Headers/"
-            {
-                echo "framework module Libmpv {"
-                for h in "$fw/Headers/"*.h; do echo "    header \"$(basename "$h")\""; done
-                echo "    export *"
-                echo "}"
-            } > "$fw/Modules/module.modulemap"
+            cp "$ME_ROOT/core/PorticoSubtitleCore.h" "$fw/Headers/"
+            printf 'framework module Libporticosubtitle { header "PorticoSubtitleCore.h" export * }\n' > "$fw/Modules/module.modulemap"
             cp "$ME_OUT/$PLATFORM/notices/THIRD-PARTY-NOTICES.txt" "$fw/"
         fi
         write_info_plist "$fw" "$name" "$(me_lock "$component" version)" "$slice"
@@ -549,21 +451,12 @@ for slice in $SLICES; do
         notice_for "$fw" "$component"
         codesign --force --sign - --timestamp=none "$fw/$name" >/dev/null
     done
-    # MoltenVK: Khronos's framework for this slice, with a privacy manifest and its notice.
-    case "$slice" in
-        ios) id=ios-arm64 ;; ios-simulator) id=ios-arm64_x86_64-simulator ;;
-        tvos) id=tvos-arm64_arm64e ;; tvos-simulator) id=tvos-arm64_x86_64-simulator ;;
-    esac
-    fw="$FW/$slice/MoltenVK.framework"
-    rm -rf "$fw"; cp -R "$ME_WORK/src/moltenvk/MoltenVK/dynamic/MoltenVK.xcframework/$id/MoltenVK.framework" "$fw"
-    write_privacy_manifest "$fw" "$fw/MoltenVK"
-    notice_for "$fw" moltenvk
-    codesign --force --sign - --timestamp=none "$fw/MoltenVK" >/dev/null
+
 done
 
-for pair in $STEMS MoltenVK:moltenvk; do
+for pair in $STEMS; do
     stem=${pair%%:*}
-    [[ "$stem" == MoltenVK ]] && name=MoltenVK || name="Lib$stem"
+    name="Lib$stem"
     args=()
     for slice in $SLICES; do args+=(-framework "$FW/$slice/$name.framework"); done
     xcodebuild -create-xcframework "${args[@]}" -output "$XC/$name.xcframework" >/dev/null \
@@ -574,5 +467,5 @@ done
 rm -rf "$ME_ROOT/apple/Frameworks"; mkdir -p "$ME_ROOT/apple/Frameworks"
 cp -R "$XC"/*.xcframework "$ME_ROOT/apple/Frameworks/"
 
-python3 -I "$ME_ROOT/verify.py" "$PLATFORM" --out "$ME_OUT" --work "$ME_WORK" --write-manifest
-me_say "Done. Open the Xcode workspaces; the PorticoMediaEngine package now resolves from apple/Frameworks."
+python3 -I "$ME_ROOT/verify.py" "$ME_OUT/$PLATFORM"
+me_say "Done. Open the Xcode workspaces; the PorticoSubtitleEngine package now resolves from apple/Frameworks."

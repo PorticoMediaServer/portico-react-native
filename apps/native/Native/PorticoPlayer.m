@@ -9,6 +9,7 @@
 #import <Security/Security.h>
 #import "PorticoPlaybackController.h"
 #import "PorticoSubtitleSelection.h"
+#import "PorticoSubtitleOverlay.h"
 #import "PorticoSecureStorageRead.h"
 #import "PorticoProfileTrust.h"
 #import "PorticoServerTrust.h"
@@ -18,18 +19,29 @@
 @property(nonatomic,strong) AVPictureInPictureController *pictureInPicture;
 @property(nonatomic,strong) PorticoPlaybackController *controller;
 @end
-@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; }
-- (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];
+@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; UIImageView *_richSubtitle; CADisplayLink *_subtitleClock; }
+- (instancetype)initWithFrame:(CGRect)frame {if((self=[super initWithFrame:frame])){self.backgroundColor=UIColor.blackColor;_layer=[AVPlayerLayer playerLayerWithPlayer:nil];_layer.videoGravity=AVLayerVideoGravityResizeAspect;[self.layer addSublayer:_layer];self.clipsToBounds=YES;
+ _richSubtitle=[UIImageView new];_richSubtitle.userInteractionEnabled=NO;_richSubtitle.layer.contentsFormat=kCAContentsFormatRGBA8Uint;
+ if(@available(iOS 17.0,tvOS 17.0,*))_richSubtitle.preferredImageDynamicRange=UIImageDynamicRangeStandard;
+ [self addSubview:_richSubtitle];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];
  // The viewer's caption style in the device's Accessibility settings is followed as it changes.
  [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:(__bridge NSString *)kMACaptionAppearanceSettingsChangedNotification object:nil];}return self;}
 - (void)setLease:(NSString *)lease {_lease=[lease copy];[self attachLayer];}
-- (void)setController:(PorticoPlaybackController *)controller {_controller=controller;[self attachLayer];}
+- (void)setController:(PorticoPlaybackController *)controller {
+ _controller.subtitleOverlay.onImage=nil;_controller=controller;
+ __weak PorticoPlayerView *weakSelf=self;controller.subtitleOverlay.onImage=^(UIImage *image){PorticoPlayerView *v=weakSelf;if(v)v->_richSubtitle.image=(v->_lease.length&&[v->_lease isEqual:v->_controller.lease])?image:nil;};[self attachLayer];
+}
+- (void)subtitleFrame {
+ if(!_lease.length||![_lease isEqual:_controller.lease]||!self.window||!_controller.subtitleOverlay.active){_richSubtitle.image=nil;return;}
+ CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))return;CGFloat scale=self.window.screen.scale;
+ [_controller.subtitleOverlay renderAtSourceTime:_controller.currentSourcePosition size:CGSizeMake(video.size.width*scale,video.size.height*scale)];
+}
 - (void)attachLayer {if(![_lease isEqual:_controller.lease]){[self.pictureInPicture stopPictureInPicture];self.pictureInPicture=nil;}
 #if TARGET_OS_TV
  if(!_lease.length||![_lease isEqual:_controller.lease])self.window.avDisplayManager.preferredDisplayCriteria=nil;
  else if(self.window)_controller.displayWindow=self.window;
 #endif
- _layer.player=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.player:nil;[self updateSubtitle];[self preparePictureInPicture];}
+ _richSubtitle.image=nil;_layer.player=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.player:nil;[self updateSubtitle];[self preparePictureInPicture];}
 /** OS-04: the controller exists as soon as a video is attached, so leaving the app (Home swipe)
  * can continue the film in Picture in Picture, as the system's own players do. The system's
  * "Start PiP Automatically" setting still decides. This view stays the controller's only owner. */
@@ -68,11 +80,13 @@
 - (void)styleSubtitle:(CGFloat)base {
  [PorticoSubtitleSelection applyCaptionAppearanceToLabel:_subtitle baseSize:base style:_controller.subtitleStyle italic:[_controller.subtitleCue[@"italic"]boolValue]];
 }
-- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;CGFloat width=video.size.width*0.9;[self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,([_controller.subtitleCue[@"top"]boolValue]?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*0.08)-height),width,height);}
+- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;_richSubtitle.frame=video;CGFloat width=video.size.width*0.9;[self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,(([_controller.subtitleCue[@"top"]boolValue]||[_controller.subtitleStyle[@"position"] isEqual:@"top"])?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*([_controller.subtitleStyle[@"position"] isEqual:@"raised"]?.20:.08))-height),width,height);}
 // The display is matched to the title by the controller before the title is announced ready
 // (it used to be asked for here, at the first frame, when the title was already playing).
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==_layer&&_layer.readyForDisplay)[_controller displayReadyForLease:_lease];}
 - (void)didMoveToWindow {[super didMoveToWindow];
+ [_subtitleClock invalidate];_subtitleClock=nil;
+ if(self.window){_subtitleClock=[CADisplayLink displayLinkWithTarget:self selector:@selector(subtitleFrame)];[_subtitleClock addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];}
 #if TARGET_OS_TV
  if(self.window&&_lease.length&&[_lease isEqual:_controller.lease])_controller.displayWindow=self.window;
 #endif
@@ -92,7 +106,7 @@
  // against a layer whose player is about to go away. Exactly once: the property
  // is cleared immediately after.
  if(_pictureInPicture){[_pictureInPicture stopPictureInPicture];_pictureInPicture.delegate=nil;_pictureInPicture=nil;}
- [_layer removeObserver:self forKeyPath:@"readyForDisplay"];[[NSNotificationCenter defaultCenter]removeObserver:self];_layer.player=nil;}
+ [_subtitleClock invalidate];_controller.subtitleOverlay.onImage=nil;[_layer removeObserver:self forKeyPath:@"readyForDisplay"];[[NSNotificationCenter defaultCenter]removeObserver:self];_layer.player=nil;}
 @end
 @interface PorticoPlayerManager : RCTViewManager @end
 @implementation PorticoPlayerManager

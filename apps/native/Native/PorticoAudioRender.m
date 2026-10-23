@@ -1,5 +1,8 @@
 #import "PorticoAudioRender.h"
 #import "PorticoServerTrust.h"
+#import "PorticoAudioProcessing.h"
+#import "PorticoAudioCapture.h"
+#import <Libporticosubtitle/PorticoSubtitleCore.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <CommonCrypto/CommonDigest.h>
 #include <fcntl.h>
@@ -261,7 +264,7 @@ static void AREvict(void){
 - (void)close;
 @end
 @implementation ARDecoder {
- ARBytes *_bytes;NSDictionary *_plan;AudioFileID _file;ExtAudioFileRef _ext;long long _first,_next;
+ ARBytes *_bytes;NSDictionary *_plan;PSAudio *_opus;long long _opusBytePosition;AudioFileID _file;ExtAudioFileRef _ext;long long _first,_next;
  AudioConverterRef _aac;SInt64 _packet;long long _packetFrames,_aacSkip;
  void *_packetBuffer;AudioStreamPacketDescription *_packetDescriptions;UInt32 _packetCapacity,_aacInputChannels;
  // The server's seek index (MP3, ADTS): a second AudioFile over the bytes from an entry on, decoded
@@ -269,6 +272,8 @@ static void AREvict(void){
  NSArray<NSNumber *> *_offsets,*_frames;BOOL _indexTried;AudioFileID _shifted;AudioConverterRef _ix;long long _base,_ixSkip;SInt64 _ixPacket;
  void *_ixBuffer;AudioStreamPacketDescription *_ixDescriptions;UInt32 _ixCapacity,_ixChannels;
 }
+static int AROpusRead(void *opaque,uint8_t *buffer,int count){ARDecoder *d=(__bridge ARDecoder *)opaque;UInt32 actual=0;if(![d->_bytes read:buffer offset:d->_opusBytePosition length:(UInt32)count actual:&actual])return -5;d->_opusBytePosition+=actual;return actual?(int)actual:-541478725;}
+static int64_t AROpusSeek(void *opaque,int64_t offset,int whence){ARDecoder *d=(__bridge ARDecoder *)opaque;long long size=d->_bytes.size;if(whence&0x10000)return size;whence&=~0x20000;long long base=whence==SEEK_SET?0:whence==SEEK_CUR?d->_opusBytePosition:whence==SEEK_END?size:-1;if(base<0||offset < -base||(size>0&&offset>size-base))return -22;return d->_opusBytePosition=base+offset;}
 static OSStatus ARRead(void *client,SInt64 position,UInt32 count,void *buffer,UInt32 *actual){ARDecoder *d=(__bridge ARDecoder *)client;return [d->_bytes read:buffer offset:position length:count actual:actual]?noErr:kAudioFileUnspecifiedError;}
 // A converted stream of unknown length reads as very long; its real end reads as end of file.
 static SInt64 ARSize(void *client){ARDecoder *d=(__bridge ARDecoder *)client;long long size=d->_bytes.size;return size>0?size:(1LL<<40);}
@@ -307,13 +312,34 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 - (NSString *)open {
  if(_bytes.failure)return _bytes.failure;
  if(![_plan[@"mode"] isEqual:@"converted"]&&[_bytes waitForSize]<=0)return _bytes.failure?:@"The audio file’s size is unknown.";
+ if([_plan[@"codec"] isEqual:@"opus"]){
+  int rate=0,channels=0;_opus=ps_audio_open((__bridge void *)self,AROpusRead,AROpusSeek,&rate,&channels);
+  if(!_opus||rate!=[_plan[@"sampleRate"] intValue]||channels!=[_plan[@"channels"] intValue])return @"The Opus decoder differs from the measured audio plan.";
+  static const AudioChannelLabel labels[]={kAudioChannelLabel_Left,kAudioChannelLabel_Right,kAudioChannelLabel_Center,kAudioChannelLabel_LFEScreen,kAudioChannelLabel_LeftSurround,kAudioChannelLabel_RightSurround,kAudioChannelLabel_LeftCenter,kAudioChannelLabel_RightCenter,kAudioChannelLabel_CenterSurround,kAudioChannelLabel_LeftSurroundDirect,kAudioChannelLabel_RightSurroundDirect};
+  size_t layoutSize=offsetof(AudioChannelLayout,mChannelDescriptions)+(size_t)channels*sizeof(AudioChannelDescription);AudioChannelLayout *layout=calloc(1,layoutSize);layout->mChannelLayoutTag=kAudioChannelLayoutTag_UseChannelDescriptions;layout->mNumberChannelDescriptions=channels;
+  BOOL known=YES;for(int ch=0;ch<channels;ch++){int label=ps_audio_channel_at(_opus,ch);if(label<0||label>10){known=NO;break;}layout->mChannelDescriptions[ch].mChannelLabel=labels[label];}
+  AVAudioChannelLayout *order=known?[[AVAudioChannelLayout alloc]initWithLayout:layout]:nil;free(layout);if(!order)return @"This Opus channel layout is unsupported.";
+  _format=[[AVAudioFormat alloc]initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:rate interleaved:NO channelLayout:order];
+  _first=[_plan[@"trim"][@"startFrames"] longLongValue];_total=[_plan[@"durationFrames"] longLongValue];return [self seek:0];
+ }
  OSStatus status=AudioFileOpenWithCallbacks((__bridge void *)self,ARRead,NULL,ARSize,NULL,[ARDecoder hint:_plan],&_file);
  if(status!=noErr)return @"This audio file couldn’t be read.";
  status=ExtAudioFileWrapAudioFileID(_file,false,&_ext);if(status!=noErr)return @"This audio file couldn’t be decoded.";
  AudioStreamBasicDescription source={0};UInt32 size=sizeof(source);
  if(ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileDataFormat,&size,&source)!=noErr||source.mSampleRate<=0)return @"This audio format isn’t supported here.";
- AVAudioChannelCount channels=(AVAudioChannelCount)MAX(1,MIN(2,source.mChannelsPerFrame));
+ AVAudioChannelCount channels=(AVAudioChannelCount)source.mChannelsPerFrame;
+ if(channels<1||channels>32||channels!=[_plan[@"channels"] unsignedIntValue])return @"The decoded channel layout differs from the measured plan.";
+ NSInteger maximum=AVAudioSession.sharedInstance.maximumOutputNumberOfChannels;
+ if(maximum>0&&channels>(AVAudioChannelCount)maximum)return @"This output cannot carry every channel. Choose a server conversion for this route.";
  _format=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:source.mSampleRate channels:channels];
+ if(channels>2){
+  UInt32 layoutSize=0;Boolean writable=false;
+  if(ExtAudioFileGetPropertyInfo(_ext,kExtAudioFileProperty_FileChannelLayout,&layoutSize,&writable)!=noErr||layoutSize<sizeof(AudioChannelLayout)||layoutSize>65536)return @"The multichannel file has no supported channel layout.";
+  AudioChannelLayout *layout=malloc(layoutSize);OSStatus result=ExtAudioFileGetProperty(_ext,kExtAudioFileProperty_FileChannelLayout,&layoutSize,layout);
+  AVAudioChannelLayout *known=result==noErr?[[AVAudioChannelLayout alloc]initWithLayout:layout]:nil;free(layout);
+  if(!known||known.channelCount!=channels)return @"The multichannel file has an inconsistent channel layout.";
+  _format=[[AVAudioFormat alloc]initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:source.mSampleRate interleaved:NO channelLayout:known];
+ }
  AudioStreamBasicDescription client=*_format.streamDescription;
  if(ExtAudioFileSetProperty(_ext,kExtAudioFileProperty_ClientDataFormat,sizeof(client),&client)!=noErr)return @"This audio couldn’t be converted for playback.";
  if([_plan[@"codec"] isEqual:@"aac"]){
@@ -452,6 +478,12 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 }
 - (NSString *)seek:(long long)frame {
  frame=MAX(0,MIN(frame,_total));
+ if(_opus){
+  if(!ps_audio_rewind(_opus))return @"The Opus source could not seek.";
+  long long skip=_first+frame;AVAudioPCMBuffer *scratch=[[AVAudioPCMBuffer alloc]initWithPCMFormat:_format frameCapacity:4096];
+  while(skip>0){int got=ps_audio_read(_opus,scratch.floatChannelData,(int)MIN(4096LL,skip));if(got<=0)return @"The Opus source ended before its measured trim.";skip-=got;}
+  _next=frame;return nil;
+ }
  // A part-way position in a direct MP3 or ADTS file lands exactly by the server's index; Core
  // Audio alone estimates MP3 positions or reads every byte before them.
  if(frame>0&&[self seekIndexed:frame])return nil;
@@ -472,7 +504,8 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
  AVAudioPCMBuffer *buffer=[[AVAudioPCMBuffer alloc] initWithPCMFormat:_format frameCapacity:want];
  buffer.frameLength=want; // sizes the buffer list for the read
  UInt32 got=want;OSStatus status=noErr;
- if(_aac&&!_ix){
+ if(_opus){int read=ps_audio_read(_opus,buffer.floatChannelData,(int)want);if(read<0){if(error)*error=@"The Opus packets could not be decoded.";return nil;}got=(UInt32)read;}
+ else if(_aac&&!_ix){
   do {
    buffer.frameLength=want;got=want;
    status=AudioConverterFillComplexBuffer(_aac,ARAACInput,(__bridge void *)self,&got,buffer.mutableAudioBufferList,NULL);
@@ -496,7 +529,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
  buffer.frameLength=got;_next+=got;return buffer;
 }
 - (void)close {
- [self leaveIndex];
+ ps_audio_close(_opus);_opus=NULL;[self leaveIndex];
  if(_aac){AudioConverterDispose(_aac);_aac=NULL;}
  if(_ext){ExtAudioFileDispose(_ext);_ext=NULL;}
  if(_file){AudioFileClose(_file);_file=NULL;}
@@ -514,6 +547,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 @property(nonatomic,strong) dispatch_queue_t queue;
 @property(nonatomic,strong) AVAudioPlayerNode *node;
 @property(nonatomic,strong) AVAudioUnitTimePitch *speed;
+@property(nonatomic,strong) AVAudioUnitEQ *equalizer;
 @property(nonatomic) BOOL sharedNode;
 @property(nonatomic) double gain;
 @property(nonatomic) long long origin;      // track frame at `nodeOffset`
@@ -548,7 +582,11 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 #endif
 @end
 @implementation PorticoFileRender {
- AVAudioEngine *_engine;ARDeck *_primary,*_candidate,*_incoming,*_retiring;
+ AVAudioEngine *_engine;
+#if DEBUG
+ PorticoAudioCapture *_capture;
+#endif
+ ARDeck *_primary,*_candidate,*_incoming,*_retiring;
  NSDictionary *_command;NSString *_token,*_committing,*_boundary;NSTimer *_timer;
  BOOL _active,_paused,_endedSent,_configChanged;double _fadeSeconds,_rate,_heard;NSInteger _seekRevision;NSTimeInterval _lastFact;
  long long _incomingOutputStart;BOOL _incomingStartIsHost;
@@ -568,7 +606,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  NSString *c=plan[@"container"],*k=plan[@"codec"];
  if(![c isKindOfClass:NSString.class]||![k isKindOfClass:NSString.class])return NO;
  if([@[@"wav",@"aiff"] containsObject:c])return [k hasPrefix:@"pcm"];
- NSDictionary *pairs=@{@"flac":@[@"flac"],@"mp4":@[@"aac",@"alac"],@"m4a":@[@"aac",@"alac"],@"mp3":@[@"mp3"],@"adts":@[@"aac"]};
+ NSDictionary *pairs=@{@"ogg":@[@"opus"],@"flac":@[@"flac"],@"mp4":@[@"aac",@"alac"],@"m4a":@[@"aac",@"alac"],@"mp3":@[@"mp3"],@"adts":@[@"aac"]};
  return [pairs[c] containsObject:k];
 }
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source {
@@ -592,6 +630,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  id peak=album?(g[@"albumPeak"]?:g[@"trackPeak"]):g[@"trackPeak"];
  double linear=pow(10,([db doubleValue]+[settings[@"preampDb"] doubleValue])/20);
  if([peak isKindOfClass:NSNumber.class]&&[peak doubleValue]*linear>1)linear=1/[peak doubleValue];
+ if([settings[@"neverBoost"] isEqual:@YES])linear=MIN(1,linear);
  return MAX(0,MIN(linear,[peak isKindOfClass:NSNumber.class]?32:1));
 }
 
@@ -609,14 +648,17 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  return d;
 }
 - (void)attach:(ARDeck *)d format:(AVAudioFormat *)format {
- d.node=[AVAudioPlayerNode new];d.speed=[AVAudioUnitTimePitch new];d.speed.rate=_rate;d.speed.bypass=fabs(_rate-1)<.00001;
- [_engine attachNode:d.node];[_engine attachNode:d.speed];
- [_engine connect:d.node to:d.speed format:format];[_engine connect:d.speed to:_engine.mainMixerNode format:format];
+ d.node=[AVAudioPlayerNode new];d.equalizer=[[AVAudioUnitEQ alloc]initWithNumberOfBands:10];
+ [_engine attachNode:d.node];[_engine attachNode:d.equalizer];
+ if(format.channelCount<=2&&fabs(_rate-1)>.00001){d.speed=[AVAudioUnitTimePitch new];d.speed.rate=_rate;[_engine attachNode:d.speed];[_engine connect:d.node to:d.speed format:format];[_engine connect:d.speed to:d.equalizer format:format];}
+ else [_engine connect:d.node to:d.equalizer format:format];
+ [_engine connect:d.equalizer to:_engine.mainMixerNode format:format];
+ [PorticoAudioProcessing.shared applyEqualizer:d.equalizer];
 }
 - (void)close:(ARDeck *)d {
  if(!d||d.closed)return;d.closed=YES;d.serial++;[d.bytes close];
  ARDecoder *decoder=d.decoder;dispatch_async(d.queue,^{[decoder close];});
- if(d.node&&!d.sharedNode){[d.node stop];[_engine detachNode:d.node];[_engine detachNode:d.speed];}
+ if(d.node&&!d.sharedNode){[d.node stop];[_engine detachNode:d.node];if(d.speed)[_engine detachNode:d.speed];[_engine detachNode:d.equalizer];}
  [d.holding removeAllObjects];d.heldFrames=0;
 }
 - (void)reset {[self close:_primary];[self close:_candidate];[self close:_incoming];[self close:_retiring];_primary=_candidate=_incoming=_retiring=nil;_token=_committing=_boundary=nil;_endedSent=NO;}
@@ -689,6 +731,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  }
  NSError *error=nil;
  if(!_engine.running&&![_engine startAndReturnError:&error]){[self emit:@"audioRenderFailed" extra:@{@"error":@"The audio output couldn’t start. Retry playback."}];return;}
+#if DEBUG
+ if(!_capture){_capture=[PorticoAudioCapture new];[_capture start:_engine.mainMixerNode];}
+#endif
  if(!_primary.node.playing)[_primary.node play];
  if(!_primary.started){_primary.started=YES;[self emit:@"ready" extra:@{}];
   if(_primary.seek>=0){NSInteger seek=_primary.seek;_primary.seek=-1;[self emit:@"seekApplied" extra:@{@"seekRevision":@(seek),@"position":@(_primary.origin/_primary.sampleRate)}];}}
@@ -711,7 +756,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  [self close:_retiring];_retiring=nil;
  _candidate=nil;_incoming=next;_boundary=[_token copy];next.held=YES;next.candidate=NO;[next.bytes unlimit];[next.bytes readAll];_fadeSeconds=fade;
  if(chain){
-  next.node=_primary.node;next.speed=_primary.speed;next.sharedNode=YES;next.nodeOffset=_primary.nodeOffset+_primary.scheduled;
+  next.node=_primary.node;next.speed=_primary.speed;next.equalizer=_primary.equalizer;next.sharedNode=YES;next.nodeOffset=_primary.nodeOffset+_primary.scheduled;
   for(AVAudioPCMBuffer *b in next.holding)[self schedule:b deck:next];[next.holding removeAllObjects];next.heldFrames=0;
   return;
  }
@@ -755,16 +800,24 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 
 - (void)applyCommand:(NSDictionary *)command {
  NSDictionary *render=APDictionary(command[@"audioRender"]);if(!render){[self invalidate];return;}
- if(!_engine){_engine=[AVAudioEngine new];[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(configurationChanged:) name:AVAudioEngineConfigurationChangeNotification object:_engine];
+ if(!_engine){_engine=[AVAudioEngine new];
+  [NSNotificationCenter.defaultCenter removeObserver:self name:PorticoAudioProcessingChanged object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(processingChanged:) name:PorticoAudioProcessingChanged object:nil];[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(configurationChanged:) name:AVAudioEngineConfigurationChangeNotification object:_engine];
   [NSNotificationCenter.defaultCenter removeObserver:self name:AVAudioSessionMediaServicesWereResetNotification object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(mediaServicesReset:) name:AVAudioSessionMediaServicesWereResetNotification object:nil];}
  NSDictionary *pending=APDictionary(command[@"pendingSeek"]),*plan=render[@"plan"];double rate=[command[@"rate"] doubleValue];if(!isfinite(rate)||rate<=0)rate=1;
  BOOL changed=!_primary||![_primary.identity isEqual:plan[@"id"]],seek=pending&&[pending[@"revision"] integerValue]!=_seekRevision;
  double oldGain=[PorticoFileRender gainFor:plan settings:_command[@"audioRender"][@"settings"]];
  BOOL wasPaused=_paused;_command=[command copy];_paused=[command[@"paused"] boolValue];_active=YES;
- if(fabs(_rate-rate)>.00001){_rate=rate;for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d==NSNull.null)continue;d.speed.rate=rate;d.speed.bypass=fabs(rate-1)<.00001;}}
+ if([plan[@"channels"] unsignedIntegerValue]>2&&fabs(rate-1)>.00001){[self emit:@"rateStatus" extra:@{@"rateError":@"Speed changes are unavailable on this multichannel output."}];rate=1;}
+ if(fabs(_rate-rate)>.00001){_rate=rate;_configChanged=YES;for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d==NSNull.null)continue;d.speed.rate=rate;d.speed.bypass=fabs(rate-1)<.00001;}}
  BOOL regain=!changed&&_primary&&fabs([PorticoFileRender gainFor:plan settings:render[@"settings"]]-oldGain)>.000001;
  double position=seek?[pending[@"positionSeconds"] doubleValue]:changed?[render[@"startSeconds"] doubleValue]:[self position];
+ if(changed||_configChanged){
+  [_engine stop];NSString *matching=[render[@"settings"][@"sampleRateMatching"] isKindOfClass:NSString.class]?render[@"settings"][@"sampleRateMatching"]:@"smart";
+  NSError *sessionError=nil;
+  if(![PorticoAudioProcessing.shared configureRate:[plan[@"sampleRate"] doubleValue] channels:[plan[@"channels"] unsignedIntValue] mode:matching error:&sessionError]){[self pauseOutput];[self emit:@"audioRenderFailed" extra:@{@"error":sessionError.localizedDescription?:@"The audio route could not be configured."}];return;}
+ }
  if(changed||seek||regain||_configChanged){
   // A route or format change mid-edge: the committed successor comes back as a buffered candidate
   // under the same token, scheduled again when the rebuilt primary reaches its end.
@@ -788,6 +841,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  }
  if(!_timer&&!_paused){__weak PorticoFileRender *weakSelf=self;_timer=[NSTimer timerWithTimeInterval:.01 repeats:YES block:^(NSTimer *t){[weakSelf tick];}];[NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];}
  [self emit:@"rateStatus" extra:@{}];
+}
+- (void)processingChanged:(NSNotification *)note {
+ for(ARDeck *d in @[_primary?:NSNull.null,_incoming?:NSNull.null,_retiring?:NSNull.null]){if((id)d!=NSNull.null&&d.equalizer)[PorticoAudioProcessing.shared applyEqualizer:d.equalizer];}
 }
 #if DEBUG
 /** The harness's stand-in for a route change: the engine stops and says its configuration changed. */
@@ -813,7 +869,11 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  // Nothing moves while paused: no 100 Hz loop (INT T13). The next command starts it again.
  [_timer invalidate];_timer=nil;
 }
-- (void)invalidate {_active=NO;[_timer invalidate];_timer=nil;[self reset];_command=nil;_seekRevision=-1;[_engine stop];}
+- (void)invalidate {
+#if DEBUG
+ [_capture stop];_capture=nil;
+#endif
+ _active=NO;[_timer invalidate];_timer=nil;[self reset];_command=nil;_seekRevision=-1;[_engine stop];}
 
 #pragma mark The loop
 
@@ -857,14 +917,25 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  BOOL ready=_active&&_primary&&_primary.started;
  BOOL waiting=_active&&_primary&&!_primary.eof&&_primary.scheduled<=_primary.played;
  BOOL running=ready&&!_paused&&!_primary.ended&&_engine.running&&_primary.node.playing;
- return @{@"positionSeconds":@([self position]),@"ready":@(ready),@"observed":@(_primary.started),@"seeking":@((BOOL)(_primary&&_primary.seek>=0)),
+ NSMutableDictionary *facts=[@{@"positionSeconds":@([self position]),@"ready":@(ready),@"observed":@(_primary.started),@"seeking":@((BOOL)(_primary&&_primary.seek>=0)),
   @"effectiveRate":@(running?_rate:0),@"supportedRates":@[@0.5,@0.75,@1,@1.25,@1.5,@1.75,@2,@2.5,@3],@"rateReady":@(ready),@"rateWaiting":@((BOOL)(waiting&&!_paused)),@"rateError":@"",@"rendering":@(_active)
 #if DEBUG
   // Exit test (j): decoded audio held per deck (scheduled but not yet played, or a candidate's head).
   ,@"decodedAheadSeconds":@(_primary&&_primary.sampleRate>0?MAX(0,_primary.scheduled-_primary.played)/_primary.sampleRate:0)
   ,@"candidateHeldSeconds":@(_candidate&&_candidate.sampleRate>0?_candidate.heldFrames/_candidate.sampleRate:0)
 #endif
- };
+ } mutableCopy];
+#if DEBUG
+ if(_capture)facts[@"outputCapture"]=[_capture snapshot];
+#endif
+ facts[@"supportedRates"]=[_primary.plan[@"channels"] unsignedIntegerValue]>2?@[@1]:facts[@"supportedRates"];
+ facts[@"audioPath"]=[PorticoAudioProcessing.shared snapshot];
+ double frames=[_primary.plan[@"durationFrames"] doubleValue],rate=[_primary.plan[@"sampleRate"] doubleValue],bytes=[_primary.plan[@"bytes"] doubleValue];
+ if(frames>0&&rate>0&&bytes>0)facts[@"containerAverageBitrateBps"]=@(llround(bytes*8*rate/frames));
+ facts[@"sourceSampleRate"]=_primary.plan[@"sampleRate"]?:@0;facts[@"sourceChannels"]=_primary.plan[@"channels"]?:@0;
+ facts[@"appliedGainLinear"]=@(_primary?_primary.gain:1);
+ facts[@"bitExactEligible"]=@(_primary&&fabs(_primary.gain-1)<.000001&&fabs(_rate-1)<.000001&&![facts[@"audioPath"][@"eqEnabled"] boolValue]&&[facts[@"audioPath"][@"sampleRateMatched"] boolValue]&&[_primary.plan[@"bitDepth"] doubleValue]>0&&[_primary.plan[@"bitDepth"] doubleValue]<=24);
+ return facts;
 }
 - (void)dealloc {[_timer invalidate];[self reset];[NSNotificationCenter.defaultCenter removeObserver:self];}
 

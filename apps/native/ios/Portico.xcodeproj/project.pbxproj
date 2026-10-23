@@ -46,14 +46,10 @@
 		E256F9529781C1DDA4567A7B /* PorticoDownloads.m in Sources */ = {isa = PBXBuildFile; fileRef = 4239B6B87389F0D28B2631FE /* PorticoDownloads.m */; };
 		A6B000000000000000000101 /* PorticoEngineClock.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000201 /* PorticoEngineClock.m */; };
 		A6E000000000000000000001 /* PorticoServerTrust.m in Sources */ = {isa = PBXBuildFile; fileRef = A6E000000000000000000002 /* PorticoServerTrust.m */; };
-		A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000202 /* PorticoMpvBridge.m */; };
-		A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000203 /* PorticoMpvCore.swift */; };
-		A6B000000000000000000104 /* PorticoMpvController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000204 /* PorticoMpvController.swift */; };
-		A6B000000000000000000105 /* PorticoMpvPlaybackModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */; };
-		A6B000000000000000000106 /* PorticoMpvPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000206 /* PorticoMpvPlayerView.swift */; };
-		A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000207 /* PorticoMpvRelay.swift */; };
-		A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B000000000000000000208 /* PorticoMpvSupport.swift */; };
-		A6B0000000000000000003A2 /* PorticoMediaEngine in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* PorticoMediaEngine */; };
+		A6B0000000000000000003A2 /* PorticoSubtitleEngine in Frameworks */ = {isa = PBXBuildFile; productRef = A6B0000000000000000003A1 /* PorticoSubtitleEngine */; };
+		A9E000000000000000000101 /* PorticoSubtitleOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000201 /* PorticoSubtitleOverlay.m */; };
+		A9E000000000000000000102 /* PorticoAudioProcessing.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000202 /* PorticoAudioProcessing.m */; };
+		A9E000000000000000000103 /* PorticoAudioCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000203 /* PorticoAudioCapture.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -102,16 +98,12 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		A6B000000000000000000201 /* PorticoEngineClock.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoEngineClock.m; sourceTree = "<group>"; };
 		A6E000000000000000000002 /* PorticoServerTrust.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoServerTrust.m; sourceTree = "<group>"; };
-		A6B000000000000000000202 /* PorticoMpvBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoMpvBridge.m; sourceTree = "<group>"; };
-		A6B000000000000000000203 /* PorticoMpvCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvCore.swift; sourceTree = "<group>"; };
-		A6B000000000000000000204 /* PorticoMpvController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvController.swift; sourceTree = "<group>"; };
-		A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvPlaybackModule.swift; sourceTree = "<group>"; };
-		A6B000000000000000000206 /* PorticoMpvPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvPlayerView.swift; sourceTree = "<group>"; };
-		A6B000000000000000000207 /* PorticoMpvRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvRelay.swift; sourceTree = "<group>"; };
-		A6B000000000000000000208 /* PorticoMpvSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Native/PorticoMpvSupport.swift; sourceTree = "<group>"; };
 		A6B000000000000000000209 /* PorticoEngineClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoEngineClock.h"; sourceTree = "<group>"; };
 		A6E000000000000000000003 /* PorticoServerTrust.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/PorticoServerTrust.h"; sourceTree = "<group>"; };
 		A6B00000000000000000020A /* Portico-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "../Native/Portico-Bridging-Header.h"; sourceTree = "<group>"; };
+		A9E000000000000000000201 /* PorticoSubtitleOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoSubtitleOverlay.m; sourceTree = "<group>"; };
+		A9E000000000000000000202 /* PorticoAudioProcessing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioProcessing.m; sourceTree = "<group>"; };
+		A9E000000000000000000203 /* PorticoAudioCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioCapture.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,7 +116,7 @@
 				A59F00000000000000000001 /* AVKit.framework in Frameworks */,
 				A5A000000000000000000001 /* ImageIO.framework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-Portico.a in Frameworks */,
-				A6B0000000000000000003A2 /* PorticoMediaEngine in Frameworks */,
+				A6B0000000000000000003A2 /* PorticoSubtitleEngine in Frameworks */,
 				A58600000000000000000001 /* UniformTypeIdentifiers.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -179,13 +171,6 @@
 				A57D00000000000000000002 /* PorticoPlaybackModule.m */,
 				A6B000000000000000000201 /* PorticoEngineClock.m */,
 				A6E000000000000000000002 /* PorticoServerTrust.m */,
-				A6B000000000000000000202 /* PorticoMpvBridge.m */,
-				A6B000000000000000000203 /* PorticoMpvCore.swift */,
-				A6B000000000000000000204 /* PorticoMpvController.swift */,
-				A6B000000000000000000205 /* PorticoMpvPlaybackModule.swift */,
-				A6B000000000000000000206 /* PorticoMpvPlayerView.swift */,
-				A6B000000000000000000207 /* PorticoMpvRelay.swift */,
-				A6B000000000000000000208 /* PorticoMpvSupport.swift */,
 				A6B000000000000000000209 /* PorticoEngineClock.h */,
 				A6E000000000000000000003 /* PorticoServerTrust.h */,
 				A6B00000000000000000020A /* Portico-Bridging-Header.h */,
@@ -198,6 +183,9 @@
 				B7023956C1361284A1D39FCC /* PorticoSystemMedia.m */,
 				A60900000000000000000004 /* PorticoNetworkBridge.m */,
 				A58400000000000000000002 /* PorticoSubtitleSelection.m */,
+				A9E000000000000000000201 /* PorticoSubtitleOverlay.m */,
+				A9E000000000000000000202 /* PorticoAudioProcessing.m */,
+				A9E000000000000000000203 /* PorticoAudioCapture.m */,
 				A58500000000000000000002 /* PorticoSubtitleFiles.m */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
@@ -250,7 +238,7 @@
 			);
 			name = Portico;
 			packageProductDependencies = (
-				A6B0000000000000000003A1 /* PorticoMediaEngine */,
+				A6B0000000000000000003A1 /* PorticoSubtitleEngine */,
 			);
 			productName = Portico;
 			productReference = 13B07F961A680F5B00A75B9A /* Portico.app */;
@@ -279,7 +267,7 @@
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
-				A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */,
+				A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/apple-subtitles/apple" */,
 			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
@@ -399,13 +387,6 @@
 				A57D00000000000000000001 /* PorticoPlaybackModule.m in Sources */,
 				A6B000000000000000000101 /* PorticoEngineClock.m in Sources */,
 				A6E000000000000000000001 /* PorticoServerTrust.m in Sources */,
-				A6B000000000000000000102 /* PorticoMpvBridge.m in Sources */,
-				A6B000000000000000000103 /* PorticoMpvCore.swift in Sources */,
-				A6B000000000000000000104 /* PorticoMpvController.swift in Sources */,
-				A6B000000000000000000105 /* PorticoMpvPlaybackModule.swift in Sources */,
-				A6B000000000000000000106 /* PorticoMpvPlayerView.swift in Sources */,
-				A6B000000000000000000107 /* PorticoMpvRelay.swift in Sources */,
-				A6B000000000000000000108 /* PorticoMpvSupport.swift in Sources */,
 				A59100000000000000000001 /* PorticoAccountAuth.m in Sources */,
 				A57C00000000000000000001 /* PorticoPlaybackController.m in Sources */,
 				A59B00000000000000000001 /* PorticoListeningOwner.m in Sources */,
@@ -416,6 +397,9 @@
 				A12C00000000000000000001 /* PorticoAudioRender.m in Sources */,
 				A58500000000000000000001 /* PorticoSubtitleFiles.m in Sources */,
 				A58400000000000000000001 /* PorticoSubtitleSelection.m in Sources */,
+				A9E000000000000000000101 /* PorticoSubtitleOverlay.m in Sources */,
+				A9E000000000000000000102 /* PorticoAudioProcessing.m in Sources */,
+				A9E000000000000000000103 /* PorticoAudioCapture.m in Sources */,
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				E256F9529781C1DDA4567A7B /* PorticoDownloads.m in Sources */,
 				21A01CD8C2E3AE4B31958D60 /* PorticoImagePicker.m in Sources */,
@@ -658,17 +642,17 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */ = {
+		A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/apple-subtitles/apple" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../../third_party/media-engine/apple;
+			relativePath = ../../../third_party/apple-subtitles/apple;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A6B0000000000000000003A1 /* PorticoMediaEngine */ = {
+		A6B0000000000000000003A1 /* PorticoSubtitleEngine */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/media-engine/apple" */;
-			productName = PorticoMediaEngine;
+			package = A6B0000000000000000003A0 /* XCLocalSwiftPackageReference "../../../third_party/apple-subtitles/apple" */;
+			productName = PorticoSubtitleEngine;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

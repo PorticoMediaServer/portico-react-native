@@ -3,6 +3,7 @@
 #import "PorticoPlaybackController.h"
 #import "PorticoListeningOwner.h"
 #import "PorticoAudioRender.h"
+#import "PorticoAudioProcessing.h"
 @interface PorticoPlaybackModule : RCTEventEmitter<RCTBridgeModule>
 @property(nonatomic,strong) PorticoPlaybackController *controller;
 /** The native listening owner (Playback v1, plan §9.3 C3). */
@@ -23,7 +24,7 @@ RCT_EXPORT_MODULE()
 /** What this engine is and does, in the terms both player engines use (ENGINE-CONTRACT.md), so
  * the player screen can hide what does not apply to the engine in use. */
 - (NSDictionary *)constantsToExport{
- return @{@"engine":@"native",@"available":@YES,@"features":@{@"pictureInPicture":@YES,@"airPlayVideo":@((BOOL)!TARGET_OS_TV),@"liveChannels":@YES,@"musicSessions":@YES,@"audioTrackSwitching":@NO,@"subtitleRendering":@[@"text"],@"chapters":@NO}};
+ return @{@"engine":@"native",@"available":@YES,@"features":@{@"pictureInPicture":@YES,@"airPlayVideo":@((BOOL)!TARGET_OS_TV),@"liveChannels":@YES,@"musicSessions":@YES,@"audioTrackSwitching":@NO,@"subtitleRendering":@[@"text",@"ass",@"pgs",@"vobsub",@"dvb"],@"chapters":@NO}};
 }
 RCT_REMAP_METHOD(acquire,acquire:(NSString *)owner resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"Playback bridge is closed.",nil);return;}NSDictionary *lease=[_controller acquire:owner];if(lease)resolve(lease);else reject(@"owner_busy",@"Another playback owner is still active.",nil);}
 RCT_REMAP_METHOD(command,command:(NSDictionary *)command resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(self.invalidated){reject(@"bridge_closed",@"Playback bridge is closed.",nil);return;}NSString *error=[_controller acceptCommand:command];if(error)reject(@"command_rejected",error,nil);else resolve(@YES);}
@@ -31,6 +32,8 @@ RCT_REMAP_METHOD(release,release:(NSString *)lease resolver:(RCTPromiseResolveBl
 /** Whether `owner` is the session owner's current handover. */
 - (BOOL)v1:(NSString *)owner {return [owner isKindOfClass:NSString.class]&&[[self.session activeOwner] isEqual:owner];}
 RCT_REMAP_METHOD(adoptListeningSession,adoptListeningSession:(NSDictionary *)context resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){NSError *error=nil;if(!self.invalidated&&[self.session adopt:context error:&error])resolve([self.session snapshot:context[@"owner"]]);else reject(@"listening_authority",error.localizedDescription?:@"Listening owner is closed.",error);}
+RCT_REMAP_METHOD(audioProcessing,audioProcessing:(NSString *)owner resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(!self.invalidated&&[self v1:owner])resolve([PorticoAudioProcessing.shared snapshot]);else reject(@"listening_stale",@"This listening owner is no longer active.",nil);}
+RCT_REMAP_METHOD(setAudioEqualizer,setAudioEqualizer:(NSString *)owner settings:(NSDictionary *)settings resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){NSError *error=nil;if(!self.invalidated&&[self v1:owner]&&[settings isKindOfClass:NSDictionary.class]&&[PorticoAudioProcessing.shared setEqualizer:settings error:&error])resolve([PorticoAudioProcessing.shared snapshot]);else reject(@"audio_processing",error.localizedDescription?:@"This listening owner is no longer active.",error);}
 RCT_REMAP_METHOD(listeningSessionUpdated,listeningSessionUpdated:(NSString *)owner sessionId:(NSString *)sessionId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){if(!self.invalidated&&[self v1:owner]&&[sessionId isKindOfClass:NSString.class]&&[self.session sessionUpdated:sessionId owner:owner])resolve(@YES);else reject(@"listening_stale",@"This listening owner is no longer active.",nil);}
 // INT T9: another viewer (sign-out, a profile or server switch) never reads this viewer's cached audio.
 RCT_REMAP_METHOD(purgeAudioCache,purgeAudioCacheWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){[PorticoAudioRender purgeCache];resolve(@YES);}

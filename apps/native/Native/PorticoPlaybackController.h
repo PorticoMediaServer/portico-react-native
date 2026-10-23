@@ -1,5 +1,6 @@
 #import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
+@class PorticoSubtitleOverlay;
 @interface PorticoPlaybackController : NSObject
 @property(nonatomic,copy) void (^onFact)(NSDictionary *fact);
 /** Picture in Picture changes from the player view, for JavaScript ({lease, state, subtitlesCarried}). */
@@ -7,6 +8,7 @@
 @property(nonatomic,readonly) AVPlayer *player;
 @property(nonatomic,readonly) NSString *lease;
 @property(nonatomic,readonly) NSString *subtitleText;
+@property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
 @property(nonatomic,readonly) NSDictionary *subtitleCue;
 /** Portico's caption style for the line the app draws ({scale, background}), from the subtitle
  * command in force; empty when the command carries none. */
