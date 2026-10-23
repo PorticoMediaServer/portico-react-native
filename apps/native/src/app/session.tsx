@@ -827,12 +827,6 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
       setDirectStep('challenge');
       return 'held';
     }
-    if (result.kind === 'device-pending') {
-      // Nothing was issued: the owner approves this device, then the same sign-in is tried again.
-      stepState.current = {connected, username, password, retry: extra.retry};
-      setDirectStep('device-pending');
-      return 'held';
-    }
     if (outcome === 'new-password') {
       local.setAccessToken(result.session.accessToken);
       stepState.current = {connected, username, password, session: result.session};

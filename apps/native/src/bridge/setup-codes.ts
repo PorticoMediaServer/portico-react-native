@@ -3,6 +3,7 @@ import {deviceModelName,devicePlatform} from './device-platform';
 import {HttpLocalApi,type HostedSession,type LocalSession,type DeviceAuthorization} from '../../../../packages/client-core/src/index';
 import {SetupCodeService,type SetupCodeStorage,type SetupCodeJournal,type SetupCodeEntry} from '../../../../packages/client-core/src/setup-code';
 import {parseLocalSession} from '../../../../packages/client-core/src/local-session';
+import {parseAccountSession} from '../../../../packages/client-core/src/hosted-security';
 import {hostedGate} from '../../../../packages/client-core/src/hosted-gate';
 import {activationGate} from './hosted-activation-gate';
 import {deviceApprovalWatch} from './device-approval';
@@ -14,9 +15,7 @@ export function nativeSetupStorage<T>(authority:string):SetupCodeStorage<T>{
  return {change:update=>store.change(key,raw=>{const record=update(raw===null?undefined:raw as SetupCodeJournal<T>);return{record,value:record};})};
 }
 function hostedGrant(raw:unknown):HostedSession{
- const s=raw as HostedSession;
- if(!s||typeof s.accessToken!=='string'||!s.accessToken||typeof s.refreshToken!=='string'||!s.refreshToken||typeof s.familyId!=='string'||!s.familyId||!s.account?.id||!Array.isArray(s.profiles)||!Number.isFinite(Date.parse(s.expiresAt))||!Number.isFinite(Date.parse(s.refreshExpiresAt)))throw new Error('The protected TV session was invalid.');
- return s;
+ return parseAccountSession(raw,'native');
 }
 /** The only clear TV grant exists after native private-key decryption. Both
  * the private key and the redemption receipt survive process termination.

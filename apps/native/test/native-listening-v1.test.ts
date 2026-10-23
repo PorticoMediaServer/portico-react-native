@@ -147,3 +147,11 @@ test('INT T1: a kind plays under the native owner only when the server lists it 
   assert.equal(nativeListeningFor(real)('track'), true);
   assert.deepEqual(serverPlaybackV1Kinds({features: {}}), []);
 });
+
+
+test('compatibility listening parser strips raw diagnostics and keeps only canonical display messages', () => {
+  const event = parseNativeListeningV1Event(raw('o', 1, session('s1'), {error: 'private native diagnostic', rateError: 'private native diagnostic', notice: 'private native diagnostic', noticeCode: 'private native diagnostic', extra: 'private native diagnostic'}), 'o', 's1');
+  assert.equal(JSON.stringify(event).includes('private native diagnostic'), false);
+  assert.equal('notice' in event, false); assert.equal('noticeCode' in event, false); assert.equal('extra' in event, false);
+  assert.equal(event.session.id, 's1'); assert.ok(event.error);
+});
