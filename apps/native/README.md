@@ -5,7 +5,7 @@ The React Native (react-native-tvos) client for Portico. It builds on:
 - `packages/client-core`: the headless services (sessions, content
   projections, detail, show workspace, search, saved, guide, playback).
 - `packages/design`: colour, spacing and icon tokens.
-- `Native/`: the AVPlayer and mpv player engines (Apple; the Android engines are under `android/`), audio, keychain, networking and system
+- `Native/`: the Apple AVPlayer engine, audio, keychain, networking and system
   modules, with their JavaScript bindings in `src/bridge/`.
 - `android/`: the same native modules for Android, in Kotlin, under the same
   names (Media3 for playback, the Keystore for records). Every screen is shared;
@@ -84,49 +84,38 @@ has nothing registered to receive old-style view events.
 `src/app/legacy-events.ts` now drops such events with a warning instead of
 crashing.
 
-## The mpv player engine (iPhone, iPad, Apple TV)
+## Apple playback (iPhone, iPad, Apple TV)
 
-The app has two player engines behind one contract (`Native/ENGINE-CONTRACT.md`): the system's
-AVPlayer and mpv. The Player setting is Automatic (the default), this device's player, or mpv.
+Apple uses AVPlayer through `Native/ENGINE-CONTRACT.md`. There is no Apple engine chooser.
+Rich subtitle overlays use libass and the exact Jellyfin FFmpeg 8.1.3-1 source with all
+100 pinned patches; the same separate recipe supplies the Opus decoder for music. Video
+decoding remains in AVPlayer.
 
-mpv and everything it uses (FFmpeg 8.1.2, the server's version, under LGPL 2.1; OpenSSL;
-libass, FreeType, HarfBuzz, FriBidi, libunibreak; dav1d; libplacebo, Little CMS, libdovi;
-uchardet; MoltenVK) is Portico's own build from pinned sources: the media engine in
-[`third_party/media-engine`](../../third_party/media-engine/README.md). Each library is its own
-dynamic framework, combined into an `.xcframework`; a local Swift package
-(`third_party/media-engine/apple/Package.swift`, product `PorticoMediaEngine`) wraps them, and
-both Xcode projects depend on it. Nothing is downloaded by Xcode and nothing built is checked in,
-so **build the engine once before opening the projects**, like `pod install`:
+Build the pinned sources in `third_party/apple-subtitles` before opening either Xcode project.
+Its local Swift package, `third_party/apple-subtitles/apple/Package.swift`, exposes
+`PorticoSubtitleEngine` from the generated xcframeworks. Built frameworks are not checked in:
 
 ```bash
-third_party/media-engine/build-apple.sh     # from the repository root; about an hour the first time
-cd apps/native/ios && pod install            # as before (and in tvos/)
+third_party/apple-subtitles/build-apple.sh  # from the repository root
+cd apps/native/ios && pod install          # also run in tvos/
 ```
 
-Then build as usual. Notes:
+The recipe records source, patch and build receipts alongside its output. Apple licence
+generation reads this recipe's own source lock and notices. Device output capabilities and
+HDR acceptance require runtime evidence; a successful simulator build does not establish them.
 
-- Until `build-apple.sh` has run, Xcode cannot resolve the `PorticoMediaEngine` package (its
-  frameworks are missing) and says so. The engine's Swift files compile to a stand-in when the
-  `Libmpv` module is missing (`#if canImport(Libmpv)`), so removing the package from a project
-  still builds an app without mpv (no Player setting).
-- Simulators: iOS simulator frameworks are built for arm64 and x86_64; tvOS simulator ones for
-  arm64 only (Rust, which libdovi is written in, has no x86_64 tvOS simulator target), so the
-  Apple TV simulator needs an Apple-silicon Mac.
-- Run with **Metal API Validation off** in the scheme's Diagnostics while debugging HDR titles;
-  MoltenVK trips the validation layer there. Release builds are unaffected.
-- mpv draws through Metal (Vulkan on MoltenVK), which the simulators support, but VideoToolbox
-  decoding and HDR need a device.
-- To change a version, see "Updating a component" in the media engine's README; the engine needs
-  mpv 0.38 or later.
+Xcode resolves Node through the checked `.xcode.env` and the build's `PATH`. A developer may
+create an ignored `.xcode.env.local` for their own Node path; machine-specific paths are not
+part of the checked source.
 
 ## The mpv player engine (Android, Android TV, Fire TV)
 
-The same second engine, behind the same contract, on Android: the system's Media3 player and
-mpv, with the same Player setting. The Kotlin is in
+Android supports the system's Media3 player and mpv behind the engine contract and Player
+setting. The Kotlin is in
 `android/app/src/main/java/tv/getportico/portico/native/PorticoMpv*.kt`; libmpv and the small JNI
 bridge to it are their own Gradle module, `android/portico-mpv`.
 
-**Where libmpv comes from.** The same media engine as on Apple
+**Where libmpv comes from.** The Android media engine
 ([`third_party/media-engine`](../../third_party/media-engine/README.md)), built for the four
 architectures the app ships (`arm64-v8a armeabi-v7a x86 x86_64`) with the NDK the app uses.
 Each library is its own `.so` (libmpv.so, libavcodec.so, libssl.so, libass.so, ...; 21 to 35
