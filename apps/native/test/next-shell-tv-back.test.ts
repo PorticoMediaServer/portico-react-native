@@ -9,6 +9,7 @@ import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
 import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import {homePlayTarget} from '../src-next/screens/home/model';
+import * as readPlatform from '../src-next/screens/read/platform';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('actual assembly sends Back to topmost Home menu before player, then TV page, then OS', async () => {
@@ -33,7 +34,8 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows},
-    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': {homePlayTarget},
+    './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
+    '../screens/read/platform': readPlatform,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}), current: () => true,
