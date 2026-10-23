@@ -53,4 +53,3 @@ export async function probeVegaOutputs(document: CapabilityDocument, ask: Output
   // passthrough. Declare playable audio, without asserting an unobserved receiver route.
   return {...document, display: {...document.display, dynamicRanges: [...new Set(video.flatMap(codec => codec.dynamicRanges))]}, audioOutput: {maxChannels: Math.max(2, ...audio.map(codec => codec.maxChannels ?? 2))}, engines: {native: {...native, video, audio: audio as ClientAudioCodec[], audioPassthrough: []}}};
 }
-
