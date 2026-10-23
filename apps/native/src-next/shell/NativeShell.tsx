@@ -69,9 +69,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     return () => {pending = false;};
   }, [current, runtime, snapshot.authority]);
   useEffect(() => {
-    if (destination.kind === 'library' && !canOpenLibrary(snapshot.libraries, destination.libraryId, theme.isTV)) runtime.onDestination({kind: 'libraries'});
+    const retained = snapshot.destination;
+    if (destination.kind === 'library' && !canOpenLibrary(snapshot.libraries, destination.libraryId, theme.isTV)
+      || theme.isTV && retained.kind === 'library' && !canOpenLibrary(snapshot.libraries, retained.libraryId, true)) runtime.onDestination({kind: 'libraries'});
     if (destination.kind === 'live' && !snapshot.hasLiveTV) runtime.onDestination({kind: 'home'});
-  }, [destination, runtime, snapshot.hasLiveTV, snapshot.libraries, theme.isTV]);
+  }, [destination, runtime, snapshot.destination, snapshot.hasLiveTV, snapshot.libraries, theme.isTV]);
   const navigate = (next: ShellDestination) => {
     if (!current()) return;
     setAccountOpen(false); opening.current++;
