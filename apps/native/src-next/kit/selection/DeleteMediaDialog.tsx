@@ -39,9 +39,9 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
     <View style={[styles.stack, isTV ? {gap: 22, paddingTop: 26} : undefined]}>
       {result ? <>
         <SelectionText>{selectionText('next.selection.native.deleteResult', {removed: result.removed, failed: result.failed})}</SelectionText>
-        {kept.slice(0, 5).map(receipt => <View key={receipt.itemId} style={styles.warning}>
+        {kept.slice(0, 5).map(receipt => <View key={receipt.itemId} style={[styles.warning, phone ? {paddingVertical: 10, paddingHorizontal: 11} : undefined]}>
           <Icon name="i-warn" size={isTV ? 28 : 18} color={colors.amber} />
-          <View style={{flex: 1, gap: 3}}><SelectionText weight={700}>{receipt.title}</SelectionText><SelectionText size={isTV ? 20 : 13.5} secondary style={{lineHeight: isTV ? 29 : 19.575}}>{selectionText(receipt.code === 'file_changed' ? 'next.selection.native.fileChanged' : 'next.selection.native.fileNotRemoved')}</SelectionText></View>
+          <View style={{flex: 1, gap: phone ? 0 : 3}}><SelectionText weight={700} style={phone ? {lineHeight: 20.3 * theme.textScale} : undefined}>{receipt.title}</SelectionText><SelectionText size={isTV ? 20 : 13.5} secondary style={{lineHeight: isTV ? 29 : phone ? 19.575 * theme.textScale : 19.575, ...(phone ? {color: colors.textSecondary} : {})}}>{selectionText(receipt.code === 'file_changed' ? 'next.selection.native.fileChanged' : 'next.selection.native.fileNotRemoved')}</SelectionText></View>
         </View>)}
         {kept.length > 5 ? <SelectionText secondary>{selectionText('next.selection.native.andMore', {count: kept.length - 5})}</SelectionText> : null}
       </> : restricted ? <View style={styles.warning} accessibilityLiveRegion="polite"><Icon name="i-warn" size={isTV ? 28 : 18} color={gate === 'limit' ? colors.record : colors.amber} /><SelectionText size={isTV ? 22 : 13.5} style={{flex: 1}}>{selectionText(gate === 'limit' ? 'next.selection.native.deleteLimit' : gate === 'libraries' ? 'next.selection.native.deleteLibraries' : 'next.selection.native.deleteBlocked', {library: preview?.targets.find(target => !target.allowMediaDeletion)?.libraryName ?? preview?.blocked[0] ?? ''})}</SelectionText></View>
