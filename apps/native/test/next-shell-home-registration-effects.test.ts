@@ -18,6 +18,7 @@ import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
 import * as homeModel from '../src-next/screens/home/model';
 import * as readPlatform from '../src-next/screens/read/platform';
+import {NativeScreenServices} from '../src-next/screens/screen-services';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
@@ -59,6 +60,10 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
   });
+  const screenServices = await screenModule(source('screens/native-screen-services.tsx'), {
+    react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
+    '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
+  });
   const {createNativeShellBindings} = await screenModule(source('shell/assembly.tsx'), {
     react, 'react-native': {...native, Platform: {isTV: tv}, NativeModules: {}, BackHandler: {addEventListener: () => ({remove() {}})}},
     '../../../../packages/i18n/src': {defaultI18n}, '../../../../packages/client-core/src/home-selection/index': homeSelection,
@@ -67,12 +72,12 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute},
-    './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, renderRetained: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': homeModel,
-    '../screens/read/platform': readPlatform,
+    './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, renderRetained: () => null, renderOverlays: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': homeModel,
+    '../screens/read/platform': readPlatform, '../screens/native-screen-services': screenServices,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),
-    account: {account: {role: 'member'}}, api: {}, events: {on: () => () => {}}, navigation, libraries: () => [],
+    account: {account: {role: 'member'}}, api: {}, events: {on: () => () => {}}, navigation, subscribeAuthority: navigation.subscribe, libraries: () => [],
     playback: {selectionPlayback: () => ({play() {throw new Error('unexpected playback');}, enqueue() {throw new Error('unexpected queue');}, playChannel() {throw new Error('unexpected channel');}}), getSnapshot: () => ({dock: {local: null}})}});
   const listeners = new Set<() => void>();
   let revision = 0, snapshot = {...bindings.getState(), authority, libraries: [], mediaExpanded: false, revision};

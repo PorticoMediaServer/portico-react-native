@@ -112,3 +112,17 @@ test('legacy teardown belongs to its registration and never to another viewer bi
   unregister(); unregister(); assert.equal(disposed, 1);
   second.dispose(); assert.equal(disposed, 1);
 });
+
+test('module overlays use one shared factory instance and stop at authority retirement', () => {
+  const registry = new NativeShellRouteRegistry(); let current = true, renders = 0;
+  const create = () => ({render: () => null, renderOverlays: () => {renders++; return 'captured module overlay';}});
+  registry.registerRoute('title', create); registry.registerWatch(create);
+  const bound = registry.bind(fixtureContext(() => current));
+  assert.deepEqual(bound.renderOverlays(runtime), []);
+  bound.renderWatch(runtime);
+  bound.render({kind: 'title', entry: {id: 'actual', kind: 'movie', title: 'Actual title'}}, runtime);
+  assert.deepEqual(bound.renderOverlays(runtime), ['captured module overlay']);
+  assert.equal(renders, 1);
+  current = false; assert.equal(bound.renderOverlays(runtime), null);
+  bound.dispose();
+});
