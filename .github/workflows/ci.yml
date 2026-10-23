@@ -4,8 +4,19 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      legacy_compatibility:
+        description: Also run the retired src and Vega compatibility checkpoint
+        type: boolean
+        default: false
   # The release workflow runs this whole suite on the commit it builds.
   workflow_call:
+    inputs:
+      legacy_compatibility:
+        description: Preserve full compatibility checks for release callers
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -37,18 +48,36 @@ jobs:
         working-directory: portico-react-native/apps/native
       - run: npm run typecheck
         working-directory: portico-react-native/apps/native
-      - run: npm run typecheck:test
+      - run: npm run typecheck:next-test
         working-directory: portico-react-native/apps/native
-      - run: npm run lint:hooks
+      - name: Check hooks in the mounted application
+        run: npx --no-install eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src-next App.tsx
         working-directory: portico-react-native/apps/native
-      - run: npm run lint:strings
+      - name: Check mounted application copy
+        run: |
+          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict
+          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict
+          node ../../packages/i18n/scripts/lint-glossary.mjs
         working-directory: portico-react-native/apps/native
-      - run: npm test
+      - name: Test the mounted application
+        run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
+        working-directory: portico-react-native/apps/native
+      # src is retained for compatibility, but App.tsx mounts src-next. Its
+      # historical checks stay available at a checkpoint and remain mandatory
+      # for release callers; they are not the source gate for the current app.
+      - name: Retired application compatibility checkpoint
+        if: inputs.legacy_compatibility == true
+        run: |
+          npm run typecheck:test
+          npm run lint:hooks
+          npm run lint:strings
+          npm test
         working-directory: portico-react-native/apps/native
 
   # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
   # not have; type checks, tests and strings need only its npm packages.
   vega:
+    if: inputs.legacy_compatibility == true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

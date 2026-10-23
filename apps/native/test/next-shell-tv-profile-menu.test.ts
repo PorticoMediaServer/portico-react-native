@@ -3,6 +3,8 @@ import test from 'node:test';
 import type {DirectSnapshot} from '../../../packages/client-core/src/profile-management';
 import {nativeAccountMenu} from '../src-next/shell/account';
 import {tvFocusIds} from '../src-next/shell/tv-focus';
+import {createTheme, nativeType} from '../src-next/kit/theme';
+import {defaultI18n} from '../../../packages/i18n/src';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const profile = {id: 'profile', name: 'Demo', primary: true, position: 0, art: 'blue' as const, revision: 1, pinRevision: 1, pinRequired: false};
@@ -22,13 +24,30 @@ test('actual TV profile menu has ordered safe actions, member gating and no extr
   assert.deepEqual(nativeAccountMenu(account, open).actions.map(action => action.id), ['profiles', 'servers', 'notifications', 'together', 'settings'], 'phone action contract stays unchanged');
   const h = hooks();
   const {TVProfileMenu} = await screenModule(new URL('../src-next/shell/TVProfileMenu.tsx', import.meta.url), {
-    react: h.react, '../kit/overlays': {Menu: 'Menu'}, './tv-focus': {tvFocusIds},
+    react: h.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../packages/i18n/src': {defaultI18n},
+    '../kit/theme': {nativeType, useTheme: () => createTheme({isTV: true, width: 1920})}, '../kit/artwork': {ProfileFace: 'Face'},
+    '../kit/overlays': {Menu: 'Menu'}, './tv-focus': {tvFocusIds},
   });
   const ref = {current: null};
-  const tree = TVProfileMenu({snapshot: {authority, account: two, profile: {id: 'profile', name: 'Demo'}}, open: true, onOpenChange() {}, returnFocusRef: ref});
+  const snapshot = {authority, account: two, profile: {id: 'profile', name: 'Demo'}, serverName: 'Actual server', unreadNotificationCount: 7};
+  const tree = TVProfileMenu({snapshot, open: true, onOpenChange() {}, returnFocusRef: ref});
   assert.equal(tree.props.testID, tvFocusIds(authority).profileMenu);
   assert.equal(tree.props.returnFocusRef, ref, 'the genuine rail profile ref is handed to the shared hold');
-  assert.deepEqual(tree.props.items.map((item: any) => item.id), ['profiles', 'servers', 'notifications', 'together', 'server']);
+  assert.equal(tree.props.anchorRef, ref);
+  assert.equal(tree.props.presentation, 'anchored');
+  assert.equal(tree.props.placement, 'right-end');
+  assert.equal(tree.props.footer, undefined, 'the frame has no Back/Close footer');
+  assert.deepEqual(tree.props.items.map((item: any) => item.id), ['profiles', 'servers', 'notifications', 'together', 'server-divider', 'server']);
+  assert.equal(tree.props.items.find((item: any) => item.id === 'notifications').trailing.props.children.flat().join(''), '7 new');
+  assert.equal(tree.props.items.at(-1).trailing.props.children.flat().join(''), defaultI18n.t('next.shell.viewOnly'));
+  const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
+  assert.ok(nodes(tree.props.context).some(node => node.type === 'Face' && node.props.id === 'profile'));
+  assert.ok(nodes(tree.props.context).some(node => node.type === 'Text' && node.props.children.flat().join('') === 'Actual server'));
+  for (const unreadNotificationCount of [undefined, 0]) {
+    const quiet = TVProfileMenu({snapshot: {...snapshot, unreadNotificationCount, serverName: undefined}, open: true, onOpenChange() {}, returnFocusRef: ref});
+    assert.equal(quiet.props.items.find((item: any) => item.id === 'notifications').trailing, undefined);
+    assert.equal(nodes(quiet.props.context).filter(node => node.type === 'Text').length, 1, 'missing server facts never fall back to a username or demo label');
+  }
   assert.deepEqual(routes, [], 'rendering or native traversal never navigates');
   tree.props.items[0].onSelect();
   assert.deepEqual(routes, [{kind: 'profiles'}]);
