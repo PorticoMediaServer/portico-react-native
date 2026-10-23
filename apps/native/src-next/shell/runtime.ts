@@ -12,6 +12,7 @@ import type {StateViewProps} from '../kit/states';
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
+import type {NativeWatchOutletPort} from './watch-outlet';
 
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
@@ -55,6 +56,8 @@ export interface NativeShellRuntime {
   homeMenuRow?: (windowId: string) => HomeRow | undefined;
   renderSelection: () => ReactNode;
   renderRoutes: () => ReactNode;
+  /** Persistent watch chrome above the one native picture surface. */
+  renderWatch?: () => ReactNode;
   libraryMenu: (library: Library) => LibraryMenuProps;
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
@@ -69,6 +72,9 @@ export interface NativeShellRuntime {
   registerTVPageBack?: (handler: () => boolean) => () => void;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
+  /** Present in the real bootstrap. Missing measurement withholds expanded
+   * bounds; it does not retire the persistent player owner. */
+  watch?: NativeWatchOutletPort;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
   /** Only installed when a real device destination control exists. */
