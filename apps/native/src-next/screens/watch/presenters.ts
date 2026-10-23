@@ -3,14 +3,14 @@ import type {View} from 'react-native';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {readFileInfo, type DetailApi} from '../../../../../packages/client-core/src/detail';
 import {deletionAllowed, versionDeletionService, type VersionDeletePreview} from '../../../../../packages/client-core/src/administration';
-import {SearchService, type SearchGroup} from '../../../../../packages/client-core/src/search';
+import {SearchService} from '../../../../../packages/client-core/src/search';
 import {canMergeTitles, findLibraryFile, mergeTitles, separateLibraryFile, SPLITTABLE_KINDS} from '../../../../../packages/client-core/src/title-identity';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority} from '../../shell/model';
 import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchCapture, NativeWatchMenuActions} from './factory';
-import type {NativeFileInfo} from './file-info';
+import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
 
 type FileOwner = Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>;
 export type NativeWatchOverlay = Readonly<{
@@ -31,7 +31,7 @@ export type NativeWatchOverlay = Readonly<{
   other?: ContentEntry;
   keep?: string;
 }>;
-const mergeGroups: Partial<Record<ContentEntry['kind'], SearchGroup>> = {movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs', album: 'albums', artist: 'artists', book: 'books', author: 'authors'};
+
 const cancelled = () => Object.assign(new Error('watch_capture_ended'), {name: 'AbortError'});
 
 /** The presenter borrows the real captured member. Closing it retires requests;
@@ -112,9 +112,9 @@ export class NativeWatchPresenters {
     if (action === 'delete-version' && info.manage?.delete && fileId && info.locations?.some(file => file.id === fileId && file.actions.some(offered => offered.id === action))) {
       const next = this.patch(value, {phase: 'delete', fileId, confirmation: '', error: undefined, preview: undefined, operationId: undefined});
       if (next) void this.previewDelete(next);
-    } else if (action === 'split-versions' && info.manage?.split && SPLITTABLE_KINDS.includes(info.kind)) {
+    } else if (action === 'split-versions' && info.model.owner?.actions.some(offered => offered.id === action) && SPLITTABLE_KINDS.includes(info.kind)) {
       this.patch(value, {phase: 'split-pick', fileId: undefined, error: undefined});
-    } else if (action === 'merge-title' && info.manage?.merge && mergeGroups[capture.entry.kind]) {
+    } else if (action === 'merge-title' && info.manage?.merge && nativeFileInfoMergeGroups[capture.entry.kind]) {
       this.patch(value, {phase: 'merge', other: undefined, keep: capture.entry.id, candidates: [], error: undefined});
     }
   };
@@ -124,7 +124,7 @@ export class NativeWatchPresenters {
   }};
   chooseSplit = (fileId: string) => {
     const value = this.value, files = value?.owner?.info.files;
-    if (value?.phase === 'split-pick' && files && files.length > 1 && files.some(file => file.id === fileId && file.available)) this.patch(value, {phase: 'split', fileId, error: undefined});
+    if (value?.phase === 'split-pick' && files && files.length > 1 && files.some(file => file.id === fileId && file.available) && value.owner?.info.groups.some(group => group.members.length === 1 && group.members[0]?.id === fileId)) this.patch(value, {phase: 'split', fileId, error: undefined});
   };
   split = async () => {
     const value = this.value, entry = value?.capture.entry;
@@ -160,7 +160,7 @@ export class NativeWatchPresenters {
     });
   };
   search = async (words: string) => {
-    const value = this.value, viewer = this.context.session()?.viewer, group = value && mergeGroups[value.capture.entry.kind];
+    const value = this.value, viewer = this.context.session()?.viewer, group = value && nativeFileInfoMergeGroups[value.capture.entry.kind];
     if (value?.phase !== 'merge' || !viewer || !group || value.busy || !this.current(value.capture)) return;
     if (!this.searchService) this.searchService = new SearchService({api: this.context.api, scope: {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])}, pageSize: 12});
     const service = this.searchService;

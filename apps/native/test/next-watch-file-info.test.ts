@@ -64,3 +64,15 @@ test('ambiguous member identity and a wrong options target fail closed', async (
     await assert.rejects(readNativeFileInfo(data.client, scope, target, offered, {t: defaultI18n.t}, false, new AbortController().signal));
   }
 });
+
+test('File info retains real permissions while offering only installed whole-version split and matching search flows', async () => {
+  const extra = api(() => ({...page([file('v1', true)], {manage: {delete: true, split: true, merge: true}}), kind: 'extra'}));
+  const info = await readNativeFileInfo(extra.client, scope, target, options, {t: defaultI18n.t}, false, new AbortController().signal);
+  assert.deepEqual(info.manage, {delete: true, split: true, merge: true});
+  assert.deepEqual(info.model.owner?.actions, []);
+  assert.deepEqual(info.locations?.[0]?.actions.map(action => action.id), ['delete-version']);
+  const multipart = api(() => page([file('v1', true), file('part2', true)], {manage: {delete: true, split: true, merge: false}}));
+  const oneVersion = parseOptions({itemId: 'movie', versions: [version('v1', ['v1', 'part2'])]});
+  const parts = await readNativeFileInfo(multipart.client, scope, target, oneVersion, {t: defaultI18n.t}, false, new AbortController().signal);
+  assert.equal(parts.groups.length, 1); assert.deepEqual(parts.model.owner?.actions, []);
+});
