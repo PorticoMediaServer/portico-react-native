@@ -238,6 +238,8 @@ test('Android geometry preparation keeps live video until capture is usable', as
       assert.equal(requests, 1);
       assert.equal(d.contexts.at(-1).surfaceActive, true);
       assert.deepEqual(d.contexts.at(-1).bounds, frame, 'keep old live bounds while preparing');
+      await act(() => d.reactions.at(-1)!({active: true, p: 0, v: 0, drag: false, goal: 0}, null));
+      assert.deepEqual(d.contexts.at(-1).bounds, frame, 'a first settled reaction cannot bypass capture');
       await act(async () => {
         d.morph.update({...d.props, fullFrame: next, androidSnapshot: {fence, image: React.createElement('CapturedFrame'), ready: false}});
         ready(); await prepared;

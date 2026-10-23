@@ -199,6 +199,12 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       || dragging.value || dragRun.value !== observedDragRun) return;
     const finalFrame = value === 1 ? dockFrame : fullFrame;
     if (!validRect(finalFrame)) return;
+    const previous = settledTransition.current;
+    const geometryOnly = previous.docked === transition.docked && currentMorphFence(previous.fence, transition.fence) && !sameRect(previous.frame, transition.frame);
+    // A newly installed UI reaction can observe an already-settled progress
+    // value. It must not bypass geometry capture/readiness on that first sample.
+    if (geometryOnly && !motion.reduce && Platform.OS === 'android' && prepareLayout
+      && (preparedLayout.current !== transition || snapshot && !snapshotReady && !androidSnapshot?.failed)) return;
     setFrame(previous => previous.x === finalFrame.x && previous.y === finalFrame.y && previous.width === finalFrame.width && previous.height === finalFrame.height ? previous : finalFrame);
     base.value = finalFrame;
     setMovingFor(undefined);
@@ -206,8 +212,6 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     // That timing's intermediate samples must not re-arm its consumed fade;
     // a genuine new drag can still fade once on return to the same goal.
     if (settledTransition.current !== transition || (motion.reduce ? settledDragRun.current !== observedDragRun : wasMoving.current)) {
-      const previous = settledTransition.current;
-      const geometryOnly = previous.docked === transition.docked && currentMorphFence(previous.fence, transition.fence) && !sameRect(previous.frame, transition.frame);
       const fade = geometryOnly ? {...motion.timing(), duration: playerPostureCrossFadeMs} : motion.timing();
       if (geometryOnly && motion.reduce) {
         cancelAnimation(surfaceFade); surfaceFade.value = 1;
@@ -228,7 +232,7 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       }
     }
     settledTransition.current = transition; settledDragRun.current = observedDragRun; wasMoving.current = false;
-  }, [fence, fullFrame, dockFrame, base, surfaceFade, snapshotFade, finishFade, motion, transition, dragging, dragRun]);
+  }, [fence, fullFrame, dockFrame, base, surfaceFade, snapshotFade, finishFade, motion, transition, dragging, dragRun, prepareLayout, snapshot, snapshotReady, androidSnapshot?.failed]);
   const updateMoving = useCallback((value: boolean, observedDragRun: number) => {
     if (mounted.current && lifetime.current === transition && currentMorphFence(currentFence.current, fence) && dragRun.value === observedDragRun) {
       if (value) {fadeTicket.current++; cancelAnimation(snapshotFade); snapshotFade.value = 1; setFadingFor(undefined);}
