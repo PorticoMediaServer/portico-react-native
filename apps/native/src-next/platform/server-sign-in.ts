@@ -46,6 +46,13 @@ export class NativeServerSignIn {
   private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation;
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
+  /** Public hand-offs use the connected, identity-verified server origin. The
+   * address being typed or an unconfirmed discovery/proof is never a source. */
+  serverOrigin(): string {
+    this.assertCurrent();
+    if (!this.api || !this.server) throw mismatch();
+    return routeOrigin(this.api.baseUrl);
+  }
   needsIdentityCode() {this.assertCurrent(); return !!this.pendingIdentity && pendingCertificate(this.pendingIdentity.origin) === this.pendingIdentity;}
   confirmIdentityCode(code: string) {return this.run(async () => {
     if (!this.pendingIdentity) throw mismatch();
