@@ -4,6 +4,16 @@ import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
 import {NativeSettingsController, type NativeSettingsReader} from '../src-next/screens/settings-live/settings-controller';
 import {NativeDashboardController, type NativeDashboardAdmission, type NativeDashboardReaders} from '../src-next/screens/settings-live/dashboard-controller';
 import {NativeTogetherController, type NativeTogetherService} from '../src-next/screens/settings-live/together-controller';
+import {NativeRecordingsController, type NativeRecordingService} from '../src-next/screens/settings-live/recordings-controller';
+import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
+import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
+import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
+import {defaultI18n} from '../../../packages/i18n/src';
+import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
+import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
+import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
+import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
+import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
@@ -16,6 +26,174 @@ function authority() {
     replace: (next: Partial<ShellAuthority>) => {value = {...value, ...next}; for (const fn of [...listeners]) fn();},
     revoke: () => {valid = false; for (const fn of [...listeners]) fn();}};
 }
+
+function guideChannel(): GuideChannel {
+  return {id: 'channel', sourceId: 'source', provenance: 'live-source', generation: 'generation', name: 'Guide test channel', number: '201', group: '', programmes: [], tuneAvailable: true, recordAvailable: true, tuneUnavailableReason: '', recordUnavailableReason: '', favorite: false, hidden: false, preferenceRevision: 7};
+}
+
+test('guide favorite waits for receipt and retries the exact operation key and selected revision', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), sent: unknown[] = [];
+  let finish!: (value: unknown) => void, generated = 0;
+  const api: ChannelApi = {request: <T>(_path: string, method?: string, body?: unknown) => {
+    if (method === 'POST') {sent.push(body); if (sent.length === 1) return Promise.reject(new Error('unknown transport outcome')); return new Promise<T>(resolve => {finish = value => resolve(value as T);});}
+    return Promise.resolve({protocolVersion: '1.0', serverId: 'server', viewerFence: 'guide-domain-fence', revision: 'directory1', sources: []} as T);
+  }};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  const requestId = async () => {generated++; return 'ab'.repeat(24);};
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, requestId), undefined);
+  assert.equal(channel.favorite, false);
+  assert.ok(controller.getSnapshot().mutationError);
+  const pending = controller.channelPreference(channel, {favorite: true, hidden: false}, requestId);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(controller.getSnapshot().mutating, true);
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, requestId), undefined);
+  assert.equal(generated, 1);
+  assert.deepEqual(sent, [
+    {requestId: 'ab'.repeat(24), sourceId: 'source', channelId: 'channel', expectedRevision: 7, favorite: true, hidden: false},
+    {requestId: 'ab'.repeat(24), sourceId: 'source', channelId: 'channel', expectedRevision: 7, favorite: true, hidden: false},
+  ]);
+  assert.equal(channel.favorite, false);
+  finish({protocolVersion: '1.0', serverId: 'server', revision: 8});
+  const committed = await pending;
+  assert.equal(committed?.favorite, true);
+  assert.equal(committed && legacyChannel(committed)?.preferenceRevision, 8);
+  assert.equal(controller.getSnapshot().mutationError, undefined);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('guide refuses a late favorite receipt after profile authority changes', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner);
+  let finish!: (value: unknown) => void;
+  const api: ChannelApi = {request: <T>() => new Promise<T>(resolve => {finish = value => resolve(value as T);})};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  const pending = controller.channelPreference(channel, {favorite: true, hidden: false}, async () => 'cd'.repeat(24));
+  await Promise.resolve(); await Promise.resolve();
+  owner.replace({profileId: 'other', viewerFence: 'other-home-fence'});
+  finish({protocolVersion: '1.0', serverId: 'server', revision: 8});
+  assert.equal(await pending, undefined);
+  assert.equal(channel.favorite, false);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('a failed native operation-key generation sends no mutation and can be retried', async () => {
+  const lifetime = new NativeScreenLifetime(authority());
+  let requests = 0;
+  const api: ChannelApi = {request: async <T>() => {requests++; return {protocolVersion: '1.0', serverId: 'server', revision: 8} as T;}};
+  const controller = new NativeLiveController(lifetime, api, 'America/Halifax'), channel = legacyChannelRow(guideChannel());
+  assert.equal(await controller.channelPreference(channel, {favorite: true, hidden: false}, async () => {throw new Error('native random unavailable');}), undefined);
+  assert.equal(requests, 0);
+  const result = await controller.channelPreference(channel, {favorite: true, hidden: false}, async () => 'ef'.repeat(24));
+  assert.equal(result?.favorite, true);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('guide clocks use actual device zone and omit TV day periods without changing the hour cycle', () => {
+  const at = Date.parse('2026-10-21T19:05:00Z');
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(at), '4:05');
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true, false)(at), '4:05 PM');
+  assert.equal(nativeGuideClock('en-GB', 'America/Halifax', false)(at), '16:05');
+  assert.equal(nativeGuideClock('en-US', 'not/a-zone', true)(at), undefined);
+  assert.equal(nativeGuideClock('en-US', 'America/Halifax', true)(NaN), undefined);
+});
+
+test('guide captions preserve separate episode facts and omit unavailable time facts', () => {
+  const programme: GuideProgram = {id: 'programme', channelId: 'channel', title: 'Stored programme title', start: 1, end: 2, subtitle: 'Stored subtitle: Special Edition', episode: {season: 5, number: 2}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeProgrammeCaption(programme, true, false, () => undefined, text), ['S5 E2', 'Stored subtitle: Special Edition']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, at => at === 2 ? '4:30 PM' : '3:30 PM', text), ['Ends 4:30 PM']);
+  assert.deepEqual(nativeProgrammeCaption({...programme, subtitle: undefined, episode: undefined}, true, false, () => undefined, text), []);
+  assert.deepEqual(nativeProgrammeCaption(undefined, true, false, () => '4:30 PM', text), []);
+});
+
+test('Dashboard uses actual show identity and numbering without shortening stored titles', () => {
+  const session: AdminSession = {id: 'session', user: 'person', profile: 'profile', device: 'device', title: 'Episode: Special Edition', kind: 'vod', state: 'playing', positionMs: 1000, decision: {}, location: 'local', item: {id: 'episode', kind: 'episode', title: 'Episode: Special Edition', showId: 'show', showTitle: 'Show: Special Edition', seasonNumber: 1, episodeNumber: 3, episodeNumbering: 'seasonal', art: []}};
+  const text = {t: defaultI18n.t, locale: 'en-US'};
+  assert.deepEqual(nativeDashboardIdentity(session, text), {title: 'Show: Special Edition', secondary: ['S1 E3', 'Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, episodeNumbering: 'unrecognized'}}, text), {title: 'Show: Special Edition', secondary: ['Episode: Special Edition']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: {...session.item!, kind: 'movie', title: 'Film: Special Edition', year: 2001}}, text), {title: 'Film: Special Edition', secondary: ['2001']});
+  assert.deepEqual(nativeDashboardIdentity({...session, item: undefined}, text), {title: 'Episode: Special Edition', secondary: []});
+});
+function recordingService() {
+  let accessChanged = () => {}, disposed = 0;
+  const page: DVRPage = {recordings: [], rules: [], nextCursor: '', revision: 1, captureAvailable: true, captureUnavailableReason: '', deletionAvailable: true, usage: {bytes: 0, pendingDeleteBytes: 0, recordings: 0}};
+  const storage: RecordingStorage = {policy: {revision: 1, retentionDays: 30, episodeLimit: 0, floorBytes: 1, capBytes: 0}, measurement: {freeBytes: 500, usedBytes: 100, reservedBytes: 10, writeHealthy: true, measuredAt: ''}, pendingDeleteBytes: 0, forecastBytes: 10, forecastHours: 50, forecastDescription: '', captureAvailable: true, warning: ''};
+  const unavailable = async (): Promise<never> => {throw new Error('Unexpected fixture mutation');};
+  const service: NativeRecordingService = {
+    list: async () => page, groups: async () => ({groups: [], nextCursor: '', revision: 1}),
+    summary: async () => ({upcoming: 51, recorded: 201, rules: 3, conflicts: 2, groups: 80, unwatched: 60}), storage: async () => storage,
+    detail: unavailable, deletePreview: unavailable, schedule: unavailable, update: unavailable, cancel: unavailable, keep: unavailable, delete: unavailable, saveRule: unavailable, deleteRule: unavailable,
+    onAccessChanged: fn => {accessChanged = fn;}, dispose: () => {disposed++;},
+  };
+  return {service, page, storage, revoke: () => accessChanged(), disposed: () => disposed};
+}
+
+test('recordings coalesces chip changes to one active page read and the last pending view', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), calls: string[] = [];
+  let finish!: (page: DVRPage) => void;
+  fixture.service.list = async view => {calls.push(view); if (view === 'upcoming') return new Promise(resolve => {finish = resolve;}); return {...fixture.page, revision: 2};};
+  const controller = new NativeRecordingsController(lifetime, fixture.service);
+  const pending = controller.load({view: 'upcoming'});
+  void controller.load({view: 'rules'}); void controller.load({view: 'history'});
+  assert.deepEqual(calls, ['upcoming']);
+  finish(fixture.page); await pending;
+  assert.deepEqual(calls, ['upcoming', 'history']);
+  assert.equal(controller.getSnapshot().query.view, 'history');
+  assert.equal(controller.getSnapshot().page?.revision, 2);
+  controller.dispose(); controller.dispose(); lifetime.dispose();
+  assert.equal(fixture.disposed(), 1);
+});
+
+test('recordings aggregate facts stay server counts, independent of the bounded page', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  await controller.load({view: 'upcoming'}); await controller.loadFacts();
+  assert.equal(controller.getSnapshot().page?.recordings.length, 0);
+  assert.equal(controller.getSnapshot().summary?.upcoming, 51);
+  assert.equal(controller.getSnapshot().summary?.recorded, 201);
+  assert.equal(controller.getSnapshot().storage, fixture.storage);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('DVR access revocation clears private aggregates and refuses late page publication', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  await controller.loadFacts();
+  let finish!: (page: DVRPage) => void;
+  fixture.service.list = () => new Promise(resolve => {finish = resolve;});
+  const pending = controller.load(); fixture.revoke(); finish(fixture.page); await pending;
+  assert.equal(controller.getSnapshot().accessDenied, true);
+  assert.equal(controller.getSnapshot().summary, undefined);
+  assert.equal(controller.getSnapshot().storage, undefined);
+  assert.equal(controller.getSnapshot().page, undefined);
+  assert.equal(controller.getSnapshot().loading, false);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('DVR mutations preserve the selected revision and publish only after the real receipt', async () => {
+  const fixture = recordingService(), owner = authority(), lifetime = new NativeScreenLifetime(owner), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const recording: Recording = {id: 'recording', revision: 7, occurrence: {sourceId: 'source', channelId: 'channel', generation: 'generation', programmeId: 'programme'}, programme: {id: 'programme', channelId: 'channel', title: 'A real unit-test record', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', lineage: 'provider-id', seriesId: '', episodeId: '', newEvidence: 'unknown', description: ''}, ruleId: '', options: {beforeSeconds: 0, afterSeconds: 0, priority: 0, retentionDays: 0, episodeLimit: 0}, start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', state: 'completed', reason: '', keep: false, itemId: '', libraryId: '', coverageStart: '', coverageEnd: '', bytes: 10, conflicts: []};
+  fixture.page.recordings = [recording];
+  await controller.load();
+  let finish!: (value: Recording) => void, sent: Recording | undefined;
+  fixture.service.keep = value => {sent = value; return new Promise(resolve => {finish = resolve;});};
+  const pending = controller.keep(recording);
+  assert.equal(await controller.keep(recording), undefined);
+  assert.equal(controller.getSnapshot().busy, true);
+  assert.equal(controller.getSnapshot().page?.recordings[0]?.keep, false);
+  assert.equal(sent?.revision, 7);
+  const receipt = {...recording, revision: 8, keep: true}; fixture.page.recordings = [receipt]; finish(receipt);
+  assert.equal((await pending)?.value.revision, 8);
+  assert.equal(controller.getSnapshot().busy, false);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('late DVR mutation receipt cannot report success after the viewer changes', async () => {
+  const fixture = recordingService(), owner = authority(), lifetime = new NativeScreenLifetime(owner), controller = new NativeRecordingsController(lifetime, fixture.service);
+  let finish!: (value: boolean) => void;
+  const pending = controller.act(() => new Promise<boolean>(resolve => {finish = resolve;}));
+  owner.replace({profileId: 'other', viewerFence: 'new-home-fence'}); finish(true);
+  assert.equal(await pending, undefined);
+  assert.equal(controller.getSnapshot().summary, undefined);
+  controller.dispose(); lifetime.dispose();
+});
 const preferences = (revision = 1, value = true): PreferenceSnapshot => ({deviceClass: 'television', registryRevision: 'r1',
   registry: {revision: 'r1', fields: [{key: 'playback.autoplayNext', type: 'boolean', default: true, scopes: ['profile-server'], group: 'playback', labelKey: 'autoplay'}]},
   documents: [{scope: 'profile-server', revision, activeRevision: revision, digest: 'a'.repeat(64), values: {'playback.autoplayNext': value}}, {scope: 'profile-device-class', revision: 1, activeRevision: 1, digest: 'b'.repeat(64), values: {}}],

@@ -137,8 +137,8 @@ export type PlayerMorphProps = {
   /** The SAME child/native surface stays under this parent across every layout state. */
   children: React.ReactNode | ((context: PlayerSurfaceContext) => React.ReactNode);
   /** Real native last-frame capture, fenced to this source. Never a fabricated backdrop/video clone. */
-  androidSnapshot?: Readonly<{fence: PlaybackFence; image: React.ReactNode; ready?: boolean; failed?: boolean}>;
-  /** Retain a real current-source image before geometry-only Android settlement. */
+  retainedSnapshot?: Readonly<{fence: PlaybackFence; image: React.ReactNode; ready?: boolean; failed?: boolean}>;
+  /** Retain a real current-source image before geometry-only settlement. */
   prepareLayout?: (fence: PlaybackFence) => Promise<void>;
   onPresentationChange?: (state: Readonly<{fence: PlaybackFence; docked: boolean; moving: boolean; hideSubtitles: boolean}>) => void;
   testID?: string;
@@ -148,16 +148,17 @@ export type PlayerSurfaceContext = Readonly<{active: boolean; bounds: DockRect; 
 const sameRect = (a: DockRect, b: DockRect) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
 /** Only transforms/opacity move. Native SurfaceView bounds change once on settlement. */
-export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, children, androidSnapshot, prepareLayout, onPresentationChange, testID}: PlayerMorphProps) {
+export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, children, retainedSnapshot, prepareLayout, onPresentationChange, testID}: PlayerMorphProps) {
   const theme = useTheme(), motion = useMotion();
   const {progress, dragging, velocity} = controller;
+  const snapshotPlatform = !theme.isTV && (Platform.OS === 'android' || Platform.OS === 'ios');
   const [frame, setFrame] = useState(docked && validRect(dockFrame) ? dockFrame : fullFrame);
   const [movingFor, setMovingFor] = useState<PlaybackFence | undefined>(undefined);
   const [fadingFor, setFadingFor] = useState<PlaybackFence | undefined>(undefined);
   const moving = currentMorphFence(movingFor, fence);
   const fading = currentMorphFence(fadingFor, fence);
-  const snapshot = Platform.OS === 'android' && androidSnapshot && currentMorphFence(androidSnapshot.fence, fence) ? androidSnapshot.image : null;
-  const snapshotReady = !!snapshot && androidSnapshot?.ready === true;
+  const snapshot = snapshotPlatform && retainedSnapshot && currentMorphFence(retainedSnapshot.fence, fence) ? retainedSnapshot.image : null;
+  const snapshotReady = !!snapshot && retainedSnapshot?.ready === true;
   const currentSnapshot = useRef(snapshotReady); currentSnapshot.current = snapshotReady;
   const full = useSharedValue(fullFrame), dock = useSharedValue(dockFrame), base = useSharedValue(frame);
   const target = useSharedValue(docked ? 1 : 0), surfaceFade = useSharedValue(fence ? 1 : 0);
@@ -204,8 +205,8 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     const geometryOnly = previous.docked === transition.docked && currentMorphFence(previous.fence, transition.fence) && !sameRect(previous.frame, transition.frame);
     // A newly installed UI reaction can observe an already-settled progress
     // value. It must not bypass geometry capture/readiness on that first sample.
-    if (geometryOnly && !motion.reduce && Platform.OS === 'android' && prepareLayout
-      && (preparedLayout.current !== transition || snapshot && !snapshotReady && !androidSnapshot?.failed)) return;
+    if (geometryOnly && !motion.reduce && snapshotPlatform && prepareLayout
+      && (preparedLayout.current !== transition || snapshot && !snapshotReady && !retainedSnapshot?.failed)) return;
     setFrame(previous => previous.x === finalFrame.x && previous.y === finalFrame.y && previous.width === finalFrame.width && previous.height === finalFrame.height ? previous : finalFrame);
     base.value = finalFrame;
     setMovingFor(undefined);
@@ -217,10 +218,11 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       if (geometryOnly && motion.reduce) {
         cancelAnimation(surfaceFade); surfaceFade.value = 1;
         cancelAnimation(snapshotFade); snapshotFade.value = 1; fadeTicket.current++; setFadingFor(undefined);
-      } else if (Platform.OS === 'android') {
+      } else if (Platform.OS === 'android' || snapshotPlatform && !motion.reduce) {
         // Restore the same live producer at its settled bounds beneath the real
         // retained image, then fade that image away exactly once. SurfaceView
-        // cannot cross-fade through an ancestor's opacity.
+        // cannot cross-fade through an ancestor's opacity. Apple uses the same
+        // decoded-cover readiness; without that cover its live layer stays up.
         if (currentSnapshot.current) {
           const ticket = ++fadeTicket.current;
           cancelAnimation(snapshotFade); snapshotFade.value = 1; setFadingFor(fence);
@@ -233,7 +235,7 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       }
     }
     settledTransition.current = transition; settledDragRun.current = observedDragRun; wasMoving.current = false;
-  }, [fence, fullFrame, dockFrame, base, surfaceFade, snapshotFade, finishFade, motion, transition, dragging, dragRun, prepareLayout, snapshot, snapshotReady, androidSnapshot?.failed]);
+  }, [fence, fullFrame, dockFrame, base, surfaceFade, snapshotFade, finishFade, motion, transition, dragging, dragRun, prepareLayout, snapshot, snapshotReady, retainedSnapshot?.failed, snapshotPlatform]);
   const updateMoving = useCallback((value: boolean, observedDragRun: number) => {
     if (mounted.current && lifetime.current === transition && currentMorphFence(currentFence.current, fence) && dragRun.value === observedDragRun) {
       if (value) {fadeTicket.current++; cancelAnimation(snapshotFade); snapshotFade.value = 1; setFadingFor(undefined);}
@@ -249,7 +251,7 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
     // drag or dock transition. Active drags settle through the reaction below.
     const goal = docked ? 1 : 0;
     if (dragging.value || !motion.reduce && (Math.abs(progress.value - goal) >= .002 || Math.abs(velocity.value) >= .02)) return;
-    if (fence && !motion.reduce && Platform.OS === 'android' && prepareLayout && !sameRect(frame, transition.frame) && preparedLayout.current !== transition) {
+    if (fence && !motion.reduce && snapshotPlatform && prepareLayout && !sameRect(frame, transition.frame) && preparedLayout.current !== transition) {
       if (preparingLayout.current === transition) return;
       preparingLayout.current = transition; setMovingFor(fence);
       // A failed/unsupported capture still settles with live composition active.
@@ -261,10 +263,10 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
       return;
     }
     // The mounted retained Image must finish decoding before it may occlude a
-    // SurfaceView. An image error settles with the live producer still visible.
-    if (!motion.reduce && preparedLayout.current === transition && snapshot && !snapshotReady && !androidSnapshot?.failed) return;
+    // live producer. An image error settles with the live producer still visible.
+    if (!motion.reduce && preparedLayout.current === transition && snapshot && !snapshotReady && !retainedSnapshot?.failed) return;
     settle(goal, dragRun.value);
-  }, [transition, docked, fence, frame, dragging, progress, velocity, settle, dragRun, prepareLayout, layoutReady, motion.reduce, snapshot, snapshotReady, androidSnapshot?.failed]);
+  }, [transition, docked, fence, frame, dragging, progress, velocity, settle, dragRun, prepareLayout, layoutReady, motion.reduce, snapshot, snapshotReady, retainedSnapshot?.failed, snapshotPlatform]);
   useAnimatedReaction(() => ({active: active.value, p: progress.value, v: velocity.value, drag: dragging.value, goal: target.value}), (now, previous) => {
     if (!now.active) return;
     const beganDrag = now.drag && !previous?.drag;

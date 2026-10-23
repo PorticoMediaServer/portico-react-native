@@ -20,7 +20,7 @@ test('the screen port observes the same device store and routes play through its
     resume: async (value: OfflineEntry) => {calls.push(['resume',value]);},
     remove: async (value: OfflineEntry) => {calls.push(['remove',value]);},
     removeOthers: async () => {calls.push('others');},
-    playable: () => '', note: () => '',
+    playable: () => '', playabilityReason: () => null, displayFacts: async () => ({}), note: () => '',
     localMedia: async (value: OfflineEntry) => ({entryId:value.id,itemId:value.itemId,playId:'play',fileUrl:'file:///media',durationSeconds:10,startSeconds:0}),
   };
   const adapter = createNativeOfflineDownloadsAdapter(async value => {calls.push(['play',value]);},device);

@@ -20,7 +20,7 @@ type Evidence = {
   onAction: (command: DockCommand) => void;
   /** Actual runtime surface rendered once by the evidence owner, never replaced with a poster. */
   surface?: React.ComponentProps<typeof PlayerMorph>['children'];
-  androidSnapshot?: React.ComponentProps<typeof PlayerMorph>['androidSnapshot'];
+  retainedSnapshot?: React.ComponentProps<typeof PlayerMorph>['retainedSnapshot'];
   notice?: React.ComponentProps<typeof DockHost>['notice'];
   onNoticeDismiss?: React.ComponentProps<typeof DockHost>['onNoticeDismiss'];
   artwork?: Readonly<{video?: ArtworkSource; music?: ArtworkSource; tvMusic?: ArtworkSource; book?: ArtworkSource}>;
@@ -98,7 +98,7 @@ function DockCase({kind}: {kind: Case}) {
   const notice = injected ? injected.notice : !noticeDismissed && parked ? {id: 'gallery-paused-audio', kind: 'paused-audio' as const, fence: parked.fence, identity: playbackIdentity({kind: 'music', item: {id: parked.fence.itemId, kind: 'song', title: facts.music.title, artist: facts.music.artist}}, 'dock', {t: defaultI18n.t}), positionSeconds: parked.positionSeconds} : undefined;
   return <OverlaysProvider><View style={{width: theme.isTV ? 1920 : 390, height: theme.isTV ? 1080 : 844, backgroundColor: theme.colors.ink}}>
     {kind === 'menu' && occupant ? <MediaBar occupant={occupant} onAction={action} menuOpen={menu} onMenuOpenChange={setMenu} style={{position: 'absolute', left: 8, right: 8, bottom: 92}}/> : <DockHost testID={`dev.dock.${kind}`} dock={dock} snapshot={external} presentation={presentation} onAction={action} tvExpanded={expanded} onTVExpandedChange={setExpanded} morph={kind === 'gesture' ? morph : undefined} onVideoSlot={setSlot} bottomInset={92} notice={notice} onNoticeDismiss={injected ? injected.onNoticeDismiss : () => setNoticeDismissed(true)}/>}
-    {injected?.surface && <PlayerMorph controller={morph} fence={localFence} docked={docked} fullFrame={{x: 0, y: 0, width: 390, height: 219.375}} dockFrame={slot} androidSnapshot={injected.androidSnapshot}>{injected.surface}</PlayerMorph>}
+    {injected?.surface && <PlayerMorph controller={morph} fence={localFence} docked={docked} fullFrame={{x: 0, y: 0, width: 390, height: 219.375}} dockFrame={slot} retainedSnapshot={injected.retainedSnapshot}>{injected.surface}</PlayerMorph>}
     {!docked && localFence && <Button variant="text" onPress={() => action({type: 'collapse', fence: localFence})}>{defaultI18n.t('player.minimize')}</Button>}
   </View></OverlaysProvider>;
 }
