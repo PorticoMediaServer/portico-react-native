@@ -10,7 +10,7 @@ import {useMotion} from '../kit/useMotion';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
-import {authorityKey, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
+import {authorityKey, canOpenLibrary, librariesDestination, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
@@ -69,9 +69,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     return () => {pending = false;};
   }, [current, runtime, snapshot.authority]);
   useEffect(() => {
-    if (destination.kind === 'library' && !snapshot.libraries.some(library => library.id === destination.libraryId)) runtime.onDestination({kind: 'libraries'});
+    if (destination.kind === 'library' && !canOpenLibrary(snapshot.libraries, destination.libraryId, theme.isTV)) runtime.onDestination({kind: 'libraries'});
     if (destination.kind === 'live' && !snapshot.hasLiveTV) runtime.onDestination({kind: 'home'});
-  }, [destination, runtime, snapshot.hasLiveTV, snapshot.libraries]);
+  }, [destination, runtime, snapshot.hasLiveTV, snapshot.libraries, theme.isTV]);
   const navigate = (next: ShellDestination) => {
     if (!current()) return;
     setAccountOpen(false); opening.current++;
@@ -80,7 +80,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     pageOpacity.value = withTiming(1, motion.timing('quick'));
   };
   const openLibrary = (id: string) => {
-    if (!current() || !snapshot.libraries.some(library => library.id === id && (!theme.isTV || library.kind !== 'books'))) return;
+    if (!current() || !canOpenLibrary(snapshot.libraries, id, theme.isTV)) return;
     setRemembered(id);
     void runtime.memory.remember(snapshot.authority, id).catch(runtime.reportError);
     navigate({kind: 'library', libraryId: id});
