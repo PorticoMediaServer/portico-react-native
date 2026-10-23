@@ -573,7 +573,8 @@ def check_notices(r: Report, out: pathlib.Path, platform: str):
                 r.check(entry["file"] in members, f"{platform}: the source bundle lacks {entry['file']}")
                 for sub in entry.get("subsources", {}).values():
                     r.check(sub["file"] in members, f"{platform}: the source bundle lacks {sub['file']}")
-        for needed in ("libdovi-vendored-crates.tar", "sources.lock.json", "build-android.sh", "build-apple.sh", "common.sh"):
+        # Apple now ships its independent recipe; this source bundle rebuilds this platform.
+        for needed in ("libdovi-vendored-crates.tar", "sources.lock.json", f"build-{platform}.sh", "common.sh"):
             r.check(needed in members, f"{platform}: the source bundle lacks {needed}")
         patches = sorted(p.name for p in (HERE / "patches").rglob("*.patch"))
         for p in patches:
