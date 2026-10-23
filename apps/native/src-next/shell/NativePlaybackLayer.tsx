@@ -12,10 +12,11 @@ import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
 import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlaybackAdapter, type NativeShellVideoSnapshot} from './playback';
 import {NativeVideoSnapshotCapture} from './video-snapshot';
-import {watchSlotInHost, watchSlotIsCurrent, type ExpandedSlotLayout, type ExpandedSlotReader} from './watch-slot-layout';
+import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
+import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
-export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime & Readonly<{watch?: ExpandedSlotReader}>; authority: ShellAuthority}) {
+export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
   const watch = runtime.watch;
@@ -29,7 +30,7 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
   const watchRevision = useRef(0), lastExpandedFrame = useRef<NativeShellBounds | undefined>(undefined);
-  const [expandedMeasurement, setExpandedMeasurement] = useState<Readonly<{reader: ExpandedSlotReader; slot: ExpandedSlotLayout; host: View; bounds: NativeShellBounds}>>();
+  const [expandedMeasurement, setExpandedMeasurement] = useState<Readonly<{reader: NativeWatchReader; slot: NativeExpandedVideoSlot; host: View; bounds: NativeShellBounds}>>();
   const expandedBounds = watch && expandedMeasurement?.reader === watch && expandedMeasurement.slot === watchSlot
     && expandedMeasurement.host === host.current && watchSlotIsCurrent(watchSlot, authority, snapshot.fence, window) ? expandedMeasurement.bounds : undefined;
   if (expandedBounds) lastExpandedFrame.current = expandedBounds;

@@ -5,7 +5,7 @@ import {PlaybackDock, playbackFence, sameFence} from '../../../packages/player-c
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
-import type {ExpandedSlotLayout, ExpandedSlotReader} from '../src-next/shell/watch-slot-layout.ts';
+import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchReader} from '../src-next/shell/watch-outlet.ts';
 import {resolvePlayerPresentation} from '../src-next/platform/layout/player-presentation.ts';
 import type {NativeWatchPictureSlot} from '../src-next/screens/watch/picture-slot.tsx';
 import {act, createHookHost} from './hook-driver.ts';
@@ -14,20 +14,20 @@ import {screenModule} from './helpers/screen-harness.mjs';
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
 const window = {width: 840, height: 880};
-const slot: ExpandedSlotLayout = {authority, fence, layoutRevision: 1, window, frameInWindow: {x: 0, y: 32, width: 840, height: 472.5}};
+const slot: NativeExpandedVideoSlot = {authority, fence, layoutRevision: 1, window, frameInWindow: {x: 0, y: 32, width: 840, height: 472.5}};
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : React.isValidElement<any>(node) ? [node, ...nodes(node.props.children)] : [];
 
 function reader() {
-  let value: ExpandedSlotLayout | undefined;
+  let value: NativeExpandedVideoSlot | undefined;
   const listeners = new Set<() => void>();
-  const source: ExpandedSlotReader = {
+  const source: NativeWatchReader = {
     getSnapshot() {assert.strictEqual(this, source); return value;},
     subscribe(listener) {assert.strictEqual(this, source); listeners.add(listener); return () => {listeners.delete(listener);};},
   };
-  return {source, get subscriptions() {return listeners.size;}, async publish(next?: ExpandedSlotLayout, notify = true) {value = next; await act(() => {if (notify) for (const listener of listeners) listener();});}};
+  return {source, get subscriptions() {return listeners.size;}, async publish(next?: NativeExpandedVideoSlot, notify = true) {value = next; await act(() => {if (notify) for (const listener of listeners) listener();});}};
 }
 
-async function layer(withWatch = true) {
+async function layer(withWatch = true, canonical?: NativeWatchReader) {
   const outlet = reader(), dock = new PlaybackDock(fence.playback.scope), transitions: any[] = [];
   dock.start({kind: 'video', fence, queue: null, positionSeconds: 540, playing: true, expanded: true});
   let dimensions = window, current: any, tree: any;
@@ -47,7 +47,7 @@ async function layer(withWatch = true) {
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
   });
-  let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? outlet.source : undefined};
+  let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? canonical ?? outlet.source : undefined};
   const host = createHookHost(() => {tree = NativePlaybackLayer({adapter, runtime, authority}); if (tree) tree.props.ref.current = node;});
   host.mount(); await act(() => {});
   const picture = () => nodes(tree).find(item => item.type === 'PlayerMorph').props;
@@ -111,17 +111,16 @@ test('the measured full-window pane retains letterbox space in native bounds and
   } finally {d.close();}
 });
 
-test('the checked watch measurement payload keeps the full pane through the common consumer', async () => {
-  const d = await layer(), wide = {width: 890, height: 626};
-  const published: NativeWatchPictureSlot[] = [], callbacks: ((x: number, y: number, width: number, height: number) => void)[] = [];
-  let registrations = 0, disposed = 0, picture: any;
+test('the checked watch measurement publishes its full pane through the canonical outlet and common consumer', async () => {
+  const wide = {width: 890, height: 626}, current = () => ({authority, fence, window: wide});
+  const outlet = new NativeWatchOutlet(current), d = await layer(true, outlet);
+  const callbacks: ((x: number, y: number, width: number, height: number) => void)[] = [];
+  let picture: any;
   const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},
     '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
   });
-  const outlet = {register() {registrations++; return {publish(value: NativeWatchPictureSlot) {published.push(value); return true;}, clear() {}, dispose() {disposed++;}};}};
   const view = {measureInWindow(callback: typeof callbacks[number]) {callbacks.push(callback);}};
-  const current = () => ({authority, fence, window: wide});
   const owner = createHookHost(() => {
     picture = NativeWatchPicture({authority, fence, outlet, current, style: {width: wide.width, height: wide.height}});
     picture.props.ref.current = view;
@@ -133,18 +132,18 @@ test('the checked watch measurement payload keeps the full pane through the comm
     assert.equal(picture.type, 'View');
     assert.equal(picture.props.children, undefined);
     await act(() => callbacks.shift()!(8, 24, 890, 626));
-    const measured: ExpandedSlotLayout = published[0]!;
+    const measured: NativeWatchPictureSlot = outlet.getSnapshot()!;
     assert.deepEqual(measured.frameInWindow, {x: 8, y: 24, width: 890, height: 626});
-    // Relay the actual payload only; Accounts' canonical outlet/root is not exercised by this fixture.
-    await d.outlet.publish(measured);
     await act(() => d.callbacks.shift()!(8, 24));
     assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 890, height: 626});
     assert.deepEqual(d.surface().props.expandedBounds, {x: 0, y: 0, width: 890, height: 626});
     assert.strictEqual(d.surface().type, surfaceType);
     assert.deepEqual(d.transitions, []);
-  } finally {owner.unmount(); d.close();}
-  assert.equal(registrations, 1);
-  assert.equal(disposed, 1);
+    await act(() => owner.unmount());
+    assert.equal(outlet.getSnapshot(), undefined);
+    assert.equal(d.surface().props.expandedBounds, undefined);
+    assert.strictEqual(d.surface().type, surfaceType, 'retiring the watch producer cannot retire the player');
+  } finally {owner.unmount(); d.close(); outlet.dispose();}
 });
 
 test('watch origin callbacks reject replacement slot, source, authority, window, host, reader, dock and unmount before notification', async () => {

@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {playbackFence} from '../../../packages/player-core/src';
-import {watchSlotInHost, watchSlotIsCurrent, type ExpandedSlotLayout} from '../src-next/shell/watch-slot-layout.ts';
+import {watchSlotInHost, watchSlotIsCurrent} from '../src-next/shell/watch-slot-layout.ts';
+import type {NativeExpandedVideoSlot} from '../src-next/shell/watch-outlet.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
 const window = {width: 840, height: 880};
-const slot: ExpandedSlotLayout = {authority, fence, layoutRevision: 0, window, frameInWindow: {x: 0, y: 32, width: 840, height: 472.5}};
+const slot: NativeExpandedVideoSlot = {authority, fence, layoutRevision: 0, window, frameInWindow: {x: 0, y: 32, width: 840, height: 472.5}};
 
 test('expanded slot layout accepts the current measured picture and preserves partial viewport overlap', () => {
   assert.equal(watchSlotIsCurrent(slot, authority, fence, window), true);
