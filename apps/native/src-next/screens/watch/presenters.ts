@@ -27,6 +27,7 @@ export type NativeWatchOverlay = Readonly<{
   busy: boolean;
   error?: unknown;
   candidates: readonly ContentEntry[];
+  searchReady?: boolean;
   other?: ContentEntry;
   keep?: string;
 }>;
@@ -160,8 +161,8 @@ export class NativeWatchPresenters {
     if (value?.phase !== 'merge' || !viewer || !group || value.busy || !this.current(value.capture)) return;
     if (!this.searchService) this.searchService = new SearchService({api: this.context.api, scope: {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])}, pageSize: 12});
     const service = this.searchService;
-    if (!words.trim()) {service.cancel(); this.patch(value, {candidates: [], error: undefined}); return;}
-    const pending = this.patch(value, {error: undefined, other: undefined}); if (!pending) return;
+    if (!words.trim()) {service.cancel(); this.patch(value, {candidates: [], searchReady: false, error: undefined}); return;}
+    const pending = this.patch(value, {error: undefined, other: undefined, searchReady: false}); if (!pending) return;
     try {
       await service.select(words.trim(), {group, libraryIds: [value.capture.entry.libraryId!], record: false});
       if (this.searchService !== service || this.value !== pending || !this.current(value.capture)) return;
@@ -169,7 +170,7 @@ export class NativeWatchPresenters {
       if (snapshot.error) throw snapshot.error;
       const candidates = snapshot.groups.flatMap(result => result.items).filter((entry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel')
         .filter(entry => canMergeTitles(value.capture.entry, entry));
-      this.patch(pending, {candidates});
+      this.patch(pending, {candidates, searchReady: true});
     } catch (error) {if (this.value === pending) this.patch(pending, {error});}
   };
   chooseMerge = (other: ContentEntry) => {const value = this.value; if (value?.phase === 'merge' && value.candidates.includes(other)) this.patch(value, {other, keep: value.capture.entry.id});};

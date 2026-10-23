@@ -68,7 +68,7 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
       : value.phase === 'split' ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{named(entry)}{'\n'}{file?.path}{'\n\n'}{t('title.split.body')}</Text>
         : !value.other ? <><TextField testID="watch-merge-search" label={t('title.merge.find')} value={words} onChangeText={setWords} maxLength={200} autoCorrect={false}/>
           {value.candidates.map(other => <Button key={other.id} variant="glass" onPress={() => presenters.chooseMerge(other)}>{named(other)}</Button>)}
-          {words.trim() && !value.candidates.length && !value.error && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('title.merge.none')}</Text>}</>
+          {value.searchReady && !value.candidates.length && !value.error && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('title.merge.none')}</Text>}</>
           : <><Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('web.merge.keep')}</Text>{[entry, value.other].map(other => <Button key={other.id} variant={value.keep === other.id ? 'primary' : 'glass'} accessibilityState={{selected: value.keep === other.id}} onPress={() => presenters.keep(other.id)} disabled={value.busy}>{named(other)}</Button>)}
             <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(mergeExplanation(entry.kind), {title: named(from!)})}</Text></>}
   </View>;

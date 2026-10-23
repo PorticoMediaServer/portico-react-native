@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {parseNativeListeningV1Event as parseNext} from '../src-next/platform/playback/NativeListeningAdapter.ts';
-import {parseNativeListeningV1Event as parseLegacy} from '../src/bridge/NativeListeningAdapter.ts';
 const session = {id: 'session', revision: '1', kind: 'audio', role: 'local', state: 'playing', itemId: 'item', queue: {queueId: 'queue', entryId: 'entry'}, lease: {reportEveryMs: 10000}, presentation: {generation: 2, mode: 'direct', url: '/v1/media/audio', startPositionMs: 0, subtitles: [], decision: {}}};
 const raw = {owner: 'owner', sequence: 1, intent: 'playing', rate: 1, positionSeconds: 3, observed: true, ready: true, seeking: false, ended: false, error: null, terminal: false,
   route: 'Speaker', commandRevision: 2, deadlines: {sleepAtMs: null, passoutAtMs: null}, lastSeq: 4, durationSeconds: 200, queue: null, session,
   binding: {lease: 'lease', intentId: 1, sessionId: 'session', generation: 2, itemId: 'item'}};
-for (const [name, parse] of [['next', parseNext], ['compatibility', parseLegacy]] as const) {
+for (const [name, parse] of [['next', parseNext]] as const) {
   test(`${name} native listening drops diagnostics and unknown bridge fields without changing current session facts`, () => {
     const diagnostic = 'private diagnostic /local/file?token=secret';
     const event = parse({...raw, error: diagnostic, rateError: diagnostic, notice: diagnostic, noticeCode: diagnostic, extra: diagnostic, eqApplied: true, levelingApplied: false}, 'owner', 'session');

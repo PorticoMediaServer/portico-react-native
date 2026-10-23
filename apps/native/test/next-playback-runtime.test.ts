@@ -1614,7 +1614,7 @@ test('regular start caller lifetime rejects a retired row during its real option
       await settle(); assert.equal(entered, true);
       if (closing === 'abort') controller.abort(); else owned = false;
       release(); await start; await settle();
-      assert.equal(d.requests.some(request => request.method === 'POST' && request.path === routePath('create_playback_session', {})), false);
+      assert.equal(d.requests.some(request => request.method === 'POST' && request.path === routePath('start_playback_session')), false);
       assert.equal(d.runtime.getSnapshot().session, undefined);
     } finally {release(); d.runtime.dispose();}
   }
@@ -1625,7 +1625,7 @@ test('regular start lifetime abandons the actual late 201 session after row reti
   try {
     const held = new Promise<void>(resolve => {release = resolve;});
     d.respond(async request => {
-      if (request.method !== 'POST' || request.path !== routePath('create_playback_session', {}) || entered) return;
+      if (request.method !== 'POST' || request.path !== routePath('start_playback_session') || entered) return;
       entered = true; await held;
       const response = await d.server.handle(request);
       assert.equal(response.status, 201); assert.ok(record(response.body) && typeof response.body.id === 'string');
