@@ -150,6 +150,11 @@ export class NativeLibraryDestination {
     const same = (node: BrowseNode) => JSON.stringify(node) === JSON.stringify(preset.query);
     this.setQuery([...this.state.predicates.filter(node => !same(node)), ...(enabled ? [preset.query] : [])]);
   };
+  /** The actual section cursor, not a catalogue walk or a new browse query. */
+  nextDiscover = (sectionId: string): Promise<void> => {
+    if (!this.current() || this.state.tab.shows !== 'rows') return Promise.resolve();
+    return this.discover.next(sectionId);
+  };
   createFilters = (): NativeLibraryFilterDraft => {
     const source = this.getSnapshot();
     if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
@@ -168,7 +173,11 @@ export class NativeLibraryDestination {
     this.memory = Object.freeze({firstVisibleIndex, offset, ...(firstVisibleId ? {firstVisibleId} : {})});
     if (before.firstVisibleIndex !== firstVisibleIndex || before.firstVisibleId !== firstVisibleId) this.publish({});
   };
-  retry = (): void => {if (this.state.phase === 'error') void this.load(); else this.state.collection?.retry();};
+  retry = (): void => {
+    if (this.state.phase === 'error') void this.load();
+    else if (this.state.tab.shows === 'rows') void this.discover.retry();
+    else this.state.collection?.retry();
+  };
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
