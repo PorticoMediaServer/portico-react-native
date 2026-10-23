@@ -1,5 +1,7 @@
 package tv.getportico.portico.native
 
+import tv.getportico.portico.policy.PorticoListeningPolicy
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -545,11 +547,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   // --- queue moves -----------------------------------------------------------------------
 
   private fun mayAdvance(): Boolean {
-    if (timerStopped) return false
     val postPlay = queueHeader?.get("postPlay") as? Map<*, *>
-    if (postPlay?.get("autoplay") == false) return false
-    val preferences = policy?.get("preferences") as? Map<*, *> ?: return true
-    return preferences["autoplayNext"] == true
+    return PorticoListeningPolicy.mayAdvance(timerStopped, postPlay)
   }
 
   /** The track ended and the server knows: move on if the viewer's policy allows. */
@@ -878,7 +877,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   fun action(action: String?, value: Double?, owner: String): Boolean {
     if (activeOwner != owner || terminal || action !in ACTIONS) return false
     if ((action == "seek" || action == "rate") && (value == null || !value.isFinite() || value < 0 || value > 1e9)) return false
-    if (action == "rate" && value !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return false
+    if (action == "rate" && !PorticoListeningPolicy.rateAllowed(kind() == "audiobook_file", value, BOOK_RATES)) return false
     if (action == "retry" && value != null && (!value.isFinite() || value < 0 || value > 1e9)) return false
     if (action == "next" || action == "previous") return advance(action, null, owner)
     checkDeadlines(); resetInactivity()
@@ -955,11 +954,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (!whole(value["activityAtMs"], 1.0, MAX_INTEGER)) return false
     val effects = value["effects"] as? Map<*, *> ?: return false
     if (effects["gapless"] !is Boolean || !inRange(effects["crossfadeSeconds"], 0.0, 12.0) || effects["normalization"] !in NORMALIZATION) return false
-    val preferences = value["preferences"]
-    if (preferences != null) {
-      val p = preferences as? Map<*, *> ?: return false
-      if (p["autoplayNext"] !is Boolean || num(p["musicRate"]) !in RATES || num(p["bookRate"]) !in BOOK_RATES || num(p["passoutMinutes"]) !in PASSOUT) return false
-    }
+    if (!PorticoListeningPolicy.validPreferences(value["preferences"], BOOK_RATES, PASSOUT)) return false
     val timer = value["timer"]
     if (timer != null) {
       val t = timer as? Map<*, *> ?: return false
@@ -992,8 +987,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   private fun applyPreferredRate() {
     if (activeOwner == null || terminal) return
-    val preferences = policy?.get("preferences") as? Map<*, *> ?: return
-    val wanted = num(preferences[if (kind() == "audiobook_file") "bookRate" else "musicRate"]) ?: return
+    val wanted = PorticoListeningPolicy.preferredRate(kind() == "audiobook_file", policy?.get("preferences")) ?: return
     val key = "${session["id"]}:$wanted"
     if (policyRateKey == key || wanted !in (if (kind() == "audiobook_file") BOOK_RATES else RATES)) return
     policyRateKey = key
