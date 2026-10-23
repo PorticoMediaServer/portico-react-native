@@ -647,6 +647,33 @@ test('fitted footer accounting preserves no-footer, explicit detent, long-conten
 });
 
 const flattenStyle = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flattenStyle)) : style ?? {};
+
+test('a BottomSheet composition can opt into its backdrop alpha without changing dismissal', () => {
+  const previousTheme = state.theme;
+  try {
+    for (const screen of [{isTV: false, width: 390}, {isTV: false, width: 1024}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(screen);
+      const calls: unknown[] = [];
+      const props = {open: true, title: 'Actual menu', children: null, onOpenChange: (...args: unknown[]) => calls.push(args)};
+      const sheet = mount(BottomSheet, props);
+      try {
+        const scrim = () => elements(sheet.tree).find(element => element.props.pointerEvents === 'none' && flattenStyle(element.props.style).backgroundColor)!;
+        const color = state.theme.isTV ? state.theme.colors.ink : '#03080c';
+        assert.equal(flattenStyle(scrim().props.style).backgroundColor, `${color}a3`);
+        sheet.update({...props, backdropOpacity: 0.58});
+        assert.equal(flattenStyle(scrim().props.style).backgroundColor, `${color}94`);
+        const outside = elements(sheet.tree).find(element => element.props.onResponderRelease)!;
+        assert.equal(outside.props.accessible, false);
+        outside.props.onResponderRelease();
+        (sheet.tree as Element).props.onRequestClose();
+        assert.deepEqual(calls, [[false, 'outside'], [false, 'back']]);
+        sheet.update(props);
+        assert.equal(flattenStyle(scrim().props.style).backgroundColor, `${color}a3`);
+      } finally {sheet.host.unmount();}
+    }
+  } finally {state.theme = previousTheme;}
+});
+
 function withNativeControl(element: Element, inspect: (host: Element) => void) {
   const mounted: ReturnType<typeof mount>[] = [];
   try {
