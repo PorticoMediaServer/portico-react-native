@@ -83,6 +83,41 @@ test('native guide composition uses one shared primitive with native holds and n
   } finally {guideDriver.unmount(); driver.unmount();}
 });
 
+test('F-RAIL-5 and F-RAIL-8 declare native vertical end stops while leaving Right open', async () => {
+  const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
+  contexts[0]!.current = registry;
+  let outer: any, native: any;
+  const driver = createHookHost(() => {outer = mod.FocusRegion.render({id: 'rail', orientation: 'vertical',
+    order: ['search', 'home', 'settings', 'profile'], edges: {right: 'home-row'}, children: null}, null);});
+  driver.mount();
+  const guideDriver = createHookHost(() => {native = outer.type.render(outer.props, null);});
+  guideDriver.mount();
+  try {
+    assert.equal(native.props.trapFocusUp, true, 'Search cannot leave the rail through its top edge');
+    assert.equal(native.props.trapFocusDown, true, 'profile cannot leave the rail through its bottom edge');
+    assert.equal(native.props.trapFocusRight, false, 'Right can return to the page opener');
+    assert.equal(native.props.onKeyDown, undefined); assert.equal(native.props.onTVEvent, undefined);
+  } finally {guideDriver.unmount(); driver.unmount();}
+});
+
+test('vertical native end stops preserve each declared handoff and held sheets still trap every edge', async () => {
+  const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
+  contexts[0]!.current = registry;
+  let props = {id: 'column', orientation: 'vertical', edges: {} as {up?: string; down?: string}, hold: false, children: null};
+  let outer: any, native: any;
+  const driver = createHookHost(() => {outer = mod.FocusRegion.render(props, null);}); driver.mount();
+  const guideDriver = createHookHost(() => {native = outer.type.render(outer.props, null);}); guideDriver.mount();
+  try {
+    for (const edges of [{up: 'toolbar'}, {down: 'next-row'}, {up: 'toolbar', down: 'next-row'}]) {
+      props = {...props, edges}; driver.rerender(); guideDriver.rerender();
+      assert.equal(native.props.trapFocusUp, !('up' in edges));
+      assert.equal(native.props.trapFocusDown, !('down' in edges));
+    }
+    props = {...props, hold: true}; driver.rerender(); guideDriver.rerender();
+    for (const edge of ['Up', 'Down', 'Left', 'Right']) assert.equal(native.props[`trapFocus${edge}`], true);
+  } finally {guideDriver.unmount(); driver.unmount();}
+});
+
 test('F07 committed region configuration publishes a revision to reused target hooks without render-time mutation', async () => {
   const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
   contexts[0]!.current = registry; contexts[1]!.current = 'row';
