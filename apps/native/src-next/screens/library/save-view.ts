@@ -39,15 +39,17 @@ export class NativeLibrarySaveView {
     if (!this.current() || this.value.busy || !name) return;
     this.patch({busy: true, error: undefined});
     try {
-      if (!this.service.getSnapshot().route) await this.service.select({view: 'views'});
+      if (!this.service.getSnapshot().route || this.service.getSnapshot().error) await this.service.select({view: 'views'});
       if (!this.current()) return;
       const before = this.service.getSnapshot();
       if (before.error) throw before.error;
-      const saved = before.retryPending ? await this.service.retry()
-        : await this.service.mutate({action: 'create', kind: 'view', name, definition: this.options.definition});
+      if (before.retryPending) await this.service.retry();
+      else await this.service.mutate({action: 'create', kind: 'view', name, definition: this.options.definition});
       if (!this.current()) return;
       const after = this.service.getSnapshot();
-      if (!saved || !after.result?.resourceId) throw after.mutationError ?? after.error ?? Object.assign(new Error('invalid_response'), {code: 'invalid_response'});
+      // The validated mutation receipt is authoritative even when refreshing
+      // the directory after that receipt fails. Never create that view twice.
+      if (!after.result?.resourceId) throw after.mutationError ?? after.error ?? Object.assign(new Error('invalid_response'), {code: 'invalid_response'});
       const id = after.result.resourceId;
       this.patch({open: false, name: '', busy: false});
       this.options.saved(id);

@@ -45,3 +45,20 @@ test('an uncertain Save retry retains the name and exact operation body, and vie
   current = false; assert.equal(controller.getSnapshot().open, false); assert.equal(controller.getSnapshot().name, '');
   finish(); await retry; assert.equal(saved, 0);
 });
+
+test('a failed initial directory read retries, while a failed post-receipt refresh cannot create a duplicate view', async () => {
+  let reads = 0, posts = 0, saved = 0;
+  const api: SavedApi = {request: async <T>(_path: string, method?: string) => {
+    if (method === 'POST') {posts++; return {serverId: 'server', viewerFence: 'actual-viewer', receipt: {operationId, revision: 2, resourceId: 'created-view', deleted: false}} as T;}
+    reads++;
+    if (reads === 1 || reads > 2) throw Object.assign(new Error('offline'), {code: 'network_error'});
+    return directory() as T;
+  }};
+  const controller = new NativeLibrarySaveView({api, scope, definition, current: () => true, requestId: async () => operationId, saved: () => {saved++;}});
+  try {
+    controller.setName('Preserved name'); await controller.save();
+    assert.equal(controller.getSnapshot().open, true); assert.equal(controller.getSnapshot().name, 'Preserved name'); assert.equal(posts, 0);
+    await controller.save(); assert.equal(posts, 1); assert.equal(saved, 1); assert.equal(controller.getSnapshot().open, false);
+    await controller.save(); assert.equal(posts, 1);
+  } finally {controller.dispose();}
+});
