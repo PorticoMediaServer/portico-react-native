@@ -1,5 +1,5 @@
-import {BrowseQueryBuilder, browseCapabilitiesPath, browseCountsPath, browseCountsRequest, browseMembershipId, browsePath, parseBrowseCapabilities,
-  parseBrowseCounts, parseBrowseResult, type BrowseCapabilities, type BrowseCount, type BrowseNode, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
+import {BrowseQueryBuilder, browseCapabilitiesPath, browseContextFacetsPath, browseCountsPath, browseCountsRequest, browseMembershipId, browsePath, parseBrowseCapabilities,
+  parseBrowseCounts, parseBrowseFacets, parseBrowseResult, type BrowseCapabilities, type BrowseCount, type BrowseNode, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {createWindowedCollection, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {fetchHomeRow, type HomeApi, type HomeRow} from '../../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -36,6 +36,7 @@ export class NativeHomeRowController {
       keyOf: item => item.membershipId, fetchPage: async () => {throw cancelled();}});
   }
   getSnapshot = (): NativeHomeRowSnapshot => this.state;
+  isCurrentItem = (item: NativeHomeRowItem, index: number): boolean => this.valid() && this.state.phase === 'ready' && this.collection.itemAt(index) === item;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private valid(generation = this.generation): boolean {return this.alive && this.current() && generation === this.generation;}
   private publish(patch: Partial<NativeHomeRowSnapshot>): void {
@@ -91,15 +92,23 @@ export class NativeHomeRowController {
     });
     void this.readCounts(generation);
   }
+  facets = async (field: string, search = '') => {
+    const offered = this.state.capabilities?.fields.some(value => value.id === field || value.facetSource?.field === field || field === 'decade' && value.id === 'year');
+    if (!offered || this.state.phase !== 'ready') throw cancelled();
+    const query = this.query(), stamp = JSON.stringify(query);
+    const raw = await this.request(browseContextFacetsPath('*', field, acrossPivot('homeRow'), query, search, 200));
+    if (stamp !== JSON.stringify(this.query())) throw cancelled();
+    return parseBrowseFacets(raw, field);
+  };
   setSort = (sort: BrowseSortSelection): boolean => {
     if (!this.valid() || !this.state.capabilities) return false;
     new BrowseQueryBuilder(this.state.capabilities, acrossPivot('homeRow')).add(this.query()).sort(sort.field, sort.direction, sort.seed).limit(60).displayHomeRow(this.rowId).build();
-    this.publish({sort: Object.freeze({...sort}), error: undefined}); this.requery(); return true;
+    this.publish({sort: Object.freeze({...sort}), counts: [], error: undefined}); this.requery(); return true;
   };
   setFilters = (filters: readonly BrowseNode[]): boolean => {
     if (!this.valid() || this.state.phase !== 'ready') return false;
     const query = this.query(true, filters); this.builder(query).build();
-    this.publish({filters: Object.freeze([...filters]), error: undefined}); this.requery(); return true;
+    this.publish({filters: Object.freeze([...filters]), counts: [], error: undefined}); this.requery(); return true;
   };
   selectKind = (id: string | undefined): boolean => {
     if (!this.valid() || this.state.phase !== 'ready' || id !== undefined && !this.kinds.some(kind => kind.id === id)) return false;

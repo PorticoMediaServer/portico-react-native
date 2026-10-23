@@ -299,7 +299,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     error: (error, retry) => {const presented = presentError(error, 'home'); return {title: presented.title, body: presented.body, tone: 'error', ...(presented.action === 'try-again' || presented.action === 'refresh' ? {primaryAction: {id: 'retry', label: presented.actionLabel, onPress: retry}} : {})};},
     reportError, onDestination: destination => open({kind: 'shell', destination}),
-    scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; nativeShellRoutes.get(route.kind)?.scrollToTop?.(route);}}},
+    scrollToTop: destination => {if (context.current()) {context.navigation.top(destination, context.authority()); const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; nativeShellRoutes.get(route.kind)?.scrollToTop?.(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},

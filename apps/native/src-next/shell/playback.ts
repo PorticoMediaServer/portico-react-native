@@ -4,6 +4,7 @@ import type {SelectionContext} from '../../../../packages/client-core/src/select
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
+import type {WholeGroupQuery} from '../../../../packages/client-core/src/presentation/browse-groups';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
 
@@ -52,6 +53,8 @@ export interface NativeShellPlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativeShellPlaybackSnapshot;
   start: (input: NativeShellPlaybackStart) => Promise<void>;
+  /** A complete server-evaluated grouping, never its loaded preview cards. */
+  startGroup?: (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   restoreBookmark: (expectedBookmarkFence: PlaybackFence, playExplicitly: boolean) => Promise<PlaybackFence | undefined>;

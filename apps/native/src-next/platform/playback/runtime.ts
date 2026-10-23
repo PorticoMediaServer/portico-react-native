@@ -30,7 +30,7 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativePlaybackStart, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativePlaybackStart, NativePlaybackGroupStart, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
@@ -369,6 +369,33 @@ export class NativePlaybackRuntime {
       if (this.playback.getSnapshot().phase === 'error' || !this.playback.getSnapshot().session) throw new Error('channel_playback_failed');
     } catch (error) { close(); throw error; }
   }
+
+  startGroup = async (input: NativePlaybackGroupStart): Promise<void> => {
+    const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
+    if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
+    const epoch = this.beginOperation(), valid = () => epoch === this.startEpoch && admitted();
+    const scoped = this.selectionScope(input.signal, valid);
+    try {
+      this.connect();
+      await this.queue.cancel();
+      if (!valid()) throw new Error('native_group_retired');
+      await this.o.capabilitiesReady();
+      if (!valid()) throw new Error('native_group_retired');
+      const capabilities = await this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal);
+      if (!valid()) throw new Error('native_group_retired');
+      this.serverKinds = serverPlaybackV1Kinds(capabilities); this.transitions = serverSupportsQueueTransitions(capabilities);
+      this.rememberCurrent(); this.entry = undefined; this.subject = undefined; this.options = undefined;
+      this.expanded = true; this.expandAtStart = epoch; this.preparing = true;
+      await this.queue.playSegments([{source: {query: input.query}, ...(input.shuffle ? {order: {mode: 'shuffle' as const}} : {})}], {signal: scoped.signal, isCurrent: valid});
+      if (!valid()) throw new Error('native_group_retired');
+    } catch (error) {
+      if (epoch === this.startEpoch && this.currentAuthority()) {await this.queue.cancel(); this.playback.leave(); this.changed();}
+      throw error;
+    } finally {
+      scoped.close();
+      if (epoch === this.startEpoch) {this.preparing = false; this.changed();}
+    }
+  };
 
   start = async (input: NativePlaybackStart): Promise<void> => {
     this.connect();

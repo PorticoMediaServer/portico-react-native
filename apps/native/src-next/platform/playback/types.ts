@@ -15,9 +15,11 @@ import type {NativeListeningV1Control} from '../../../../../packages/client-core
 import type {Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
+import type {WholeGroupQuery} from '../../../../../packages/client-core/src/presentation/browse-groups';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
+export type NativePlaybackGroupStart = Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean}>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
@@ -65,6 +67,7 @@ export interface NativePlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
+  startGroup: (input: NativePlaybackGroupStart) => Promise<void>;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   Surface: ComponentType<NativePlaybackSurfaceProps>;

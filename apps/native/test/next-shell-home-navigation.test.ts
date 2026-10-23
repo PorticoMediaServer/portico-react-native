@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {NativeShellNavigation, channelRoute, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation, channelRoute, nativeDestinationActivation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
 import type {ShellAuthority} from '../src-next/shell/model';
 import type {HomeChannel} from '../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
@@ -10,11 +10,33 @@ const authority: ShellAuthority = {serverId: 's', accountId: 'a', profileId: 'p'
 test('navigation starts on Home with the same destination used by the initial shell route', () => {
   const routes = new NativeShellNavigation(authority, () => authority);
   const initial = routes.getSnapshot();
-  assert.deepEqual(initial, {authority, route: {kind: 'shell', destination: {kind: 'home'}}, destination: {kind: 'home'}, revision: 0});
+  assert.deepEqual(initial, {authority, route: {kind: 'shell', destination: {kind: 'home'}}, destination: {kind: 'home'}, revision: 0, intent: 'enter'});
   assert.equal(initial.route.kind, 'shell');
   if (initial.route.kind === 'shell') assert.strictEqual(initial.route.destination, initial.destination);
   assert.equal(routes.back(authority), false);
   assert.strictEqual(routes.getSnapshot(), initial);
+});
+
+test('library entry, title return and explicit top have separate current navigation intents', () => {
+  let current = authority;
+  const routes = new NativeShellNavigation(authority, () => current);
+  const library = {kind: 'library' as const, libraryId: 'real-movies'};
+  const activation = nativeDestinationActivation(routes, library);
+  assert.equal(activation.getSnapshot().visible, false);
+  routes.open({kind: 'shell', destination: library}, authority);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'enter', revision: 1});
+  assert.strictEqual(activation.getSnapshot(), activation.getSnapshot());
+  routes.open(titleRoute({id: 'film', libraryId: library.libraryId, kind: 'movie', title: 'Film'}), authority);
+  assert.equal(activation.getSnapshot().visible, false);
+  assert.equal(routes.top(library, authority), false, 'an obscured library cannot acquire top focus');
+  routes.back(authority);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'restore', revision: 3});
+  routes.top(library, authority);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'top', revision: 4});
+  current = {...authority, epoch: 'new-authority'};
+  assert.equal(routes.top(library, authority), false);
+  assert.equal(activation.getSnapshot().revision, 4);
+  routes.dispose();
 });
 
 test('title requests preserve actual aggregate identity and authoritative nested navigation', () => {
