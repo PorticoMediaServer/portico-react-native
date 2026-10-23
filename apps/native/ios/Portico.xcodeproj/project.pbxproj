@@ -52,7 +52,7 @@
 		A9E000000000000000000102 /* PorticoAudioProcessing.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000202 /* PorticoAudioProcessing.m */; };
 		A9E000000000000000000103 /* PorticoAudioCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000203 /* PorticoAudioCapture.m */; };
 		A9E100000000000000000001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000101 /* Localizable.xcstrings */; };
-		A9E100000000000000000002 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000102 /* AppShortcuts.xcstrings */; };
+		A9E100000000000000000002 /* AppShortcuts.strings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000102 /* AppShortcuts.strings */; };
 		A9E100000000000000000003 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000103 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
 
@@ -109,8 +109,10 @@
 		A9E000000000000000000202 /* PorticoAudioProcessing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioProcessing.m; sourceTree = "<group>"; };
 		A9E000000000000000000203 /* PorticoAudioCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioCapture.m; sourceTree = "<group>"; };
 		A9E100000000000000000101 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/Localizable.xcstrings; sourceTree = "<group>"; };
-		A9E100000000000000000102 /* AppShortcuts.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/AppShortcuts.xcstrings; sourceTree = "<group>"; };
 		A9E100000000000000000103 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/InfoPlist.xcstrings; sourceTree = "<group>"; };
+		A9E100000000000000000121 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en"; path = "Portico/Strings/en.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
+		A9E100000000000000000122 /* en-CA */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en-CA"; path = "Portico/Strings/en-CA.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
+		A9E100000000000000000123 /* en-GB */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en-GB"; path = "Portico/Strings/en-GB.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -168,7 +170,7 @@
 			isa = PBXGroup;
 			children = (
 				A9E100000000000000000101 /* Localizable.xcstrings */,
-				A9E100000000000000000102 /* AppShortcuts.xcstrings */,
+				A9E100000000000000000102 /* AppShortcuts.strings */,
 				A9E100000000000000000103 /* InfoPlist.xcstrings */,
 				13B07FAE1A68108700A75B9A /* Portico */,
 				A57C00000000000000000002 /* PorticoPlaybackController.m */,
@@ -297,7 +299,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A9E100000000000000000001 /* Localizable.xcstrings in Resources */,
-				A9E100000000000000000002 /* AppShortcuts.xcstrings in Resources */,
+				A9E100000000000000000002 /* AppShortcuts.strings in Resources */,
 				A9E100000000000000000003 /* InfoPlist.xcstrings in Resources */,
 				A57AB0000000000000000003 /* manrope-700.ttf in Resources */,
 				A57AB0000000000000000004 /* manrope-800.ttf in Resources */,
@@ -327,7 +329,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"\\\"$WITH_ENVIRONMENT\\\" \\\"$REACT_NATIVE_XCODE\\\"\"\n";
+			shellScript = "set -e\nexport BUNDLE_CONFIG=\"$SRCROOT/../metro.apple.config.js\"\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"\\\"$WITH_ENVIRONMENT\\\" \\\"$REACT_NATIVE_XCODE\\\"\"\n";
 		};
 		00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -397,7 +399,9 @@
 			name = "Generate system strings";
 			outputPaths = (
 				"$(SRCROOT)/Portico/Strings/Localizable.xcstrings",
-				"$(SRCROOT)/Portico/Strings/AppShortcuts.xcstrings",
+				"$(SRCROOT)/Portico/Strings/en.lproj/AppShortcuts.strings",
+				"$(SRCROOT)/Portico/Strings/en-CA.lproj/AppShortcuts.strings",
+				"$(SRCROOT)/Portico/Strings/en-GB.lproj/AppShortcuts.strings",
 				"$(SRCROOT)/Portico/Strings/InfoPlist.xcstrings",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -445,6 +449,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		A9E100000000000000000102 /* AppShortcuts.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A9E100000000000000000121 /* en */,
+				A9E100000000000000000122 /* en-CA */,
+				A9E100000000000000000123 /* en-GB */,
+			);
+			name = AppShortcuts.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {

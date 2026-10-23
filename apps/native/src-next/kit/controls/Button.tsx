@@ -1,5 +1,5 @@
 import React, {forwardRef} from 'react';
-import {ActivityIndicator, Platform, StyleSheet, Text, View, type TextStyle, type StyleProp} from 'react-native';
+import {ActivityIndicator, Platform, StyleSheet, Text, View, type TextStyle, type ViewStyle, type StyleProp} from 'react-native';
 import {buttonSpec} from '@portico/design';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {Icon, type IconName} from '../Icon';
@@ -14,6 +14,8 @@ export type ButtonProps = Omit<FocusableProps, 'children'> & {
   icon?: IconName;
   trailingIcon?: IconName;
   iconSize?: number;
+  /** Optional drawn glyph color; labels continue to use textStyle. */
+  iconColor?: string;
   iconOnly?: boolean;
   /** Providing a loading state reserves its icon slot, keeping both label and width stable. */
   loading?: boolean;
@@ -22,9 +24,10 @@ export type ButtonProps = Omit<FocusableProps, 'children'> & {
 
 export type ResumeButtonProps = ButtonProps & {progress: number; remaining?: React.ReactNode};
 type ButtonContentProps = ButtonProps & {progress?: number; remaining?: React.ReactNode};
+const paddingKeys = ['padding', 'paddingHorizontal', 'paddingVertical', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'paddingStart', 'paddingEnd', 'paddingBlock', 'paddingBlockStart', 'paddingBlockEnd', 'paddingInline', 'paddingInlineStart', 'paddingInlineEnd'] as const;
 
 const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonContent({
-  variant = 'primary', size = 'hero', children, icon, trailingIcon, iconSize, iconOnly = variant === 'icon', loading,
+  variant = 'primary', size = 'hero', children, icon, trailingIcon, iconSize, iconColor, iconOnly = variant === 'icon', loading,
   disabled, style, textStyle, accessibilityState, hitSlop, progress, remaining, ...props
 }, ref) {
   const theme = useTheme();
@@ -36,7 +39,9 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   const recipe = glassRecipe();
   const white = variant === 'primary';
   const glass = variant === 'glass' || variant === 'icon';
+  const androidGlass = glass && recipe.nativeBlur && Platform.OS === 'android';
   const foreground = white ? theme.colors.ink : variant === 'text' ? theme.platform === 'web' ? theme.colors.textSecondary : theme.colors.accentStrong : theme.colors.text;
+  const glyphColor = iconColor ?? foreground;
   const slop = minimumHitSlop(height, theme.isTV);
   const fraction = progress === undefined ? undefined : progressFraction(progress);
   const inline = theme.isTV && fraction !== undefined;
@@ -47,26 +52,40 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
     hitSlop={hitSlop ?? {top: slop, bottom: slop, left: slop, right: slop}}
     style={state => [styles.button, {height, paddingHorizontal: iconOnly ? 0 : geometry.paddingX,
       width: iconOnly ? height : undefined, borderRadius: radius,
-      opacity: disabled ? buttonSpec.disabledOpacity : 1}, typeof style === 'function' ? style(state) : style]}>
+      opacity: disabled ? buttonSpec.disabledOpacity : 1}, typeof style === 'function' ? style(state) : style,
+      androidGlass ? styles.androidHost : undefined]}>
     {state => {
       const suppliedStyle = StyleSheet.flatten(typeof style === 'function' ? style(state) : style);
-      return <>
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, {borderRadius: suppliedStyle?.borderRadius ?? radius, overflow: 'hidden'}]}>
-        {glass && recipe.nativeBlur ? <BlurView {...(Platform.OS === 'android' ? {overlayColor: 'transparent'} : {})} style={StyleSheet.absoluteFill} blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh} /> : null}
-        <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />
-      </View>
-      <View pointerEvents="none" style={[styles.content, {gap: suppliedStyle?.columnGap ?? suppliedStyle?.gap ?? geometry.gap}]}>
+      const fill = <View style={[StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}]} />;
+      const content = <View pointerEvents="none" style={[styles.content, {gap: suppliedStyle?.columnGap ?? suppliedStyle?.gap ?? geometry.gap}]}>
         {icon || loading !== undefined ? <View style={{width: glyphSize, height: glyphSize, alignItems: 'center', justifyContent: 'center'}}>
-          {loading ? <ActivityIndicator size={glyphSize} color={foreground} /> : icon ? <Icon name={icon} size={glyphSize} color={foreground} /> : null}
+          {loading ? <ActivityIndicator size={glyphSize} color={glyphColor} /> : icon ? <Icon name={icon} size={glyphSize} color={glyphColor} /> : null}
         </View> : null}
         {!iconOnly ? <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle]}>{children}</Text> : null}
         {inline && fraction !== undefined && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
         {remaining !== undefined && !iconOnly ? <>
           <Text numberOfLines={1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary}, textStyle]}>{remaining}</Text>
         </> : null}
-        {trailingIcon ? <Icon name={trailingIcon} size={glyphSize} color={foreground} /> : null}
+        {trailingIcon ? <Icon name={trailingIcon} size={glyphSize} color={glyphColor} /> : null}
+      </View>;
+      const edge = fraction !== undefined && !inline ? <View pointerEvents="none" style={[styles.edgeTrack, {borderBottomLeftRadius: suppliedStyle?.borderRadius ?? radius, borderBottomRightRadius: suppliedStyle?.borderRadius ?? radius, backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .14)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null;
+      if (androidGlass) {
+        const padding: ViewStyle = {paddingHorizontal: iconOnly ? 0 : geometry.paddingX};
+        for (const key of paddingKeys) if (suppliedStyle?.[key] !== undefined) padding[key] = suppliedStyle[key];
+        // Android's backdrop capture skips a BlurView and its descendants. Keep the complete
+        // face inside that subtree, so its own text, tint and progress cannot feed the blur.
+        return <BlurView pointerEvents="none" overlayColor="transparent" blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh}
+          style={[styles.androidFace, padding, {borderRadius: suppliedStyle?.borderRadius ?? radius, backgroundColor: suppliedStyle?.backgroundColor,
+            alignItems: suppliedStyle?.alignItems ?? 'center', justifyContent: suppliedStyle?.justifyContent ?? 'center'}]}>
+          {fill}{content}{edge}
+        </BlurView>;
+      }
+      return <>
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, {borderRadius: suppliedStyle?.borderRadius ?? radius, overflow: 'hidden'}]}>
+        {glass && recipe.nativeBlur ? <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={recipe.blurAmount} reducedTransparencyFallbackColor={theme.colors.raisedHigh} /> : null}
+        {fill}
       </View>
-      {fraction !== undefined && !inline ? <View pointerEvents="none" style={[styles.edgeTrack, {borderBottomLeftRadius: suppliedStyle?.borderRadius ?? radius, borderBottomRightRadius: suppliedStyle?.borderRadius ?? radius, backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .14)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
+      {content}{edge}
     </>;}}
   </Focusable>;
 });
@@ -76,6 +95,8 @@ export const ResumeButton = forwardRef<View, ResumeButtonProps>(function ResumeB
 
 const styles = StyleSheet.create({
   button: {alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', flexShrink: 1},
+  androidHost: {...Object.fromEntries(paddingKeys.map(key => [key, 0])), backgroundColor: 'transparent'},
+  androidFace: {alignSelf: 'stretch', flexGrow: 1, flexShrink: 1, overflow: 'hidden'},
   content: {flexDirection: 'row', alignItems: 'center', maxWidth: '100%'}, label: {flexShrink: 1},
   inlineTrack: {width: 96, height: 6, borderRadius: 6, overflow: 'hidden', marginLeft: 8},
   edgeTrack: {position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, overflow: 'hidden'},
