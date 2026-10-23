@@ -26,12 +26,14 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryId: 'library', playback: {itemId: 'episode', startSeconds: 17}};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
-const offered = {itemId: 'episode', resume: {positionMs: 43000, partIndex: 0}, versions: [{id: 'v1'}, {id: 'v2'}]};
+const offerVersion = (id: string) => ({id, video: [{id: 'video', codec: 'hevc', height: 2160, hdr: 'dolbyvision'}], audio: [{id: 'audio', codec: 'truehd', default: true, atmos: true, channels: 8}], sizeBytes: 58.2 * 1024 ** 3});
+const offered = {itemId: 'episode', resume: {positionMs: 43000, partIndex: 0}, versions: [offerVersion('v1'), offerVersion('v2')]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
   let bound = authority, revision = 3, source: any = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
   let respond = async (_url: URL) => offered as unknown;
+  let finishStart = async () => {};
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
@@ -40,11 +42,12 @@ function fixture(hasDestination = true) {
   const subscribe = (listeners: Set<() => void>) => (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};};
   const screens = createNativeWatchScreens({api, text: {t: defaultI18n.t, locale: 'en-US'}, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route: {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}}), subscribe: subscribe(routeListeners), back() {}},
-    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), startVersion: async (...args: unknown[]) => {starts.push(args);}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    manageFile() {}, openFileInfo() {}, versionPresentation: {title: 'Play a different version', row: () => ({primary: '4K Dolby Vision', secondary: '4K Dolby Vision, Dolby TrueHD with Atmos 7.1, 58.2 GB'})}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
+    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), startVersion: async (...args: unknown[]) => {starts.push(args); await finishStart();}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
+    manageFile() {}, openFileInfo() {}, versionPresentation: {title: 'Play a different version', videoPictureName: () => '4K Dolby Vision', videoAudioFormatName: () => 'Dolby TrueHD with Atmos 7.1', sizeName: () => '58.2 GB'}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
   return {screens, requests, menus, versions, starts, errors,
+    finishStart: (value: typeof finishStart) => {finishStart = value;},
     respond: (value: typeof respond) => {respond = value;},
     source: (next: PlaybackFence) => {source = {...source, fence: next}; for (const listener of playbackListeners) listener();},
     session: (versionId: string) => {source = {...source, session: {id: fence.sessionId, itemId: entry.id, versionId, presentation: {generation: fence.generation}, queue: {entryId: fence.entryId}}};},
@@ -158,7 +161,7 @@ test('failed exact grouped version is excluded while one remaining row can start
 
 test('failure can offer a single fresh surviving version when the failed version is no longer offered', async () => {
   const d = fixture(); d.source(fence); d.session('v1');
-  d.respond(async () => ({...offered, versions: [{id: 'v2'}]}));
+  d.respond(async () => ({...offered, versions: [offerVersion('v2')]}));
   try {
     await d.screens.versionsAfterFailure(d.screens.capture(entry, () => true), {fence, versionId: 'v1'});
     assert.deepEqual(d.versions[0][1].rows.map((row: any) => row.id), ['v2']);
@@ -190,4 +193,51 @@ test('new playback output while the activation read is pending cannot start the 
     d.source(fence); assert.equal(d.requests.at(-1)?.signal?.aborted, true);
     held.resolve(offered); assert.equal(await choosing, false); assert.equal(d.starts.length, 0);
   } finally {d.screens.dispose();}
+});
+
+
+test('destination close/nav cancellation retains a pure host lifetime through the real adapter command', async () => {
+  for (const close of ['close', 'nav', 'member', 'dispose'] as const) {
+    const d = fixture(), held = deferred<void>(); let memberCurrent = true;
+    d.finishStart(() => held.promise);
+    try {
+      await d.screens.menu(entry, () => memberCurrent); await d.menus[0][1].differentVersion();
+      const destination = d.versions[0][1], choosing = destination.choose('v2');
+      await new Promise(resolve => setImmediate(resolve));
+      const lifetime = d.starts[0][1].lifetime;
+      assert.equal(lifetime.signal.aborted, false); assert.equal(lifetime.isCurrent(), true);
+      // This command's accepted output must not invalidate its host lifetime.
+      d.source(fence); assert.equal(destination.isCurrent(), false);
+      assert.equal(lifetime.signal.aborted, false); assert.equal(lifetime.isCurrent(), true);
+      if (close === 'close') destination.dispose();
+      if (close === 'nav') d.route();
+      if (close === 'member') {memberCurrent = false; d.source(fence);}
+      if (close === 'dispose') d.screens.dispose();
+      assert.equal(lifetime.signal.aborted, true); assert.equal(lifetime.isCurrent(), false);
+      held.resolve(); await choosing;
+    } finally {held.resolve(); d.screens.dispose();}
+  }
+});
+
+test('destination close aborts the genuine activation Options read before any adapter command', async () => {
+  const d = fixture(), held = deferred<unknown>();
+  try {
+    await d.screens.menu(entry, () => true); await d.menus[0][1].differentVersion();
+    d.respond(async () => held.promise);
+    const destination = d.versions[0][1], choosing = destination.choose('v2');
+    await new Promise(resolve => setImmediate(resolve)); destination.dispose();
+    assert.equal(d.requests.at(-1)?.signal?.aborted, true);
+    held.resolve(offered); assert.equal(await choosing, false); assert.equal(d.starts.length, 0);
+  } finally {held.resolve(offered); d.screens.dispose();}
+});
+
+test('version subject preserves real displayTitle or stored title including editions and suffixes', async () => {
+  for (const named of [{...entry, title: 'The Hunger Games: Special Edition'}, {...entry, title: 'Stored: Special Edition', displayTitle: 'Display: Special Edition'}]) {
+    const d = fixture();
+    try {
+      await d.screens.menu(named, () => true); await d.menus[0][1].differentVersion();
+      assert.equal(d.versions[0][1].subject, 'displayTitle' in named ? named.displayTitle : named.title);
+      assert.equal(d.versions[0][0].entry, named);
+    } finally {d.screens.dispose();}
+  }
 });

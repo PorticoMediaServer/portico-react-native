@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../kit/controls';
@@ -17,16 +17,19 @@ export type NativeVersionChooserProps = Readonly<{
  * actual subject, and canonical two-line facts. No version choice is saved. */
 export function NativeVersionChooser({destination, onDismiss, reportError, returnFocusRef}: NativeVersionChooserProps) {
   const theme = useTheme(), first = useRef<View>(null), pending = useRef(false);
+  const mounted = useRef<NativeVersionDestination | undefined>(destination), closed = useRef<NativeVersionDestination | undefined>(undefined);
   const [starting, setStarting] = useState(false);
   const current = useSyncExternalStore(destination.subscribe, destination.isCurrent);
-  useEffect(() => {if (!current) onDismiss();}, [current, onDismiss]);
+  useEffect(() => {mounted.current = destination; pending.current = false; setStarting(false); return () => {mounted.current = undefined; destination.dispose();};}, [destination]);
+  const dismiss = useCallback(() => {if (closed.current === destination) return; closed.current = destination; destination.dispose(); onDismiss();}, [destination, onDismiss]);
+  useEffect(() => {if (!current && !starting) dismiss();}, [current, starting, dismiss]);
   const focusId = destination.rows.find(row => row.id === destination.selectedVersionId)?.id ?? destination.rows[0]?.id;
   const choose = async (id: string) => {
     if (pending.current || !destination.isCurrent()) return;
     pending.current = true; setStarting(true);
-    try {if (await destination.choose(id)) onDismiss();}
-    catch (error) {if (destination.isCurrent()) reportError(error);}
-    finally {pending.current = false; setStarting(false);}
+    try {if (await destination.choose(id) && mounted.current === destination) dismiss();}
+    catch (error) {if (mounted.current === destination && destination.isCurrent()) reportError(error);}
+    finally {if (mounted.current === destination) {pending.current = false; setStarting(false);}}
   };
   const primary = nativeType({size: theme.isTV ? 22 : 15.5, weight: theme.isTV ? 600 : 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}, theme.textScale);
   const secondary = nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}, theme.textScale);
@@ -40,7 +43,7 @@ export function NativeVersionChooser({destination, onDismiss, reportError, retur
       <Text style={[secondary, {marginTop: theme.isTV ? 2 : 3, color: theme.isTV && !focused ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{row.secondary}</Text>
     </>}
   </Focusable>);
-  const shell = {open: current, onOpenChange: (open: boolean) => {if (!open) onDismiss();}, title: destination.title,
+  const shell = {open: current || starting, onOpenChange: (open: boolean) => {if (!open) dismiss();}, title: destination.title,
     initialFocusRef: first, returnFocusRef, testID: 'watch-version-chooser'};
   if (theme.isTV) return <SidePanel {...shell} width={760} topInset={0} showClose={false} description={destination.subject}
     titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}}
@@ -51,7 +54,7 @@ export function NativeVersionChooser({destination, onDismiss, reportError, retur
   const header = <View style={{paddingHorizontal: 20, paddingTop: 2, paddingBottom: 12, flexDirection: 'row', alignItems: 'flex-start'}}>
     <View style={{flex: 1}}><Text accessibilityRole="header" style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{destination.title}</Text>
       <Text style={[nativeType({size: 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 3}]}>{destination.subject}</Text></View>
-    <Button variant="text" size="small" onPress={onDismiss} style={{height: 24, paddingHorizontal: 0, marginTop: 2}}
+    <Button variant="text" size="small" onPress={dismiss} style={{height: 24, paddingHorizontal: 0, marginTop: 2}}
       textStyle={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{defaultI18n.t('action.done')}</Button>
   </View>;
   return <BottomSheet {...shell} fitContent headerContent={header}>

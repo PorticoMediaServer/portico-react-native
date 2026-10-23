@@ -33,7 +33,10 @@ export type NativeWatchCapture = Readonly<{
   /** The actual entry owner's lifetime, including removal or a replaced row. */
   current: () => boolean;
 }>;
-export type NativeVersionStartSelection = NativePlaybackVersionSelection;
+/** Required host lifetime agreed with the command owner. The checked consumer
+ * is composed only with the canonical guarded core/runtime MAIN seam. */
+export type NativeVersionLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+export type NativeVersionStartSelection = NativePlaybackVersionSelection & Readonly<{lifetime: NativeVersionLifetime}>;
 export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>}>;
 export type NativeVersionDestination = Readonly<{
   title: string;
@@ -43,6 +46,7 @@ export type NativeVersionDestination = Readonly<{
   selectedVersionId?: string;
   isCurrent: () => boolean;
   subscribe: (listener: () => void) => () => void;
+  dispose: () => void;
   choose: (versionId: string) => Promise<boolean>;
 }>;
 export type NativeWatchFactoryPorts = Readonly<{
@@ -78,32 +82,34 @@ const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | unde
 
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
-  const controllers = new Map<string, NativeTitleController>(), requests = new Map<AbortController, NativeWatchCapture>();
+  const controllers = new Map<string, NativeTitleController>(), requests = new Map<AbortController, NativeWatchCapture>(), lifetimes = new Map<AbortController, NativeWatchCapture>();
   const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV);
   let disposed = false;
   let context: Omit<NativeWatchControlContext, 'expanded' | 'paused'> = {autoHide: true, hiddenByPanel: false, scrubbing: false, focusHeld: false};
   const alive = () => !disposed && sameAuthority(ports.authority, ports.current());
   const update = () => {
     for (const [request, captured] of requests) if (!current(captured)) request.abort();
+    for (const [lifetime, captured] of lifetimes) if (!hostCurrent(captured)) lifetime.abort();
     const source = ports.playback.getSnapshot();
     controls.source(alive() && sameAuthority(source.authority, ports.authority) && !source.retired ? source.fence : undefined,
       {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});
   };
-  const current = (capture: NativeWatchCapture) => {
+  const hostCurrent = (capture: NativeWatchCapture) => {
     const route = ports.navigation.getSnapshot();
     return alive() && sameAuthority(capture.authority, ports.current()) && sameAuthority(route.authority, capture.authority)
-      && route.revision === capture.routeRevision && capture.current()
-      && sameOptionalFence(ports.playback.getSnapshot().fence, capture.expectedFence);
+      && route.revision === capture.routeRevision && capture.current();
   };
+  const current = (capture: NativeWatchCapture) => hostCurrent(capture) && sameOptionalFence(ports.playback.getSnapshot().fence, capture.expectedFence);
   const capture = (entry: ContentEntry, entryCurrent: () => boolean): NativeWatchCapture | undefined => {
     const value = Object.freeze({entry, current: entryCurrent, authority: ports.authority, routeRevision: ports.navigation.getSnapshot().revision, expectedFence: ports.playback.getSnapshot().fence});
     return current(value) ? value : undefined;
   };
-  const request = async <T,>(captured: NativeWatchCapture, run: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
-    if (!current(captured)) return;
+  const request = async <T,>(captured: NativeWatchCapture, run: (signal: AbortSignal) => Promise<T>, parentSignal?: AbortSignal): Promise<T | undefined> => {
+    if (!current(captured) || parentSignal?.aborted) return;
     const controller = new AbortController(); requests.set(controller, captured);
+    const abort = () => controller.abort(); parentSignal?.addEventListener('abort', abort);
     try {const result = await run(controller.signal); return !controller.signal.aborted && current(captured) ? result : undefined;}
-    finally {requests.delete(controller);}
+    finally {parentSignal?.removeEventListener('abort', abort); requests.delete(controller);}
   };
   const fileInfo = async (captured: NativeWatchCapture): Promise<void> => {
     if (!captured.entry.libraryId) return;
@@ -118,21 +124,27 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (!ports.openVersions || !ports.versionPresentation || !current(captured)) return;
     const rows = nativeVersionChoices(offered, captured.entry.id, ports.text, ports.versionPresentation, excludeVersionId, minimum);
     if (!rows.length) return;
+    const lifetime = new AbortController(); lifetimes.set(lifetime, captured);
+    lifetime.signal.addEventListener('abort', () => {lifetimes.delete(lifetime);}, {once: true});
+    const hostLifetime: NativeVersionLifetime = Object.freeze({signal: lifetime.signal, isCurrent: () => !lifetime.signal.aborted && hostCurrent(captured)});
+    const destinationCurrent = () => hostLifetime.isCurrent() && current(captured);
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    ports.openVersions(captured, Object.freeze({title: ports.versionPresentation.title, subject: captured.entry.title, options: offered, rows, selectedVersionId,
-      subscribe: (listener: () => void) => {const off = [ports.subscribeCurrent(listener), ports.navigation.subscribe(listener), ports.playback.subscribe(listener)]; return () => {for (const dispose of off) dispose();};},
-      isCurrent: () => current(captured), choose: async (versionId: string) => {
-        if (!current(captured) || !rows.some(version => version.id === versionId)) return false;
+    ports.openVersions(captured, Object.freeze({title: ports.versionPresentation.title, subject: captured.entry.displayTitle ?? captured.entry.title, options: offered, rows, selectedVersionId,
+      subscribe: (listener: () => void) => {const off = [ports.subscribeCurrent(listener), ports.navigation.subscribe(listener), ports.playback.subscribe(listener)]; lifetime.signal.addEventListener('abort', listener); return () => {lifetime.signal.removeEventListener('abort', listener); for (const dispose of off) dispose();};},
+      dispose: () => lifetime.abort(),
+      isCurrent: destinationCurrent, choose: async (versionId: string) => {
+        if (!destinationCurrent() || !rows.some(version => version.id === versionId)) return false;
         const target = captured.entry.playback;
         if (!target || target.itemId !== captured.entry.id) return false;
-        const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
+        const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal), lifetime.signal);
         if (!fresh || fresh.itemId !== captured.entry.id || new Set(fresh.versions.map(version => version.id)).size !== fresh.versions.length
           || !fresh.versions.some(version => version.id === versionId) || versionId === excludeVersionId) return false;
         const resumeMs = fresh.resume?.positionMs ?? 0;
         if (!Number.isFinite(resumeMs) || resumeMs < 0) return false;
-        await ports.playback.startVersion({entry: captured.entry, target: {...target, startSeconds: resumeMs / 1000}}, {authority: captured.authority, options: fresh, versionId, expectedFence: captured.expectedFence});
-        return true;
+        const selection: NativeVersionStartSelection = {authority: captured.authority, options: fresh, versionId, expectedFence: captured.expectedFence, lifetime: hostLifetime};
+        await ports.playback.startVersion({entry: captured.entry, target: {...target, startSeconds: resumeMs / 1000}}, selection);
+        return hostLifetime.isCurrent();
       }}));
   };
   const versions = async (captured: NativeWatchCapture): Promise<void> => {
@@ -200,7 +212,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     renderWatch: (props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) => alive() ? <Watch {...props}/> : null,
     renderPictureSlot: (props: Omit<NativeWatchPictureProps, 'outlet' | 'authority'>) => alive() ? <NativeWatchPicture {...props} authority={ports.authority} outlet={ports.watch}/> : null,
     releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllers.get(key)?.dispose(); controllers.delete(key);},
-    dispose: () => {if (disposed) return; disposed = true; offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
+    dispose: () => {if (disposed) return; disposed = true; offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const lifetime of lifetimes.keys()) lifetime.abort(); lifetimes.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
   });
   function Watch(props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) {
     const source = useSyncExternalStore(ports.playback.subscribe, ports.playback.getSnapshot);
