@@ -9,11 +9,14 @@ import {useTheme} from '../theme';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
 import {deleteSelectionGate} from './presentation';
-import {SelectionSurface, SelectionText} from './surface';
+import {selectionFooterProps, SelectionSurface, SelectionText} from './surface';
 import type {DeleteMediaDialogProps} from './types';
 
 export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
-  const {isTV, colors} = useTheme();
+  const theme = useTheme();
+  const {isTV, colors} = theme;
+  const phone = theme.platform === 'phone';
+  const footerButton = selectionFooterProps(theme);
   const cancelRef = useRef<View>(null);
   if (!props.owner) return null;
   const gate = deleteSelectionGate(props);
@@ -26,9 +29,11 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
   for (const target of preview?.targets ?? []) for (const dependent of target.dependents) totals.set(dependent.kind, (totals.get(dependent.kind) ?? 0) + dependent.count);
   const dependencies = [...totals].filter(([kind]) => kind !== 'progress').map(([kind, count]) => selectionText(kind === 'playlist' ? 'next.selection.native.dependent.playlist' : kind === 'collection' ? 'next.selection.native.dependent.collection' : kind === 'progress' ? 'next.selection.native.dependent.progress' : kind === 'saved' ? 'next.selection.native.dependent.saved' : kind === 'library-channel' ? 'next.selection.native.dependent.channel' : 'next.selection.native.dependent.recording', {count}));
   const kept = result?.receipts.filter(receipt => !receipt.removed) ?? [];
-  const footer = <View style={[styles.buttons, isTV ? {flexDirection: 'column', gap: 12} : undefined]}>
-    <Button testID={controlID(props.testID, 'dismiss')} ref={cancelRef} size="compact" variant={result ? 'primary' : 'glass'} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}} onPress={close}>{selectionText(result || restricted ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
-    {!result ? <Button testID={controlID(props.testID, 'delete')} size="compact" variant="text" disabled={gate !== null || !!props.error} loading={props.pending} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch', backgroundColor: colors.record}} textStyle={{color: '#2a0808'}} onPress={() => {if (preview && gate === null && !props.error) props.onDelete(preview, props.confirmation, props.removeFiles);}}>{props.selectionCount === 1 || restricted ? selectionText('next.selection.native.delete') : selectionText('next.selection.native.deleteCount', {count: props.selectionCount})}</Button> : null}
+  const removeFilesLabel = selectionText('next.selection.native.removeFiles');
+  const removeFilesHelp = selectionText(props.removeFiles ? 'next.selection.native.irrecoverable' : 'next.selection.native.filesStay');
+  const footer = <View style={[styles.buttons, phone ? {paddingHorizontal: 4} : undefined, isTV ? {flexDirection: 'column', gap: 12} : undefined]}>
+    <Button {...footerButton} testID={controlID(props.testID, 'dismiss')} ref={cancelRef} size="compact" variant={result ? 'primary' : 'glass'} style={[footerButton.style, {flex: isTV ? undefined : 1, alignSelf: 'stretch'}]} onPress={close}>{selectionText(result || restricted ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
+    {!result ? <Button {...footerButton} testID={controlID(props.testID, 'delete')} size="compact" variant="text" disabled={gate !== null || !!props.error} loading={props.pending} style={[footerButton.style, {flex: isTV ? undefined : 1, alignSelf: 'stretch', backgroundColor: colors.record}]} textStyle={[footerButton.textStyle, {color: '#2a0808'}]} onPress={() => {if (preview && gate === null && !props.error) props.onDelete(preview, props.confirmation, props.removeFiles);}}>{props.selectionCount === 1 || restricted ? selectionText('next.selection.native.delete') : selectionText('next.selection.native.deleteCount', {count: props.selectionCount})}</Button> : null}
   </View>;
   return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} title={title} headerContext={props.ownerHeader} footer={footer} initialFocusRef={props.initialFocusRef ?? cancelRef} returnFocusRef={props.returnFocusRef} testID={props.testID} titleType={isTV ? undefined : {size: 21, weight: 800, tracking: -.025, lineHeight: 25.2}} contentStyle={{paddingHorizontal: isTV ? 0 : 20}}>
     <View style={[styles.stack, isTV ? {gap: 22, paddingTop: 26} : undefined]}>
@@ -50,7 +55,12 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
             <View style={{flex: 1}}><SelectionText size={isTV ? 24 : 13.5} weight={700}>{target.title}</SelectionText><SelectionText size={isTV ? 20 : 12} secondary>{selectionText('next.selection.native.fileFacts', {count: target.files.length, size: defaultI18n.bytes(target.bytes)})}</SelectionText></View>
           </View>)}{preview.targets.length > 5 ? <SelectionText size={isTV ? 22 : 13.5} secondary>{selectionText('next.selection.native.andMore', {count: preview.targets.length - 5})}</SelectionText> : null}</View> : null}
           <SelectionText size={isTV ? undefined : 14} secondary style={{lineHeight: isTV ? undefined : 21}}><SelectionText weight={700}>{selectionText('next.selection.native.fileFacts', {count: preview.totalFiles, size: preview.totalBytesText})}</SelectionText>{dependencies.length ? selectionText('next.selection.native.dependencies', {dependencies: defaultI18n.list(dependencies)}) : ''}{totals.get('progress') ? selectionText('next.selection.native.savedPlaces', {count: totals.get('progress')!}) : ''}</SelectionText>
-          <Switch testID={controlID(props.testID, 'remove-files')} variant="selection" checked={props.removeFiles} onCheckedChange={props.onRemoveFilesChange} disabled={props.pending} description={selectionText(props.removeFiles ? 'next.selection.native.irrecoverable' : 'next.selection.native.filesStay')}>{selectionText('next.selection.native.removeFiles')}</Switch>
+          <Switch testID={controlID(props.testID, 'remove-files')} variant="selection" checked={props.removeFiles} onCheckedChange={props.onRemoveFilesChange} disabled={props.pending}
+            accessibilityLabel={phone ? removeFilesLabel : undefined} accessibilityHint={phone ? removeFilesHelp : undefined}
+            style={phone ? {minHeight: 26, paddingVertical: 0, gap: 14} : undefined} description={phone ? undefined : removeFilesHelp}>
+            {phone ? <SelectionText size={14.5} weight={700}>{removeFilesLabel}</SelectionText> : removeFilesLabel}
+          </Switch>
+          {phone ? <SelectionText size={12} secondary style={{lineHeight: 18}}>{removeFilesHelp}</SelectionText> : null}
           <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending}
             label={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
             accessibilityLabel={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}

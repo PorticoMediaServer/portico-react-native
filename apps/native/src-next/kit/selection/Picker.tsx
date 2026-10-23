@@ -10,12 +10,14 @@ import {useTheme} from '../theme';
 import {pickerResultSucceeded} from './presentation';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
-import {SelectionSurface, SelectionText} from './surface';
+import {selectionFooterProps, SelectionSurface, SelectionText} from './surface';
 import type {PickerEntry, PickerProps, PickerResult} from './types';
 
 export type DestinationPickerProps = PickerProps & {onViewDestination: (id: string) => void; onResultDismiss: () => void};
 function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'playlist' | 'collection'}) {
-  const {isTV, colors} = useTheme();
+  const theme = useTheme();
+  const {isTV, colors} = theme;
+  const footerButton = selectionFooterProps(theme);
   const nameRef = useRef<TextInput>(null);
   const retryRef = useRef<View>(null), newRef = useRef<View>(null), dismissRef = useRef<View>(null);
   const retryRecovery = props.onRetryError ?? props.onRetryOperation, recovering = !!retryRecovery;
@@ -71,9 +73,9 @@ function DestinationPicker({kind, ...props}: DestinationPickerProps & {kind: 'pl
     {state => rowContent(item, state.focused || state.hovered || state.pressed)}
   </Focusable>;
   const buttons = <View style={styles.buttons}>
-    <Button testID={controlID(props.testID, 'dismiss')} ref={dismissRef} size="compact" variant="glass" onPress={props.creating && !props.result && !recovering ? () => props.onCreatingChange(false) : close}>{selectionText(props.creating && !props.result && !recovering ? 'next.selection.native.cancel' : 'next.selection.native.done')}</Button>
-    {retryRecovery ? <Button testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={() => {if (!props.pending) retryRecovery();}}>{selectionText('next.selection.native.retry')}</Button> : props.creating && !props.result ? <Button testID={controlID(props.testID, 'create')} size="compact" loading={props.pending} disabled={props.loading} style={{flex: 1, alignSelf: 'stretch'}} onPress={() => {if (!props.pending && !props.loading) props.onCreateAndAdd(props.name.trim() || newLabel);}}>{selectionText('next.selection.native.createAdd', {count: props.count})}</Button>
-      : retryFailed ? <Button testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} style={{flex: 1, alignSelf: 'stretch'}} onPress={retry}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: failures[0]!.title}) : selectionText('next.selection.native.retry')}</Button> : null}
+    <Button {...footerButton} testID={controlID(props.testID, 'dismiss')} ref={dismissRef} size="compact" variant="glass" onPress={props.creating && !props.result && !recovering ? () => props.onCreatingChange(false) : close}>{selectionText(props.creating && !props.result && !recovering ? 'next.selection.native.cancel' : 'next.selection.native.done')}</Button>
+    {retryRecovery ? <Button {...footerButton} testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} style={[footerButton.style, {flex: 1, alignSelf: 'stretch'}]} onPress={() => {if (!props.pending) retryRecovery();}}>{selectionText('next.selection.native.retry')}</Button> : props.creating && !props.result ? <Button {...footerButton} testID={controlID(props.testID, 'create')} size="compact" loading={props.pending} disabled={props.loading} style={[footerButton.style, {flex: 1, alignSelf: 'stretch'}]} onPress={() => {if (!props.pending && !props.loading) props.onCreateAndAdd(props.name.trim() || newLabel);}}>{selectionText('next.selection.native.createAdd', {count: props.count})}</Button>
+      : retryFailed ? <Button {...footerButton} testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} style={[footerButton.style, {flex: 1, alignSelf: 'stretch'}]} onPress={retry}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: failures[0]!.title}) : selectionText('next.selection.native.retry')}</Button> : null}
   </View>;
   return <>
     <SelectionSurface scrollable={false} open={props.open} onOpenChange={props.onOpenChange} title={title}
