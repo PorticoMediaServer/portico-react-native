@@ -144,7 +144,7 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     val path = target?.encodedPath ?: ""
     val reading = Regex("^/v1/reading/sessions/[A-Za-z0-9_-]{1,128}/(?:source|assets|pages/[0-9]{1,10})$").matches(path)
     val limit = byteLimit.toLong()
-    val request = if (target != null && reading && method in setOf("GET", "HEAD") &&
+    val request = if (target != null && reading && (method == "GET" || method == "HEAD" && path.endsWith("/source")) &&
         limit in 1..33554432L && limit.toDouble() == byteLimit && identifier != null && identifier.length <= 128)
       PorticoTransport.request(target, method!!, headers, null) else null
     if (request == null || identifier == null) {promise.reject("queue_transport", "Invalid Reading byte request."); return}

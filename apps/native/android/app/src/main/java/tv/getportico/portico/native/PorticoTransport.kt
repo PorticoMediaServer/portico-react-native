@@ -153,7 +153,7 @@ internal object PorticoTransport {
     try {
       val body = response.body
       val buffer = Buffer()
-      if (body != null) {
+      if (body != null && response.request.method != "HEAD") {
         if (body.contentLength() > entry.limit) {
           finish(entry, "Queue response exceeded its limit.", null)
           return
