@@ -1,4 +1,4 @@
-import React, {useSyncExternalStore} from 'react';
+import React, {useSyncExternalStore, type RefObject} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {HomeSelectionController} from '../../../../packages/client-core/src/home-selection/index';
@@ -30,8 +30,8 @@ const kindIcon = (kind: SelectionKind): IconName => kind === 'movie' ? 'i-film' 
   : kind === 'song' || kind === 'album' || kind === 'artist' ? 'i-music' : kind === 'channel' ? 'i-tv' : kind === 'person' ? 'i-person' : 'i-book';
 
 /** One controlled overlay tree, using the shared controller's genuine retained members. */
-export function HomeSelectionOverlays({controller, runtime, ownerTag, reportError}: {
-  controller: HomeSelectionController; runtime?: NativeShellRuntime; ownerTag: React.ReactNode; reportError: (error: unknown) => void;
+export function HomeSelectionOverlays({controller, runtime, ownerTag, reportError, anchorRef}: {
+  controller: HomeSelectionController; runtime?: NativeShellRuntime; ownerTag: React.ReactNode; reportError: (error: unknown) => void; anchorRef?: RefObject<View | null>;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme();
   if (!runtime) return null;
@@ -42,17 +42,39 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   for (const group of state.menu?.groups ?? []) {
     if (items.length) items.push({id: `separator:${group.id}`, separator: true});
     if (group.title) items.push({id: `group:${group.id}`, section: true, label: t(group.title), tone: group.id === 'manage' ? 'owner' : 'default'});
-    for (const action of group.actions) items.push({id: action.id, label: t(action.label), icon: icons[action.id], selected: action.selected, destructive: action.destructive,
+    for (const action of group.actions) items.push({id: action.id, label: t(!theme.isTV && action.id === 'resume' ? 'entry.play' : !theme.isTV && action.id === 'rate' ? 'entry.rate' : action.label), icon: icons[action.id], selected: action.selected, destructive: action.destructive,
       tone: group.id === 'manage' ? 'owner' : 'default', onSelect: () => {void controller.executeMenu(action.id).catch(reportError);}});
   }
   if (state.menu) {
     const menu = state.menu;
-    items.push({id: 'selection-separator', separator: true}, {id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => {
-      const before = controller.getSnapshot().selection.active;
+    const select: MenuEntry = {id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => {
+      if (theme.isTV) {
+        const before = controller.getSnapshot().selection.active;
+        controller.closeMenu();
+        const result = controller.toggle(menu.windowId, menu.key);
+        if (result.ok && !before && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
+        return;
+      }
+      const current = controller.getSnapshot();
+      if (current.menu?.key !== menu.key || current.menu.windowId !== menu.windowId) return;
+      // Pick before closing: a retained menu window may be released by closeMenu.
+      if (!current.selection.selectedKeys.includes(menu.key)) {
+        const result = controller.toggle(menu.windowId, menu.key);
+        if (!result.ok) {reportError(Object.assign(new Error(result.reason), {code: result.reason})); return;}
+        if (!current.selection.active && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
+      }
       controller.closeMenu();
-      const result = controller.toggle(menu.windowId, menu.key);
-      if (result.ok && !before && controller.getSnapshot().selection.active) void selectionHaptic().catch(reportError);
-    }});
+    }};
+    if (theme.isTV) items.push({id: 'selection-separator', separator: true}, select);
+    else {
+      const rows = items.filter((item): item is Exclude<MenuEntry, {separator: true} | {section: true}> => !('separator' in item) && !('section' in item));
+      const order = ['play', 'resume', 'watchlist', 'watched', 'favorite', 'rate', 'addToPlaylist', 'addToCollection', 'download', 'playVersion', 'removeFromContinueWatching', 'notInterested'];
+      const regular = order.flatMap(id => rows.filter(item => item.id === id));
+      const info = rows.filter(item => item.id === 'details');
+      const owner = ['editMetadata', 'refreshMetadata', 'delete'].flatMap(id => rows.filter(item => item.id === id));
+      items.splice(0, items.length, ...regular, select, ...info,
+        ...(owner.length ? [{id: 'group:manage', section: true as const, label: t('next.selection.owner'), tone: 'owner' as const}, ...owner] : []));
+    }
   }
   // tv-focus F-HOME-46..49: headings are not TV focus stops. See all is
   // the last action of the actual row member's Hold OK menu.
@@ -74,7 +96,7 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   return <>
     <Menu testID={theme.isTV && state.menu ? tvFocusIds(runtime.getSnapshot().authority).menu(state.menu.windowId, state.menu.key) : undefined}
       open={!!state.menu} onOpenChange={open => {if (!open) controller.closeMenu();}} title={state.menu ? memberTitle(state.menu.member, runtime) : undefined}
-      items={items} presentation={theme.isTV ? 'sideSheet' : 'sheet'}/>
+      items={items} anchorRef={anchorRef} touchContext={!theme.isTV} width={theme.isTV ? undefined : 300} presentation={theme.isTV ? 'sideSheet' : undefined}/>
     <HomeDestinationPicker controller={controller} runtime={runtime} reportError={reportError}/>
     <HomeBulkEditor controller={controller} runtime={runtime} reportError={reportError}/>
     <MixedEditExplainer testID={ids?.surface('mixed-edit')} open={state.mixedEdit} onOpenChange={open => {if (!open) controller.closeEditor();}} description={description} total={count} groups={groups}

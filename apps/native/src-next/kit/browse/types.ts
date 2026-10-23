@@ -24,6 +24,7 @@ export type BrowseToolbarProps = Readonly<{
   view?: Readonly<{value: 'grid' | 'list'; onValueChange: (value: 'grid' | 'list') => void}>;
   cardSize?: Readonly<{value: string; options: readonly Readonly<{value: string; label: string}>[]; onValueChange: (value: string) => void}>;
   save?: Readonly<{canSave: boolean; onSave: () => void}>;
+  onSelect?: () => void;
   onJump?: () => void; selection?: ReactNode; children?: ReactNode; testID?: string;
 }>;
 

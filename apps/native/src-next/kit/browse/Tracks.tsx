@@ -1,10 +1,11 @@
-import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {FlatList, Text, View, VirtualizedList, type ViewToken} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections';
 import {Button, Chip, Focusable} from '../controls';
 import {Icon} from '../Icon';
+import {CardFrame} from '../cards/primitives';
 import {useTheme} from '../theme';
 import {alpha, browseType} from './presentation';
 
@@ -20,7 +21,8 @@ export type TrackSelection = Readonly<{
   renderControl: (row: TrackRowData, selected: boolean, onPress: () => void) => ReactNode;
 }>;
 type TrackActions = Readonly<{
-  onPlay: (id: string) => void; onMore?: (id: string) => void;
+  onPlay: (id: string) => void; onMore?: (id: string, anchor?: RefObject<View | null>) => void;
+  isMenuOpen?: (id: string) => boolean;
   onToggleFavorite?: (id: string, favorite: boolean) => void;
 }>;
 type TrackVariant = 'album' | 'top-songs' | 'songs' | 'chapters';
@@ -71,15 +73,19 @@ function TVTrackRow({row, onPress, onMenu, selection, selected, selectionMode = 
 }
 
 /** The row's title/caption are already canonical parts, never a parsed subtitle. */
-export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onLongPress, ranked = false}: TrackActions & {
-  row: TrackRowData; selection?: ReactNode; selected?: boolean; onSelectionChange?: () => void; onLongPress: () => void; ranked?: boolean;
+export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onEnter, isMenuOpen, ranked = false}: TrackActions & {
+  row: TrackRowData; selection?: ReactNode; selected?: boolean; onSelectionChange?: () => void; onEnter: () => void; ranked?: boolean;
 }) {
   const theme = useTheme(), tv = theme.isTV, duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
+  const menuAnchorRef = useRef<View>(null);
   const caption = row.text.caption.filter(part => part.id === (ranked ? 'album' : 'artist'));
   if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={onSelectionChange !== undefined} selection={selection} onPress={onSelectionChange ?? (() => onPlay(row.id))} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork showCaption/>;
   return <View style={{height: tv ? 92 : ranked ? 62 : 58, flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 14, paddingLeft: 6, paddingRight: 12, borderRadius: 10, backgroundColor: selected ? alpha(theme.colors.accent, .18) : undefined}}>
     {selection}
-    <Focusable accessibilityRole="button" focusKind="row" onPress={onSelectionChange ?? (() => onPlay(row.id))} onLongPressAction={onLongPress} accessibilityLabel={onSelectionChange ? row.text.title : t('next.browse.native.play', {title: row.text.title})} accessibilityState={{selected}} style={{flex: 1, height: '100%', paddingHorizontal: 0, justifyContent: 'center'}}>
+    <CardFrame menuAnchorRef={menuAnchorRef} moreExpanded={isMenuOpen?.(row.id)} title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id, menuAnchorRef) : undefined}
+      selection={{active: !!onSelectionChange, selected, onToggle: onSelectionChange ?? onEnter, onEnter}}
+      accessibilityLabel={onSelectionChange ? row.text.title : t('next.browse.native.play', {title: row.text.title})} style={{flex: 1, height: '100%'}} pressableStyle={{flex: 1, justifyContent: 'center'}}>
+      {() =>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 14, flex: 1, minWidth: 0}}>
         {ranked && row.number !== undefined && <View style={{width: 22, alignItems: 'center'}}>{row.playing ? <LevelMeter/> : <Text style={[browseType(theme, tv ? 22 : 15, 700), {color: theme.colors.textTertiary}]}>{row.number}</Text>}</View>}
         {row.artwork && <View style={{width: tv ? 72 : ranked ? 46 : 44, height: tv ? 72 : ranked ? 46 : 44, borderRadius: 6, overflow: 'hidden'}}>{row.artwork}</View>}
@@ -89,8 +95,9 @@ export function SongRow({row, onPlay, onMore, selection, selected = false, onSel
         </View>
         {duration && <Text style={[browseType(theme, tv ? 20 : 13), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{duration.text}</Text>}
       </View>
-    </Focusable>
-    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id)}/>}
+      }
+    </CardFrame>
+    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id, menuAnchorRef)}/>}
   </View>;
 }
 
@@ -101,21 +108,25 @@ function columnStyle(column: TrackColumn, variant: TrackVariant) {
   return {width: column === 'number' ? 44 : column === 'duration' ? variant === 'songs' ? 86 : variant === 'chapters' ? 90 : 80 : column === 'plays' ? variant === 'songs' ? 64 : 90 : 124};
 }
 
-export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite}: TrackActions & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
+export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite, isMenuOpen}: TrackActions & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
   const theme = useTheme(), phone = theme.platform === 'phone', tv = theme.isTV, selected = selection.isSelected(row.id);
+  const menuAnchorRef = useRef<View>(null);
   const duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
   const progress = boundedProgress(row.progress ?? row.text.progress), remaining = row.text.detail.find(part => part.id === 'remaining');
   if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={selection.active} selection={selection.active ? selection.renderControl(row, selected, () => selection.onToggle(row.id)) : undefined} onPress={() => selection.active ? selection.onToggle(row.id) : onPlay(row.id)} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork={variant === 'top-songs' || variant === 'songs'} showCaption={variant === 'top-songs' || variant === 'songs'}/>;
   const actions = <View style={{width: phone ? 44 : variant === 'chapters' ? 60 : 84, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center'}}>
     {variant === 'chapters' ? <Button variant="icon" size="small" iconOnly icon="i-play" accessibilityLabel={t('next.browse.native.play', {title: row.text.title})} onPress={() => onPlay(row.id)}/> : <>
     {row.favorite !== undefined && onToggleFavorite && !phone && <Button variant="icon" size="small" iconOnly icon={row.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(row.favorite ? 'next.browse.native.unfavorite' : 'next.browse.native.favorite')} accessibilityState={{checked: row.favorite}} onPress={() => onToggleFavorite(row.id, !row.favorite)}/>}
-    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id)}/>}
+    {onMore && <Button variant="icon" size="small" iconOnly icon="i-more" accessibilityLabel={t('next.browse.native.moreFor', {title: row.text.title})} onPress={() => onMore(row.id, menuAnchorRef)}/>}
     </>}
   </View>;
   const select = () => selection.onToggle(row.id);
   return <View style={{height: tv ? 92 : phone ? 54 : variant === 'chapters' && row.current ? 76 : variant === 'songs' ? 56 : 60, paddingLeft: phone ? 20 : 8, paddingRight: 12, flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 16, borderRadius: 10, backgroundColor: selected ? alpha(theme.colors.accent, .18) : !phone && (row.playing || row.current) ? alpha(theme.colors.text, .08) : undefined}}>
     {selection.active && selection.renderControl(row, selected, select)}
-    <Focusable accessibilityRole="button" focusKind="row" onPress={() => selection.active ? select() : onPlay(row.id)} onLongPressAction={() => tv && onMore ? onMore(row.id) : selection.onEnter(row.id)} accessibilityLabel={selection.active ? row.text.title : t('next.browse.native.play', {title: row.text.title})} accessibilityState={{selected}} style={{flex: 1, height: '100%', paddingHorizontal: 0, justifyContent: 'center'}}>
+    <CardFrame menuAnchorRef={menuAnchorRef} moreExpanded={isMenuOpen?.(row.id)} title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id, menuAnchorRef) : undefined}
+      selection={{active: selection.active, selected, onToggle: select, onEnter: () => selection.onEnter(row.id)}}
+      accessibilityLabel={selection.active ? row.text.title : t('next.browse.native.play', {title: row.text.title})} style={{flex: 1, height: '100%'}} pressableStyle={{flex: 1, justifyContent: 'center'}}>
+      {() =>
       <View style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 16, minWidth: 0}}>
         {(phone ? (['number', 'title', 'duration'] as const) : columns).map(column => {
           if (column === 'number') return <View key={column} style={{width: phone ? 18 : 44, alignItems: 'center'}}>{row.playing ? <LevelMeter/> : row.done ? <Icon name="i-check" size={phone ? 16 : 20} color={theme.colors.textTertiary}/> : row.number !== undefined ? <Text style={[browseType(theme, tv ? 22 : phone ? 14 : 15, row.current ? 800 : 600), {color: row.current ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{row.number}</Text> : null}</View>;
@@ -130,7 +141,8 @@ export function TrackRow({row, variant, columns = defaultColumns[variant], selec
           return <Text key={column} numberOfLines={1} style={[phone ? {maxWidth: 70, marginLeft: 'auto'} : columnStyle(column, variant), browseType(theme, tv ? 20 : phone ? 13.5 : 14), {color: column === 'artist' || column === 'album' ? theme.colors.textSecondary : theme.colors.textTertiary, textAlign: column === 'plays' || column === 'duration' ? 'right' : 'left', fontVariant: ['tabular-nums']}]}>{part}</Text>;
         })}
       </View>
-    </Focusable>
+      }
+    </CardFrame>
     {actions}
   </View>;
 }
