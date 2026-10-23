@@ -2,6 +2,8 @@ import {revisionRequiredFetch} from './revision-required-fetch';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import {
   HttpLocalApi,
+  knownServerRoutes,
+  assertFirstContactIdentity,
   type CredentialSessionService,
   type LocalSession,
 } from '../../../../packages/client-core/src/index.ts';
@@ -9,6 +11,7 @@ import {
   RouteError,
   routeBase64,
   routeBytes,
+  privateRouteHost,
   type RouteCrypto,
 } from '../../../../packages/client-core/src/route-identity.ts';
 import {
@@ -28,7 +31,7 @@ import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
 import { isAccountAuthority } from './account-authority';
 import {homeActionDiagnostics} from './home-action-diagnostics';
-import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
+import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, type CertificateContext, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
 /** One request through the native transport, as it is. */
 const nativeRequest: typeof fetch = async (input, options = {}) => {
   if (
@@ -75,18 +78,38 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
  * network is refused here with the reason (the system would refuse it anyway). A request that
  * meets the owner's own certificate settles it (`certificate-trust.ts`) and is retried once.
  */
-export const nativeNetworkFetch: typeof fetch = revisionRequiredFetch(async (input, options = {}) => {
+function nativeFetchForIdentity(expected?: string): typeof fetch {return revisionRequiredFetch(async (input, options = {}) => {
   if (Platform.OS === 'ios' && typeof input === 'string') checkApplePlainHttp(input);
+  const origin = typeof input === 'string' && !isAccountAuthority(input) ? certificateOrigin(input) : undefined;
+  const decision: CertificateContext = async proof => {
+    const state = await nativeAppSessions.read();
+    if (options.signal?.aborted) throw new RouteError('cancelled', 'certificate_decision_cancelled');
+    const knownRoutes = knownServerRoutes(state);
+    assertFirstContactIdentity(origin!, proof, {linkId: expected, knownRoutes});
+    // Bonjour's fp is the identity-key hash, never a TLS fingerprint. Its home
+    // qualification must come from the canonical fresh-v2/key/TXT/observed-leaf
+    // conjunction. That checked guard has not been published/intaken yet; no
+    // discovery record grants home authority in this source-only draft.
+    const home = privateRouteHost(new URL(origin!).hostname);
+    return {expected, home, knownServerIds: state.servers.map(value => value.connection.pin.serverId)};
+  };
   try {
-    return await nativeRequest(input, options);
+    const result = await nativeRequest(input, options);
+    // A Portico-pinned leaf can complete TLS while the system still refuses it. It must
+    // pass the same identity decision, rather than masquerade as system trust.
+    if (origin && certificateTrustAvailable() && await nativeCertificatePlatform.refused(origin))
+      await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, decision, options.signal ?? undefined);
+    return result;
   } catch (error) {
     // An owner's own certificate is settled only for the owner's server, never the account service (NS-02).
-    const origin = typeof input === 'string' && (error as {code?: unknown})?.code === 'certificate_untrusted' && !isAccountAuthority(input) ? certificateOrigin(input) : undefined;
-    if (!origin || !certificateTrustAvailable()) throw error;
-    await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, options.signal ?? undefined);
+    if (!origin || (error as {code?: unknown})?.code !== 'certificate_untrusted' || !certificateTrustAvailable()) throw error;
+    await settleCertificate(origin, nativeCertificatePlatform, nativeRouteCrypto, decision, options.signal ?? undefined);
     return nativeRequest(input, options);
   }
-});
+});}
+export const nativeNetworkFetch = nativeFetchForIdentity();
+/** Expected identity stays captured for every route probe and authenticated request. */
+export const nativeServerFetch = (serverId: string) => nativeFetchForIdentity(serverId);
 /** Whether this device can trust an owner's own certificate (Android and Apple; not Vega). */
 export function certificateTrustAvailable(): boolean {
   return typeof NativeModules.PorticoNetwork?.refusedCertificate === 'function';
@@ -180,7 +203,7 @@ const nativeEnvironment = {
 };
 /** Capture one server for the whole runtime. A later switch never retargets its refresh writes. */
 export function nativeServerEnvironment(serverId: string, admission?: NewServerConnection): ConnectionEnvironment {
-  return {...nativeEnvironment, storage: nativeAppSessions.connectionStorage(serverId, admission)};
+  return {...nativeEnvironment, fetcher: nativeServerFetch(serverId), storage: nativeAppSessions.connectionStorage(serverId, admission)};
 }
 export function nativeSelectedConnectionEnvironment(): ConnectionEnvironment {
   return {...nativeEnvironment, storage: nativeAppSessions.selectedStorage()};

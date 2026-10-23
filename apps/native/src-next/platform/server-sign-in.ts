@@ -1,4 +1,4 @@
-import {HttpLocalApi, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
+import {HttpLocalApi, knownServerRoutes, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
@@ -12,6 +12,10 @@ import {nativeAccounts, type NativeAccounts} from './accounts';
 import {hostedUrl} from './account-authority';
 import {nativeNetworkFetch, nativeServerEnvironment, nativeHostedSource, nativeRouteCrypto} from './server-connections';
 import {rememberNativeServerDisplay} from './server-display';
+import {nativeAppSessions} from './app-session-storage';
+import {nativeCertificatePlatform} from './server-connections';
+import {pendingCertificate, confirmIdentityCode, clearPendingCertificate, type PendingCertificate} from './certificate-trust';
+import {routeOrigin} from '../../../../packages/client-core/src/route-identity';
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
@@ -24,6 +28,7 @@ export class NativeServerSignIn {
   private readonly installation = installationIdentity();
   private api?: HttpLocalApi;
   private server?: ServerSignIn;
+  private pendingIdentity?: PendingCertificate;
   private admission?: NewServerConnection;
   private hosted?: AppServerSession['connection']['hosted'];
   private snapshot?: DirectSnapshot;
@@ -41,6 +46,12 @@ export class NativeServerSignIn {
   private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation;
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
+  needsIdentityCode() {this.assertCurrent(); return !!this.pendingIdentity && pendingCertificate(this.pendingIdentity.origin) === this.pendingIdentity;}
+  confirmIdentityCode(code: string) {return this.run(async () => {
+    if (!this.pendingIdentity) throw mismatch();
+    const accepted = await confirmIdentityCode(this.pendingIdentity.origin, code, nativeCertificatePlatform, this.controller.signal, this.pendingIdentity);
+    this.assertCurrent(); return accepted;
+  });}
   private async run<T>(work: () => Promise<T>): Promise<T> {
     this.assertCurrent(); if (this.busy || this.complete) throw cancelled(); this.busy = true;
     const pending = this.running = work();
@@ -50,6 +61,14 @@ export class NativeServerSignIn {
   inspect(address: string) {
     return this.run(async () => {
       const server = await this.probe.inspect(address); this.assertCurrent();
+      if (!server && (this.probe.getSnapshot().error as {code?: string})?.code === 'identity_code_needed') {
+        const captured = pendingCertificate(routeOrigin(address));
+        if (!captured) throw mismatch();
+        // Before the code matches, the proof is the only permitted exchange. No
+        // system response, sign-in kind or unconfirmed name exists at this stage.
+        this.pendingIdentity = captured; return undefined;
+      }
+      if (!server) throw this.probe.getSnapshot().error ?? mismatch();
       if (!server || server.setupRequired) throw mismatch();
       this.server = server; return server;
     });
@@ -59,7 +78,9 @@ export class NativeServerSignIn {
       const server = this.server, origin = this.probe.getSnapshot().origin;
       if (!server || !origin || server.signIn !== 'local') throw Object.assign(new Error('sign_in_kind_portico'), {code: 'sign_in_kind_portico'});
       const pin = await inspectDirectServer(origin, nativeServerEnvironment(server.id), this.controller.signal); this.assertCurrent();
-      if (pin.serverId !== server.id) throw mismatch(); return pin;
+      if (pin.serverId !== server.id) throw mismatch();
+      assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
+      return pin;
     });
   }
   confirmLocal(pin: ServerPin) {
@@ -172,7 +193,8 @@ export class NativeServerSignIn {
   }
   private cancel() {
     if (this.controller.signal.aborted) return;
-    this.controller.abort(); this.probe.dispose(); this.unfence();
+    this.controller.abort(); if (this.pendingIdentity) clearPendingCertificate(this.pendingIdentity.origin, this.pendingIdentity); this.pendingIdentity = undefined;
+    this.probe.dispose(); this.unfence();
     const routes = this.api?.getRouteConnection();
     void Promise.resolve(this.running).catch(() => {}).then(() => Promise.allSettled([...this.issued.values()].map(session => this.retire(session)))).finally(() => routes?.dispose());
     this.account = undefined; this.snapshot = undefined; this.challenge = undefined;

@@ -3,7 +3,6 @@ import {BackHandler, NativeModules, Platform, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
-import type {ServerPin} from '../../../../../packages/client-core/src/route-identity';
 import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
 import {MFARequiredError, type IdentityOptions, type IdentityTransaction} from '../../../../../packages/client-core/src/hosted-security';
@@ -21,7 +20,7 @@ import {nativeNetworkFetch, browseNearby} from '../../platform/server-connection
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
 
-type Stage = 'welcome' | 'address' | 'pin' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv';
+type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv';
 type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'};
 const t = defaultI18n.t;
 
@@ -31,7 +30,9 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {on
   const theme = useTheme(), [stage, setStage] = useState<Stage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
-  const [server, setServer] = useState<ServerSignIn>(), [pin, setPin] = useState<ServerPin>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
+  const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
+  const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
+  const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
@@ -75,7 +76,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {on
   };
   const reset = () => {operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
-    setPassword(''); setCode(''); setError(undefined); setStage(initialStage);};
+    setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setError(undefined); setStage(initialStage);};
   const back = () => {if (stage === initialStage) onBack?.(); else reset();};
   useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {if (busy) return true; if (stage === 'welcome' && !onBack) return false; back(); return true;}); return () => listener.remove();});
   const consume = (result: Result) => {
@@ -120,9 +121,24 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {on
   };
   const inspect = async (origin = address) => {
     operation.current?.dispose(); const next = operation.current = new NativeServerSignIn();
-    const value = await next.inspect(origin); if (!lifetime.current) return; setServer(value);
+    const value = await next.inspect(origin); if (!lifetime.current) return;
+    if (next.needsIdentityCode()) {
+      routeOrigin(origin); identityOrigin.current = origin;
+      setIdentityAddress(origin.replace(/^https?:\/\//i, '').replace(/\/$/, ''));
+      setServer(undefined); setIdentityCode(''); setIdentityWrong(false); setStage('identity-code'); return;
+    }
+    if (!value) throw Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
+    setServer(value);
     if (value.signIn === 'portico') {setStage('uses-portico'); return;}
-    const identity = await next.inspectLocalIdentity(); if (lifetime.current) {setPin(identity); setStage('pin');}
+    await next.confirmLocal(await next.inspectLocalIdentity());
+    if (lifetime.current) {setServer(next.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}
+  };
+  const confirmCode = async (value = identityCode) => {
+    const matched = await operation.current!.confirmIdentityCode(value);
+    if (!lifetime.current) return;
+    if (!matched) {setIdentityWrong(true); return;}
+    const capturedOrigin = identityOrigin.current; if (!capturedOrigin) return;
+    setIdentityCode(''); setIdentityWrong(false); await inspect(capturedOrigin);
   };
   const choose = async (id: string, enteredPin?: string) => {await operation.current!.chooseProfile(id, enteredPin); onComplete();};
   const field = (label: string, value: string, change: (next: string) => void, secure = false) => <TextField key={label} label={label} value={value} onChangeText={change} secureTextEntry={secure} autoCapitalize="none" autoCorrect={false} editable={!busy}/>;
@@ -140,9 +156,15 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome'}: {on
       {nearby.map(value => <View key={value.origin} style={{gap: 4}}><Button variant="glass" disabled={busy} onPress={() => {setAddress(value.origin); void run(() => inspect(value.origin));}}>{value.server.name}</Button>
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{new URL(value.origin).host}</Text></View>)}</View>);
   if (stage === 'uses-portico') return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico));
-  if (stage === 'pin') return layout(t('accounts.signIn.confirmIdentity'), server!.name,
-    <Text selectable style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 20}]}>{t('connection.certificate.fingerprint', {fingerprint: pin!.fingerprint})}</Text>,
-    action('confirm-server', t('action.continue'), async () => {await operation.current!.confirmLocal(pin!); setServer(operation.current!.serverDescriptor()); if (Platform.isTV) await startTV('local'); else setStage('local');}));
+  if (stage === 'identity-code') return <StateLayout testID="accounts-identity-code" title={t('connection.identity.checkTitle', {server: identityAddress})} body={t('connection.identity.checkBody')}
+    kicker={Platform.isTV ? undefined : <View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{identityAddress}</Text></View>}
+    beforeActions={<>{fields(<TextField label={t('connection.identity.codeLabel')} value={identityCode} autoCapitalize="characters" autoCorrect={false} editable={!busy}
+      error={identityWrong ? t('connection.identity.codeWrong') : undefined} onChangeText={value => {
+        const raw = value.toUpperCase().replace(/[\s-]/g, '').slice(0, 12), shown = raw.match(/.{1,4}/g)?.join('-') ?? '';
+        setIdentityCode(shown); setIdentityWrong(false); if (Platform.isTV && raw.length === 12) void run(() => confirmCode(shown));
+      }}/>) }{status}</>}
+    primaryAction={Platform.isTV ? undefined : action('check-code', t('action.continue'), () => confirmCode(), identityCode.replace(/-/g, '').length !== 12)}
+    secondaryAction={backAction} help={t('connection.identity.checkHome')}/>;
   if (stage === 'local') return layout(server!.name, t('accounts.signIn.local'), fields(field(t('auth.username'), username, setUsername), field(t('auth.password'), password, setPassword, true)),
     action('local-sign-in', t('auth.signIn'), async () => {consume(await operation.current!.signInLocal(username, password)); setPassword('');}, !username || !password),
     <Button variant="text" disabled={busy} onPress={() => {void run(() => startTV('local'));}}>{t('auth.useCodeFromAnotherDevice')}</Button>);

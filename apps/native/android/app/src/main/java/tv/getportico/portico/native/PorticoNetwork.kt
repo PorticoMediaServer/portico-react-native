@@ -16,6 +16,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableType
 import com.facebook.react.bridge.WritableMap
 import java.io.IOException
@@ -135,6 +136,14 @@ class PorticoNetwork(context: ReactApplicationContext) : PorticoEventModule(cont
 
   @ReactMethod
   fun forgetCertificate(origin: String?) = PorticoServerTrust.forget(origin)
+
+  @ReactMethod
+  fun forgetServerCertificates(serverId: String?, origins: ReadableArray?, promise: Promise) {
+    val values = origins?.toArrayList()?.mapNotNull { it as? String }
+    if (serverId == null || origins == null || values == null || values.size != origins.size() || values.size > 256 ||
+        !PorticoServerTrust.forgetServer(serverId, values)) promise.reject("certificate_storage", "certificate_storage")
+    else promise.resolve(null)
+  }
 
   /** Every certificate pinned on this device: its `host:port`, fingerprint and proving server. */
   @ReactMethod
