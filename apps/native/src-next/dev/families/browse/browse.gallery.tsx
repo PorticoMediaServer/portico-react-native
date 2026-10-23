@@ -263,7 +263,7 @@ function TrackCase({chapters = false, compact = false, songs = false, topSongs =
   const actions = {onPlay: setPlaying, onMore: setMenuId, onToggleFavorite: (id: string, checked: boolean) => setFavorite(previous => {const next = new Set(previous); if (checked) next.add(id); else next.delete(id); return next;})};
   const row = rows.find(item => item.id === menuId);
   return <BrowseStage height={600}><View style={{height: theme.isTV ? 900 : 500}}>
-    {compact ? rows.map(item => <SongRow key={item.id} row={item} {...actions} onLongPress={() => selection.onEnter(item.id)} selected={selected.has(item.id)}
+    {compact ? rows.map(item => <SongRow key={item.id} row={item} {...actions} onEnter={() => selection.onEnter(item.id)} selected={selected.has(item.id)}
       selection={selecting ? renderSelectionControl(item, selected.has(item.id), () => selection.onToggle(item.id)) : undefined}
       onSelectionChange={selecting ? () => selection.onToggle(item.id) : undefined}/>)
       : songs ? <TrackTable variant="songs" collection={collection} selection={selection} sort={sort} sortable={['title', 'artist', 'album', 'duration', 'plays', 'added']} onSort={column => setSort(previous => ({column, direction: previous.column === column && previous.direction === 'asc' ? 'desc' : 'asc'}))} {...actions}/>
