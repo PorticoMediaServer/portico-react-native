@@ -80,12 +80,16 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     ...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')},
   ]} contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20}}/>;
   const play = () => {void controller.play().catch(props.reportError);};
+  const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
+    if (watch && fence && !watch.source.retired && sameFence(watch.playback.getSnapshot().fence, fence)) void watch.playback.toggle(fence).catch(props.reportError);
+  };
   const header = !theme.isTV && !props.watch && <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, zIndex: 10, backgroundColor: collapsed ? theme.colors.ink : 'transparent'}}>
     <Button testID="watch-title-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={props.back}/>
     {collapsed && <Text numberOfLines={1} style={[theme.type.bodyStrong, {flex: 1, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>}
   </View>;
   if (loading && !detail && !workspace) return <TitleSkeleton elapsedMs={elapsed} pressed={{title, ...(source ? {art: {source, foreground}} : {})}}
-    shell={header} tabs={tabs} playAction={snapshot.entry.playback ? {id: 'play', label: t('action.play'), onPress: play} : undefined}/>;
+    shell={header} tabs={tabs} playAction={props.watch ? {id: 'toggle', label: t(props.watch.source.playback.intent === 'playing' ? 'action.pause' : 'action.play'), onPress: toggle}
+      : snapshot.entry.playback ? {id: 'play', label: t('action.play'), onPress: play} : undefined}/>;
   const error = show ? snapshot.workspace?.error : snapshot.detail?.error;
   if (error && !detail && !workspace) return <View style={{flex: 1}}>{props.renderError(error, () => {void (show ? controller.workspace.retry() : controller.detail.refresh()).catch(props.reportError);})}{header}</View>;
   const primary = detail?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over');
@@ -100,9 +104,6 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const remaining = watching && Number.isFinite(watching.playback.positionSeconds) && watching.playback.positionSeconds >= 0
     ? durationText(Math.max(0, watching.playback.duration - watching.playback.positionSeconds), text.t) : undefined;
   const shownFacts = props.watch ? [...facts.filter(fact => fact.id !== 'duration'), ...(remaining ? [{id: 'remaining', text: text.t('next.kit.remaining', {time: remaining}), role: 'supplement' as const}] : [])] : facts;
-  const toggle = () => {const watch = props.watch, fence = watch?.source.fence;
-    if (watch && fence && !watch.source.retired && sameFence(watch.playback.getSnapshot().fence, fence)) void watch.playback.toggle(fence).catch(props.reportError);
-  };
   const episodes = snapshot.episodes;
   const remember = (y: number) => {
     setCollapsed(old => (y > heroHeight - 50) === old ? old : y > heroHeight - 50);
