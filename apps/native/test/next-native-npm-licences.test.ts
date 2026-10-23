@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {splitCopyright} from '../../../packages/client-core/src/licences/inventory.ts';
 import type {LicenceData} from '../../../packages/client-core/src/presentation/licences.ts';
 import {nativeNpmComponents, type NativeNpmEntry, type NativeClient} from '../scripts/native-npm-licences.mts';
 
@@ -55,7 +56,9 @@ test('generated native licences include required blur, mask and gestures once an
       const upstream = readFileSync(new URL(`../node_modules/${name}/${registration.licenceFile}`, import.meta.url), 'utf8');
       assert.equal(createHash('sha256').update(upstream).digest('hex'), registration.licenceSHA256);
       assert.equal(typeof component.text, 'number');
-      assert.equal(data.texts[component.text!], upstream.trim());
+      const licence = splitCopyright(upstream);
+      assert.equal(data.texts[component.text!], licence.body);
+      assert.deepEqual(component.copyright ?? [], licence.copyright);
       assert.equal(component.textPending, undefined);
     }
     if (client === 'android') {
