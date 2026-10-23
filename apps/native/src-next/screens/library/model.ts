@@ -1,5 +1,5 @@
 import type {Library} from '../../../../../packages/client-core/src';
-import {BrowseQueryBuilder, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
+import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
@@ -21,6 +21,7 @@ export type NativeLibrarySnapshot = Readonly<{
   capabilities?: BrowseCapabilities;
   predicates: readonly BrowseNode[];
   queryRevision: number;
+  unfilteredTotal?: BrowseRememberedTotal;
   sort?: BrowseSortSelection;
   collection?: WindowedCollection<ContentEntry>;
   discover: LibraryContentSnapshot;
@@ -43,6 +44,7 @@ export class NativeLibraryDestination {
   private pending?: Promise<void>;
   private pendingTab?: LibraryTabId;
   private readonly filters = new Set<NativeLibraryFilterDraft>();
+  private readonly totals = new BrowseTotalsMemory();
 
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
@@ -81,7 +83,7 @@ export class NativeLibraryDestination {
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (tab.shows === 'rows') {
@@ -126,6 +128,9 @@ export class NativeLibraryDestination {
       }
       if (result.pivot !== tab.pivot || result.pageInfo.start !== start || result.entries.length > count) throw new Error('native_library_page_mismatch');
       revision ??= result.pageInfo.revision || undefined;
+      const base = tab.fixedFilter ?? [];
+      const total = this.totals.observe(JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]), result, JSON.stringify(predicates) === JSON.stringify(base));
+      if (this.state.tab === tab && this.state.predicates === predicates && this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
       return {items: result.entries, total: result.pageInfo.total, totalIsLowerBound: result.pageInfo.totalIsLowerBound,
         positionIndex: Object.fromEntries(result.positionIndex.map(value => [value.key, value.index]))};
     };
@@ -135,8 +140,9 @@ export class NativeLibraryDestination {
     const {capabilities, tab, collection} = this.state;
     this.build(capabilities, tab, predicates, sort, 0, 1);
     this.retireFilters();
-    collection.invalidate(this.pages(capabilities, tab, predicates, sort));
-    this.publish({predicates: Object.freeze([...predicates]), queryRevision: this.state.queryRevision + 1, sort, memory: {firstVisibleIndex: 0, offset: 0}});
+    const next = Object.freeze([...predicates]);
+    collection.invalidate(this.pages(capabilities, tab, next, sort));
+    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, sort, memory: {firstVisibleIndex: 0, offset: 0}});
   };
   setQuick = (id: string, enabled: boolean): void => {
     const preset = this.state.capabilities?.quickFilters.find(value => value.id === id);
@@ -166,10 +172,10 @@ export class NativeLibraryDestination {
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
-    this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose();
+    this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose(); this.totals.clear();
     this.memory = {firstVisibleIndex: 0, offset: 0};
     this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined,
-      discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, error: undefined});
+      discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, unfilteredTotal: undefined, error: undefined});
     this.listeners.clear();
   };
 }

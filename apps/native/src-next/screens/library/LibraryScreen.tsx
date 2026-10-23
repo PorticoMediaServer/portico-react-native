@@ -137,7 +137,12 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     registered.current?.(); registered.current = selection?.register(destination.getSnapshot(), entries, firstIndex, lastIndex);
   }, [collection, destination, selection]);
   const changedOffset = useCallback((measured: number) => {offset.current = measured; destination.remember(range.current.first, measured);}, [destination]);
-  const count = state.total === undefined ? undefined : defaultI18n.t(state.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: state.total, pivot: source.tab.pivot ?? 'other'});
+  const base = source.tab.fixedFilter ?? [], filtered = JSON.stringify(source.predicates) !== JSON.stringify(base);
+  const total = source.unfilteredTotal;
+  const count = state.total === undefined ? undefined : filtered && total
+    ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(state.total)}${state.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
+      total: defaultI18n.t(total.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total.total, pivot: source.tab.pivot ?? 'other'})})
+    : defaultI18n.t(state.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: state.total, pivot: source.tab.pivot ?? 'other'});
   const width = theme.isTV ? 200 : Math.floor((dimensions.width - 62) / 3), gap = theme.isTV ? 32 : 10;
   const columns = theme.isTV ? 7 : 3;
   return <View style={{flex: 1}}>

@@ -174,3 +174,20 @@ test('An actual Library query change or destination disposal retires its open fi
     const next = destination.createFilters(); destination.dispose(); assert.equal(next.getSnapshot().open, false);
   } finally {destination.dispose();}
 });
+
+test('Library remembers the actual unfiltered total without another count read when a filter is applied', async () => {
+  const paths: string[] = [];
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, raw?: unknown) => {
+    paths.push(path); if (path.includes('capabilities')) return capabilities as T;
+    const body = raw as BrowseRequestBody; return page(body, body.query ? 10 : 80) as T;
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load(); await tick(); assert.equal(destination.getSnapshot().unfilteredTotal?.total, 80);
+    destination.setQuick('favorites', true); await tick();
+    assert.equal(destination.getSnapshot().collection?.getSnapshot().total, 10);
+    assert.equal(destination.getSnapshot().unfilteredTotal?.total, 80);
+    assert.equal(paths.some(path => path.includes('/counts')), false, 'the grid preserves its last real broad page total');
+    destination.dispose(); assert.equal(destination.getSnapshot().unfilteredTotal, undefined);
+  } finally {destination.dispose();}
+});
