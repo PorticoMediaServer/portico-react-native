@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {NativeShellNavigation, channelRoute, titleRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation, channelRoute, titleRoute, nativeDestinationActivation, nativeRailDestination} from '../src-next/shell/routes';
 import type {ShellAuthority} from '../src-next/shell/model';
 import type {HomeChannel} from '../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
@@ -53,4 +53,48 @@ test('Back returns through actual requests and disposal invalidates subsequent c
   assert.equal(routes.back(authority), false);
   routes.dispose();
   assert.equal(routes.open({kind: 'account'}, authority), false);
+});
+
+for (const destination of [{kind: 'search'}, {kind: 'saved'}, {kind: 'library', libraryId: 'movies'}] as const) test(`actual ${destination.kind} activation distinguishes entry, hidden title, Back restoration and top`, () => {
+  const routes = new NativeShellNavigation(authority, () => authority), activation = nativeDestinationActivation(routes, destination);
+  const initial = activation.getSnapshot();
+  assert.deepEqual(initial, {visible: false, intent: 'enter', revision: 0});
+  assert.strictEqual(activation.getSnapshot(), initial);
+  const observed: unknown[] = [], unsubscribe = activation.subscribe(() => observed.push(activation.getSnapshot()));
+  assert.equal(routes.open({kind: 'shell', destination}, authority), true);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'enter', revision: 1});
+  const title: ContentEntry = {id: 'item', libraryId: 'movies', kind: 'movie', title: 'Actual title'};
+  routes.open(titleRoute(title), authority);
+  assert.equal(activation.getSnapshot().visible, false);
+  assert.strictEqual(routes.getSnapshot().destination, destination, 'title does not replace the mounted origin');
+  assert.equal(routes.top(destination, authority), false, 'hidden page cannot receive a scroll-to-top request');
+  routes.back(authority);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'restore', revision: 3});
+  assert.equal(routes.top({kind: 'settings'}, authority), false);
+  assert.equal(routes.top(destination, authority), true);
+  assert.deepEqual(activation.getSnapshot(), {visible: true, intent: 'top', revision: 4});
+  assert.equal(observed.length, 4);
+  routes.dispose();
+  assert.equal(activation.getSnapshot().visible, false);
+  assert.equal(observed.length, 5, 'retirement notifies the retained screen');
+  assert.equal(routes.top(destination, authority), false);
+  unsubscribe();
+});
+
+test('activation never admits a different library or retired viewer, and title rail identity does not rewrite history', () => {
+  let current = authority;
+  const routes = new NativeShellNavigation(authority, () => current), movies = nativeDestinationActivation(routes, {kind: 'library', libraryId: 'movies'});
+  routes.open({kind: 'shell', destination: {kind: 'library', libraryId: 'other'}}, authority);
+  assert.equal(movies.getSnapshot().visible, false);
+  routes.open(titleRoute({id: 'item', libraryId: 'movies', kind: 'movie', title: 'Actual title'}), authority);
+  assert.deepEqual(nativeRailDestination(routes.getSnapshot(), [{id: 'movies'}]), {kind: 'library', libraryId: 'movies'});
+  assert.deepEqual(nativeRailDestination(routes.getSnapshot(), []), {kind: 'library', libraryId: 'other'});
+  routes.back(authority);
+  assert.deepEqual(routes.getSnapshot().route, {kind: 'shell', destination: {kind: 'library', libraryId: 'other'}});
+  routes.open({kind: 'shell', destination: {kind: 'library', libraryId: 'movies'}}, authority);
+  assert.equal(movies.getSnapshot().visible, true);
+  current = {...authority, epoch: 'retired'};
+  assert.equal(movies.getSnapshot().visible, false);
+  assert.equal(routes.top({kind: 'library', libraryId: 'movies'}, authority), false);
+  routes.dispose();
 });
