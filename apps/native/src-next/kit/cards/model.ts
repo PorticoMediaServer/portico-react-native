@@ -20,10 +20,9 @@ export function activateCard(actions: CardActions): void {
   else actions.onNavigate();
 }
 
-/** Phone long press enters selection; a TV hold opens the caller's actual menu. */
+/** Q6: an active touch selection toggles; every other hold opens the caller's menu. */
 export function holdCard(actions: CardActions, isTV: boolean): void {
-  if (isTV) actions.onMore?.();
-  else if (actions.selection) actions.selection.onEnter();
+  if (!isTV && actions.selection?.active) actions.selection.onToggle();
   else actions.onMore?.();
 }
 

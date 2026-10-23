@@ -41,6 +41,7 @@ export type SidePanelProps = SurfaceProps & {
   width?: number;
   closeOnOutsidePress?: boolean;
   dismissOnBack?: boolean;
+  showClose?: boolean;
 };
 export type BottomSheetProps = SurfaceProps & {
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */
@@ -60,6 +61,8 @@ export type BottomSheetProps = SurfaceProps & {
   /** Authored footer padding; bottom includes the actual safe area minimum. */
   footerPadding?: {top: number; bottom: number; keyboardBottom: number};
   headerAction?: React.ReactNode;
+  /** Replaces only the standard heading row; context and sheet gestures remain. */
+  headerContent?: React.ReactNode;
 };
 export type PopoverProps = SurfaceProps & {
   anchorRef: React.RefObject<View | null>;
