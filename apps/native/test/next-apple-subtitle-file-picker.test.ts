@@ -8,6 +8,7 @@ const file = (patch: Record<string, unknown> = {}) => ({data: 'YQ==', format: 's
 const native = () => ({pick: async (_id: string): Promise<unknown> => file(), cancel: async (_id: string): Promise<unknown> => true});
 async function port(bridge: Record<string, unknown> | undefined = native(), id: unknown = async () => 'request-1', platform = {OS: 'ios', isTV: false}): Promise<ApplePicker> {
   return (await screenModule(new URL('../src-next/platform/playback/subtitle-file-picker.ios.ts', import.meta.url), {
+    react: {default: {}},
     'react-native': {NativeModules: {PorticoSubtitleFiles: bridge, PorticoRuntime: {newRequestId: id}}, Platform: platform},
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText},
   })).appleSubtitleFilePicker as ApplePicker;
