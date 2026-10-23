@@ -12,7 +12,7 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
   const theme = useTheme();
   const side = theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
@@ -45,13 +45,13 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     scroll.getNativeScrollRef()?.measureInWindow((_x, top, _width, height) => {
       input.measureInWindow((_inputX, inputTop, _inputWidth, inputHeight) => {
         if (TextInput.State.currentlyFocusedInput() !== input) return;
-        const visibleBottom = Math.min(top + height, keyboardTop) - footerHeight - 16;
+        const visibleBottom = Math.min(top + height, keyboardTop) - footerHeight - contentFooterGap;
         const obscured = inputTop + inputHeight - visibleBottom;
         if (obscured > 0) scroll.scrollTo({y: scrollOffset.current + obscured, animated: true});
       });
     });
   };
-  const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
+  const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + contentFooterGap;
   // A fitted phone must include the same clearance its ScrollView reserves.
   // Include the sheet border too, so the last content pixel clears the footer.
   const footerSpace = footer == null ? insets.bottom : side ? footerHeight : contentPadding + styles.sheet.borderTopWidth;
