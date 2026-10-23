@@ -51,6 +51,8 @@ export type FilterFieldState = FieldPresentation & (
 );
 export type FilterBuilderProps = Readonly<{
   model: Pick<BrowseToolbarModel, 'groups'>; labels: BrowseLabels; platform?: BrowsePlatform;
+  /** Actual caller region/authority namespace; field and value identities stay semantic. */
+  focusPrefix?: string;
   openFields: readonly string[]; onFieldOpenChange: (id: string, open: boolean) => void;
   fields: Readonly<Record<string, FilterFieldState | undefined>>;
   onFieldChange: (id: string, value: FilterFieldValue) => void;
