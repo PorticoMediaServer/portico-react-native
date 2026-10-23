@@ -38,7 +38,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const activeRoute = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
-  const scroll = useRef<ScrollView>(null), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
+  const scroll = useRef<ScrollView>(null), grid = useRef<FlatList<SearchEntry>>(null), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
   const groups = useMemo(() => orderedSearchGroups(state.groups), [state.groups]);
   const typed = state.text.trim().length > 0;
   const empty = typed && state.search.phase === 'ready' && state.groups.every(group => group.status === 'success' && group.totalCount === 0);
@@ -47,7 +47,10 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const run = useCallback((work: Promise<void>) => {void work.catch(runtime.reportError);}, [runtime]);
   useEffect(() => {run(destination.refreshHistory()); run(explore.load());}, [destination, explore, run]);
   useEffect(() => selection?.register(state.search, state.groups), [selection, state.groups, state.search]);
-  useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.isTV, theme.reduceMotion]);
+  useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => {
+    scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion});
+    grid.current?.scrollToOffset({offset: 0, animated: !theme.reduceMotion});
+  }), [runtime, theme.isTV, theme.reduceMotion]);
   useEffect(() => {
     if (!loading) {setElapsed(0); return;}
     const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
@@ -110,7 +113,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>
       </React.Fragment>)}
       {loading && <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={Math.max(0, dimensions.height - 180)} width={dimensions.width} columns={3} totalCount={9}/>}
-    </ScrollView> : <FlatList key={state.group} data={active?.items ?? []} numColumns={3} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+    </ScrollView> : <FlatList ref={grid} key={state.group} data={active?.items ?? []} numColumns={3} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
       keyExtractor={entry => nativeSearchEntryKey(state.group as SearchGroup, entry)} contentContainerStyle={{padding: 16, gap: 16, paddingBottom: 28}}
       columnWrapperStyle={{gap: 10}} onEndReachedThreshold={.5} onEndReached={() => {if (active?.nextCursor && state.search.phase === 'ready') run(destination.next(active.id));}}
       renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(dimensions.width - 52) / 3}/>}
