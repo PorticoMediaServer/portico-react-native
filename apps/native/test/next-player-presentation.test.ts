@@ -30,14 +30,19 @@ test('Q7 flat-tall and closed return the full-width watch picture without splitt
   }
 });
 
-test('Q7 half-book3b becomes3g: left picture/right episodes exclude the physical band plus16pt', () => {
+test('8123g keeps the picture on its physical page and touchable chrome outside the padded hinge band', () => {
   const fold: PlayerFold = {...vertical, state: 'half-opened', bounds: {...vertical.bounds, left: 437, right: 453}};
   const p = resolvePlayerPresentation(input(890, 626, [fold]))!;
   assert.equal(p.mode, 'book');
   assert.deepEqual(p.hingeBand, {x: 421, y: 0, width: 48, height: 626});
-  assert.equal(p.surface!.x + p.surface!.width, 421);
+  assert.equal(p.surface!.x + p.surface!.width, fold.bounds.left);
   assert.deepEqual(p.content, {x: 469, y: 0, width: 421, height: 626});
-  assert.ok(p.picture!.x + p.picture!.width <= p.hingeBand!.x);
+  assert.equal(p.controls!.x + p.controls!.width, p.hingeBand!.x);
+  assert.equal(p.details!.x + p.details!.width, p.hingeBand!.x);
+  assert.equal(p.picture!.x + p.picture!.width, fold.bounds.left, 'the picture never crosses the physical hinge');
+  const duo = resolvePlayerPresentation(input(890, 626, [{...vertical, state: 'half-opened'}]))!;
+  assert.deepEqual(duo.picture, {x: 0, y: 0, width: 445, height: 250.3125});
+  assert.equal(duo.controls!.width, 429, '3g top/bottom/seek chrome ends16pt short of the crease');
 });
 
 test('tabletop4/5 keep picture above the horizontal hinge and all controls below, always shown', () => {

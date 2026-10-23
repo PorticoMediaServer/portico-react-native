@@ -67,10 +67,12 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
     // foldable9: the physical fold plus16pt on each side is reserved in a half fold.
     if (fold.orientation === 'vertical') {
       const left = Math.max(0, b.left - 16), right = Math.min(width, b.right + 16);
-      const surface = rect(0, 0, left, Math.min(height, left * 9 / 16)), content = rect(right, 0, width - right, height);
-      return {...common, mode: 'book', surface, picture: surface, controls: surface, content,
+      // foldable3g keeps the picture at the physical page width (445pt on
+      // the Duo); .bk insets its controls/seek line16pt from the crease.
+      const surface = rect(0, 0, b.left, Math.min(height, b.left * 9 / 16)), content = rect(right, 0, width - right, height);
+      return {...common, mode: 'book', surface, picture: surface, controls: rect(0, 0, left, surface.height), content,
         details: rect(0, surface.height, left, height - surface.height),
-        panel: panelOpen ? content : undefined, hingeBand: rect(left, 0, right - left, height)};
+        panel: panelOpen ? rect(b.right, 0, width - b.right, height) : undefined, hingeBand: rect(left, 0, right - left, height)};
     }
     const top = Math.max(0, b.top - 16), bottom = Math.min(height, b.bottom + 16);
     const surface = rect(0, 0, width, top), controls = rect(0, bottom, width, height - bottom);
