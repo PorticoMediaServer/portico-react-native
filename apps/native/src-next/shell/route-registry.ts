@@ -73,7 +73,7 @@ export class NativeShellRouteRegistry {
     };
     const current = () => alive && context.current();
     return Object.freeze({
-      render: (route, runtime) => current() ? renderer(route)?.render(route, runtime) : null,
+      render: (route, runtime) => current() && context.navigation.allows(route) ? renderer(route)?.render(route, runtime) : null,
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current()) renderer(route)?.scrollToTop?.(route);},

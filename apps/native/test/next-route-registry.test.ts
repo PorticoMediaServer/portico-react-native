@@ -9,8 +9,8 @@ const search = {kind: 'shell', destination: {kind: 'search'}} as const;
 
 test('screen-owned factories share no instance across restored viewer lifetimes', () => {
   const registry = new NativeShellRouteRegistry(), created: unknown[] = [], disposed: unknown[] = [];
-  const first = {current: () => true} as NativeShellBootstrapContext;
-  const second = {current: () => true} as NativeShellBootstrapContext;
+  const first = {current: () => true, navigation: {allows: () => true}} as NativeShellBootstrapContext;
+  const second = {current: () => true, navigation: {allows: () => true}} as NativeShellBootstrapContext;
   registry.registerDestination('search', context => {created.push(context); return {render: () => created.indexOf(context), dispose: () => {disposed.push(context);}};});
   const a = registry.bind(first), b = registry.bind(second);
   assert.deepEqual(created, [], 'a registry import does not create a controller');
@@ -29,7 +29,7 @@ test('a destination module coexists with the legacy shell renderer and route mod
   registry.register('shell', {render: () => 'legacy'});
   registry.registerDestination('search', () => ({render: () => 'search', scrollToTop: () => {top++;}}));
   registry.registerRoute('home-customize', () => ({render: () => 'customize'}));
-  const bound = registry.bind({current: () => true} as NativeShellBootstrapContext);
+  const bound = registry.bind({current: () => true, navigation: {allows: () => true}} as NativeShellBootstrapContext);
   assert.equal(bound.render(search, runtime), 'search');
   assert.equal(bound.render({kind: 'shell', destination: {kind: 'home'}}, runtime), 'legacy');
   assert.equal(bound.render({kind: 'home-customize'}, runtime), 'customize');
@@ -43,7 +43,7 @@ test('unregister retires only the actual module instance and a replacement is cr
   const registry = new NativeShellRouteRegistry(); let disposed = 0;
   const create: NativeRouteFactory = () => ({render: () => 'old', dispose: () => {disposed++;}});
   const unregister = registry.registerDestination('saved', create);
-  const bound = registry.bind({current: () => true} as NativeShellBootstrapContext);
+  const bound = registry.bind({current: () => true, navigation: {allows: () => true}} as NativeShellBootstrapContext);
   const saved = {kind: 'shell', destination: {kind: 'saved'}} as const;
   assert.equal(bound.render(saved, runtime), 'old');
   unregister(); assert.equal(disposed, 1); assert.equal(bound.render(saved, runtime), undefined);
@@ -54,7 +54,7 @@ test('unregister retires only the actual module instance and a replacement is cr
 
 test('Watch uses the same captured context/runtime, and retired authority cannot create or render modules', () => {
   const registry = new NativeShellRouteRegistry(); let current = true, created = 0, disposed = 0;
-  const context = {current: () => current} as NativeShellBootstrapContext;
+  const context = {current: () => current, navigation: {allows: () => true}} as NativeShellBootstrapContext;
   const unregister = registry.registerWatch(value => {
     assert.equal(value, context); created++;
     return {render: actual => {assert.equal(actual, runtime); return 'watch';}, back: () => true, dispose: () => {disposed++;}};
@@ -66,4 +66,12 @@ test('Watch uses the same captured context/runtime, and retired authority cannot
   assert.equal(bound.back(), true);
   current = false; assert.equal(bound.renderWatch(runtime), null); assert.equal(bound.back(), false);
   unregister(); assert.equal(disposed, 1); bound.dispose(); assert.equal(disposed, 1);
+});
+
+test('the installed navigation policy rejects a direct render before its factory sees private data', () => {
+  const registry = new NativeShellRouteRegistry(); let created = 0;
+  registry.registerDestination('library', () => {created++; return {render: () => 'library'};});
+  const bound = registry.bind({current: () => true, navigation: {allows: () => false}} as NativeShellBootstrapContext);
+  assert.equal(bound.render({kind: 'shell', destination: {kind: 'library', libraryId: 'restricted'}}, runtime), null);
+  assert.equal(created, 0); bound.dispose();
 });
