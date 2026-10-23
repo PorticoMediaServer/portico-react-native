@@ -1,6 +1,6 @@
 import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
-import {directSignIn, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
+import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
 import {porticoSignIn} from '../../../../packages/client-core/src/portico-servers';
@@ -42,10 +42,21 @@ export class NativeServerSignIn {
   private publishing = false;
   private disposeRequested = false;
   private readonly issued = new Map<string, LocalSession>();
-  constructor(owner: NativeAccounts = nativeAccounts) {this.owner = owner; this.unfence = owner.onCancel(() => this.cancel());}
+  private readonly requiredSetupHandoff: boolean;
+  constructor(owner: NativeAccounts = nativeAccounts, options: {requiredSetupHandoff?: boolean} = {}) {
+    this.owner = owner; this.requiredSetupHandoff = options.requiredSetupHandoff === true;
+    this.unfence = owner.onCancel(() => this.cancel());
+  }
   private current = () => !this.controller.signal.aborted && installationIdentity() === this.installation;
   private assertCurrent = () => {if (!this.current()) throw cancelled(); if (!this.installation) throw mismatch();};
   serverDescriptor() {this.assertCurrent(); if (!this.server) throw mismatch(); return this.server;}
+  /** Public hand-offs use the connected, identity-verified server origin. The
+   * address being typed or an unconfirmed discovery/proof is never a source. */
+  serverOrigin(): string {
+    this.assertCurrent();
+    if (!this.api || !this.server) throw mismatch();
+    return routeOrigin(this.api.baseUrl);
+  }
   needsIdentityCode() {this.assertCurrent(); return !!this.pendingIdentity && pendingCertificate(this.pendingIdentity.origin) === this.pendingIdentity;}
   confirmIdentityCode(code: string) {return this.run(async () => {
     if (!this.pendingIdentity) throw mismatch();
@@ -151,7 +162,20 @@ export class NativeServerSignIn {
       this.assertCurrent();
       if (!this.api || !this.server || result.snapshot.serverId !== this.server.id || session.installationId !== this.installation?.installationId) throw mismatch();
       this.api.setAccessToken(session.accessToken); this.snapshot = result.snapshot; this.challenge = undefined;
-      if (result.passwordChangeRequired) throw Object.assign(new Error('password_change_required'), {code: 'password_change_required'});
+      const continuation = directSignInContinuation(result);
+      if (continuation === 'password-change' || continuation === 'two-step-setup') {
+        const requirement = continuation === 'password-change' ? 'password' as const : 'two-step' as const;
+        const publicServer = this.requiredSetupHandoff && this.server.signIn === 'local'
+          ? {serverName: this.server.name, serverOrigin: this.serverOrigin()} : undefined;
+        // Ruling 31: a TV keeps no restricted grant while showing the public
+        // hand-off. Logout uses the issued credential, never the selected viewer.
+        this.api.setAccessToken(''); this.account = undefined; this.snapshot = undefined; this.challenge = undefined;
+        await this.retire(session).catch(() => {});
+        this.assertCurrent();
+        if (!publicServer) throw Object.assign(new Error('native_required_account_setup'),
+          {code: requirement === 'password' ? 'password_change_required' : 'two_step_setup_required'});
+        return {kind: 'required-setup' as const, requirement, ...publicServer};
+      }
       if (result.accountScoped) {this.account = session; return {kind: 'profiles' as const, profiles: result.snapshot.profiles};}
       await this.persist(session); return {kind: 'complete' as const};
     } catch (error) {await this.retire(session); throw error;}

@@ -8,6 +8,7 @@ import {createNativeWatchPanelNames} from '../src-next/screens/watch/panel-names
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = hooks();
+const menuCalls: any[][] = [];
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
   react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
@@ -16,7 +17,7 @@ const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new
   './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {optionsDisposed++;}}},
   './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {title: {render: () => 'title'}, watch: {
     render: (runtime: any) => ports.player.chrome(ports.playback.getSnapshot(), runtime), body: () => 'body', back: () => true,
-  }, dispose: () => {screensDisposed++;}};}},
+  }, menu: async (...args: any[]) => {menuCalls.push(args);}, dispose: () => {screensDisposed++;}};}},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'v2', entryId: 'entry', generation: 3});
@@ -43,13 +44,26 @@ test('module preserves the genuine adapter/outlet, current preferences, body and
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}), api: {},
     subscribeAuthority() {}, navigation: {}, playback, watch: outlet,
     preferences: () => ({effective: {'playback.skipBackMs': back, 'playback.skipForwardMs': forward}})};
-  const module = createNativeWatchModule(context, {names, title: {renderError() {}}, presentation: (value: any) => {layouts.push(value);}});
+  const menuListeners = new Set<() => void>();
+  const entry = {id: 'member', kind: 'movie', libraryId: 'library', title: 'Member'};
+  let opened: any;
+  const module = createNativeWatchModule(context, {names, title: {renderError() {}, menu: {getSnapshot: () => opened, subscribe: (listener: () => void) => {menuListeners.add(listener); return () => menuListeners.delete(listener);}}}, presentation: (value: any) => {layouts.push(value);}});
   const runtime = {reportError: (error: any) => {errors.push(error);}};
+  const memberCurrent = () => true, anchorRef = {current: null};
+  await module.entryMenu.open(entry, memberCurrent, anchorRef);
+  assert.deepEqual(menuCalls, [[entry, memberCurrent, anchorRef]]);
+  assert.equal(module.entryMenu.isOpen(entry), false); opened = {...entry};
+  assert.equal(module.entryMenu.isOpen(entry), true);
+  assert.equal(module.entryMenu.isOpen({...entry, libraryId: 'other'}), false);
+  const listener = () => {}; const unsubscribe = module.entryMenu.subscribe(listener);
+  assert.equal(menuListeners.has(listener), true); unsubscribe(); assert.equal(menuListeners.size, 0);
   assert.equal(captured.playback, playback); assert.equal(captured.watch, outlet); assert.equal(captured.isCurrent(), true);
   let chrome = module.render(runtime); assert.equal(chrome.skipBackSeconds, 5); assert.equal(chrome.skipForwardSeconds, 60);
   back = 15000; forward = 30000; chrome = module.render(runtime); assert.equal(chrome.skipBackSeconds, 15); assert.equal(chrome.skipForwardSeconds, 30);
   chrome.onMinimize(fence); await Promise.resolve(); assert.deepEqual(transitions, [transition]);
   assert.equal(captured.player.content({}), 'body'); assert.equal(module.back(), true);
   live = false; assert.equal(module.render(runtime), null); assert.equal(module.back(), false); assert.equal(captured.isCurrent(), false);
+  await module.entryMenu.open(entry, memberCurrent, anchorRef); assert.equal(menuCalls.length, 1);
+  assert.equal(module.entryMenu.isOpen(entry), false);
   module.dispose(); module.dispose(); assert.equal(optionsDisposed, 1); assert.equal(screensDisposed, 1); assert.deepEqual(layouts, [undefined]); assert.deepEqual(errors, []);
 });

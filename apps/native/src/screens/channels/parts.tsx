@@ -2,13 +2,10 @@ import React from 'react';
 import {View} from 'react-native';
 import {unavailableMessage} from '../../../../../packages/client-core/src/channel-guide';
 import type {GuideChannelRow} from '../../../../../packages/client-core/src/guide/index';
-import {profileArtColors} from '../../../../../packages/design/src/index';
+import {channelTint} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {useArtwork} from '../../app/content';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Artwork, Icon, Text, alpha, useTheme} from '../../ui';
-import {initials, tintIndex} from './format';
-
-const tints = Object.values(profileArtColors);
 
 /**
  * Why a channel can't be watched, in viewer language (catalogue text), or ''. `quiet`: the whole
@@ -18,7 +15,7 @@ export const channelReason = (channel: GuideChannelRow, quiet = false): string =
 /** Rows of channels that can't be watched are dimmed, unless the reason is the server's (FEAT-01). */
 export const channelDimmed = (channel: GuideChannelRow, quiet = false): boolean => !channel.tuneAvailable && !quiet;
 
-/** §2.1: the source logo letterboxed on a raised tile, or initials on a tint stable for the channel. Never a broken image. */
+/** The source logo wins; a monogram uses only the producer's authoritative mark. */
 export const ChannelLogo = React.memo(function ChannelLogo({channel, size}: {channel: GuideChannelRow; size: number}) {
   const artwork = useArtwork();
   const {colors, metrics} = useTheme();
@@ -30,8 +27,8 @@ export const ChannelLogo = React.memo(function ChannelLogo({channel, size}: {cha
     );
   }
   return (
-    <View accessible={false} style={{width: size, height: size, borderRadius: metrics.radius.small, backgroundColor: tints[tintIndex(channel.id, tints.length)], alignItems: 'center', justifyContent: 'center'}}>
-      <Text variant={size >= 64 ? 'subheading' : 'captionStrong'} style={{color: colors.white}}>{initials(channel.name)}</Text>
+    <View accessible={false} style={{width: size, height: size, borderRadius: metrics.radius.small, backgroundColor: channel.mark ? channelTint(channel.mark.seed) : colors.raisedHigh, alignItems: 'center', justifyContent: 'center'}}>
+      {channel.mark && <Text variant={size >= 64 ? 'subheading' : 'captionStrong'} style={{color: colors.white}}>{channel.mark.text}</Text>}
     </View>
   );
 });
