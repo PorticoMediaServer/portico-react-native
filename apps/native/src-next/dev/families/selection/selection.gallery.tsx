@@ -11,7 +11,7 @@ import {CoverMosaic, Artwork, type ArtworkSource} from '../../../kit/artwork/ind
 import {PosterCard} from '../../../kit/cards/index';
 import {Button} from '../../../kit/controls/Button';
 import {OverlaysProvider} from '../../../kit/overlays/index';
-import {OwnerTag, ServerAudienceTag} from '../../../kit/shell/index';
+import {OwnerTag, ServerMark, ServerAudienceTag} from '../../../kit/shell/index';
 import {SelectionBar, SelectionPhoneActionBar, BulkEditor, PlaylistPicker, CollectionPicker, DeleteMediaDialog, MixedEditExplainer, bulkReceiptView, type BulkChanges, type BulkEditorProps, type DeleteMediaDialogProps, type DestinationPickerProps, type PickerEntry, type PickerResult, type SelectionAction, type SelectionActionOffer} from '../../../kit/selection/index';
 import {SelectionText} from '../../../kit/selection/surface';
 import {useTheme} from '../../../kit/theme';
@@ -20,7 +20,7 @@ import {referenceFields, referenceSingleItemFields} from './reference-fields';
 // Static reference observations are DEV-only. Mutations require genuine supplied evidence.
 type SelectionGallerySnapshot = Readonly<{picker?: DestinationPickerProps; editor?: BulkEditorProps; deletion?: DeleteMediaDialogProps}>;
 type SelectionGalleryEvidence = {getSnapshot: () => SelectionGallerySnapshot; subscribe: (changed: () => void) => () => void};
-declare global {var __porticoNativeSelectionEvidence: SelectionGalleryEvidence | undefined;}
+declare global {var __porticoNativeSelectionEvidence: SelectionGalleryEvidence | undefined; var __PORTICO_NATIVE_SELECTION_PREVIEW_URL__: string | undefined;}
 function requireSelectionEvidence(): never {
   throw new Error('Selection gallery mutations require complete props from the actual fenced controller evidence adapter.');
 }
@@ -47,7 +47,7 @@ const collectionKeys = ['animation', 'adventure', 'favorites'] as const;
 const actionIds: readonly SelectionAction[] = ['play', 'queue', 'playlist', 'myList', 'more', 'playNext', 'playLater', 'watched', 'unwatched', 'collection', 'favorite', 'download', 'edit', 'refresh', 'delete'];
 const actions: readonly SelectionActionOffer[] = actionIds.map(id => ({id}));
 type Scenario = keyof typeof fixture.scenarios;
-function SelectionExample({scenario, deniedDestination = false}: {scenario: Scenario; deniedDestination?: boolean}) {
+function SelectionExample({scenario, deniedDestination = false, previewReadURL}: {scenario: Scenario; deniedDestination?: boolean; previewReadURL?: string}) {
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const prefix = `dev.selection.${deniedDestination ? 'picker-admission' : scenario}`;
   const [evidence, setEvidence] = useState(() => globalThis.__porticoNativeSelectionEvidence?.getSnapshot());
@@ -59,6 +59,16 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     update();
     return unsubscribe;
   }, []);
+  const [previewRead, setPreviewRead] = useState<{loading: boolean; error?: string}>({loading: !!previewReadURL});
+  useEffect(() => {
+    if (!previewReadURL) return;
+    const request = new AbortController();
+    void fetch(previewReadURL, {signal: request.signal}).then(response => {
+      if (!response.ok) setPreviewRead({loading: false, error: defaultI18n.t('error.unavailable')});
+      else setPreviewRead({loading: false});
+    }, () => {if (!request.signal.aborted) setPreviewRead({loading: false, error: defaultI18n.t('error.unavailable')});});
+    return () => request.abort();
+  }, [previewReadURL]);
   const [selected, setSelected] = useState<readonly string[]>(scenario === 'circles' ? [movieEntries[0].id] : theme.isTV ? movieEntries.slice(0, 3).map(movie => movie.id) : movieEntries.map(movie => movie.id));
   const [menu, setMenu] = useState<'queue' | 'watched' | 'more' | null>(scenario === 'queue' ? 'queue' : scenario === 'more' ? 'more' : null);
   const [open, setOpen] = useState(true);
@@ -89,8 +99,8 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
   const bulkResult = bulkReceipts.length ? bulkReceiptView(bulkReceipts) : undefined;
   const close = (next: boolean) => setOpen(next);
   const onAction = (action: SelectionAction) => {setLastAction(action);};
-  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: fixture.selectionLabel, selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: <OwnerTag compact variant="badge" />};
-  const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 8}}><OwnerTag compact /></View>};
+  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: defaultI18n.t('next.selection.movie', {count: selected.length}), selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: <OwnerTag compact variant="badge" />};
+  const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 6, paddingBottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8}}><ServerMark variant="editorPhone" /><OwnerTag compact variant="badge" /></View>};
   const isPicker = ['playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario);
   const isEditor = ['editor', 'episodes', 'tracks', 'editResult'].includes(scenario);
   const editorKind = scenario === 'episodes' ? 'episode' : scenario === 'tracks' ? 'song' : 'movie';
@@ -118,7 +128,7 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
     {!open && !pickerResult ? <Button testID={`${prefix}.open`} size="compact" onPress={() => setOpen(true)}>{fixture.scenarios[scenario]}</Button> : null}
     {lastAction ? <SelectionText>{formatMessage(fixture.lastAction, {action: lastAction}, {locale: 'en-US'})}</SelectionText> : null}
     {isPicker ? React.createElement(collection ? CollectionPicker : PlaylistPicker, {
-      ...base, count: pickerCount, selectionLabel: theme.isTV ? fixture.tvSelectionLabel : fixture.selectionLabel, entries: windowEntries, query, onQueryChange: value => {setQuery(value); setPage(0);}, showFind: theme.isTV || matching.length > pageSize,
+      ...base, count: pickerCount, selectionLabel: defaultI18n.t('next.selection.movie', {count: pickerCount}), entries: windowEntries, query, onQueryChange: value => {setQuery(value); setPage(0);}, showFind: theme.isTV || matching.length > pageSize,
       creating, onCreatingChange: setCreating, name, onNameChange: setName,
       hasNext: windowStart + windowEntries.length < matching.length, hasPrevious: page > 0,
       onNext: windowStart + windowEntries.length < matching.length ? () => setPage(current => current + 1) : undefined,
@@ -137,7 +147,7 @@ function SelectionExample({scenario, deniedDestination = false}: {scenario: Scen
       singleItemFields={referenceSingleItemFields(editorKind)} summary={summary} {...evidence?.editor} /> : null}
     {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-music'] as const)[index]}))} onKeepOnly={kind => {setSelected([kind]);}} /> : null}
     {scenario.startsWith('delete') ? <DeleteMediaDialog {...base} owner selectionCount={scenario === 'deleteLimit' ? 240 : scenario === 'deleteOne' || scenario === 'deleteShow' || scenario === 'deleteBlocked' ? 1 : 4}
-      preview={deletionPreview(scenario)} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
+      preview={previewReadURL ? null : deletionPreview(scenario)} loading={previewRead.loading} error={previewRead.error} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
       onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(movieEntries.find(movie => movie.id === id)?.artworkIndex ?? 0)} width={24} height={36} />} {...evidence?.deletion} /> : null}
   </View>;
 }
@@ -150,6 +160,7 @@ function deletionPreview(scenario: Scenario): DeletePreview {
 }
 function deletionResult(): DeleteResult {return {revision: 2, removed: 3, failed: 1, bytesDeleted: 12700000000, filesRetained: false, receipts: movieEntries.map(movie => ({itemId: movie.id, title: movie.title, removed: movie.id !== 'toy-story-5', filesDeleted: movie.id === 'toy-story-5' ? 0 : 1, filesKept: movie.id === 'toy-story-5' ? 1 : 0, bytes: 4100000000, code: movie.id === 'toy-story-5' ? 'file_not_removed' : ''}))};}
 const galleries: readonly Gallery[] = [
+  ...(globalThis.__PORTICO_NATIVE_SELECTION_PREVIEW_URL__ ? [{id: 'selection-preview-unavailable', title: 'next.selection.native.gallery' as const, platforms: ['phone'] as const, render: function PreviewUnavailable() {return <OverlaysProvider><SelectionExample scenario="deleteOne" previewReadURL={globalThis.__PORTICO_NATIVE_SELECTION_PREVIEW_URL__} /></OverlaysProvider>;}}] : []),
   ...(Object.keys(fixture.scenarios) as Scenario[]).map((scenario): Gallery => ({id: `selection-${scenario}`, title: 'next.selection.native.gallery', platforms: ['circles', 'bar', 'queue', 'more', 'playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario) ? ['phone', 'tablet', 'tv'] : ['phone', 'tablet'], render: function GalleryExample() {return <OverlaysProvider><SelectionExample scenario={scenario} /></OverlaysProvider>;}})),
   {id: 'selection-picker-admission', title: 'next.selection.native.gallery', platforms: ['phone', 'tablet', 'tv'], render: function PickerAdmission() {return <OverlaysProvider><SelectionExample scenario="playlist" deniedDestination /></OverlaysProvider>;}},
 ];
