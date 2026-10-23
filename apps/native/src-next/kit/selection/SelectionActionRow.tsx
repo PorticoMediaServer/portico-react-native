@@ -16,7 +16,7 @@ export const SelectionActionRow = forwardRef<View, MenuRowProps>(function Select
     focusKind="row" focusRadius={0} style={state => [{minHeight: 56, paddingVertical: 8, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 14,
       opacity: props.disabled ? .5 : 1, backgroundColor: focused || hovered || state.pressed ? 'rgba(237,245,250,.06)' : 'transparent'}, typeof style === 'function' ? style(state) : style]}>
     {icon ? <Icon name={icon} size={24} color={destructive ? colors.record : tone === 'owner' ? colors.accentStrong : colors.textSecondary} /> : null}
-    <View style={{flex: 1, minWidth: 0}}><SelectionText size={16} weight={600} style={{lineHeight: phone ? 24 * textScale : 24, ...(phone ? {includeFontPadding: false} : {}), color: destructive ? colors.record : colors.text}}>{label}</SelectionText>
+    <View style={{flex: 1, minWidth: 0}}><SelectionText size={16} weight={600} style={{lineHeight: phone ? undefined : 24, ...(phone ? {includeFontPadding: false} : {}), color: destructive ? colors.record : colors.text}}>{label}</SelectionText>
       {description != null ? <SelectionText size={12.5} weight={500} secondary style={{marginTop: 2, lineHeight: phone ? 16.875 * textScale : 16.875, ...(phone ? {includeFontPadding: false} : {})}}>{description}</SelectionText> : null}
     </View>
   </Focusable>;

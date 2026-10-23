@@ -478,7 +478,7 @@ test('phone Selection action line boxes retain their type and exclude additional
         assert.equal(label.props.weight, 600); assert.equal(description.props.weight, 500);
         assert.equal(label.props.style.includeFontPadding, phone ? false : undefined);
         assert.equal(description.props.style.includeFontPadding, phone ? false : undefined);
-        assert.equal(label.props.style.lineHeight, phone ? 24 * state.theme.textScale : 24);
+        assert.equal(label.props.style.lineHeight, phone ? undefined : 24, 'the phone label inherits the actual font normal line metrics as drawn');
         assert.equal(description.props.style.lineHeight, phone ? 16.875 * state.theme.textScale : 16.875);
         assert.equal(description.props.style.marginTop, 2);
         const native = row.tree as Element;
