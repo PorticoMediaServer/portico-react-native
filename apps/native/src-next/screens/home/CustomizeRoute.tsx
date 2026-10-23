@@ -1,15 +1,38 @@
 import React, {useEffect, useSyncExternalStore} from 'react';
-import {NativeModules} from 'react-native';
-import {defaultI18n} from '../../../../packages/i18n/src';
-import {PersonalSavedService} from '../../../../packages/client-core/src/personal-saved';
-import {StateView} from '../kit/states';
-import {HomeCustomize, type NativeHomeCustomizeCopy} from '../screens/home/HomeCustomize';
-import {NativeHomeCustomizeController} from '../screens/home/customize-controller';
-import type {NativeShellBootstrapContext} from './bootstrap';
-import type {NativeShellRuntime} from './runtime';
-import type {NativeShellRoute} from './routes';
+import {NativeModules, Platform} from 'react-native';
+import {defaultI18n} from '../../../../../packages/i18n/src';
+import {PersonalSavedService} from '../../../../../packages/client-core/src/personal-saved';
+import {StateView} from '../../kit/states';
+import {HomeCustomize, type NativeHomeCustomizeCopy} from './HomeCustomize';
+import {NativeHomeCustomizeController} from './customize-controller';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import type {NativeShellRuntime} from '../../shell/runtime';
+import type {NativeShellRoute} from '../../shell/routes';
+import type {NativeRouteRenderer} from '../../shell/route-registry';
 
 type Source = Readonly<{route: NativeShellRoute; key: number; controller: NativeHomeCustomizeController; views: PersonalSavedService}>;
+
+/** Authority-local route factory. Registration belongs to this screen module;
+ * the shell only binds its factories to the restored context. */
+export function createNativeHomeCustomizeRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer & {dispose: () => void} {
+  const t = defaultI18n.t;
+  const screen = createNativeHomeCustomization(context, {
+    title: t('home.customize.action'), instruction: t(Platform.isTV ? 'next.home.layoutTVInstruction' : 'home.customize.subtitle'),
+    alwaysOn: t('home.customize.alwaysOn'), addView: t('home.customize.addView'), reset: t('action.reset'), save: t('action.save'),
+    conflictTitle: t('next.home.layoutChangedTitle'), conflictBody: t('next.home.layoutChangedBodyCompact'),
+    reload: t('next.home.reloadLayout'), keepEditing: t('next.home.keepEditing'),
+    move: t('next.home.layoutMoveAction'), drop: t('next.home.layoutDropAction'), putBack: t('next.home.layoutPutBackAction'),
+  });
+  const unsubscribe = context.navigation.subscribe(screen.reconcile);
+  screen.reconcile();
+  return {
+    render: (route, runtime) => {
+      if (!context.current() || route.kind !== 'home-customize' || context.navigation.getSnapshot().route !== route) throw new Error('native_home_customize_route_mismatch');
+      screen.reconcile(); return screen.render(runtime);
+    },
+    dispose: () => {unsubscribe(); screen.dispose();},
+  };
+}
 
 /** The Home service performs the one revision-checked layout write. Saved is
  * read through its canonical service; choosing a view only edits the draft. */
