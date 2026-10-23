@@ -68,7 +68,7 @@ test('unregister retires only the actual module instance and a replacement is cr
 
 test('Watch uses the same captured context/runtime, and retired authority cannot create or render modules', () => {
   const registry = new NativeShellRouteRegistry(); let current = true, created = 0, disposed = 0;
-  const context = fixtureContext(() => current);
+  const context = fixtureContext(() => current, () => false);
   const unregister = registry.registerWatch(value => {
     assert.equal(value, context); created++;
     return {render: actual => {assert.equal(actual, runtime); return 'watch';}, back: () => true, dispose: () => {disposed++;}};
@@ -101,4 +101,14 @@ test('retained route output belongs to the same created module and retires with 
   assert.equal(created, 1);
   current = false; assert.equal(bound.renderRetained(runtime), null);
   bound.dispose();
+});
+
+test('legacy teardown belongs to its registration and never to another viewer binding', () => {
+  const registry = new NativeShellRouteRegistry(); let disposed = 0;
+  const unregister = registry.register('home-customize', {render: () => 'legacy', dispose: () => {disposed++;}});
+  const context = fixtureContext(), first = registry.bind(context), second = registry.bind(context);
+  first.render({kind: 'home-customize'}, runtime); first.dispose(); assert.equal(disposed, 0);
+  assert.equal(second.render({kind: 'home-customize'}, runtime), 'legacy');
+  unregister(); unregister(); assert.equal(disposed, 1);
+  second.dispose(); assert.equal(disposed, 1);
 });
