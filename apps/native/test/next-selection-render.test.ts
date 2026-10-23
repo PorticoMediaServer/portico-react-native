@@ -581,6 +581,31 @@ test('drawn Selection fields use native accent carets without changing selection
   } finally {state.theme = previousTheme; nativePlatform.OS = previousOS;}
 });
 
+test('phone sheet name and confirmation fields use the drawn 46pt height without changing editor or TV fields', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const phone = state.theme.platform === 'phone';
+      const wrapper = mount(PlaylistPicker, {open: true, onOpenChange() {}, count: 1, entries: [], creating: true, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
+      const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+      const deletion = mount(DeleteMediaDialog, {open: true, onOpenChange() {}, owner: true, selectionCount: 1, preview: {revision: 1, confirmationKind: 'title', confirmation: 'Actual title', totalFiles: 1, totalBytesText: '1 KB', totalBytes: 1024, blocked: [], targets: [{itemId: 'actual', title: 'Actual title', kind: 'movie', libraryId: 'library', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 1024, files: [], dependents: []}]}, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}});
+      const editor = mount(BulkEditor, bulk());
+      try {
+        for (const owner of [picker, deletion]) {
+          const field = ofType(owner.tree, TextField)[0]!;
+          assert.equal(field.props.fieldStyle?.height, phone ? 46 : undefined);
+        }
+        if (phone) {
+          const scalarNode = elements(editor.tree).find(node => node.props.field?.field === 'year')!;
+          const scalar = mount(scalarNode.type, scalarNode.props);
+          try {assert.equal(ofType(scalar.tree, TextField)[0]!.props.fieldStyle.height, 44);} finally {scalar.host.unmount();}
+        }
+      } finally {editor.host.unmount(); deletion.host.unmount(); picker.host.unmount(); wrapper.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('phone More uses real selected-kind/offer descriptions and cannot invent download facts or owner commands', () => {
   const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: unknown[] = [];
   const props: SelectionBarProps = {testID: 'actual.more', count: 2, selectionLabel: '2 tracks', selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction: id => calls.push(id), menu: 'more', onMenuChange: id => calls.push(id), actions: [{id: 'download'}, {id: 'edit', disabled: true, reason: 'Actual denial', description: 'Actual shared field information'}]};
@@ -624,7 +649,13 @@ test('States link and inline recipes retain real actions and avoid inventing sur
   const inline=mount(StateView,{variant:'search',title:'Actual no matches',body:'Actual query explanation',icon:'i-clock'});
   try {
     const action=elements(layout.tree).find(n=>n.props.action?.id==='switch')!; assert.equal(action.props.action.trailingIcon,undefined); assert.equal(action.props.style.alignSelf,'center'); action.props.action.onPress(); assert.deepEqual(calls,['switch']);
+    assert.equal(action.props.iconColor, state.theme.colors.textSecondary);
+    const link = mount(action.type, action.props);
+    try {assert.equal(ofType(link.tree, Button)[0]!.props.iconColor, state.theme.colors.textSecondary);} finally {link.host.unmount();}
     assert.equal(ofType(inline.tree,Icon).length,0); assert.match(text(inline.tree),/Actual query explanation/); assert.doesNotMatch(text(inline.tree),/Recent searches/);
+    state.theme = createTheme({isTV: true, width: 1920});
+    layout.update({title: 'Actual TV state', detailsAction: action.props.action});
+    assert.equal(elements(layout.tree).find(node => node.props.action?.id === 'switch')!.props.iconColor, undefined, 'TV retains its existing button glyph colour');
   } finally {layout.host.unmount();inline.host.unmount();state.theme=previous;}
 });
 
@@ -693,6 +724,39 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
     assert.equal(elements(sheet.tree).find(n => n.props.testID === `${props.testID}-keyboard-boundary`)!.props.accessibilityViewIsModal, true);
     assert.deepEqual(calls, [], 'geometry measurement must not invoke any dialog operation');
   } finally {sheet.host.unmount(); surface.host.unmount(); dialog.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
+});
+
+test('phone picker fits its continuous body to the authored action inset above the actual keyboard', () => {
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.theme = createTheme({isTV: false, width: 390, reduceMotion: true});
+  state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
+  const wrapper = mount(PlaylistPicker, {testID: 'phone.picker.flow', open: true, onOpenChange() {}, count: 4, entries: [], creating: true, onCreatingChange() {}, name: 'Actual name', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
+  const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+  const surface = mount(SelectionSurface, ofType(picker.tree, SelectionSurface)[0]!.props);
+  const sheet = mount(BottomSheet, (surface.tree as Element).props);
+  const panel = () => elements(sheet.tree).find(node => node.props.testID === 'phone.picker.flow')!;
+  const header = () => ofType(sheet.tree, 'GestureDetector')[0]!.props.children;
+  const body = () => elements(panel()).find(node => node.type === 'View' && node.props.onLayout)!;
+  const footer = () => elements(sheet.tree).find(node => node.props.onLayout && flattenStyle(node.props.style).position === 'absolute' && flattenStyle(node.props.style).borderTopColor)!;
+  const measure = (footerHeight: number, bottom: number) => {
+    header().props.onLayout({nativeEvent: {layout: {height: 53}}});
+    body().props.onLayout({nativeEvent: {layout: {height: 71}}});
+    footer().props.onLayout({nativeEvent: {layout: {height: footerHeight}}}); sheet.host.rerender();
+    const frame = flattenStyle(panel().props.style);
+    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 71;
+    assert.equal(bodyBottom, bottom - footerHeight, 'content ends at the footer; its twelve-point action inset supplies the drawn gap');
+    assert.equal(flattenStyle(footer().props.style).paddingTop, 12);
+    assert.equal(flattenStyle(footer().props.style).borderTopWidth, 0);
+  };
+  try {
+    const input = ofType(picker.tree, TextField)[0]!;
+    assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingBottom, 0);
+    assert.equal((surface.tree as Element).props.contentFooterGap, 0);
+    measure(94, 844);
+    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); sheet.host.rerender();
+    measure(72, 544);
+    assert.equal(flattenStyle(footer().props.style).paddingBottom, 12);
+  } finally {sheet.host.unmount(); surface.host.unmount(); picker.host.unmount(); wrapper.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
 });
 
 test('phone Delete applies its authored context gap and text flow without changing other Selection footer recipes', () => {
@@ -1022,10 +1086,12 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
         if (phone) {
           assert.match(content, /Playlist and collection entries and saved places go too\./);
           assert.doesNotMatch(content, /Actual target|Artwork actual-|12 playlists/);
+          assert.equal(ofType(dialog.tree, TextField)[0]!.props.keyboardType, 'default', 'the drawn phone count confirmation uses the native text keyboard');
           const toggle = ofType(dialog.tree, Switch)[0]!;
           assert.ok(toggle.props.accessibilityHint, 'the real removal consequence remains available to accessibility');
           assert.equal(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), false, 'the compact bulk frame omits the separate removal helper');
         } else {
+          assert.equal(ofType(dialog.tree, TextField)[0]!.props.keyboardType, 'number-pad');
           assert.match(content, /Actual target 0/);
           assert.match(content, /Actual target 4/);
           assert.doesNotMatch(content, /Actual target 5/);
