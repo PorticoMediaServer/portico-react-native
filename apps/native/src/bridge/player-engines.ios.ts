@@ -1,7 +1,7 @@
 import type {ComponentType} from 'react';
 import {NativeEventEmitter, NativeModules, type ViewProps} from 'react-native';
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
-import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
+import type {NativeBinding, NativePlaybackTransport} from './NativePlaybackCoordinator';
 import {NativePlayer} from './NativeViews';
 import {nativeEngineFeatures, parseEngineFeatures, type EngineFeatures, type EngineKind} from '../player/engine-choice';
 
@@ -61,8 +61,8 @@ export function engineTransport(kind: EngineKind): NativePlaybackTransport | und
   return made;
 }
 
-/** Picture in Picture answers from the engine's view ({lease, state, subtitlesCarried}). */
-export function subscribePictureInPicture(kind: EngineKind, listener: (change: {lease?: string; state: string; subtitlesCarried?: boolean}) => void): () => void {
+/** Events retain the start request's binding; callers must reject stale callbacks. */
+export function subscribePictureInPicture(kind: EngineKind, listener: (change: {lease?: string; binding?: NativeBinding | null; requestId?: number; state: string; subtitlesCarried?: boolean}) => void): () => void {
   const module = moduleOf(kind);
   if (!module) return () => {};
   const subscription = new NativeEventEmitter(module as never).addListener('PorticoPictureInPicture', listener);
@@ -73,6 +73,7 @@ export type EnginePlayerProps = ViewProps & {
   lease: string;
   /** Changes arrive as the engine's Picture in Picture event, not a view event. */
   pictureInPictureRequest?: number;
+  pictureInPictureBinding?: NativeBinding;
 };
 
 // A view name may be registered once: the native engine's view is the one `NativeViews` already made.

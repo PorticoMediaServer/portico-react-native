@@ -37,6 +37,18 @@ static NSDictionary *command(NSDictionary *p,NSDictionary *prepared){
 }
 static int runTests(int argc,const char **argv){@autoreleasepool{
  if(argc!=2||![NSProcessInfo.processInfo.environment[@"PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS"] isEqual:@"1"])return 2;
+ if([NSProcessInfo.processInfo.environment[@"PORTICO_AUDIO_PLAIN_PROBE"]isEqual:@"1"]){
+  // Isolate Core Audio/RemoteIO from all Portico store, decoder, DSP and transition code.
+  AVAudioSession *session=AVAudioSession.sharedInstance;NSError *error=nil;
+  BOOL configured=[session setCategory:AVAudioSessionCategoryPlayback error:&error]&&[session setPreferredSampleRate:48000 error:&error]&&[session setActive:YES error:&error];
+  NSMutableArray *ports=[NSMutableArray new];for(AVAudioSessionPortDescription *port in session.currentRoute.outputs)[ports addObject:@{@"type":port.portType,@"channels":@(port.channels.count)}];
+  printf("plain Core Audio configured=%d rate=%.0f channels=%lu route=%s\n",configured,session.sampleRate,(unsigned long)session.outputNumberOfChannels,[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:ports options:0 error:nil]encoding:NSUTF8StringEncoding].UTF8String);
+  AVAudioEngine *engine=[AVAudioEngine new];AVAudioPlayerNode *node=[AVAudioPlayerNode new];[engine attachNode:node];AVAudioFormat *format=[[AVAudioFormat alloc]initStandardFormatWithSampleRate:48000 channels:2];[engine connect:node to:engine.mainMixerNode format:format];
+  AVAudioPCMBuffer *buffer=[[AVAudioPCMBuffer alloc]initWithPCMFormat:format frameCapacity:48000];buffer.frameLength=48000;for(int c=0;c<2;c++)for(int i=0;i<48000;i++)buffer.floatChannelData[c][i]=(float)(.01*sin(2*M_PI*200*i/48000));[node scheduleBuffer:buffer completionHandler:nil];
+  BOOL started=[engine startAndReturnError:&error];if(started)[node play];
+  BOOL rendered=started&&waitFor(^BOOL{AVAudioTime *last=node.lastRenderTime;if(!last||!last.isSampleTimeValid)return NO;return [node playerTimeForNodeTime:last].sampleTime>480;});
+  printf("{\"plainCoreAudioLiveClockPass\":%s,\"error\":%ld}\n",rendered?"true":"false",(long)error.code);[engine stop];return configured&&rendered?0:1;
+ }
  method_exchangeImplementations(class_getInstanceMethod(AVAudioSession.class,@selector(setPreferredSampleRate:error:)),class_getInstanceMethod(AVAudioSession.class,@selector(portico_test_setPreferredSampleRate:error:)));
  NSString *file=[NSString stringWithUTF8String:argv[1]];PorticoAudioProcessing *store=PorticoAudioProcessing.shared;NSError *error=nil;BOOL ok=YES;
  NSDictionary *flat=@{@"enabled":@NO,@"preampDb":@0,@"bands":@[@0,@0,@0,@0,@0,@0,@0,@0,@0,@0]};
@@ -79,13 +91,15 @@ static int runTests(int argc,const char **argv){@autoreleasepool{
 @implementation PorticoAudioTestScene
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
  self.window=[[UIWindow alloc]initWithWindowScene:(UIWindowScene *)scene];self.window.rootViewController=[UIViewController new];[self.window makeKeyAndVisible];
- dispatch_after(dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC),dispatch_get_main_queue(),^{
+ // A main-queue block cannot drain nested main-queue decoder completions while it waits.
+ // Start from a run-loop timer instead; production remains asynchronous on the main queue.
+ [NSTimer scheduledTimerWithTimeInterval:1 repeats:NO block:^(NSTimer *timer){
   printf("Audio renderer UIKit harness started; isolated=%s\n",NSProcessInfo.processInfo.environment[@"PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS"].UTF8String?:"absent");
   const char *args[]={"apple-audio-render-tests",[NSBundle.mainBundle pathForResource:@"render-test" ofType:@"wav"].UTF8String};
   int result=runTests(2,args);
   NSURL *file=[[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"result.json"];
   [[NSJSONSerialization dataWithJSONObject:@{@"exit":@(result)} options:0 error:nil] writeToURL:file atomically:YES];exit(result);
- });
+ }];
 }
 @end
 @interface PorticoAudioTestApp : UIResponder<UIApplicationDelegate> @end

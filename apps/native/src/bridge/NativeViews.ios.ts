@@ -1,10 +1,12 @@
 import React from 'react';
 import {requireNativeComponent, type ViewProps} from 'react-native';
 import {useI18n} from '../app/i18n';
+import type {NativeBinding} from './NativePlaybackCoordinator';
 
 export const NativePlayer = requireNativeComponent<ViewProps & {
   lease: string;
   pictureInPictureRequest?: number;
+  pictureInPictureBinding?: NativeBinding;
 }>('PorticoPlayer');
 
 type RoutePickerProps = ViewProps & {video?: boolean};

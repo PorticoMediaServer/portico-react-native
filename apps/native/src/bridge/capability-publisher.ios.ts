@@ -2,7 +2,7 @@ import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import type {V1Http} from '../../../../packages/client-core/src/playback-v1/http';
 import {CapabilityPublisher} from '../../../../packages/client-core/src/playback-v1/options';
 import type {NativeFacts} from './device-profile';
-import {deviceCapabilityDocument, probedDevice} from './capability-document';
+import {deviceCapabilityDocument, probedDevice} from './capability-document.ios';
 import {isTablet} from './device-platform';
 import {engineSettingStore} from '../player/engine-setting-store';
 

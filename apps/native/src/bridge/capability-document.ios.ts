@@ -1,5 +1,5 @@
 import {appleProfile, capabilityDocumentProblem, withViewerSettings, type AppleNativeFacts, type CapabilityDocument, type CapabilityOverrides, type EngineCapabilities} from '../../../../packages/client-core/src/client-profile';
-import {appleAudioDecode} from './audio-decode';
+import {appleAudioDecodeFor, appleSubtitleRendering} from './audio-decode.ios';
 import type {NativeFacts} from './device-profile';
 
 export type {CapabilityDocument};
@@ -11,8 +11,8 @@ export type CapabilityDocumentInput = Readonly<{
 }>;
 
 /** AVPlayer is the only Apple video engine. Its original-file audio is replanned server-side. */
-export function nativeEngineCapabilities(document: CapabilityDocument): EngineCapabilities {
-  return {...document.engines.native, subtitleRendering: ['text'], embeddedAudioSwitching: false};
+export function nativeEngineCapabilities(document: CapabilityDocument, facts?: unknown): EngineCapabilities {
+  return {...document.engines.native, subtitleRendering: appleSubtitleRendering(facts), embeddedAudioSwitching: false};
 }
 
 export function deviceCapabilityDocument(input: CapabilityDocumentInput): CapabilityDocument {
@@ -21,8 +21,8 @@ export function deviceCapabilityDocument(input: CapabilityDocumentInput): Capabi
   const settings = {engine: 'native' as const, overrides: input.overrides ?? {}};
   const document = withViewerSettings({...shared,
     client: {...shared.client, ...(input.appVersion ? {appVersion: input.appVersion} : {})},
-    engines: {native: nativeEngineCapabilities(shared)},
-    audioDecode: appleAudioDecode.map(({sampleRates, ...value}) => ({...value, containers: [...value.containers], ...(sampleRates ? {sampleRates: [...sampleRates]} : {})})),
+    engines: {native: nativeEngineCapabilities(shared, input.native)},
+    audioDecode: [...appleAudioDecodeFor(input.native)].map(value => ({...value, containers: [...value.containers], sampleRates: value.sampleRates ? [...value.sampleRates] : undefined})),
   }, settings);
   return capabilityDocumentProblem(document) ? withViewerSettings(shared, settings) : document;
 }

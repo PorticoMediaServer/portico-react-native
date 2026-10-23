@@ -1,8 +1,9 @@
 # The player engine contract
 
 Every video engine in the app implements this one contract between JavaScript and native code.
-There are two engines: **native** (the platform's own player: AVPlayer here, Media3 on Android)
-and **mpv**. The player screen drives either through `src/bridge/NativePlaybackCoordinator.ts`
+Apple has one video engine, **AVPlayer**, exposed as **native**. Android retains its native
+Media3 and mpv engines; every mpv-specific section below applies to Android only. The player
+screen drives the platform's installed engine through `src/bridge/NativePlaybackCoordinator.ts`
 and holds a lease on one engine at a time.
 
 JavaScript owns the playback session. The engine owns the player. JavaScript sends **commands**,
@@ -293,11 +294,21 @@ The engine outlives its views.
 | --- | --- | --- |
 | `lease` | string | The lease whose picture to show. |
 | `pictureInPictureRequest` | integer | Each change asks for Picture in Picture to start, or to stop if it is running. |
+| `pictureInPictureBinding` (Apple) | binding | The exact installed `{lease,intentId,sessionId,generation,itemId}`. Required for an explicit PiP request. |
 
 The Picture in Picture event carries `{lease, state, subtitlesCarried?}`. `state` is `started`,
 `stopped`, `restore` (the viewer came back to the app), or `unavailable`. mpv always answers
 `unavailable`. `subtitlesCarried` is false when the chosen subtitles are drawn by the app and so
 do not appear in the floating picture.
+
+Apple events additionally carry `binding` (the immutable start binding, or null) and `requestId`
+(the explicit request integer; 0 for an automatic OS start). Native settles the two props for
+one main loop, checks equality with the actual source-ready binding, and refuses an app-drawn
+caption or rich overlay. The runtime first replans the same session to burn or native WebVTT,
+preserving the selected track, complete source-relative offset and source position. It waits
+for the resulting generation's real ready fact before installing these props. Apple automatic
+PiP and external playback are disabled while an app-drawn overlay is selected. A stale callback
+cannot acknowledge a newer request.
 
 `facts()` (mpv) answers what the capability profile is built from:
 
@@ -315,9 +326,9 @@ maxFrameRate, tenBit}}` (each hardware decoder's own limits), `hdrOutputRanges: 
 
 - **Audio session.** Opening a video sets the session to playback, movie mode, multichannel
   allowed, and activates it. `release` gives it back (section 3).
-- **Now Playing and remote commands** belong to `PorticoSystemMedia`, not to the engine. It reads
-  the playing video's position, rate and length from the engine through `PorticoEngineClock`
-  (the engine registers itself while it has media open and announces jumps), and turns every
+- **Now Playing and remote commands** belong to `PorticoSystemMedia`, not to the engine. On Apple,
+  it reads the playing video's position, rate and length from the single playback controller's
+  AVPlayer, and turns every
   lock-screen or remote press into an event for JavaScript.
 - **Interruptions and route changes** reach JavaScript through `PorticoSystemMedia` as pause and
   play commands. The engine only makes sure its output works again afterwards.
@@ -345,10 +356,10 @@ cannot (a live playlist is not seekable beyond its cache) reopens the playlist a
 Everywhere: no Picture in Picture, no AirPlay video, no music sessions, no bitstream
 passthrough (sound is decoded to PCM in as many channels as the output takes), and
 Dolby Vision is never output as Dolby Vision. The engine is Portico's own build
-(`third_party/media-engine/`), the same recipe on both platforms.
+(`third_party/media-engine/`), built for Android only. Apple rich subtitles use the separate
+`third_party/apple-subtitles/` recipe with the exact patched Jellyfin FFmpeg source; no mpv engine
+or Apple mpv dependency is built.
 
-- **Apple.** No HDR output on a television: HDR is tone-mapped on the device there (an iPhone or
-  iPad with an HDR screen shows HDR).
 - **Android, Android TV and Fire TV.** An HDR10 or HLG title on a screen that shows it is shown in
   HDR (direct output), except while mpv draws the subtitles itself (ASS, PGS, VobSub, DVB): the
   title is then tone-mapped to standard range on the device. Dolby Vision profiles 7 and 8 play
