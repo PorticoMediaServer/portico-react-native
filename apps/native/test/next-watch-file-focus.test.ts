@@ -40,7 +40,7 @@ const model = {files: [], owner: {heading: 'Manage files', locations: [{id: 'ass
 for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search', 'merge-confirm']) test(`real ${phase} controls mount the strict TV focus hook using stable member/action identities`, () => {
   const value = {phase: phase.startsWith('merge') ? 'merge' : phase, capture: {entry}, busy: false, candidates: [other], confirmation: '', keep: entry.id,
     ...(phase === 'merge-confirm' ? {other} : {}), owner: {info: {model, files: [], groups: [{members: [{id: 'asset', available: true}]}]}},
-    content: React.createElement(NativeFileInfoContent, {model, onManage() {}})};
+    content: NativeFileInfoContent({model, onManage() {}})};
   const presenters = {subscribe: () => () => {}, getSnapshot: () => value, current: () => true, close() {}, backToInfo() {}, search: async () => {}};
   let buttons: any[] = [];
   const host = createHookHost(() => {buttons = targets(React.createElement(NativeWatchOverlays, {presenters, runtime: {}, common: {}}));});
