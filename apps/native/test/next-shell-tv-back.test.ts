@@ -41,8 +41,12 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   bindings.attach({getSnapshot: () => ({authority})});
   const cleanup = bindings.registerTVPageBack(() => {pageCalls++; return pageConsumes;});
   bindings.setHomeWindow(home.getSnapshot().document!.rows[0], 0, 0, 0, true, ['third', 'movie', 'second']);
-  bindings.actions.more(home.getSnapshot().document!.rows[0].entries[2], 'continue');
+  const anchor = {current: null};
+  bindings.actions.more(home.getSnapshot().document!.rows[0].entries[2], 'continue', anchor);
   const controller = bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.controller;
+  assert.equal(bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.anchorRef, anchor, 'the same real child anchor reaches the controlled menu');
+  assert.equal(bindings.selection('continue').isMenuOpen?.('third'), true);
+  assert.equal(bindings.selection('continue').isMenuOpen?.('movie'), false);
   assert.ok(controller.getSnapshot().menu, 'the genuine registered member opened the controller menu');
   assert.equal(controller.getSnapshot().menu.member.entry.id, 'third', 'physical first slot is admitted through its genuine source index');
   assert.equal(bindings.homeMenuRow(controller.getSnapshot().menu.windowId), home.getSnapshot().document!.rows[0]);
@@ -51,9 +55,14 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   const latest = home.getSnapshot().document!.rows[0].entries.find(value => value.id === 'third')!;
   assert.equal(controller.getSnapshot().menu?.member.entry, latest, 'same-authority menu actions use the actual latest source object after refresh');
   assert.equal(controller.getSnapshot().menu?.member.entry.title, 'Current server title');
+  assert.equal(bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.anchorRef, undefined, 'a replaced captured menu cannot retain an old anchor');
+  bindings.actions.more(latest, 'continue', anchor);
+  assert.equal(bindings.selection('continue').isMenuOpen?.('third'), true);
   expanded = true;
   assert.equal(back(), true);
   assert.equal(controller.getSnapshot().menu, null, 'menu closes before expanded player handles Back');
+  assert.equal(bindings.selection('continue').isMenuOpen?.('third'), false);
+  assert.equal(bindings.renderSelection().props.children.find((node: any) => node.type === 'Overlays').props.anchorRef, undefined);
   assert.equal(pageCalls, 0);
   assert.equal(back(), false, 'expanded player retains its own Back handling');
   expanded = false;

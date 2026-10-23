@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {routePath} from '../../../packages/contracts/src/routes';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
 test('standard index/App Home actions use restored authority, current documents and real registered controller lifetimes', async t => {
@@ -48,21 +49,30 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.equal(sessions().length, 0);
       },
     );
+    await t.test('phone Continue short tap opens its title without starting playback', async () => {
+      const before = app.requests.length;
+      await app.tap();
+      assert.equal(sessions().length, 0);
+      assert.equal(app.requests.slice(before).some(request => request.path.endsWith('/playback-options')), false);
+      await app.back();
+      assert.ok(app.card(), 'Back restores the genuine mounted Home card');
+    });
     await t.test(
       'an HTTP boundary failure reaches the real Home toast and creates no session',
       async () => {
-        app.fault({status: 500, code: 'r25_boundary_options_failure'});
+        app.fault({route: 'get_capabilities', status: 500, code: 'boundary_capabilities_failure'});
         const warning = console.warn;
         try {
           console.warn = () => {throw Error('throwing Home diagnostic sink');};
-          await app.tap();
+          await app.more();
+          await app.menuPlay();
         } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
             receipt =>
-              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.path === routePath('get_capabilities') &&
               receipt.status === 500 &&
-              receipt.errorCode === 'r25_boundary_options_failure',
+              receipt.errorCode === 'boundary_capabilities_failure',
           ),
         );
         assert.equal(sessions().length, 0);
@@ -85,7 +95,7 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.equal(
           app.requests.length,
           count,
-          'a deliberately retained stale callback cannot dispatch playback',
+          'a deliberately retained stale callback cannot dispatch a title or playback',
         );
         assert.equal(sessions().length, 0);
         assert.ok(
@@ -95,19 +105,21 @@ test('standard index/App Home actions use restored authority, current documents 
       },
     );
     await t.test(
-      'current native Continue onPress traverses real playback options and creates a protocol session',
+      'current native Continue menu Play traverses real options and creates a protocol session',
       async () => {
         const warning = console.warn;
         try {
           console.warn = () => {throw Error('throwing Home diagnostic sink');};
-          await app.tap();
+          await app.more();
+          await app.menuPlay();
         } finally {console.warn = warning;}
         assert.ok(
           app.receipts.some(
             receipt =>
-              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.path.split('?')[0] === '/v1/items/movie/playback-options' &&
               receipt.status === 200,
           ),
+          JSON.stringify(app.receipts.filter(receipt => receipt.path.includes('/playback-options'))),
         );
         assert.equal(sessions().length, 1);
         assert.equal(
