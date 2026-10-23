@@ -1,5 +1,6 @@
 import React from 'react';
-import {Platform} from 'react-native';
+import {Platform, type View} from 'react-native';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
@@ -14,6 +15,12 @@ import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchTracks} from './track-identity';
 import {NativeWatchChannelRoute} from './ChannelRoute';
 import {createNativeWatchPanelNames} from './panel-names';
+
+export type NativeWatchEntryMenu = Readonly<{
+  open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>) => Promise<void>;
+  isOpen: (entry: ContentEntry) => boolean;
+  subscribe: (listener: () => void) => () => void;
+}>;
 
 export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
   'requestId' | 'title' | 'manageFile' | 'openFileInfo' | 'openMenu' | 'openVersions' | 'startVersion'> & Readonly<{
@@ -73,7 +80,17 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     scope: {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])},
     authority, current: context.authority, isCurrent: current, subscribeCurrent: context.subscribeAuthority,
     navigation: context.navigation, playback: context.playback, watch: context.watch, isTV: Platform.isTV, player});
+  const entryMenu: NativeWatchEntryMenu = Object.freeze({
+    open: (entry, entryCurrent, anchorRef) => current() ? screens.menu(entry, entryCurrent, anchorRef) : Promise.resolve(),
+    isOpen: entry => {
+      if (!current()) return false;
+      const actual = bindings.title.menu?.getSnapshot();
+      return !!actual && actual.id === entry.id && actual.kind === entry.kind && actual.libraryId === entry.libraryId;
+    },
+    subscribe: listener => current() && bindings.title.menu ? bindings.title.menu.subscribe(listener) : () => {},
+  });
   return Object.freeze({
+    entryMenu,
     render: (runtime: NativeShellRuntime) => current() ? screens.watch.render(runtime) : null,
     title: screens.title,
     channel: {render: (route: import('../../shell/routes').NativeShellRoute) => current() && route.kind === 'channel'
