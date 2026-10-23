@@ -110,8 +110,6 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   assert.equal(region.props.entry, 'home'); assert.equal(region.props.entryPolicy, 'entry');
   assert.equal(region.props.orientation, 'vertical');
   assert.equal(region.props.edges.right, ids.row('continue'));
-  region.props.onFocusChange(true);
-  assert.deepEqual(changes, [true]); assert.deepEqual(navigations, []);
   const search = nodes(tree).find(node => node.type === 'Focusable' && node.props.focusId === 'search');
   const controls = (value: unknown) => nodes(value).filter(node => node.type === 'Focusable');
   assert.ok(controls(tree).every(node => node.props.nextFocusRight === 719), 'all rail entries, including Profile, target the exact live card rather than its region entry');
@@ -121,6 +119,8 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   assert.ok(controls(render()).every(node => node.props.nextFocusRight === 720), 'a reattached card replaces the old native handle');
   registry.configure({id: returnTo.regionId, enabled: false});
   assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
+  region.props.onFocusChange(true);
+  assert.deepEqual(changes, [true]); assert.deepEqual(navigations, []);
   assert.equal(search.props.onFocus, undefined, 'Up/Down has no application navigation handler');
   search.props.onPress(); assert.deepEqual(navigations, [{kind: 'search'}]);
 });
