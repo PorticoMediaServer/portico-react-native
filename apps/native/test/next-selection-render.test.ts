@@ -595,6 +595,7 @@ test('phone sheet name and confirmation fields use the drawn 46pt height without
         for (const owner of [picker, deletion]) {
           const field = ofType(owner.tree, TextField)[0]!;
           assert.equal(field.props.fieldStyle?.height, phone ? 46 : undefined);
+          assert.equal(field.props.style?.fontSize, phone ? 16 * state.theme.textScale : undefined);
         }
         if (phone) {
           const scalarNode = elements(editor.tree).find(node => node.props.field?.field === 'year')!;
@@ -740,10 +741,10 @@ test('phone picker fits its continuous body to the authored action inset above t
   const footer = () => elements(sheet.tree).find(node => node.props.onLayout && flattenStyle(node.props.style).position === 'absolute' && flattenStyle(node.props.style).borderTopColor)!;
   const measure = (footerHeight: number, bottom: number) => {
     header().props.onLayout({nativeEvent: {layout: {height: 53}}});
-    body().props.onLayout({nativeEvent: {layout: {height: 71}}});
+    body().props.onLayout({nativeEvent: {layout: {height: 75}}});
     footer().props.onLayout({nativeEvent: {layout: {height: footerHeight}}}); sheet.host.rerender();
     const frame = flattenStyle(panel().props.style);
-    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 71;
+    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 75;
     assert.equal(bodyBottom, bottom - footerHeight, 'content ends at the footer; its twelve-point action inset supplies the drawn gap');
     assert.equal(flattenStyle(footer().props.style).paddingTop, 12);
     assert.equal(flattenStyle(footer().props.style).borderTopWidth, 0);
@@ -751,6 +752,7 @@ test('phone picker fits its continuous body to the authored action inset above t
   try {
     const input = ofType(picker.tree, TextField)[0]!;
     assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingBottom, 0);
+    assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingTop, 4);
     assert.equal((surface.tree as Element).props.contentFooterGap, 0);
     measure(94, 844);
     keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); sheet.host.rerender();

@@ -18,3 +18,7 @@ export {nativeWatchPanelRows} from './panel-model';
 export type {NativeWatchPanelNames, NativeWatchChoiceName, NativeWatchChoiceRow, NativeWatchSubtitleOffer} from './panel-model';
 export {NativeWatchEqualizer} from './Equalizer';
 export type {NativeWatchEqualizerProps, NativeEqualizerCopy, NativeEqualizerResponse} from './Equalizer';
+export {createNativeWatchModule, nativeWatchChromeFacts} from './module';
+export type {NativeWatchModuleBindings} from './module';
+export {createNativeWatchPanelNames} from './panel-names';
+export {registerNativeWatch} from './register';

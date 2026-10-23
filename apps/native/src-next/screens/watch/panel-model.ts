@@ -25,15 +25,17 @@ export function nativeWatchPanelRows(source: NativePlaybackRuntimeSnapshot, opti
     || options.itemId !== fence.itemId || new Set(options.versions.map(row => row.id)).size !== options.versions.length) return empty;
   const version = options.versions.find(row => row.id === session.versionId);
   if (!version) return empty;
+  // Names use this actual fresh offer; selected identities remain the session's.
+  const offeredSource = {...source, options};
   const unique = <T extends {id: string}>(rows: readonly T[]) => new Set(rows.map(row => row.id)).size === rows.length;
-  const audio: readonly NativeWatchChoiceRow<AudioStream>[] = unique(version.audio) ? version.audio.map(track => ({...names.audio(track, source), id: track.id,
+  const audio: readonly NativeWatchChoiceRow<AudioStream>[] = unique(version.audio) ? version.audio.map(track => ({...names.audio(track, offeredSource), id: track.id,
     selected: session.presentation.audioTrackId === track.id, value: track})) : [];
   const plan = source.subtitles?.plan;
   const resources = !source.subtitles?.suppressed && plan?.sessionId === fence.sessionId && plan.generation === fence.generation && plan.sourceId === fence.sourceId
     ? plan.resources.filter(resource => resource.sourceId === fence.sourceId) : [];
   const offered: readonly NativeWatchSubtitleOffer[] = unique(version.subtitles) && unique(resources)
     ? [...version.subtitles.map(track => resources.find(resource => resource.id === track.id) ?? track), ...resources.filter(resource => !version.subtitles.some(track => track.id === resource.id))] : [];
-  const subtitles: readonly NativeWatchChoiceRow<NativeWatchSubtitleOffer>[] = offered.map(track => ({...names.subtitle(track, source), id: track.id,
+  const subtitles: readonly NativeWatchChoiceRow<NativeWatchSubtitleOffer>[] = offered.map(track => ({...names.subtitle(track, offeredSource), id: track.id,
     ...('enabled' in track && (!track.enabled || track.retired) ? {unavailable: true} : {}), selected: session.presentation.subtitle?.trackId === track.id, value: track}));
   const qualityIds = options.qualities.map(row => row.mode === 'fixed' ? row.id : row.mode);
   const qualities: readonly NativeWatchChoiceRow<QualityOption>[] = new Set(qualityIds).size === qualityIds.length ? options.qualities.map(choice => ({...names.quality(choice, source),

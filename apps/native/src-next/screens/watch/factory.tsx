@@ -53,6 +53,8 @@ export type NativeWatchFactoryPorts = Readonly<{
   scope: DetailScope;
   authority: ShellAuthority;
   current: () => ShellAuthority;
+  /** Genuine bootstrap lifetime, separate from the current playback output. */
+  isCurrent?: () => boolean;
   subscribeCurrent: (listener: () => void) => () => void;
   navigation: Pick<NativeShellNavigation, 'getSnapshot' | 'subscribe' | 'back'>;
   playback: NativePlaybackAdapter;
@@ -62,7 +64,7 @@ export type NativeWatchFactoryPorts = Readonly<{
   requestId: () => Promise<string>;
   isTV: boolean;
   /** Bound to Android's real fenced runtime command after it lands on MAIN. */
-  startVersion: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
+  startVersion?: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
@@ -84,7 +86,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
   const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV);
   let disposed = false;
   let context: Omit<NativeWatchControlContext, 'expanded' | 'paused'> = {autoHide: true, hiddenByPanel: false, scrubbing: false, focusHeld: false};
-  const alive = () => !disposed && sameAuthority(ports.authority, ports.current());
+  const alive = () => !disposed && ports.isCurrent?.() !== false && sameAuthority(ports.authority, ports.current());
   const update = () => {
     for (const [request, captured] of requests) if (!current(captured)) request.abort();
     const source = ports.playback.getSnapshot();
@@ -117,7 +119,8 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>);
   };
   const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions) => {
-    if (!ports.openVersions || !current(captured) || offered.itemId !== captured.entry.id || offered.versions.length < 2 || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
+    const startVersion = ports.startVersion;
+    if (!ports.openVersions || !startVersion || !current(captured) || offered.itemId !== captured.entry.id || offered.versions.length < 2 || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
     ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, {t: defaultI18n.t}), selectedVersionId,
@@ -125,11 +128,11 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         if (!current(captured) || !offered.versions.some(version => version.id === versionId)) return;
         const target = captured.entry.playback;
         if (!target || target.itemId !== captured.entry.id) return;
-        await ports.startVersion({entry: captured.entry, target}, {authority: captured.authority, options: offered, versionId, expectedFence: captured.expectedFence});
+        await startVersion({entry: captured.entry, target}, {authority: captured.authority, options: offered, versionId, expectedFence: captured.expectedFence});
       }}));
   };
   const versions = async (captured: NativeWatchCapture): Promise<void> => {
-    if (!ports.openVersions || captured.entry.playback?.itemId !== captured.entry.id) return;
+    if (!ports.openVersions || !ports.startVersion || captured.entry.playback?.itemId !== captured.entry.id) return;
     const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
     if (fresh) publishVersions(captured, fresh);
   };
@@ -139,7 +142,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     // A failed options read must not replace the independent real File info action.
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
-    const hasVersions = !!ports.openVersions && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
+    const hasVersions = !!ports.openVersions && !!ports.startVersion && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
     ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
