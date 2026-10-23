@@ -21,7 +21,7 @@ import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo, type NativeFileInfo} from './file-info';
 import {nativeWatchTracks} from './track-identity';
-import {nativeVersionChoices} from './version-options';
+import {nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
@@ -149,7 +149,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (!ports.openVersions || !startVersion || !current(captured) || offered.itemId !== captured.entry.id || offered.versions.length < 2 || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, {t: defaultI18n.t}), selectedVersionId,
+    ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale)), selectedVersionId,
       isCurrent: () => current(captured), choose: async (versionId: string) => {
         if (!current(captured) || !offered.versions.some(version => version.id === versionId)) return;
         const target = captured.entry.playback;

@@ -12,7 +12,7 @@ import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
-import {nativeVersionChoices} from '../src-next/screens/watch/version-options.ts';
+import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
@@ -22,7 +22,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices},
+  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
