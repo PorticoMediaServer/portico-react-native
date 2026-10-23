@@ -531,19 +531,21 @@ test('F13 separate Tabs and Segmented groups fence shared semantic values and pr
 
 
 test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without changing account defaults', () => {
-  const props = {title: 'Actual title', open: true, onOpenChange() {}, anchorRef: {current: {measureInWindow(run: any) {run(100, 100, 150, 225);}}}, items: [{id: 'play', label: 'Play', onSelect() {}}]};
+  const props = {title: 'Actual title', open: true, width: 420, onOpenChange() {}, anchorRef: {current: {measureInWindow(run: any) {run(100, 100, 150, 225);}}}, items: [{id: 'play', label: 'Play', onSelect() {}}]};
   state.theme = createTheme({isTV: false, width: 820});
   const touch = mount(Menu, {...props, touchContext: true});
   try {
     const surface = find(touch.tree, Popover);
     assert.equal(surface.props.touchContext, true); assert.equal(surface.props.modal, true); assert.equal(surface.props.backdropOpacity, .58);
+    assert.equal(surface.props.width, 300);
   } finally {touch.host.unmount();}
   const account = mount(Menu, props);
-  try {assert.equal(find(account.tree, Popover).props.touchContext, false);} finally {account.host.unmount();}
+  try {assert.equal(find(account.tree, Popover).props.touchContext, false); assert.equal(find(account.tree, Popover).props.width, 420);} finally {account.host.unmount();}
   state.theme = createTheme({isTV: false, width: 390});
   const compact = mount(Menu, {...props, touchContext: true});
   try {
     const sheet = nodes(compact.tree).find(node => node.props.fitContent === true)!;
     assert.equal(sheet.props.backdropOpacity, .58);
+    assert.equal(sheet.props.width, undefined);
   } finally {compact.host.unmount();}
 });
