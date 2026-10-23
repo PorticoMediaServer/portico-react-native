@@ -115,7 +115,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     // as well, including close before the asynchronous lease release completes.
     // Keep this host/ref/owner stable; expanded -> docked does not revoke it.
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
-      {...(Platform.OS === 'android' && kind === 'native' ? {surfaceActive: visible} : {})}
+      {...(Platform.OS === 'android' ? {surfaceActive: visible} : {})}
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {
