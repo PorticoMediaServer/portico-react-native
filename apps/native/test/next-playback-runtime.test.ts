@@ -17,6 +17,7 @@ import type {Marker} from '../../../packages/client-core/src/playback-v1/types.t
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
+const versionLifetime = (isCurrent: () => boolean = () => true) => ({signal: new AbortController().signal, isCurrent});
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const seekRequest = (request: FakeRequest, positionMs: number) => request.method === 'PATCH' && record(request.body) && record(request.body.seek) && request.body.seek.positionMs === positionMs;
 const playingRequest = (request: FakeRequest) => record(request.body) && request.body.state === 'playing';
@@ -62,6 +63,7 @@ function fixture(groupedVersions = false) {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
+  let resumePositionMs: number | null | undefined;
   let authority: PlaybackAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch-1', viewerFence: homeFence};
   let session: LocalSession | undefined = {accessToken: '', expiresAt: '2099-01-01T00:00:00Z', viewer: {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'owner'}, sessionFamilyId: 'family', tokenGeneration: '1', authorizationHorizon: 'horizon'};
   const authorityListeners = new Set<() => void>();
@@ -93,6 +95,7 @@ function fixture(groupedVersions = false) {
         const body = response.body as Record<string, unknown>, id = body.itemId as string;
         const versions = body.versions as readonly Record<string, unknown>[];
         response = {...response, body: {...body, kind: itemKind(id), markers,
+          ...(resumePositionMs === null ? {resume: undefined} : resumePositionMs !== undefined ? {resume: {positionMs: resumePositionMs, partIndex: 0}} : {}),
           ...(groupedVersions ? {versions:[...versions,{...versions[0],id:'v2',label:'Second version'}]} : {})}};
       }
     }
@@ -137,12 +140,14 @@ function fixture(groupedVersions = false) {
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
   return {server, engine, runtime, requests, scopedRequests, start,
     groupedVersions: (value: boolean) => { groupedVersions = value; },
+    resume: (value: number | null) => { resumePositionMs = value; },
     markers: (value: readonly Marker[]) => { markers = value; },
     pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
     intercept: (fn: typeof before) => { before = fn; },
     respond: (fn: typeof respond) => { respond = fn; },
     authority: (patch: Partial<PlaybackAuthority>, notify = true) => { authority = {...authority, ...patch}; if (notify) for (const listener of [...authorityListeners]) listener(); },
+    family: (id: string) => { if (session) session = {...session, sessionFamilyId: id}; },
     changeAuthority: () => { authority = {...authority, epoch: 'epoch-2'}; session = undefined; for (const listener of [...authorityListeners]) listener(); },
     settings: (patch: Partial<NativePlaybackSettings>) => { settings = {...settings, ...patch}; for (const listener of settingsListeners) listener(); },
     get disposedCapabilities() { return disposedCapabilities; },
@@ -567,17 +572,18 @@ test('quality and audio changes replan the real session and fence old generation
   } finally { d.runtime.dispose(); }
 });
 
-test('a selected grouped version reaches the actual queue/session start without defaulting', async () => {
+test('a selected grouped version uses the command final Options resume rather than a caller or earlier menu position', async () => {
   const d=fixture(true);
   try {
-    await d.start('movie-1',13);
+    d.resume(27000);await d.start('movie-1',13);
     const state=d.runtime.getSnapshot(), options=state.options!;
+    assert.equal(options.resume?.positionMs,27000);d.resume(4500);
     assert.deepEqual(options.versions.map(value=>value.id),['v1','v2']);
     await d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1',startSeconds:17}},
-      {authority:state.authority,options,versionId:'v2',expectedFence:state.fence});
+      {lifetime:versionLifetime(),authority:state.authority,options,versionId:'v2',expectedFence:state.fence});
     await settle();
     assert.equal(d.runtime.getSnapshot().session?.versionId,'v2',JSON.stringify({requests:d.requests.slice(-12),before:state.fence,after:d.runtime.getSnapshot().fence}));
-    assert.equal(d.runtime.getSnapshot().playback.positionSeconds,17);
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds,4.5);
     assert.ok(d.requests.some(request=>request.method==='POST' && record(request.body) && request.body.versionId==='v2'));
   } finally {d.runtime.dispose();}
 });
@@ -587,12 +593,12 @@ test('version selection rejects another authority, mismatched item and a no-long
   try {
     await d.start('movie-1'); const state=d.runtime.getSnapshot(), options=state.options!, input={entry:state.entry!,target:{itemId:'movie-1'}};
     const before=d.requests.length;
-    await d.runtime.startVersion(input,{authority:{...state.authority,epoch:'old'},options,versionId:'v2',expectedFence:state.fence});
+    await d.runtime.startVersion(input,{lifetime:versionLifetime(),authority:{...state.authority,epoch:'old'},options,versionId:'v2',expectedFence:state.fence});
     assert.equal(d.requests.length,before);
-    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options:{...options,itemId:'other'},versionId:'v2',expectedFence:state.fence}));
-    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options:{...options,versions:[...options.versions,options.versions[1]]},versionId:'v2',expectedFence:state.fence}));
+    await assert.rejects(d.runtime.startVersion(input,{lifetime:versionLifetime(),authority:state.authority,options:{...options,itemId:'other'},versionId:'v2',expectedFence:state.fence}));
+    await assert.rejects(d.runtime.startVersion(input,{lifetime:versionLifetime(),authority:state.authority,options:{...options,versions:[...options.versions,options.versions[1]]},versionId:'v2',expectedFence:state.fence}));
     d.groupedVersions(false);
-    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options,versionId:'v2',expectedFence:state.fence}));
+    await assert.rejects(d.runtime.startVersion(input,{lifetime:versionLifetime(),authority:state.authority,options,versionId:'v2',expectedFence:state.fence}));
     assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id);
     assert.equal(d.runtime.getSnapshot().session?.versionId,'v1');
   } finally {d.runtime.dispose();}
@@ -603,7 +609,7 @@ test('a version menu opened with no source cannot replace playback that started 
   try {
     await d.start('movie-1'); const state=d.runtime.getSnapshot(), before=d.requests.length;
     await d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
-      {authority:state.authority,options:state.options!,versionId:'v2',expectedFence:undefined});
+      {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:undefined});
     assert.equal(d.requests.length,before);assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id);
   } finally {d.runtime.dispose();}
 });
@@ -615,7 +621,7 @@ test('a delayed version revalidation cannot replace a later playback source', as
     const held=new Promise<void>(resolve=>{release=resolve;});let entered=false;
     d.intercept(async request=>{if(request.path.includes('/movie-1/playback-options')&&!entered){entered=true;await held;}});
     const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
-      {authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+      {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
     await settle();assert.equal(entered,true);await d.start('movie-current',27);
     release();await late;await settle();
     assert.equal(d.runtime.getSnapshot().playback.itemId,'movie-current');
@@ -1481,4 +1487,88 @@ test('authority retirement during native fact delivery cannot expose old progres
     assert.equal(d.subscriptions, 0);
     assert.equal(ui.parentRenders, 1);
   } finally {await ui?.unmount(); d.runtime.dispose();}
+});
+
+
+test('version start without a fresh resume starts at zero rather than caller position', async () => {
+  const d=fixture(true);
+  try {
+    await d.start('movie-1',25);const state=d.runtime.getSnapshot();d.resume(null);
+    await d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1',startSeconds:99}},
+      {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+    await settle();assert.equal(d.runtime.getSnapshot().session?.versionId,'v2');
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds,0);
+  } finally {d.runtime.dispose();}
+});
+
+test('a closed or removed chooser cannot start after its final Options read resolves', async () => {
+  for(const closing of ['abort','owner'] as const) {
+    const d=fixture(true),controller=new AbortController();let release=()=>{},owned=true;
+    try {
+      await d.start('movie-1');const state=d.runtime.getSnapshot();
+      const held=new Promise<void>(resolve=>{release=resolve;});let entered=false;
+      d.intercept(async request=>{if(request.path.includes('/movie-1/playback-options')&&!entered){entered=true;await held;}});
+      const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+        {lifetime:{signal:controller.signal,isCurrent:()=>owned},authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+      await settle();assert.equal(entered,true);
+      if(closing==='abort')controller.abort();else owned=false;
+      release();await late;await settle();
+      assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id,closing);
+      assert.equal(d.requests.some(request=>request.method==='POST'&&record(request.body)&&request.body.versionId==='v2'),false,closing);
+    } finally {release();d.runtime.dispose();}
+  }
+});
+
+test('a closed chooser cannot adopt a version session returned after its own start was sent', async () => {
+  for(const closing of ['abort','owner'] as const) {
+    const d=fixture(true),controller=new AbortController();let release=()=>{},owned=true,created='';
+    try {
+      await d.start('movie-1');const state=d.runtime.getSnapshot();
+      const held=new Promise<void>(resolve=>{release=resolve;});let entered=false;
+      d.respond(async request=>{
+        if(request.method!=='POST'||!record(request.body)||request.body.versionId!=='v2'||entered)return;
+        entered=true;await held;
+        const response=await d.server.handle(request);
+        assert.equal(response.status,201);assert.ok(record(response.body)&&typeof response.body.id==='string');
+        created=response.body.id;return response;
+      });
+      const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+        {lifetime:{signal:controller.signal,isCurrent:()=>owned},authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+      await settle();assert.equal(entered,true);
+      if(closing==='abort')controller.abort();else owned=false;
+      release();await late;await settle();
+      assert.notEqual(d.runtime.getSnapshot().session?.versionId,'v2',closing);
+      assert.ok(created,'the actual fake server created a session after cancellation');
+      assert.ok(d.requests.some(request=>request.method==='DELETE'&&request.path===encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)})),closing+': retire the real late session');
+      assert.equal(d.server.session(created)?.ended,true,closing);
+    } finally {release();d.runtime.dispose();}
+  }
+});
+
+test('late version cleanup survives ordinary disposal but never uses a replacement principal or family', async () => {
+  for (const closing of ['dispose', 'authority', 'family'] as const) {
+    const d = fixture(true); let release = () => {}, entered = false, created = '';
+    try {
+      await d.start('movie-1'); const state = d.runtime.getSnapshot();
+      const held = new Promise<void>(resolve => {release = resolve;});
+      d.respond(async request => {
+        if (request.method !== 'POST' || !record(request.body) || request.body.versionId !== 'v2' || entered) return;
+        entered = true; await held;
+        const response = await d.server.handle(request);
+        assert.equal(response.status, 201); assert.ok(record(response.body) && typeof response.body.id === 'string');
+        created = response.body.id; return response;
+      });
+      const late = d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+        {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+      await settle(); assert.equal(entered, true);
+      if (closing === 'dispose') d.runtime.dispose();
+      else if (closing === 'authority') d.authority({epoch:'replacement'}, false);
+      else d.family('replacement-family');
+      release(); await late; await settle(); assert.ok(created);
+      const stopped = d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)}));
+      assert.equal(stopped, closing === 'dispose', closing);
+      assert.equal(d.runtime.getSnapshot().session?.versionId === 'v2', false);
+      assert.equal(d.runtime.getSnapshot().retired, true);
+    } finally {release();d.runtime.dispose();}
+  }
 });
