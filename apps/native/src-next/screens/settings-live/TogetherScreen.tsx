@@ -20,8 +20,10 @@ import {Screen, ScreenText, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeTogetherController} from './together-controller';
 import {nativeTogetherLobbyFaces} from './together-presentation';
+import {NativeTogetherTVRoom} from './TogetherTVRoom';
+import type {NativeTogetherMedia} from './together-media';
 
-export function NativeTogetherScreen({controller, ports, runtime}: {controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
@@ -39,7 +41,7 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
   if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason}/>;
-  if (room) return <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
+  if (room) return theme.isTV ? <NativeTogetherTVRoom controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
   const type = (field: 'name' | 'code' | 'who') => {if (theme.isTV) {setTypingIntent(typing === field ? 'restore' : 'enter'); setTyping(field); setTypingRevision(value => value + 1);}};

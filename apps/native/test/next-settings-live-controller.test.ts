@@ -9,6 +9,7 @@ import {NativeLiveController} from '../src-next/screens/settings-live/live-contr
 import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
 import {nativeTogetherLobbyFaces} from '../src-next/screens/settings-live/together-presentation';
+import {NativeTogetherMedia} from '../src-next/screens/settings-live/together-media';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
@@ -380,6 +381,37 @@ test('Together lobby faces use only joined members and strip private identity be
   // A matching name is never sufficient to borrow the selected profile's art.
   assert.deepEqual(nativeTogetherLobbyFaces({viewerMemberId: 'different-member', members: [member('other', 'Viewer nickname')]}, viewer), [{id: 'other', private: false, initial: 'V'}]);
   assert.deepEqual(nativeTogetherLobbyFaces(undefined, viewer), [{id: 'profile:selected-profile', private: false, initial: 'V', color: 'violet', source: undefined}]);
+});
+
+test('Together media stays bounded across cancelled viewports and never accepts a different item', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner);
+  const pending: {id: string; finish: (value: unknown) => void}[] = [];
+  let active = 0, peak = 0;
+  const reader = new NativeTogetherMedia(lifetime, {request: <T>(path: string) => {
+    const id = decodeURIComponent(path.split('/').pop()!);
+    active++; peak = Math.max(peak, active);
+    // Deliberately ignore AbortSignal: an old transport still occupies its slot.
+    return new Promise<T>(resolve => pending.push({id, finish: value => {active--; resolve(value as T);}}));
+  }});
+  const item = (id: string) => ({id, libraryId: 'library', kind: 'movie', title: id, available: true, durationMs: 1000, progressMs: 0});
+  reader.select(Array.from({length: 20}, (_, index) => `old${index}`));
+  assert.equal(Object.keys(reader.getSnapshot().items).length, 9);
+  assert.equal(pending.length, 2);
+  reader.select(['current', 'visible']);
+  assert.equal(pending.length, 2);
+  pending[0].finish(item('old0')); pending[1].finish(item('old1'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(peak, 2);
+  assert.deepEqual(Object.keys(reader.getSnapshot().items), ['current', 'visible']);
+  assert.deepEqual(pending.slice(2).map(value => value.id), ['current', 'visible']);
+  pending[2].finish(item('different-authorized-item')); pending[3].finish(item('visible'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reader.getSnapshot().items.current.phase, 'error');
+  assert.equal(reader.getSnapshot().items.visible.phase, 'ready');
+  owner.replace({profileId: 'other', viewerFence: 'next-home-fence'});
+  assert.deepEqual(reader.getSnapshot().items, {});
+  assert.equal(active, 0);
+  reader.dispose(); lifetime.dispose();
 });
 
 test('Together teardown releases its subscription without disposing or calling the borrowed app service', async () => {
