@@ -9,7 +9,8 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture} from './picture-slot';
-import type {NativeWatchControls, NativeWatchControlContext, NativeWatchControlState} from './controls';
+import {nativeWatchTVPresentation} from './tv-presentation';
+import type {NativeWatchControls, NativeWatchControlContext, NativeWatchControlState, NativeWatchPanel} from './controls';
 
 export type NativeWatchHostContext = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
@@ -17,13 +18,17 @@ export type NativeWatchHostContext = Readonly<{
   layout: PlayerPresentation;
   state: NativeWatchControlState;
   runtime: NativeShellRuntime;
+  /** Drawn UI coordinates. Native surface measurements always use layout.surface. */
+  renderer: Readonly<{width: number; height: number; scale: number; panel?: PlayerRect}>;
   closePanel: () => void;
+  backPanel: () => void;
+  openPanel: (panel: NativeWatchPanel) => void;
   rememberPanel: (offset: number) => void;
 }>;
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   panel: (context: NativeWatchHostContext) => React.ReactNode;
@@ -40,6 +45,7 @@ type Props = Readonly<{
   runtime: NativeShellRuntime;
   controls: NativeWatchControls;
   bindings: NativeWatchHostBindings;
+  isTV?: boolean;
   setPresentation: (context: Omit<NativeWatchControlContext, 'expanded' | 'paused'>) => void;
 }>;
 const positioned = (pane: PlayerRect) => ({position: 'absolute' as const, left: pane.x, top: pane.y, width: pane.width, height: pane.height});
@@ -47,7 +53,7 @@ const positioned = (pane: PlayerRect) => ({position: 'absolute' as const, left: 
 /** Persistent chrome sibling above Accounts' single Surface. A transparent
  * measured surface pane is the only native-slot producer, including letterbox.
  * Posture changes never navigate, key a player, or recreate title memory. */
-export function NativeWatchHost({authority, current, playback, outlet, runtime, controls, bindings, setPresentation}: Props) {
+export function NativeWatchHost({authority, current, playback, outlet, runtime, controls, bindings, setPresentation, isTV = false}: Props) {
   const source = useSyncExternalStore(playback.subscribe, playback.getSnapshot);
   const state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
   const window = useWindowDimensions(), posture = usePlatformPosture();
@@ -56,36 +62,44 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const expanded = !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
   const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
-  const input = useMemo<PlayerPresentationInput>(() => ({window: {width: window.width, height: window.height}, posture, docked: !expanded, panelOpen}),
-    [window.width, window.height, posture, expanded, panelOpen]);
-  const layout = useMemo(() => resolvePlayerPresentation(input), [input]);
+  const input = useMemo<PlayerPresentationInput>(() => ({window: {width: window.width, height: window.height}, posture, docked: !expanded, panelOpen: !isTV && panelOpen}),
+    [window.width, window.height, posture, expanded, panelOpen, isTV]);
+  const television = useMemo(() => isTV ? nativeWatchTVPresentation(input.window, !expanded, panelOpen ? state.panel : undefined) : undefined, [isTV, input.window, expanded, panelOpen, state.panel]);
+  const layout = useMemo(() => isTV ? television?.layout : resolvePlayerPresentation(input), [input, isTV, television]);
   const previous = useRef<PlayerPresentationInput | undefined>(undefined), deadline = useRef(0);
   useLayoutEffect(() => {
     // Apply suppression/pinning first. Repeated progress and panel close alone
     // cannot issue another fold reveal or extend its three-second deadline.
     setPresentation({autoHide: layout?.controlsAutoHide ?? false, hiddenByPanel: layout?.controlsHidden ?? false,
       scrubbing: scrubbing === true, focusHeld: focusHeld === true});
-    const next = playerControlsRevealDeadline(previous.current, input, Date.now(), deadline.current);
+    const next = isTV && panelOpen ? 0 : playerControlsRevealDeadline(previous.current, input, Date.now(), deadline.current);
     if (fence && next !== deadline.current && next > 0) controls.revealAfterLayout(fence, next);
     deadline.current = next; previous.current = input;
     presentation?.(layout);
-  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation]);
+  }, [input, layout, fence, controls, setPresentation, scrubbing, focusHeld, presentation, isTV, panelOpen]);
   const measuredCurrent = useCallback(() => ({authority: current(), fence: playback.getSnapshot().fence, window: Dimensions.get('window')}), [current, playback]);
   if (!expanded || !fence || !layout?.surface) return null;
   const context: NativeWatchHostContext = {source, fence, layout, state, runtime,
-    closePanel: () => {controls.closePanel(fence);}, rememberPanel: offset => controls.rememberPanel(fence, offset)};
+    renderer: {width: television?.canvas.width ?? window.width, height: television?.canvas.height ?? window.height, scale: television?.canvas.scale ?? 1,
+      panel: television?.panel ?? (layout.mode === 'watch' ? layout.content : layout.panel)},
+    closePanel: () => {controls.closePanel(fence);}, backPanel: () => {controls.back(fence);}, openPanel: panel => {controls.open(panel, fence);}, rememberPanel: offset => controls.rememberPanel(fence, offset)};
   // Tabletop controls live below the actual top surface. In book mode edge
   // chrome avoids the crease while transport remains centred in its full pane.
   const chromePane = layout.mode === 'tabletop' ? layout.controls : layout.surface;
-  return <View testID="watch-host" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
-    <NativeWatchPicture authority={authority} fence={fence} outlet={outlet} current={measuredCurrent} style={positioned(layout.surface)}/>
+  const content = <>
     {layout.content && <View testID="watch-content-pane" style={positioned(layout.content)} pointerEvents="box-none">{bindings.content?.(context)}</View>}
     {layout.details && <View testID="watch-details-pane" style={positioned(layout.details)} pointerEvents="box-none">{bindings.details?.(context)}</View>}
-    {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(chromePane)}>
+    {chromePane && <View testID="watch-controls-pane" pointerEvents="box-none" style={positioned(television ? {x: 0, y: 0, width: television.canvas.width, height: television.canvas.height} : chromePane)}>
       <NativeWatchChrome {...bindings.chrome(source, runtime)} source={source} controls={controls} playback={playback} text={runtime.text}
-        width={chromePane.width} height={chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'}
-        edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined} onPanel={() => {}}/>
+        width={television?.canvas.width ?? chromePane.width} height={television?.canvas.height ?? chromePane.height} compact={layout.mode === 'watch' || layout.mode === 'book'}
+        tvPanelRight={television?.backdropRight}
+        edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
-    {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={layout.panel ? positioned(layout.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
+    {panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
+  </>;
+  return <View testID="watch-host" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
+    <NativeWatchPicture authority={authority} fence={fence} outlet={outlet} current={measuredCurrent} style={positioned(layout.surface)}/>
+    {television ? <View testID="watch-tv-canvas" pointerEvents="box-none" style={{position: 'absolute', left: television.canvas.left, top: television.canvas.top,
+      width: television.canvas.width, height: television.canvas.height, transformOrigin: 'top left', transform: [{scale: television.canvas.scale}]}}>{content}</View> : content.props.children}
   </View>;
 }
