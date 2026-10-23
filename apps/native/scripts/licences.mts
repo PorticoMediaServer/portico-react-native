@@ -81,8 +81,8 @@ function folderLicence(dir: string): string | undefined {
 // JavaScript bundles
 
 /** `--record`: the npm packages in each bundle, from Metro's own graph (the source map's files). */
-async function recordBundles() {
-  for (const client of ['android', 'apple', 'vega'] as Client[]) {
+async function recordBundles(clients: readonly Client[]) {
+  for (const client of clients) {
     const {app, platform} = BUNDLES[client];
     const appDir = path.join(root, app);
     const require = createRequire(path.join(appDir, 'package.json'));
@@ -432,10 +432,19 @@ export function generate(client: Client): LicenceData {
   return buildLicenceData({client, sources, components, inputs});
 }
 
+export function selectedClients(args: readonly string[]): Client[] {
+  const index = args.indexOf('--client');
+  if (index < 0) return Object.keys(OUTPUTS) as Client[];
+  const client = args[index + 1];
+  if (client !== 'android' && client !== 'apple' && client !== 'vega') throw new Error('--client requires android, apple or vega');
+  return [client];
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (process.argv.includes('--record')) await recordBundles();
+  const clients = selectedClients(process.argv.slice(2));
+  if (process.argv.includes('--record')) await recordBundles(clients);
   let stale = 0;
-  for (const client of Object.keys(OUTPUTS) as Client[]) {
+  for (const client of clients) {
     const text = serialiseLicenceData(generate(client));
     const file = path.join(root, OUTPUTS[client]);
     const data = JSON.parse(text) as LicenceData;
