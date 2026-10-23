@@ -67,9 +67,11 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
         {kicker != null && <View style={{marginBottom: tv ? 24 : 18}}>{kicker}</View>}
         {icon && <View style={{width: iconSize, height: iconSize, borderRadius: theme.baseRadii.pill, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
           backgroundColor: androidGlass ? 'transparent' : `${theme.colors.text}1A`, borderWidth: androidGlass ? 0 : 1, borderColor: `${theme.colors.text}1F`, marginBottom: tv ? 34 : player ? 12 : 18}}>
-          {androidGlass ? <BlurView pointerEvents="none" blurType="dark" blurAmount={20} overlayColor={`${theme.colors.text}1A`} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center'}}>
-            <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: theme.baseRadii.pill, borderWidth: 1, borderColor: `${theme.colors.text}1F`}} />
-            {emblem}
+          {androidGlass ? <BlurView pointerEvents="none" blurType="dark" blurAmount={20} overlayColor={`${theme.colors.text}1A`} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0}}>
+            <View collapsable={false} style={{position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center'}}>
+              <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: theme.baseRadii.pill, borderWidth: 1, borderColor: `${theme.colors.text}1F`}} />
+              {emblem}
+            </View>
           </BlurView> : <>
             {glass.nativeBlur && <BlurView pointerEvents="none" blurType="dark" blurAmount={20} reducedTransparencyFallbackColor={theme.colors.raised} style={{position: 'absolute', inset: 0}} />}
             {emblem}

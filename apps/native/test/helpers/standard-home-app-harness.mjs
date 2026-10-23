@@ -120,6 +120,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
    return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
  };}
  export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
+ export const Share={share(){throw Error('Unexpected native Share operation in Home fixture')}};
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
@@ -216,7 +217,7 @@ const loader = registerHooks({
       return next(specifier, context);
     } catch (error) {
       if (
-        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
           error.code,
         ) ||
         !specifier.startsWith('.')
@@ -227,7 +228,7 @@ const loader = registerHooks({
           return next(specifier + suffix, context);
         } catch (retry) {
           if (
-            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
               retry.code,
             )
           )

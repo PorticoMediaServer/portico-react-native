@@ -58,10 +58,10 @@ export function FocusBoundary({modal, children, style, testID}: {modal: boolean;
   const {isTV} = useTheme();
   return isTV ? <FocusRegion id={testID ?? ''} hold={modal} style={style}>{children}</FocusRegion> : <View style={style}>{children}</View>;
 }
-export function SurfaceHeader({title, description, action, side = false, inset = true, dialog = false, titleType: suppliedType, titleTextStyle, descriptionTextStyle}: Pick<SurfaceProps, 'title' | 'description' | 'titleType' | 'titleTextStyle' | 'descriptionTextStyle'> & {action?: React.ReactNode; side?: boolean; inset?: boolean; dialog?: boolean}) {
+export function SurfaceHeader({title, description, action, side = false, inset = true, dialog = false, titleType: suppliedType, titleTextStyle, descriptionTextStyle, style}: Pick<SurfaceProps, 'title' | 'description' | 'titleType' | 'titleTextStyle' | 'descriptionTextStyle'> & {action?: React.ReactNode; side?: boolean; inset?: boolean; dialog?: boolean; style?: StyleProp<ViewStyle>}) {
   const theme = useTheme();
   const titleType = nativeType(suppliedType ?? {size: theme.isTV && side ? 46 : theme.isTV ? 42 : theme.platform === 'tablet' && !side ? 23 : 21, weight: 800, tracking: theme.isTV ? side ? -0.035 : -0.03 : dialog ? -0.025 : -0.02, lineHeight: theme.isTV ? side ? 47.84 : 47.04 : dialog ? 27.6 : 'normal'}, theme.textScale);
-  return <View style={{paddingHorizontal: theme.isTV || !inset ? 0 : 20, paddingTop: dialog ? 0 : side && theme.isTV ? 18 : 2, paddingBottom: dialog ? 0 : 12}}>
+  return <View style={StyleSheet.flatten([{paddingHorizontal: theme.isTV || !inset ? 0 : 20, paddingTop: dialog ? 0 : side && theme.isTV ? 18 : 2, paddingBottom: dialog ? 0 : 12}, style])}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Text accessibilityRole="header" style={[titleType, {color: theme.colors.text, flex: 1, paddingRight: dialog && !theme.isTV ? 40 : 0}, titleTextStyle]}>{title}</Text>{action}</View>
     {description != null && <Text style={[theme.isTV ? nativeType({size: side ? 22 : 26, lineHeight: side ? 33 : 39, weight: 400, tracking: 0}, theme.textScale) : nativeType({size: theme.platform === 'tablet' && !side ? 15 : 14, lineHeight: theme.platform === 'tablet' && !side ? 23.25 : 21, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, marginTop: dialog ? theme.isTV ? 14 : 8 : 6}, descriptionTextStyle]}>{description}</Text>}
   </View>;

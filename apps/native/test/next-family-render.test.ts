@@ -492,8 +492,12 @@ test('state icon glass excludes its Android foreground from root capture and ret
               assert.ok(border, 'the drawn border remains in the excluded foreground subtree');
               assert.equal(border.props.style.borderColor, `${state.theme.colors.text}1F`);
               assert.equal(border.props.style.borderRadius, state.theme.baseRadii.pill);
-              assert.equal(blur.props.style.alignItems, 'center');
-              assert.equal(blur.props.style.justifyContent, 'center');
+              const layout = blur.props.children;
+              assert.equal(layout.type, 'View');
+              assert.equal(layout.props.collapsable, false, 'one real RN layout child keeps the glyph centered inside native FrameLayout');
+              assert.equal(layout.props.style.inset, 0);
+              assert.equal(layout.props.style.alignItems, 'center');
+              assert.equal(layout.props.style.justifyContent, 'center');
             } else {
               assert.equal(nodes(blur.props.children).includes(icon), false, 'Apple retains its existing native material composition');
             }

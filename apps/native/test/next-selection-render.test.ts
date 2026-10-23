@@ -276,6 +276,42 @@ test('TV mixed Edit offers genuine Keep-only callbacks and an actual initial foc
   } finally {mixed.host.unmount();}
 });
 
+test('phone mixed Edit uses full-width drawn rows and a continuous footer without changing Keep-only or Close', () => {
+  const previous = state.theme, calls: unknown[] = [];
+  const props = {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 4, description: 'Actual mixed reason', groups: [{kind: 'movie', label: 'Movie', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episode', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)};
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 1024}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const mixed = mount(MixedEditExplainer, props);
+      try {
+        const surface = mixed.tree as Element, phone = state.theme.platform === 'phone';
+        assert.deepEqual(surface.props.footerPadding, phone ? {top: 12, bottom: 34, keyboardBottom: 12} : undefined);
+        assert.equal(surface.props.contentFooterGap, phone ? 0 : undefined);
+        assert.equal(surface.props.showFooterSeparator, phone ? false : undefined);
+        assert.equal(surface.props.contentStyle.paddingHorizontal, phone || options.isTV ? 0 : 20);
+        const rows = ofType(surface, Focusable);
+        assert.equal(rows.length, 2); assert.equal(rows[0].props.ref, surface.props.initialFocusRef);
+        if (phone) {
+          assert.equal(surface.props.headerContent.props.description, props.description);
+          assert.equal(surface.props.headerContent.props.descriptionTextStyle.color, state.theme.colors.textTertiary);
+          const labelRow = elements(surface.props.children).find(node => node.props.style?.minHeight === 48)!;
+          assert.ok(labelRow); assert.equal(labelRow.props.style.paddingHorizontal, 20);
+          for (const row of rows) {
+            const style = flattenStyle(row.props.style);
+            assert.equal(style.minHeight, 56); assert.equal(style.paddingVertical, 8); assert.equal(style.paddingHorizontal, 20);
+          }
+          rows[1].props.onPress(); surface.props.footer.props.onPress();
+          assert.deepEqual(calls, ['episode', [false, 'action'], [false, 'action']]);
+        } else assert.equal(surface.props.headerContent, undefined);
+        mixed.update({...props, groups: [props.groups[0]]});
+        const single = mixed.tree as Element;
+        assert.equal(single.props.headerContent, undefined); assert.equal(single.props.footerPadding, undefined);
+        assert.equal(single.props.initialFocusRef, single.props.footer.props.ref);
+      } finally {mixed.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('TV Delete keeps the owner, preview, exact confirmation and restriction gates on the real dialog', () => {
   const calls: unknown[] = [];
   const preview = {revision: 7, confirmation: '1', confirmationKind: 'count' as const, totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]};
@@ -595,6 +631,7 @@ test('phone sheet name and confirmation fields use the drawn 46pt height without
         for (const owner of [picker, deletion]) {
           const field = ofType(owner.tree, TextField)[0]!;
           assert.equal(field.props.fieldStyle?.height, phone ? 46 : undefined);
+          assert.equal(field.props.style?.fontSize, phone ? 16 * state.theme.textScale : undefined);
         }
         if (phone) {
           const scalarNode = elements(editor.tree).find(node => node.props.field?.field === 'year')!;
@@ -740,10 +777,10 @@ test('phone picker fits its continuous body to the authored action inset above t
   const footer = () => elements(sheet.tree).find(node => node.props.onLayout && flattenStyle(node.props.style).position === 'absolute' && flattenStyle(node.props.style).borderTopColor)!;
   const measure = (footerHeight: number, bottom: number) => {
     header().props.onLayout({nativeEvent: {layout: {height: 53}}});
-    body().props.onLayout({nativeEvent: {layout: {height: 71}}});
+    body().props.onLayout({nativeEvent: {layout: {height: 75}}});
     footer().props.onLayout({nativeEvent: {layout: {height: footerHeight}}}); sheet.host.rerender();
     const frame = flattenStyle(panel().props.style);
-    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 71;
+    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 75;
     assert.equal(bodyBottom, bottom - footerHeight, 'content ends at the footer; its twelve-point action inset supplies the drawn gap');
     assert.equal(flattenStyle(footer().props.style).paddingTop, 12);
     assert.equal(flattenStyle(footer().props.style).borderTopWidth, 0);
@@ -751,6 +788,7 @@ test('phone picker fits its continuous body to the authored action inset above t
   try {
     const input = ofType(picker.tree, TextField)[0]!;
     assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingBottom, 0);
+    assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingTop, 4);
     assert.equal((surface.tree as Element).props.contentFooterGap, 0);
     measure(94, 844);
     keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); sheet.host.rerender();
