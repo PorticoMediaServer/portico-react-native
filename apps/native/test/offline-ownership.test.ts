@@ -1127,3 +1127,15 @@ test('cached display and local media reads reject an owner change while native r
     b.offlineDownloads.adopt(B);releaseFile({url:'file:///downloads/prep-a/media',durationSeconds:1200});await mediaRejected;
   } finally {nativeDownloads.readExtra=originalExtra;nativeDownloads.localFile=originalFile;}
 });
+
+test('private cached title keeps typed duration and episode facts after native JSON readback', async () => {
+  const {offlineDownloads}=await bridge(),owner=ownerKeyOf(A);
+  const {durationMs:_wire,...title}=TITLE();
+  const cached={...title,kind:'episode',durationSeconds:1200,parentTitle:'A series',groupNumber:2,number:3};
+  device.seed({id:'prep-a',itemId:'item-1',meta:{owner,title:cached}});
+  offlineDownloads.adopt(A);await offlineDownloads.open();
+  const entry=offlineDownloads.getSnapshot().entries[0]!;
+  assert.deepEqual(entry.info,cached);
+  assert.equal(entry.info?.durationSeconds,1200);
+  assert.equal(entry.info?.groupNumber,2);assert.equal(entry.info?.number,3);
+});

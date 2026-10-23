@@ -342,7 +342,8 @@ export class OfflineDownloads {
     // A stored receipt is re-parsed every time it is read: a damaged one is no receipt at all.
     try { receipt = meta.receipt ? decodeDownloadReceipt(meta.receipt).receipt : undefined; } catch { receipt = undefined; }
     let info: DownloadTitle | undefined;
-    try { info = meta.title ? parseDownloadTitle(meta.title) : undefined; } catch { info = undefined; }
+    // Meta.title is the internal model serialized by transfer/patch, not an API response.
+    try { info = meta.title ? parseDownloadTitle(durationIntent({...meta.title}, {durationSeconds: 'durationMs'})) : undefined; } catch { info = undefined; }
     const dir = typeof raw.dir === 'string' ? raw.dir : this.dirs.get(raw.id) ?? '';
     if (dir) this.dirs.set(raw.id, dir);
     this.metas.set(raw.id, {...meta, receipt, title: info});
