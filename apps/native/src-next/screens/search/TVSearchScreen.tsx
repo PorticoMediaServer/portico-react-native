@@ -118,14 +118,14 @@ function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre: Nativ
 
 function TVSearchTopResult({entry, group, runtime, actions, selection, disabled}: Pick<NativeTVSearchScreenProps, 'runtime' | 'actions'> & {entry: SearchEntry; group: SearchGroup; selection?: ReturnType<NativeSearchSelectionPort['item']>; disabled: boolean}) {
   const theme = useTheme(), anchor = useRef<View>(null), content = media(entry) ? entry : undefined, kind = topResultKindLabel(group);
-  const text = content && cardText(homeSubject(content), 'search', runtime.text);
-  return <CardFrame focusId={nativeSearchEntryKey(group, entry)} testID="tv-search-top-result" title={entry.title} disabled={disabled} selection={selection}
+  const text = content && cardText(homeSubject(content), 'search', runtime.text), title = content?.displayTitle || entry.title;
+  return <CardFrame focusId={nativeSearchEntryKey(group, entry)} testID="tv-search-top-result" title={title} disabled={disabled} selection={selection}
     menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry, group)} onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, anchor)}
     style={{marginTop: 44}} pressableStyle={{flexDirection: 'row', gap: 36, alignItems: 'center'}}>
     {state => <><ArtFrame width={480} height={270} radius={14} focused={state.focused} hovered={state.hovered} holding={state.holding} selected={selection?.selected}>
       <Artwork source={runtime.artwork(content?.backdropUrl ?? entry.posterUrl)} width={480} height={270}/></ArtFrame>
       <View style={{flex: 1}}><Text style={[browseType(theme, 20, 700), {color: theme.colors.accentStrong, marginBottom: 10}]}>{t('search.topResult')}</Text>
-        <Text numberOfLines={3} style={[browseType(theme, 52, 800, -.04, 52), {color: theme.colors.text, marginBottom: 14}]}>{entry.title}</Text>
+        <Text numberOfLines={3} style={[browseType(theme, 52, 800, -.04, 52), {color: theme.colors.text, marginBottom: 14}]}>{title}</Text>
         <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginBottom: 14}}>{content?.year !== undefined && <Text style={[browseType(theme, 20, 700), {color: theme.colors.textSecondary}]}>{content.year}</Text>}
           {kind && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>{t(kind)}</Text>}
           {text && <Parts parts={text.caption.filter(part => part.id !== 'year')} style={browseType(theme, 20, 600)}/>}</View>

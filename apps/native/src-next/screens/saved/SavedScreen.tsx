@@ -91,7 +91,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
 
 function SavedMyListCard({entry, runtime, actions, selection}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
-  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.title, caption: text.caption, width: 112,
+  const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption, width: 112,
     artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef), selection,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry)};
   return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard {...props}/> : <PosterCard {...props}/>;
