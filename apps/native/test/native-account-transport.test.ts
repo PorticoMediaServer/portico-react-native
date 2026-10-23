@@ -118,6 +118,8 @@ test('the native transports under account requests refuse redirects', () => {
   assert.match(android, /\.followRedirects\(false\)/);
   assert.match(android, /\.followSslRedirects\(false\)/);
   assert.match(android, /response\.code in intArrayOf\(301, 302, 303, 307, 308\)[^\n]*\n\s*finish\(entry, "Queue control redirects are not allowed\."/);
-  const apple = readFileSync(new URL('../Native/PorticoPlayer.m', import.meta.url), 'utf8');
+  const entry = readFileSync(new URL('../Native/PorticoPlayer.m', import.meta.url), 'utf8');
+  assert.match(entry, /#import "PorticoQueueTransport\.h"/);
+  const apple = readFileSync(new URL('../Native/PorticoQueueTransport.h', import.meta.url), 'utf8');
   assert.match(apple, /willPerformHTTPRedirection:[^\n]*\n completionHandler\(nil\);\[\[self requestFor:task\] finish:@"Queue control redirects are not allowed\."\];/);
 });

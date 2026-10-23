@@ -24,6 +24,9 @@ export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNull
   /** Real caller lifetime through options/create/adoption. It excludes an old output fence. */
   lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 }>;
+export type NativePlaybackChannelStart = Readonly<{sourceId: string; channelId: string; timezone: string;
+  lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+}>;
 export type NativePlaybackVersionSelection = Readonly<{
   authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
   /** The real chooser/route/entry lifetime. Output-fence checks remain runtime-owned. */

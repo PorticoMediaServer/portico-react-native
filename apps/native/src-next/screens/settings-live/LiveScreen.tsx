@@ -12,7 +12,7 @@ import {legacyChannel, legacyProgramme, layoutRow, nowNext, pxPerMsFor, rulerTic
 import {Button, Chip, Focusable, Segmented, Select} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {Dialog} from '../../kit/overlays';
-import {Artwork} from '../../kit/artwork';
+import {Artwork, ChannelMark} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
 import {SkeletonBlock, StateView} from '../../kit/states';
 import {alpha, shellType} from '../../kit/shell/visual';
@@ -204,7 +204,7 @@ function LiveRow({panPosition, panActive, laneWidth, clock, entryEnabled, index,
   return <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
     <FocusRegion id={column} entry="channel" edges={{left: rail, right: cellsRegion}} style={{width: channelWidth - (theme.isTV ? 18 : phoneGrid ? 2 : 8)}}>
       <Focusable ref={channelRef} focusId="channel" testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
-        <View style={{width: theme.isTV ? 56 : landscapePhone ? 32 : 36, height: theme.isTV ? 56 : landscapePhone ? 32 : 36}}>{logo && <Artwork source={logo} fit="contain"/>}{compactChannel && channel.favorite && <View style={{position: 'absolute', right: -7, top: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.ink, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/></View>}</View>
+        <View style={{width: theme.isTV ? 56 : landscapePhone ? 32 : 36, height: theme.isTV ? 56 : landscapePhone ? 32 : 36}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : landscapePhone ? 32 : 36}/>{compactChannel && channel.favorite && <View style={{position: 'absolute', right: -7, top: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.ink, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/></View>}</View>
         <View style={{flex: compactChannel ? undefined : 1, alignItems: compactChannel ? 'center' : undefined}}>{!compactChannel && <View style={{flexDirection: 'row', alignItems: 'center', gap: 5}}><Text numberOfLines={2} style={[shellType(theme.isTV ? 22 : landscapePhone ? 12.5 : 13, 700), {color: theme.colors.text, flexShrink: 1}]}>{channel.name}</Text>{landscapePhone && channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}</View>}<Text style={[shellType(theme.isTV ? 18 : 11), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>
       </Focusable>
     </FocusRegion>
@@ -220,7 +220,7 @@ function NativeLiveListRow({channel, programme, next, now, runtime, height, onOp
   const remaining = programme && programmeFactParts({startMs: programme.start, endMs: programme.end}, runtime.text, now).find(fact => fact.id === 'remaining');
   const progress = programme && programme.end > programme.start ? Math.max(0, Math.min(1, (now - programme.start) / (programme.end - programme.start))) : undefined;
   return <Focusable ref={node} testID={`live-list-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={[channel.name, programme?.title].filter(Boolean).join(' ')} onPress={() => onOpen(node.current)} focusKind="row" style={{height, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', gap: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
-    <View style={{width: 46, alignItems: 'center', gap: 5}}>{logo && <View style={{width: 46, height: 46, borderRadius: 11, overflow: 'hidden'}}><Artwork source={logo} fit="contain"/></View>}<Text style={[shellType(11.5, 700), {color: theme.colors.textTertiary}]}>{channel.number}</Text></View>
+    <View style={{width: 46, alignItems: 'center', gap: 5}}>{(logo || channel.mark && channel.sourceId) && <View style={{width: 46, height: 46, borderRadius: 11, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={46}/></View>}<Text style={[shellType(11.5, 700), {color: theme.colors.textTertiary}]}>{channel.number}</Text></View>
     <View style={{flex: 1, minWidth: 0}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{channel.name}</Text>{channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}<ProgrammeFlags programme={programme}/>{remaining && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textSecondary, marginLeft: 'auto'}]}>{remaining.text}</Text>}</View>
       <Text numberOfLines={1} style={[shellType(16, 700, 'normal', -.01), {color: theme.colors.text, marginTop: 3}]}>{programme?.title ?? defaultI18n.t('guide.noInformation')}</Text>
@@ -275,11 +275,16 @@ function ProgrammeFlags({programme, grid = false}: {programme?: GuideProgram; gr
 function ProgrammeHeader({channel, programme, now, runtime, busy, onFavorite}: {channel: GuideChannelRow; programme?: GuideProgram; now: number; runtime: NativeShellRuntime; busy: boolean; onFavorite: () => void}) {
   const theme = useTheme(), t = defaultI18n.t, logo = runtime.artwork(channel.logoUrl), onNow = programme && programme.start <= now && programme.end > now;
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 16 : 10, marginBottom: theme.isTV ? 32 : 16}}>
-    {logo && <View style={{width: theme.isTV ? 56 : 34, height: theme.isTV ? 56 : 34, borderRadius: theme.isTV ? 10 : 7, overflow: 'hidden'}}><Artwork source={logo} fit="contain"/></View>}
+    {(logo || channel.mark && channel.sourceId) && <View style={{width: theme.isTV ? 56 : 34, height: theme.isTV ? 56 : 34, borderRadius: theme.isTV ? 10 : 7, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : 34}/></View>}
     <View style={{flex: 1, flexDirection: 'row', gap: 16, alignItems: 'center'}}><Text style={[shellType(theme.isTV ? 24 : 13, 700), {color: theme.colors.text}]}>{channel.name}</Text><Text style={[shellType(theme.isTV ? 22 : 13, 700), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>
     {(theme.isTV ? programme?.flags?.live : onNow) && <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><View style={{width: theme.isTV ? 8 : 7, height: theme.isTV ? 8 : 7, borderRadius: 4, backgroundColor: theme.colors.record}}/><Text style={[shellType(theme.isTV ? 22 : 12, 700), {color: theme.colors.record}]}>{t(theme.isTV ? 'guide.live' : 'guide.onNow')}</Text></View>}
     {!theme.isTV && <Focusable testID="live-channel-favorite" focusKind="button" accessibilityRole="button" accessibilityLabel={t(channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite')} accessibilityState={{selected: channel.favorite}} disabled={busy} onPress={onFavorite} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}><Icon name={channel.favorite ? 'i-star-f' : 'i-star'} size={20} color={channel.favorite ? theme.colors.accentStrong : theme.colors.textSecondary}/></Focusable>}
   </View>;
+}
+
+function GuideChannelArt({channel, source, size}: {channel: GuideChannelRow; source: ReturnType<NativeShellRuntime['artwork']>; size: number}) {
+  const mark = channel.mark && channel.sourceId ? {...channel.mark, sourceId: channel.sourceId, id: channel.id} : undefined;
+  return mark ? <ChannelMark mark={mark} source={source} size={size}/> : source ? <Artwork source={source} fit="contain"/> : null;
 }
 
 function ProgrammeDetails({programme, now, runtime}: {programme: GuideProgram; now: number; runtime: NativeShellRuntime}) {

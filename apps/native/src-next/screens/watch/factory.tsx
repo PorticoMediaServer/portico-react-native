@@ -16,11 +16,12 @@ import type {NativeShellNavigation} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeTitleController} from './title-controller';
+import {NativeTitleStarts} from './title-starts';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo, type NativeFileInfo} from './file-info';
 import {nativeWatchTracks} from './track-identity';
-import {nativeVersionChoices} from './version-options';
+import {nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
@@ -83,12 +84,15 @@ const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | unde
 
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
-  const controllers = new Map<string, NativeTitleController>(), requests = new Map<AbortController, NativeWatchCapture>();
+  const controllers = new Map<string, NativeTitleController>(), controllerSubscriptions = new Map<string, () => void>(), requests = new Map<AbortController, NativeWatchCapture>();
   const options = new PlaybackOptionsClient(localV1Http(ports.api)), controls = new NativeWatchControls(ports.isTV);
   let disposed = false;
   let context: Omit<NativeWatchControlContext, 'expanded' | 'paused'> = {autoHide: true, hiddenByPanel: false, scrubbing: false, focusHeld: false};
   const alive = () => !disposed && ports.isCurrent?.() !== false && sameAuthority(ports.authority, ports.current());
+  const starts = new NativeTitleStarts({current: () => alive() && sameAuthority(ports.navigation.getSnapshot().authority, ports.authority),
+    revision: () => ports.navigation.getSnapshot().revision, start: ports.playback.start});
   const update = () => {
+    starts.invalidate();
     for (const [request, captured] of requests) if (!current(captured)) request.abort();
     const source = ports.playback.getSnapshot();
     controls.source(alive() && sameAuthority(source.authority, ports.authority) && !source.retired ? source.fence : undefined,
@@ -110,6 +114,22 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     try {const result = await run(controller.signal); return !controller.signal.aborted && current(captured) ? result : undefined;}
     finally {requests.delete(controller);}
   };
+  const createTitleController = (key: string, entry: ContentEntry, body = false): NativeTitleController => {
+    let owner: NativeTitleController;
+    const memberCurrent = (member: ContentEntry) => {
+      const state = owner.getSnapshot();
+      return controllers.get(key) === owner && !state.retired && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
+        || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
+    };
+    owner = new NativeTitleController({...ports, entry, playback: {start: async input => {
+      const route = ports.navigation.getSnapshot().route, source = ports.playback.getSnapshot();
+      const visible = body ? source.dock.local?.expanded === true && !!source.entry && titleKey(source.entry) === titleKey(entry)
+        : route.kind === 'title' && titleKey(route.entry) === titleKey(entry);
+      if (visible) await starts.start(input, () => memberCurrent(input.entry));
+    }}});
+    controllers.set(key, owner); controllerSubscriptions.set(key, owner.subscribe(starts.invalidate));
+    return owner;
+  };
   const fileInfo = async (captured: NativeWatchCapture): Promise<void> => {
     if (!captured.entry.libraryId) return;
     const info = await request(captured, async signal => {
@@ -129,7 +149,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (!ports.openVersions || !startVersion || !current(captured) || offered.itemId !== captured.entry.id || offered.versions.length < 2 || new Set(offered.versions.map(version => version.id)).size !== offered.versions.length) return;
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, {t: defaultI18n.t}), selectedVersionId,
+    ports.openVersions(captured, Object.freeze({options: offered, rows: nativeVersionChoices(offered, captured.entry.id, nativeVersionNames(defaultI18n.t, defaultI18n.locale)), selectedVersionId,
       isCurrent: () => current(captured), choose: async (versionId: string) => {
         if (!current(captured) || !offered.versions.some(version => version.id === versionId)) return;
         const target = captured.entry.playback;
@@ -157,14 +177,14 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       const key = titleKey(route.entry);
       let controller = controllers.get(key);
       if (!controller) {
-        controller = new NativeTitleController({...ports, entry: route.entry}); controllers.set(key, controller);
+        controller = createTitleController(key, route.entry);
       }
       return <NativeTitleScreen {...ports.title} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {
             const state = owner.getSnapshot();
-            return !state.retired && (titleKey(state.entry) === titleKey(entry)
+            return controllers.get(key) === owner && !state.retired && (titleKey(state.entry) === titleKey(entry)
               || state.episodes.some(item => titleKey(item) === titleKey(entry))
               || state.detail?.data?.related?.rows.some(row => row.entries.some(item => titleKey(item) === titleKey(entry))) === true);
           }, anchorRef).catch(ports.title.reportError);
@@ -188,7 +208,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
           || !sameFence(ports.playback.getSnapshot().fence, host.fence) || entry.id !== host.fence.itemId) return null;
         const key = `watch:${titleKey(entry)}`;
         let controller = controllers.get(key);
-        if (!controller) {controller = new NativeTitleController({...ports, entry}); controllers.set(key, controller);}
+        if (!controller) controller = createTitleController(key, entry, true);
         const owner = controller;
         return <NativeTitleScreen {...ports.title} key={key} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
           watch={{source, playback: ports.playback, width: pane.width}} back={() => {ports.navigation.back(ports.authority);}}
@@ -212,10 +232,10 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     setPresentation,
     renderWatch: (props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) => alive() ? <Watch {...props}/> : null,
     renderPictureSlot: (props: Omit<NativeWatchPictureProps, 'outlet' | 'authority'>) => alive() ? <NativeWatchPicture {...props} authority={ports.authority} outlet={ports.watch}/> : null,
-    releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllers.get(key)?.dispose(); controllers.delete(key);},
+    releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllerSubscriptions.get(key)?.(); controllerSubscriptions.delete(key); controllers.get(key)?.dispose(); controllers.delete(key); starts.invalidate();},
     /** Actual playback lifetime end only; never a dock/fold/full-window change. */
-    releaseWatchBody: (entry: ContentEntry) => {const key = `watch:${titleKey(entry)}`; controllers.get(key)?.dispose(); controllers.delete(key);},
-    dispose: () => {if (disposed) return; disposed = true; offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
+    releaseWatchBody: (entry: ContentEntry) => {const key = `watch:${titleKey(entry)}`; controllerSubscriptions.get(key)?.(); controllerSubscriptions.delete(key); controllers.get(key)?.dispose(); controllers.delete(key); starts.invalidate();},
+    dispose: () => {if (disposed) return; disposed = true; starts.dispose(); for (const off of controllerSubscriptions.values()) off(); controllerSubscriptions.clear(); offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
   });
   function Watch(props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) {
     const source = useSyncExternalStore(ports.playback.subscribe, ports.playback.getSnapshot);

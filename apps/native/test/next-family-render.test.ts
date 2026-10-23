@@ -567,6 +567,34 @@ test('F01 Library composites forward caller-fenced surface and semantic inner id
   } finally {menu.host.unmount(); switcher.host.unmount();}
 });
 
+test('Library Save view follows caller eligibility without disabling the other menu commands', () => {
+  const previous = state.theme;
+  try {for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const canSaveView of [undefined, true, false]) {
+      const events: unknown[] = [];
+      const menu = mount(LibraryMenu, {testID: 'save-eligibility', owner: false, open: true, canSaveView,
+        onOpenChange: (open: boolean) => events.push(open), onSaveView: () => events.push('save'), onMarkAll() {}, onEditPins() {}});
+      const rows = nodes(find(menu.tree, Popover)).filter(node => node.type === MenuRow);
+      const save = rows.find(row => row.props.focusId === 'save-view')!;
+      const scope = actualRegion('save-eligibility-surface'), row = mount(MenuRow, save.props, scope.contexts);
+      const control = mount(Focusable, find(row.tree, Focusable).props, scope.contexts);
+      try {
+        assert.deepEqual(rows.map(item => item.props.focusId), ['save-view', 'mark-all', 'edit-pins']);
+        assert.equal(save.props.disabled, canSaveView === false);
+        assert.ok(rows.slice(1).every(item => !item.props.disabled));
+        const native = nativeFocusable(control.tree), host = {nativeTag: 304, requestTVFocus() {}};
+        native.props.ref(host);
+        assert.equal(native.props.disabled, canSaveView === false);
+        assert.equal(native.props.accessibilityState.disabled, canSaveView === false);
+        if (isTV) assert.equal(scope.registry.child({regionId: 'save-eligibility-surface', childId: 'save-view'}), canSaveView === false ? undefined : host);
+        if (canSaveView !== false) {save.props.onPress(); assert.deepEqual(events, [false, 'save']);}
+        else assert.deepEqual(events, []);
+      } finally {control.host.unmount(); row.host.unmount(); scope.unmount(); menu.host.unmount();}
+    }
+  }} finally {state.theme = previous;}
+});
+
 test('F09 explicitly anchored TV Menu holds its in-window native focus guide', () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const menu = mount(Menu, {testID: 'anchored-menu', open: true, onOpenChange() {}, presentation: 'anchored', anchorRef: {current: {measureInWindow: (run: any) => run(300, 200, 100, 60)}}, items: [{id: 'action', label: 'Actual action', onSelect() {}}]});
