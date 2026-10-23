@@ -78,7 +78,7 @@ const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
-const {Dialog, FocusBoundary, SurfaceHeader} = await import('../src-next/kit/overlays/surface.tsx');
+const {Dialog, FocusBoundary, SurfaceHeader, SidePanel} = await import('../src-next/kit/overlays/surface.tsx');
 const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
@@ -648,6 +648,38 @@ test('fitted footer accounting preserves no-footer, explicit detent, long-conten
 
 const flattenStyle = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flattenStyle)) : style ?? {};
 
+test('SidePanel can omit its standard close action while retaining supplied content, geometry and escape', () => {
+  const previousTheme = state.theme;
+  state.theme = createTheme({isTV: true, width: 1920});
+  const calls: unknown[] = [];
+  const context = React.createElement('View', {testID: 'actual-context'});
+  const children = React.createElement('View', {testID: 'actual-rows'});
+  const footer = React.createElement('View', {testID: 'actual-footer'});
+  const props = {open: true, title: 'Actual customization', headerContext: context, children, footer, width: 860, topInset: 0,
+    initialFocusRef: {current: null}, returnFocusRef: {current: null}, onOpenChange: (...args: unknown[]) => calls.push(args), testID: 'actual-side'};
+  const panel = mount(SidePanel, props);
+  try {
+    const heading = () => ofType(panel.tree, SurfaceHeader)[0]!;
+    assert.equal((heading().props.action as Element).type, Button);
+    panel.update({...props, showClose: false});
+    assert.equal(heading().props.action, undefined);
+    assert.equal((panel.tree as Element).props.rect.width, 860);
+    assert.equal((panel.tree as Element).props.rect.y, 0);
+    assert.equal((panel.tree as Element).props.onOutsidePress, undefined);
+    assert.equal(ofType(panel.tree, FocusBoundary)[0]!.props.modal, true);
+    for (const node of [context, children, footer]) assert.ok(elements(panel.tree).includes(node));
+    const host = () => elements(panel.tree).find(element => element.props.testID === props.testID)!;
+    host().props.onAccessibilityEscape();
+    assert.deepEqual(calls, [[false, 'escape']]);
+    panel.update({...props, showClose: false, dismissOnBack: false});
+    host().props.onAccessibilityEscape();
+    assert.equal(calls.length, 1);
+    panel.update(props);
+    (heading().props.action as Element).props.onPress();
+    assert.deepEqual(calls.at(-1), [false, 'close-button']);
+  } finally {panel.host.unmount(); state.theme = previousTheme;}
+});
+
 test('a supplied BottomSheet heading replaces the standard row while retaining context and measured sheet anatomy', () => {
   const previousTheme = state.theme;
   const context = React.createElement('View', {testID: 'actual-owner-context'});
@@ -807,6 +839,44 @@ test('phone Delete separates full-width helper copy while preserving the real sw
   } finally {dialog.host.unmount(); state.theme = previous;}
 });
 
+test('phone Delete result keeps the drawn warning insets and type while preserving receipts and close focus', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390, textScale: 1.25}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const calls: unknown[] = [];
+      const props: DeleteMediaDialogProps = {open: true, onOpenChange: (...args) => calls.push(args), ownerHeader: null, owner: true, selectionCount: 2, preview: null,
+        result: {revision: 7, removed: 1, failed: 1, bytesDeleted: 0, filesRetained: true, receipts: [{itemId: 'removed', title: 'Actual removed title', removed: true, filesDeleted: 1, filesKept: 0, bytes: 0, code: ''}, {itemId: 'kept', title: 'Actual kept title', removed: false, filesDeleted: 0, filesKept: 1, bytes: 0, code: 'file_not_removed'}]},
+        confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete: () => calls.push('delete')};
+      const dialog = mount(DeleteMediaDialog, props);
+      try {
+        const surface = dialog.tree as Element, phone = state.theme.platform === 'phone';
+        const warning = elements(surface).find(node => node.key === 'kept')!;
+        assert.ok(warning); assert.equal(elements(surface).some(node => node.key === 'removed'), false);
+        const box = flattenStyle(warning.props.style);
+        assert.equal(box.borderWidth, 1); assert.equal(box.gap, 10);
+        assert.equal(box.paddingVertical ?? box.padding, phone ? 10 : 12);
+        assert.equal(box.paddingHorizontal ?? box.padding, phone ? 11 : 12);
+        const copy = elements(warning).find(node => flattenStyle(node.props.style).flex === 1)!;
+        assert.equal(flattenStyle(copy.props.style).gap, phone ? 0 : 3);
+        const [title, helper] = ofType(warning, SelectionText);
+        assert.equal(text(title), 'Actual kept title'); assert.match(text(helper), /Kept, because the file could not be deleted/);
+        const titleHost = mount(SelectionText, title!.props), helperHost = mount(SelectionText, helper!.props);
+        try {
+          const titleStyle = flattenStyle((titleHost.tree as Element).props.style), helperStyle = flattenStyle((helperHost.tree as Element).props.style);
+          assert.equal(titleStyle.lineHeight, phone ? 20.3 * state.theme.textScale : undefined);
+          assert.equal(helperStyle.lineHeight, phone ? 19.575 * state.theme.textScale : state.theme.isTV ? 29 : 19.575);
+          assert.equal(helperStyle.color, phone ? state.theme.colors.textSecondary : state.theme.colors.textTertiary);
+        } finally {helperHost.host.unmount(); titleHost.host.unmount();}
+        const close = ofType(surface.props.footer, Button);
+        assert.equal(close.length, 1); assert.equal(close[0]!.props.ref, surface.props.initialFocusRef);
+        assert.equal(ofType(surface, Switch).length, 0); assert.equal(ofType(surface, TextField).length, 0);
+        close[0]!.props.onPress(); assert.deepEqual(calls, [[false, 'action']]);
+      } finally {dialog.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('phone Search uses the pinned heading and helper line boxes without changing other StateView recipes', () => {
   const previous = state.theme;
   try {
@@ -827,6 +897,58 @@ test('phone Search uses the pinned heading and helper line boxes without changin
         assert.match(text(view.tree), /Actual no matches/); assert.match(text(view.tree), /Actual query explanation/);
         assert.equal(ofType(view.tree, Icon).length, tv ? 1 : 0);
       } finally {view.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('partial picker receipts show the actual count without an undrawn check and retry only failures', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const calls: unknown[] = [];
+      const props = {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), count: 4, selectionLabel: 'Actual selection', entries: [], creating: false, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd: () => calls.push('add'), query: '', onQueryChange() {},
+        result: {destination: {id: 'actual-playlist', title: 'Actual playlist', size: 15}, inserted: 3, failed: 1, total: 4, failures: [{id: 'actual-failure', title: 'Actual failed title'}], complete: true},
+        onRetry: (ids: readonly string[]) => calls.push(ids), onViewDestination() {}, onResultDismiss() {}};
+      const wrapper = mount(PlaylistPicker, props);
+      const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+      try {
+        const surface = ofType(picker.tree, SelectionSurface)[0]!;
+        assert.match(text(surface), /Actual playlist/); assert.match(text(surface), /15 titles/);
+        assert.ok(ofType(surface, SelectionText).some(node => text(node) === '3 added'));
+        assert.equal(ofType(surface, Icon).filter(node => node.props.name === 'i-check').length, 0);
+        assert.equal(ofType(surface, Icon).filter(node => node.props.name === 'i-warn').length, 1);
+        const retry = ofType(surface.props.footer, Button).at(-1)!;
+        assert.equal(surface.props.initialFocusRef, retry.props.ref);
+        retry.props.onPress(); assert.deepEqual(calls, [['actual-failure']]);
+        ofType(surface.props.footer, Button)[0]!.props.onPress();
+        assert.deepEqual(calls, [['actual-failure'], [false, 'action']]);
+      } finally {picker.host.unmount(); wrapper.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('drawn list-field prompts use singular catalogue copy and retain real validated edits', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      for (const fieldName of ['genres', 'tags', 'labels']) for (const empty of [false, true]) {
+        const calls: unknown[] = [];
+        const field = {field: fieldName, label: fieldName, group: 'general' as const, type: 'list' as const, maxLength: 128, max: 64, bulk: true};
+        const editor = mount(BulkEditor, bulk({schema: [field], values: {[fieldName]: {state: 'mixed', distinctCount: empty ? 0 : 1, truncated: false, values: [], entries: empty ? [] : [{value: 'Existing', count: 4}]}}, changes: {}, onChangesChange: changes => calls.push(changes)}));
+        const listNode = elements(editor.tree).find(node => node.props.field?.field === fieldName)!;
+        const list = mount(listNode.type, listNode.props);
+        try {
+          const input = ofType(list.tree, TextField)[0]!;
+          const expected = fieldName === 'genres' ? 'Add a genre' : fieldName === 'tags' ? empty ? 'None yet. Add a tag' : 'Add a tag' : empty ? 'None yet. Add a label' : 'Add a label';
+          assert.equal(input.props.placeholder, expected); assert.equal(input.props.accessibilityLabel, expected);
+          input.props.onChangeText('Fresh');
+          list.host.rerender();
+          ofType(list.tree, TextField)[0]!.props.onSubmitEditing();
+          assert.deepEqual(calls, [{[fieldName]: {add: ['Fresh'], remove: []}}]);
+        } finally {list.host.unmount(); editor.host.unmount();}
+      }
     }
   } finally {state.theme = previous;}
 });

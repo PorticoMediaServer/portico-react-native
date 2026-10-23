@@ -194,14 +194,6 @@ export const schemas = {
           "type": "object"
         },
         "type": "array"
-      },
-      "profileCount": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      },
-      "requiredDisposition": {
-        "type": "string"
       }
     },
     "required": [
@@ -209,7 +201,6 @@ export const schemas = {
       "expiresAt",
       "ownedServers",
       "affectedServers",
-      "profileCount",
       "canDelete"
     ],
     "type": "object"
@@ -357,13 +348,11 @@ export const schemas = {
       "format": {
         "type": "string"
       },
-      "invitations": {},
       "linkedProviders": {},
       "mediaData": {
         "type": "string"
       },
       "memberships": {},
-      "profiles": {},
       "securityAudit": {},
       "sessions": {}
     },
@@ -373,11 +362,9 @@ export const schemas = {
       "createdAt",
       "devices",
       "format",
-      "invitations",
       "linkedProviders",
       "mediaData",
       "memberships",
-      "profiles",
       "securityAudit",
       "sessions"
     ],
@@ -446,78 +433,6 @@ export const schemas = {
   },
   "AccountGetResponse": {
     "properties": {
-      "invitations": {
-        "properties": {
-          "conflicting": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "expired": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "latestReceivedAt": {
-            "type": "string"
-          },
-          "nextExpiresAt": {
-            "type": "string"
-          },
-          "pending": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "pending",
-          "expired",
-          "conflicting"
-        ],
-        "type": "object"
-      },
-      "preferences": {
-        "properties": {
-          "hourCycle": {
-            "type": "string"
-          },
-          "includeInWatchTogether": {
-            "type": "boolean"
-          },
-          "locale": {
-            "type": "string"
-          },
-          "marketingEmail": {
-            "type": "boolean"
-          },
-          "pauseWatchHistory": {
-            "type": "boolean"
-          },
-          "revision": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "showActivityToMembers": {
-            "type": "boolean"
-          },
-          "timeZone": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "locale",
-          "timeZone",
-          "hourCycle",
-          "pauseWatchHistory",
-          "showActivityToMembers",
-          "includeInWatchTogether",
-          "marketingEmail",
-          "revision"
-        ],
-        "type": "object"
-      },
       "security": {
         "properties": {
           "accountId": {
@@ -576,9 +491,7 @@ export const schemas = {
       }
     },
     "required": [
-      "security",
-      "preferences",
-      "invitations"
+      "security"
     ],
     "type": "object"
   },
@@ -651,58 +564,34 @@ export const schemas = {
   },
   "AccountNotificationPreferencesGetResponse": {
     "properties": {
-      "invitationAccepted": {
-        "type": "boolean"
-      },
       "serverOffline": {
-        "type": "boolean"
-      },
-      "storageNearlyFull": {
         "type": "boolean"
       }
     },
     "required": [
-      "serverOffline",
-      "storageNearlyFull",
-      "invitationAccepted"
+      "serverOffline"
     ],
     "type": "object"
   },
   "AccountNotificationPreferencesSetRequest": {
     "properties": {
-      "invitationAccepted": {
-        "type": "boolean"
-      },
       "serverOffline": {
-        "type": "boolean"
-      },
-      "storageNearlyFull": {
         "type": "boolean"
       }
     },
     "required": [
-      "serverOffline",
-      "storageNearlyFull",
-      "invitationAccepted"
+      "serverOffline"
     ],
     "type": "object"
   },
   "AccountNotificationPreferencesSetResponse": {
     "properties": {
-      "invitationAccepted": {
-        "type": "boolean"
-      },
       "serverOffline": {
-        "type": "boolean"
-      },
-      "storageNearlyFull": {
         "type": "boolean"
       }
     },
     "required": [
-      "serverOffline",
-      "storageNearlyFull",
-      "invitationAccepted"
+      "serverOffline"
     ],
     "type": "object"
   },
@@ -881,14 +770,6 @@ export const schemas = {
               "type": "object"
             },
             "type": "array"
-          },
-          "profileCount": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "requiredDisposition": {
-            "type": "string"
           }
         },
         "required": [
@@ -896,7 +777,6 @@ export const schemas = {
           "expiresAt",
           "ownedServers",
           "affectedServers",
-          "profileCount",
           "canDelete"
         ],
         "type": "object"
@@ -931,140 +811,6 @@ export const schemas = {
       "accountId",
       "familyId",
       "status"
-    ],
-    "type": "object"
-  },
-  "AccountPreferencesGetRequest": {
-    "properties": {},
-    "required": [],
-    "type": "object"
-  },
-  "AccountPreferencesGetResponse": {
-    "properties": {
-      "hourCycle": {
-        "type": "string"
-      },
-      "includeInWatchTogether": {
-        "type": "boolean"
-      },
-      "locale": {
-        "type": "string"
-      },
-      "marketingEmail": {
-        "type": "boolean"
-      },
-      "pauseWatchHistory": {
-        "type": "boolean"
-      },
-      "revision": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      },
-      "showActivityToMembers": {
-        "type": "boolean"
-      },
-      "timeZone": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "locale",
-      "timeZone",
-      "hourCycle",
-      "pauseWatchHistory",
-      "showActivityToMembers",
-      "includeInWatchTogether",
-      "marketingEmail",
-      "revision"
-    ],
-    "type": "object"
-  },
-  "AccountPreferencesSetRequest": {
-    "properties": {
-      "expectedRevision": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      },
-      "hourCycle": {
-        "type": "string"
-      },
-      "includeInWatchTogether": {
-        "type": "boolean"
-      },
-      "locale": {
-        "type": "string"
-      },
-      "marketingEmail": {
-        "type": "boolean"
-      },
-      "pauseWatchHistory": {
-        "type": "boolean"
-      },
-      "revision": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      },
-      "showActivityToMembers": {
-        "type": "boolean"
-      },
-      "timeZone": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "expectedRevision",
-      "locale",
-      "timeZone",
-      "hourCycle",
-      "pauseWatchHistory",
-      "showActivityToMembers",
-      "includeInWatchTogether",
-      "marketingEmail",
-      "revision"
-    ],
-    "type": "object"
-  },
-  "AccountPreferencesSetResponse": {
-    "properties": {
-      "hourCycle": {
-        "type": "string"
-      },
-      "includeInWatchTogether": {
-        "type": "boolean"
-      },
-      "locale": {
-        "type": "string"
-      },
-      "marketingEmail": {
-        "type": "boolean"
-      },
-      "pauseWatchHistory": {
-        "type": "boolean"
-      },
-      "revision": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      },
-      "showActivityToMembers": {
-        "type": "boolean"
-      },
-      "timeZone": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "locale",
-      "timeZone",
-      "hourCycle",
-      "pauseWatchHistory",
-      "showActivityToMembers",
-      "includeInWatchTogether",
-      "marketingEmail",
-      "revision"
     ],
     "type": "object"
   },
@@ -1212,14 +958,6 @@ export const schemas = {
               "type": "object"
             },
             "type": "array"
-          },
-          "profileCount": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "requiredDisposition": {
-            "type": "string"
           }
         },
         "required": [
@@ -1227,7 +965,6 @@ export const schemas = {
           "expiresAt",
           "ownedServers",
           "affectedServers",
-          "profileCount",
           "canDelete"
         ],
         "type": "object"
@@ -1339,14 +1076,6 @@ export const schemas = {
               "type": "object"
             },
             "type": "array"
-          },
-          "profileCount": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "requiredDisposition": {
-            "type": "string"
           }
         },
         "required": [
@@ -1354,7 +1083,6 @@ export const schemas = {
           "expiresAt",
           "ownedServers",
           "affectedServers",
-          "profileCount",
           "canDelete"
         ],
         "type": "object"
@@ -1527,14 +1255,6 @@ export const schemas = {
               "type": "object"
             },
             "type": "array"
-          },
-          "profileCount": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "requiredDisposition": {
-            "type": "string"
           }
         },
         "required": [
@@ -1542,7 +1262,6 @@ export const schemas = {
           "expiresAt",
           "ownedServers",
           "affectedServers",
-          "profileCount",
           "canDelete"
         ],
         "type": "object"
@@ -1730,6 +1449,191 @@ export const schemas = {
       "observedAt",
       "items",
       "nextCursor"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationDecideRequest": {
+    "properties": {
+      "accountId": {
+        "type": "string"
+      },
+      "approve": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "accountId",
+      "approve"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationDecideResponse": {
+    "properties": {
+      "location": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "location"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationExchangeRequest": {
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "redirectUri": {
+        "type": "string"
+      },
+      "verifier": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "code",
+      "verifier",
+      "redirectUri"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationExchangeResponse": {
+    "properties": {
+      "assertion": {
+        "properties": {
+          "certificate": {
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "notAfter": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "notBefore": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "revoked": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "keyId",
+              "publicKey",
+              "purpose",
+              "notBefore",
+              "notAfter",
+              "revision",
+              "revoked",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature",
+          "keyId"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "assertion"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationReviewRequest": {
+    "properties": {
+      "appName": {
+        "type": "string"
+      },
+      "challenge": {
+        "type": "string"
+      },
+      "codeChallenge": {
+        "type": "string"
+      },
+      "redirectUri": {
+        "type": "string"
+      },
+      "serverId": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "serverId",
+      "challenge",
+      "redirectUri",
+      "state",
+      "appName",
+      "codeChallenge"
+    ],
+    "type": "object"
+  },
+  "AppAuthorizationReviewResponse": {
+    "properties": {
+      "accountId": {
+        "type": "string"
+      },
+      "accountName": {
+        "type": "string"
+      },
+      "appName": {
+        "type": "string"
+      },
+      "expiresAt": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "id": {
+        "type": "string"
+      },
+      "redirectUri": {
+        "type": "string"
+      },
+      "serverName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "accountId",
+      "accountName",
+      "serverName",
+      "appName",
+      "redirectUri",
+      "expiresAt"
     ],
     "type": "object"
   },
@@ -1968,24 +1872,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -1997,8 +1883,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -2213,24 +2098,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -2242,8 +2109,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -2445,24 +2311,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -2474,8 +2322,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -2783,29 +2630,10 @@ export const schemas = {
           "displayName"
         ],
         "type": "object"
-      },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
       }
     },
     "required": [
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -3065,24 +2893,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -3094,8 +2904,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -3426,9 +3235,6 @@ export const schemas = {
       "code": {
         "type": "string"
       },
-      "ownerProfileId": {
-        "type": "string"
-      },
       "replacesServerId": {
         "type": "string"
       }
@@ -3455,6 +3261,9 @@ export const schemas = {
   },
   "ServerClaimApproveRequest": {
     "properties": {
+      "currentOwnerAccountId": {
+        "type": "string"
+      },
       "expectedRevision": {
         "type": "string"
       },
@@ -3467,13 +3276,19 @@ export const schemas = {
       "operationId": {
         "type": "string"
       },
-      "ownerProfileId": {
+      "previousOwnerRole": {
         "type": "string"
       },
       "publicKey": {
         "type": "string"
       },
+      "purpose": {
+        "type": "string"
+      },
       "replacesServerId": {
+        "type": "string"
+      },
+      "returnRegistrationId": {
         "type": "string"
       },
       "serverId": {
@@ -3486,8 +3301,11 @@ export const schemas = {
       "publicKey",
       "localGeneration",
       "name",
-      "ownerProfileId",
-      "expectedRevision"
+      "expectedRevision",
+      "purpose",
+      "currentOwnerAccountId",
+      "previousOwnerRole",
+      "returnRegistrationId"
     ],
     "type": "object"
   },
@@ -3586,92 +3404,9 @@ export const schemas = {
     ],
     "type": "object"
   },
-  "ServerClaimCleanupRequest": {
-    "properties": {
-      "payload": {
-        "type": "string"
-      },
-      "signature": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "payload",
-      "signature"
-    ],
-    "type": "object"
-  },
-  "ServerClaimCleanupResponse": {
-    "properties": {
-      "certificate": {
-        "properties": {
-          "keyId": {
-            "type": "string"
-          },
-          "notAfter": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "notBefore": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "publicKey": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          },
-          "revision": {
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "revoked": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "keyId",
-          "publicKey",
-          "purpose",
-          "notBefore",
-          "notAfter",
-          "revision",
-          "revoked",
-          "signature"
-        ],
-        "type": "object"
-      },
-      "keyId": {
-        "type": "string"
-      },
-      "payload": {
-        "type": "string"
-      },
-      "signature": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "payload",
-      "signature",
-      "keyId"
-    ],
-    "type": "object"
-  },
   "ServerClaimDenyRequest": {
     "properties": {
       "code": {
-        "type": "string"
-      },
-      "ownerProfileId": {
         "type": "string"
       },
       "replacesServerId": {
@@ -3769,9 +3504,6 @@ export const schemas = {
       "code": {
         "type": "string"
       },
-      "ownerProfileId": {
-        "type": "string"
-      },
       "replacesServerId": {
         "type": "string"
       }
@@ -3789,6 +3521,9 @@ export const schemas = {
       "code": {
         "type": "string"
       },
+      "currentOwnerUsername": {
+        "type": "string"
+      },
       "expiresAt": {
         "format": "date-time",
         "type": "string"
@@ -3796,9 +3531,30 @@ export const schemas = {
       "name": {
         "type": "string"
       },
+      "previousOwnerRole": {
+        "type": "string"
+      },
+      "purpose": {
+        "type": "string"
+      },
       "requestedAt": {
         "format": "date-time",
         "type": "string"
+      },
+      "returnRegistration": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "origin"
+        ],
+        "type": "object"
       },
       "serverId": {
         "type": "string"
@@ -3808,6 +3564,7 @@ export const schemas = {
       }
     },
     "required": [
+      "purpose",
       "code",
       "serverId",
       "name",
@@ -3885,6 +3642,9 @@ export const schemas = {
       "code": {
         "type": "string"
       },
+      "currentOwnerUsername": {
+        "type": "string"
+      },
       "expiresAt": {
         "format": "date-time",
         "type": "string"
@@ -3892,9 +3652,30 @@ export const schemas = {
       "name": {
         "type": "string"
       },
+      "previousOwnerRole": {
+        "type": "string"
+      },
+      "purpose": {
+        "type": "string"
+      },
       "requestedAt": {
         "format": "date-time",
         "type": "string"
+      },
+      "returnRegistration": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "origin"
+        ],
+        "type": "object"
       },
       "serverId": {
         "type": "string"
@@ -3904,6 +3685,7 @@ export const schemas = {
       }
     },
     "required": [
+      "purpose",
       "code",
       "serverId",
       "name",
@@ -4061,105 +3843,6 @@ export const schemas = {
     ],
     "type": "object"
   },
-  "ServerErasureAckRequest": {
-    "properties": {
-      "revision": {
-        "maximum": 9007199254740991,
-        "minimum": -9007199254740991,
-        "type": "integer"
-      }
-    },
-    "required": [
-      "revision"
-    ],
-    "type": "object"
-  },
-  "ServerErasureAckResponse": {
-    "properties": {},
-    "required": [],
-    "type": "object"
-  },
-  "ServerErasuresListRequest": {
-    "properties": {},
-    "required": [],
-    "type": "object"
-  },
-  "ServerErasuresListResponse": {
-    "properties": {
-      "items": {
-        "items": {
-          "properties": {
-            "certificate": {
-              "properties": {
-                "keyId": {
-                  "type": "string"
-                },
-                "notAfter": {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                "notBefore": {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                "publicKey": {
-                  "type": "string"
-                },
-                "purpose": {
-                  "type": "string"
-                },
-                "revision": {
-                  "maximum": 9007199254740991,
-                  "minimum": -9007199254740991,
-                  "type": "integer"
-                },
-                "revoked": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "signature": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "keyId",
-                "publicKey",
-                "purpose",
-                "notBefore",
-                "notAfter",
-                "revision",
-                "revoked",
-                "signature"
-              ],
-              "type": "object"
-            },
-            "keyId": {
-              "type": "string"
-            },
-            "payload": {
-              "type": "string"
-            },
-            "signature": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "payload",
-            "signature",
-            "keyId"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      }
-    },
-    "required": [
-      "items"
-    ],
-    "type": "object"
-  },
   "ServerEventRequest": {
     "properties": {
       "kind": {
@@ -4210,9 +3893,6 @@ export const schemas = {
   },
   "ServerHeartbeatResponse": {
     "properties": {
-      "cleanupPending": {
-        "type": "boolean"
-      },
       "departures": {
         "items": {
           "properties": {
@@ -4232,7 +3912,7 @@ export const schemas = {
         },
         "type": "array"
       },
-      "heartbeatAfterSeconds": {
+      "heartbeatAfterMs": {
         "maximum": 9007199254740991,
         "minimum": -9007199254740991,
         "type": "integer"
@@ -4251,14 +3931,61 @@ export const schemas = {
       },
       "routeLabel": {
         "type": "string"
+      },
+      "signingCertificate": {
+        "nullable": true,
+        "properties": {
+          "keyId": {
+            "type": "string"
+          },
+          "notAfter": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "notBefore": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "revoked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId",
+          "publicKey",
+          "purpose",
+          "notBefore",
+          "notAfter",
+          "revision",
+          "revoked",
+          "signature"
+        ],
+        "type": "object"
       }
     },
     "required": [
-      "heartbeatAfterSeconds",
+      "signingCertificate",
+      "heartbeatAfterMs",
       "presenceExpiresAt",
       "memberSequence",
       "memberDigestMatches",
-      "cleanupPending",
       "departures"
     ],
     "type": "object"
@@ -4456,6 +4183,26 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "ServerRegistrationLeaveRequest": {
+    "properties": {
+      "payload": {
+        "type": "string"
+      },
+      "signature": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "payload",
+      "signature"
+    ],
+    "type": "object"
+  },
+  "ServerRegistrationLeaveResponse": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
   "ServerRemoveRequest": {
     "properties": {
       "claimGeneration": {
@@ -4490,6 +4237,367 @@ export const schemas = {
     "required": [
       "code",
       "status"
+    ],
+    "type": "object"
+  },
+  "ServerReturnCompleteRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "ServerReturnCompleteResponse": {
+    "properties": {
+      "location": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "location"
+    ],
+    "type": "object"
+  },
+  "ServerReturnExchangeRequest": {
+    "properties": {
+      "code": {
+        "maxLength": 128,
+        "minLength": 32,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "type": "string"
+      },
+      "installationId": {
+        "maxLength": 128,
+        "minLength": 32,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "type": "string"
+      },
+      "purpose": {
+        "enum": [
+          "setup",
+          "switch",
+          "change-owner",
+          "sign-in"
+        ],
+        "type": "string"
+      },
+      "registrationId": {
+        "type": "string"
+      },
+      "serverChallenge": {
+        "maxLength": 128,
+        "minLength": 32,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "type": "string"
+      },
+      "transactionId": {
+        "type": "string"
+      },
+      "verifier": {
+        "maxLength": 128,
+        "minLength": 32,
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "code",
+      "transactionId",
+      "verifier",
+      "registrationId",
+      "serverChallenge",
+      "installationId",
+      "purpose"
+    ],
+    "type": "object"
+  },
+  "ServerReturnExchangeResponse": {
+    "properties": {
+      "assertion": {
+        "properties": {
+          "certificate": {
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "notAfter": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "notBefore": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "revoked": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "keyId",
+              "publicKey",
+              "purpose",
+              "notBefore",
+              "notAfter",
+              "revision",
+              "revoked",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature",
+          "keyId"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "assertion"
+    ],
+    "type": "object"
+  },
+  "ServerReturnStartRequest": {
+    "oneOf": [
+      {
+        "properties": {
+          "claimOperationId": {
+            "type": "string"
+          },
+          "codeChallenge": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "setup",
+            "type": "string"
+          },
+          "registrationId": {
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverId": {
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "purpose",
+          "registrationId",
+          "state",
+          "codeChallenge",
+          "serverChallenge",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "claimOperationId": {
+            "type": "string"
+          },
+          "codeChallenge": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "switch",
+            "type": "string"
+          },
+          "registrationId": {
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverId": {
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "purpose",
+          "registrationId",
+          "state",
+          "codeChallenge",
+          "serverChallenge",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "claimOperationId": {
+            "type": "string"
+          },
+          "codeChallenge": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "change-owner",
+            "type": "string"
+          },
+          "registrationId": {
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverId": {
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "purpose",
+          "registrationId",
+          "state",
+          "codeChallenge",
+          "serverChallenge",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "claimOperationId": {
+            "type": "string"
+          },
+          "codeChallenge": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "sign-in",
+            "type": "string"
+          },
+          "registrationId": {
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverId": {
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "purpose",
+          "registrationId",
+          "state",
+          "codeChallenge",
+          "serverChallenge",
+          "installationId"
+        ],
+        "type": "object"
+      }
+    ]
+  },
+  "ServerReturnStartResponse": {
+    "properties": {
+      "transactionId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "transactionId"
     ],
     "type": "object"
   },
@@ -4661,22 +4769,6 @@ export const schemas = {
     ],
     "type": "object"
   },
-  "ServerStorageWarningRequest": {
-    "properties": {},
-    "required": [],
-    "type": "object"
-  },
-  "ServerStorageWarningResponse": {
-    "properties": {
-      "code": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "code"
-    ],
-    "type": "object"
-  },
   "ServersListRequest": {
     "properties": {},
     "required": [],
@@ -4728,6 +4820,14 @@ export const schemas = {
               "type": "object"
             },
             "publicKey": {
+              "type": "string"
+            },
+            "role": {
+              "enum": [
+                "owner",
+                "admin",
+                "member"
+              ],
               "type": "string"
             },
             "routes": {
@@ -4800,6 +4900,7 @@ export const schemas = {
             }
           },
           "required": [
+            "role",
             "lastSeenAt",
             "status",
             "ownedByMe",
@@ -4883,24 +4984,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -4912,8 +4995,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },
@@ -4987,24 +5069,6 @@ export const schemas = {
       "familyId": {
         "type": "string"
       },
-      "profiles": {
-        "items": {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "name"
-          ],
-          "type": "object"
-        },
-        "type": "array"
-      },
       "refreshExpiresAt": {
         "format": "date-time",
         "type": "string"
@@ -5016,8 +5080,7 @@ export const schemas = {
     "required": [
       "accessToken",
       "expiresAt",
-      "account",
-      "profiles"
+      "account"
     ],
     "type": "object"
   },

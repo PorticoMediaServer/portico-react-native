@@ -13,14 +13,13 @@ RCT_EXPORT_MODULE()
 #else
  AVRoutePickerView *picker=[AVRoutePickerView new];picker.prioritizesVideoDevices=NO;
  picker.tintColor=UIColor.whiteColor;picker.activeTintColor=UIColor.systemTealColor;
- picker.accessibilityLabel=@"Choose audio output";return picker;
+ return picker;
 #endif
 }
 #if !TARGET_OS_TV
 /** A video player asks for televisions first; a music player for speakers. */
 RCT_CUSTOM_VIEW_PROPERTY(video, BOOL, AVRoutePickerView) {
  BOOL video=json?[RCTConvert BOOL:json]:NO;view.prioritizesVideoDevices=video;
- view.accessibilityLabel=video?@"AirPlay":@"Choose audio output";
 }
 #endif
 @end
@@ -40,7 +39,6 @@ RCT_EXPORT_MODULE()
 #else
  MPVolumeView *volume=[MPVolumeView new];
  volume.tintColor=UIColor.whiteColor;
- volume.accessibilityLabel=@"Volume";
  // The route button already lives in Play on; the slider is only the slider.
  if ([volume respondsToSelector:@selector(setShowsRouteButton:)]) {
 #pragma clang diagnostic push

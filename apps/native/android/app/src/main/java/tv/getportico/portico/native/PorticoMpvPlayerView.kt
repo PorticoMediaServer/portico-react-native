@@ -29,6 +29,7 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
   private val surface = SurfaceView(reactContext)
   private val subtitle = TextView(reactContext)
   private var lease = ""
+  private var surfaceActive = true
   private var request = 0
   private var listening = false
   /** The surface exists (between `surfaceCreated` and `surfaceDestroyed`). */
@@ -41,7 +42,8 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
   private val redraw: () -> Unit = { update() }
 
   init {
-    setBackgroundColor(Color.BLACK)
+    setBackgroundColor(Color.TRANSPARENT)
+    surface.visibility = View.GONE
     addView(surface)
     surface.holder.addCallback(this)
     subtitle.setTextColor(Color.WHITE)
@@ -57,10 +59,17 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     attach()
   }
 
+  /** Producer visibility can change without remounting the view or its playback owner. */
+  fun setSurfaceActive(value: Boolean) {
+    if (surfaceActive == value) return
+    surfaceActive = value
+    attach()
+  }
+
   fun snapshotTarget(expected: Map<String, Any?>): PorticoSnapshotTarget? {
     val controller = PorticoMpvController.shared ?: return null
     val token = controller.snapshotIdentity(this, surface.holder.surface, expected) ?: return null
-    fun current() = PorticoMpvController.shared === controller && isAttachedToWindow && isShown && lent && surfaceReady &&
+    fun current() = PorticoMpvController.shared === controller && isAttachedToWindow && isShown && surfaceActive && lent && surfaceReady &&
         expected["lease"] == lease && leased(controller) && controller.snapshotIdentity(this, surface.holder.surface, expected) == token
     return if (current()) PorticoSnapshotTarget(surface, ::current) else null
   }
@@ -88,7 +97,11 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
     val controller = PorticoMpvController.shared
     listen(controller)
     val mine = leased(controller) && isAttachedToWindow
-    if (mine && surfaceReady && surface.holder.surface.isValid) {
+    val showing = mine && surfaceActive
+    // SurfaceView composition must be retired directly; ancestor alpha is insufficient.
+    surface.visibility = if (showing) View.VISIBLE else View.GONE
+    setBackgroundColor(if (showing) Color.BLACK else Color.TRANSPARENT)
+    if (showing && surfaceReady && surface.holder.surface.isValid) {
       val frame = surface.holder.surfaceFrame
       controller!!.surfaceAvailable(this, surface.holder.surface, frame.width(), frame.height())
       lent = true
@@ -96,13 +109,13 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
       lent = false
       controller?.surfaceGone(this)
     }
-    keepScreenOn = mine && controller?.paused == false
+    keepScreenOn = showing && controller?.paused == false
     update()
   }
 
   private fun update() {
     val controller = PorticoMpvController.shared
-    val cue = if (leased(controller)) controller?.overlayCue else null
+    val cue = if (surfaceActive && isAttachedToWindow && leased(controller)) controller?.overlayCue else null
     val text = cue?.text ?: ""
     subtitle.text = text
     subtitle.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
@@ -188,6 +201,10 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
       lent = false
       PorticoMpvController.shared?.surfaceGone(this)
     }
+    surface.visibility = View.GONE
+    setBackgroundColor(Color.TRANSPARENT)
+    subtitle.text = ""
+    subtitle.visibility = View.GONE
     keepScreenOn = false
     super.onDetachedFromWindow()
   }
@@ -196,7 +213,12 @@ internal class PorticoMpvPlayerView(private val reactContext: ThemedReactContext
 
   override fun requestLayout() {
     super.requestLayout()
-    post { measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)); layout(left, top, right, bottom) }
+    if (surfaceActive) post {
+      if (isAttachedToWindow && surfaceActive) {
+        measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
+        layout(left, top, right, bottom)
+      }
+    }
   }
 }
 
@@ -207,6 +229,9 @@ class PorticoMpvPlayerManager : SimpleViewManager<FrameLayout>() {
 
   @ReactProp(name = "lease")
   fun setLease(view: FrameLayout, lease: String?) = (view as PorticoMpvPlayerView).setLease(lease)
+
+  @ReactProp(name = "surfaceActive", defaultBoolean = true)
+  fun setSurfaceActive(view: FrameLayout, active: Boolean) = (view as PorticoMpvPlayerView).setSurfaceActive(active)
 
   @ReactProp(name = "pictureInPictureRequest", defaultInt = 0)
   fun setPictureInPictureRequest(view: FrameLayout, request: Int) = (view as PorticoMpvPlayerView).setPictureInPictureRequest(request)

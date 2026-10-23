@@ -16,6 +16,7 @@ import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
+import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
 
 // Run the actual owned hooks/components with React's hook driver. Native hosts
 // and animation delivery are controlled here; this does not prove device motion.
@@ -102,6 +103,7 @@ test('idle PlayerMorph hides the Android surface host without removing its persi
     '../../../../../packages/player-core/src/index': {}, '../Icon': {Icon: 'Icon'},
     '../theme': {useTheme: () => ({layers: {player: 30}, colors: {shadow: '#000'}})},
     '../useMotion': {useMotion: () => state.motion}, './morph-fence': {currentMorphFence},
+    '../../platform/layout/player-presentation': {playerPostureCrossFadeMs},
     './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
   });
   const frame = {x: 0, y: 0, width: 390, height: 844}, child = React.createElement('PersistentNativeSurface');

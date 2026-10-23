@@ -7,6 +7,7 @@ import type {SelectionKind} from '../../../../packages/client-core/src/selection
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {serverTextLabel} from '../../../../packages/client-core/src/presentation/server-text';
 import {Menu, Dialog, type MenuEntry} from '../kit/overlays';
+import {TouchMenuHeader} from '../kit/overlays/Menu';
 import {DeleteMediaDialog, MixedEditExplainer} from '../kit/selection';
 import {Button} from '../kit/controls/Button';
 import {Focusable} from '../kit/controls/Focusable';
@@ -93,10 +94,16 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
   const rating = state.rating;
   const ratingTitle = members[0] && memberTitle(members[0], runtime);
   const mutation = (value: number | null) => {controller.setRatingValue(value); void controller.submitRating().catch(reportError);};
+  const menuEntry = state.menu?.member.entry;
+  const menuKindKey = menuEntry?.kind === 'movie' ? 'search.kind.movie' : menuEntry?.kind === 'show' ? 'search.kind.show'
+    : menuEntry?.kind === 'artist' ? 'search.kind.artist' : menuEntry?.kind === 'album' ? 'search.kind.album' : undefined;
+  const menuArtwork = menuEntry?.posterUrl ? runtime.artwork(menuEntry.posterUrl) : undefined;
   return <>
     <Menu testID={theme.isTV && state.menu ? tvFocusIds(runtime.getSnapshot().authority).menu(state.menu.windowId, state.menu.key) : undefined}
       open={!!state.menu} onOpenChange={open => {if (!open) controller.closeMenu();}} title={state.menu ? memberTitle(state.menu.member, runtime) : undefined}
-      items={items} anchorRef={anchorRef} touchContext={!theme.isTV} width={theme.isTV ? undefined : 300} presentation={theme.isTV ? 'sideSheet' : undefined}/>
+      items={items} anchorRef={anchorRef} touchContext={!theme.isTV} width={theme.isTV ? undefined : 300} presentation={theme.isTV ? 'sideSheet' : undefined}
+      touchHeader={state.menu && !theme.isTV ? <TouchMenuHeader title={memberTitle(state.menu.member, runtime)} artwork={menuArtwork ? <Artwork source={menuArtwork} width={40} height={60}/> : undefined}
+        kind={menuKindKey ? t(menuKindKey) : undefined} year={menuEntry?.year === undefined ? undefined : defaultI18n.number(menuEntry.year, {useGrouping: false})}/> : undefined}/>
     <HomeDestinationPicker controller={controller} runtime={runtime} reportError={reportError}/>
     <HomeBulkEditor controller={controller} runtime={runtime} reportError={reportError}/>
     <MixedEditExplainer testID={ids?.surface('mixed-edit')} open={state.mixedEdit} onOpenChange={open => {if (!open) controller.closeEditor();}} description={description} total={count} groups={groups}

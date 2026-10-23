@@ -14,6 +14,7 @@ import {dispatchMenuKey} from '../src-next/platform/menu-key.ts';
 // device layout, decoding, gestures and D-pad focus require Android evidence.
 const state = {
   theme: createTheme({isTV: false, width: 390}), fontFamilies, nativeType,
+  os: 'android' as 'android' | 'ios',
   slot: {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded() {}, failed() {}},
   timings: [] as {toValue: number; duration: number}[],
   workletTargets: [] as number[],
@@ -23,7 +24,7 @@ const data = (value: string) => `data:text/javascript,${encodeURIComponent(value
 const rnStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = data(`export * from ${JSON.stringify(rnStub)};
   export const View='View',Text='Text',Image='Image',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',VirtualizedList='VirtualizedList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
-  export const Platform={OS:'android',isTV:false},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
+  export const Platform={get OS(){return globalThis.__porticoFamilyRenderTest.os;},get isTV(){return globalThis.__porticoFamilyRenderTest.theme.isTV;}},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
   export const useWindowDimensions=()=>({width:globalThis.__porticoFamilyRenderTest.theme.width,height:globalThis.__porticoFamilyRenderTest.theme.isTV?1080:844,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0}};
@@ -420,6 +421,36 @@ test('real state galleries request initial TV focus only on TV, preserving the n
   }
 });
 
+test('state icon glass uses the drawn overlay on Android and retains Apple material and TV fill', () => {
+  const previous = {theme: state.theme, os: state.os};
+  try {
+    for (const os of ['android', 'ios'] as const) {
+      state.os = os;
+      for (const isTV of [false, true]) {
+        state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+        const layout = mount(StateLayout, {title: 'Actual state', icon: 'i-download'});
+        try {
+          const blur = nodes(layout.tree).find(node => node.type === 'BlurView');
+          const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
+          assert.ok(disk);
+          assert.equal(disk.props.style.borderWidth, 1);
+          assert.equal(disk.props.style.borderColor, `${state.theme.colors.text}1F`);
+          assert.equal(disk.props.style.backgroundColor, os === 'android' && !isTV ? 'transparent' : `${state.theme.colors.text}1A`);
+          if (os === 'android' && isTV) {
+            assert.equal(blur, undefined, 'Android TV keeps the drawn translucent fill without video blur');
+          } else {
+            assert.ok(blur);
+            assert.equal(blur.props.blurAmount, 20);
+            assert.equal(blur.props.blurType, 'dark');
+            assert.equal(blur.props.overlayColor, os === 'android' ? `${state.theme.colors.text}1A` : undefined);
+            assert.equal(blur.props.reducedTransparencyFallbackColor, state.theme.colors.raised);
+          }
+        } finally {layout.host.unmount();}
+      }
+    }
+  } finally {state.theme = previous.theme; state.os = previous.os;}
+});
+
 function nativeFocusable(tree: ReactNode): Element {
   const element = tree as any;
   return element.type.render(element.props, element.props.ref);
@@ -547,5 +578,60 @@ test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without 
     const sheet = nodes(compact.tree).find(node => node.props.fitContent === true)!;
     assert.equal(sheet.props.backdropOpacity, .58);
     assert.equal(sheet.props.width, undefined);
+    assert.deepEqual(find(compact.tree, MenuRow).props.style, {minHeight: 44});
   } finally {compact.host.unmount();}
+});
+
+test('an anchored TV menu preserves its real header, trailing content, actions and return focus', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  const header = React.createElement('View', {testID: 'actual-profile-header'}), trailing = React.createElement('Text', {}, '3 new');
+  const anchorRef = {current: {measureInWindow(run: any) {run(72, 948, 320, 76);}}};
+  const calls: string[] = [];
+  const menu = mount(Menu, {testID: 'profile-menu', title: 'Actual profile', context: header, open: true, presentation: 'anchored',
+    anchorRef, returnFocusRef: anchorRef, placement: 'right-end', offset: 168, alignOffset: -8, width: 640,
+    onOpenChange(open: boolean, reason: string) {calls.push(`${open}:${reason}`);},
+    items: [{id: 'notifications', label: 'Notifications', trailing, onSelect() {calls.push('notifications');}}]});
+  try {
+    const popover = find(menu.tree, Popover);
+    assert.equal(popover.props.headerContext, header); assert.equal(popover.props.returnFocusRef, anchorRef);
+    assert.equal(popover.props.placement, 'right-end'); assert.equal(popover.props.offset, 168); assert.equal(popover.props.alignOffset, -8);
+    assert.equal(popover.props.width, 640); assert.equal(popover.props.footer, undefined); assert.equal(popover.props.holdFocus, true);
+    assert.equal(nodes(popover).filter(node => node.type === 'ScrollView').length, 1);
+    const row = find(popover, MenuRow); assert.equal(row.props.trailing, trailing); assert.equal(row.props.tvFlyout, true);
+    row.props.onPress(); assert.deepEqual(calls, ['notifications', 'false:action']);
+    row.props.onMenu(); assert.equal(calls.at(-1), 'false:back');
+  } finally {menu.host.unmount();}
+});
+
+test('right-end Popover positions from native measurements and reanchors while the rail moves', () => {
+  state.theme = createTheme({isTV: true, width: 1920});
+  let nextFrame: FrameRequestCallback | undefined, cancelled = false;
+  const request = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = run => {nextFrame = run; return 7;};
+  globalThis.cancelAnimationFrame = id => {assert.equal(id, 7); cancelled = true;};
+  let anchor = {x: 72, y: 948, width: 320, height: 76};
+  const surface = mount(Popover, {testID: 'measured-menu', title: 'Actual profile', open: true, onOpenChange() {}, width: 640,
+    placement: 'right-end', offset: 168, alignOffset: -8, holdFocus: true, anchorRef: {current: {measureInWindow(run: any) {run(anchor.x, anchor.y, anchor.width, anchor.height);}}}, children: null});
+  try {
+    surface.host.flush();
+    const content = nodes(surface.tree).find(node => node.props.onLayout)!;
+    content.props.onLayout({nativeEvent: {layout: {height: 525}}}); surface.host.flush();
+    assert.deepEqual((surface.tree as Element).props.rect, {x: 560, y: 491, width: 640, height: 525});
+    anchor = {...anchor, x: 82, y: 958}; nextFrame!(0); surface.host.flush();
+    assert.deepEqual((surface.tree as Element).props.rect, {x: 570, y: 501, width: 640, height: 525});
+    assert.equal(nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!.props.modal, true);
+  } finally {surface.host.unmount(); globalThis.requestAnimationFrame = request; globalThis.cancelAnimationFrame = cancel;}
+  assert.equal(cancelled, true);
+});
+
+test('Q6 custom compact heading replaces only the touch sheet heading, including explicit null', () => {
+  state.theme = createTheme({isTV: false, width: 390});
+  const header = React.createElement('View', {testID: 'captured-member-header'});
+  const props = {title: 'Actual title', open: true, onOpenChange() {}, items: [], touchHeader: header};
+  const menu = mount(Menu, {...props, touchContext: true});
+  try {
+    assert.equal((menu.tree as Element).props.headerContent, header);
+    menu.update({...props, touchContext: true, touchHeader: null}); assert.equal((menu.tree as Element).props.headerContent, null);
+    menu.update(props); assert.equal((menu.tree as Element).props.headerContent, undefined);
+  } finally {menu.host.unmount();}
 });

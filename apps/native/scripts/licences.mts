@@ -22,7 +22,8 @@
 //       The pods. Pods that come from an npm package take that package's licence; the others are
 //       read from Pods/<name> after `pod install` on a Mac. Without it (on Linux) a pod is listed
 //       with its declared licence and its text is marked pending (the Mac step regenerates).
-//   third_party/media-engine/sources.lock.json and the build's notices
+//   third_party/media-engine/sources.lock.json (Android) and third_party/apple-subtitles/sources.lock.json
+//       (Apple), with each build's own notices
 //       (MEDIA_ENGINE_OUT_DIR or third_party/media-engine/out, <platform>/notices): the player
 //       engine's components and their licence files, including libdovi's Rust crates.
 //   assets.json
@@ -143,11 +144,21 @@ function npmComponents(client: Client, read: (rel: string) => string): Collected
 // The player engine
 
 function engineComponents(platform: 'android' | 'apple', read: (rel: string) => string): CollectedComponent[] {
-  const lock = JSON.parse(read('third_party/media-engine/sources.lock.json'));
-  const outDir = process.env.MEDIA_ENGINE_OUT_DIR ? path.resolve(process.env.MEDIA_ENGINE_OUT_DIR) : path.join(root, 'third_party/media-engine/out');
-  // The same pinned archive gives the same licence files on both platforms: either build's notices serve.
-  const noticeDirs = [platform, platform === 'android' ? 'apple' : 'android'].map(p => path.join(outDir, p, 'notices')).filter(d => existsSync(d));
-  if (!noticeDirs.length) throw new Error(`licences: no media engine notices under ${outDir} (run third_party/media-engine/build-android.sh, or set MEDIA_ENGINE_OUT_DIR)`);
+  // Apple ships AVPlayer plus subtitle/Opus libraries, independently of Android's mpv build.
+  const recipe = platform === 'apple' ? 'third_party/apple-subtitles' : 'third_party/media-engine';
+  const lock = JSON.parse(read(`${recipe}/sources.lock.json`));
+  const configured = platform === 'apple' ? process.env.APPLE_SUBTITLE_OUT_DIR : process.env.MEDIA_ENGINE_OUT_DIR;
+  const outDir = configured ? path.resolve(configured) : path.join(root, recipe, 'out');
+  const noticeDirs = (platform === 'apple' ? ['apple'] : ['android', 'apple']).map(p => path.join(outDir, p, 'notices')).filter(d => existsSync(d));
+  if (!noticeDirs.length) throw new Error(`licences: no ${platform} notices under ${outDir} (run ${recipe}/build-${platform}.sh, or set ${platform === 'apple' ? 'APPLE_SUBTITLE_OUT_DIR' : 'MEDIA_ENGINE_OUT_DIR'})`);
+  if (platform === 'apple') {
+    const source = JSON.parse(read(`${recipe}/${lock.components.ffmpeg.sourceLock}`));
+    const receipt = JSON.parse(readFileSync(path.join(outDir, 'apple/source/portico-source-receipt.json'), 'utf8'));
+    if (source.ffmpeg.commit !== lock.components.ffmpeg.sourceCommit || source.ffmpeg.sha256 !== lock.components.ffmpeg.sha256 || source.ffmpeg.patches.length !== 100 ||
+      Object.keys(receipt).length !== 4 || receipt.sourceCommit !== source.ffmpeg.commit || receipt.sourceSha256 !== source.ffmpeg.sha256 || receipt.sourceDateEpoch !== source.sourceDateEpoch || JSON.stringify(receipt.patches) !== JSON.stringify(source.ffmpeg.patches)) {
+      throw new Error('licences: Apple corresponding source does not match the checked Jellyfin patch receipt');
+    }
+  }
   const filesUnder = (dir: string, skip?: string): string[] => readdirSync(dir, {withFileTypes: true}).flatMap(e => {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) return full === skip ? [] : filesUnder(full, skip);
@@ -157,6 +168,7 @@ function engineComponents(platform: 'android' | 'apple', read: (rel: string) => 
   for (const [name, entry] of Object.entries(lock.components) as [string, {version: string; licence: string; platforms: string[]; url: string; prebuilt?: boolean}][]) {
     if (!entry.platforms.includes(platform)) continue;
     const folder = noticeDirs.map(d => path.join(d, name)).find(d => existsSync(d));
+    if (platform === 'apple' && !folder) throw new Error(`licences: missing Apple build notice for ${name}`);
     const licence = entry.licence.replace(/\s*\(.*$/, '');
     // Before the other platform's build has collected a component's files (MoltenVK before the
     // first Mac build), a single standard licence is shown in its standard wording.

@@ -19,10 +19,27 @@ import {drawnSubtitleMessages} from './en-US/subtitles.ts';
 import {ownerConsoleMessages} from './en-US/owner-console.ts';
 import {ownerParityMessages} from './en-US/owner-parity.ts';
 import {connectionTrustMessages} from './en-US/connection-trust.ts';
+import {systemMessages} from './en-US/system.ts';
+import {accountMessages} from './en-US/accounts.ts';
 import {secureConnectionMessages} from './en-US/secure-connection.ts';
+import {servicesMessages} from './en-US/services.ts';
 
 export const enUS = {
+  ...systemMessages,
+  ...accountMessages,
+  'listening.rewound': 'Rewound {seconds} seconds',
+  'section.recently_played': 'Recently played',
+  'section.new_albums': 'New albums',
+  'section.most_played_songs': 'Songs you play most',
+  'section.playlists': 'Playlists',
+  'section.artists': 'Artists',
+  'section.genres': 'Genres',
   'browse.field.search': 'Search',
+  'browse.field.library': 'Library',
+  'browse.field.match': 'Match',
+  'browse.field.actor': 'Actor',
+  'browse.field.director': 'Director',
+  'browse.field.writer': 'Writer',
   'sort.releaseDate': 'Release date',
   'sort.criticRating': 'Critic rating',
   'sort.episodeCount': 'Episode count',
@@ -626,6 +643,12 @@ export const enUS = {
   'playOn.receiver.askBody': '{device} will be able to start and control playback on this TV. You can remove it later in Settings.',
   'playOn.receiver.allow': 'Allow',
   'playOn.receiver.decline': 'Don’t allow',
+  'quality.sameAsOriginal': 'Same as the original',
+  'quality.dataPerHour': 'about {amount} GB an hour',
+  'quality.1080pHigh': '1080p High',
+  'quality.1080pLow': '1080p Low',
+  'quality.720pHigh': '720p High',
+  'quality.720pLow': '720p Low',
   'quality.automatic': 'Automatic',
   'quality.automaticHelp': 'Adjusts to your connection',
   'quality.original': 'Original',
@@ -882,7 +905,7 @@ export const enUS = {
   'profile.deleteConfirm.action': 'Delete profile',
   'profile.deleted': '{name} deleted',
   'profile.pinRecoveryTitle': 'New PIN for {name}',
-  'profile.pinRecoveryUnavailable': 'A forgotten PIN is reset with your password plus a code from two-step verification, which this account hasn’t turned on. The main profile can change the PIN in Settings → Server account.',
+  'profile.pinRecoveryUnavailable': 'Sign in to your account again to reset this profile’s PIN.',
   'profile.pinRecoveryCode': 'Authenticator or recovery code',
   'profile.pinRecoveryAction': 'Set new PIN',
   'profile.pinChanged': 'PIN changed',
@@ -930,6 +953,7 @@ export const enUS = {
   'device.platform.tvos': 'Apple TV',
   'device.platform.android': 'Android',
   'device.platform.androidtv': 'Android TV',
+  'device.platform.googleCast': 'Google Cast',
   // The server's play history (Settings › Server › Play history).
   'server.plays.user': 'User',
   'server.plays.type': 'Type',
@@ -946,6 +970,7 @@ export const enUS = {
   'server.plays.period.7d': 'Last 7 days',
   'server.plays.period.30d': 'Last 30 days',
   'server.plays.period.90d': 'Last 90 days',
+  'server.plays.period.1y': 'Last year',
   'server.plays.filterUser': 'User',
   'server.plays.filterLibrary': 'Library',
   'server.plays.filterPeriod': 'Time',
@@ -1518,6 +1543,8 @@ export const enUS = {
   'quickConnect.noCode': 'No code right now.',
   'quickConnect.gettingCode': 'Getting a code',
   'quickConnect.usePassword': 'Use a password instead',
+  'notice.peopleJoined.title': '{username} joined {server}',
+  'notice.peopleJoined.body': 'The invitation was accepted.',
   'invitation.joined': 'You’ve joined {server}.',
   'custody.title': 'Accept ownership of this server’s Portico registration',
   'custody.body': 'You’re the owner of {server} now. Accept so your Portico Account holds its registration, which covers remote access and invitations.',
@@ -2100,6 +2127,7 @@ export const enUS = {
   // ── Owner certificates and Apple's local plain HTTP (catalog/en-US/connection-trust.ts) ──
   ...connectionTrustMessages,
   ...secureConnectionMessages,
+  ...servicesMessages,
   ...nextMessages,
 } as const satisfies Record<string, string>;
 

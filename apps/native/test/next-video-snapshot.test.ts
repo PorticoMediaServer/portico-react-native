@@ -40,10 +40,23 @@ test('unsupported, absent and malformed sources decline before invoking capture'
     await assert.rejects(helper.capture(invalid), failure('snapshot_unavailable'));
   }
   Platform.isTV = true; await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
-  Platform.isTV = false; Platform.OS = 'ios'; await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
+  Platform.isTV = false; Platform.OS = 'windows'; await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
   Platform.OS = 'android'; delete modules.PorticoVideoSnapshot;
   await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
   assert.equal(requests, 0); helper.dispose();
+}));
+
+test('Apple phone and tablet admit the installed capture bridge; TV and absent Apple bridges decline', () => withBridge(async () => {
+  Platform.OS = 'ios';
+  let requests = 0, releases = 0;
+  const helper = createVideoSnapshotCapture({isCurrent: () => true});
+  modules.PorticoVideoSnapshot = {capture: async (id: string, value: VideoSnapshotSource) => { requests++; assert.deepEqual(value, source); return image(id); }, release: async () => { releases++; return true; }};
+  const result = await helper.capture(source); await result.release();
+  assert.equal(requests, 1); assert.equal(releases, 1);
+  Platform.isTV = true; await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
+  Platform.isTV = false; delete modules.PorticoVideoSnapshot;
+  await assert.rejects(helper.capture(source), failure('snapshot_unavailable'));
+  assert.equal(requests, 1); helper.dispose();
 }));
 
 test('source and authority guards reject both before and after asynchronous capture and delete late bytes', () => withBridge(async () => {

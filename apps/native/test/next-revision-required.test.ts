@@ -80,16 +80,18 @@ test('queue and session commands reread their parent and retry using If-Match wi
   }
 });
 
-test('a device trust retry reads the exact device revision, never the list or another device', async () => {
-  let count = 0;
-  const send = revisionRequiredFetch(async (_input, options = {}) => {
-    count++;
-    if (count === 1) return required();
-    if (options.method === 'GET') return json({revision: 99, items: [{id: 'other', revision: 11}, {id: 'device/one', revision: 5}]});
-    assert.equal(JSON.parse(String(options.body)).expectedRevision, 5);
-    return json({saved: true});
+test('the retired device trust mutation is never reread or replayed', async () => {
+  let calls = 0;
+  const refusal = required();
+  const options = {method: 'PUT', body: '{"trust":"blocked"}'};
+  const send = revisionRequiredFetch(async (input, actual) => {
+    calls++;
+    assert.equal(input, origin + '/v1/admin/access/devices/device%2Fone/trust');
+    assert.equal(actual, options);
+    return refusal;
   });
-  assert.equal((await send(origin + routePath('put_admin_access_device_trust', {id: 'device/one'}), {method: 'PUT', body: '{"trust":"blocked"}'})).status, 200);
+  assert.equal(await send(origin + '/v1/admin/access/devices/device%2Fone/trust', options), refusal);
+  assert.equal(calls, 1);
 });
 
 test('revision retries remain bounded and preserve the last refusal for the shared error presenter', async () => {
@@ -140,36 +142,6 @@ test('other 428 reasons, stale revisions, authentication and interrupted writes 
   assert.equal(calls, 1);
   const offline = new Error('offline');
   await assert.rejects(revisionRequiredFetch(async () => { throw offline; })(origin + routePath('put_metadata_settings'), {method: 'PUT', body: '{}'}), e => e === offline);
-});
-
-test('a device beyond the first page is reread before trust is retried', async () => {
-  let writes = 0, reads = 0;
-  const send = revisionRequiredFetch(async (input, options = {}) => {
-    if (options.method !== 'GET') {
-      if (++writes === 1) return required();
-      assert.equal(JSON.parse(String(options.body)).expectedRevision, 8);
-      return json({saved: true});
-    }
-    const query = new URL(String(input)).searchParams;
-    assert.equal(query.get('limit'), '100');
-    reads++;
-    if (!query.has('cursor')) return json({items: [{id: 'other', revision: 1}], nextCursor: 'next-page'});
-    assert.equal(query.get('cursor'), 'next-page');
-    return json({items: [{id: 'device', revision: 8}]});
-  });
-  assert.equal((await send(origin + routePath('put_admin_access_device_trust', {id: 'device'}), {method: 'PUT', body: '{}'})).status, 200);
-  assert.equal(writes, 2); assert.equal(reads, 2);
-});
-
-test('device pagination cannot loop or borrow an unrelated revision', async () => {
-  let writes = 0, reads = 0;
-  const send = revisionRequiredFetch(async (_input, options = {}) => {
-    if (options.method !== 'GET') { writes++; return required(); }
-    reads++;
-    return json({revision: 88, items: [{id: 'other', revision: 9}], nextCursor: 'repeated'});
-  });
-  assert.equal((await send(origin + routePath('put_admin_access_device_trust', {id: 'device'}), {method: 'PUT', body: '{}'})).status, 428);
-  assert.equal(writes, 1); assert.equal(reads, 2);
 });
 
 test('delete and administrative playback commands read their actual resource before retrying', async () => {

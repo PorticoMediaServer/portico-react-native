@@ -26,7 +26,11 @@ export type NativePlaybackVersionSelection = Readonly<{
   expectedFence: PlaybackFence | undefined;
 }>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
-export type NativePlaybackSurfaceProps = Readonly<{dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean}>;
+export type NativePlaybackSurfaceProps = Readonly<{
+  dockBounds?: NativePlaybackBounds; expandedBounds?: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean;
+  /** Composition only: a retained current-fence image may cover the live producer without unmounting it. */
+  surfaceActive: boolean;
+}>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
 export type NativePlaybackSettings = Readonly<{
   engine: EngineSetting; overrides?: CapabilityOverrides;

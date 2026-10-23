@@ -547,6 +547,12 @@ export async function standardHomeApp({
           authority: 'local',
           serverId: pin.serverId,
           canManage: accountRole === 'owner',
+          capabilities: {
+            manageAccount: accountRole === 'owner',
+            managePeople: accountRole === 'owner',
+            manageServer: accountRole === 'owner',
+            manageSignIn: accountRole === 'owner',
+          },
           account: {
             id: 'account',
             username: 'fixture_member',
@@ -888,14 +894,14 @@ export async function standardHomeApp({
       });
       await settle();
     },
-    async menuResume() {
+    async menuPlay() {
       const button = [...state.hosts.values()].find(
         host =>
           host.name === 'Pressable' &&
-          host.props.accessibilityLabel === 'Resume',
+          host.props.accessibilityLabel === 'Play',
       );
       if (!button)
-        throw Error('Real Home registered menu did not offer Resume');
+        throw Error('Real Home registered phone menu did not offer Play');
       button.props.onPress({nativeEvent: {}, stopPropagation() {}});
       await settle();
     },
