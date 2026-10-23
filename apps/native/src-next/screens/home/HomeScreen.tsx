@@ -46,20 +46,29 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const document = authorizedHome(snapshot.document, authority);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
   const [heroVisible, setHeroVisible] = useState(true), [visibleRows, setVisibleRows] = useState<ReadonlySet<string>>(new Set());
-  const [focus, setFocus] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
+  const [focus, setFocusState] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
+  const focusTarget = useRef<typeof focus>(undefined), canAnchor = useRef(false);
+  canAnchor.current = theme.isTV && active && !railExpanded;
+  const setFocus = useCallback((next: typeof focus) => {
+    if (focusTarget.current?.rowId === next?.rowId && focusTarget.current?.entryId === next?.entryId) return;
+    focusTarget.current = next; setFocusState(next);
+  }, []);
   const [activeIndex, setActiveIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const scrolled = useRef(false), spotlightEntered = useRef(false);
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
-  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => {moveToTop(0, true); if (theme.isTV) {setFocus(undefined); registry.focus(ids.start);}}), [runtime, moveToTop, theme.isTV, registry, ids.start]);
+  useEffect(() => runtime.registerScrollToTop({kind: 'home'}, () => {moveToTop(0, true); if (theme.isTV) {setFocus(undefined); registry.focus(ids.start);}}), [runtime, moveToTop, theme.isTV, registry, ids.start, setFocus]);
   useEffect(() => {if (!theme.isTV) return; return runtime.registerTVPageBack?.(() => {
     const selected = registry.capture();
     if (vertical.offset.value <= 0 && selected?.regionId === ids.spotlight && selected.childId === 'play') return false;
     moveToTop(0, true); setFocus(undefined); registry.focus(ids.start); return true;
-  });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, theme.isTV, vertical.offset]);
-  const current = useCallback(() => sameAuthority(authority, runtime.getSnapshot().authority), [authority, runtime]);
+  });}, [ids.start, ids.spotlight, moveToTop, registry, runtime, setFocus, theme.isTV, vertical.offset]);
+  const current = useCallback(() => {
+    try {return sameAuthority(authority, runtime.getSnapshot().authority);}
+    catch (error) {if (error instanceof Error && error.name === 'AbortError') return false; throw error;}
+  }, [authority, runtime]);
   useEffect(() => {
     if (!theme.isTV || spotlightEntered.current) return;
     // Only the unopened page may acquire entry focus. An already focused rail,
@@ -79,10 +88,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const page = row && pages.state(row.id), fulfilled = page?.fulfilled;
     const entryId = fulfilled?.firstItemId;
     if (row && entryId && saved?.childId === page?.hostId) {
-      setFocus(before => before?.rowId === row.id && before.entryId === entryId ? before : {rowId: row.id, entryId});
+      setFocus({rowId: row.id, entryId});
       setHeroFocused(false);
     }
-  }, [document, ids, pages, pagingRevision, registry]);
+  }, [document, ids, pages, pagingRevision, registry, setFocus]);
   const guarded = (run: () => void) => {if (current()) run();};
   const readLibraries = new Set(runtime.getSnapshot().libraries.filter(library => library.kind === 'books').map(library => library.id));
   const incomingRows = document ? platformRows(document, theme.isTV ? 'tv' : 'phone', readLibraries).map(row => theme.isTV ? pages.present(row) : row) : [];
@@ -153,9 +162,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     if (theme.isTV) spotlightEntered.current = true;
     setFocus({rowId: row.id, entryId}); setHeroFocused(false);
     if (focus?.rowId === row.id && focus.entryId === entryId) return;
+    const target = focusTarget.current;
     // Focus changes the TV hero/row geometry. Anchor after that real layout has landed.
     requestAnimationFrame(() => {
-      if (!current()) return;
+      if (!current() || !canAnchor.current || focusTarget.current !== target) return;
       const box = rowPositions.current.get(row.id);
       if (box) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);
     });
@@ -212,7 +222,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         rowPositions.current.set(row.id, box); updateViewport(offset.current);
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
-        if (theme.isTV && active && !railExpanded && focus?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
+        if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={{marginBottom: theme.isTV ? 30 : 18}}>
         {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth}/>
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><CollectionBanner onFocus={() => onRowFocus(row, row.collection!.collection.id)} title={row.collection.collection.name} kindLabel={t('next.home.collection')} covers={row.collection.members.flatMap(entry => {const artwork = runtime.artwork(entry.posterUrl); return artwork ? [artwork] : [];})}
             body={homeCollectionCaption(row.collection, runtime.text)[0]?.text}
