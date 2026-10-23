@@ -86,6 +86,7 @@ const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
+const {PlaylistPicker, MixedEditExplainer} = await import('../src-next/kit/selection/index.ts');
 const {default: overlayGalleries} = await import('../src-next/dev/families/overlays/overlays.gallery.tsx');
 type Element = ReactElement<Record<string, any>>;
 function nodes(node: ReactNode): Element[] {
@@ -388,6 +389,40 @@ test('actual selection galleries render list changes when native Intl.ListFormat
       } finally {example.host.unmount(); gallery.host.unmount();}
     }
   }
+});
+
+test('optional DEV selection trace preserves exact close reasons, actual actions and the closed mutation fence', () => {
+  const previous = globalThis.__porticoNativeSelectionTrace, previousTheme = state.theme;
+  state.theme = createTheme({isTV: false, width: 390});
+  globalThis.__porticoNativeSelectionTrace = [];
+  try {
+    for (const [scenario, component] of [['playlist', PlaylistPicker], ['mixed', MixedEditExplainer]] as const) {
+      const gallery = mount(selectionGalleries.find(value => value.id === `selection-${scenario}`)!.render, {});
+      const exampleElement = (gallery.tree as Element).props.children as Element;
+      const example = mount(exampleElement.type, exampleElement.props);
+      try {
+        const surface = () => find(example.tree, component);
+        surface().props.onOpenChange(false, 'escape'); example.host.flush();
+        assert.equal(surface().props.open, false);
+        assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'escape'});
+        surface().props.onOpenChange(true, 'action'); example.host.flush();
+        assert.equal(surface().props.open, true);
+        if (scenario === 'playlist') {
+          assert.throws(() => surface().props.onAdd('family-movies'), /complete props from the actual fenced controller/);
+          assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'mutation-attempt'});
+          assert.equal(surface().props.open, true, 'the observer must not invent a successful add or dismissal');
+        } else {
+          surface().props.onKeepOnly('movie'); example.host.flush();
+          assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'action', scenario, action: 'keep-only', value: 'movie'});
+        }
+        for (let index = 0; index < 70; index++) surface().props.onOpenChange(index % 2 === 0, 'outside');
+        example.host.flush();
+        assert.equal(globalThis.__porticoNativeSelectionTrace.length, 64);
+        assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'outside'});
+        assert.equal(surface().props.open, false);
+      } finally {example.host.unmount(); gallery.host.unmount();}
+    }
+  } finally {globalThis.__porticoNativeSelectionTrace = previous; state.theme = previousTheme;}
 });
 
 
