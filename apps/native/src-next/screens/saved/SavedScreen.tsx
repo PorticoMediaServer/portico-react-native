@@ -11,7 +11,7 @@ import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
-import {groupOfflineEntries, type NativeOfflineDownloadsAdapter} from '../../platform/offline-downloads';
+import {groupOfflineEntries, type NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
@@ -31,7 +31,7 @@ export type NativeSavedSelectionPort = Readonly<{
   render: () => React.ReactNode;
 }>;
 export type NativeSavedScreenProps = Readonly<{
-  destination: NativeSavedDestination; runtime: NativeShellRuntime; device: NativeOfflineDownloadsAdapter;
+  destination: NativeSavedDestination; runtime: NativeShellRuntime; device: NativeOfflineDownloadsDevice;
   actions: NativeSavedActions; selection?: NativeSavedSelectionPort; onThisPhone: MessageId;
   downloadsCopy: NativeSavedDownloadsCopy;
   activation: NativeDestinationActivationPort;
