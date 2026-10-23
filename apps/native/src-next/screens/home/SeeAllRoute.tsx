@@ -12,6 +12,7 @@ import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-reg
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
+import {nativeHomeEntryLifetime} from './entry-lifetime';
 
 type RowRoute = Extract<NativeShellRoute, {kind: 'home-see-all'}>;
 type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
@@ -79,7 +80,14 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
       onBack={() => {if (current(source)) context.navigation.back(context.authority());}}
       onPlay={shuffle => play(source, shuffle)}
       onOpen={entry => {if (current(source)) context.navigation.open(titleRoute(entry), context.authority());}}
-      onPlayEntry={entry => {if (current(source) && entry.playback) void context.playback.start({entry, target: entry.playback}).catch(reportError);}}
+      onPlayEntry={(entry, entryCurrent) => {
+        if (!current(source) || !entryCurrent() || !entry.playback) return;
+        const captured = context.navigation.getSnapshot();
+        const operation = nativeHomeEntryLifetime(() => current(source) && context.navigation.getSnapshot() === captured && entryCurrent(),
+          [context.navigation.subscribe, source.controller.subscribe, source.controller.collection.subscribe], source.abort.signal);
+        void context.playback.start({entry, target: entry.playback, lifetime: operation.lifetime})
+          .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
+      }}
       kindLabel={id => source.labels.get(id)!}/>),
     dispose: () => {alive = false; for (const source of rows.values()) {source.abort.abort(); source.controller.dispose();} rows.clear();},
   };
