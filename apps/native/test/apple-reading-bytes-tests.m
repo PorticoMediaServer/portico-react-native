@@ -24,6 +24,8 @@ static NSInteger trustCalls;
 static NSUInteger checks;
 static void check(BOOL ok,const char *message){checks++;if(!ok){fprintf(stderr,"FAIL %s\n",message);exit(1);}}
 static PorticoQueueTransport *transport;
+static NSURLSession *session;
+static NSString *header(NSString *name){for(NSString *key in answer[@"headers"])if([key caseInsensitiveCompare:name]==NSOrderedSame)return answer[@"headers"][key];return nil;}
 static NSObject *owner;
 static NSDictionary *answer;
 static NSString *failure;
@@ -40,10 +42,10 @@ static ReadingBytesTask *install(PorticoQueueRequest *request){
 static NSURLSessionResponseDisposition respond(ReadingBytesTask *task,NSInteger status,NSDictionary *headers){
  __block NSURLSessionResponseDisposition disposition=-1;
  NSHTTPURLResponse *response=[[NSHTTPURLResponse alloc]initWithURL:[NSURL URLWithString:@"https://server.example"] statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:headers];
- [transport URLSession:nil dataTask:task didReceiveResponse:response completionHandler:^(NSURLSessionResponseDisposition value){disposition=value;}];return disposition;
+ [transport URLSession:session dataTask:task didReceiveResponse:response completionHandler:^(NSURLSessionResponseDisposition value){disposition=value;}];return disposition;
 }
 int main(void){@autoreleasepool{
- transport=[PorticoQueueTransport new];owner=[NSObject new];
+ transport=[PorticoQueueTransport new];owner=[NSObject new];session=[PorticoQueueTransport sessionFor:NO];
  for(NSString *path in @[@"source",@"assets?path=OPS%2Fpage.xhtml",@"pages/0?width=1024"]){
   PorticoQueueRequest *r=make(@"GET",path,@33554432);check(r&&r.binaryResponse&&r.responseLimit==33554432,"all three canonical GET resources use explicit bounded raw bytes");
   check(r.wire.timeoutInterval==15&&[r.wire valueForHTTPHeaderField:@"If-Match"]!=nil,"deadline and source precondition retained");
@@ -59,37 +61,37 @@ int main(void){@autoreleasepool{
  PorticoQueueRequest *r=make(@"GET",@"source",@5);ReadingBytesTask *task=install(r);
  check(respond(task,206,@{@"Content-Length":@"5",@"Content-Type":@"application/pdf",@"ETag":@"\"revision\"",@"Content-Range":@"bytes 0-4/100"})==NSURLSessionResponseAllow,"real 206 metadata accepted");
  const unsigned char raw[]={0,255,192,128,127};NSData *bytes=[NSData dataWithBytes:raw length:5];
- [transport URLSession:nil dataTask:task didReceiveData:[bytes subdataWithRange:NSMakeRange(0,2)]];
- [transport URLSession:nil dataTask:task didReceiveData:[bytes subdataWithRange:NSMakeRange(2,3)]];
- [transport URLSession:nil task:task didCompleteWithError:nil];
+ [transport URLSession:session dataTask:task didReceiveData:[bytes subdataWithRange:NSMakeRange(0,2)]];
+ [transport URLSession:session dataTask:task didReceiveData:[bytes subdataWithRange:NSMakeRange(2,3)]];
+ [transport URLSession:session task:task didCompleteWithError:nil];
  check(resolved==1&&!failure&&[answer[@"status"]isEqual:@206],"binary response resolves once with original status");
  check([[[NSData alloc]initWithBase64EncodedString:answer[@"bodyBase64"] options:0]isEqual:bytes]&&!answer[@"body"],"NUL and invalid UTF8 survive exact base64 without text fallback");
- check([answer[@"headers"][@"Content-Range"]isEqual:@"bytes 0-4/100"]&&[answer[@"headers"][@"ETag"]isEqual:@"\"revision\""],"Range and revision response facts retained");
+ check([header(@"Content-Range")isEqual:@"bytes 0-4/100"]&&[header(@"ETag")isEqual:@"\"revision\""],"Range and revision response facts retained");
  check(r.data==nil&&r.task==nil&&!PorticoQueueRequests[r.identifier],"completion releases binary buffer and request admission");
- [transport URLSession:nil task:task didCompleteWithError:nil];check(resolved==1&&rejected==0,"late completion cannot settle again");
+ [transport URLSession:session task:task didCompleteWithError:nil];check(resolved==1&&rejected==0,"late completion cannot settle again");
  r=make(@"HEAD",@"source",@65536);task=install(r);
  check(respond(task,200,@{@"Content-Length":@"2147483648",@"Content-Type":@"application/pdf"})==NSURLSessionResponseAllow,"HEAD full resource size is not received body length");
- [transport URLSession:nil task:task didCompleteWithError:nil];check([answer[@"bodyBase64"]isEqual:@""]&&[answer[@"headers"][@"Content-Length"]isEqual:@"2147483648"],"HEAD keeps actual total size with empty bytes");
+ [transport URLSession:session task:task didCompleteWithError:nil];check([answer[@"bodyBase64"]isEqual:@""]&&[header(@"Content-Length")isEqual:@"2147483648"],"HEAD keeps actual total size with empty bytes");
  r=make(@"GET",@"pages/0",@4);task=install(r);check(respond(task,200,@{@"Content-Length":@"5"})==NSURLSessionResponseCancel&&rejected==1&&task.cancelled,"declared oversized body rejected before data");
  r=make(@"GET",@"assets?path=x",@4);task=install(r);respond(task,200,@{});
- [transport URLSession:nil dataTask:task didReceiveData:[NSMutableData dataWithLength:3]];
- [transport URLSession:nil dataTask:task didReceiveData:[NSMutableData dataWithLength:2]];
+ [transport URLSession:session dataTask:task didReceiveData:[NSMutableData dataWithLength:3]];
+ [transport URLSession:session dataTask:task didReceiveData:[NSMutableData dataWithLength:2]];
  check(rejected==1&&resolved==0&&task.cancelled&&r.data==nil,"streamed overrun cancels and discards bytes");
  r=make(@"GET",@"source",@64);task=install(r);respond(task,412,@{@"Content-Type":@"application/json"});
  NSData *json=[@"{\"error\":\"source_changed\"}" dataUsingEncoding:NSUTF8StringEncoding];
- [transport URLSession:nil dataTask:task didReceiveData:json];[transport URLSession:nil task:task didCompleteWithError:nil];
+ [transport URLSession:session dataTask:task didReceiveData:json];[transport URLSession:session task:task didCompleteWithError:nil];
  check([answer[@"status"]isEqual:@412]&&[[[NSData alloc]initWithBase64EncodedString:answer[@"bodyBase64"] options:0]isEqual:json],"bounded HTTP error JSON remains real status and raw bytes");
  r=make(@"GET",@"source",@64);task=install(r);__block BOOL redirected=YES;
- [transport URLSession:nil task:task willPerformHTTPRedirection:nil newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://other.example"]] completionHandler:^(NSURLRequest *next){redirected=next!=nil;}];
+ [transport URLSession:session task:task willPerformHTTPRedirection:[[NSHTTPURLResponse alloc]initWithURL:r.wire.URL statusCode:302 HTTPVersion:@"HTTP/1.1" headerFields:@{}] newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://other.example"]] completionHandler:^(NSURLRequest *next){redirected=next!=nil;}];
  check(!redirected&&rejected==1&&task.cancelled,"same transport refuses redirects");
  r=make(@"GET",@"source",@64);task=install(r);r.failureCode=@"cancelled";[r finish:@"cancelled"];
- [transport URLSession:nil task:task didCompleteWithError:nil];check([failure isEqual:@"cancelled"]&&rejected==1&&resolved==0,"existing cancel code settles once; stale data cannot revive it");
+ [transport URLSession:session task:task didCompleteWithError:nil];check([failure isEqual:@"cancelled"]&&rejected==1&&resolved==0,"existing cancel code settles once; stale data cannot revive it");
  r=make(@"GET",@"source",@64);task=install(r);[PorticoQueueTransport cancelOwnedBy:owner];check(rejected==1&&task.cancelled,"owner invalidation cancels binary requests too");
- [transport URLSession:nil didReceiveChallenge:nil completionHandler:^(NSURLSessionAuthChallengeDisposition d,NSURLCredential *c){check(d==NSURLSessionAuthChallengePerformDefaultHandling,"trust delegate result preserved");}];check(trustCalls==1,"binary and text sessions share PorticoServerTrust delegate");
- r=make(@"GET",@"source",@64);task=install(r);[transport URLSession:nil task:task didCompleteWithError:[NSError errorWithDomain:@"test_refused_certificate" code:1 userInfo:nil]];check([failure isEqual:@"certificate_untrusted"],"refused leaf retains existing identity-gate rejection code");
+ [transport URLSession:session didReceiveChallenge:[NSURLAuthenticationChallenge new] completionHandler:^(NSURLSessionAuthChallengeDisposition d,NSURLCredential *c){check(d==NSURLSessionAuthChallengePerformDefaultHandling,"trust delegate result preserved");}];check(trustCalls==1,"binary and text sessions share PorticoServerTrust delegate");
+ r=make(@"GET",@"source",@64);task=install(r);[transport URLSession:session task:task didCompleteWithError:[NSError errorWithDomain:@"test_refused_certificate" code:1 userInfo:nil]];check([failure isEqual:@"certificate_untrusted"],"refused leaf retains existing identity-gate rejection code");
  NSURLSessionConfiguration *configuration=[PorticoQueueTransport sessionFor:NO].configuration;
  check(!configuration.HTTPShouldSetCookies&&!configuration.HTTPCookieStorage&&!configuration.URLCredentialStorage&&!configuration.URLCache&&configuration.timeoutIntervalForResource==15,"same ephemeral pool has no cookie credential or cache persistence");
- r=make(@"GET",@"source",@64);r.binaryResponse=NO;task=install(r);respond(task,200,@{});[transport URLSession:nil dataTask:task didReceiveData:json];[transport URLSession:nil task:task didCompleteWithError:nil];check([answer[@"body"]isEqual:[[NSString alloc]initWithData:json encoding:NSUTF8StringEncoding]]&&!answer[@"bodyBase64"],"existing JSON text completion remains unchanged");
+ r=make(@"GET",@"source",@64);r.binaryResponse=NO;task=install(r);respond(task,200,@{});[transport URLSession:session dataTask:task didReceiveData:json];[transport URLSession:session task:task didCompleteWithError:nil];check([answer[@"body"]isEqual:[[NSString alloc]initWithData:json encoding:NSUTF8StringEncoding]]&&!answer[@"bodyBase64"],"existing JSON text completion remains unchanged");
  [[PorticoQueueTransport sessionFor:NO] invalidateAndCancel];[[PorticoQueueTransport sessionFor:YES] invalidateAndCancel];
  printf("Apple Reading byte transport: %lu checks passed\n",(unsigned long)checks);
  return 0;
