@@ -13,7 +13,7 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 // connection and TLS handshake, and a 17th concurrent request was rejected outright. Now two
 // shared, ephemeral, cookie-less, cache-less session (so connections and TLS sessions are
 // reused), at most 12 requests in flight and up to 64 waiting, with control work first. The security bounds are
-// unchanged and enforced per task: no redirects, at most 1 MB bodies (8 MB for API GETs), 15 s timeouts.
+// unchanged and enforced per task: no redirects, 1 MB controls / 8 MB API GETs / up to 32 MB Reading bytes, 15 s sessions.
 @interface PorticoQueueRequest : NSObject
 @property(nonatomic,strong) NSURLSessionDataTask *task;
 @property(nonatomic,strong) NSURLRequest *wire;
@@ -161,4 +161,3 @@ static PorticoQueueRequest *PorticoReadingBytesRequest(id identifier,id rawURL,i
  for(NSString *name in headers)[wire setValue:headers[name] forHTTPHeaderField:name];
  request.wire=wire;return request;
 }
-
