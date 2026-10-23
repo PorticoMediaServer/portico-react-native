@@ -10,7 +10,17 @@
     "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java": "bb860123a49456e48761fff145eed3d156497be77346955d93286286d42a9a3f",
     "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegDecoderException.java": "9e73968d0802b2d7f8add911ec4dc5a6e621777e997eca74332e173c5463ad7a",
     "src/main/java/androidx/media3/decoder/ffmpeg/package-info.java": "1d75d02151fcec7a1c0036ee4a216e885ae91e1f85e8c9ddfbd72b4def6709be",
-    "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegLibrary.java": "d7d00601c1864f742c3e0d73f7e9b77d9946f2a9dbe5a6e8e255272bc54d2356",
-    "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder.java": "1f88283be0226e9d1cab8d6b7055f75e9ca0678e74818704822b4a1d8613fb25"
-  }
+    "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegLibrary.java": "04021e97a89f0c3a17ca2458b8f8e71e2d97425031021d540dbf15b2e8ebe576",
+    "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder.java": "1f88283be0226e9d1cab8d6b7055f75e9ca0678e74818704822b4a1d8613fb25",
+    "patches/0001-route-ac4-and-dts-express.patch": "a9ac0c68061acdba83a82bd444beab87e0ba1673fd0d9d246ca9de3747db68b4"
+  },
+  "localPatches": [
+    {
+      "path": "patches/0001-route-ac4-and-dts-express.patch",
+      "sha256": "a9ac0c68061acdba83a82bd444beab87e0ba1673fd0d9d246ca9de3747db68b4",
+      "upstreamFiles": {
+        "src/main/java/androidx/media3/decoder/ffmpeg/FfmpegLibrary.java": "d7d00601c1864f742c3e0d73f7e9b77d9946f2a9dbe5a6e8e255272bc54d2356"
+      }
+    }
+  ]
 }
