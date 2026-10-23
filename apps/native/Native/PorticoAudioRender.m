@@ -3,6 +3,8 @@
 #import "PorticoAudioProcessing.h"
 #import "PorticoEqualizer.h"
 #import "PorticoAudioCapture.h"
+#import "PorticoAudioEffects.h"
+#import "PorticoListeningPolicy.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -608,6 +610,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
 }
 static BOOL ARPlan(NSDictionary *p,NSURL *source){
  if(!APDictionary(p)||![p[@"version"] isEqual:@2]||![@[@"direct",@"converted"] containsObject:p[@"mode"]]||![p[@"id"] isKindOfClass:NSString.class]||[p[@"id"] length]<1||[p[@"id"] length]>256)return NO;
+ if(!PorticoAudioPlanFactsValid(p))return NO;
  if(!APInteger(p[@"sampleRate"],8000,768000)||!APInteger(p[@"channels"],1,32)||!APInteger(p[@"durationFrames"],1,9007199254740991.0)||!APDictionary(p[@"trim"])||!APInteger(p[@"trim"][@"startFrames"],0,9007199254740991.0)||!APInteger(p[@"trim"][@"endFrames"],0,9007199254740991.0))return NO;
  if(![PorticoFileRender decodes:p])return NO;
  NSURL *url=[NSURL URLWithString:p[@"url"]?:@""];if(!url||![@[@"http",@"https"] containsObject:url.scheme]||!APSameOrigin(url,source))return NO;
@@ -627,7 +630,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 + (NSString *)validate:(NSDictionary *)render source:(NSString *)source {
  NSURL *origin=[NSURL URLWithString:source?:@""];NSDictionary *settings=APDictionary(render[@"settings"]);
  if(!origin||!ARPlan(APDictionary(render[@"plan"]),origin))return @"Invalid audio render plan.";
- if(!settings||![settings[@"gapless"] isKindOfClass:NSNumber.class]||!APNumber(settings[@"crossfadeSeconds"],0,12)||![@[@"off",@"track",@"album"] containsObject:settings[@"normalization"]]||!APInteger(render[@"epoch"],0,9007199254740991.0)||!APNumber(render[@"startSeconds"],0,1e9))return @"Invalid audio render settings.";
+ if(!PorticoListeningEffectsValid(settings)||!APInteger(render[@"epoch"],0,9007199254740991.0)||!APNumber(render[@"startSeconds"],0,1e9))return @"audio_render_settings_invalid";
  for(NSString *key in @[@"prepared",@"committed"]){NSDictionary *p=APDictionary(render[key]);if(render[key]&&render[key]!=NSNull.null&&!p)return @"Invalid prepared audio.";if(p&&(!ARPlan(APDictionary(p[@"plan"]),origin)||!APID(p[@"token"])))return @"Invalid prepared audio binding.";}
  return nil;
 }
@@ -636,29 +639,19 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 
 #pragma mark Gains
 
-/** `10^((dB + preamp)/20)`, limited so the peak stays at or under full scale (plan §9.6 rule 7). */
+/** Source normalization is separate from the sole device-local EQ preamp. */
 + (BOOL)hasLevelingGain:(NSDictionary *)plan settings:(NSDictionary *)settings {
- NSString *mode=settings[@"normalization"];NSDictionary *g=APDictionary(plan[@"gain"]);
- if(!g||![@[@"track",@"album"] containsObject:mode])return NO;
- return APNumber([mode isEqual:@"album"]?(g[@"albumDb"]?:g[@"trackDb"]):g[@"trackDb"],-60,30);
+ return PorticoAudioHasLocalLeveling(plan,settings);
 }
 + (double)gainFor:(NSDictionary *)plan settings:(NSDictionary *)settings {
- NSString *mode=settings[@"normalization"];NSDictionary *g=APDictionary(plan[@"gain"]);
- if(!g||[mode isEqual:@"off"])return 1;
- BOOL album=[mode isEqual:@"album"]&&g[@"albumDb"];
- id db=album?g[@"albumDb"]:g[@"trackDb"];if(![db isKindOfClass:NSNumber.class])return 1;
- id peak=album?(g[@"albumPeak"]?:g[@"trackPeak"]):g[@"trackPeak"];
- double linear=pow(10,([db doubleValue]+[settings[@"preampDb"] doubleValue])/20);
- if([peak isKindOfClass:NSNumber.class]&&[peak doubleValue]*linear>1)linear=1/[peak doubleValue];
- if([settings[@"neverBoost"] isEqual:@YES])linear=MIN(1,linear);
- return MAX(0,MIN(linear,[peak isKindOfClass:NSNumber.class]?32:1));
+ return PorticoAudioGainLinear(plan,settings);
 }
 
 #pragma mark Decks
 
 - (ARDeck *)deck:(NSDictionary *)plan at:(long long)frame candidate:(BOOL)candidate {
  ARDeck *d=[ARDeck new];d.plan=plan;d.identity=plan[@"id"];d.origin=frame;d.total=[plan[@"durationFrames"] longLongValue];d.sampleRate=[plan[@"sampleRate"] doubleValue];d.seek=-1;d.candidate=candidate;d.holding=[NSMutableArray new];
- d.gain=[PorticoFileRender gainFor:plan settings:_command[@"audioRender"][@"settings"]];
+ d.gain=(double)(float)[PorticoFileRender gainFor:plan settings:_command[@"audioRender"][@"settings"]];
  d.levelingSelected=[PorticoFileRender hasLevelingGain:plan settings:_command[@"audioRender"][@"settings"]];
  NSString *url=plan[@"url"];BOOL converted=[plan[@"mode"] isEqual:@"converted"];
  if(converted&&frame>0)url=[url stringByAppendingFormat:@"%@fromFrame=%lld",[url containsString:@"?"]?@"&":@"?",frame];
@@ -720,7 +713,7 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
 }
 /** Gain goes into the samples, so a gapless join switches it at exactly the right frame. */
 - (void)deliver:(AVAudioPCMBuffer *)b deck:(ARDeck *)d {
- if(fabs(d.gain-1)>.000001){float g=(float)d.gain;for(AVAudioChannelCount c=0;c<b.format.channelCount;c++){float *x=b.floatChannelData[c];for(AVAudioFrameCount i=0;i<b.frameLength;i++)x[i]*=g;}}
+ if((float)d.gain!=1.0f){float g=(float)d.gain;for(AVAudioChannelCount c=0;c<b.format.channelCount;c++){float *x=b.floatChannelData[c];for(AVAudioFrameCount i=0;i<b.frameLength;i++)x[i]*=g;}}
  if(b.frameLength&&d.levelingSelected)d.levelingProcessed=YES;
  if(d.candidate&&!d.held){[d.holding addObject:b];d.heldFrames+=b.frameLength;return;}
  [self schedule:b deck:d];
@@ -782,8 +775,9 @@ static BOOL ARPlan(NSDictionary *p,NSURL *source){
  // successor through the ordinary start path. That path requests the next file's rate even
  // when the two rates match. Never append buffers across a session reconfiguration.
  if([PorticoAudioProcessing.shared.sampleRateMatching isEqual:@"strict"])return;
- double requested=[_command[@"audioRender"][@"settings"][@"crossfadeSeconds"] doubleValue];
+ NSDictionary *settings=_command[@"audioRender"][@"settings"];
  BOOL sameAlbum=[committed[@"sameAlbum"] boolValue];
+ double requested=PorticoAudioTransitionSeconds(_primary.plan,next.plan,[settings[@"crossfadeSeconds"] doubleValue],sameAlbum,[settings[@"smoothTransitions"] isEqual:@YES]);
  double shorter=MIN(_primary.total/_primary.sampleRate,next.total/next.sampleRate);
  double fade=sameAlbum?0:MIN(requested,shorter/2);
  AVAudioFormat *format=_primary.node?[_primary.node outputFormatForBus:0]:nil;AVAudioPCMBuffer *first=next.holding.firstObject;
