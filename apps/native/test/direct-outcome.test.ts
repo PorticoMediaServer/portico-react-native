@@ -9,7 +9,7 @@ import {parseDirectSignIn} from '../../../packages/client-core/src/profile-manag
 import {directOutcome} from '../src/app/direct-outcome.ts';
 
 const profile = (id: string, over: Record<string, unknown> = {}) => ({id, name: id, primary: id === 'p1', position: id === 'p1' ? 0 : 1, art: 'blue', revision: 1, pinRevision: 1, pinRequired: false, allowedLibraries: [], ...over});
-const snapshot = (profiles: unknown[]) => ({authority: 'local', serverId: 'srv', account: {id: 'acct', username: 'owner', primaryProfileId: 'p1', role: 'owner', revision: 1, disabled: false, allowedLibraries: []}, profiles, canManage: true});
+const snapshot = (profiles: unknown[]) => ({authority: 'local', serverId: 'srv', account: {id: 'acct', username: 'owner', primaryProfileId: 'p1', role: 'owner', revision: 1, disabled: false, allowedLibraries: []}, profiles, canManage: true, capabilities: {manageAccount: true, managePeople: true, manageServer: true, manageSignIn: true}});
 const session = (role: string, extra: Record<string, unknown> = {}) => ({accessToken: 'a'.repeat(43), refreshToken: 'r'.repeat(43), deviceId: 'dev', ...extra, expiresAt: '2099-01-01T00:00:00Z', sessionFamilyId: 'fam', tokenGeneration: '1', authorizationHorizon: '2099-03-01T00:00:00Z', viewer: {accountId: 'acct', profileId: 'p1', serverId: 'srv', authority: 'local', role}});
 const signedIn = (profiles: unknown[], role: string, extra: Record<string, unknown> = {}) => parseDirectSignIn({...snapshot(profiles), deviceId: 'dev', installationId: 'inst', session: session(role), ...extra});
 
@@ -31,8 +31,8 @@ test('two-step verification asks for a code; nothing is issued yet', () => {
   assert.equal(directOutcome(parseDirectSignIn({challenge: {token: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00Z'}})), 'code');
 });
 
-test('a device waiting for approval issues nothing and waits', () => {
-  assert.equal(directOutcome(parseDirectSignIn({deviceApprovalPending: true, deviceId: 'dev', installationId: 'inst'})), 'device-pending');
+test('a retired device-approval answer is refused and cannot become a sign-in step', () => {
+  assert.throws(() => parseDirectSignIn({deviceApprovalPending: true, deviceId: 'dev', installationId: 'inst'}));
 });
 
 // The documented envelope carries `installationId` inside `session` too (client-core accepts it since F-web's fix).

@@ -82,7 +82,7 @@ export type PorticoOutcome = 'done' | 'refused' | 'unreachable' | 'failed';
 export type DirectSetup = {api: HttpLocalApi; name: string; hostedConfigured: boolean};
 
 /** C45: a direct sign-in waiting on one more step: a two-step code, or a new password the server requires. */
-export type DirectStep = 'challenge' | 'password-change' | 'device-pending';
+export type DirectStep = 'challenge' | 'password-change';
 
 export type SessionValue = {
   phase: 'restoring' | 'signedOut' | 'ready';
@@ -825,12 +825,6 @@ export function SessionProvider({children}: {children: React.ReactNode}) {
     if (result.kind === 'challenge') {
       stepState.current = {connected, username, password, token: result.token, retry: extra.retry, extra: {hosted: extra.hosted, preferProfileId: extra.preferProfileId}};
       setDirectStep('challenge');
-      return 'held';
-    }
-    if (result.kind === 'device-pending') {
-      // Nothing was issued: the owner approves this device, then the same sign-in is tried again.
-      stepState.current = {connected, username, password, retry: extra.retry};
-      setDirectStep('device-pending');
       return 'held';
     }
     if (outcome === 'new-password') {

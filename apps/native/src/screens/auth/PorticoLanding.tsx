@@ -72,17 +72,9 @@ export function PorticoLanding({onSignOut, onDirect}: {onSignOut: () => void; on
   const signOut = <View style={{alignItems: 'center'}}><Button variant="ghost" icon="signOut" label={i18n.t('auth.signOutOfAccount')} onPress={onSignOut} /></View>;
 
   // A two-step code for this server: its own step screen (typing a code is the whole task).
-  if (session.direct.step && session.direct.step !== 'device-pending') return <DirectStepScreen />;
+  if (session.direct.step) return <DirectStepScreen />;
   let content: React.ReactNode;
-  if (session.direct.step === 'device-pending') {
-    content = (
-      <>
-        <StateView icon="lock" title={i18n.t('device.approval.titleThisDevice')} message={i18n.t('device.approval.body')} action={i18n.t('device.approval.checkAgain')} onAction={() => void session.direct.retrySignIn()} secondaryAction={others() ? i18n.t('portico.landing.chooseAnother') : undefined} onSecondaryAction={() => { session.direct.cancelStep(); setLanding({kind: 'pick'}); }} />
-        {session.error ? <Text variant="caption" tone="danger" align="center">{session.error}</Text> : null}
-        {signOut}
-      </>
-    );
-  } else if (landing.kind === 'deciding' || (landing.kind === 'opening')) {
+  if (landing.kind === 'deciding' || (landing.kind === 'opening')) {
     content = <StateView loading title={landing.kind === 'opening' ? i18n.t('portico.landing.opening', {server: landing.server.name}) : i18n.t('portico.landing.finding')} />;
   } else if (landing.kind === 'failed') {
     const {server} = landing;

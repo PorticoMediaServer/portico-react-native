@@ -49,9 +49,9 @@ const signInCodes: Record<string, MessageId> = {
   expired_token: 'signIn.error.expired',
   challenge_expired: 'signIn.error.expired',
   // The owner's own certificate and Apple's local-only plain HTTP (bridge/certificate-trust.ts).
-  certificate_changed: 'connection.certificate.changed',
-  certificate_unverified: 'connection.certificate.unverified',
-  certificate_untrusted: 'connection.certificate.untrusted',
+  certificate_changed: 'connection.identity.changedBody',
+  certificate_unverified: 'connection.identity.checkBody',
+  certificate_untrusted: 'connection.identity.checkBody',
   plain_http_remote: 'connection.plainHttp.appleRemote',
 };
 

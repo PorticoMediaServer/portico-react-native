@@ -39,9 +39,7 @@ export function useHostedAccount(hostedUrl: string, mode: 'local' | 'hosted', di
     if (credentialState.session) {
       setHosted(credentialState.session);
       setHostedProfile(
-        credentialState.context?.profileId ??
-          credentialState.session.profiles[0]?.id ??
-          '',
+        credentialState.context?.profileId ?? '',
       );
       setAttachedServer(credentialState.context?.server);
     } else if (credentialState.phase === 'signedOut') setHosted(undefined);

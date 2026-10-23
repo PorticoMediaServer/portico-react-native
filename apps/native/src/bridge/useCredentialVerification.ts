@@ -31,11 +31,11 @@ export function useCredentialVerification(
         const requestId = await accountBridge().newRequestId();
         await credentials.authenticate(signal => account.api.login(fixture.username,fixture.password,requestId,signal));
         const initial = await credentials.accessSession();
-        await credentials.updateContext({ profileId: initial.profiles[0]?.id });
         const rotated = await credentials.accessSession(true);
         if (
           !rotated.familyId ||
           rotated.familyId !== initial.familyId ||
+          rotated.account.id !== initial.account.id ||
           rotated.accessToken === initial.accessToken
         )
           throw new Error(
@@ -50,9 +50,10 @@ export function useCredentialVerification(
       } else {
         await credentials.synchronize();
         const before = credentials.getSnapshot();
-        if (!before.session || !before.context?.profileId)
-          throw new Error('Restart did not restore account/profile context.');
+        if (!before.session?.account.id)
+          throw new Error('Restart did not restore the account identity.');
         const renewed = await credentials.accessSession(true);
+        if (renewed.account.id !== before.session.account.id) throw new Error('Renewal changed the account identity.');
         await new HttpHostedApi(origin, renewed.accessToken).servers();
         await credentials.logout();
         if (credentials.getSnapshot().phase !== 'signedOut')
@@ -65,7 +66,7 @@ export function useCredentialVerification(
         }
         if (!revoked) throw new Error('Logout did not revoke remote family.');
         record('credential-restart-renewal-logout-passed', {
-          contextRestored: true,
+          accountRestored: true,
           renewed: true,
           remoteRevoked: true,
         });
