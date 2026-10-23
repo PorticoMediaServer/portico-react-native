@@ -14,13 +14,13 @@ export function registerNativeWatch(createBindings: (context: NativeShellBootstr
     function render(runtime: NativeShellRuntime): ReactNode;
     function render(route: NativeShellRoute, runtime: NativeShellRuntime): ReactNode;
     function render(value: NativeShellRoute | NativeShellRuntime, runtime?: NativeShellRuntime): ReactNode {
-      return 'kind' in value ? runtime ? module.title.render(value, runtime) : null : module.render(value);
+      return 'kind' in value ? runtime ? value.kind === 'channel' ? module.channel.render(value) : module.title.render(value, runtime) : null : module.render(value);
     }
     return Object.freeze({render, renderOverlays: module.renderOverlays, back: module.back, dispose: module.dispose});
   };
   const offTitle = registry.registerRoute('title', create);
-  let offWatch: () => void;
-  try {offWatch = registry.registerWatch(create);}
-  catch (error) {offTitle(); throw error;}
-  return () => {offWatch(); offTitle();};
+  let offChannel: (() => void) | undefined, offWatch: (() => void) | undefined;
+  try {offChannel = registry.registerRoute('channel', create); offWatch = registry.registerWatch(create);}
+  catch (error) {offChannel?.(); offTitle(); throw error;}
+  return () => {offWatch?.(); offChannel?.(); offTitle();};
 }
