@@ -21,7 +21,7 @@ test('Apple picker is exposed only with its actual complete phone/tablet bridge'
     const value = bridge === undefined ? await port({}, undefined) : await port(bridge);
     assert.equal(value, undefined);
   }
-  assert.equal(await port(native(), undefined), undefined);
+  assert.equal(await port(native(), null), undefined);
   assert.equal(await port(native(), async () => 'id', {OS: 'ios', isTV: true}), undefined);
   assert.equal(await port(native(), async () => 'id', {OS: 'android', isTV: false}), undefined);
   assert.ok(await port());
