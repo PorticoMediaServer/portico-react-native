@@ -454,6 +454,7 @@ export async function standardHomeApp({
     'playback.defaultSpeed': 1,
     'audiobooks.defaultSpeed': 1,
     'playback.skipBackMs': 10000,
+    'playback.skipForwardMs': 30000,
     'playback.introSkip': 'ask',
     'playback.recapSkip': 'ask',
     'playback.creditsSkip': 'off',

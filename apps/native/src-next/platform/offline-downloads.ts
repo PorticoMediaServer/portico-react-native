@@ -6,6 +6,7 @@ export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, Offli
 
 /** The shell alone binds the current viewer/server through adopt/connect/disconnect. */
 export {offlineDownloads};
+export type {OfflineDownloads};
 
 type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthers' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
@@ -24,13 +25,17 @@ export type NativeOfflineDownloadsAdapter = Readonly<{
   localMedia: DeviceDownloads['localMedia'];
   openOffline: (entry: OfflineEntry) => Promise<void>;
 }>;
+/** Local storage remains usable before the same-engine offline player is installed. */
+export type NativeOfflineDownloadsDevice = Omit<NativeOfflineDownloadsAdapter, 'openOffline'> & Partial<Pick<NativeOfflineDownloadsAdapter, 'openOffline'>>;
 
 /** No server list and no second native module owner. Resolve every action against the
  * currently published viewer list, so an old screen cannot act on another viewer's file. */
+export function createNativeOfflineDownloadsAdapter(openOffline: (entry: OfflineEntry) => Promise<void>, device?: DeviceDownloads): NativeOfflineDownloadsAdapter;
+export function createNativeOfflineDownloadsAdapter(openOffline?: undefined, device?: DeviceDownloads): NativeOfflineDownloadsDevice;
 export function createNativeOfflineDownloadsAdapter(
-  openOffline: (entry: OfflineEntry) => Promise<void>,
+  openOffline?: (entry: OfflineEntry) => Promise<void>,
   device: DeviceDownloads = offlineDownloads,
-): NativeOfflineDownloadsAdapter {
+): NativeOfflineDownloadsDevice {
   const current = (entry: OfflineEntry): OfflineEntry => {
     const live = device.getSnapshot().entries.find(value => value.id === entry.id);
     const owner = (value: OfflineEntry) => value.receipt ? offlineOwnerKey(value.receipt.claims.viewer) : value.owner;
@@ -55,10 +60,10 @@ export function createNativeOfflineDownloadsAdapter(
       const reason=device.playable(current(entry));if(reason)throw new Error(reason);
       return media;
     },
-    openOffline: async entry => {
+    ...(openOffline ? {openOffline: async (entry: OfflineEntry) => {
       const live = current(entry), reason = device.playable(live);
       if (reason) throw new Error(reason);
       await openOffline(live);
-    },
+    }} : {}),
   });
 }

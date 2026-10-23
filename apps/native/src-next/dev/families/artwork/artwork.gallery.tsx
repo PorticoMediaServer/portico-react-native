@@ -131,10 +131,10 @@ function MediaCases() {
 function ChannelCases() {
   const real = suppliedEvidence();
   return <View style={{flexDirection: 'row', alignItems: 'center', gap: 24}}>
-    <ChannelMark mark={{sourceId: 'approved-reference', id: 'northwind-news-24', text: 'N24', seed: 'northwind-news-24'}}/>
-    <ChannelMark mark={{sourceId: 'approved-reference', id: 'summit-sports-extra', text: 'SSE', seed: 'summit-sports-extra'}} tint="#32796d"/>
-    <ChannelMark mark={{sourceId: 'approved-reference', id: 'logo', text: 'N24', seed: 'logo'}} source={real?.logo}/>
-    <ChannelMark mark={{sourceId: 'approved-reference', id: 'logo-error', text: 'N24', seed: 'logo-error'}} source={real?.failedLogo}/>
+    <ChannelMark mark={{sourceId: 'approved-reference', id: 'northwind-news-24', text: 'N24', seed: 'approved-reference:northwind-news-24'}}/>
+    <ChannelMark mark={{sourceId: 'approved-reference', id: 'summit-sports-extra', text: 'SSE', seed: 'approved-reference:summit-sports-extra'}}/>
+    <ChannelMark mark={{sourceId: 'approved-reference', id: 'logo', text: 'N24', seed: 'approved-reference:logo'}} source={real?.logo}/>
+    <ChannelMark mark={{sourceId: 'approved-reference', id: 'logo-error', text: 'N24', seed: 'approved-reference:logo-error'}} source={real?.failedLogo}/>
   </View>;
 }
 

@@ -70,6 +70,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
     {!typed && !focused && <Text accessibilityRole="header" style={[browseType(theme, 36, 800, -.035, 39), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 18}]}>{t('web.shell.search')}</Text>}
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16}}>
       <View style={{flex: 1}}><TextField testID="search-input" focusId="search-input" variant="search" leadingIcon="i-search" value={state.text}
+        cursorColor={theme.colors.accentStrong} selectionColor={theme.colors.accentStrong}
         onChangeText={destination.setText.bind(destination)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
         accessibilityLabel={t('web.shell.search')} placeholder={t('web.search.placeholder')} returnKeyType="search" autoCapitalize="none" autoCorrect={false}
         onSubmitEditing={() => run(destination.commit())} fieldStyle={{height: 44, borderRadius: 12, paddingRight: typed ? 38 : 12}}/>

@@ -206,3 +206,33 @@ test('Applied Library chips retain semantic predicate IDs and never flatten a cr
   assert.deepEqual(libraryAppliedFilters([negative, decade], filterCapabilities, labels).map(chip => chip.id), [chips[1].id, chips[0].id]);
   assert.equal(JSON.stringify(alternative), before, 'a complex condition remains whole for the actual query/editor');
 });
+
+test('Discover uses the actual section continuation and retires it with the current library tab', async () => {
+  const calls: string[] = [];
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, raw?: unknown) => {
+    calls.push(path);
+    if (path.includes('capabilities')) return capabilities as T;
+    if (!path.includes('view=discover')) return page(raw as BrowseRequestBody) as T;
+    const continuation = path.includes('cursor=');
+    return {scope: {serverId: scope.serverId, libraryId: library.id, libraryKind: library.kind, view: 'discover', entityId: '', viewerFence: 'discover-fence'},
+      revision: {catalog: 1, viewer: 1}, heading: {key: 'library.tab.discover', fallback: ''},
+      query: {sort: '', direction: '', category: '', q: '', limit: 40, searchMode: 'none'}, navigation: [], sorts: [], filters: [],
+      sections: [{id: 'real-section', type: 'rail', heading: {key: 'home.newMovies', fallback: ''}, totalCount: 3,
+        nextCursor: continuation ? '' : 'real-continuation', entries: (continuation ? ['second', 'third'] : ['first', 'second']).map(id => ({id, libraryId: library.id, kind: 'movie', title: id}))}],
+    } as T;
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load('discover');
+    await destination.nextDiscover('real-section');
+    assert.deepEqual(destination.getSnapshot().discover.appended[0]?.entries.map(entry => entry.id), ['first', 'second', 'third']);
+    const cursor = new URL(calls[1], 'https://test.invalid');
+    assert.equal(cursor.searchParams.get('cursor'), 'real-continuation');
+    assert.equal(cursor.searchParams.has('sectionId'), false, 'the canonical producer carries the section in its opaque cursor, without an invented query parameter');
+    const beforeEnd = calls.length; await destination.nextDiscover('real-section');
+    assert.equal(calls.length, beforeEnd, 'the actual exhausted cursor stops paging');
+    await destination.load('browse');
+    const afterTab = calls.length; await destination.nextDiscover('real-section');
+    assert.equal(calls.length, afterTab, 'an old Discover row cannot read after changing the actual tab');
+  } finally {destination.dispose();}
+});
