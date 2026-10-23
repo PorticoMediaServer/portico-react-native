@@ -21,9 +21,13 @@ const unavailable = () => new Error(serviceText('downloads.offline.notPlayableHe
  * another player nor another store. Only a verified current-owner artifact can supply a file. */
 export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
+  private readonly session: () => LocalSession | undefined;
+  private readonly device: Device;
   private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia}>();
   private disposed = false;
-  constructor(private readonly session: () => LocalSession | undefined, private readonly device: Device) {
+  constructor(session: () => LocalSession | undefined, device: Device) {
+    this.session = session;
+    this.device = device;
     this.local = new LocalPlayback(progress => this.progress(progress));
   }
   owner(): NativeOfflineOwner | undefined {
