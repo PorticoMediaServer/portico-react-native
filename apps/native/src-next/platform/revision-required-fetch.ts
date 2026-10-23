@@ -22,7 +22,6 @@ const rules: readonly Rule[] = [
   {method: 'PUT', operation: 'set_live_source_configuration', read: 'get_live_source_configuration'},
   {method: 'DELETE', operation: 'delete_direct_member', read: 'get_direct_member_deletion_preview'},
   {method: 'DELETE', operation: 'remove_library', read: 'get_admin_libraries_id_inventory_config'},
-  {method: 'PUT', operation: 'put_admin_access_device_trust', read: 'get_admin_access_devices', item: true},
   {method: 'POST', operation: 'control_admin_session', read: 'get_admin_session_controls'},
   {method: 'PATCH', operation: 'change_playback_session', read: 'get_playback_session', header: true},
   ...(['add_queue_segment', 'advance_queue', 'commit_queue_next', 'move_queue_entry', 'prepare_queue_next', 'save_queue_as_playlist'] as const).map(operation => ({method: 'POST', operation, read: 'get_queue' as const, header: true})),
