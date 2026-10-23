@@ -570,3 +570,78 @@ test('Selection keyboard layout reveals the actual native input above the measur
     keyboardListeners.get('keyboardDidHide')!(); sheet.host.rerender(); assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===30));
   } finally {sheet.host.unmount(); state.theme=previous;state.viewport=viewport;Object.assign(globalThis,{__porticoSelectionFocusedInput:undefined});}
 });
+
+
+test('phone deletion receipt fitted height keeps the measured notice above its fixed footer', () => {
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.theme = createTheme({isTV: false, width: 390, reduceMotion: true});
+  state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
+  const calls: string[] = [];
+  const props: DeleteMediaDialogProps = {testID: 'phone.receipt.geometry', open: true, onOpenChange() {calls.push('close');}, ownerHeader: null, owner: true,
+    selectionCount: 4, preview: null, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {calls.push('delete');},
+    result: {revision: 2, removed: 3, failed: 1, bytesDeleted: 0, filesRetained: true, receipts: [{itemId: 'kept', title: 'Actual kept title', removed: false, filesDeleted: 0, filesKept: 1, bytes: 0, code: 'file_not_removed'}]}};
+  const dialog = mount(DeleteMediaDialog, props);
+  const surface = mount(SelectionSurface, (dialog.tree as Element).props);
+  const sheet = mount(BottomSheet, (surface.tree as Element).props);
+  const flatten = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style ?? {};
+  const panel = () => elements(sheet.tree).find(n => n.props.testID === props.testID)!;
+  const scroll = () => ofType(sheet.tree, 'ScrollView')[0]!;
+  const header = () => ofType(sheet.tree, 'GestureDetector')[0]!.props.children;
+  const footer = () => elements(sheet.tree).find(n => n.props.onLayout && flatten(n.props.style).position === 'absolute' && flatten(n.props.style).borderTopColor)!;
+  // Retained Android native measurements: header86, receipt125, footer87.
+  // Exercise real measurement callbacks and evaluate rendered viewport geometry;
+  // do not calculate the component's expected natural-height formula.
+  const measure = (footerHeight: number) => {
+    header().props.onLayout({nativeEvent: {layout: {height: 86}}});
+    footer().props.onLayout({nativeEvent: {layout: {height: footerHeight}}}); sheet.host.rerender();
+    scroll().props.onContentSizeChange(350, 125 + flatten(scroll().props.contentContainerStyle).paddingBottom); sheet.host.rerender();
+  };
+  const clearance = (viewportBottom: number, footerHeight: number) => {
+    const style = flatten(panel().props.style);
+    const receiptBottom = viewportBottom - style.height + style.borderTopWidth + style.paddingTop + 86 + 125;
+    return viewportBottom - footerHeight - receiptBottom;
+  };
+  try {
+    const actualSurface = dialog.tree as Element, close = ofType(actualSurface.props.footer, Button)[0]!;
+    assert.equal(actualSurface.props.initialFocusRef, close.props.ref);
+    assert.equal(nativeControlID(close), controlID(props.testID, 'dismiss'));
+    assert.match(text(dialog.tree), /Actual kept title/); assert.match(text(dialog.tree), /Kept, because/);
+    assert.equal(scroll().props.focusable, undefined, 'native scrolling/focus must not be disabled to hide backing');
+    measure(87);
+    assert.equal(clearance(844, 87), 16, 'complete notice must clear the measured fixed footer by16px');
+    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 589, height: 255}}); sheet.host.rerender(); measure(58);
+    assert.equal(clearance(589, 58), 16, 'fitted content and footer retain the same clearance above actual IME coordinates');
+    assert.equal(elements(sheet.tree).find(n => n.props.testID === `${props.testID}-keyboard-boundary`)!.props.accessibilityViewIsModal, true);
+    assert.deepEqual(calls, [], 'geometry measurement must not invoke any dialog operation');
+  } finally {sheet.host.unmount(); surface.host.unmount(); dialog.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
+});
+
+test('fitted footer accounting preserves no-footer, explicit detent, long-content and side-panel behavior', () => {
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
+  const flatten = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style ?? {};
+  try {
+    for (const options of [{fitContent: true}, {fitContent: false, detents: [500]}, {fitContent: true, long: true}, {fitContent: true, side: 'tv'}, {fitContent: true, side: 'tablet'}]) {
+      state.theme = createTheme({isTV: options.side === 'tv', width: options.side === 'tv' ? 1920 : options.side ? 820 : 390, reduceMotion: true});
+      const props = {testID: 'accounting.regression', open: true, onOpenChange() {}, title: 'Actual content', children: null, showClose: false,
+        fitContent: options.fitContent, detents: options.detents, footer: options.detents || options.long || options.side ? React.createElement('Button') : undefined};
+      const sheet = mount(BottomSheet, props);
+      try {
+        const scroll = () => ofType(sheet.tree, 'ScrollView')[0]!;
+        if (!options.side) ofType(sheet.tree, 'GestureDetector')[0]!.props.children.props.onLayout({nativeEvent: {layout: {height: 86}}});
+        const footer = elements(sheet.tree).find(n => n.props.onLayout && flatten(n.props.style).position === 'absolute' && flatten(n.props.style).borderTopColor);
+        footer?.props.onLayout({nativeEvent: {layout: {height: 87}}}); sheet.host.rerender();
+        scroll().props.onContentSizeChange(350, (options.long ? 1200 : 125) + flatten(scroll().props.contentContainerStyle).paddingBottom); sheet.host.rerender();
+        if (options.side) {
+          const side = elements(sheet.tree).find(n => flatten(n.props.style).width === (options.side === 'tv' ? 640 : 440))!;
+          assert.equal(flatten(side.props.style).top, 0); assert.equal(flatten(side.props.style).bottom, 0);
+          assert.equal(ofType(sheet.tree, FocusBoundary)[0]!.props.modal, true);
+        } else {
+          const style = flatten(elements(sheet.tree).find(n => n.props.testID === props.testID)!.props.style);
+          assert.equal(style.height, options.long ? 820 : options.detents ? 500 : 219);
+          if (options.long) assert.ok(flatten(scroll().props.contentContainerStyle).paddingBottom >= 87 + 16, 'clipped long content keeps its scrollable footer clearance');
+        }
+      } finally {sheet.host.unmount();}
+    }
+  } finally {state.theme = previousTheme; state.viewport = previousViewport;}
+});

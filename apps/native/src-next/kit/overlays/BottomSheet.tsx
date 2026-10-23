@@ -51,7 +51,11 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
       });
     });
   };
-  const naturalHeight = bodyHeight + headerHeight + footerHeight + (footer == null ? insets.bottom : 0) + 8;
+  const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
+  // A fitted phone must include the same clearance its ScrollView reserves.
+  // Include the sheet border too, so the last content pixel clears the footer.
+  const footerSpace = footer == null ? insets.bottom : side ? footerHeight : contentPadding + styles.sheet.borderTopWidth;
+  const naturalHeight = bodyHeight + headerHeight + footerSpace + 8;
   const heights = useMemo(() => sheetHeights(fitContent ? [naturalHeight] : detents, availableHeight, insets.top), [fitContent, naturalHeight, detents, availableHeight, insets.top]);
   const [internal, setInternal] = useState(defaultDetent);
   const index = Math.max(0, Math.min(heights.length - 1, detent ?? internal));
@@ -108,7 +112,6 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const tvStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateX: (1 - sideProgress.value) * sideWidth}]}));
   const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
   if (!present) return null;
-  const contentPadding = footer == null ? insets.bottom + (fitContent ? 0 : 20) : footerHeight + 16;
   const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
   return <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
     <View style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
