@@ -68,3 +68,13 @@ test('an authenticated producer failure is retained as an error, not an empty Sa
   try {await hub.load(); assert.equal(hub.getSnapshot().phase, 'error'); assert.ok(hub.getSnapshot().error);}
   finally {hub.dispose();}
 });
+
+test('a summary from another server is rejected and never becomes hub totals', async () => {
+  const api: SavedApi = {request: async <T>(path: string) => {
+    const result = response(path);
+    return (path.endsWith('/saved/summary') ? {...result, serverId: 'another-server'} : result) as T;
+  }};
+  const hub = new NativeSavedDestination({api, scope, requestId: async () => 'operation-id', current: () => true});
+  try {await hub.load(); assert.equal(hub.getSnapshot().phase, 'error'); assert.equal(hub.getSnapshot().summary, undefined);}
+  finally {hub.dispose();}
+});
