@@ -5,7 +5,7 @@ import type {ShellAuthority} from '../../shell/model';
 
 export function homeSubject(entry: ContentEntry): CardSubject {
   return {
-    id: entry.id, kind: entry.kind, title: entry.title, year: entry.year,
+    id: entry.id, kind: entry.kind, title: entry.displayTitle || entry.title, year: entry.year,
     contentRating: entry.contentRating, genres: entry.genres, durationSeconds: entry.duration,
     positionSeconds: entry.progressSeconds, seasonCount: entry.seasonCount, seasonNumber: entry.seasonNumber,
     artist: entry.artist?.name, album: entry.album?.name, author: entry.author,
