@@ -23,7 +23,7 @@ import type {NativeTogetherMedia} from './together-media';
  * This screen reads only the current title and native-visible queue rows. */
 export function NativeTogetherTVRoom({state, group, controller, media, ports, runtime}: {
   state: GroupSessionSnapshot; group: Group; controller: NativeTogetherController; media: NativeTogetherMedia;
-  ports: NativeSettingsLivePorts; runtime: NativeShellRuntime;
+  ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);

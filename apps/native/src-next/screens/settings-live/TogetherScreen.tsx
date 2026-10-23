@@ -23,7 +23,7 @@ import {nativeTogetherLobbyFaces} from './together-presentation';
 import {NativeTogetherTVRoom} from './TogetherTVRoom';
 import type {NativeTogetherMedia} from './together-media';
 
-export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
@@ -127,7 +127,7 @@ const TogetherTVField = forwardRef<View, {focusId: string; testID: string; label
 });
 
 /** One authorized current title, never a demo backdrop or a catalogue scan. */
-function TogetherLobbyArt({itemId, controller, ports, runtime}: {itemId?: string; controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+function TogetherLobbyArt({itemId, controller, ports, runtime}: {itemId?: string; controller: NativeTogetherController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
   const [item, setItem] = useState<MediaItem>();
   useEffect(() => {
     setItem(undefined);
@@ -141,7 +141,7 @@ function TogetherLobbyArt({itemId, controller, ports, runtime}: {itemId?: string
   return source ? <AmbientArt testID="together-lobby-art" source={source} treatment="wash"/> : null;
 }
 
-function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), group = state.group!;
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
