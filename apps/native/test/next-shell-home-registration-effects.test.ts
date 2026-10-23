@@ -18,6 +18,7 @@ import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
 import * as homeModel from '../src-next/screens/home/model';
 import * as readPlatform from '../src-next/screens/read/platform';
+import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
 import {NativeScreenServices} from '../src-next/screens/screen-services';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
@@ -74,6 +75,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute},
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, renderRetained: () => null, renderOverlays: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': homeModel,
     '../screens/read/platform': readPlatform, '../screens/native-screen-services': screenServices,
+    '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),
