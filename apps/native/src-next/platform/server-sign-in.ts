@@ -165,14 +165,15 @@ export class NativeServerSignIn {
       const continuation = directSignInContinuation(result);
       if (continuation === 'password-change' || continuation === 'two-step-setup') {
         const requirement = continuation === 'password-change' ? 'password' as const : 'two-step' as const;
-        if (!this.requiredSetupHandoff || this.server.signIn !== 'local') throw Object.assign(new Error('native_required_account_setup'),
-          {code: requirement === 'password' ? 'password_change_required' : 'two_step_setup_required'});
-        const publicServer = {serverName: this.server.name, serverOrigin: this.serverOrigin()};
+        const publicServer = this.requiredSetupHandoff && this.server.signIn === 'local'
+          ? {serverName: this.server.name, serverOrigin: this.serverOrigin()} : undefined;
         // Ruling 31: a TV keeps no restricted grant while showing the public
         // hand-off. Logout uses the issued credential, never the selected viewer.
         this.api.setAccessToken(''); this.account = undefined; this.snapshot = undefined; this.challenge = undefined;
         await this.retire(session).catch(() => {});
         this.assertCurrent();
+        if (!publicServer) throw Object.assign(new Error('native_required_account_setup'),
+          {code: requirement === 'password' ? 'password_change_required' : 'two_step_setup_required'});
         return {kind: 'required-setup' as const, requirement, ...publicServer};
       }
       if (result.accountScoped) {this.account = session; return {kind: 'profiles' as const, profiles: result.snapshot.profiles};}
