@@ -1,4 +1,5 @@
 import type {Library} from '../../../../../packages/client-core/src';
+import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
 import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
@@ -63,6 +64,25 @@ export class NativeLibraryDestination {
   getSnapshot = (): NativeLibrarySnapshot => {this.current(); return this.state;};
   /** Exact latest native measurement; it does not cause a React render per pixel. */
   getMemory = (): NativeLibraryMemory => {this.current(); return this.memory;};
+  /** Capture the actual staged Filters draft, not whichever query is active
+   * after the naming sheet opens. Canonical capabilities validate the whole tree. */
+  captureSavedView = (draft: NativeLibraryViewDraft): SavedDefinition => {
+    if (!this.current()) throw cancelled();
+    const {capabilities, tab, phase} = this.state;
+    if (phase !== 'ready' || !capabilities || !tab.pivot) throw new Error('native_library_view_unavailable');
+    const body = this.build(capabilities, tab, draft.predicates, draft.sort, 0, 1);
+    const query = body.query ? JSON.parse(JSON.stringify(body.query)) as BrowseNode : null;
+    const freeze = (node: BrowseNode): void => {
+      if ('all' in node) {node.all.forEach(freeze); Object.freeze(node.all);}
+      else if ('any' in node) {node.any.forEach(freeze); Object.freeze(node.any);}
+      else if ('not' in node) freeze(node.not);
+      else if (Array.isArray(node.value)) Object.freeze(node.value);
+      Object.freeze(node);
+    };
+    if (query) freeze(query);
+    return Object.freeze({libraryId: this.options.library.id, pivot: tab.pivot, query,
+      sort: Object.freeze((body.sort ?? []).map(value => Object.freeze({...value}))), presentation: 'grid'});
+  };
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<NativeLibrarySnapshot>): void {
     if (!this.current()) return;

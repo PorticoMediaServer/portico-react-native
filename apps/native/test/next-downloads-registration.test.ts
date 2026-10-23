@@ -50,6 +50,13 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   await first.device.open();
   assert.equal(connections[0][2], viewer);
   assert.equal(first.device.openOffline, undefined);
+  const retainedSaved = createNativeDownloadsDevice(context);
+  assert.equal(retainedSaved.device, first.device, 'Saved and Downloads borrow the same authority-local native projection');
+  await retainedSaved.device.open();
+  assert.equal(connections.length, 1, 'a route round trip cannot create a second native connection');
+  first.dispose(); first.dispose();
+  assert.equal(disconnects, 0, 'closing one borrower leaves the retained Saved hub connected');
+  assert.deepEqual(retainedSaved.device.getSnapshot().entries, []);
   const request = connections[0][0].request('/actual');
   current = false; finish({private: 'old'});
   await assert.rejects(request, {code: 'cancelled'});
@@ -57,6 +64,6 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   assert.throws(() => first.device.setSettings({wifiOnly: false}), {code: 'cancelled'});
   const second = createNativeDownloadsDevice({...context, current: () => true});
   await second.device.open();
-  first.dispose(); assert.equal(disconnects, 0, 'old disposal leaves the newer singleton connection intact');
+  retainedSaved.dispose(); assert.equal(disconnects, 0, 'old disposal leaves the newer singleton connection intact');
   second.dispose(); assert.equal(disconnects, 1); assert.equal(disposed, 2);
 });
