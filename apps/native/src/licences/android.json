@@ -2351,6 +2351,15 @@
    "text": 50
   },
   {
+   "id": "source:media3-ffmpeg",
+   "name": "Media3 FFmpeg audio extension",
+   "version": "1.10.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://codeload.github.com/androidx/media/tar.gz/5fb306449733dd71595700c1227ad6087578c559",
+   "text": 36
+  },
+  {
    "id": "google-notice:mobiledatadownload",
    "name": "mobiledatadownload (in Google Play services)",
    "licence": "Apache-2.0",
@@ -2552,15 +2561,6 @@
    "copyright": [
     "Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope)"
    ]
-  },
-  {
-   "id": "source:media3-ffmpeg",
-   "name": "Media3 FFmpeg audio extension",
-   "version": "1.10.1",
-   "licence": "Apache-2.0",
-   "group": "fonts",
-   "url": "https://github.com/androidx/media/tree/1.10.1/libraries/decoder_ffmpeg",
-   "text": 36
   }
  ],
  "texts": [
@@ -2625,13 +2625,14 @@
   "apps/native/ios/Podfile.lock": "a3ee1e0ff2a6e0d633d75a6309d9da9b3900f07b7c4248971c603551490cb268",
   "apps/native/licences/android-firetv.txt": "2b86776082bf93b108a204b6c610d3b2ea0356e04a8da791fda8208a6de42460",
   "apps/native/licences/android-google.txt": "9129ac79da81474286a13d366a14b8cce4ceb221f484b2941b2b8300f0c5072d",
-  "apps/native/licences/assets.json": "c1e9399729758092f4b8c44d1c7e374478ef7fbb1319827779309128ac5428eb",
+  "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-android.txt": "02fc1dd52f8da8afd35f10293a65d038dfd404ed05cfea6d4b4bd185f556fea6",
   "apps/native/licences/native-npm.json": "f84a1e04c23bd8197f4449640b16a8c072b586602635460da21f3e077cd8f35f",
   "apps/native/package-lock.json": "2ad5e45d374e282cb94a5a3d7c01d9325ed0c7e800df8a586ecdb5fddb131fd3",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
   "third_party/media-engine/sources.lock.json": "19ea3b659cd71506435ff2a1fbd72cecc501fbf5785370178ee0edbd386c1dbd",
-  "third_party/media3-ffmpeg/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  "third_party/media3-ffmpeg/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "third_party/media3-ffmpeg/sources.lock.json": "62da3f658d24a7087f9494cf9a0468b302a39c9dbcba24b8af4a675f6dd52f50"
  }
 }

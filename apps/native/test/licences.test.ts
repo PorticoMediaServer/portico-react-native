@@ -98,6 +98,8 @@ test('each platform lists its own shipped native recipe; only Android carries mp
     assert.ok(data.sources.some(s => s.id === 'media-engine'), client);
   }
   assert.ok(!load(lists.vega).components.some(c => c.group === 'engine'));
+  assert.ok(load(lists.android).components.some(c => c.id === 'source:media3-ffmpeg' && c.group === 'android'));
+  for (const client of ['apple', 'vega'] as const) assert.ok(!load(lists[client]).components.some(c => c.id === 'source:media3-ffmpeg'));
 });
 
 test('every pod that is not React Native’s generated code or an npm package of the bundle is listed', () => {

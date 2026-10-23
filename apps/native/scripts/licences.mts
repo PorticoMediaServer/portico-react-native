@@ -149,7 +149,7 @@ function engineComponents(platform: 'android' | 'apple', read: (rel: string) => 
   const lock = JSON.parse(read(`${recipe}/sources.lock.json`));
   const configured = platform === 'apple' ? process.env.APPLE_SUBTITLE_OUT_DIR : process.env.MEDIA_ENGINE_OUT_DIR;
   const outDir = configured ? path.resolve(configured) : path.join(root, recipe, 'out');
-  const noticeDirs = (platform === 'apple' ? ['apple'] : ['android', 'apple']).map(p => path.join(outDir, p, 'notices')).filter(d => existsSync(d));
+  const noticeDirs = [path.join(outDir, platform, 'notices')].filter(d => existsSync(d));
   if (!noticeDirs.length) throw new Error(`licences: no ${platform} notices under ${outDir} (run ${recipe}/build-${platform}.sh, or set ${platform === 'apple' ? 'APPLE_SUBTITLE_OUT_DIR' : 'MEDIA_ENGINE_OUT_DIR'})`);
   if (platform === 'apple') {
     const source = JSON.parse(read(`${recipe}/${lock.components.ffmpeg.sourceLock}`));
@@ -170,8 +170,7 @@ function engineComponents(platform: 'android' | 'apple', read: (rel: string) => 
     const folder = noticeDirs.map(d => path.join(d, name)).find(d => existsSync(d));
     if (platform === 'apple' && !folder) throw new Error(`licences: missing Apple build notice for ${name}`);
     const licence = entry.licence.replace(/\s*\(.*$/, '');
-    // Before the other platform's build has collected a component's files (MoltenVK before the
-    // first Mac build), a single standard licence is shown in its standard wording.
+    // Use only this platform's actual build notices.
     const text = folder ? filesUnder(folder, path.join(folder, 'crates')).map(f => readFileSync(f, 'utf8').trim()).join('\n\n') : standardLicenceText(licence);
     out.push({
       id: `engine:${name}@${entry.version}`, name: displayName(name), version: entry.version, licence, group: 'engine',
@@ -189,6 +188,13 @@ function engineComponents(platform: 'android' | 'apple', read: (rel: string) => 
         out.push({id: `crate:${crate}`, name: `${m?.[1] ?? crate} (Rust, in libdovi)`, version: m?.[2], licence: licenceName, group: 'engine', url: `https://crates.io/crates/${m?.[1] ?? crate}`, ...(cText ? {text: cText} : {textPending: true})});
       }
     }
+  }
+  if (platform === 'android') {
+    const extension = JSON.parse(read('third_party/media3-ffmpeg/sources.lock.json'));
+    const text = read('third_party/media3-ffmpeg/LICENSE');
+    if (createHash('sha256').update(text).digest('hex') !== extension.files.LICENSE) throw new Error('licences: Media3 FFmpeg source licence changed');
+    out.push({id: 'source:media3-ffmpeg', name: 'Media3 FFmpeg audio extension', version: extension.version,
+      licence: extension.licence, group: 'android', text, url: extension.url});
   }
   return out;
 }

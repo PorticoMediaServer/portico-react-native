@@ -55,16 +55,15 @@ internal class PorticoSubtitleOverlay(private val context: Context) {
     val target = runCatching { Uri.parse(url) }.getOrNull()
     val files = (render["fonts"] as? List<*>) ?: emptyList<Any?>()
     val companion = render["companionUrl"] as? String
-    val sourceOffset = (render["offsetMs"] as? Number)?.toDouble() ?: 0.0
-    val correction = (command["offsetUs"] as? String)?.toLongOrNull() ?: 0L
-    if(media == null || target == null || !allowed(target,media) || files.size > 64 || !sourceOffset.isFinite() || kotlin.math.abs(sourceOffset)>86_400_000 || correction !in -600_000_000..600_000_000 || render["timeDomain"]?.let { it != "source-relative" } == true) { invalidate(); onStatus?.invoke("subtitle_scope_invalid"); return }
+    val timingOffset = PorticoSubtitleTiming.offsetUs(render, command["offsetUs"] as? String)
+    if(media == null || target == null || !allowed(target,media) || files.size > 64 || timingOffset == null) { invalidate(); onStatus?.invoke("subtitle_scope_invalid"); return }
     val fontUrls = files.mapNotNull { (it as? Map<*, *>)?.get("url") as? String }
     if(fontUrls.size != files.size || (fontUrls + listOfNotNull(companion)).any { !allowed(Uri.parse(it),media) }) { invalidate(); onStatus?.invoke("subtitle_attachment_scope_invalid"); return }
     if(kind == "vobsub" && companion == null && media.scheme != "file") { invalidate(); onStatus?.invoke("subtitle_companion_missing"); return }
-    offsetUs = correction + (sourceOffset * 1000).toLong()
+    offsetUs = timingOffset
     val nextKey = listOf(command["binding"],command["resourceId"],command["resourceRevision"],render)
     if(key == nextKey) return
-    invalidate(); key = nextKey; active = true; offsetUs = correction + (sourceOffset*1000).toLong()
+    invalidate(); key = nextKey; active = true; offsetUs = timingOffset
     val generation = epoch
     folder.mkdirs()
     val work = object : Runnable {
