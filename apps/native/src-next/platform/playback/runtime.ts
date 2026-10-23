@@ -12,6 +12,7 @@ import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../../pack
 import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {V1ChannelControl, serverSupportsV1Channels} from '../../../../../packages/client-core/src/playback-v1/channel-control';
 import {channelSeconds, type ChannelReference} from '../../../../../packages/client-core/src/playback/linear-protocol';
+import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src/guide/directory';
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
@@ -32,7 +33,7 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
-import type {NativePlaybackStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
 const wireId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(value);
@@ -345,6 +346,34 @@ export class NativePlaybackRuntime {
       throw error;
     } finally { scoped.close(); }
   }
+
+  /** Route/Guide playback uses the same installed channel owner. The source's
+   * generation/provenance is re-read; only the real channel POST grants tuning. */
+  startChannel = async (input: NativePlaybackChannelStart): Promise<void> => {
+    if (!wireId(input.sourceId) || !wireId(input.channelId) || !input.timezone || input.lifetime.signal.aborted || !input.lifetime.isCurrent() || !this.currentAuthority()) return;
+    const epoch = this.beginOperation();
+    const current = () => this.currentAuthority() && epoch === this.startEpoch && !input.lifetime.signal.aborted && input.lifetime.isCurrent();
+    const scoped = this.selectionScope(input.lifetime.signal, current);
+    try {
+      this.connect(); await this.queue.cancel(); if (!current()) return;
+      await this.o.capabilitiesReady(); if (!current()) return;
+      const [capabilities, directory] = await Promise.all([
+        this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
+        fetchGuideSourceSummaries({request: (path, method, body, signal) => this.request(path, method, body, signal)}, this.bound.serverId, input.timezone, scoped.signal),
+      ]);
+      if (!current()) return;
+      if (!serverSupportsV1Channels(capabilities)) throw new Error('channel_playback_unavailable');
+      const sources = directory.sources.filter(source => source.id === input.sourceId);
+      if (sources.length !== 1 || !wireId(sources[0]!.generation)) throw new Error('channel_source_unavailable');
+      const source = sources[0]!;
+      if (source.provenance === 'library-channel' && input.sourceId !== input.channelId) throw new Error('invalid_channel_target');
+      this.rememberCurrent(); this.channel = undefined; this.expanded = true;
+      await this.openChannel({kind: source.provenance, sourceId: source.id, channelId: input.channelId, generation: source.generation}, epoch, scoped.signal, current, 'playing');
+      if (current()) this.changed();
+    } catch (error) {
+      if (current()) {this.playback.leave(); this.changed(); throw error;}
+    } finally {scoped.close();}
+  };
 
   private async openChannel(reference: ChannelReference, epoch: number, signal: AbortSignal, beforeAdoption: () => boolean, state: 'playing' | 'paused'): Promise<void> {
     let adopted = false, opening = false;

@@ -63,9 +63,9 @@ export function NativeFileInfoContent({model, locations, onManage}: NativeFileIn
         {(locations ?? model.owner.locations.map(location => ({...location, versionId: location.id}))).map(location => <View key={location.id} style={{gap: 8, borderBottomWidth: 1, borderColor: theme.colors.line, paddingBottom: 14}}>
           <Text style={label}>{model.files.find(file => file.id === location.versionId)?.display.heading.text}</Text>
           {location.path && <Text selectable style={[label, {lineHeight: theme.isTV ? 30 : 19}]}>{location.path}</Text>}
-          {location.actions.map(action => <Button key={action.id} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)} textStyle={{color: theme.colors.record}}>{action.label}</Button>)}
+          {location.actions.map(action => <Button key={action.id} focusId={`watch-file-${location.id}-${action.id}`} testID={`watch-file-${location.id}-${action.id}`} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)} textStyle={{color: theme.colors.record}}>{action.label}</Button>)}
         </View>)}
-        {model.owner.actions.filter(action => !theme.isTV || action.id !== 'merge-title').map(action => <Button key={action.id} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
+        {model.owner.actions.filter(action => !theme.isTV || action.id !== 'merge-title').map(action => <Button key={action.id} focusId={`watch-file-owner-${action.id}`} testID={`watch-file-owner-${action.id}`} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
       </View>
     </View>}
   </ScrollView>;
