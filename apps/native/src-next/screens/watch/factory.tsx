@@ -1,4 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
+import type {View} from 'react-native';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src';
 import type {DetailScope} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -12,6 +13,8 @@ import type {NativePlaybackAdapter, NativePlaybackStart} from '../../platform/pl
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeShellNavigation} from '../../shell/routes';
+import type {NativeShellRuntime} from '../../shell/runtime';
+import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeTitleController} from './title-controller';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
@@ -20,7 +23,8 @@ import {nativeWatchTracks} from './track-identity';
 import {nativeVersionChoices} from './version-options';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
-import {NativeWatchPicture, type NativeWatchPictureOutlet, type NativeWatchPictureProps} from './picture-slot';
+import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
+import {NativeWatchHost, type NativeWatchHostBindings} from './WatchHost';
 
 export type NativeWatchCapture = Readonly<{
   entry: ContentEntry;
@@ -52,16 +56,18 @@ export type NativeWatchFactoryPorts = Readonly<{
   subscribeCurrent: (listener: () => void) => () => void;
   navigation: Pick<NativeShellNavigation, 'getSnapshot' | 'subscribe' | 'back'>;
   playback: NativePlaybackAdapter;
-  watch: NativeWatchPictureOutlet;
+  watch: NativeWatchOutletPort;
+  /** Bound by the genuine assembly. Optional only for older descriptor fixtures. */
+  player?: NativeWatchHostBindings;
   requestId: () => Promise<string>;
   isTV: boolean;
   /** Bound to Android's real fenced runtime command after it lands on MAIN. */
   startVersion: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode) => void;
-  /** Install only the real approved destination. No layout/flow is currently specified. */
+  /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
-  openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions) => void;
+  openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate'> & Readonly<{
     myList: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
     download?: NativeTitleScreenProps['download'];
@@ -125,14 +131,14 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const fresh = await request(captured, signal => options.options(captured.entry.id, {}, signal));
     if (fresh) publishVersions(captured, fresh);
   };
-  const menu = async (entry: ContentEntry, entryCurrent: () => boolean): Promise<void> => {
+  const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>): Promise<void> => {
     const captured = capture(entry, entryCurrent);
     if (!captured) return;
     // A failed options read must not replace the independent real File info action.
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
     const hasVersions = !!ports.openVersions && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})});
+    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {
@@ -143,29 +149,35 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         controller = new NativeTitleController({...ports, entry: route.entry}); controllers.set(key, controller);
       }
       return <NativeTitleScreen {...ports.title} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
-        back={() => {ports.navigation.back(ports.authority);}} more={entry => {
+        back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {
           const owner = controller!;
           void menu(entry, () => {
             const state = owner.getSnapshot();
             return !state.retired && (titleKey(state.entry) === titleKey(entry)
               || state.episodes.some(item => titleKey(item) === titleKey(entry))
               || state.detail?.data?.related?.rows.some(row => row.entries.some(item => titleKey(item) === titleKey(entry))) === true);
-          }).catch(ports.title.reportError);
+          }, anchorRef).catch(ports.title.reportError);
         }}
         myList={ports.title.myList(route.entry)} download={ports.title.download}/>;
     },
   };
   const offPlayback = ports.playback.subscribe(update), offAuthority = ports.subscribeCurrent(update), offRoute = ports.navigation.subscribe(update);
   update();
+  const setPresentation = (value: typeof context) => {context = value; update();};
   return Object.freeze({
     title,
+    watch: Object.freeze({render: (runtime: NativeShellRuntime) => alive() && ports.player
+      ? <NativeWatchHost authority={ports.authority} current={ports.current} playback={ports.playback} outlet={ports.watch} runtime={runtime}
+          controls={controls} bindings={ports.player} setPresentation={setPresentation}/> : null,
+      /** Assembly calls this before its existing player/destination Back handling. */
+      back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls';}}),
     controls,
     menu,
     fileInfo,
     versions,
     capture,
     isCurrent: current,
-    setPresentation: (value: typeof context) => {context = value; update();},
+    setPresentation,
     renderWatch: (props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) => alive() ? <Watch {...props}/> : null,
     renderPictureSlot: (props: Omit<NativeWatchPictureProps, 'outlet' | 'authority'>) => alive() ? <NativeWatchPicture {...props} authority={ports.authority} outlet={ports.watch}/> : null,
     releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllers.get(key)?.dispose(); controllers.delete(key);},

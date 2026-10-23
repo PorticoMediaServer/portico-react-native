@@ -1,12 +1,19 @@
 #import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
+@class PorticoSubtitleOverlay;
 @interface PorticoPlaybackController : NSObject
 @property(nonatomic,copy) void (^onFact)(NSDictionary *fact);
-/** Picture in Picture changes from the player view, for JavaScript ({lease, state, subtitlesCarried}). */
+/** PiP events include the immutable request binding and requestId, so stale callbacks are rejected. */
 @property(nonatomic,copy) void (^onPictureInPicture)(NSDictionary *change);
 @property(nonatomic,readonly) AVPlayer *player;
 @property(nonatomic,readonly) NSString *lease;
+/** Current source-ready video binding; nil while replanning, seeking, suspended or unready. */
+@property(nonatomic,copy,readonly) NSDictionary *externalPresentationBinding;
+/** Actual decoded current-item frame, independent of the presentation view's bounds.
+ * Main queue only. Caller owns the returned buffer. No seek or asset still-image fallback. */
+- (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform CF_RETURNS_RETAINED;
 @property(nonatomic,readonly) NSString *subtitleText;
+@property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
 @property(nonatomic,readonly) NSDictionary *subtitleCue;
 /** Portico's caption style for the line the app draws ({scale, background}), from the subtitle
  * command in force; empty when the command carries none. */

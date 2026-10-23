@@ -68,12 +68,16 @@ export function NativeLiveScreen({controller, ports, runtime}: {controller: Nati
     <Dialog open={selected !== undefined} onOpenChange={value => {if (!value) setSelected(undefined);}} title={selected?.program?.title ?? selected?.channel.name ?? ''} headerContext={selected?.channel.name} description={selected?.program?.description} placement={theme.isTV || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : theme.width >= 700 ? 400 : undefined} returnFocusRef={selectedOpener} testID="live-programme">
       {selected && <View style={{gap: 20}}>
         {selected.program && <ScreenText secondary>{t('guide.range', {start: defaultI18n.time(selected.program.start), end: defaultI18n.time(selected.program.end)})}</ScreenText>}
-        {selected.channel.tuneAvailable && (!selected.program || selected.program.start <= now && selected.program.end > now) && <Button ref={opener} testID="live-watch" icon="i-play" onPress={() => watch(selected.channel)}>{t(selected.program ? 'guide.watchLive' : 'guide.watchChannel')}</Button>}
+        {selected.channel.tuneAvailable && <Button ref={opener} testID="live-watch" icon="i-play" onPress={() => watch(selected.channel)}>{t(selected.program && selected.program.start <= now && selected.program.end > now ? 'guide.watchLive' : 'guide.watchChannel')}</Button>}
         {selected.channel.kind === 'live' && selected.channel.recordAvailable && selected.program && selected.program.end > now && <Button variant="glass" testID="live-record" loading={recording} disabled={recording || !!selected.program.recording} onPress={() => {
           const channel = legacyChannel(selected.channel), programme = selected.program && legacyProgramme(selected.program);
           if (!channel || !programme) return;
           setRecording(true);
-          void dvr.schedule({channel, programme, series: false}, defaultRecordingOptions).then(() => {if (controller.lifetime.current()) guide.invalidate();}, error => {if (controller.lifetime.current()) setRecordError(error);}).finally(() => {if (controller.lifetime.current()) setRecording(false);});
+          void dvr.schedule({channel, programme, series: false}, defaultRecordingOptions).then(receipt => {
+            if (!controller.lifetime.current()) return;
+            setSelected(current => current?.channel.id === selected.channel.id && current.program?.id === selected.program?.id ? {...current, program: {...current.program!, recording: {id: receipt.id, state: receipt.state}}} : current);
+            guide.invalidate();
+          }, error => {if (controller.lifetime.current()) setRecordError(error);}).finally(() => {if (controller.lifetime.current()) setRecording(false);});
         }}>{t(selected.program.recording ? 'guide.recordingScheduled' : 'guide.record')}</Button>}
         {recordError !== undefined && <StateView {...runtime.error(recordError, () => setRecordError(undefined))}/>}
       </View>}
@@ -106,7 +110,7 @@ function LiveRow({index, controller, runtime, start, end, now, channelWidth, row
         : cells.map(cell => <Focusable key={cell.program?.id ?? `gap:${cell.start}`} ref={node => {const id = cell.program?.id ?? `gap:${cell.start}`; if (node) programRefs.current.set(id, node); else programRefs.current.delete(id);}} focusId={cell.program?.id ?? `gap:${cell.start}`} testID={`live-programme-${channel.id}-${cell.program?.id ?? cell.start}`} accessibilityRole="button" accessibilityLabel={cell.program?.title ?? t('guide.noInformation')} onPress={() => onOpen(channel, cell.program, programRefs.current.get(cell.program?.id ?? `gap:${cell.start}`))} focusKind="row" style={{position: 'absolute', left: cell.x, width: cell.width, height: rowHeight, borderRadius: 12, padding: theme.isTV ? 16 : 8, backgroundColor: cell.state === 'now' ? theme.colors.raisedHigh : theme.colors.raised, overflow: 'hidden'}}>
           <Text numberOfLines={2} style={[shellType(theme.isTV ? 22 : 12, 700), {color: theme.colors.text}]}>{cell.program?.title ?? t('guide.noInformation')}</Text>
           {cell.tier !== 'sliver' && <Text numberOfLines={1} style={[shellType(theme.isTV ? 18 : 10), {color: theme.colors.textTertiary}]}>{t('guide.range', {start: defaultI18n.time(cell.start), end: defaultI18n.time(cell.end)})}</Text>}
-          {cell.state === 'now' && <View style={{position: 'absolute', left: 16, bottom: 8, width: Math.min(cell.width - 32, Math.max(0, (now - Math.max(cell.start, start)) * px)), height: 3, backgroundColor: theme.colors.accentStrong}}/>}
+          {cell.state === 'now' && <View style={{position: 'absolute', left: 16, bottom: 8, width: Math.max(0, Math.min(cell.width - 32, (now - Math.max(cell.start, start)) * px)), height: 3, backgroundColor: theme.colors.accentStrong}}/>}
         </Focusable>)}
     </FocusRegion>
   </View>;

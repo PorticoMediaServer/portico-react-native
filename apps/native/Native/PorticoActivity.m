@@ -74,6 +74,7 @@ RCT_EXPORT_METHOD(setCurrent:(id)raw) {
 
 RCT_EXPORT_METHOD(indexTitles:(NSDictionary *)raw) {
   if (![raw isKindOfClass:NSDictionary.class]) return;
+  NSDictionary *labels=[raw[@"labels"] isKindOfClass:NSDictionary.class]?raw[@"labels"]:@{};
   NSMutableArray<CSSearchableItem *> *items = [NSMutableArray new];
   NSMutableDictionary *cache = [NSMutableDictionary new];
   NSDictionary *lists = @{@"continueWatching": PorticoContinueDomain, @"saved": PorticoSavedDomain};
@@ -86,8 +87,7 @@ RCT_EXPORT_METHOD(indexTitles:(NSDictionary *)raw) {
       [clean addObject:@{@"itemId": title[@"itemId"], @"title": title[@"title"], @"subtitle": title[@"subtitle"] ?: @""}];
       CSSearchableItemAttributeSet *attributes = [[CSSearchableItemAttributeSet alloc] initWithContentType:UTTypeContent];
       attributes.title = title[@"title"];
-      NSString *lead = [key isEqual:@"saved"] ? @"Saved in Portico" : @"Continue watching in Portico";
-      attributes.contentDescription = title[@"subtitle"] ? [NSString stringWithFormat:@"%@ · %@", title[@"subtitle"], lead] : lead;
+      attributes.contentDescription = PorticoActivityText(labels[key],512)?labels[key]:nil;
       CSSearchableItem *item = [[CSSearchableItem alloc] initWithUniqueIdentifier:[NSString stringWithFormat:@"%@:%@", key, title[@"itemId"]] domainIdentifier:lists[key] attributeSet:attributes];
       item.expirationDate = [NSDate dateWithTimeIntervalSinceNow:30 * 86400];
       [items addObject:item];

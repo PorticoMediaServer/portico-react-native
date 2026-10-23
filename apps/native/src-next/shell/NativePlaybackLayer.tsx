@@ -12,14 +12,32 @@ import type {NativeShellRuntime} from './runtime';
 import {sameAuthority, type ShellAuthority} from './model';
 import {nativeShellBackTransition, type NativeShellBounds, type NativeShellPlaybackAdapter, type NativeShellVideoSnapshot} from './playback';
 import {NativeVideoSnapshotCapture} from './video-snapshot';
+import {watchSlotInHost, watchSlotIsCurrent} from './watch-slot-layout';
+import type {NativeExpandedVideoSlot, NativeWatchReader} from './watch-outlet';
 
 /** Lives above route/tab contents. A stable Surface type keeps the actual native view mounted. */
 export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: NativeShellPlaybackAdapter; runtime: NativeShellRuntime; authority: ShellAuthority}) {
   const snapshot = useSyncExternalStore(adapter.subscribe, adapter.getSnapshot);
   const {width, height} = useWindowDimensions(), theme = useTheme();
-  const fullFrame = useMemo(() => ({x: 0, y: 0, width, height}), [width, height]);
+  const watch = runtime.watch;
+  const subscribeWatch = useCallback((listener: () => void) => watch ? watch.subscribe(listener) : () => {}, [watch]);
+  const readWatchSlot = useCallback(() => watch?.getSnapshot(), [watch]);
+  const watchSlot = useSyncExternalStore(subscribeWatch, readWatchSlot);
+  const window = useMemo(() => ({width, height}), [width, height]);
+  const windowFrame = useMemo(() => ({x: 0, y: 0, width, height}), [width, height]);
+  const currentWindow = useRef(window), currentWatch = useRef(watch); currentWindow.current = window; currentWatch.current = watch;
+  const local = snapshot.dock.local, docked = !!local && !local.expanded;
   const [dockBounds, setDockBounds] = useState<NativeShellBounds>();
   const host = useRef<View>(null), slot = useRef<NativeShellBounds | undefined>(undefined), slotRevision = useRef(0);
+  const watchRevision = useRef(0), lastExpandedFrame = useRef<NativeShellBounds | undefined>(undefined);
+  const [expandedMeasurement, setExpandedMeasurement] = useState<Readonly<{reader: NativeWatchReader; slot: NativeExpandedVideoSlot; host: View; bounds: NativeShellBounds}>>();
+  const expandedBounds = watch && expandedMeasurement?.reader === watch && expandedMeasurement.slot === watchSlot
+    && expandedMeasurement.host === host.current && watchSlotIsCurrent(watchSlot, authority, snapshot.fence, window) ? expandedMeasurement.bounds : undefined;
+  if (expandedBounds) lastExpandedFrame.current = expandedBounds;
+  // A real outlet with no current measurement must never promote a watch
+  // picture to the full window. Retain internal morph geometry while hidden.
+  const fullFrame = watch ? expandedBounds ?? lastExpandedFrame.current ?? windowFrame : windowFrame;
+  const expandedReady = !watch || expandedBounds !== undefined;
   const [picture, setPicture] = useState<Readonly<{owner: NativeVideoSnapshotCapture; authority: ShellAuthority; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const retainedImage = useRef<Readonly<{owner: NativeVideoSnapshotCapture; image: NativeShellVideoSnapshot}> | undefined>(undefined);
   const [imageState, setImageState] = useState<Readonly<{image: NativeShellVideoSnapshot; state: 'ready' | 'failed'}>>();
@@ -31,7 +49,6 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       setPicture(previous => image ? {owner, authority, image} : previous?.owner === owner ? undefined : previous);
     }},
   }), [adapter, authority, runtime]);
-  const local = snapshot.dock.local, docked = !!local && !local.expanded;
   const action = useMemo(() => bindNativeDock(adapter), [adapter]);
   const morph = usePlayerMorph({docked, fence: snapshot.fence, dockMotionHosted: true, travel: height, onRelease: (collapse, original, fromDocked) => {
     const current = adapter.getSnapshot();
@@ -102,6 +119,20 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
       setDockBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof NativeShellBounds] === next[key as keyof NativeShellBounds]) ? previous : next);
     });
   }, [adapter, authority, dockX, dockFade]);
+  const measureExpandedSlot = useCallback(() => {
+    const source = watch?.getSnapshot(), current = adapter.getSnapshot(), node = host.current, revision = ++watchRevision.current;
+    if (docked || !current.dock.local?.expanded || !watch || !node || !sameAuthority(current.authority, authority) || !watchSlotIsCurrent(source, authority, current.fence, currentWindow.current)) return;
+    node.measureInWindow((x, y) => {
+      const now = adapter.getSnapshot();
+      if (!alive.current || !now.dock.local?.expanded || currentWatch.current !== watch || runtime.watch !== watch || host.current !== node || revision !== watchRevision.current
+        || watch.getSnapshot() !== source || !sameAuthority(now.authority, authority) || !watchSlotIsCurrent(source, authority, now.fence, currentWindow.current)) return;
+      const bounds = watchSlotInHost(source, {x, y});
+      if (!bounds) return;
+      setExpandedMeasurement(previous => previous?.reader === watch && previous.slot === source && previous.host === node
+        && Object.keys(bounds).every(key => previous.bounds[key as keyof NativeShellBounds] === bounds[key as keyof NativeShellBounds]) ? previous : {reader: watch, slot: source, host: node, bounds});
+    });
+  }, [adapter, authority, docked, runtime, watch]);
+  useEffect(() => {measureExpandedSlot();}, [measureExpandedSlot, watchSlot, window, snapshot.fence]);
   const horizontalVideo = docked && (local?.kind === 'video' || local?.kind === 'live');
   const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
   if (!sameAuthority(snapshot.authority, authority)) return null;
@@ -116,15 +147,15 @@ export function NativePlaybackLayer({adapter, runtime, authority}: {adapter: Nat
     artwork: runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, capabilities: snapshot.capabilities} : undefined;
-  return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current);}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
+  return <View ref={host} collapsable={false} onLayout={() => {if (slot.current) onSlot(slot.current); measureExpandedSlot();}} pointerEvents="box-none" testID="native-persistent-playback" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>
     <Animated.View pointerEvents="box-none" style={[{position: 'absolute', inset: 0}, dockMotion]}>
       <PlayerMorph controller={morph} fence={fence} docked={docked} fullFrame={fullFrame} dockFrame={dockBounds ?? fullFrame}
         onPresentationChange={onPresentationChange} prepareLayout={prepareLayout} androidSnapshot={image ? {fence: image.fence, ready: imageState?.image === image && imageState.state === 'ready',
           failed: imageState?.image === image && imageState.state === 'failed', image: <Image source={{uri: image.image.uri}} onLoad={() => imageSettled('ready')} onError={() => imageSettled('failed')} resizeMode="contain" style={{width: '100%', height: '100%'}}/>} : undefined}>
-        {context => <Surface dockBounds={dockBounds ? context.bounds : undefined} expandedBounds={context.bounds} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
+        {context => <Surface dockBounds={dockBounds ? context.bounds : undefined} expandedBounds={expandedReady ? context.bounds : undefined} docked={context.docked} subtitlesVisible={context.subtitlesVisible} surfaceActive={context.surfaceActive}/>}
       </PlayerMorph>
-      {fence && local?.expanded && !theme.isTV && <GestureDetector gesture={morph.gesture}>
-        <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={{position: 'absolute', inset: 0}}/>
+      {fence && local?.expanded && !theme.isTV && expandedReady && <GestureDetector gesture={morph.gesture}>
+        <View onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} accessible={false} style={watch ? {position: 'absolute', left: fullFrame.x, top: fullFrame.y, width: fullFrame.width, height: fullFrame.height} : {position: 'absolute', inset: 0}}/>
       </GestureDetector>}
       <View pointerEvents="box-none" onTouchStart={touchStart} onTouchEnd={touchEnd} onTouchCancel={touchEnd} style={{position: 'absolute', inset: 0}}>
         <DockHost testID={theme.isTV && fence ? focusTestID(tvFocusIds(authority).surface('playback'), JSON.stringify(fence)) : undefined} dock={adapter.dock} snapshot={snapshot.dock} presentation={{local: presentation}} morph={morph} onVideoSlot={onSlot}

@@ -79,15 +79,22 @@ test('the Android list carries every pinned release library of both builds, Cast
   assert.ok(licenceSections(data, 'firetv').every(s => s.components.every(c => !c.name.includes('play-services'))));
 });
 
-test('the player engine is listed from sources.lock.json, with libdovi’s Rust crates', () => {
-  const lock = JSON.parse(read('third_party/media-engine/sources.lock.json')) as {components: Record<string, {version: string; platforms: string[]}>};
+test('each platform lists its own shipped native recipe; only Android carries mpv and libdovi crates', () => {
   for (const [client, platform] of [['android', 'android'], ['apple', 'apple']] as const) {
+    const recipe = platform === 'apple' ? 'third_party/apple-subtitles' : 'third_party/media-engine';
+    const lock = JSON.parse(read(`${recipe}/sources.lock.json`)) as {components: Record<string, {version: string; platforms: string[]}>};
     const data = load(lists[client]);
     for (const [name, entry] of Object.entries(lock.components)) {
       const listed = data.components.some(c => c.id === `engine:${name}@${entry.version}`);
       assert.equal(listed, entry.platforms.includes(platform), `${client}: ${name}`);
     }
-    assert.ok(data.components.some(c => c.id.startsWith('crate:') && c.group === 'engine'), client);
+    assert.equal(data.components.some(c => c.id.startsWith('crate:') && c.group === 'engine'), platform === 'android', client);
+    if (platform === 'apple') {
+      assert.deepEqual(data.components.filter(c => c.group === 'engine').map(c => c.id).sort(), Object.entries(lock.components).map(([name, entry]) => `engine:${name}@${entry.version}`).sort());
+      assert.ok(!data.components.some(c => /mpv|moltenvk|glslang|libdovi/i.test(c.id)));
+      assert.ok(!('third_party/media-engine/sources.lock.json' in data.inputs));
+      assert.ok('third_party/apple-subtitles/jellyfin-ffmpeg.source.lock.json' in data.inputs);
+    }
     assert.ok(data.sources.some(s => s.id === 'media-engine'), client);
   }
   assert.ok(!load(lists.vega).components.some(c => c.group === 'engine'));

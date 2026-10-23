@@ -1,4 +1,5 @@
-import type {ReactNode} from 'react';
+import type {ReactNode, RefObject} from 'react';
+import type {View} from 'react-native';
 import type {SearchEntry, SearchGroup, SearchGroupResult, SearchSnapshot} from '../../../../../packages/client-core/src/search';
 import type {MessageId} from '../../../../../packages/i18n/src';
 import type {CardSelection} from '../../kit/cards';
@@ -29,5 +30,6 @@ export type NativeSearchSelectionPort = Readonly<{
 export type NativeSearchActions = Readonly<{
   open: (entry: SearchEntry, group: SearchGroup) => void;
   play: (entry: SearchEntry, group: SearchGroup) => void;
-  menu: (entry: SearchEntry, group: SearchGroup) => void;
+  menu: (entry: SearchEntry, group: SearchGroup, anchorRef?: RefObject<View | null>) => void;
+  isMenuOpen?: (entry: SearchEntry, group: SearchGroup) => boolean;
 }>;

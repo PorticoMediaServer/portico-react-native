@@ -6,8 +6,9 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
 import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
-import {Artwork, CircleArt, PersonCircle} from '../../kit/artwork';
-import {GenreTile, PosterCard, SquareCard, EpisodeTile, type CardSelection} from '../../kit/cards';
+import {Artwork} from '../../kit/artwork';
+import {GenreTile, PosterCard, SquareCard, CircleCard, EpisodeTile, type CardSelection} from '../../kit/cards';
+import {CardFrame} from '../../kit/cards/primitives';
 import {Button, Chip, Focusable, TextField} from '../../kit/controls';
 import {SelectionCircle} from '../../kit/selection';
 import {GridSkeleton, StateView} from '../../kit/states';
@@ -96,7 +97,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection}
       {error}
       {empty && <StateView testID="search-no-matches" variant="search" title={t('next.states.noMatches', {query: state.text.trim()})} body={t('next.states.noMatchesBody')} style={{paddingTop: 26, marginHorizontal: 20}}/>}
       {(!typed || empty) && (empty ? <>{genres}{history}</> : <>{history}{genres}</>)}
-      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions}/>}
+      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection.item(top.group, top.entry)}/>}
       {resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection.item(group, entry)}/>
@@ -130,45 +131,51 @@ function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSear
 }
 
 function SearchResultRow({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection}) {
-  const theme = useTheme(), content = media(entry) ? entry : undefined, text = content ? homeCardText(content, false, runtime.text) : undefined;
+  const theme = useTheme(), menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined, text = content ? homeCardText(content, false, runtime.text) : undefined;
   const shape = group === 'movies' || group === 'shows' ? 'poster' : group === 'episodes' || group === 'live-tv' ? 'wide' : 'square';
   const width = shape === 'poster' ? 46 : shape === 'wide' ? 100 : 56, height = shape === 'poster' ? 69 : 56;
   const key = nativeSearchEntryKey(group, entry);
   return <View style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 20, gap: 13}}>
-    <Focusable testID={`search-result-${key}`} focusId={key} accessibilityLabel={entry.title} accessibilityRole={selection.active ? 'checkbox' : 'button'} accessibilityState={{checked: selection.active ? selection.selected : undefined}}
-      onPress={() => selection.active ? selection.onToggle() : actions.open(entry, group)} onLongPressAction={() => actions.menu(entry, group)} style={{flex: 1, flexDirection: 'row', gap: 13, alignItems: 'center'}}>
+    <CardFrame testID={`search-result-${key}`} focusId={key} title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
+      onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
+      {() => <>
       {selection.active && <SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/>}
       <View style={{width, height, borderRadius: 6, overflow: 'hidden'}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
       <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection.selected ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
         <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>{text?.caption.map(part => <Text key={part.id} numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part.text}</Text>)}</View>
       </View>
-    </Focusable>
-    {!selection.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, group)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
+      </>}
+    </CardFrame>
+    {!selection.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
   </View>;
 }
 
 function SearchGridCard({entry, group, runtime, actions, selection, width}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection; width: number}) {
-  const content = media(entry) ? entry : undefined;
+  const menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined;
   const text = content ? homeCardText(content, false, runtime.text) : undefined;
   const props = {testID: `search-result-${nativeSearchEntryKey(group, entry)}`, title: entry.title, width, caption: text?.caption,
-    onNavigate: () => actions.open(entry, group), onMore: () => actions.menu(entry, group), ...(selection.active ? {selection} : {})};
+    onNavigate: () => actions.open(entry, group), onMore: () => actions.menu(entry, group, menuAnchorRef), selection, menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry, group)};
   if (group === 'movies' || group === 'shows') return <PosterCard {...props} artwork={runtime.artwork(entry.posterUrl)}/>;
   if (group === 'episodes') return <EpisodeTile {...props} label={text?.caption ?? []} layout="tile" artwork={runtime.artwork(content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl)}/>;
-  if (group === 'people') return <Focusable accessibilityLabel={entry.title} onPress={props.onNavigate} onLongPressAction={props.onMore}><PersonCircle source={runtime.artwork(entry.posterUrl)} initials={entry.title.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('')} size={width}/><Text>{entry.title}</Text></Focusable>;
-  if (group === 'artists') return <Focusable accessibilityLabel={entry.title} onPress={props.onNavigate} onLongPressAction={props.onMore}><CircleArt covers={content?.artworkPaths?.flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];}) ?? []} size={width}/><Text>{entry.title}</Text></Focusable>;
+  if (group === 'people') return <CircleCard {...props} person art={{source: runtime.artwork(entry.posterUrl), initials: entry.title.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('')}}/>;
+  if (group === 'artists') return <CircleCard {...props} art={{covers: content?.artworkPaths?.flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];}) ?? []}}/>;
   return <SquareCard {...props} artwork={runtime.artwork(entry.posterUrl)}/>;
 }
 
-function SearchTopResult({entry, group, runtime, actions}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions}) {
-  const theme = useTheme(), kind = topResultKindLabel(group);
-  return <Focusable testID="search-top-result" accessibilityLabel={entry.title} onPress={() => actions.open(entry, group)} onLongPressAction={() => actions.menu(entry, group)}
-    style={{height: 178, marginHorizontal: 16, marginTop: 14, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+function SearchTopResult({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection}) {
+  const theme = useTheme(), menuAnchorRef = useRef<View>(null), kind = topResultKindLabel(group);
+  return <CardFrame testID="search-top-result" title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
+    onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)}
+    style={{marginHorizontal: 16, marginTop: 14}} pressableStyle={{height: 178, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+    {() => <>
     <Artwork source={runtime.artwork(media(entry) ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl)} height={178}/>
     <View style={{position: 'absolute', left: 18, right: 18, top: 16, bottom: 18, justifyContent: 'flex-end'}}>
       <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong, marginBottom: 6}]}>{t('search.topResult')}</Text>
       <Text numberOfLines={2} style={[browseType(theme, 26, 800, -.035, 28), {color: theme.colors.text}]}>{entry.title}</Text>
       {kind && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary, marginTop: 6}]}>{t(kind)}</Text>}
     </View>
-    {media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title: entry.title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
-  </Focusable>;
+    {selection.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/></View>
+      : media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title: entry.title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
+    </>}
+  </CardFrame>;
 }

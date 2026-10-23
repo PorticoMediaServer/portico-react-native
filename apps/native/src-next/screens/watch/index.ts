@@ -7,3 +7,5 @@ export type {NativeWatchControlContext, NativeWatchPanel} from './controls';
 export {nativeWatchTracks} from './track-identity';
 export {NativeFileInfoContent} from './FileInfoContent';
 export {nativeVersionChoices} from './version-options';
+export {NativeWatchHost} from './WatchHost';
+export type {NativeWatchHostBindings, NativeWatchHostContext} from './WatchHost';
