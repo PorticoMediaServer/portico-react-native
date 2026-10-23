@@ -148,6 +148,15 @@ me_sha256() {
     if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 
+# Preserve the canonical preparer and patch lock at the same relative paths as in the checkout.
+me_source_recipe() {
+    local destination="$1"
+    mkdir -p "$destination/third_party/media-engine" "$destination/third_party/ffmpeg" "$destination/scripts"
+    ( cd "$ME_ROOT" && tar -cf - --exclude=./work --exclude=./out --exclude=./__pycache__ --exclude='./apple/Frameworks' . ) | tar -xf - -C "$destination/third_party/media-engine"
+    cp "$ME_ROOT/../../scripts/prepare-ffmpeg-source.py" "$destination/scripts/"
+    cp "$ME_ROOT/../ffmpeg/sources.lock.json" "$destination/third_party/ffmpeg/"
+}
+
 # fetch <file> <url> <sha256>: download once into the downloads folder, then always verify.
 me_fetch() {
     local file="$1" url="$2" sum="$3" path="$ME_DOWNLOADS/$1"

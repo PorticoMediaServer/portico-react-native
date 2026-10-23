@@ -574,6 +574,26 @@ def check_notices(r: Report, out: pathlib.Path, platform: str):
     if r.check(bundle.is_file(), f"{platform}: the corresponding source bundle {bundle.name} is missing"):
         with tarfile.open(bundle) as tar:
             members = {pathlib.PurePosixPath(m).name for m in tar.getnames()}
+            if platform == "android":
+                # The Android recipe calls the canonical preparer/patch lock by repository-relative
+                # path. Same-named files elsewhere cannot make the offline source kit rebuildable.
+                context = {
+                    "recipe/scripts/prepare-ffmpeg-source.py": HERE.parent.parent / "scripts/prepare-ffmpeg-source.py",
+                    "recipe/third_party/ffmpeg/sources.lock.json": HERE.parent / "ffmpeg/sources.lock.json",
+                    "recipe/third_party/media-engine/build-android.sh": HERE / "build-android.sh",
+                    "recipe/third_party/media-engine/lib/common.sh": HERE / "lib/common.sh",
+                    "recipe/third_party/media-engine/sources.lock.json": HERE / "sources.lock.json",
+                }
+                for relative, actual in context.items():
+                    try:
+                        entry = tar.getmember(f"{bundle.stem}/{relative}")
+                    except KeyError:
+                        r.check(False, f"{platform}: the source bundle lacks {relative}")
+                        continue
+                    stream = tar.extractfile(entry) if entry.isfile() else None
+                    body = stream.read() if stream is not None else b""
+                    r.check(hashlib.sha256(body).digest() == hashlib.sha256(actual.read_bytes()).digest(),
+                            f"{platform}: the source bundle has different bytes for {relative}")
         for name, entry in lock["components"].items():
             if platform in entry["platforms"] and not entry.get("prebuilt"):
                 r.check(entry["file"] in members, f"{platform}: the source bundle lacks {entry['file']}")

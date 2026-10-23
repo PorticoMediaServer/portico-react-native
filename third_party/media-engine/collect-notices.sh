@@ -109,7 +109,7 @@ EOF
 
 # 3. The corresponding source bundle.
 STAGE="$TMP/source/portico-media-engine-$PLATFORM-source-r$REVISION"
-mkdir -p "$STAGE/archives" "$STAGE/recipe"
+mkdir -p "$STAGE/archives" "$STAGE/recipe/third_party/media-engine" "$STAGE/recipe/third_party/ffmpeg" "$STAGE/recipe/scripts"
 python3 -I - "$ME_LOCK" "$PLATFORM" <<'EOF' > "$TMP/archives.txt"
 import json, sys
 for name, entry in json.load(open(sys.argv[1]))["components"].items():
@@ -121,18 +121,20 @@ for name, entry in json.load(open(sys.argv[1]))["components"].items():
 EOF
 while read -r f; do cp "$ME_DOWNLOADS/$f" "$STAGE/archives/"; done < "$TMP/archives.txt"
 tar -cf "$STAGE/archives/libdovi-vendored-crates.tar" -C "$ME_WORK/src/libdovi" vendor
-( cd "$ME_ROOT" && tar -cf - --exclude=./work --exclude=./out --exclude='./apple/Frameworks' . ) | tar -xf - -C "$STAGE/recipe"
+me_source_recipe "$STAGE/recipe"
 cat > "$STAGE/README.txt" <<EOF
 Corresponding source for the Portico media engine ($PLATFORM), sources.lock.json revision $REVISION.
 
 archives/   the upstream source archives exactly as downloaded; their SHA-256 sums are in
             recipe/sources.lock.json. libdovi-vendored-crates.tar holds libdovi's Rust
             dependencies as pinned by its Cargo.lock.
-recipe/     the build recipe: build-android.sh, build-apple.sh, lib/common.sh, patches/, and
-            README.md, which explains how to build and how to replace a library.
+recipe/     the repository-relative build context. third_party/media-engine/ contains the
+            Android build recipe and patches; scripts/prepare-ffmpeg-source.py and
+            third_party/ffmpeg/sources.lock.json verify and apply the same 100 Jellyfin patches.
 
 To rebuild offline: copy everything in archives/ (the crates tar included) into
-recipe/work/downloads/ and run recipe/build-android.sh or recipe/build-apple.sh.
+recipe/third_party/media-engine/work/downloads/ and run
+recipe/third_party/media-engine/build-android.sh with the pinned toolchain installed.
 EOF
 tar -cf "$SOURCE/portico-media-engine-$PLATFORM-source-r$REVISION.tar" -C "$TMP/source" "portico-media-engine-$PLATFORM-source-r$REVISION"
 ( cd "$SOURCE" && me_sha256 "portico-media-engine-$PLATFORM-source-r$REVISION.tar" | sed "s/\$/  portico-media-engine-$PLATFORM-source-r$REVISION.tar/" > SHA256SUMS )
