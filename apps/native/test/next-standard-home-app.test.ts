@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {routePath} from '../../../packages/contracts/src/routes';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
 test('standard index/App Home actions use restored authority, current documents and real registered controller lifetimes', async t => {
@@ -59,7 +60,7 @@ test('standard index/App Home actions use restored authority, current documents 
     await t.test(
       'an HTTP boundary failure reaches the real Home toast and creates no session',
       async () => {
-        app.fault({status: 500, code: 'r25_boundary_options_failure'});
+        app.fault({route: 'get_capabilities', status: 500, code: 'boundary_capabilities_failure'});
         const warning = console.warn;
         try {
           console.warn = () => {throw Error('throwing Home diagnostic sink');};
@@ -69,9 +70,9 @@ test('standard index/App Home actions use restored authority, current documents 
         assert.ok(
           app.receipts.some(
             receipt =>
-              receipt.path === '/v1/items/movie/playback-options' &&
+              receipt.path === routePath('get_capabilities') &&
               receipt.status === 500 &&
-              receipt.errorCode === 'r25_boundary_options_failure',
+              receipt.errorCode === 'boundary_capabilities_failure',
           ),
         );
         assert.equal(sessions().length, 0);

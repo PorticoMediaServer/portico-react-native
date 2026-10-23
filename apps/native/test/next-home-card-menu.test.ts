@@ -23,6 +23,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
   let currentAuthority = authority, menuOpen = false;
   const entry = {id: 'episode', libraryId: 'television', kind: 'episode', title: 'Actual episode', available: true,
+    homeActions: {play: true, state: {watchlisted: false, favorite: false, watched: false, rating: null, personalRevision: 1, containerRevision: 1}, selection: {play: true}},
     navigation: {view: 'item', entityId: 'episode'}, playback: {itemId: 'episode'}, duration: 3600, progressSeconds: 300};
   const row = {id: 'continue', viewerFence: 'fence', title: 'Continue', kind: 'continue', artworkShape: 'landscape', entries: [entry],
     privacySensitivity: '', policyState: '', priority: 1, required: false, hideable: true, reorderable: true, critical: false, cursorCapable: false,
@@ -72,7 +73,9 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     assert.equal(reopened.props.moreExpanded, true);
     assert.equal(reopened.props.menuAnchorRef.current, nativeHost);
     selection.active = true;
-    holdCard(reopened.props, false);
+    element.props.context = {...element.props.context, selection: itemSelection(selection, actual.id)};
+    const selecting = nodes(renderCard()).find(node => node.type === 'WideCard');
+    holdCard(selecting.props, false);
     assert.equal(calls.at(-1), 'toggle', 'active touch selection keeps its real action');
     currentAuthority = {...authority, epoch: 'retired'};
     const count = calls.length;
