@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View, VirtualizedList} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {DVRClient, defaultRecordingOptions} from '../../../../../packages/client-core/src/dvr';
+import {defaultRecordingOptions} from '../../../../../packages/client-core/src/dvr';
 import {dayPrimeTime, stripDays} from '../../../../../packages/client-core/src/channel-guide';
 import {legacyChannel, legacyProgramme, layoutRow, nowNext, pxPerMsFor, rulerTicks, floorTo, localDayStart, SLOT_MS, type GuideChannelRow, type GuideProgram} from '../../../../../packages/client-core/src/guide';
 import {Button, Chip, Focusable, Select} from '../../kit/controls';
@@ -16,8 +16,11 @@ import {tvFocusIds} from '../../shell/tv-focus';
 import {Screen, ScreenText, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeLiveController} from './live-controller';
+import type {NativeRecordingsController} from './recordings-controller';
+import {NativeRecordingsScreen} from './RecordingsScreen';
+import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 
-export function NativeLiveScreen({controller, ports, runtime}: {controller: NativeLiveController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeLiveScreen({controller, recordings, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);
@@ -25,12 +28,13 @@ export function NativeLiveScreen({controller, ports, runtime}: {controller: Nati
   const [now, setNow] = useState(Date.now), [start, setStart] = useState(() => floorTo(Date.now(), SLOT_MS)), [width, setWidth] = useState(theme.isTV ? 1660 : theme.width - 40), [view, setView] = useState<'guide' | 'list'>(theme.isTV || theme.width >= 600 ? 'guide' : 'list');
   const [selected, setSelected] = useState<Readonly<{channel: GuideChannelRow; program?: GuideProgram}>>();
   const [recording, setRecording] = useState(false), [recordError, setRecordError] = useState<unknown>();
+  const [recordingsOpen, setRecordingsOpen] = useState(false), [recordingsReturn, setRecordingsReturn] = useState(0);
   const opener = useRef<View | null>(null), selectedOpener = useRef<View | null>(null);
   const list = useRef<VirtualizedList<number>>(null), visible = useRef({first: 0, last: 12});
+  const guideOffset = useRef(0);
   const halfHour = theme.isTV ? 240 : theme.width < 1024 ? 90 : 120;
   const channelWidth = theme.isTV ? 320 : theme.width < 600 ? 60 : 192;
   const rowHeight = theme.isTV ? 92 : 72, rowGap = theme.isTV ? 8 : 6, px = pxPerMsFor(halfHour), end = start + Math.max(halfHour, width - channelWidth) / px;
-  const dvr = useMemo(() => new DVRClient(controller.api, controller.lifetime.authority.serverId, async () => ports.requestId()), [controller, ports]);
   useEffect(() => {void controller.loadSources(); const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer);}, [controller]);
   useEffect(() => {controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}, [controller, guide, start, end]);
   const source = state.sources.find(value => (value.provenance === 'library-channel' ? 'library' : value.id) === state.options.sourceId);
@@ -45,23 +49,29 @@ export function NativeLiveScreen({controller, ports, runtime}: {controller: Nati
     controller.lifetime.assert();
     ports.context.navigation.open({kind: 'channel', sourceId: raw.sourceId, channelId: raw.id}, controller.lifetime.authority);
   };
+  const select = (change: Parameters<NativeLiveController['select']>[0]) => {guideOffset.current = 0; visible.current = {first: 0, last: 12}; controller.select(change);};
+  const controls = ids.surface('live.controls');
+  useDestinationEntryFocus({visible: theme.isTV && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
   const empty = !state.loading && state.sources.length === 0;
+  if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   return <Screen title={theme.isTV ? undefined : t('search.chip.liveTV')} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : undefined}>
     <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{flex: 1, paddingHorizontal: theme.isTV ? 0 : 20}}>
-      <View style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
+      <FocusRegion id={controls} orientation="horizontal" edges={{left: ids.rail}} style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
         {theme.isTV && <Text accessibilityRole="header" style={[shellType(44, 800, 'normal', -.03), {color: theme.colors.text, marginRight: 14}]}>{t('search.chip.liveTV')}</Text>}
-        <Select testID="live-source" accessibilityLabel={t('channels.source')} value={state.options.sourceId} options={[{value: '', label: t('channels.all')}, ...state.sources.map(value => ({value: value.provenance === 'library-channel' ? 'library' : value.id, label: value.name}))]} onValueChange={sourceId => {const selectedSource = state.sources.find(value => (value.provenance === 'library-channel' ? 'library' : value.id) === sourceId); controller.select({sourceId, kind: !selectedSource ? 'all' : selectedSource.provenance, group: undefined}); list.current?.scrollToOffset({offset: 0, animated: false});}}/>
-        {!theme.isTV && <><Chip selected={view === 'list'} onPress={() => setView('list')}>{t('channels.viewList')}</Chip><Chip selected={view === 'guide'} onPress={() => setView('guide')}>{t('channels.viewGuide')}</Chip></>}
+        <Select testID="live-source" accessibilityLabel={t('channels.source')} value={state.options.sourceId} options={[{value: '', label: t('channels.all')}, ...state.sources.map(value => ({value: value.provenance === 'library-channel' ? 'library' : value.id, label: value.name}))]} onValueChange={sourceId => {const selectedSource = state.sources.find(value => (value.provenance === 'library-channel' ? 'library' : value.id) === sourceId); select({sourceId, kind: !selectedSource ? 'all' : selectedSource.provenance, group: undefined}); list.current?.scrollToOffset({offset: 0, animated: false});}}/>
+        {!theme.isTV && <><Chip testID="live-view-list" selected={view === 'list'} onPress={() => setView('list')}>{t('channels.viewList')}</Chip><Chip testID="live-view-guide" selected={view === 'guide'} onPress={() => setView('guide')}>{t('channels.viewGuide')}</Chip></>}
         <Select testID="live-day" accessibilityLabel={t('guide.day')} disabled={daysCount < 1} value={String(currentDay)} options={days.map(day => ({value: String(day), label: day === today ? t('guide.today') : defaultI18n.formatDate(day, {weekday: 'long', month: 'short', day: 'numeric'})}))} onValueChange={day => setStart(Number(day) === today ? floorTo(now, SLOT_MS) : dayPrimeTime(Number(day), state.options.timezone))}/>
-        <Button variant="glass" size="small" onPress={() => setStart(floorTo(now, SLOT_MS))}>{t('guide.now')}</Button>
-        {!theme.isTV && <Select testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={[{value: 'number', label: t('channels.sortNumber')}, {value: 'name', label: t('channels.sortName')}]} onValueChange={sort => controller.select({sort: sort as 'number' | 'name'})}/>}
-      </View>
-      <View style={{flexDirection: 'row', gap: theme.isTV ? 12 : 10, marginBottom: theme.isTV ? 38 : 30}}><Chip selected={!state.options.favorites && !state.options.group} onPress={() => controller.select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip selected={state.options.favorites === true} onPress={() => controller.select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip>{groups.map(group => <Chip key={group} selected={state.options.group === group} onPress={() => controller.select({group, favorites: false})}>{group}</Chip>)}</View>
+        <Button testID="live-now" variant="glass" size="small" onPress={() => setStart(floorTo(now, SLOT_MS))}>{t('guide.now')}</Button>
+        {state.sources.some(value => value.recordAvailable) && <Button focusId="live-recordings" testID="live-recordings" variant="glass" size="small" icon="i-repeatrule" onPress={() => setRecordingsOpen(true)}>{t('recordings.title')}</Button>}
+        {!theme.isTV && <Select testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={[{value: 'number', label: t('channels.sortNumber')}, {value: 'name', label: t('channels.sortName')}]} onValueChange={sort => select({sort: sort as 'number' | 'name'})}/>}
+      </FocusRegion>
+      <View style={{flexDirection: 'row', gap: theme.isTV ? 12 : 10, marginBottom: theme.isTV ? 38 : 30}}><Chip selected={!state.options.favorites && !state.options.group} onPress={() => select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip selected={state.options.favorites === true} onPress={() => select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip>{groups.map(group => <Chip key={group} selected={state.options.group === group} onPress={() => select({group, favorites: false})}>{group}</Chip>)}</View>
       {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();})}/> : empty ? <StateView title={t('web.live.empty.noSourcesTitle')} body={t(ports.context.account.account.role === 'owner' ? 'web.live.empty.noSourcesOwner' : 'web.live.empty.noSourcesMember')} primaryAction={{id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}/> : <>
         {view === 'guide' && <View style={{height: theme.isTV ? 50 : 44, marginLeft: channelWidth, overflow: 'hidden'}}>{rulerTicks(start, end, px, state.options.timezone).map(tick => <Text key={tick.atMs} style={[shellType(theme.isTV ? 20 : 11), {position: 'absolute', left: tick.x + 10, color: theme.colors.textSecondary}]}>{defaultI18n.time(tick.atMs)}</Text>)}</View>}
         <VirtualizedList ref={list} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
+          onLayout={() => list.current?.scrollToOffset({offset: guideOffset.current, animated: false})} onScroll={event => {guideOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16}
           onViewableItemsChanged={({viewableItems}) => {const indices = viewableItems.map(value => value.index).filter((value): value is number => value !== null); if (!indices.length) return; visible.current = {first: Math.min(...indices), last: Math.max(...indices)}; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
-          renderItem={({item: index}) => <LiveRow key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} rail={ids.rail} watch={watch}/>}/>
+          renderItem={({item: index}) => <LiveRow entryEnabled={state.revision === 0 && recordingsReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} rail={ids.rail} watch={watch}/>}/>
         {data.channelsError && <StateView {...runtime.error(new Error('guide_channels_unavailable'), () => guide.reset())}/>}
       </>}
     </View>
@@ -73,8 +83,9 @@ export function NativeLiveScreen({controller, ports, runtime}: {controller: Nati
           const channel = legacyChannel(selected.channel), programme = selected.program && legacyProgramme(selected.program);
           if (!channel || !programme) return;
           setRecording(true);
-          void dvr.schedule({channel, programme, series: false}, defaultRecordingOptions).then(receipt => {
-            if (!controller.lifetime.current()) return;
+          void recordings.schedule({channel, programme, series: false}, defaultRecordingOptions).then(result => {
+            if (!controller.lifetime.current() || !result) {if (controller.lifetime.current()) setRecordError(recordings.getSnapshot().error); return;}
+            const receipt = result.value;
             setSelected(current => current?.channel.id === selected.channel.id && current.program?.id === selected.program?.id ? {...current, program: {...current.program!, recording: {id: receipt.id, state: receipt.state}}} : current);
             guide.invalidate();
           }, error => {if (controller.lifetime.current()) setRecordError(error);}).finally(() => {if (controller.lifetime.current()) setRecording(false);});
@@ -85,7 +96,7 @@ export function NativeLiveScreen({controller, ports, runtime}: {controller: Nati
   </Screen>;
 }
 
-function LiveRow({index, controller, runtime, start, end, now, channelWidth, rowHeight, px, list, onOpen, rail, watch}: {index: number; controller: NativeLiveController; runtime: NativeShellRuntime; start: number; end: number; now: number; channelWidth: number; rowHeight: number; px: number; list: boolean; onOpen: (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => void; rail: string; watch: (channel: GuideChannelRow) => void}) {
+function LiveRow({entryEnabled, index, controller, runtime, start, end, now, channelWidth, rowHeight, px, list, onOpen, rail, watch}: {entryEnabled: boolean; index: number; controller: NativeLiveController; runtime: NativeShellRuntime; start: number; end: number; now: number; channelWidth: number; rowHeight: number; px: number; list: boolean; onOpen: (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => void; rail: string; watch: (channel: GuideChannelRow) => void}) {
   const theme = useTheme(), t = defaultI18n.t, guide = controller.guide;
   useSyncExternalStore(listener => guide.subscribePage(guide.pageOf(index), listener), () => guide.getSnapshot().version);
   const channel = guide.channelAt(index), programs = guide.programsFor(index, start, end);
@@ -93,7 +104,7 @@ function LiveRow({index, controller, runtime, start, end, now, channelWidth, row
   const first = programs.programs.find(value => value.start <= now && value.end > now) ?? programs.programs[0];
   const cells = layoutRow(programs.programs, {viewStart: start, viewEnd: end, pxPerMs: px, now, gapPx: 6, tiers: theme.isTV ? {full: 300, title2: 150, title: 32} : {full: 50, title2: 50, title: 24}});
   const firstId = first?.id ?? (list ? 'now' : cells[0] ? `gap:${cells[0].start}` : undefined);
-  const entry = useScreenEntry(theme.isTV && index === 0 && channel && firstId ? {regionId: cellsRegion, childId: firstId} : undefined, controller.lifetime.current);
+  const entry = useScreenEntry(theme.isTV && entryEnabled && index === 0 && channel && firstId ? {regionId: cellsRegion, childId: firstId} : undefined, controller.lifetime.current);
   const channelRef = useRef<View>(null), programRefs = useRef(new Map<string, View>());
   if (!channel) return <View style={{height: rowHeight, marginBottom: 6, backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}/>;
   const logo = runtime.artwork(channel.logoUrl);

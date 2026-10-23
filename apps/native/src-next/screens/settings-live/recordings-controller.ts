@@ -1,0 +1,96 @@
+import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRView, type Recording, type RecordingDetail, type RecordingDraft, type RecordingGroups, type RecordingOptions, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../../packages/client-core/src/dvr';
+import type {ChannelApi} from '../../../../../packages/client-core/src/channel-guide';
+import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
+
+export type NativeRecordingQuery = Readonly<{view: DVRView; cursor?: string; sort?: 'recent' | 'title' | 'oldest'; group?: string}>;
+export type NativeRecordingsSnapshot = Readonly<{
+  query: NativeRecordingQuery; page?: DVRPage; groups?: RecordingGroups; storage?: RecordingStorage; summary?: DVRSummary;
+  loading: boolean; busy: boolean; error?: unknown; accessDenied: boolean;
+}>;
+export type NativeRecordingService = Pick<DVRClient, 'list' | 'groups' | 'summary' | 'storage' | 'detail' | 'deletePreview' | 'schedule' | 'update' | 'cancel' | 'keep' | 'delete' | 'saveRule' | 'deleteRule' | 'onAccessChanged' | 'dispose'>;
+
+/** One genuine DVR client per viewer lifetime. Never activate/reset its unknown-outcome receipts
+ * on a view change. Cursor pages stay pages; no fabricated random offsets or whole-DVR scan. */
+export class NativeRecordingsController extends NativeScreenStore<NativeRecordingsSnapshot> {
+  readonly lifetime: NativeScreenLifetime;
+  private service: NativeRecordingService;
+  private disposed = false;
+  private epoch = 0;
+  private pending?: Readonly<{query: NativeRecordingQuery; epoch: number}>;
+  private worker?: Promise<void>;
+  private facts?: Promise<void>;
+  constructor(lifetime: NativeScreenLifetime, service: NativeRecordingService) {
+    super({query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false});
+    this.lifetime = lifetime; this.service = service;
+    service.onAccessChanged(() => {
+      this.pending = undefined; this.epoch++;
+      if (this.current()) this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true, error: {status: 403}});
+    });
+  }
+  private current = () => !this.disposed && this.lifetime.current();
+  private assert() {this.lifetime.assert(); if (this.disposed) throw screenScopeEnded();}
+  load(query: NativeRecordingQuery = this.getSnapshot().query): Promise<void> {
+    this.assert();
+    if (this.getSnapshot().accessDenied) return Promise.resolve();
+    const epoch = ++this.epoch, previous = this.getSnapshot();
+    const same = JSON.stringify(previous.query) === JSON.stringify(query);
+    this.publish({...previous, query: Object.freeze({...query}), page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, loading: true, error: undefined});
+    this.pending = {query, epoch};
+    // Moving focus quickly across the five chips replaces pending work, instead of queuing
+    // private reads for every intermediate selection. At most one page read is in flight.
+    if (!this.worker) this.worker = this.drain().finally(() => {this.worker = undefined;});
+    return this.worker;
+  }
+  private async drain(): Promise<void> {
+    while (this.pending && this.current()) {
+      const {query, epoch} = this.pending; this.pending = undefined;
+      try {
+        const result = query.view === 'storage' ? {storage: await this.service.storage()}
+          : query.view === 'recorded' && !query.group ? {groups: await this.service.groups(query.sort ?? 'recent', query.cursor)}
+          : {page: await this.service.list(query.view, query.cursor, query.sort ?? 'recent', query.group)};
+        if (this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), ...result, loading: false, error: undefined});
+      } catch (error) {if (this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), loading: false, error});}
+    }
+  }
+  loadFacts(): Promise<void> {
+    this.assert();
+    if (this.getSnapshot().accessDenied) return Promise.resolve();
+    if (this.facts) return this.facts;
+    // Header counts and storage come from authoritative aggregate reads, never the loaded page.
+    return this.facts = (async () => {
+      const summary = await this.service.summary();
+      if (!this.current() || this.getSnapshot().accessDenied) return;
+      this.publish({...this.getSnapshot(), summary});
+      const storage = await this.service.storage();
+      if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), storage});
+    })().catch(error => {if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error});}).finally(() => {this.facts = undefined;});
+  }
+  private async read<T>(work: () => Promise<T>): Promise<T> {this.assert(); const result = await work(); this.assert(); if (this.getSnapshot().accessDenied) throw screenScopeEnded(); return result;}
+  detail = (id: string, after?: string): Promise<RecordingDetail> => this.read(() => this.service.detail(id, after));
+  deletePreview = (recording: Recording): Promise<DeletePreview> => this.read(() => this.service.deletePreview(recording));
+  async act<T>(work: (service: NativeRecordingService) => Promise<T>): Promise<Readonly<{value: T}> | undefined> {
+    this.assert();
+    if (this.getSnapshot().busy || this.getSnapshot().accessDenied) return undefined;
+    this.publish({...this.getSnapshot(), busy: true, error: undefined});
+    try {
+      const value = await this.read(() => work(this.service));
+      // A receipt is the success boundary. Refreshing another current view never changes
+      // the mutation's expectedRevision or creates a replacement retry request id.
+      void this.load(); void this.loadFacts();
+      return {value};
+    } catch (error) {if (this.current() && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), error}); return undefined;}
+    finally {if (this.current()) this.publish({...this.getSnapshot(), busy: false});}
+  }
+  schedule = (draft: RecordingDraft, options: RecordingOptions) => this.act(service => service.schedule(draft, options));
+  cancel = (recording: Recording) => this.act(service => service.cancel(recording));
+  keep = (recording: Recording) => this.act(service => service.keep(recording));
+  remove = (recording: Recording, preview: DeletePreview) => this.act(service => service.delete(recording, preview));
+  resolve = (detail: RecordingDetail) => this.act(service => service.update(detail.recording, {...detail.recording.options, priority: Math.min(1000, Math.max(detail.recording.options.priority, ...detail.overlaps.map(value => value.priority)) + 1)}));
+  saveRule = (rule: RecordingRule, config: RuleConfig) => this.act(service => service.saveRule(rule.id, rule.revision, config));
+  deleteRule = (rule: RecordingRule, future: 'keep' | 'cancel') => this.act(service => service.deleteRule(rule, future));
+  dispose(): void {if (this.disposed) return; this.disposed = true; this.epoch++; this.pending = undefined; this.service.dispose(); this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true}); this.clearListeners();}
+}
+
+export function createNativeRecordingsController(lifetime: NativeScreenLifetime, api: ChannelApi, requestId: () => Promise<string>): NativeRecordingsController {
+  return new NativeRecordingsController(lifetime, new DVRClient(api, lifetime.authority.serverId, requestId));
+}
