@@ -16,7 +16,7 @@ import {useTheme} from '../theme';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
 import {changeList, changeScalar, failedSelectionIds, removeFieldChange, setListChange} from './presentation';
-import {SelectionSurface, SelectionText} from './surface';
+import {selectionFooterProps, SelectionSurface, SelectionText} from './surface';
 import type {BulkEditorProps} from './types';
 
 type FieldProps = BulkEditorProps & {field: RepairFieldSpec; fieldRef?: (node: View | TextInput | null) => void};
@@ -67,7 +67,9 @@ function ScalarField({field, fieldRef, ...props}: FieldProps) {
   </View>;
 }
 export function BulkEditor(props: BulkEditorProps) {
-  const {colors, isTV} = useTheme();
+  const theme = useTheme();
+  const {colors, isTV} = theme;
+  const footerButton = selectionFooterProps(theme);
   const retryRef = useRef<View>(null);
   const cancelRef = useRef<View>(null);
   const firstFieldRef = useRef<FocusTarget | null>(null);
@@ -94,9 +96,9 @@ export function BulkEditor(props: BulkEditorProps) {
       {props.summary.map(line => <View key={line.id} style={{flexDirection: 'row', gap: 8}}><View style={{width: 6, height: 6, marginTop: isTV ? 14 : 6, borderRadius: 3, backgroundColor: colors.accentStrong}} /><SelectionText size={isTV ? 20 : 12.5} style={{flex: 1}}>{line.text}</SelectionText></View>)}
     </View> : null}
     <View style={[styles.buttons, isTV ? {flexDirection: 'column', gap: 12} : undefined]}>
-      <Button testID={controlID(props.testID, 'dismiss')} ref={cancelRef} variant="glass" size="compact" style={isTV ? {alignSelf: 'stretch'} : undefined} onPress={close}>{selectionText(result ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
-      {result ? failed.length ? <Button testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} onPress={() => props.onRetry(failed)} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: props.resultEntries.find(row => row.id === failed[0])?.title ?? ''}) : selectionText('next.selection.native.retry')}</Button> : null
-        : <Button testID={controlID(props.testID, 'save')} size="compact" loading={props.pending} disabled={!changes.length || !fields.length || changes.some(([key]) => !fields.some(field => field.field === key))} onPress={props.onSave} style={{flex: isTV ? undefined : 1, alignSelf: 'stretch'}}>{props.saveLabel}</Button>}
+      <Button {...footerButton} testID={controlID(props.testID, 'dismiss')} ref={cancelRef} variant="glass" size="compact" style={[footerButton.style, isTV ? {alignSelf: 'stretch'} : undefined]} onPress={close}>{selectionText(result ? 'next.selection.native.close' : 'next.selection.native.cancel')}</Button>
+      {result ? failed.length ? <Button {...footerButton} testID={controlID(props.testID, 'retry')} ref={retryRef} size="compact" loading={props.pending} onPress={() => props.onRetry(failed)} style={[footerButton.style, {flex: isTV ? undefined : 1, alignSelf: 'stretch'}]}>{failed.length === 1 ? selectionText('next.selection.native.retryFor', {title: props.resultEntries.find(row => row.id === failed[0])?.title ?? ''}) : selectionText('next.selection.native.retry')}</Button> : null
+        : <Button {...footerButton} testID={controlID(props.testID, 'save')} size="compact" loading={props.pending} disabled={!changes.length || !fields.length || changes.some(([key]) => !fields.some(field => field.field === key))} onPress={props.onSave} style={[footerButton.style, {flex: isTV ? undefined : 1, alignSelf: 'stretch'}]}>{props.saveLabel}</Button>}
     </View>
   </View>;
   return <SelectionSurface open={props.open} onOpenChange={props.onOpenChange} fullHeight headerContext={<View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: isTV ? 0 : 20, gap: 10, marginBottom: isTV ? 10 : 0}}><View style={{flex: 1}}>{props.ownerHeader}</View><Button testID={controlID(props.testID, 'header-dismiss')} variant="icon" size="xs" icon="i-x" accessibilityLabel={selectionText('next.selection.native.close')} onPress={close} style={{width: isTV ? 64 : 34, height: isTV ? 64 : 34}} /></View>} title={props.title}
@@ -106,12 +108,12 @@ export function BulkEditor(props: BulkEditorProps) {
     {props.error ? <SelectionText style={{color: colors.danger}}>{props.error}</SelectionText> : null}
     {result ? <View style={{gap: 6}}>
       <View style={[styles.notice, failed.length ? styles.warning : undefined]}><Icon name={failed.length ? 'i-warn' : 'i-check'} size={20} color={failed.length ? colors.record : colors.healthy} /><View style={{flex: 1, gap: 2}}><SelectionText size={isTV ? 24 : 14} weight={700}>{selectionText('next.selection.native.updated', {updated: result.updated, failed: result.failed})}</SelectionText>{failed.length ? <SelectionText size={isTV ? 20 : 13} secondary style={{lineHeight: isTV ? 30 : 19.5}}>{selectionText('next.selection.native.savedKept', {count: result.updated, failed: failed.length, titles: defaultI18n.list(props.resultEntries.filter(entry => failed.includes(entry.id)).map(entry => entry.title))})}</SelectionText> : null}</View></View>
-      {result.results.map(row => {const entry = props.resultEntries.find(item => item.id === row.id);return <View key={`${row.kind}-${row.id}`} style={[styles.resultRow, isTV ? undefined : {borderBottomWidth: 0, borderTopWidth: row === result.results[0] ? 0 : 1, borderTopColor: 'rgba(40,64,79,.7)'}]}>
+      <View style={{gap: theme.platform === 'phone' ? 0 : 6}}>{result.results.map(row => {const entry = props.resultEntries.find(item => item.id === row.id);return <View key={`${row.kind}-${row.id}`} style={[styles.resultRow, isTV ? undefined : {borderBottomWidth: 0, borderTopWidth: row === result.results[0] ? 0 : 1, borderTopColor: 'rgba(40,64,79,.7)'}]}>
         {entry?.artwork ? <View pointerEvents="none" style={{width: 30, height: 45}}>{entry.artwork}</View> : null}
         <View style={{flex: 1, gap: 2}}><SelectionText size={isTV ? 24 : 14} weight={700}>{entry?.title}</SelectionText><SelectionText size={isTV ? 20 : 12} secondary style={{lineHeight: isTV ? 28 : 16.8}}>{row.ok ? selectionText('next.selection.native.saved') : selectionText(row.code === 'metadata_conflict' ? 'next.selection.native.conflict' : row.code === 'invalid_metadata_repair' ? 'next.selection.native.invalidValue' : row.code === 'unsupported_item_kind' ? 'next.selection.native.unsupportedKind' : row.code === 'not_found' ? 'next.selection.native.notFound' : 'next.selection.native.saveFailed')}</SelectionText></View>
         {isTV && !row.ok ? <Button testID={controlID(props.testID, 'result', row.kind, row.id, 'retry')} variant="text" size="small" disabled={props.pending} onPress={() => props.onRetry([row.id])}>{selectionText('next.selection.native.retry')}</Button> : null}
         <View style={{width: isTV ? 40 : 28, height: isTV ? 40 : 28, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: row.ok ? 'rgba(117,213,164,.12)' : 'rgba(241,121,121,.12)'}}><Icon name={row.ok ? 'i-check' : 'i-x'} color={row.ok ? colors.healthy : colors.danger} size={isTV ? 28 : 16} /></View>
-      </View>;})}
+      </View>;})}</View>
     </View> : <>
       <View style={[styles.fieldGrid, isTV ? {rowGap: 22, paddingTop: 22} : undefined]}>{fields.map(field => <View key={field.field} style={{width: isTV || field.type === 'list' || field.type === 'multiline' ? '100%' : '48.5%', gap: isTV ? 8 : 5}}>
         <View style={styles.label}><SelectionText size={isTV ? 20 : 12.5} weight={700} secondary>{props.fieldLabel(field)}</SelectionText>{props.changes[field.field] ? <Button testID={controlID(props.testID, 'field', field.field, 'reset')} variant="text" size="small" disabled={props.pending} onPress={() => props.onChangesChange(removeFieldChange(props.changes, field.field))} style={isTV ? undefined : {height: 20, minHeight: 20, paddingHorizontal: 0}} textStyle={isTV ? undefined : {fontSize: 12.5}}>{selectionText('next.selection.native.changed')}</Button> : null}</View>
