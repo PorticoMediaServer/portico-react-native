@@ -37,6 +37,7 @@ export function nativeEqualizerControls(store: DeviceEqualizerStore) {
       if (!validTarget(target)) return;
       const held = await read(); if (!held?.on) return;
       const current = target === 'preamp' ? held.preamp : held.gains[target];
+      if (current === undefined) return;
       const next = nativeEqualizerGain(current + direction * .5);
       if (next !== undefined && next !== current) await writeGain(held, target, next);
     }),
