@@ -40,6 +40,13 @@ test('an unoffered provider ID cannot be passed as a fabricated candidate', asyn
   assert.deepEqual(f.calls, []);
 });
 
+test('ambiguous duplicate provider IDs cannot pick an arbitrary candidate', async () => {
+  const f = fixture(), snapshot = f.snapshot(), candidate = snapshot.candidates[0];
+  f.service.getSnapshot = () => ({...snapshot, candidates: [candidate, {...candidate, title: 'Different provider result'}]});
+  await assert.rejects(f.controls.apply(candidate.id, 'personal', 'rights'));
+  assert.deepEqual(f.calls, []);
+});
+
 test('retired sheet commands cannot call any old source service', async () => {
   const f = fixture(); f.retire();
   for (const action of [() => f.controls.refresh(), () => f.controls.refreshSources(), () => f.controls.retry(),

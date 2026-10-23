@@ -29,9 +29,9 @@ export function boundSubtitleControls(service: SourceService, isCurrent: () => b
     refreshSources: () => run(() => service.refreshSources()),
     search: (language = '', query = '', page = 1) => run(() => service.search(language, query, page)),
     apply: (candidateId: string, scope: 'personal' | 'shared', rights: string) => run(() => {
-      const candidate = service.getSnapshot().candidates.find(value => value.id === candidateId);
-      if (!candidate) throw new Error(serviceText('player.opt.unavailable'));
-      return service.apply(candidate, scope, rights);
+      const offered = service.getSnapshot().candidates.filter(value => value.id === candidateId);
+      if (offered.length !== 1) throw new Error(serviceText('player.opt.unavailable'));
+      return service.apply(offered[0], scope, rights);
     }),
     save: (input: NativePlaybackSubtitleUpload) => run(() => service.save(input)),
     retry: () => run(() => service.retry()),
