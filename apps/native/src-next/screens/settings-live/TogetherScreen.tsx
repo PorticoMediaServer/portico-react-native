@@ -1,17 +1,17 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {forwardRef, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Share, Text, View, type TextInput} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {MediaItem} from '../../../../../packages/client-core/src';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
 import {encodedRoutePath} from '../../../../../packages/contracts/src/routes';
 import {groupTargetPositionUs, type GroupHostAuthority} from '../../../../../packages/client-core/src/social-playback';
-import {Button, Focusable, TextField} from '../../kit/controls';
+import {Button, Focusable, Segmented, TextField} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {Dialog, Banner, Menu} from '../../kit/overlays';
-import {Artwork} from '../../kit/artwork';
+import {AmbientArt, Artwork, ProfileFace} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
-import {shellType} from '../../kit/shell/visual';
+import {alpha, shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
@@ -19,62 +19,129 @@ import {NativeTVKeyboard} from '../destinations';
 import {Screen, ScreenText, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeTogetherController} from './together-controller';
+import {nativeTogetherLobbyFaces} from './together-presentation';
+import {NativeTogetherTVRoom} from './TogetherTVRoom';
+import type {NativeTogetherMedia} from './together-media';
 
-export function NativeTogetherScreen({controller, ports, runtime}: {controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const region = ids.surface('together');
-  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'start'} : undefined, controller.lifetime.current);
   const group = state.group;
   const [sheet, setSheet] = useState<'start' | 'join'>(), [name, setName] = useState(''), [code, setCode] = useState('');
-  const [typing, setTyping] = useState<'name' | 'code' | 'who'>(), [typingRevision, setTypingRevision] = useState(0);
+  const [typing, setTyping] = useState<'name' | 'code' | 'who'>(), [typingRevision, setTypingRevision] = useState(0), [typingIntent, setTypingIntent] = useState<'enter' | 'restore'>('enter');
   const firstField = useRef<TextInput>(null);
+  const firstTVField = useRef<View>(null);
   const profile = ports.context.account.profiles.find(value => value.id === controller.lifetime.authority.profileId);
+  const faces = nativeTogetherLobbyFaces(state.directory[0], runtime.getSnapshot().profile);
   const [who, setWho] = useState(profile?.name ?? ''), [authority, setAuthority] = useState<GroupHostAuthority>('host-only');
   const startRef = useRef<View>(null), joinRef = useRef<View>(null);
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
-  if (room && state.phase === 'ended') return <Screen><StateView testID="together-ended" variant="centered" icon="i-people" title={t('web.together.endedTitle')} body={t(group.endedReason === 'host-ended' ? 'web.together.ended.host' : group.endedReason === 'host-unavailable' ? 'web.together.ended.away' : 'web.together.ended.other')} primaryAction={{id: 'lobby', label: t('web.together.backToLobby'), onPress: () => controller.dismiss()}}/></Screen>;
-  if (room) return <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
+  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason}/>;
+  if (room) return theme.isTV ? <NativeTogetherTVRoom controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
-  const type = (field: 'name' | 'code' | 'who') => {if (theme.isTV && typing !== field) {setTyping(field); setTypingRevision(value => value + 1);}};
+  const type = (field: 'name' | 'code' | 'who') => {if (theme.isTV) {setTypingIntent(typing === field ? 'restore' : 'enter'); setTyping(field); setTypingRevision(value => value + 1);}};
   return <Screen title={t('entry.group.together')}>
     <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 64}}>
       {state.error && <Banner message={state.error} tone="warning"/>}
-      <FocusRegion id={region} entry="start" orientation="free" edges={{left: ids.rail}} onLayout={enter}>
-        <View style={{width: theme.isTV ? 1180 : '100%', backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 28 : 18, padding: theme.isTV ? 56 : 24, gap: theme.isTV ? 28 : 18}}>
-          <Icon name="i-people" size={theme.isTV ? 56 : 32}/>
-          <Text style={[shellType(theme.isTV ? 60 : 30, 800, 'normal', -.035), {color: theme.colors.text, maxWidth: theme.isTV ? 950 : undefined}]}>{t('web.together.tagline')}</Text>
-          <Text style={[shellType(theme.isTV ? 26 : 15, 400, theme.isTV ? 39 : 23), {color: theme.colors.textSecondary, maxWidth: theme.isTV ? 1060 : undefined}]}>{t('web.together.taglineBody')}</Text>
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 18 : 10, marginTop: 8}}>
-            <Button ref={startRef} focusId="start" testID="together-start" icon="i-people" onPress={() => {setTyping(undefined); setSheet('start');}}>{t('web.together.startTitle')}</Button>
-            <Button ref={joinRef} focusId="join" testID="together-join" variant="glass" icon="i-kbd" onPress={() => {setTyping(undefined); setSheet('join');}}>{t('web.together.joinWithCode')}</Button>
+      <TogetherLobbyRegion controller={controller} region={region} rail={ids.rail}>
+        <View style={{width: theme.isTV ? 1180 : '100%', backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 28 : 18, paddingHorizontal: theme.isTV ? 56 : 24, paddingTop: theme.isTV ? 48 : 24, paddingBottom: theme.isTV ? 52 : 24, gap: theme.isTV ? 0 : 18, overflow: 'hidden'}}>
+          <TogetherLobbyArt itemId={state.directory[0]?.timeline.itemId} controller={controller} ports={ports} runtime={runtime}/>
+          <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: theme.isTV ? 28 : 18, borderWidth: 1.5, borderColor: alpha(theme.colors.text, .08)}}/>
+          <View testID="together-lobby-faces" style={{flexDirection: 'row', height: theme.isTV ? 56 : 32}}>{faces.map((face, index) => <View key={face.id} accessibilityLabel={face.private ? t('together.privateViewer') : undefined} style={{marginLeft: index ? theme.isTV ? -14 : -8 : 0, borderRadius: theme.isTV ? 28 : 16}}>
+            <View pointerEvents="none" style={{position: 'absolute', inset: -3, borderRadius: theme.isTV ? 31 : 19, borderWidth: 3, borderColor: theme.colors.raised}}/>{face.private ? <View style={{width: theme.isTV ? 56 : 32, height: theme.isTV ? 56 : 32, borderRadius: theme.isTV ? 28 : 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedHigh}}><Icon name="i-user" size={theme.isTV ? 28 : 18} color={theme.colors.textSecondary}/></View> : <ProfileFace initial={face.initial} color={face.color} source={face.source} size={theme.isTV ? 56 : 32} scaleOnFocus={false}/>}
+          </View>)}</View>
+          <Text style={[shellType(theme.isTV ? 62 : 30, 800, theme.isTV ? 64.48 : 'normal', theme.isTV ? -.04 : -.035), {color: theme.colors.text, maxWidth: theme.isTV ? 920 : undefined, marginTop: theme.isTV ? 26 : 0, marginBottom: theme.isTV ? 14 : 0}]}>{t('web.together.tagline')}</Text>
+          <Text style={[shellType(theme.isTV ? 26 : 15, 400, theme.isTV ? 39 : 23), {color: theme.colors.textSecondary, maxWidth: theme.isTV ? 820 : undefined, marginBottom: theme.isTV ? 38 : 0}]}>{t('web.together.taglineBody')}</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 18 : 10, marginTop: theme.isTV ? 0 : 8}}>
+            <Button ref={startRef} focusId="start" testID="together-start" icon="i-people" onPress={() => {if (!name.trim()) setName(t('web.together.defaultName', {name: runtime.getSnapshot().profile.name})); setTyping(undefined); setSheet('start');}}>{t('web.together.startTitle')}</Button>
+            <Button ref={joinRef} focusId="join" testID="together-join" variant="glass" icon="i-kbd" onPress={() => {setTyping(undefined); if (theme.isTV) type('code'); setSheet('join');}}>{t('web.together.joinWithCode')}</Button>
           </View>
         </View>
-        {state.directory.length > 0 && <View style={{width: theme.isTV ? 1180 : '100%', marginTop: theme.isTV ? 40 : 28, gap: 12}}>
-          <ScreenText secondary>{t('web.together.yourGroups')}</ScreenText>
-          {state.directory.map(value => <Focusable key={value.id} focusId={`group:${value.id}`} testID={`together-group-${value.id}`} accessibilityRole="button" accessibilityLabel={value.name} onPress={() => run(() => controller.open(value.id))} focusKind="row" style={{padding: theme.isTV ? 24 : 16, borderRadius: 16, backgroundColor: theme.colors.raised, flexDirection: 'row', alignItems: 'center', gap: 20}}>
-            <Icon name="i-people" size={theme.isTV ? 40 : 24}/><View style={{flex: 1, gap: 8}}><ScreenText>{value.name}</ScreenText><SpacedStatus text={t('web.together.groupLine', {count: value.members.filter(member => member.state === 'joined').length, state: t(value.timeline.state === 'playing' ? 'web.together.state.playing' : value.timeline.state === 'paused' ? 'web.downloads.state.paused' : 'web.together.state.lobby')})}/></View>{value.permissions.isHost && <ScreenText secondary>{t('web.together.youHost')}</ScreenText>}<Icon name="i-right" size={24}/>
+        {state.directory.length > 0 && <View style={{width: theme.isTV ? 1180 : '100%', marginTop: theme.isTV ? 38 : 28, gap: theme.isTV ? 16 : 12}}>
+          <Text style={[shellType(theme.isTV ? 20 : 15, 700), {color: theme.colors.textTertiary}]}>{t('web.together.yourGroups')}</Text>
+          {state.directory.map(value => <Focusable key={value.id} focusId={`group:${value.id}`} testID={`together-group-${value.id}`} accessibilityRole="button" accessibilityLabel={value.name} onPress={() => run(() => controller.open(value.id))} focusKind="row" style={{minHeight: theme.isTV ? 104 : undefined, paddingHorizontal: theme.isTV ? 28 : 16, paddingVertical: theme.isTV ? 0 : 16, borderRadius: theme.isTV ? 18 : 16, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.line, .7), flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 22 : 20}}>
+            <View style={{width: theme.isTV ? 56 : 32, height: theme.isTV ? 56 : 32, borderRadius: theme.isTV ? 14 : 8, backgroundColor: alpha(theme.colors.text, .08), alignItems: 'center', justifyContent: 'center'}}><Icon name="i-people" size={theme.isTV ? 32 : 24} color={theme.colors.textSecondary}/></View><View style={{flex: 1, gap: theme.isTV ? 3 : 8}}><Text style={[shellType(theme.isTV ? 28 : 15, 700), {color: theme.colors.text}]}>{value.name}</Text><SpacedStatus size={theme.isTV ? 22 : undefined} tertiary text={t('web.together.groupLine', {count: value.members.filter(member => member.state === 'joined').length, state: t(value.timeline.state === 'playing' ? 'web.together.state.playing' : value.timeline.state === 'paused' ? 'web.downloads.state.paused' : 'web.together.state.lobby')})}/></View>{value.permissions.isHost && <Text style={[shellType(theme.isTV ? 22 : 15, 600), {color: theme.colors.textSecondary}]}>{t('web.together.youHost')}</Text>}<Icon name="i-right" size={theme.isTV ? 28 : 24} color={theme.colors.textSecondary}/>
           </Focusable>)}
         </View>}
-      </FocusRegion>
+      </TogetherLobbyRegion>
       {state.directoryError && <Banner message={state.directoryError} tone="warning"/>}
     </ScrollView>
-    <Dialog testID="together-form" open={sheet !== undefined} onOpenChange={open => {if (!open) {setSheet(undefined); setTyping(undefined);}}} headerContext={<ScreenText secondary>{t('entry.group.together')}</ScreenText>} title={t(sheet === 'join' ? 'web.together.joinWithCode' : 'web.together.startTitle')} description={t(sheet === 'join' ? 'web.together.joinHelp' : 'web.together.startHelp')} placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? sheet === 'join' || typing ? 1240 : 760 : undefined} initialFocusRef={firstField} returnFocusRef={sheet === 'join' ? joinRef : startRef} footer={<Button testID="together-submit" loading={busy} disabled={busy || (sheet === 'join' ? code.replace(/[\s-]/g, '').length !== 8 : !name.trim())} onPress={() => run(async () => {const ok = sheet === 'join' ? await controller.join(code, who) : await controller.create(name, who, authority); if (ok && controller.lifetime.current()) {setSheet(undefined); setTyping(undefined);}})}>{t(sheet === 'join' ? 'web.together.join' : 'web.together.start')}</Button>}>
+    <Dialog testID="together-form" open={sheet !== undefined} onOpenChange={open => {if (!open) {setSheet(undefined); setTyping(undefined);}}} headerContext={<ScreenText secondary>{t('entry.group.together')}</ScreenText>} title={t(sheet === 'join' ? 'web.together.joinWithCode' : 'web.together.startTitle')} description={t(sheet === 'join' ? 'web.together.joinHelp' : 'web.together.startHelp')} placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? sheet === 'join' || typing ? 1240 : 760 : undefined} initialFocusRef={theme.isTV ? typing ? undefined : firstTVField : firstField} returnFocusRef={sheet === 'join' ? joinRef : startRef} footer={<Button testID="together-submit" onFocus={() => {if (sheet === 'start') setTyping(undefined);}} loading={busy} disabled={busy || (sheet === 'join' ? code.replace(/[\s-]/g, '').length !== 8 : !name.trim())} onPress={() => run(async () => {const ok = sheet === 'join' ? await controller.join(code, who) : await controller.create(name, who, authority); if (ok && controller.lifetime.current()) {setSheet(undefined); setTyping(undefined);}})}>{t(sheet === 'join' ? 'web.together.join' : 'web.together.start')}</Button>}>
       <View style={{flexDirection: theme.isTV && typing ? 'row' : 'column', gap: theme.isTV && typing ? 48 : 24}}><FocusRegion id={fieldsRegion} entry={sheet === 'join' ? 'code' : 'name'} edges={typing ? {right: keyboard} : undefined} style={{gap: 24, flex: 1}}>
-        {sheet === 'join' ? <TextField ref={firstField} focusId="code" testID="together-code" label={t('web.together.hostCode')} value={code} onChangeText={value => setCode(value.toUpperCase())} onFocus={() => type('code')} showSoftInputOnFocus={!theme.isTV} autoCapitalize="characters" maxLength={12}/>
-          : <TextField ref={firstField} focusId="name" testID="together-name" label={t('profile.name')} value={name} onChangeText={setName} onFocus={() => type('name')} showSoftInputOnFocus={!theme.isTV} maxLength={80}/>}
-        <TextField focusId="who" testID="together-display-name" label={t('web.together.yourName')} description={t('web.together.shownToOthers')} value={who} onChangeText={setWho} onFocus={() => type('who')} showSoftInputOnFocus={!theme.isTV} maxLength={64}/>
-        {sheet === 'start' && <View style={{gap: 12}}><ScreenText secondary>{t('web.together.whoControls')}</ScreenText><View style={{flexDirection: 'row', gap: 8}}>{(['host-only', 'anyone'] as const).map(value => <Button key={value} testID={`together-authority-${value}`} variant="glass" accessibilityState={{selected: authority === value}} onPress={() => setAuthority(value)}>{t(value === 'host-only' ? 'web.together.onlyMe' : 'web.together.everyone')}</Button>)}</View></View>}
-      </FocusRegion>{theme.isTV && typing && <NativeTVKeyboard id={keyboard} value={typing === 'code' ? code : typing === 'name' ? name : who} onChangeText={value => {if (typing === 'code') setCode(value.toUpperCase().slice(0, 12)); else if (typing === 'name') setName(value.slice(0, 80)); else setWho(value.slice(0, 64));}} activation={{visible: sheet !== undefined, intent: 'enter', revision: typingRevision}} leftRegionId={fieldsRegion} width={500} testID="together-keyboard"/>}</View>
+        {theme.isTV ? <>
+          <TogetherTVField ref={firstTVField} focusId={sheet === 'join' ? 'code' : 'name'} testID={sheet === 'join' ? 'together-code' : 'together-name'} label={t(sheet === 'join' ? 'web.together.hostCode' : 'profile.name')} value={sheet === 'join' ? code : name} onPress={() => type(sheet === 'join' ? 'code' : 'name')}/>
+          <TogetherTVField focusId="who" testID="together-display-name" label={t('web.together.yourName')} description={t('web.together.shownToOthers')} value={who} onPress={() => type('who')}/>
+        </> : <>
+          {sheet === 'join' ? <TextField ref={firstField} focusId="code" testID="together-code" label={t('web.together.hostCode')} value={code} onChangeText={value => setCode(value.toUpperCase())} autoCapitalize="characters" maxLength={12}/>
+            : <TextField ref={firstField} focusId="name" testID="together-name" label={t('profile.name')} value={name} onChangeText={setName} maxLength={80}/>}
+          <TextField focusId="who" testID="together-display-name" label={t('web.together.yourName')} description={t('web.together.shownToOthers')} value={who} onChangeText={setWho} maxLength={64}/>
+        </>}
+        {sheet === 'start' && <View style={{gap: theme.isTV ? 8 : 12}}><Text style={[shellType(theme.isTV ? 20 : 15, 700), {color: theme.colors.textTertiary}]}>{t('web.together.whoControls')}</Text><Segmented testID="together-authority" accessibilityLabel={t('web.together.whoControls')} value={authority} onValueChange={value => setAuthority(value as GroupHostAuthority)} items={(['host-only', 'anyone'] as const).map(value => ({value, label: t(value === 'host-only' ? 'web.together.onlyMe' : 'web.together.everyone')}))} itemProps={item => ({testID: `together-authority-${item.value}`, onFocus: () => setTyping(undefined)})}/></View>}
+      </FocusRegion>{theme.isTV && typing && <NativeTVKeyboard id={keyboard} value={typing === 'code' ? code : typing === 'name' ? name : who} onChangeText={value => {if (typing === 'code') setCode(value.toUpperCase().slice(0, 12)); else if (typing === 'name') setName(value.slice(0, 80)); else setWho(value.slice(0, 64));}} activation={{visible: sheet !== undefined, intent: typingIntent, revision: typingRevision}} leftRegionId={fieldsRegion} width={500} testID="together-keyboard"/>}</View>
     </Dialog>
   </Screen>;
 }
 
-function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime}) {
+/** This region remounts on return from a room/ended screen. Its entry request must
+ * follow that real native host's layout rather than reuse the old lobby's request. */
+function TogetherLobbyRegion({controller, region, rail, children}: {controller: NativeTogetherController; region: string; rail: string; children: React.ReactNode}) {
+  const theme = useTheme();
+  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'start'} : undefined, controller.lifetime.current);
+  return <FocusRegion id={region} entry="start" orientation="free" edges={{left: rail}} onLayout={enter}>{children}</FocusRegion>;
+}
+
+function TogetherEndedScreen({controller, reason}: {controller: NativeTogetherController; reason: string}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), region = ids.surface('together.ended');
+  const [height, setHeight] = useState(0);
+  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'together-ended-lobby'} : undefined, controller.lifetime.current);
+  const body = t(reason === 'host-ended' ? 'web.together.ended.host' : reason === 'host-unavailable' ? 'web.together.ended.away' : reason === 'empty' ? 'web.together.ended.empty' : 'web.together.ended.other');
+  return <Screen style={theme.isTV ? {paddingLeft: 0, paddingRight: 0, paddingTop: 0, alignItems: 'center', justifyContent: 'center'} : undefined}>
+    <FocusRegion id={region} entry="together-ended-lobby" edges={{left: ids.rail}} onLayout={event => {setHeight(event.nativeEvent.layout.height); enter();}} style={theme.isTV ? {width: 900, alignItems: 'center', transform: [{translateY: height * -.02}]} : undefined}>
+      {theme.isTV ? <>
+        <View testID="together-ended" style={{width: 112, height: 112, borderRadius: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08), marginBottom: 30}}><Icon name="i-people" size={54} color={theme.colors.textSecondary}/></View>
+        <Text accessibilityRole="header" style={[shellType(54, 800, 58.32, -.035), {color: theme.colors.text, textAlign: 'center', marginBottom: 14}]}>{t('web.together.endedTitle')}</Text>
+        <Text style={[shellType(26, 400, 39), {color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 40}]}>{body}</Text>
+        <Button focusId="together-ended-lobby" testID="together-ended-lobby" onPress={() => controller.dismiss()}>{t('web.together.backToLobby')}</Button>
+      </> : <StateView testID="together-ended" variant="centered" icon="i-people" title={t('web.together.endedTitle')} body={body} primaryAction={{id: 'lobby', testID: 'together-ended-lobby', label: t('web.together.backToLobby'), onPress: () => controller.dismiss()}}/>}
+    </FocusRegion>
+  </Screen>;
+}
+
+/** tv-more13: focus reads the value; OK opens the actual shared keyboard. */
+const TogetherTVField = forwardRef<View, {focusId: string; testID: string; label: string; description?: string; value: string; onPress: () => void}>(function TogetherTVField({focusId, testID, label, description, value, onPress}, ref) {
+  const theme = useTheme();
+  return <View style={{gap: 8}}>
+    <Text style={[shellType(20, 700), {color: theme.colors.textTertiary}]}>{label}</Text>
+    <Focusable ref={ref} focusId={focusId} testID={testID} accessibilityRole="button" accessibilityLabel={label} accessibilityValue={{text: value}} onPress={onPress} focusKind="row"
+      style={{height: 72, paddingHorizontal: 22, justifyContent: 'center', borderRadius: 14, borderWidth: 1.5, borderColor: theme.colors.lineStrong, backgroundColor: alpha(theme.colors.text, .08)}}>
+      <Text numberOfLines={1} style={[shellType(32, 600), {color: theme.colors.text}]}>{value}</Text>
+    </Focusable>
+    {description && <Text style={[shellType(20, 400), {color: theme.colors.textTertiary, marginTop: 4}]}>{description}</Text>}
+  </View>;
+});
+
+/** One authorized current title, never a demo backdrop or a catalogue scan. */
+function TogetherLobbyArt({itemId, controller, ports, runtime}: {itemId?: string; controller: NativeTogetherController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
+  const [item, setItem] = useState<MediaItem>();
+  useEffect(() => {
+    setItem(undefined);
+    if (!itemId) return;
+    const abort = new AbortController();
+    void controller.lifetime.request(signal => ports.context.api.request(encodedRoutePath('get_items_id', {id: encodeURIComponent(itemId)}), 'GET', undefined, signal).then(parseMediaItem), abort.signal)
+      .then(value => {if (!abort.signal.aborted && controller.lifetime.current() && value.id === itemId && value.available) setItem(value);}, () => {});
+    return () => abort.abort();
+  }, [itemId, controller, ports]);
+  const source = item && item.id === itemId ? runtime.ambient(item.backdropUrl) : undefined;
+  return source ? <AmbientArt testID="together-lobby-art" source={source} treatment="wash"/> : null;
+}
+
+function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherController; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), group = state.group!;
   const playback = useSyncExternalStore(ports.context.playback.subscribe, ports.context.playback.getSnapshot);
@@ -142,11 +209,12 @@ function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherC
       ...(canControl && state.queue?.entries.some(value => value.entryId === queueMenu && !value.unavailable && !!value.itemId) ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => run(() => controller.transport('load', {entryId: queueMenu}))}] : []),
       ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => run(() => controller.queueRemove(queueMenu))}] : []),
     ] : []}/>
-    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const ended = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (ended && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
+    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: theme.isTV ? 18 : 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const ended = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (ended && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
   </Screen>;
 }
 
 /** The approved frames separate these catalogue facts with space, never a middle dot. */
-function SpacedStatus({text}: {text: string}) {
-  return <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 16}}>{text.split(' · ').map((part, index) => <ScreenText secondary key={index}>{part}</ScreenText>)}</View>;
+function SpacedStatus({text, size, tertiary = false}: {text: string; size?: number; tertiary?: boolean}) {
+  const theme = useTheme();
+  return <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 16}}>{text.split(' · ').map((part, index) => <Text key={index} style={[shellType(size ?? (theme.isTV ? 24 : 15), 400), {color: tertiary ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{part}</Text>)}</View>;
 }
