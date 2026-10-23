@@ -8,6 +8,7 @@ import {NativeRecordingsController, type NativeRecordingService} from '../src-ne
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
 import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
+import {nativeTogetherLobbyFaces} from '../src-next/screens/settings-live/together-presentation';
 import {defaultI18n} from '../../../packages/i18n/src';
 import type {AdminSession} from '../../../packages/client-core/src/playback-v1/types';
 import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src/guide/legacy-source';
@@ -17,6 +18,7 @@ import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/d
 import {nativeGuideCellWindow, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
+import type {GroupMember} from '../../../packages/client-core/src/social-playback';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {ShellAuthority} from '../src-next/shell/model';
 
@@ -359,6 +361,17 @@ function togetherService() {
   };
   return {calls, service, listeners};
 }
+
+test('Together lobby faces use only joined members and strip private identity before rendering', () => {
+  const member = (id: string, displayName: string, privateViewer = false, state: GroupMember['state'] = 'joined'): GroupMember => ({id, displayName, private: privateViewer, role: 'member', state, readiness: 'ready', positionUs: '0', reportedAt: null, presence: 'connected', joinedAt: '2026-10-23T15:00:00Z'});
+  const viewer = {id: 'selected-profile', initial: 'V', color: 'violet' as const};
+  const faces = nativeTogetherLobbyFaces({viewerMemberId: 'viewer-member', members: [member('invited', 'Unjoined', false, 'invited'), member('private', 'Never reveal this name', true), member('viewer-member', 'Viewer nickname'), member('other', 'Other'), member('fourth', 'Fourth')]}, viewer);
+  assert.deepEqual(faces, [{id: 'private', private: true}, {id: 'viewer-member', private: false, initial: 'V', color: 'violet', source: undefined}, {id: 'other', private: false, initial: 'O'}]);
+  assert.equal(JSON.stringify(faces).includes('Never reveal'), false);
+  // A matching name is never sufficient to borrow the selected profile's art.
+  assert.deepEqual(nativeTogetherLobbyFaces({viewerMemberId: 'different-member', members: [member('other', 'Viewer nickname')]}, viewer), [{id: 'other', private: false, initial: 'V'}]);
+  assert.deepEqual(nativeTogetherLobbyFaces(undefined, viewer), [{id: 'profile:selected-profile', private: false, initial: 'V', color: 'violet', source: undefined}]);
+});
 
 test('Together teardown releases its subscription without disposing or calling the borrowed app service', async () => {
   const lifetime = new NativeScreenLifetime(authority()), {service, calls, listeners} = togetherService();
