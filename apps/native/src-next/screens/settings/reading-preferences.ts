@@ -40,8 +40,10 @@ export class NativeReadingSettingsPreferences {
   current = (): boolean => this.lifetime.current();
   subscribe = (listener: () => void): (() => void) => {this.lifetime.assert(); return this.controller.subscribe(listener);};
   getState = () => {this.lifetime.assert(); return this.controller.getSnapshot();};
+  /** Core receives the confirmed canonical snapshot unchanged, including registry and revisions. */
+  getPreferenceSnapshot = (): PreferenceSnapshot => this.getState().preferences;
   getSnapshot = (): ReadingPreferences => {
-    const preferences = this.getState().preferences;
+    const preferences = this.getPreferenceSnapshot();
     if (preferences !== this.lastPreferences) {this.lastPreferences = preferences; this.lastProjection = readingPreferences(preferences);}
     return this.lastProjection!;
   };

@@ -48,11 +48,14 @@ test('retained Read and Settings borrow one source, publishing canonical changes
   try {
     assert.equal(nativeReadingSettingsPreferences(f.owner), source);
     const before = source.getSnapshot();
+    const confirmed = source.getPreferenceSnapshot();
+    assert.equal(confirmed, source.getState().preferences, 'Core receives the same confirmed snapshot without reconstruction');
     assert.equal(source.getSnapshot(), before, 'external-store projection is stable');
     let finish!: (reply: unknown) => void;
     f.reply(async () => new Promise(resolve => {finish = resolve;}));
     const pending = source.patch({textSize: 6});
     assert.equal(source.getSnapshot(), before, 'no optimistic preference reaches the retained reader');
+    assert.equal(source.getPreferenceSnapshot(), confirmed);
     assert.equal(source.getState().busy, true);
     assert.equal(f.requests[0]!.method, 'PATCH');
     assert.equal(f.requests[0]!.body.scope, 'profile-server');
@@ -62,6 +65,8 @@ test('retained Read and Settings borrow one source, publishing canonical changes
     assert.equal(typeof f.requests[0]!.body.idempotencyKey, 'string');
     finish(f.envelope(snapshot(4, {'reading.textSize': 6})));
     assert.equal((await pending).textSize, 6);
+    assert.equal(source.getPreferenceSnapshot(), source.getState().preferences);
+    assert.equal(source.getPreferenceSnapshot().documents[0]!.revision, 4);
     assert.equal(nativeReadingSettingsPreferences(f.owner).getSnapshot().textSize, 6, 'returning through Settings needs no second reader or SSE wait');
     f.publish(snapshot(5, {'reading.textSize': 7}));
     assert.equal(source.getSnapshot().textSize, 7);
