@@ -1520,17 +1520,26 @@ test('a closed or removed chooser cannot start after its final Options read reso
 
 test('a closed chooser cannot adopt a version session returned after its own start was sent', async () => {
   for(const closing of ['abort','owner'] as const) {
-    const d=fixture(true),controller=new AbortController();let release=()=>{},owned=true;
+    const d=fixture(true),controller=new AbortController();let release=()=>{},owned=true,created='';
     try {
       await d.start('movie-1');const state=d.runtime.getSnapshot();
       const held=new Promise<void>(resolve=>{release=resolve;});let entered=false;
-      d.intercept(async request=>{if(request.method==='POST'&&record(request.body)&&request.body.versionId==='v2'&&!entered){entered=true;await held;}});
+      d.respond(async request=>{
+        if(request.method!=='POST'||!record(request.body)||request.body.versionId!=='v2'||entered)return;
+        entered=true;await held;
+        const response=await d.server.handle(request);
+        assert.equal(response.status,201);assert.ok(record(response.body)&&typeof response.body.id==='string');
+        created=response.body.id;return response;
+      });
       const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
         {lifetime:{signal:controller.signal,isCurrent:()=>owned},authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
       await settle();assert.equal(entered,true);
       if(closing==='abort')controller.abort();else owned=false;
       release();await late;await settle();
       assert.notEqual(d.runtime.getSnapshot().session?.versionId,'v2',closing);
+      assert.ok(created,'the actual fake server created a session after cancellation');
+      assert.ok(d.requests.some(request=>request.method==='DELETE'&&request.path===encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)})),closing+': retire the real late session');
+      assert.equal(d.server.session(created)?.ended,true,closing);
     } finally {release();d.runtime.dispose();}
   }
 });
