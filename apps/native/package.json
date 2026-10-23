@@ -13,8 +13,9 @@
     "lint:boundary": "node scripts/lint-boundary.mjs",
     "check:next": "npm run lint:boundary && npm run lint:hooks && npm run lint:strings && npm run typecheck && npm run typecheck:next-test && npm test",
     "typecheck:next-test": "tsc -p test/tsconfig.next.json --noEmit",
-    "postinstall": "node scripts/patch-apple-blur.mjs",
-    "test:apple-blur-patch": "node --test test/apple-blur-patch.test.mjs"
+    "postinstall": "node scripts/patch-apple-blur.mjs && node scripts/patch-android-blur.mjs",
+    "test:apple-blur-patch": "node --test test/apple-blur-patch.test.mjs",
+    "test:android-blur-patch": "node --test test/android-blur-patch.test.mjs"
   },
   "dependencies": {
     "@bacons/text-decoder": "0.0.0",
