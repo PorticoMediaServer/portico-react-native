@@ -123,7 +123,9 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const [visible, setVisible] = useState({first: source.memory.firstVisibleIndex, last: source.memory.firstVisibleIndex});
   const [jumpOpen, setJumpOpen] = useState(false), jumpAnchor = useRef<View>(null);
   const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
-  const closeFilters = useCallback(() => setFilterDraft(undefined), []);
+  const filterOpening = useRef(0);
+  // Keep the closed surface mounted so its own exit motion/focus return can finish.
+  const closeFilters = useCallback(() => filterDraft?.dispose(), [filterDraft]);
   useEffect(() => {if (!active.visible) {filterDraft?.dispose(); setFilterDraft(undefined);}}, [active.visible, filterDraft]);
   const initialIndex = useRef(source.memory.firstVisibleIndex).current;
   const offset = useRef(destination.getMemory().offset), range = useRef(visible), registered = useRef<(() => void) | undefined>(undefined);
@@ -143,7 +145,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       <View style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 16 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 14 : 8}}>
         <LibrarySortMenu sorts={toolbar.sorts} value={toolbar.sort} label={labels.sort} onValueChange={sort => destination.setQuery(source.predicates, sort)}
           onReshuffle={() => destination.setQuery(source.predicates, {...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}/>
-        <FocusItem focusId="filters"><FiltersButton count={source.predicates.length} onPress={() => {filterDraft?.dispose(); setFilterDraft(destination.createFilters());}}/></FocusItem>
+        <FocusItem focusId="filters"><FiltersButton count={source.predicates.length} onPress={() => {filterDraft?.dispose(); filterOpening.current++; setFilterDraft(destination.createFilters());}}/></FocusItem>
         {theme.isTV && <Chip ref={jumpAnchor} focusId="jump" disabled={!state.positionIndex || !Object.keys(state.positionIndex).length} onPress={() => setJumpOpen(true)}>{defaultI18n.t('next.browse.native.jumpTo')}</Chip>}
         <View style={{width: theme.isTV ? 1.5 : 1, height: theme.isTV ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
         {toolbar.quick.map(preset => <FocusItem key={preset.id} focusId={`quick:${preset.id}`}><QuickToggle checked={preset.active} onCheckedChange={value => destination.setQuick(preset.id, value)}>{preset.label?.text ?? labels.quick(preset)}</QuickToggle></FocusItem>)}
@@ -168,7 +170,7 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       height={theme.isTV ? 514 : 480} style={{position: 'absolute', right: theme.isTV ? 40 : 2, top: theme.isTV ? 174 : 110}}/>}
     <Menu open={jumpOpen} onOpenChange={setJumpOpen} anchorRef={jumpAnchor} returnFocusRef={jumpAnchor} title={defaultI18n.t('next.browse.native.jumpTo')}
       items={Object.keys(state.positionIndex ?? {}).map(key => ({id: key, label: key, onSelect: () => grid.current?.scrollToLetter(key)}))}/>
-    {filterDraft && <LibraryFilters draft={filterDraft} source={source} runtime={runtime} labels={labels} owner={owner} onClose={closeFilters}
+    {filterDraft && <LibraryFilters key={filterOpening.current} draft={filterDraft} source={source} runtime={runtime} labels={labels} owner={owner} onClose={closeFilters}
       onSave={view => actions.saveView(destination, view)}/>}
   </View>;
 }

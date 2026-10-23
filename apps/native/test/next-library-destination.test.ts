@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NativeLibraryDestination, nativeLibraryEntryKey} from '../src-next/screens/library/model.ts';
-import type {BrowseCapabilities, BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
+import type {BrowseCapabilities, BrowseNode, BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
 import {NativeLibraryFilterDraft} from '../src-next/screens/library/filters.ts';
 import {libraryFilterChange, libraryFilterField} from '../src-next/screens/library/filter-controls.ts';
