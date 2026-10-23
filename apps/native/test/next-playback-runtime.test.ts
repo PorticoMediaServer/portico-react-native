@@ -1482,3 +1482,16 @@ test('authority retirement during native fact delivery cannot expose old progres
     assert.equal(ui.parentRenders, 1);
   } finally {await ui?.unmount(); d.runtime.dispose();}
 });
+
+
+test('the actual playback subject retains supplied display titles and otherwise keeps stored suffixes', async () => {
+  const d = fixture();
+  try {
+    await d.runtime.start({entry: {id: 'movie-1', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', displayTitle: 'Genuine supplied display title', playback: {itemId: 'movie-1'}}, target: {itemId: 'movie-1'}});
+    await settle();
+    assert.equal(d.runtime.getSnapshot().subject?.item.title, 'Genuine supplied display title');
+    await d.runtime.start({entry: {id: 'movie-2', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', playback: {itemId: 'movie-2'}}, target: {itemId: 'movie-2'}});
+    await settle();
+    assert.equal(d.runtime.getSnapshot().subject?.item.title, 'Stored title: Special Edition');
+  } finally {d.runtime.dispose();}
+});

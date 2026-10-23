@@ -40,7 +40,7 @@ const kindOf = (kind: string | undefined): DockPlayback['kind'] => kind === 'son
 const subjectOf = (entry: ContentEntry, detail?: DetailProjection): PlaybackSubject => {
   const item = detail?.item, episode = item?.episode;
   const card: CardSubject = {
-    id: entry.id, kind: entry.kind, title: entry.title,
+    id: entry.id, kind: entry.kind, title: entry.displayTitle || entry.title,
     artist: item?.song?.artist ?? entry.artist?.name, album: item?.song?.albumTitle ?? entry.album?.name,
     author: entry.author, durationSeconds: entry.duration,
     ...(episode ? {show: {id: episode.showId, title: episode.showTitle}, episode: episode.numbering === 'date' ? {mode: 'date' as const, day: episode.airDate} : episode.numbering === 'absolute' ? {mode: 'absolute' as const, number: episode.number} : episode.numbering === 'special' ? {mode: 'special' as const} : {mode: 'seasonal' as const, season: episode.seasonNumber ?? undefined, episode: episode.number}} : entry.episodeNumber === undefined ? {} : {episode: {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber}}),

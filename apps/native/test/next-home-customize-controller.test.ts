@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type {PersonalResource} from '../../../packages/client-core/src/personal-saved';
 import type {HomeLayoutView} from '../../../packages/client-core/src/home';
 import {NativeHomeCustomizeController} from '../src-next/screens/home/customize-controller';
 
@@ -77,4 +78,28 @@ test('late layout reads cannot publish over a newer read or a disposed screen', 
   assert.equal(controller.getSnapshot().revision, 9);
   controller.dispose();
   assert.equal(controller.pick('continue'), false);
+});
+
+
+test('adding an authorized saved view is a draft until Save and refuses retired resource grants', async () => {
+  const view: PersonalResource = {serverId: 'server', viewerFence: 'saved-domain-fence', id: 'view/resource', kind: 'view', name: 'Actual saved name', summary: 'Actual stored summary',
+    visibility: 'private', revision: 5, role: 'owner', entryCount: 4, actions: ['pin'], status: 'ready', invalidComponents: [], pinned: false, pinRevision: 2, shares: [],
+    definition: {libraryId: 'library', pivot: 'movies', query: null, sort: [{field: 'title', direction: 'asc'}], presentation: 'grid'}};
+  let resourceCurrent = true; const writes: unknown[] = [];
+  const controller = new NativeHomeCustomizeController({current: () => true, requestId: async () => 'save-request', savedViews: {serverId: 'server', isCurrent: candidate => resourceCurrent && candidate === view}, home: {
+    loadLayout: async () => layout(), resetLayout: async () => {}, saveLayout: async (order, hidden, _id, revision) => {writes.push({order, hidden, revision}); return layout();},
+  }});
+  await controller.load();
+  assert.equal(controller.addSavedView({...view, serverId: 'other-server'}), false);
+  assert.equal(controller.addSavedView(view), true);
+  assert.equal(controller.addSavedView(view), false);
+  assert.equal(controller.getSnapshot().rows.at(-1)?.title, 'Actual saved name');
+  assert.equal(writes.length, 0, 'choosing a view does not pin it or mutate the server');
+  resourceCurrent = false;
+  assert.equal(await controller.save(), false, 'retired resource authority cannot be saved from an old sheet');
+  assert.equal(writes.length, 0);
+  resourceCurrent = true;
+  assert.equal(await controller.save(), true);
+  assert.deepEqual(writes, [{order: ['continue', 'recommended', 'recent', 'view:view/resource'], hidden: [], revision: 7}]);
+  controller.dispose();
 });

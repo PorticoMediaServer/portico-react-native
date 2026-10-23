@@ -28,6 +28,8 @@ export type NativeShellSnapshot = Readonly<{
   hasLiveTV: boolean;
   profile: ProfileOption;
   unreadNotifications: boolean;
+  serverName?: string;
+  unreadNotificationCount?: number;
   account: Pick<AccountMenuProps, 'accountLine' | 'actions' | 'profiles' | 'viewerRole' | 'serverAction'>;
 }>;
 

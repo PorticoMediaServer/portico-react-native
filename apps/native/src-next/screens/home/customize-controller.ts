@@ -1,13 +1,17 @@
 import type {HomeLayoutRowView, HomeLayoutView} from '../../../../../packages/client-core/src/home';
+import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {HomeService} from '../../../../../packages/client-core/src/home-service';
+
+export type NativeHomeCustomizeRow = Readonly<Pick<HomeLayoutRowView, 'id' | 'title' | 'titleText' | 'availabilityText' | 'required' | 'hideable' | 'reorderable' | 'hidden'> & {savedView?: PersonalResource}>;
 
 export type NativeHomeCustomization = Readonly<{
   phase: 'loading' | 'ready' | 'error';
-  rows: readonly HomeLayoutRowView[];
+  rows: readonly NativeHomeCustomizeRow[];
   revision?: number;
   pending: boolean;
   dirty: boolean;
   pickedId?: string;
+  pickupOrder?: readonly string[];
   conflict: boolean;
   showConflict: boolean;
   error?: unknown;
@@ -16,6 +20,7 @@ type Ports = Readonly<{
   home: Pick<HomeService, 'loadLayout' | 'saveLayout' | 'resetLayout'>;
   current: () => boolean;
   requestId: () => Promise<string>;
+  savedViews?: Readonly<{serverId: string; isCurrent: (view: PersonalResource) => boolean}>;
 }>;
 const isConflict = (error: unknown) => {
   const failure = error as {status?: number; code?: string} | undefined;
@@ -60,7 +65,21 @@ export class NativeHomeCustomizeController {
   private accept(layout: HomeLayoutView): void {
     this.base = layout; this.pickedOrder = undefined;
     this.publish({phase: 'ready', rows: Object.freeze(layout.rows.map(row => Object.freeze({...row}))), revision: layout.revision,
-      pickedId: undefined, pending: false, conflict: false, showConflict: false, error: undefined});
+      pickedId: undefined, pickupOrder: undefined, pending: false, conflict: false, showConflict: false, error: undefined});
+  }
+  /** Adds the current server resource to the transient layout only. Save is
+   * the sole mutation; this never issues a separate pin or changes Saved. */
+  addSavedView = (view: PersonalResource): boolean => {
+    const access = this.ports.savedViews;
+    if (!this.editable() || this.state.pickedId || !access || view.serverId !== access.serverId || !access.isCurrent(view)
+      || view.kind !== 'view' || view.status !== 'ready' || !view.definition || view.onHome || !view.actions.includes('pin')) return false;
+    const id = `view:${view.id}`;
+    if (this.state.rows.some(row => row.id === id)) return false;
+    const row: NativeHomeCustomizeRow = Object.freeze({id, title: view.name, required: false, hideable: true, reorderable: true, hidden: false, savedView: view});
+    this.publish({rows: Object.freeze([...this.state.rows, row])}); return true;
+  };
+  private currentSavedViews(rows: readonly NativeHomeCustomizeRow[]): boolean {
+    return rows.every(row => !row.savedView || this.ports.savedViews?.isCurrent(row.savedView));
   }
   toggle = (id: string): boolean => {
     const row = this.state.rows.find(value => value.id === id);
@@ -72,7 +91,7 @@ export class NativeHomeCustomizeController {
     if (!this.editable() || !this.state.rows.some(row => row.id === id && row.reorderable)) return false;
     if (this.state.pickedId === id) {this.drop(); return true;}
     if (this.state.pickedId) return false;
-    this.pickedOrder = this.state.rows.map(row => row.id); this.publish({pickedId: id}); return true;
+    this.pickedOrder = Object.freeze(this.state.rows.map(row => row.id)); this.publish({pickedId: id, pickupOrder: this.pickedOrder}); return true;
   };
   move = (direction: -1 | 1): boolean => {
     if (!this.editable() || !this.state.pickedId) return false;
@@ -81,21 +100,22 @@ export class NativeHomeCustomizeController {
     [rows[from], rows[to]] = [rows[to], rows[from]];
     this.publish({rows: Object.freeze(rows)}); return true;
   };
-  drop = (): void => {if (this.editable()) {this.pickedOrder = undefined; this.publish({pickedId: undefined});}};
+  drop = (): void => {if (this.editable()) {this.pickedOrder = undefined; this.publish({pickedId: undefined, pickupOrder: undefined});}};
   cancelPickup = (): boolean => {
     if (!this.editable() || !this.state.pickedId || !this.pickedOrder) return false;
     const byId = new Map(this.state.rows.map(row => [row.id, row]));
     const rows = this.pickedOrder.map(id => byId.get(id)!);
-    this.pickedOrder = undefined; this.publish({rows: Object.freeze(rows), pickedId: undefined}); return true;
+    this.pickedOrder = undefined; this.publish({rows: Object.freeze(rows), pickedId: undefined, pickupOrder: undefined}); return true;
   };
   keepEditing = (): void => {if (this.editable()) this.publish({showConflict: false});};
   save = async (): Promise<boolean> => {
     if (!this.editable() || this.state.conflict || !this.state.dirty || this.state.pickedId || !this.base) return false;
+    if (!this.currentSavedViews(this.state.rows)) return false;
     const rows = this.state.rows, revision = this.base.revision, generation = this.generation;
     this.publish({pending: true, error: undefined});
     try {
       const requestId = await this.ports.requestId();
-      if (!this.current() || generation !== this.generation) return false;
+      if (!this.current() || generation !== this.generation || !this.currentSavedViews(rows)) {this.publish({pending: false}); return false;}
       await this.ports.home.saveLayout(rows.map(row => row.id), rows.filter(row => row.hidden).map(row => row.id), () => requestId, revision);
       if (!this.current() || generation !== this.generation) return false;
       const layout = await this.ports.home.loadLayout();
