@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#import <CommonCrypto/CommonDigest.h>
 
 NSString *const PorticoReaderOrigin=@"portico-reader://bundle/index.html";
 static const off_t ReaderAssetLimit=64LL*1024*1024;
@@ -25,6 +26,21 @@ static NSString *ReaderMIME(NSString *name){
  static NSDictionary *types;static dispatch_once_t once;
  dispatch_once(&once,^{types=@{@"html":@"text/html",@"js":@"text/javascript",@"mjs":@"text/javascript",@"css":@"text/css",@"json":@"application/json",@"map":@"application/json",@"wasm":@"application/wasm",@"png":@"image/png",@"jpg":@"image/jpeg",@"jpeg":@"image/jpeg",@"gif":@"image/gif",@"webp":@"image/webp",@"svg":@"image/svg+xml",@"woff":@"font/woff",@"woff2":@"font/woff2",@"ttf":@"font/ttf",@"otf":@"font/otf",@"txt":@"text/plain",@"pdf":@"application/pdf",@"epub":@"application/epub+zip",@"cbz":@"application/vnd.comicbook+zip"};});
  return types[name.pathExtension.lowercaseString];
+}
+static NSString *ReaderCSP(NSData *data,NSString *mime){
+ NSMutableString *scripts=[NSMutableString stringWithString:@"script-src 'self' blob:"];
+ if([mime isEqual:@"text/html"]){
+  // Hash only immutable bundled HTML's authored inline bootstrap. Do not
+  // enable arbitrary inline scripts in rendered book content.
+  NSString *html=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+  html=[[html stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
+  NSRegularExpression *tags=[NSRegularExpression regularExpressionWithPattern:@"<script\\b[^>]*>([\\s\\S]*?)</script\\s*>" options:NSRegularExpressionCaseInsensitive error:NULL];
+  for(NSTextCheckingResult *tag in [tags matchesInString:html?:@"" options:0 range:NSMakeRange(0,html.length)]){
+   NSData *body=[[html substringWithRange:[tag rangeAtIndex:1]] dataUsingEncoding:NSUTF8StringEncoding];unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256(body.bytes,(CC_LONG)body.length,digest);
+   [scripts appendFormat:@" 'sha256-%@'",[[NSData dataWithBytes:digest length:sizeof(digest)] base64EncodedStringWithOptions:0]];
+  }
+ }
+ return [NSString stringWithFormat:@"default-src 'none'; %@; worker-src 'self' blob:; connect-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; frame-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",scripts];
 }
 static NSData *ReaderRead(NSURL *root,NSURL *url,NSString **mime,NSError **error,BOOL(^cancelled)(void)){
  NSArray *parts=ReaderPath(url);NSString *type=ReaderMIME(parts.lastObject);
@@ -90,7 +106,7 @@ void PorticoConfigureReaderWebView(WKWebViewConfiguration *configuration){
     // Bundled assets contain no session or private book data. Custom-scheme
     // WebKit origins may serialize as null; never enable credentials here.
     @"Access-Control-Allow-Origin":@"*",
-    @"Content-Security-Policy":@"default-src 'none'; script-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; frame-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"};
+    @"Content-Security-Policy":ReaderCSP(data,mime)};
    NSHTTPURLResponse *response=[[NSHTTPURLResponse alloc] initWithURL:request.URL statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:headers];
    [state.task didReceiveResponse:response];
    if(state.cancelled)return;

@@ -58,6 +58,10 @@ int main(void){@autoreleasepool{
  check([headers[@"X-Content-Type-Options"] isEqual:@"nosniff"]&&[headers[@"Cache-Control"] isEqual:@"no-store"],"native origin response prevents sniffing and stale cache");
  check([headers[@"Content-Security-Policy"] containsString:@"default-src 'none'"]&&[headers[@"Content-Security-Policy"] containsString:@"worker-src 'self' blob:"],"local document has explicit script/worker isolation");
  check(!headers[@"Access-Control-Allow-Credentials"]&&!headers[@"Set-Cookie"],"public bundle asset handler adds no credentials or cookies");
+ [@"<!doctype html><script>window.testOnly=1;</script>" writeToURL:[root URLByAppendingPathComponent:@"inline.html"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+ ReaderTestTask *inlineTask=[ReaderTestTask new];inlineTask.request=[NSURLRequest requestWithURL:url(@"inline.html")];[handler webView:nil startURLSchemeTask:inlineTask];spin(^BOOL{return inlineTask.finished||inlineTask.error!=nil;});
+ NSString *inlinePolicy=[(NSHTTPURLResponse *)inlineTask.response allHeaderFields][@"Content-Security-Policy"];
+ check([inlinePolicy containsString:@"script-src 'self' blob: 'sha256-jIIuh1oiMj0EHN7rRnhC+sBs8oTMNs+4BdCenQIO2zo='"]&&![[inlinePolicy componentsSeparatedByString:@";"][1] containsString:@"unsafe-inline"],"only exact immutable HTML bootstrap hash permits inline script");
  ReaderTestTask *head=[ReaderTestTask new];NSMutableURLRequest *headRequest=[NSMutableURLRequest requestWithURL:url(@"index.html")];headRequest.HTTPMethod=@"HEAD";head.request=headRequest;
  [handler webView:nil startURLSchemeTask:head];spin(^BOOL{return head.finished||head.error!=nil;});
  check(head.finished&&head.bytes.length==0&&head.response.expectedContentLength==html.length,"HEAD reports real length without body");
