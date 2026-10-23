@@ -5,13 +5,15 @@ import type {GuideChannelRow} from '../../../../../packages/client-core/src/guid
 import {GuideWindowStore, type GuideViewport} from '../../../../../packages/client-core/src/guide/store';
 import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
 
-export type NativeLiveSnapshot = Readonly<{sources: readonly GuideSourceSummary[]; loading: boolean; error?: unknown; options: LegacyGuideOptions; revision: number; mutating: boolean; mutationError?: unknown}>;
+export type NativeLiveSnapshot = Readonly<{sources: readonly GuideSourceSummary[]; loading: boolean; error?: unknown; options: LegacyGuideOptions; view?: 'guide' | 'list'; revision: number; mutating: boolean; mutationError?: unknown}>;
 export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> {
   private store: GuideWindowStore;
   private viewport?: GuideViewport;
   private disposed = false;
   private refreshSources?: Promise<void>;
   private operationKeys = new Map<string, Promise<string>>();
+  // Per-factory UI state only. Accounts' committed same-record adapter is not bound yet.
+  private sourceChoices = new Map<string, Readonly<{view?: 'guide' | 'list'; sort?: LegacyGuideOptions['sort']}>>();
   readonly api: ChannelApi;
   readonly lifetime: NativeScreenLifetime;
   constructor(lifetime: NativeScreenLifetime, api: ChannelApi, timezone: string) {
@@ -25,14 +27,28 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     return new GuideWindowStore({source: legacyGuideSource(this.api, this.lifetime.authority.serverId, options), maxInFlight: 2, maxChannelPages: 4, maxTiles: 16});
   }
   get guide(): GuideWindowStore {return this.store;}
+  private sourceKey(options: LegacyGuideOptions): string {return JSON.stringify([options.kind, options.sourceId]);}
+  private remember(options: LegacyGuideOptions, view: NativeLiveSnapshot['view']): void {
+    const key = this.sourceKey(options);
+    this.sourceChoices.delete(key); this.sourceChoices.set(key, {view, sort: options.sort});
+    while (this.sourceChoices.size > 50) this.sourceChoices.delete(this.sourceChoices.keys().next().value!);
+  }
+  chooseView(view: 'guide' | 'list'): void {
+    this.lifetime.assert(); if (this.disposed) return;
+    const state = this.getSnapshot(); this.remember(state.options, view); this.publish({...state, view});
+  }
   setViewport(viewport: GuideViewport): void {if (this.disposed || !this.lifetime.current()) return; this.viewport = viewport; this.store.setViewport(viewport);}
   select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort'>>): void {
     this.lifetime.assert();
     if (this.disposed) return;
     this.store.dispose();
     const state = this.getSnapshot(), options = {...state.options, ...change};
+    const sourceChanged = this.sourceKey(options) !== this.sourceKey(state.options);
+    if (sourceChanged && change.sort === undefined) options.sort = this.sourceChoices.get(this.sourceKey(options))?.sort ?? 'number';
+    const view = sourceChanged ? this.sourceChoices.get(this.sourceKey(options))?.view : state.view;
+    this.remember(options, view);
     this.store = this.makeStore(options);
-    this.publish({...state, options, revision: state.revision + 1});
+    this.publish({...state, options, view, revision: state.revision + 1});
     if (this.viewport) this.store.setViewport({...this.viewport, firstRow: 0, lastRow: this.viewport.lastRow - this.viewport.firstRow});
   }
   loadSources(): Promise<void> {
@@ -74,5 +90,5 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     } catch (mutationError) {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutationError}); return undefined;}
     finally {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutating: false});}
   }
-  dispose(): void {if (this.disposed) return; this.disposed = true; this.store.dispose(); this.operationKeys.clear(); this.clearListeners();}
+  dispose(): void {if (this.disposed) return; this.disposed = true; this.store.dispose(); this.operationKeys.clear(); this.sourceChoices.clear(); this.clearListeners();}
 }

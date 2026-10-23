@@ -42,3 +42,4 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
 }
 
 export type {NativeLibraryActions, NativeLibrarySelectionPort} from './LibraryScreen';
+export type {NativeLibraryViewDraft} from './model';
