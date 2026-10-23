@@ -14,8 +14,9 @@ export function StateView({title, body, icon, tone = 'neutral', primaryAction, s
   const centered = variant === 'centered';
   const panel = variant === 'panel';
   const search = variant === 'search' && !tv;
-  const headingSize = tv ? centered ? 54 : panel ? 34 : 44 : search ? 22 : centered ? 30 : 26;
-  const bodySize = tv ? centered ? 26 : panel ? 22 : 24 : search ? 14 : 15;
+  const phoneSearch = search && theme.platform === 'phone';
+  const headingSize = tv ? centered ? 54 : panel ? 34 : 44 : search ? phoneSearch ? 24 : 22 : centered ? 30 : 26;
+  const bodySize = tv ? centered ? 26 : panel ? 22 : 24 : search ? phoneSearch ? 14.5 : 14 : 15;
   const iconSize = tv ? centered ? 112 : 88 : 54;
   const color = tone === 'warning' ? theme.colors.amber : tone === 'error' ? theme.colors.record : tone === 'accent' ? theme.colors.accentStrong : theme.colors.text;
   return <View testID={testID} style={[{alignItems: search ? 'stretch' : 'center', justifyContent: 'center', paddingHorizontal: search ? 0 : panel ? tv ? 48 : 24 : theme.gutter, paddingVertical: search ? 0 : tv ? panel ? 40 : 48 : 28,
@@ -23,8 +24,8 @@ export function StateView({title, body, icon, tone = 'neutral', primaryAction, s
     {icon && !search && <View style={{width: iconSize, height: iconSize, borderRadius: panel ? tv ? 24 : 14 : theme.baseRadii.pill, backgroundColor: panel ? theme.colors.raisedHigh : `${theme.colors.text}14`, alignItems: 'center', justifyContent: 'center', marginBottom: tv ? centered ? 30 : 22 : 18}}>
       <Icon name={icon} size={tv ? centered ? 54 : panel ? 44 : 38 : 26} color={color} />
     </View>}
-    <Text accessibilityRole="header" style={[nativeType({size: headingSize, lineHeight: headingSize * (search ? 1.2 : 1.08), weight: 800, tracking: panel ? -.02 : centered ? -.035 : -.03}, theme.textScale), {color: theme.colors.text, textAlign: search ? 'left' : 'center', marginBottom: search ? 6 : tv ? centered ? 14 : 10 : 10}]}>{title}</Text>
-    {body != null && <Text style={[nativeType({size: bodySize, lineHeight: bodySize * (panel ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale), {color: panel ? theme.colors.textTertiary : theme.colors.textSecondary, textAlign: search ? 'left' : 'center', maxWidth: tv ? panel ? 560 : 900 : 440, marginBottom: tv ? centered ? 40 : 26 : 20}]}>{body}</Text>}
+    <Text accessibilityRole="header" style={[phoneSearch ? {includeFontPadding: false} : undefined, nativeType({size: headingSize, lineHeight: headingSize * (phoneSearch ? 1.15 : search ? 1.2 : 1.08), weight: 800, tracking: panel ? -.02 : centered ? -.035 : -.03}, theme.textScale), {color: theme.colors.text, textAlign: search ? 'left' : 'center', marginBottom: search ? 6 : tv ? centered ? 14 : 10 : 10}]}>{title}</Text>
+    {body != null && <Text style={[phoneSearch ? {includeFontPadding: false} : undefined, nativeType({size: bodySize, lineHeight: bodySize * (panel ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale), {color: panel ? theme.colors.textTertiary : theme.colors.textSecondary, textAlign: search ? 'left' : 'center', maxWidth: tv ? panel ? 560 : 900 : 440, marginBottom: phoneSearch ? 0 : tv ? centered ? 40 : 26 : 20}]}>{body}</Text>}
     {children}
     <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: tv ? 18 : 10}}>
       {primaryAction && <StateActionButton testID={testID} action={primaryAction} size="hero" variant={panel ? 'glass' : 'primary'} />}

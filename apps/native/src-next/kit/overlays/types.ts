@@ -24,6 +24,8 @@ export type SurfaceProps = {
   titleType?: TypeStyle;
   titleTextStyle?: StyleProp<TextStyle>;
   descriptionTextStyle?: StyleProp<TextStyle>;
+  /** BottomSheet backdrop alpha; defaults to .64 unless a composition opts in. */
+  backdropOpacity?: number;
 };
 export type DialogProps = SurfaceProps & {
   size?: 'sm' | 'md' | 'lg';
