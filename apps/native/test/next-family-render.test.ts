@@ -14,6 +14,7 @@ import {dispatchMenuKey} from '../src-next/platform/menu-key.ts';
 // device layout, decoding, gestures and D-pad focus require Android evidence.
 const state = {
   theme: createTheme({isTV: false, width: 390}), fontFamilies, nativeType,
+  os: 'android' as 'android' | 'ios',
   slot: {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded() {}, failed() {}},
   timings: [] as {toValue: number; duration: number}[],
   workletTargets: [] as number[],
@@ -23,7 +24,7 @@ const data = (value: string) => `data:text/javascript,${encodeURIComponent(value
 const rnStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = data(`export * from ${JSON.stringify(rnStub)};
   export const View='View',Text='Text',Image='Image',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',VirtualizedList='VirtualizedList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
-  export const Platform={OS:'android',isTV:false},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
+  export const Platform={get OS(){return globalThis.__porticoFamilyRenderTest.os;},get isTV(){return globalThis.__porticoFamilyRenderTest.theme.isTV;}},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
   export const useWindowDimensions=()=>({width:globalThis.__porticoFamilyRenderTest.theme.width,height:globalThis.__porticoFamilyRenderTest.theme.isTV?1080:844,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0}};
@@ -418,6 +419,36 @@ test('real state galleries request initial TV focus only on TV, preserving the n
       finally {gallery.host.unmount();}
     }
   }
+});
+
+test('state icon glass uses the drawn overlay on Android and retains Apple material and TV fill', () => {
+  const previous = {theme: state.theme, os: state.os};
+  try {
+    for (const os of ['android', 'ios'] as const) {
+      state.os = os;
+      for (const isTV of [false, true]) {
+        state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+        const layout = mount(StateLayout, {title: 'Actual state', icon: 'i-download'});
+        try {
+          const blur = nodes(layout.tree).find(node => node.type === 'BlurView');
+          const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
+          assert.ok(disk);
+          assert.equal(disk.props.style.borderWidth, 1);
+          assert.equal(disk.props.style.borderColor, `${state.theme.colors.text}1F`);
+          assert.equal(disk.props.style.backgroundColor, os === 'android' && !isTV ? 'transparent' : `${state.theme.colors.text}1A`);
+          if (os === 'android' && isTV) {
+            assert.equal(blur, undefined, 'Android TV keeps the drawn translucent fill without video blur');
+          } else {
+            assert.ok(blur);
+            assert.equal(blur.props.blurAmount, 20);
+            assert.equal(blur.props.blurType, 'dark');
+            assert.equal(blur.props.overlayColor, os === 'android' ? `${state.theme.colors.text}1A` : undefined);
+            assert.equal(blur.props.reducedTransparencyFallbackColor, state.theme.colors.raised);
+          }
+        } finally {layout.host.unmount();}
+      }
+    }
+  } finally {state.theme = previous.theme; state.os = previous.os;}
 });
 
 function nativeFocusable(tree: ReactNode): Element {
