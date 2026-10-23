@@ -65,6 +65,19 @@ test('the refreshed tvOS lock belongs to the actual target-selecting Podfile', (
   assert.equal(/^PODFILE CHECKSUM: (\S+)$/m.exec(lock)?.[1], checksum);
 });
 
+test('installed WebView native code and its notice are iOS-only in the actual Apple Pod graphs', () => {
+  const ios = readFileSync(path.join(root, 'ios/Podfile.lock'), 'utf8');
+  const tvos = readFileSync(path.join(root, 'tvos/Podfile.lock'), 'utf8');
+  assert.match(ios, /^  - react-native-webview \(16\.0\.0\):$/m);
+  assert.doesNotMatch(tvos, /react-native-webview/);
+  const inventory = JSON.parse(readFileSync(path.join(root, 'src/licences/apple.json'), 'utf8'));
+  const entries = inventory.components.filter(component => component.name === 'react-native-webview');
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].only, ['ios']);
+  assert.equal(entries[0].licence, 'MIT');
+  assert.ok(inventory.texts[entries[0].text].includes('Permission is hereby granted'));
+});
+
 test('actual installed CLI selects the tvOS project without changing Android or other dependency declarations', () => {
   const cli = require.resolve('@react-native-community/cli/build/bin.js');
   const read = target => JSON.parse(execFileSync(process.execPath, [cli, 'config'], {
