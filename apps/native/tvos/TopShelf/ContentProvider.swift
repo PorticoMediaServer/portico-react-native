@@ -84,13 +84,8 @@ private final class PorticoShelfRead: NSObject, URLSessionDataDelegate {
 final class ContentProvider: TVTopShelfContentProvider {
   static let group = "group.tv.getportico.portico"
   private static let log = Logger(subsystem: "tv.getportico.portico.topshelf", category: "feed")
-  private static let maxContinue = 10, maxNext = 10, posterWidth = 400
-
-  private struct Feed: Decodable {
-    struct Entry: Decodable { let id: String; let title: String; let imageUrl: String?; let displayUrl: String; let playUrl: String?; let progressPercent: Int? }
-    struct Section: Decodable { let id: String; let title: String; let shape: String?; let entries: [Entry] }
-    let sections: [Section]
-  }
+  private static let posterWidth = 400
+  private typealias Feed = PorticoShelfFeed
 
   /// Reads the feed token the app stored in the keychain access group it shares with this
   /// extension (the app group identifier doubles as a keychain access group).
@@ -166,17 +161,17 @@ final class ContentProvider: TVTopShelfContentProvider {
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? body.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
       }
-      let (continuing, next) = Self.select(feed)
+      let rows = feed.selectedRows()
       // Posters: whatever is cached is used now; missing ones are fetched for up to ~6 s, and any
       // that arrive later refresh the shelf on its next load.
-      let missing = (continuing + (next?.entries ?? [])).filter { entry in
+      let missing = rows.flatMap(\.entries).filter { entry in
         guard entry.imageUrl != nil, let file = Self.posterURL(entry.id, cache: cache) else { return false }
         return !FileManager.default.fileExists(atPath: file.path)
       }
       Self.fetchPosters(missing, origin: origin, owner: owner, token: token, cache: cache, budget: 6) {
         guard Self.isCurrent(origin: origin, owner: owner) else { completionHandler(nil); return }
-        let content = Self.content(continuing: continuing, next: next, cache: cache)
-        log.notice("feed drawn: \(continuing.count, privacy: .public) continue, \(next?.entries.count ?? 0, privacy: .public) next")
+        let content = Self.content(rows: rows, cache: cache)
+        log.notice("feed drawn: \(rows.count, privacy: .public) rows")
         completionHandler(content)
       }
     }
@@ -185,19 +180,6 @@ final class ContentProvider: TVTopShelfContentProvider {
   private static func isCurrent(origin: URL, owner: String) -> Bool {
     let defaults = UserDefaults(suiteName: group)
     return defaults?.string(forKey: "topshelf.baseUrl") == origin.absoluteString && (defaults?.string(forKey: "topshelf.owner") ?? "") == owner
-  }
-
-  /// Continue Watching from the server's `continue` row, and the next row of the viewer's Home
-  /// that has something Continue Watching does not already show, under that row's own title.
-  private struct Next { let title: String; let entries: [Feed.Entry] }
-  private static func select(_ feed: Feed) -> ([Feed.Entry], Next?) {
-    let continuing = Array((feed.sections.first(where: { $0.id == "continue" })?.entries ?? []).prefix(maxContinue))
-    let seen = Set(continuing.map(\.id))
-    for section in feed.sections where section.id != "continue" {
-      let entries = Array(section.entries.filter { !seen.contains($0.id) }.prefix(maxNext))
-      if !entries.isEmpty { return (continuing, Next(title: section.title, entries: entries)) }
-    }
-    return (continuing, nil)
   }
 
   private static func fetchPosters(_ entries: [Feed.Entry], origin: URL, owner: String, token: String, cache: URL?, budget: TimeInterval, done: @escaping () -> Void) {
@@ -257,7 +239,7 @@ final class ContentProvider: TVTopShelfContentProvider {
   private static func item(_ entry: Feed.Entry, section: String, cache: URL?) -> TVTopShelfSectionedItem? {
     guard let display = URL(string: entry.displayUrl), display.scheme == "portico" else { return nil }
     let item = TVTopShelfSectionedItem(identifier: section + "/" + entry.id)
-    item.title = entry.title
+    item.title = entry.tileTitle
     item.imageShape = .poster
     // A tile without a poster would show the system's loading dots; leave it out until its
     // poster has arrived (the shelf refreshes when it does).
@@ -269,13 +251,13 @@ final class ContentProvider: TVTopShelfContentProvider {
     return item
   }
 
-  private static func content(continuing: [Feed.Entry], next: Next?, cache: URL?) -> TVTopShelfContent? {
+  private static func content(rows: [Feed.Row], cache: URL?) -> TVTopShelfContent? {
     var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
-    for (id, title, entries) in [("continue", "Continue Watching", continuing), ("next", next?.title ?? "", next?.entries ?? [])] {
-      let items = entries.compactMap { item($0, section: id, cache: cache) }
+    for row in rows {
+      let items = row.entries.compactMap { item($0, section: row.section.id, cache: cache) }
       guard !items.isEmpty else { continue }   // an empty section is left out, never shown as dots
       let collection = TVTopShelfItemCollection(items: items)
-      collection.title = title
+      collection.title = row.section.localizedTitle { PorticoSystemText.text(code: $0, params: $1) }
       sections.append(collection)
     }
     return sections.isEmpty ? nil : TVTopShelfSectionedContent(sections: sections)
