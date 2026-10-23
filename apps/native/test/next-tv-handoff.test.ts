@@ -36,7 +36,7 @@ test('TV hand-off URLs contain only a public address, including the real profile
   }
 });
 
-test('Forgot PIN reuses the drawn QR/link part and returns through the actual Back owner', async () => {
+test('signed-in profile management reuses the drawn QR/link part and returns through the actual Back owner', async () => {
   const calls: string[] = [], listeners = new Set<() => boolean>();
   const {TVManagementHandoff} = await handoffModule({...React, default: React}, {
     addEventListener: (_name: string, listener: () => boolean) => {listeners.add(listener); return {remove: () => listeners.delete(listener)};},
@@ -46,7 +46,7 @@ test('Forgot PIN reuses the drawn QR/link part and returns through the actual Ba
   const host = createHookHost(() => {tree = TVManagementHandoff({url, onBack: () => calls.push('back')});});
   await act(() => host.mount());
   try {
-    assert.deepEqual(calls, [], 'showing the hand-off never changes the account or resets its PIN');
+    assert.deepEqual(calls, [], 'showing the hand-off never invokes an account action');
     assert.equal(nodes(tree).find(node => node.type === 'QR').props.value, url);
     assert.equal(nodes(tree).filter(node => node.type === 'TextInput' || node.type === 'Button').length, 0);
     const address = nodes(tree).find(node => node.type === 'Text' && node.props.style?.fontWeight === '700');
@@ -55,7 +55,50 @@ test('Forgot PIN reuses the drawn QR/link part and returns through the actual Ba
     tree.props.onAccessibilityEscape();
     assert.deepEqual(calls, ['back', 'back']);
   } finally {host.unmount();}
-  assert.equal(listeners.size, 0, 'the departed PIN owner retains no hardware Back handler');
+  assert.equal(listeners.size, 0, 'the departed management view retains no hardware Back handler');
+});
+
+test('unsigned Forgot PIN has the profile why, public QR, one initially focused Back and no setup or credential action', async () => {
+  const callbacks: string[] = [], entries: unknown[][] = [], listeners = new Set<() => boolean>();
+  const {TVForgotPINHandoff} = await handoffModule({...React, default: React}, {
+    addEventListener: (_name: string, listener: () => boolean) => {listeners.add(listener); return {remove: () => listeners.delete(listener)};},
+  }, (...args) => entries.push(args));
+  const props = {profileName: 'Actual profile', url: 'https://server.example/settings/profile', body: 'account.tvHandoffTitle', onBack: () => callbacks.push('back')};
+  let tree: any;
+  const host = createHookHost(() => {tree = scope(TVForgotPINHandoff, props);});
+  await act(() => host.mount());
+  try {
+    assert.deepEqual(callbacks, [], 'displaying this variant has no session-retirement or automatic-continue callback');
+    assert.equal(tree.props.eyebrow, props.profileName);
+    assert.equal(tree.props.portico, false, 'there is no terms line');
+    assert.equal(tree.props.heading, 'Forgot PIN?');
+    assert.equal(tree.props.body, defaultI18n.t('account.tvHandoffTitle'));
+    const card = nodes(tree.props.aside);
+    assert.equal(card.find(node => node.type === 'QR').props.value, props.url);
+    assert.equal(card.filter(node => node.type === 'Text').length, 2, 'no device sign-in code is present');
+    assert.ok(card.some(node => node.props.children === 'server.example/settings/profile'));
+    assert.ok(card.some(node => node.props.children === defaultI18n.t('next.auth.tv.handoffHint')));
+    assert.ok(!nodes([tree, tree.props.aside]).some(node => node.type === 'TextInput'));
+    const buttons = nodes(tree).filter(node => node.type === 'Button');
+    assert.equal(buttons.length, 1);
+    assert.equal(buttons[0].props.variant, undefined, 'Back uses the primary recipe');
+    assert.equal(buttons[0].props.children, defaultI18n.t('action.back'));
+    assert.deepEqual(entries[0]![1], {regionId: 'tv.auth.profile.forgot-pin', childId: 'back'});
+    buttons[0].props.onPress(); assert.deepEqual(callbacks, ['back']);
+    assert.equal([...listeners][0]!(), true); assert.deepEqual(callbacks, ['back', 'back']);
+  } finally {host.unmount();}
+  assert.equal(listeners.size, 0);
+  assert.deepEqual(callbacks, ['back', 'back'], 'unmount is not a sign-out or cancellation action');
+});
+
+test('unsigned Forgot PIN rejects code/credential/query hand-offs instead of drawing them at picker level', async () => {
+  const h = hooks(), {TVForgotPINHandoff} = await handoffModule(h.react, {});
+  const props = {profileName: 'Actual profile', body: 'account.tvHandoffTitle', onBack() {}};
+  for (const url of ['https://server.example/account', 'https://server.example/settings?scope=account&section=profile',
+    'https://server.example/settings/profile?token=private', 'https://server.example/settings/profile#grant',
+    'https://username:password@server.example/settings/profile']) {
+    assert.throws(() => h.render(() => scope(TVForgotPINHandoff, {...props, url})));
+  }
 });
 
 for (const requirement of ['password', 'two-step'] as const) test(`required ${requirement} stays a public-only hand-off with explicit retry and no sign-in code`, async () => {
