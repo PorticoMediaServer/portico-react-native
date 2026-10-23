@@ -26,6 +26,10 @@ test('the Library descriptor requires the actual authorized ID and never supplie
     const element = renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {});
     assert.equal(element.props.destination.getSnapshot().library.id, 'real-id'); assert.equal(element.props.selection, undefined);
     assert.equal(element.props.activation, activation); assert.equal(element.props.owner, true);
+    libraries = [{id: 'real-id', name: 'Actual renamed library', kind: 'movie'}];
+    const renamed = renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {});
+    assert.equal(renamed.props.destination.getSnapshot().library.name, 'Actual renamed library');
+    assert.notEqual(renamed.props.destination, element.props.destination, 'old header/model callbacks retire when the actual library metadata changes');
     platform.isTV = true;
     for (const kind of ['book', 'comic', 'books']) {
       libraries = [{id: 'reading', name: 'Actual reading library', kind}];

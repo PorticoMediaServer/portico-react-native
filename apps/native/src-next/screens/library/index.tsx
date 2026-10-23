@@ -22,7 +22,7 @@ export type NativeLibraryRendererPorts = Readonly<{
  * ID returns no screen here; the shell's authorized overview handles it. */
 export function createNativeLibraryRenderer(context: NativeShellBootstrapContext, ports: NativeLibraryRendererPorts): NativeRouteRenderer & {dispose: () => void} {
   const lifetime = nativeDestinationLifetime(context);
-  let disposed = false, selected: Readonly<{id: string; destination: NativeLibraryDestination; actions: NativeLibraryActions; selection?: NativeLibrarySelectionPort}> | undefined;
+  let disposed = false, selected: Readonly<{id: string; kind: string; name: string; destination: NativeLibraryDestination; actions: NativeLibraryActions; selection?: NativeLibrarySelectionPort}> | undefined;
   const retireSelected = () => {selected?.actions.dispose?.(); selected?.destination.dispose(); selected = undefined;};
   const current = () => !disposed && lifetime.current();
   const directory = new NativeLibraryDirectory({api: context.api, current});
@@ -31,11 +31,11 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
       if (!current() || route.kind !== 'shell' || route.destination.kind !== 'library') return null;
       const id = route.destination.libraryId, library = context.libraries().find(value => value.id === id);
       if (!library || Platform.isTV && hiddenReadingLibraryOnTV(library.kind)) {retireSelected(); return null;}
-      if (selected?.id !== id) {
+      if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name) {
         retireSelected();
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,
           current: () => current() && context.libraries().some(value => value.id === id && value.kind === library.kind)});
-        selected = {id, destination, actions: typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions, selection: ports.selection?.(destination)};
+        selected = {id, kind: library.kind, name: library.name, destination, actions: typeof ports.actions === 'function' ? ports.actions(destination) : ports.actions, selection: ports.selection?.(destination)};
       }
       return <LibraryScreen key={id} destination={selected.destination} runtime={runtime} directory={directory} libraries={context.libraries()}
         activation={ports.activation(id)} labels={ports.labels} actions={selected.actions} selection={selected.selection} owner={context.session()?.viewer.role === 'owner'}/>;
