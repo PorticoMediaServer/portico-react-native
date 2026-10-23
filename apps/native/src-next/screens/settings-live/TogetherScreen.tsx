@@ -26,7 +26,6 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const region = ids.surface('together');
-  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'start'} : undefined, controller.lifetime.current);
   const group = state.group;
   const [sheet, setSheet] = useState<'start' | 'join'>(), [name, setName] = useState(''), [code, setCode] = useState('');
   const [typing, setTyping] = useState<'name' | 'code' | 'who'>(), [typingRevision, setTypingRevision] = useState(0), [typingIntent, setTypingIntent] = useState<'enter' | 'restore'>('enter');
@@ -39,7 +38,7 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
-  if (room && state.phase === 'ended') return <Screen><StateView testID="together-ended" variant="centered" icon="i-people" title={t('web.together.endedTitle')} body={t(group.endedReason === 'host-ended' ? 'web.together.ended.host' : group.endedReason === 'host-unavailable' ? 'web.together.ended.away' : 'web.together.ended.other')} primaryAction={{id: 'lobby', label: t('web.together.backToLobby'), onPress: () => controller.dismiss()}}/></Screen>;
+  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason}/>;
   if (room) return <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
@@ -47,7 +46,7 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
   return <Screen title={t('entry.group.together')}>
     <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 64}}>
       {state.error && <Banner message={state.error} tone="warning"/>}
-      <FocusRegion id={region} entry="start" orientation="free" edges={{left: ids.rail}} onLayout={enter}>
+      <TogetherLobbyRegion controller={controller} region={region} rail={ids.rail}>
         <View style={{width: theme.isTV ? 1180 : '100%', backgroundColor: theme.colors.raised, borderRadius: theme.isTV ? 28 : 18, paddingHorizontal: theme.isTV ? 56 : 24, paddingTop: theme.isTV ? 48 : 24, paddingBottom: theme.isTV ? 52 : 24, gap: theme.isTV ? 0 : 18, overflow: 'hidden'}}>
           <TogetherLobbyArt itemId={state.directory[0]?.timeline.itemId} controller={controller} ports={ports} runtime={runtime}/>
           <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: theme.isTV ? 28 : 18, borderWidth: 1.5, borderColor: alpha(theme.colors.text, .08)}}/>
@@ -67,7 +66,7 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
             <View style={{width: theme.isTV ? 56 : 32, height: theme.isTV ? 56 : 32, borderRadius: theme.isTV ? 14 : 8, backgroundColor: alpha(theme.colors.text, .08), alignItems: 'center', justifyContent: 'center'}}><Icon name="i-people" size={theme.isTV ? 32 : 24} color={theme.colors.textSecondary}/></View><View style={{flex: 1, gap: theme.isTV ? 3 : 8}}><Text style={[shellType(theme.isTV ? 28 : 15, 700), {color: theme.colors.text}]}>{value.name}</Text><SpacedStatus size={theme.isTV ? 22 : undefined} tertiary text={t('web.together.groupLine', {count: value.members.filter(member => member.state === 'joined').length, state: t(value.timeline.state === 'playing' ? 'web.together.state.playing' : value.timeline.state === 'paused' ? 'web.downloads.state.paused' : 'web.together.state.lobby')})}/></View>{value.permissions.isHost && <Text style={[shellType(theme.isTV ? 22 : 15, 600), {color: theme.colors.textSecondary}]}>{t('web.together.youHost')}</Text>}<Icon name="i-right" size={theme.isTV ? 28 : 24} color={theme.colors.textSecondary}/>
           </Focusable>)}
         </View>}
-      </FocusRegion>
+      </TogetherLobbyRegion>
       {state.directoryError && <Banner message={state.directoryError} tone="warning"/>}
     </ScrollView>
     <Dialog testID="together-form" open={sheet !== undefined} onOpenChange={open => {if (!open) {setSheet(undefined); setTyping(undefined);}}} headerContext={<ScreenText secondary>{t('entry.group.together')}</ScreenText>} title={t(sheet === 'join' ? 'web.together.joinWithCode' : 'web.together.startTitle')} description={t(sheet === 'join' ? 'web.together.joinHelp' : 'web.together.startHelp')} placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? sheet === 'join' || typing ? 1240 : 760 : undefined} initialFocusRef={theme.isTV ? typing ? undefined : firstTVField : firstField} returnFocusRef={sheet === 'join' ? joinRef : startRef} footer={<Button testID="together-submit" onFocus={() => {if (sheet === 'start') setTyping(undefined);}} loading={busy} disabled={busy || (sheet === 'join' ? code.replace(/[\s-]/g, '').length !== 8 : !name.trim())} onPress={() => run(async () => {const ok = sheet === 'join' ? await controller.join(code, who) : await controller.create(name, who, authority); if (ok && controller.lifetime.current()) {setSheet(undefined); setTyping(undefined);}})}>{t(sheet === 'join' ? 'web.together.join' : 'web.together.start')}</Button>}>
@@ -83,6 +82,32 @@ export function NativeTogetherScreen({controller, ports, runtime}: {controller: 
         {sheet === 'start' && <View style={{gap: theme.isTV ? 8 : 12}}><Text style={[shellType(theme.isTV ? 20 : 15, 700), {color: theme.colors.textTertiary}]}>{t('web.together.whoControls')}</Text><Segmented testID="together-authority" accessibilityLabel={t('web.together.whoControls')} value={authority} onValueChange={value => setAuthority(value as GroupHostAuthority)} items={(['host-only', 'anyone'] as const).map(value => ({value, label: t(value === 'host-only' ? 'web.together.onlyMe' : 'web.together.everyone')}))} itemProps={item => ({testID: `together-authority-${item.value}`, onFocus: () => setTyping(undefined)})}/></View>}
       </FocusRegion>{theme.isTV && typing && <NativeTVKeyboard id={keyboard} value={typing === 'code' ? code : typing === 'name' ? name : who} onChangeText={value => {if (typing === 'code') setCode(value.toUpperCase().slice(0, 12)); else if (typing === 'name') setName(value.slice(0, 80)); else setWho(value.slice(0, 64));}} activation={{visible: sheet !== undefined, intent: typingIntent, revision: typingRevision}} leftRegionId={fieldsRegion} width={500} testID="together-keyboard"/>}</View>
     </Dialog>
+  </Screen>;
+}
+
+/** This region remounts on return from a room/ended screen. Its entry request must
+ * follow that real native host's layout rather than reuse the old lobby's request. */
+function TogetherLobbyRegion({controller, region, rail, children}: {controller: NativeTogetherController; region: string; rail: string; children: React.ReactNode}) {
+  const theme = useTheme();
+  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'start'} : undefined, controller.lifetime.current);
+  return <FocusRegion id={region} entry="start" orientation="free" edges={{left: rail}} onLayout={enter}>{children}</FocusRegion>;
+}
+
+function TogetherEndedScreen({controller, reason}: {controller: NativeTogetherController; reason: string}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), region = ids.surface('together.ended');
+  const [height, setHeight] = useState(0);
+  const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'together-ended-lobby'} : undefined, controller.lifetime.current);
+  const body = t(reason === 'host-ended' ? 'web.together.ended.host' : reason === 'host-unavailable' ? 'web.together.ended.away' : reason === 'empty' ? 'web.together.ended.empty' : 'web.together.ended.other');
+  return <Screen style={theme.isTV ? {paddingLeft: 0, paddingRight: 0, paddingTop: 0, alignItems: 'center', justifyContent: 'center'} : undefined}>
+    <FocusRegion id={region} entry="together-ended-lobby" edges={{left: ids.rail}} onLayout={event => {setHeight(event.nativeEvent.layout.height); enter();}} style={theme.isTV ? {width: 900, alignItems: 'center', transform: [{translateY: height * -.02}]} : undefined}>
+      {theme.isTV ? <>
+        <View testID="together-ended" style={{width: 112, height: 112, borderRadius: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .08), marginBottom: 30}}><Icon name="i-people" size={54} color={theme.colors.textSecondary}/></View>
+        <Text accessibilityRole="header" style={[shellType(54, 800, 58.32, -.035), {color: theme.colors.text, textAlign: 'center', marginBottom: 14}]}>{t('web.together.endedTitle')}</Text>
+        <Text style={[shellType(26, 400, 39), {color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 40}]}>{body}</Text>
+        <Button focusId="together-ended-lobby" testID="together-ended-lobby" onPress={() => controller.dismiss()}>{t('web.together.backToLobby')}</Button>
+      </> : <StateView testID="together-ended" variant="centered" icon="i-people" title={t('web.together.endedTitle')} body={body} primaryAction={{id: 'lobby', testID: 'together-ended-lobby', label: t('web.together.backToLobby'), onPress: () => controller.dismiss()}}/>}
+    </FocusRegion>
   </Screen>;
 }
 
@@ -182,7 +207,7 @@ function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherC
       ...(canControl && state.queue?.entries.some(value => value.entryId === queueMenu && !value.unavailable && !!value.itemId) ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => run(() => controller.transport('load', {entryId: queueMenu}))}] : []),
       ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => run(() => controller.queueRemove(queueMenu))}] : []),
     ] : []}/>
-    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const ended = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (ended && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
+    <Dialog open={confirm !== undefined} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} testID="together-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: theme.isTV ? 18 : 16}}><Button ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const ended = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (ended && controller.lifetime.current()) setConfirm(undefined);})}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
   </Screen>;
 }
 
