@@ -1,9 +1,11 @@
-import React, {useEffect, useRef, useState, type ReactNode} from 'react';
+import React, {useEffect, useRef, useState, type ReactNode, type RefObject} from 'react';
 import {Pressable, StyleSheet, Text, View, type PressableProps, type StyleProp, type TextStyle, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
+import {useTouchHold} from '../browse/useTouchHold';
+import {selectionHaptic} from '../../platform/haptics';
 import {registerFocusedMenu} from '../../platform/menu-key';
 import {Icon, type IconName} from '../Icon';
 import {SelectionHoldFeedback} from '../selection/index';
@@ -28,50 +30,41 @@ export type CardNativeProps = Omit<PressableProps, 'children' | 'style' | 'onPre
   captionTextStyle?: StyleProp<TextStyle>;
   menuVisibility?: 'hover' | 'always';
   /** Visibility is independent from selection/focus and cancels offscreen artwork slots. */
+  moreExpanded?: boolean;
+  menuAnchorRef?: RefObject<View | null>;
+  pressableStyle?: StyleProp<ViewStyle>;
   visible?: boolean;
   priority?: boolean;
 };
 export type CardProps = CardNativeProps & CardActions;
 type Interaction = {focused: boolean; hovered: boolean; pressed: boolean; holding: boolean};
-const selectionHoldMs = 500;
 
 /** One root TV focus target. Images and secondary affordances never register Menu. */
-export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, focusable, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
+export function CardFrame({children, overlay, title, primaryAction, onNavigate, onPlay, onMore, selection, width, style, onFocus, onBlur, disabled, accessibilityLabel, testID, focusId, focusable, moreExpanded, pressableStyle, menuAnchorRef, ...native}: CardProps & {children: (state: Interaction) => ReactNode; overlay?: (state: Interaction) => ReactNode}) {
   const theme = useTheme(), motion = useMotion();
   const eligible = !disabled && focusable !== false;
-  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !eligible});
+  const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: !eligible, ref: menuAnchorRef});
   const [focused, setFocused] = useState(false), [hovered, setHovered] = useState(false), [pressed, setPressed] = useState(false);
-  const [holdFeedback, setHoldFeedback] = useState<{x: number; y: number; progress: number} | null>(null);
-  const holdFrame = useRef<number | undefined>(undefined);
-  const owner = useRef({}), menuRegistration = useRef<(() => void) | undefined>(undefined), held = useRef(false), scale = useSharedValue(1);
-  const canHoldSelect = !disabled && !waiting && !theme.isTV && !!selection && !selection.active;
-  const holding = holdFeedback !== null && canHoldSelect;
+  const owner = useRef({}), menuRegistration = useRef<(() => void) | undefined>(undefined), tvHeld = useRef(false), scale = useSharedValue(1);
   const actions = {primaryAction, onNavigate, onPlay, onMore, selection} as CardActions;
-  const clearHold = () => {
-    if (holdFrame.current !== undefined) cancelAnimationFrame(holdFrame.current);
-    holdFrame.current = undefined;
-    setHoldFeedback(null);
-  };
-  useEffect(() => () => {if (holdFrame.current !== undefined) cancelAnimationFrame(holdFrame.current);}, []);
-  useEffect(() => {
-    if (canHoldSelect) return;
-    if (holdFrame.current !== undefined) cancelAnimationFrame(holdFrame.current);
-    holdFrame.current = undefined;
-    setHoldFeedback(null);
-  }, [canHoldSelect]);
+  const touch = useTouchHold(() => {
+    if (!selection?.active && onMore) void selectionHaptic();
+    holdCard(actions, false);
+  }, !disabled && !waiting && !theme.isTV && (!!onMore || !!selection?.active));
+  const holding = touch.phase === 'pending';
   useEffect(() => {
     menuRegistration.current?.();
     menuRegistration.current = focused && !disabled && !waiting && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
     return () => {menuRegistration.current?.(); menuRegistration.current = undefined;};
   }, [focused, disabled, waiting, onMore, theme.isTV]);
   useEffect(() => {
-    const next = !motion.transforms || disabled ? 1 : theme.isTV && focused ? theme.spec.focus.scale.card.tv : pressed && !holding && !held.current ? 0.97 : 1;
+    const next = !motion.transforms || disabled ? 1 : theme.isTV && focused ? theme.spec.focus.scale.card.tv : pressed && theme.isTV ? 0.97 : 1;
     scale.value = withTiming(next, motion.timing('quick'));
   }, [focused, pressed, holding, disabled, theme.isTV, theme.spec.focus.scale.card.tv, motion, scale]);
   const animated = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const label = waiting ? defaultI18n.t('next.selection.native.loading') : accessibilityLabel ?? title;
-  return <Animated.View style={[{width, zIndex: holding ? 4 : undefined}, style, animated]}>
-    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} testID={binding.testID} disabled={disabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
+  const frame = <Animated.View style={[{width}, theme.isTV && style, animated]}>
+    <Pressable {...binding} {...nativePressableProps(native)} ref={binding.ref} style={pressableStyle} testID={binding.testID} disabled={disabled} focusable={eligible} accessibilityRole="button" accessibilityLabel={label}
       accessibilityState={{...native.accessibilityState, busy: waiting || native.accessibilityState?.busy, disabled: disabled ?? native.accessibilityState?.disabled, ...(selection?.active ? {selected: selection.selected} : {})}}
       accessibilityActions={waiting ? [] : [
         ...(native.accessibilityActions ?? []),
@@ -87,40 +80,29 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
         else if (name === 'select') selection?.active ? selection.onToggle() : selection?.onEnter();
         else native.onAccessibilityAction?.(event);
       }}
-      onPress={() => {if (!waiting && !held.current) activateCard(actions);}}
-      delayLongPress={!theme.isTV && selection ? selectionHoldMs : native.delayLongPress}
-      onLongPress={() => {if (waiting) return; held.current = true; clearHold(); holdCard(actions, theme.isTV);}}
-      onPressIn={event => {
-        held.current = false; setPressed(true); clearHold();
-        if (!canHoldSelect) return;
-        const {locationX: x, locationY: y} = event.nativeEvent, started = performance.now();
-        setHoldFeedback({x, y, progress: 0});
-        const measure = () => {
-          const progress = Math.max(0, Math.min(1, (performance.now() - started) / selectionHoldMs));
-          setHoldFeedback(current => current && {...current, progress});
-          holdFrame.current = progress < 1 ? requestAnimationFrame(measure) : undefined;
-        };
-        holdFrame.current = requestAnimationFrame(measure);
-      }}
-      onPressOut={() => {setPressed(false); clearHold();}}
-      onTouchMove={event => {
-        const {locationX: x, locationY: y} = event.nativeEvent;
-        setHoldFeedback(current => current && {...current, x, y});
-        native.onTouchMove?.(event);
-      }}
+      {...touch.handlers}
+      onTouchStart={event => {touch.handlers.onTouchStart(event); native.onTouchStart?.(event);}}
+      onTouchMove={event => {touch.handlers.onTouchMove(event); native.onTouchMove?.(event);}}
+      onTouchEnd={event => {touch.handlers.onTouchEnd(); native.onTouchEnd?.(event);}}
+      onTouchCancel={event => {touch.handlers.onTouchCancel(); native.onTouchCancel?.(event);}}
+      onPress={() => {if (!waiting && !tvHeld.current && !touch.consumePress()) activateCard(actions);}}
+      delayLongPress={native.delayLongPress}
+      onLongPress={theme.isTV ? () => {if (!waiting) {tvHeld.current = true; holdCard(actions, true);}} : undefined}
+      onPressIn={() => {tvHeld.current = false; setPressed(true);}}
+      onPressOut={() => {setPressed(false); touch.end();}}
       onFocus={() => {
         binding.onFocus();
         menuRegistration.current?.();
         menuRegistration.current = !disabled && !waiting && onMore && theme.isTV ? registerFocusedMenu(owner.current, onMore) : undefined;
         setFocused(true); onFocus?.();
       }}
-      onBlur={() => {binding.onBlur(); menuRegistration.current?.(); menuRegistration.current = undefined; setFocused(false); onBlur?.();}}
+      onBlur={() => {binding.onBlur(); menuRegistration.current?.(); menuRegistration.current = undefined; setFocused(false); touch.cancel(); onBlur?.();}}
       onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
       {children({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled, holding})}
     </Pressable>
     {!waiting && overlay?.({focused: focused && !disabled, hovered: hovered && !disabled, pressed: pressed && !disabled, holding})}
-    {holding && holdFeedback && <SelectionHoldFeedback active progress={holdFeedback.progress} style={{position: 'absolute', left: holdFeedback.x - 42.5, top: holdFeedback.y - 42.5, zIndex: 10}} />}
   </Animated.View>;
+  return theme.isTV ? frame : <SelectionHoldFeedback active={holding || !selection?.active && (touch.phase === 'fired' || !!moreExpanded)} progress={touch.phase === 'fired' || moreExpanded ? 1 : 0} style={[{width, zIndex: holding || moreExpanded ? 4 : undefined}, style]}>{frame}</SelectionHoldFeedback>;
 }
 
 /** Geometry belongs to the art, so focusing a poster never outlines its caption. */
@@ -130,9 +112,9 @@ export function ArtFrame({children, width, height, radius, focused, selected, ho
   const waiting = useFocusWaiting();
   const t = useTheme(), motion = useMotion(), scale = useSharedValue(1), focusOpacity = useSharedValue(0), selectionOpacity = useSharedValue(0);
   useEffect(() => {
-    scale.value = withTiming(motion.transforms && holding ? 1.07 : motion.transforms && hovered && !selected ? hoverScale ?? t.spec.card.hover.artScale : 1, motion.timing('hover'));
+    scale.value = withTiming(motion.transforms && !holding && hovered && !selected ? hoverScale ?? t.spec.card.hover.artScale : 1, motion.timing('hover'));
     focusOpacity.value = withTiming(focused ? 1 : 0, motion.timing('quick'));
-    selectionOpacity.value = withTiming(selected || holding ? 1 : 0, motion.timing('quick'));
+    selectionOpacity.value = withTiming(selected ? 1 : 0, motion.timing('quick'));
   }, [focused, hovered, holding, hoverScale, selected, t.spec.card.hover.artScale, motion, scale, focusOpacity, selectionOpacity]);
   const artStyle = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
   const focusStyle = useAnimatedStyle(() => ({opacity: focusOpacity.value}));
