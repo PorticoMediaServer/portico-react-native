@@ -31,11 +31,12 @@ export function homeBrowseLabel(value: {id: string; labelKey?: string}): string 
  * their actual playback targets retain their independent server identities. */
 export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen, onPlayEntry, onMenu, onFilters, onReshuffle, kindLabel, selection}: {
   controller: NativeHomeRowController; runtime: NativeShellRuntime; active: boolean;
-  onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry) => void; onPlayEntry: (entry: ContentEntry) => void;
+  onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry) => void; onPlayEntry: (entry: ContentEntry, current: () => boolean) => void;
   onMenu?: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
+  const visible = useRef(active); visible.current = active;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const data = useSyncExternalStore(controller.collection.subscribe, controller.collection.getSnapshot);
   const entered = useRef(false), gridId = `home-see-all:${authorityKey(runtime.getSnapshot().authority)}:${controller.rowId}`;
@@ -85,7 +86,10 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
           gap={tv ? 32 : 12} rowGap={tv ? 40 : 22} gutter={gutter} rightGutter={tv ? 96 : theme.gutter} paddingBottom={40} style={{flex: 1}} testID="home-see-all-grid"
           renderPlaceholder={index => <SkeletonBlock key={index} width={width} height={width * 1.5}/>}
           renderItem={(item, cell) => <FocusItem focusId={item.membershipId}><HomeRowCard entry={item.entry} runtime={runtime} width={width} onFocus={cell.onFocus} onBlur={cell.onBlur}
-            onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}} onPlay={() => {if (controller.isCurrentItem(item, cell.index)) onPlayEntry(item.entry);}}
+            onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}} onPlay={() => {
+              const current = () => visible.current && controller.isCurrentItem(item, cell.index);
+              if (current()) onPlayEntry(item.entry, current);
+            }}
             onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/></FocusItem>}/>
       }
     </FocusRegion>

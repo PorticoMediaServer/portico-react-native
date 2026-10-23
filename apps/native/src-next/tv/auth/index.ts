@@ -7,5 +7,5 @@ export type {TVVerificationFormProps} from './TVVerificationForm';
 export {TVProfilePINForm} from './TVProfilePINForm';
 export type {TVProfilePINFormProps} from './TVProfilePINForm';
 export {TVNumericPad, TVCodeBoxes} from './TVNumericPad';
-export {TVRequiredSetupHandoff, TVManagementHandoff} from './TVHandoff';
-export type {TVRequiredSetupHandoffProps} from './TVHandoff';
+export {TVRequiredSetupHandoff, TVManagementHandoff, TVForgotPINHandoff} from './TVHandoff';
+export type {TVRequiredSetupHandoffProps, TVForgotPINHandoffProps} from './TVHandoff';
