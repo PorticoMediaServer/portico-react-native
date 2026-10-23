@@ -19,10 +19,11 @@ import {NativePorticoSignIn} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
-import {TVCredentialForm, TVCodePresenter, TVVerificationForm} from '../../tv/auth';
+import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff} from '../../tv/auth';
 
-type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv' | 'tv-credentials';
-type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'};
+type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
+type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
+type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'} | RequiredSetup;
 const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
@@ -37,6 +38,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   const [servers, setServers] = useState<HostedServer[]>([]), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
   const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
+  const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
   const [nearby, setNearby] = useState<readonly {origin: string; server: ServerSignIn}[]>([]);
   const lifetime = useRef(true), operation = useRef<NativeServerSignIn | undefined>(undefined), account = useRef<NativePorticoSignIn | undefined>(undefined);
   const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
@@ -81,13 +83,18 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setError(undefined); setStage(initialStage);};
   const back = () => {
-    if (Platform.isTV && (stage === 'tv-credentials' || stage === 'factor')) {void run(returnToTVCode); return;}
+    if (Platform.isTV && (stage === 'tv-credentials' || stage === 'factor' || stage === 'tv-required-setup')) {void run(returnToTVCode); return;}
     if (stage === initialStage) onBack?.(); else reset();
   };
   useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {if (busy || adoptingTV.current) return true; if (stage === 'welcome' && !onBack) return false; back(); return true;}); return () => listener.remove();});
   const consume = (result: Result) => {
     if (!lifetime.current) return;
-    if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
+    if (result.kind === 'required-setup') {
+      if (!Platform.isTV) throw Object.assign(new Error('native_required_account_setup'), {code: 'access_refused'});
+      setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setProfiles([]); setProfile(undefined);
+      setRequiredSetup(result); setStage('tv-required-setup');
+    }
+    else if (result.kind === 'profiles') {setServer(operation.current!.serverDescriptor()); setProfiles(result.profiles); setStage('profiles');}
     else if (result.kind === 'challenge') {factorKind.current = 'local'; setCode(''); setRecovery(false); setStage('factor');}
     else onComplete();
   };
@@ -127,7 +134,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     const available = await next.prepare(); if (lifetime.current) {setOptions(available); setStage('portico');}
   };
   const inspect = async (origin = address) => {
-    operation.current?.dispose(); const next = operation.current = new NativeServerSignIn();
+    operation.current?.dispose(); const next = operation.current = new NativeServerSignIn(nativeAccounts, {requiredSetupHandoff: Platform.isTV});
     const value = await next.inspect(origin); if (!lifetime.current) return;
     if (next.needsIdentityCode()) {
       routeOrigin(origin); identityOrigin.current = origin;
@@ -164,7 +171,7 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   };
   const returnToTVCode = async () => {
     account.current?.dispose(); account.current = undefined;
-    setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false);
+    setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setRequiredSetup(undefined);
     if (tvKind === 'local') await inspect(address); else await startTV('portico');
   };
   const submitTVFactor = async (value: string) => {
@@ -179,6 +186,10 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   const failure = error ? presentError(error, 'sign-in') : undefined;
   const status = failure ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
+  if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
+    requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
+    copy={{body: requiredSetup.requirement === 'password' ? 'next.auth.tv.requiredPasswordBody' : 'next.auth.tv.requiredTwoStepBody', reference: 'next.auth.tv.handoffHint'}}
+    onSignInAgain={() => {if (!busy) {setRequiredSetup(undefined); setError(undefined); setStage('tv-credentials');}}} onBack={back}/>;
   if (Platform.isTV && stage === 'tv-credentials') return <TVCredentialForm {...(tvKind === 'local'
     ? {kind: 'local' as const, serverName: server!.name}
     : {kind: 'portico' as const, usernamePlaceholder: 'auth.usernameOrEmailPlaceholder' as const})}
