@@ -49,3 +49,14 @@ test('failed actual request exposes retry state and can recover without changing
     assert.equal(panel.getSnapshot().phase, 'ready'); assert.equal(current.session.presentation.audioTrackId, 'chosen');
   } finally {panel.dispose();}
 });
+test('external subtitle rows use only the actual current plan resources and retain unavailable offers', () => {
+  const current = source();
+  current.subtitles = {suppressed: false, plan: {sessionId: 'session', generation: 3, sourceId: 'v2', resources: [
+    {id: 'sidecar', sourceId: 'v2', enabled: true}, {id: 'unavailable', sourceId: 'v2', enabled: false}, {id: 'wrong-source', sourceId: 'v1', enabled: true},
+  ]}};
+  current.session.presentation.subtitle.trackId = 'sidecar';
+  const rows = nativeWatchPanelRows(current, parseOptions(offers), names).subtitles;
+  assert.deepEqual(rows.map(row => [row.id, row.selected, row.unavailable === true]), [['first', false, false], ['chosen', false, false], ['sidecar', true, false], ['unavailable', false, true]]);
+  current.subtitles.plan.generation++;
+  assert.deepEqual(nativeWatchPanelRows(current, parseOptions(offers), names).subtitles.map(row => row.id), ['first', 'chosen']);
+});

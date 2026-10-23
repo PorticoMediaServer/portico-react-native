@@ -16,4 +16,4 @@ export {NativeWatchPanels} from './WatchPanels';
 export type {NativeWatchPanelsProps} from './WatchPanels';
 export {NativeWatchPanelOptions} from './panel-options';
 export {nativeWatchPanelRows} from './panel-model';
-export type {NativeWatchPanelNames, NativeWatchChoiceName, NativeWatchChoiceRow} from './panel-model';
+export type {NativeWatchPanelNames, NativeWatchChoiceName, NativeWatchChoiceRow, NativeWatchSubtitleOffer} from './panel-model';

@@ -29,7 +29,7 @@ test('real panel renderer sends exact selected-source track/quality commands, bl
     let source: any = {retired: false, fence, dock: {local: {fence, expanded: true}}, options,
       playback: {positionSeconds: 2}, supportedRates: [1, 1.5], effectiveRate: 1,
       session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'chosen', quality: {mode: 'original'}}}};
-    let context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, layout: {mode: 'watch'}, runtime: {},
+    let context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, layout: {mode: 'watch'}, runtime: {text: {locale: 'en-US'}},
       renderer: {width: tv ? 1920 : 390, height: tv ? 1080 : 844, scale: 1},
       closePanel() {}, backPanel() {}, openPanel: (panel: string) => {context = {...context, state: {...context.state, panel}};}, rememberPanel() {}};
     const controller = {getSnapshot: () => snapshot, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}, load: async () => {}, clear() {}};

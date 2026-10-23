@@ -57,6 +57,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const ready = choices.phase === 'ready' && sameFence(choices.fence, fence) ? choices.options : undefined;
   const rows = ready ? nativeWatchPanelRows(source, ready, names) : undefined;
   const selected = nativeWatchTracks(source);
+  const rateLabel = (rate: number) => rate === 1 ? t('player.opt.normalSpeed') : `${new Intl.NumberFormat(context.runtime.text.locale, {maximumFractionDigits: 2}).format(rate)}×`;
   const labels: Record<Exclude<NativeWatchPanel, 'episodes'>, string> = {options: t('player.opt.menu'), audio: t('title.audio'), subtitles: t('player.opt.subtitles'),
     quality: t('player.opt.quality'), speed: t('player.opt.speed'), chapters: t('player.opt.chapters'), 'playback-info': t('player.opt.info')};
   const chooseRow = <T,>(row: NativeWatchChoiceRow<T>, action: (value: T) => Promise<void>, preferred: boolean) => <Focusable key={row.id} ref={preferred ? first : undefined}
@@ -92,7 +93,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   else if (state.panel === 'audio') body = <>{list(rows.audio, track => playback.change(fence, {audioTrackId: track.id}))}{footer(names.audioFooter(source))}</>;
   else if (state.panel === 'subtitles') body = list([{id: 'off', primary: t('player.opt.off'), selected: selected.subtitlesOff, value: null}, ...rows.subtitles], track => playback.change(fence, {subtitleTrackId: track?.id ?? null}));
   else if (state.panel === 'quality') body = <>{list(rows.qualities, quality => playback.chooseQuality(fence, quality))}{footer(names.qualityFooter(source))}</>;
-  else if (state.panel === 'speed') body = list(source.supportedRates.map(rate => ({id: String(rate), primary: rate === 1 ? t('player.opt.normalSpeed') : `${rate}×`, selected: source.effectiveRate === rate, value: rate})), async rate => {playback.setRate(fence, rate);});
+  else if (state.panel === 'speed') body = list(source.supportedRates.map(rate => ({id: String(rate), primary: rateLabel(rate), selected: source.effectiveRate === rate, value: rate})), async rate => {playback.setRate(fence, rate);});
   else if (state.panel === 'chapters') body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
   const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
     focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" onPress={() => {if (current()) context.openPanel(panel);}}
@@ -108,7 +109,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {state.panel === 'audio' && expandedBody}
     {option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
     {state.panel === 'quality' && expandedBody}
-    {option('speed', 'i-gauge', source.effectiveRate === 1 ? t('player.opt.normalSpeed') : `${source.effectiveRate}×`)}
+    {option('speed', 'i-gauge', rateLabel(source.effectiveRate))}
     {state.panel === 'speed' && expandedBody}
     {!!ready?.chapters.length && option('chapters', 'i-queue')}
     {state.panel === 'chapters' && expandedBody}

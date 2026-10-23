@@ -28,7 +28,7 @@ export type NativeWatchHostContext = Readonly<{
 /** Genuine producer labels/settings and the owned content/panel renderers. No
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
-  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets'>;
+  chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'onPanel' | 'edgeInsets' | 'tvPanelRight'>;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   panel: (context: NativeWatchHostContext) => React.ReactNode;
