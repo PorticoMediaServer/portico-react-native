@@ -1,5 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
-import {Text, View} from 'react-native';
+import {StyleSheet, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {HomeSelectionController} from '../../../../packages/client-core/src/home-selection/index';
 import type {EntryActionId} from '../../../../packages/client-core/src/presentation/entry-actions';
@@ -12,6 +12,7 @@ import {Button} from '../kit/controls/Button';
 import {Focusable} from '../kit/controls/Focusable';
 import {Artwork} from '../kit/artwork';
 import {Icon, type IconName} from '../kit/Icon';
+import {ServerMark} from '../kit/shell';
 import {useTheme} from '../kit/theme';
 import {selectionHaptic} from '../platform/haptics';
 import {memberTitle} from './selection-display';
@@ -21,6 +22,7 @@ import type {NativeShellRuntime} from './runtime';
 import {tvFocusIds} from './tv-focus';
 
 const t = defaultI18n.t;
+const styles = StyleSheet.create({deletePhoneHeader: {paddingHorizontal: 20, paddingTop: 6, paddingBottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8}});
 const icons: Record<EntryActionId, IconName> = {play: 'i-play', resume: 'i-play', playFromStart: 'i-restart', playNext: 'i-listplus', addToQueue: 'i-queue',
   watchWithGroup: 'i-people', addToGroupQueue: 'i-queue', watchlist: 'i-bookmark', favorite: 'i-heart', watched: 'i-check', removeFromContinueWatching: 'i-x', notInterested: 'i-eyeoff', rate: 'i-star',
   addToPlaylist: 'i-listplus', addToCollection: 'i-layers', download: 'i-download', details: 'i-info', editMetadata: 'i-edit', refreshMetadata: 'i-refresh', separateArtist: 'i-link', delete: 'i-trash'};
@@ -77,7 +79,8 @@ export function HomeSelectionOverlays({controller, runtime, ownerTag, reportErro
     <HomeBulkEditor controller={controller} runtime={runtime} reportError={reportError}/>
     <MixedEditExplainer testID={ids?.surface('mixed-edit')} open={state.mixedEdit} onOpenChange={open => {if (!open) controller.closeEditor();}} description={description} total={count} groups={groups}
       onKeepOnly={kind => {controller.keepOnly(kind as SelectionKind);}}/>
-    {state.deletion && <DeleteMediaDialog testID={ids?.surface('delete')} open onOpenChange={open => {if (!open) controller.closeDelete();}} ownerHeader={ownerTag}
+    {state.deletion && <DeleteMediaDialog testID={ids?.surface('delete')} open onOpenChange={open => {if (!open) controller.closeDelete();}}
+      ownerHeader={theme.layoutMode === 'phone' ? <View style={styles.deletePhoneHeader}><ServerMark variant="editorPhone"/>{ownerTag}</View> : ownerTag}
       owner={runtime.getSnapshot().account.viewerRole === 'owner'} selectionCount={count} preview={state.deletion.preview} loading={state.deletion.phase === 'loading'} error={error(state.deletion.error)}
       result={state.deletion.result ?? undefined} confirmation={state.deletion.confirmation} onConfirmationChange={value => controller.setDeleteConfirmation(value)}
       removeFiles={state.deletion.removeFiles} onRemoveFilesChange={value => controller.setDeleteRemoveFiles(value)} pending={state.deletion.phase === 'deleting'}

@@ -19,6 +19,19 @@ const React = require(join(
   dirname(require.resolve('react')),
   'cjs/react.production.js',
 ));
+// Native accessibility labels inherit rendered descendant text when none is explicit.
+const nativeText = node =>
+  Array.isArray(node)
+    ? node.map(nativeText).join('')
+    : typeof node === 'string'
+    ? node
+    : typeof node === 'function'
+    ? nativeText(node({pressed: false}))
+    : node?.props
+    ? nativeText(node.props.children)
+    : '';
+const nativeLabel = host =>
+  host.props.accessibilityLabel ?? nativeText(host.children);
 const data = source => `data:text/javascript,${encodeURIComponent(source)}`;
 const globalKey = '__porticoStandardHomeNativeBoundary';
 const before = {
@@ -260,10 +273,13 @@ const loader = registerHooks({
  * resolve from source unchanged; no runtime prop or business facade is supplied.
  * Native secure records contain synthetic test credentials, never device state.
  */
-/** @param {{setup?: boolean, mountUI?: boolean, setupResponse?: (request: any, fixture: any) => Promise<any>}} options */
+/** @param {{setup?: boolean, mountUI?: boolean, accountRole?: 'owner' | 'member', deleteCapability?: boolean, nativeResponse?: (request: any, fixture: any) => Promise<any>, setupResponse?: (request: any, fixture: any) => Promise<any>}} options */
 export async function standardHomeApp({
   setup = false,
   mountUI = true,
+  accountRole = 'member',
+  deleteCapability = false,
+  nativeResponse,
   setupResponse,
 } = {}) {
   const {FakePlaybackServer} = await import(
@@ -306,7 +322,7 @@ export async function standardHomeApp({
       accountId: 'account',
       profileId: 'profile',
       authority: 'local',
-      role: 'member',
+      role: accountRole,
     };
   const session = {
     accessToken: 'fixture_access_only',
@@ -370,6 +386,7 @@ export async function standardHomeApp({
       collection: true,
       myList: true,
       details: true,
+      delete: accountRole === 'owner' && deleteCapability,
       state: {
         watchlisted: false,
         favorite: false,
@@ -378,7 +395,13 @@ export async function standardHomeApp({
         personalRevision: 1,
         containerRevision: 1,
       },
-      selection: {play: true, queue: true, collection: true, myList: true},
+      selection: {
+        play: true,
+        queue: true,
+        collection: true,
+        myList: true,
+        delete: deleteCapability,
+      },
     },
   });
   const homeRow = () => ({
@@ -483,6 +506,15 @@ export async function standardHomeApp({
         },
       };
     }
+    if (nativeResponse) {
+      const response = await nativeResponse(request, {
+        pin,
+        viewer,
+        installationId,
+        origin,
+      });
+      if (response) return response;
+    }
     if (setup && setupResponse) {
       const response = await setupResponse(request, {
         pin,
@@ -514,12 +546,12 @@ export async function standardHomeApp({
         body: {
           authority: 'local',
           serverId: pin.serverId,
-          canManage: false,
+          canManage: accountRole === 'owner',
           account: {
             id: 'account',
             username: 'fixture_member',
             primaryProfileId: 'profile',
-            role: 'member',
+            role: accountRole,
             revision: 1,
             disabled: false,
             allowedLibraries: ['movies'],
@@ -785,6 +817,9 @@ export async function standardHomeApp({
   return {
     requests,
     receipts,
+    setDeleteCapability: value => {
+      deleteCapability = value;
+    },
     // Synthetic native store only; never connected to device authentication.
     syntheticStorage: () => ({
       selected: selected ? JSON.parse(selected) : null,
@@ -811,6 +846,7 @@ export async function standardHomeApp({
     errors,
     nativeErrors,
     hosts: () => [...state.hosts.values()],
+    nativeLabel,
     settle,
     homeDoc,
     card,
@@ -836,9 +872,7 @@ export async function standardHomeApp({
     },
     async tapLabel(label) {
       const target = [...state.hosts.values()].find(
-        value =>
-          value.name === 'Pressable' &&
-          value.props.accessibilityLabel === label,
+        value => value.name === 'Pressable' && nativeLabel(value) === label,
       );
       if (!target) throw Error('Missing native host label: ' + label);
       target.props.onPress({nativeEvent: {}, stopPropagation() {}});
