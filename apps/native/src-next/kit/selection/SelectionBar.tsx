@@ -49,7 +49,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
       description={entry.description ?? (menu === 'queue' ? selectionText(entry.id === 'playNext' ? 'next.selection.native.queueNextDescription' : 'next.selection.native.queueLaterDescription') : entry.id === 'edit' ? defaultI18n.t('next.selection.moreEditDescription', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})}) : undefined)}
       style={owner ? {paddingHorizontal: 14, paddingVertical: 6} : undefined} onPress={() => {if (!entry.disabled) {entry.onSelect(); props.onMenuChange(null);}}} />;
     const owners = actionItems.filter(entry => ownerActions.includes(entry.id as SelectionAction));
-    return <SelectionSurface testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
+    return <SelectionSurface compactHeader testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
       title={menu === 'queue' ? selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})}) : props.menuTitle ?? defaultI18n.t('next.selection.selectedItems', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}
       description={menu === 'queue' ? selectionText('next.selection.native.queueOrder') : undefined} initialFocusRef={queueFirst} returnFocusRef={props.returnFocusRef ?? retainedReturn.current}>
       {actionItems.filter(entry => !ownerActions.includes(entry.id as SelectionAction)).map(entry => row(entry))}
