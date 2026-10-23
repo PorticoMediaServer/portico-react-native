@@ -5,7 +5,7 @@ import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import type {FactPart} from '../../../../../packages/client-core/src/presentation/kit-model/index';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {useTouchHold} from '../browse/useTouchHold';
-import {selectionHaptic} from '../../platform/haptics';
+import {touchMenuHaptic} from '../../platform/haptics';
 import {registerFocusedMenu} from '../../platform/menu-key';
 import {Icon, type IconName} from '../Icon';
 import {SelectionHoldFeedback} from '../selection/index';
@@ -48,7 +48,7 @@ export function CardFrame({children, overlay, title, primaryAction, onNavigate, 
   const owner = useRef({}), menuRegistration = useRef<(() => void) | undefined>(undefined), tvHeld = useRef(false), scale = useSharedValue(1);
   const actions = {primaryAction, onNavigate, onPlay, onMore, selection} as CardActions;
   const touch = useTouchHold(() => {
-    if (!selection?.active && onMore) void selectionHaptic();
+    if (!selection?.active && onMore) void touchMenuHaptic();
     holdCard(actions, false);
   }, !disabled && !waiting && !theme.isTV && (!!onMore || !!selection?.active));
   const holding = touch.phase === 'pending';
