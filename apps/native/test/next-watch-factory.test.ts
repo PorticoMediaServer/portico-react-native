@@ -7,6 +7,8 @@ import {localV1Http} from '../../../packages/client-core/src/playback-v1/local-h
 import {sameFence, playbackFence, type PlaybackFence} from '../../../packages/player-core/src/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
+import {NativeTitleController} from '../src-next/screens/watch/title-controller.ts';
+import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
@@ -19,7 +21,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
-  './title-controller': {NativeTitleController: class {}}, './TitleScreen': {NativeTitleScreen: 'Title'},
+  './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
   './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
@@ -30,7 +32,7 @@ const offered = {itemId: 'episode', versions: [{id: 'v1'}, {id: 'v2'}]};
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  let bound = authority, revision = 3, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
+  let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true}}, playback: {intent: 'playing'}};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
@@ -39,12 +41,14 @@ function fixture(hasDestination = true) {
   });
   const subscribe = (listeners: Set<() => void>) => (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};};
   const screens = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
-    subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route: {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}}), subscribe: subscribe(routeListeners), back() {}},
-    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners)}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
+    subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
+    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
     startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
   return {screens, requests, menus, versions, starts, errors,
+    holdStart: (held: Promise<void>) => {holdStart = held;},
+    title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
     source: (next: PlaybackFence) => {source = {...source, fence: next}; for (const listener of playbackListeners) listener();},
     route: () => {revision++; for (const listener of routeListeners) listener();},
@@ -134,4 +138,17 @@ test('menu forwards the measured card ref and retains the real owner lifetime', 
     memberCurrent = false; await d.menus[0][1].fileInfo();
     assert.equal(d.requests.length, 1);
   } finally {d.screens.dispose();}
+});
+
+test('actual title controller start receives pure current route/member lifetime and navigation aborts its pending command', async () => {
+  const d = fixture(), held = deferred<void>(); d.holdStart(held.promise);
+  try {
+    const title = d.title(), pending = title.props.controller.play();
+    const input = d.starts[0]; assert.equal(input.target.startSeconds, 17);
+    assert.equal(input.lifetime.isCurrent(), true); assert.equal(input.lifetime.signal.aborted, false);
+    // The runtime's own new accepted output is not a caller retirement.
+    d.source(fence); assert.equal(input.lifetime.isCurrent(), true); assert.equal(input.lifetime.signal.aborted, false);
+    d.route(); assert.equal(input.lifetime.signal.aborted, true); assert.equal(input.lifetime.isCurrent(), false);
+    held.resolve(); await pending;
+  } finally {held.resolve(); d.screens.dispose();}
 });
