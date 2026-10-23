@@ -5,6 +5,7 @@ import {PlaybackDock, sameFence, type ChannelPlaybackFence, type DockPlayback, t
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
+import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
 import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import {act, createHookHost} from './hook-driver.ts';
@@ -79,7 +80,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const visual = {alpha: () => '#000', DockFacts: 'DockFacts', dockStyles: {fill: {position: 'absolute', inset: 0}}, dockType: () => ({})};
   const common = {react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture, GestureDetector: 'GestureDetector'},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
-    '../Icon': {Icon: 'Icon'}, './visual': visual, './model': model};
+    '../Icon': {Icon: 'Icon'}, './visual': visual, './model': model, '../../platform/layout/player-presentation': {playerPostureCrossFadeMs}};
   const {selectionHaptic} = await screenModule(new URL('../src-next/platform/haptics.ts', import.meta.url), {react, 'react-native': native});
   const {usePlayerMorph, PlayerMorph} = await screenModule(new URL('../src-next/kit/dock/PlayerMorph.tsx', import.meta.url), {...common, './morph-fence': {currentMorphFence}});
   const {useDockPresence} = await screenModule(new URL('../src-next/kit/dock/useDockPresence.ts', import.meta.url), common);
@@ -331,8 +332,10 @@ for (const reduced of [false, true]) test(`actual live channel collapse hosts ho
       await r.complete(dismiss); assert.equal(r.actions.length, 1); assert.ok(sameFence(r.actions[0].fence, channelFence));
     } finally {r.close();}
 });
-for (const docked of [false, true]) for (const snapshotDuringProgress of [false, true]) test(`reduced goal consumes one picture fade across actual intermediate progress (fromDocked=${docked}, snapshot=${snapshotDuringProgress})`, async () => {
-  const r = await rig({reduced: true, docked: true});
+// Apple composes through ancestor opacity. Android's retained-image fade is
+// exercised below; a SurfaceView cannot use this live-layer opacity contract.
+for (const docked of [false, true]) for (const snapshotDuringProgress of [false, true]) test(`Apple reduced goal consumes one picture fade across actual intermediate progress (fromDocked=${docked}, snapshot=${snapshotDuringProgress})`, async () => {
+  const r = await rig({reduced: true, docked: true, os: 'ios'});
     try {
       await measuredPicture(r, docked); // Persist the previous settled sample before changing the goal.
       const before = r.animations.length;
@@ -356,8 +359,8 @@ for (const docked of [false, true]) for (const snapshotDuringProgress of [false,
       assert.equal(fade.owner.value, .65); await r.complete(fade); assert.equal(fade.owner.value, 1);
     } finally {r.close();}
 });
-test('genuine reduced drag and ACTIVE cancel returning to the same goal each fade once after transition consumption', async () => {
-  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true});
+test('Apple reduced drag and ACTIVE cancel returning to the same goal each fade once after transition consumption', async () => {
+  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true, os: 'ios'});
     try {
       await measuredPicture(r, false);
       r.dock.collapse(fence); const before = r.animations.length; await r.render();
@@ -380,8 +383,8 @@ test('genuine reduced drag and ACTIVE cancel returning to the same goal each fad
     } finally {r.close();}
   }
 });
-test('genuine reduced drag during its goal timing remains a new fade run, including ACTIVE cancel', async () => {
-  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true});
+test('Apple reduced drag during its goal timing remains a new fade run, including ACTIVE cancel', async () => {
+  for (const success of [false, true]) {const r = await rig({reduced: true, docked: true, os: 'ios'});
     try {
       await measuredPicture(r, true);
       const before = r.animations.length; r.dock.expand(fence); await r.render();
@@ -406,11 +409,11 @@ async function pausedCancel() {
   await r.layout();
   for (const animation of r.animations) if (!animation.cancelled) animation.apply?.();
   await r.motionTick(0);
-  await r.picture({androidSnapshot: {fence, image: 'paused-current-frame'}});
+  await r.picture({androidSnapshot: {fence, image: 'paused-current-frame', ready: true}});
   const parentRenders = r.parentRenders, presentations = r.presentations.length;
   const surface = elements(r.pictureTree).find(node => node.type === r.Surface);
   const pan = () => elements(r.barTree).find(node => node.type === 'GestureDetector').props.gesture.gestures[1];
-  const fades = () => r.animations.filter(value => value.owner !== r.controller().progress && !value.complete && value.to === 1);
+  const fades = () => r.animations.filter(value => value.owner !== r.controller().progress && value.complete && value.to === 0);
   const before = fades().length;
   const event = {translationY: -160, velocityY: -100};
   pan().callbacks.onBegin(); pan().callbacks.onUpdate(event); await r.motionTick(16);
@@ -443,14 +446,18 @@ for (const ordering of ['completion-before-derivative', 'derivative-before-compl
     returning.complete?.(true); await r.motionTick(192);
     assert.equal(r.controller().velocity.value, 0, 'only current completion supplies terminal zero after the endpoint');
     assert.equal(fades().length, before + 1, 'the cancelled drag consumes exactly one return fade');
-    assert.equal(r.presentations.at(-1).moving, false);
-    assert.equal(r.presentations.slice(presentations).filter(value => !value.moving).length, 1);
-    assert.ok(!elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'), 'retained preview is retired');
+    assert.equal(r.presentations.at(-1).moving, true, 'retain the real image through its outgoing fade');
+    assert.ok(elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'));
+    assert.equal(elements(r.pictureTree).find(node => node.type === r.Surface).props.surfaceActive, true, 'same live producer is active beneath the outgoing image');
     assert.strictEqual(elements(r.pictureTree).find(node => node.type === r.Surface).type, surface.type);
     assert.deepEqual(elements(r.pictureTree).find(node => node.type === r.Surface).props.dockBounds, surface.props.dockBounds);
     const fade = fades().at(-1)!; fade.sample?.(.6);
     returning.complete?.(true); await r.motionTick(208); await r.motionTick(224);
     assert.equal(fades().length, before + 1); assert.equal(fade.owner.value, .6, 'duplicate completion cannot replay opacity');
+    await r.complete(fade); await r.motionTick(240);
+    assert.equal(r.presentations.at(-1).moving, false);
+    assert.equal(r.presentations.slice(presentations).filter(value => !value.moving).length, 1);
+    assert.ok(!elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'), 'retire the retained image after its one outgoing fade');
     assert.equal(r.parentRenders, parentRenders, 'no layer sync/render or playback fact update rescued settlement');
     assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
   } finally {r.close();}
@@ -480,8 +487,10 @@ test('obsolete progress completion cannot settle a newer drag, source, goal, ret
       if (stop === 'new-drag') {
         assert.equal(r.presentations.at(-1).moving, true); assert.equal(fades().length, before);
         current.complete?.(true); await r.motionTick(192);
-        assert.equal(r.controller().velocity.value, 0); assert.equal(r.presentations.at(-1).moving, false);
+        assert.equal(r.controller().velocity.value, 0); assert.equal(r.presentations.at(-1).moving, true);
         assert.equal(fades().length, before + 1, 'the newer run can still complete once');
+        await r.complete(fades().at(-1)!); await r.motionTick(208);
+        assert.equal(r.presentations.at(-1).moving, false);
       }
       assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
     } finally {r.close();}

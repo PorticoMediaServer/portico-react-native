@@ -4,6 +4,7 @@ import * as React from 'react';
 import {sameFence, type PlaybackFence} from '../../../packages/player-core/src/index.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
+import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -171,6 +172,29 @@ test('Q7 bounds-only changes preserve the actual Surface host/ref/owner/tag/subs
   assert.equal(d.detachments, 1);
 });
 
+test('composition admission toggles the same Android producer without detaching its owner or changing lease/ref/tag', async () => {
+  const d = await surfaceFixture();
+  await d.publish({engine: 'native', lease: 'retained-lease', fence});
+  const props = {expandedBounds: frame, dockBounds: dockFrame, docked: false, subtitlesVisible: true, surfaceActive: true};
+  const surface = mount(d.adapter.Surface, props), type = surface.tree.type, ref = surface.tree.props.ref;
+  ref({tag: 71});
+  try {
+    await act(() => surface.update({...props, surfaceActive: false}));
+    assert.equal(surface.tree.props.surfaceActive, false, 'the common occlusion signal must reach the native producer gate');
+    assert.equal(flatten(surface.tree.props.style).display, 'flex', 'composition alone cannot retire the mounted host geometry');
+    assert.equal(surface.tree.props.lease, 'retained-lease');
+    assert.strictEqual(surface.tree.props.ref, ref);
+    assert.strictEqual(surface.tree.type, type);
+    assert.equal(d.tags.length, 1);
+    assert.equal(d.attachments, 1);
+    assert.equal(d.detachments, 0);
+    await act(() => surface.update(props));
+    assert.equal(surface.tree.props.surfaceActive, true);
+    assert.equal(d.subscriptions, 1);
+  } finally {ref(null); surface.host.unmount();}
+  assert.equal(d.detachments, 1);
+});
+
 async function postureMorphFixture(os: string, image?: {fence: PlaybackFence; image: React.ReactNode; ready?: boolean; failed?: boolean}, prepareLayout?: (source: PlaybackFence) => Promise<void>, reduce = false) {
   const reactions: ((value: any, previous: any) => void)[] = [], fades: {value: number; duration: number; finish?: (finished: boolean) => void}[] = [], contexts: any[] = [];
   const motion = {reduce, transforms: !reduce, timing: () => ({duration: reduce ? 120 : 180})};
@@ -183,6 +207,7 @@ async function postureMorphFixture(os: string, image?: {fence: PlaybackFence; im
     '../../../../../packages/player-core/src/index': {}, '../Icon': {Icon: 'Icon'},
     '../theme': {useTheme: () => ({layers: {player: 30}, colors: {shadow: '#000', dim: '#000'}})},
     '../useMotion': {useMotion: () => motion},
+    '../../platform/layout/player-presentation': {playerPostureCrossFadeMs},
     './morph-fence': {currentMorphFence}, './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
   });
   const child = React.createElement('PersistentNativeSurface'), controller = {progress: {value: 0}, velocity: {value: 0}, dragging: {value: false}};
@@ -306,6 +331,7 @@ test('PlayerMorph projects close to its existing wrapper/child and rejects late 
     '../../../../../packages/player-core/src/index': {}, '../Icon': {Icon: 'Icon'},
     '../theme': {useTheme: () => ({layers: {player: 30}, colors: {shadow: '#000', dim: '#000'}})},
     '../useMotion': {useMotion: () => ({reduce: false, transforms: true, timing: () => ({duration: 180})})},
+    '../../platform/layout/player-presentation': {playerPostureCrossFadeMs},
     './morph-fence': {currentMorphFence}, './model': {releaseDock, validRect}, './visual': {alpha: () => '#000', dockStyles: {fill: {position: 'absolute', inset: 0}}},
   });
   const child = React.createElement('PersistentNativeSurface'), presentations: any[] = [], contexts: any[] = [];

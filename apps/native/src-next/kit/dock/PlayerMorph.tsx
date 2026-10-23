@@ -171,7 +171,8 @@ export function PlayerMorph({controller, fence, docked, fullFrame, dockFrame, ch
   const preparingLayout = useRef<typeof transition | undefined>(undefined), preparedLayout = useRef<typeof transition | undefined>(undefined);
   const [layoutReady, setLayoutReady] = useState<typeof transition | undefined>(undefined);
   const settledTransition = useRef(transition), settledDragRun = useRef(0), wasMoving = useRef(false), mounted = useRef(false);
-  useEffect(() => {mounted.current = true; return () => {mounted.current = false; fadeTicket.current++; cancelAnimation(surfaceFade); cancelAnimation(snapshotFade);};}, [surfaceFade, snapshotFade]);
+  const cancelFades = useCallback(() => {fadeTicket.current++; cancelAnimation(surfaceFade); cancelAnimation(snapshotFade);}, [surfaceFade, snapshotFade]);
+  useEffect(() => {mounted.current = true; return () => {mounted.current = false; cancelFades();};}, [cancelFades]);
   const currentFence = useRef(fence), previousFence = useRef<PlaybackFence | undefined>(undefined);
   currentFence.current = fence;
   useEffect(() => {

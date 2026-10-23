@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {playerControlsRevealDeadline, resolvePlayerPresentation, type PlayerFold, type PlayerPresentationInput} from '../src-next/platform/layout/player-presentation.ts';
 
-// Source-only drafts. Geometry assertions do not establish device continuity or frame fidelity.
+// Geometry assertions do not establish device continuity or frame fidelity.
 const input = (width: number, height: number, folds: readonly PlayerFold[] = []): PlayerPresentationInput => ({
   window: {width, height}, posture: {status: 'available', window: {width, height}, folds}, docked: false, panelOpen: false,
 });
