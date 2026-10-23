@@ -1,4 +1,5 @@
 import React from 'react';
+import {Platform} from 'react-native';
 import type {BrowseLabels} from '../../kit/browse';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeRouteRenderer} from '../../shell/route-registry';
@@ -7,6 +8,7 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {LibraryScreen, type NativeLibraryActions, type NativeLibrarySelectionPort} from './LibraryScreen';
 import {NativeLibraryDestination} from './model';
 import {NativeLibraryDirectory} from './directory';
+import {hiddenReadingLibraryOnTV} from '../read/platform';
 
 export type NativeLibraryRendererPorts = Readonly<{
   activation: (libraryId: string) => NativeDestinationActivationPort;
@@ -27,7 +29,7 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
     render(route, runtime) {
       if (!current() || route.kind !== 'shell' || route.destination.kind !== 'library') return null;
       const id = route.destination.libraryId, library = context.libraries().find(value => value.id === id);
-      if (!library) {selected?.destination.dispose(); selected = undefined; return null;}
+      if (!library || Platform.isTV && hiddenReadingLibraryOnTV(library.kind)) {selected?.destination.dispose(); selected = undefined; return null;}
       if (selected?.id !== id) {
         selected?.destination.dispose();
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,

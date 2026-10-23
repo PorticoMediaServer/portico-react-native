@@ -27,6 +27,7 @@ import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
 import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
+import {hiddenReadingLibraryOnTV} from '../read/platform';
 
 export type NativeLibraryActions = Readonly<{
   open: (entry: ContentEntry) => void;
@@ -70,7 +71,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   useEffect(() => {void destination.load().catch(runtime.reportError); void directory.load().catch(runtime.reportError);}, [destination, directory, runtime]);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series'};
-  const choices = libraries.filter(library => !theme.isTV || library.kind !== 'books').map(library => {
+  const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
     return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', gap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
