@@ -11,7 +11,7 @@ import {browseNameId} from '../../../packages/client-core/src/presentation/brows
 test('the handheld Library module self-registers real actions and a captured receipt-backed Save-view sheet', async () => {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-only'};
   const navigation = new NativeShellNavigation(authority, () => authority);
-  navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'actual'}});
+  navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'actual'}}, authority);
   let kind: string | undefined, create: any, ports: any, disposed = 0;
   const {react} = hooks(), posts: any[] = [], operationId = '12345678-1234-4123-8123-123456789abc';
   const {createNativeHandheldLibraryModule} = await screenModule(new URL('../src-next/screens/library/register.tsx', import.meta.url), {
@@ -41,7 +41,7 @@ test('the handheld Library module self-registers real actions and a captured rec
   assert.equal(posts.length, 1); assert.deepEqual(posts[0].definition, definition); assert.equal(posts[0].name, 'Actual view name');
   assert.equal(outlet.props.store.getSnapshot(), undefined, 'only a real saved receipt closes the owned naming outlet');
   actions.saveView(destination, draft);
-  const retired = outlet.props.store.getSnapshot(); navigation.open({kind: 'shell', destination: {kind: 'home'}});
+  const retired = outlet.props.store.getSnapshot(); navigation.open({kind: 'shell', destination: {kind: 'home'}}, authority);
   assert.equal(outlet.props.store.getSnapshot(), undefined); assert.equal(retired.getSnapshot().open, false);
   module.dispose(); assert.equal(disposed, 1);
 });
