@@ -6,7 +6,7 @@ import type {NativeShellRoute} from './routes';
 /** All actions address the verified current account. No name, profile or role is fabricated. */
 export function nativeAccountMenu(account: DirectSnapshot, open: (route: NativeShellRoute) => void, tv = false): NativeShellSnapshot['account'] {
   const t = defaultI18n.t;
-  const viewerRole = account.account.role === 'admin' ? 'administrator' : account.account.role;
+  const viewerRole = !account.capabilities?.managePeople ? 'member' : account.account.role === 'admin' ? 'administrator' : account.account.role;
   return Object.freeze({accountLine: account.account.username, viewerRole,
     actions: Object.freeze([
       ...(!tv || account.profiles.length > 1 ? [{id: 'profiles', label: t('settings.switchProfile'), icon: 'i-switch' as const, onPress: () => open({kind: 'profiles'})}] : []),

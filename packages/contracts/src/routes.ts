@@ -80,6 +80,29 @@ export const routes = [
     "admission": "playback"
   },
   {
+    "id": "batch_queue",
+    "method": "POST",
+    "path": "/v1/queues/{id}/batch",
+    "summary": "Play a mixed selection next or later in its source order",
+    "access": "device",
+    "requires": "playback",
+    "lane": "media",
+    "cost": "selection_sized_async",
+    "bodyLimit": 32768,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_found",
+      "revision_required",
+      "revision_mismatch",
+      "unsupported_selector",
+      "queue_too_large",
+      "queue_building"
+    ],
+    "status": 200,
+    "admission": "playback"
+  },
+  {
     "id": "browse_across",
     "method": "POST",
     "path": "/v1/browse",
@@ -100,6 +123,28 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "browse_across_counts",
+    "method": "POST",
+    "path": "/v1/browse/counts",
+    "summary": "Read bounded group counts for filter relax suggestions",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 65536,
+    "errors": [
+      "invalid_request",
+      "invalid_query",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "stale_continuation",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
     "id": "browse_library",
     "method": "POST",
     "path": "/v1/libraries/{id}/browse",
@@ -114,6 +159,28 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
+    "id": "browse_library_counts",
+    "method": "POST",
+    "path": "/v1/libraries/{id}/browse/counts",
+    "summary": "Read bounded counts for filter relax suggestions",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 65536,
+    "errors": [
+      "invalid_request",
+      "invalid_query",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "stale_continuation",
       "internal"
     ],
     "status": 200,
@@ -877,6 +944,26 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "delete_guide_reminders_id",
+    "method": "DELETE",
+    "path": "/v1/guide/reminders/{id}",
+    "summary": "Delete guide reminders",
+    "access": "device",
+    "requires": "playback",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "delete_items_id_lyrics_resource",
     "method": "DELETE",
     "path": "/v1/items/{id}/lyrics/{resource}",
@@ -898,11 +985,32 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "delete_me_removed_titles_id",
+    "method": "DELETE",
+    "path": "/v1/me/removed-titles/{id}",
+    "summary": "Remove this profile's removed-title Continue reference",
+    "access": "device",
+    "requires": "playback",
+    "lane": "browsing",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "delete_metadata_kind_id_art_role_upload_candidateId",
     "method": "DELETE",
     "path": "/v1/metadata/{kind}/{id}/art/{role}/upload/{candidateId}",
     "summary": "Remove metadata art upload",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -1156,26 +1264,6 @@ export const routes = [
     "admission": "admin-heavy"
   },
   {
-    "id": "delete_upgrade_copy",
-    "method": "DELETE",
-    "path": "/v1/admin/storage/upgrade-copies/{id}",
-    "summary": "Delete one automatic pre-upgrade database copy",
-    "access": "owner",
-    "requires": "admin",
-    "lane": "default",
-    "cost": "constant",
-    "bodyLimit": 0,
-    "errors": [
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "invalid_request",
-      "internal"
-    ],
-    "status": 204,
-    "admission": "admin"
-  },
-  {
     "id": "delete_v1_items_itemId_subtitles_resource",
     "method": "DELETE",
     "path": "/v1/items/{itemId}/subtitles/{resource}",
@@ -1310,7 +1398,8 @@ export const routes = [
       "cursor",
       "limit",
       "trust",
-      "account"
+      "account",
+      "sort"
     ],
     "errors": [
       "unauthorized",
@@ -1405,7 +1494,12 @@ export const routes = [
     "bodyLimit": 0,
     "query": [
       "cursor",
-      "limit"
+      "limit",
+      "q",
+      "role",
+      "status",
+      "sort",
+      "direction"
     ],
     "errors": [
       "invalid_request",
@@ -1962,6 +2056,15 @@ export const routes = [
     "lane": "default",
     "cost": "page_sized",
     "bodyLimit": 0,
+    "query": [
+      "path",
+      "cursor",
+      "limit",
+      "includeFiles",
+      "showHidden",
+      "prefix",
+      "checkWritable"
+    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -2913,6 +3016,23 @@ export const routes = [
     "admission": "auth"
   },
   {
+    "id": "get_auth_services_reachability",
+    "method": "GET",
+    "path": "/v1/auth/services-reachability",
+    "summary": "Check whether Portico Services answers",
+    "access": "public",
+    "requires": "open",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "auth"
+  },
+  {
     "id": "get_books_id_chapters",
     "method": "GET",
     "path": "/v1/books/{id}/chapters",
@@ -2961,6 +3081,32 @@ export const routes = [
     "status": 200,
     "http": true,
     "admission": "default"
+  },
+  {
+    "id": "get_books_id_timeline",
+    "method": "GET",
+    "path": "/v1/books/{id}/timeline",
+    "summary": "Read verified whole-book timeline and seek targets",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit",
+      "positionMs"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
   },
   {
     "id": "get_bootstrap",
@@ -3022,7 +3168,9 @@ export const routes = [
       "q",
       "limit",
       "group",
-      "value"
+      "value",
+      "query",
+      "pivot"
     ],
     "errors": [
       "invalid_request",
@@ -3274,6 +3422,29 @@ export const routes = [
     "admission": "admin"
   },
   {
+    "id": "get_container_download_options",
+    "method": "POST",
+    "path": "/v1/downloads/options",
+    "summary": "Read combined per-quality sizes for the visible members of a container",
+    "access": "device",
+    "requires": "playback",
+    "lane": "browsing",
+    "cost": "selection_sized_async",
+    "bodyLimit": 8192,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "idempotency_key_reused",
+      "rate_limited",
+      "internal",
+      "downloads_unavailable"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
     "id": "get_container_personal_state",
     "method": "GET",
     "path": "/v1/containers/{kind}/{id}/personal-state",
@@ -3294,6 +3465,25 @@ export const routes = [
     ],
     "status": 200,
     "admission": "browsing"
+  },
+  {
+    "id": "get_data_storage_usage",
+    "method": "GET",
+    "path": "/v1/admin/storage/usage",
+    "summary": "Read data folder usage and storage notices",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin"
   },
   {
     "id": "get_device_capabilities",
@@ -3873,7 +4063,9 @@ export const routes = [
     "query": [
       "cursor",
       "limit",
-      "state"
+      "state",
+      "sort",
+      "group"
     ],
     "errors": [
       "invalid_request",
@@ -3906,6 +4098,31 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_dvr_groups",
+    "method": "GET",
+    "path": "/v1/dvr/groups",
+    "summary": "Read recording groups",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "sort",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
       "internal"
     ],
     "status": 200,
@@ -3958,6 +4175,27 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_dvr_recordings_id_image",
+    "method": "GET",
+    "path": "/v1/dvr/recordings/{id}/image",
+    "summary": "Read retained recording programme image",
+    "access": "device",
+    "requires": "read",
+    "lane": "media",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "responseContentType": "application/octet-stream",
+    "http": true,
+    "admission": "media"
+  },
+  {
     "id": "get_dvr_storage",
     "method": "GET",
     "path": "/v1/dvr/storage",
@@ -3972,6 +4210,26 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_dvr_summary",
+    "method": "GET",
+    "path": "/v1/dvr/summary",
+    "summary": "Read recording summary",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
       "internal"
     ],
     "status": 200,
@@ -4154,6 +4412,38 @@ export const routes = [
     "admission": "default"
   },
   {
+    "id": "get_guide_airings",
+    "method": "GET",
+    "path": "/v1/guide/airings",
+    "summary": "Read guide airings",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "search",
+      "seriesId",
+      "title",
+      "channelId",
+      "sourceId",
+      "kind",
+      "start",
+      "end",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "get_guide_channels",
     "method": "GET",
     "path": "/v1/guide/channels",
@@ -4192,6 +4482,60 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_guide_now_next",
+    "method": "GET",
+    "path": "/v1/guide/now-next",
+    "summary": "Read guide now-next",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "kind",
+      "sourceId",
+      "group",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_guide_on_now",
+    "method": "GET",
+    "path": "/v1/guide/on-now",
+    "summary": "Read guide on-now",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "kind",
+      "sourceId",
+      "group",
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "get_guide_programme_image",
     "method": "GET",
     "path": "/v1/guide/programme-images/{generation}/{programme}",
@@ -4212,6 +4556,30 @@ export const routes = [
     "responseContentType": "application/octet-stream",
     "http": true,
     "admission": "media"
+  },
+  {
+    "id": "get_guide_reminders",
+    "method": "GET",
+    "path": "/v1/guide/reminders",
+    "summary": "Get guide reminders",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
   },
   {
     "id": "get_guide_sources",
@@ -4568,6 +4936,31 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_items_id_file_info",
+    "method": "GET",
+    "path": "/v1/items/{id}/file-info",
+    "summary": "Read authorized file information lazily",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "stale_continuation",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
     "id": "get_items_id_listening",
     "method": "GET",
     "path": "/v1/items/{id}/listening",
@@ -4751,6 +5144,55 @@ export const routes = [
     "admission": "expensive"
   },
   {
+    "id": "get_items_id_recommendations_row",
+    "method": "GET",
+    "path": "/v1/items/{id}/recommendations/rows/{row}",
+    "summary": "Page a title recommendation row to exhaustion",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "stale_continuation",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_items_id_similar",
+    "method": "GET",
+    "path": "/v1/items/{id}/similar",
+    "summary": "Read locally ranked permitted listening titles",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "get_items_id_source_availability",
     "method": "GET",
     "path": "/v1/items/{id}/source-availability",
@@ -4819,7 +5261,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/items/{id}/metadata/screen",
     "summary": "Read match evidence, field provenance and provider candidates",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -5254,6 +5697,7 @@ export const routes = [
     "cost": "page_sized",
     "bodyLimit": 0,
     "query": [
+      "playState",
       "cursor",
       "episodeId",
       "group",
@@ -5355,7 +5799,9 @@ export const routes = [
     "query": [
       "field",
       "q",
-      "limit"
+      "limit",
+      "query",
+      "pivot"
     ],
     "errors": [
       "invalid_request",
@@ -5588,6 +6034,46 @@ export const routes = [
     "admission": "default"
   },
   {
+    "id": "get_me_removed_titles_id",
+    "method": "GET",
+    "path": "/v1/me/removed-titles/{id}",
+    "summary": "Read this profile's removed-title reference",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_me_saved_summary",
+    "method": "GET",
+    "path": "/v1/me/saved/summary",
+    "summary": "Read private Saved landing counts",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "get_media_grant",
     "method": "GET",
     "path": "/v1/media/{grant}",
@@ -5725,7 +6211,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/libraries/{id}/metadata/attention",
     "summary": "List unmatched and uncertain titles with their best candidates",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -5752,7 +6239,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/admin/metadata/attention/counts",
     "summary": "Count titles waiting for attention per library and across the server",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -5774,7 +6262,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/metadata/{kind}/{id}",
     "summary": "Read metadata",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "default",
     "cost": "constant",
@@ -5795,7 +6284,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/metadata/{kind}/{id}/art/{role}",
     "summary": "Read metadata art",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "read",
     "lane": "media",
     "cost": "page_sized",
@@ -5824,7 +6314,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/metadata/{kind}/{id}/preview",
     "summary": "Read metadata preview",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -6164,7 +6655,8 @@ export const routes = [
       "qualityId",
       "maxVideoBitrateKbps",
       "maxHeight",
-      "maxAudioBitrateKbps"
+      "maxAudioBitrateKbps",
+      "throughputKbps"
     ],
     "errors": [
       "invalid_request",
@@ -6382,6 +6874,28 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_queue_entry_for_item",
+    "method": "GET",
+    "path": "/v1/queues/{id}/entry",
+    "summary": "Resolve a visible episode outside the loaded queue window for an in-player jump",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "selection_sized_async",
+    "bodyLimit": 0,
+    "query": [
+      "itemId"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_found",
+      "queue_building"
+    ],
+    "status": 200,
+    "admission": "browsing"
+  },
+  {
     "id": "get_queue_window",
     "method": "GET",
     "path": "/v1/queues/{id}/window",
@@ -6449,7 +6963,7 @@ export const routes = [
     "id": "get_remote_playback_controls",
     "method": "GET",
     "path": "/v1/playback/controls",
-    "summary": "Read what this profile is playing on each device and the controls it may use",
+    "summary": "Read this account’s playback on each device and the controls it may use",
     "access": "device",
     "requires": "playback",
     "lane": "media",
@@ -6487,6 +7001,7 @@ export const routes = [
       "sort",
       "direction",
       "filter",
+      "shape",
       "limit",
       "cursor"
     ],
@@ -6537,7 +7052,9 @@ export const routes = [
     "query": [
       "cursor",
       "kind",
-      "pinned"
+      "pinned",
+      "shape",
+      "limit"
     ],
     "errors": [
       "invalid_request",
@@ -6679,7 +7196,8 @@ export const routes = [
     "bodyLimit": 0,
     "query": [
       "cursor",
-      "limit"
+      "limit",
+      "playState"
     ],
     "errors": [
       "invalid_request",
@@ -6713,7 +7231,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/admin/metadata/attention",
     "summary": "List unmatched and uncertain titles with their best candidates",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -6768,7 +7287,8 @@ export const routes = [
     "bodyLimit": 0,
     "query": [
       "cursor",
-      "limit"
+      "limit",
+      "playState"
     ],
     "errors": [
       "invalid_request",
@@ -6849,7 +7369,8 @@ export const routes = [
     "method": "GET",
     "path": "/v1/shows/{id}/metadata/screen",
     "summary": "Read match evidence, field provenance and provider candidates",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -6893,6 +7414,27 @@ export const routes = [
     "requires": "admin",
     "lane": "default",
     "cost": "page_sized",
+    "bodyLimit": 0,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "default"
+  },
+  {
+    "id": "get_storage_rclone_bundled",
+    "method": "GET",
+    "path": "/v1/storage/rclone/bundled",
+    "summary": "Read bundled rclone startup status",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
     "bodyLimit": 0,
     "errors": [
       "invalid_request",
@@ -6951,7 +7493,7 @@ export const routes = [
     "id": "get_storage_status",
     "method": "GET",
     "path": "/v1/admin/storage/status",
-    "summary": "Read upgrade copies, active storage destinations and reclaimable database space",
+    "summary": "Read active storage destinations and reclaimable database space",
     "access": "owner",
     "requires": "admin",
     "lane": "default",
@@ -8292,32 +8834,6 @@ export const routes = [
     "admission": "admin"
   },
   {
-    "id": "list_member_access_tokens",
-    "method": "GET",
-    "path": "/v1/admin/access-tokens",
-    "summary": "List the personal access tokens members have made",
-    "access": "owner",
-    "requires": "session",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 0,
-    "query": [
-      "cursor",
-      "limit",
-      "accountId"
-    ],
-    "errors": [
-      "unauthorized",
-      "not_permitted",
-      "session_required",
-      "invalid_request",
-      "administration_unavailable",
-      "internal"
-    ],
-    "status": 200,
-    "admission": "admin"
-  },
-  {
     "id": "list_missing_titles",
     "method": "GET",
     "path": "/v1/admin/missing-titles",
@@ -8848,6 +9364,28 @@ export const routes = [
     "admission": "default"
   },
   {
+    "id": "post_admin_access_invitation_link",
+    "method": "POST",
+    "path": "/v1/admin/access/invitations/{id}/link",
+    "summary": "Manage invitation or private person notes",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 8192,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "security-fence"
+  },
+  {
     "id": "post_admin_access_invitations",
     "method": "POST",
     "path": "/v1/admin/access/invitations",
@@ -8885,6 +9423,28 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "security-fence"
+  },
+  {
+    "id": "post_admin_access_members_bulk",
+    "method": "POST",
+    "path": "/v1/admin/access/members/bulk",
+    "summary": "Change selected people in one transaction",
+    "access": "admin_scope",
+    "adminScope": "members",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "page_sized",
+    "bodyLimit": 65536,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "revision_mismatch",
       "internal"
     ],
     "status": 200,
@@ -8949,7 +9509,6 @@ export const routes = [
       "request_in_progress",
       "restore_lock_unavailable",
       "restore_source_invalid",
-      "restore_schema_newer",
       "restore_pre_release",
       "restore_integrity_failed",
       "restore_not_portico",
@@ -9831,6 +10390,74 @@ export const routes = [
     "admission": "default"
   },
   {
+    "id": "post_auth_owner_reset_request",
+    "method": "POST",
+    "path": "/v1/auth/owner-reset/request",
+    "summary": "Reset account access",
+    "access": "public",
+    "requires": "session",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal",
+      "rate_limited"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "auth"
+  },
+  {
+    "id": "post_auth_owner_reset_verify",
+    "method": "POST",
+    "path": "/v1/auth/owner-reset/verify",
+    "summary": "Reset account access",
+    "access": "public",
+    "requires": "session",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal",
+      "rate_limited"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "auth"
+  },
+  {
+    "id": "post_auth_portico_return_exchange",
+    "method": "POST",
+    "path": "/v1/auth/portico-return/exchange",
+    "summary": "Complete a registered Portico Account return",
+    "access": "public",
+    "requires": "session",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 16384,
+    "headers": [
+      "X-Portico-Installation-Id"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "rate_limited",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "auth"
+  },
+  {
     "id": "post_auth_refresh",
     "method": "POST",
     "path": "/v1/auth/refresh",
@@ -10054,6 +10681,28 @@ export const routes = [
     "admission": "auth"
   },
   {
+    "id": "post_direct_members_id_reset_code",
+    "method": "POST",
+    "path": "/v1/direct/members/{id}/reset-code",
+    "summary": "Reset account access",
+    "access": "device",
+    "requires": "session",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal",
+      "rate_limited"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "auth"
+  },
+  {
     "id": "post_direct_ownership",
     "method": "POST",
     "path": "/v1/direct/ownership",
@@ -10119,6 +10768,28 @@ export const routes = [
       "internal"
     ],
     "status": 204,
+    "http": true,
+    "admission": "auth"
+  },
+  {
+    "id": "post_direct_password_reset",
+    "method": "POST",
+    "path": "/v1/direct/password/reset",
+    "summary": "Reset account access",
+    "access": "public",
+    "requires": "session",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal",
+      "rate_limited"
+    ],
+    "status": 200,
     "http": true,
     "admission": "auth"
   },
@@ -10432,6 +11103,25 @@ export const routes = [
     "status": 200,
     "http": true,
     "admission": "browsing"
+  },
+  {
+    "id": "post_empty_data_cache",
+    "method": "POST",
+    "path": "/v1/admin/storage/cache/empty",
+    "summary": "Empty rebuildable cache on a graceful server restart",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 202,
+    "admission": "admin"
   },
   {
     "id": "post_feedback",
@@ -10797,7 +11487,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/metadata/screen/retry",
     "summary": "Run title metadata screen retry",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -10818,7 +11509,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/metadata/screen/search",
     "summary": "Run title metadata screen search",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -11033,7 +11725,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/libraries/{id}/metadata/attention",
     "summary": "Accept a candidate, search, enter a provider ID or dismiss a title",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -11055,11 +11748,12 @@ export const routes = [
     "method": "POST",
     "path": "/v1/metadata/bulk",
     "summary": "Run metadata bulk",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
-    "bodyLimit": 65536,
+    "bodyLimit": 524288,
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -11076,7 +11770,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/metadata/bulk/preview",
     "summary": "Read shared and mixed metadata for an authorized selection",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "page_sized",
@@ -11097,7 +11792,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/metadata/{kind}/{id}",
     "summary": "Run metadata",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "default",
     "cost": "constant",
@@ -11118,7 +11814,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/metadata/{kind}/{id}/art/{role}/upload",
     "summary": "Run metadata art upload",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -11685,20 +12382,23 @@ export const routes = [
     "admission": "default"
   },
   {
-    "id": "post_setup_finish",
+    "id": "post_setup_account_complete",
     "method": "POST",
-    "path": "/v1/setup/finish",
-    "summary": "Run setup finish",
-    "access": "owner",
+    "path": "/v1/setup/account/complete",
+    "summary": "Complete account setup from its validated claim",
+    "access": "public",
     "requires": "session",
     "lane": "security",
     "cost": "constant",
-    "bodyLimit": 65536,
+    "bodyLimit": 16384,
+    "headers": [
+      "X-Portico-Installation-Id"
+    ],
     "errors": [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "not_found",
+      "rate_limited",
       "internal"
     ],
     "status": 200,
@@ -11706,10 +12406,10 @@ export const routes = [
     "admission": "auth"
   },
   {
-    "id": "post_setup_remote_recovery",
+    "id": "post_setup_finish",
     "method": "POST",
-    "path": "/v1/setup/remote-recovery",
-    "summary": "Run setup remote recovery",
+    "path": "/v1/setup/finish",
+    "summary": "Run setup finish",
     "access": "owner",
     "requires": "session",
     "lane": "security",
@@ -11752,7 +12452,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/shows/{id}/metadata/screen/retry",
     "summary": "Run show metadata screen retry",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "default",
     "cost": "constant",
@@ -11773,7 +12474,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/shows/{id}/metadata/screen/search",
     "summary": "Run show metadata screen search",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "default",
     "cost": "constant",
@@ -12320,6 +13022,50 @@ export const routes = [
     "admission": "security-fence"
   },
   {
+    "id": "put_admin_access_invitation",
+    "method": "PUT",
+    "path": "/v1/admin/access/invitations/{id}",
+    "summary": "Manage invitation or private person notes",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 8192,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "security-fence"
+  },
+  {
+    "id": "put_admin_access_member_notes",
+    "method": "PUT",
+    "path": "/v1/admin/access/members/{id}/notes",
+    "summary": "Manage invitation or private person notes",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 8192,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "security-fence"
+  },
+  {
     "id": "put_admin_access_members_id_limits",
     "method": "PUT",
     "path": "/v1/admin/access/members/{id}/limits",
@@ -12796,6 +13542,26 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "put_guide_reminders",
+    "method": "PUT",
+    "path": "/v1/guide/reminders",
+    "summary": "Put guide reminders",
+    "access": "device",
+    "requires": "playback",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "put_home_layout",
     "method": "PUT",
     "path": "/v1/home/layout",
@@ -12810,6 +13576,7 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
+      "home_layout_conflict",
       "internal"
     ],
     "status": 200,
@@ -12884,7 +13651,8 @@ export const routes = [
     "method": "PUT",
     "path": "/v1/items/{id}/metadata/screen",
     "summary": "Save title metadata screen",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -13227,7 +13995,8 @@ export const routes = [
     "method": "PUT",
     "path": "/v1/shows/{id}/metadata/screen",
     "summary": "Save show metadata screen",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "default",
     "cost": "constant",
@@ -13248,7 +14017,8 @@ export const routes = [
     "method": "PUT",
     "path": "/v1/shows/{id}/metadata/screen/season",
     "summary": "Save show metadata screen season",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -13384,7 +14154,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/items/{id}/metadata/refresh",
     "summary": "Fetch current metadata for a title",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -13405,7 +14176,8 @@ export const routes = [
     "method": "POST",
     "path": "/v1/shows/{id}/metadata/refresh",
     "summary": "Fetch current metadata for a title",
-    "access": "owner",
+    "access": "admin_scope",
+    "adminScope": "metadata",
     "requires": "library",
     "lane": "browsing",
     "cost": "constant",
@@ -13675,28 +14447,6 @@ export const routes = [
       "not_found",
       "downloads_not_allowed",
       "downloads_unavailable",
-      "internal"
-    ],
-    "status": 200,
-    "admission": "security-fence"
-  },
-  {
-    "id": "revoke_member_access_token",
-    "method": "DELETE",
-    "path": "/v1/admin/access-tokens/{id}",
-    "summary": "Revoke a member's personal access token",
-    "access": "owner",
-    "requires": "session",
-    "lane": "security",
-    "cost": "constant",
-    "bodyLimit": 0,
-    "errors": [
-      "unauthorized",
-      "not_permitted",
-      "session_required",
-      "invalid_request",
-      "not_found",
-      "administration_unavailable",
       "internal"
     ],
     "status": 200,
@@ -16222,6 +16972,29 @@ export const routes = [
     "admission": "playback"
   },
   {
+    "id": "stop_account_playback",
+    "method": "POST",
+    "path": "/v1/playback/controls/{id}:stop",
+    "summary": "Stop playback belonging to this account without disclosing a hidden title",
+    "access": "device",
+    "requires": "playback",
+    "lane": "media",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_required",
+      "revision_mismatch",
+      "session_ended",
+      "internal"
+    ],
+    "status": 204,
+    "admission": "security-fence"
+  },
+  {
     "id": "stop_playback_session",
     "method": "DELETE",
     "path": "/v1/playback/sessions/{id}",
@@ -16388,8 +17161,11 @@ export const routePaths = {
   "act_on_download_preparation": "/v1/downloads/preparations/{id}/actions",
   "add_queue_segment": "/v1/queues/{id}/segments",
   "advance_queue": "/v1/queues/{id}:advance",
+  "batch_queue": "/v1/queues/{id}/batch",
   "browse_across": "/v1/browse",
+  "browse_across_counts": "/v1/browse/counts",
   "browse_library": "/v1/libraries/{id}/browse",
+  "browse_library_counts": "/v1/libraries/{id}/browse/counts",
   "change_connectivity_policy": "/v1/admin/connectivity/policy",
   "change_console_settings": "/v1/admin/console/settings",
   "change_playback_session": "/v1/playback/sessions/{id}",
@@ -16424,7 +17200,9 @@ export const routePaths = {
   "delete_direct_two_factor": "/v1/direct/two-factor",
   "delete_dvr_recordings_id": "/v1/dvr/recordings/{id}",
   "delete_dvr_rules_id": "/v1/dvr/rules/{id}",
+  "delete_guide_reminders_id": "/v1/guide/reminders/{id}",
   "delete_items_id_lyrics_resource": "/v1/items/{id}/lyrics/{resource}",
+  "delete_me_removed_titles_id": "/v1/me/removed-titles/{id}",
   "delete_metadata_kind_id_art_role_upload_candidateId": "/v1/metadata/{kind}/{id}/art/{role}/upload/{candidateId}",
   "delete_playlists_id": "/v1/playlists/{id}",
   "delete_playlists_id_entries_entryId": "/v1/playlists/{id}/entries/{entryId}",
@@ -16437,7 +17215,6 @@ export const routePaths = {
   "delete_storage_mounts_id": "/v1/storage/mounts/{id}",
   "delete_storage_sources_webdav_id": "/v1/storage/sources/webdav/{id}",
   "delete_title_version": "/v1/admin/items/{id}/files/{fileId}",
-  "delete_upgrade_copy": "/v1/admin/storage/upgrade-copies/{id}",
   "delete_v1_items_itemId_subtitles_resource": "/v1/items/{itemId}/subtitles/{resource}",
   "delete_webhook": "/v1/admin/webhooks/{id}",
   "download_client_log": "/v1/admin/diagnostics/client-logs/{id}/download",
@@ -16517,8 +17294,10 @@ export const routePaths = {
   "get_artists_id_albums": "/v1/artists/{id}/albums",
   "get_attribution": "/v1/attribution",
   "get_auth_capabilities": "/v1/auth/capabilities",
+  "get_auth_services_reachability": "/v1/auth/services-reachability",
   "get_books_id_chapters": "/v1/books/{id}/chapters",
   "get_books_id_files": "/v1/books/{id}/files",
+  "get_books_id_timeline": "/v1/books/{id}/timeline",
   "get_bootstrap": "/v1/bootstrap",
   "get_browse_capabilities": "/v1/browse-capabilities",
   "get_browse_facets": "/v1/browse/facets",
@@ -16534,7 +17313,9 @@ export const routePaths = {
   "get_connectivity_status": "/v1/admin/connectivity/status",
   "get_console_registry": "/v1/console/registry",
   "get_console_settings": "/v1/admin/console/settings",
+  "get_container_download_options": "/v1/downloads/options",
   "get_container_personal_state": "/v1/containers/{kind}/{id}/personal-state",
+  "get_data_storage_usage": "/v1/admin/storage/usage",
   "get_device_capabilities": "/v1/me/devices/current/capabilities",
   "get_devices": "/v1/devices",
   "get_direct_account": "/v1/direct",
@@ -16562,9 +17343,12 @@ export const routePaths = {
   "get_download_usage": "/v1/downloads/usage",
   "get_dvr": "/v1/dvr",
   "get_dvr_channels": "/v1/dvr/channels",
+  "get_dvr_groups": "/v1/dvr/groups",
   "get_dvr_recordings_id": "/v1/dvr/recordings/{id}",
   "get_dvr_recordings_id_delete_preview": "/v1/dvr/recordings/{id}/delete-preview",
+  "get_dvr_recordings_id_image": "/v1/dvr/recordings/{id}/image",
   "get_dvr_storage": "/v1/dvr/storage",
+  "get_dvr_summary": "/v1/dvr/summary",
   "get_events": "/v1/events",
   "get_feedback": "/v1/feedback",
   "get_feedback_capabilities": "/v1/feedback/capabilities",
@@ -16572,8 +17356,12 @@ export const routePaths = {
   "get_feedback_reports": "/v1/feedback/reports",
   "get_feedback_reports_id": "/v1/feedback/reports/{id}",
   "get_guide": "/v1/guide",
+  "get_guide_airings": "/v1/guide/airings",
   "get_guide_channels": "/v1/guide/channels",
+  "get_guide_now_next": "/v1/guide/now-next",
+  "get_guide_on_now": "/v1/guide/on-now",
   "get_guide_programme_image": "/v1/guide/programme-images/{generation}/{programme}",
+  "get_guide_reminders": "/v1/guide/reminders",
   "get_guide_sources": "/v1/guide/sources",
   "get_health_live": "/health/live",
   "get_health_ready": "/health/ready",
@@ -16588,6 +17376,7 @@ export const routePaths = {
   "get_items_id_art_kind": "/v1/items/{id}/art/{kind}",
   "get_items_id_credits": "/v1/items/{id}/credits",
   "get_items_id_detail": "/v1/items/{id}/detail",
+  "get_items_id_file_info": "/v1/items/{id}/file-info",
   "get_items_id_listening": "/v1/items/{id}/listening",
   "get_items_id_lyrics": "/v1/items/{id}/lyrics",
   "get_items_id_lyrics_resource_revisions_revision": "/v1/items/{id}/lyrics/{resource}/revisions/{revision}",
@@ -16596,6 +17385,8 @@ export const routePaths = {
   "get_items_id_playback_offers": "/v1/items/{id}/playback-offers",
   "get_items_id_prepared_versions": "/v1/items/{id}/prepared-versions",
   "get_items_id_recommendations": "/v1/items/{id}/recommendations",
+  "get_items_id_recommendations_row": "/v1/items/{id}/recommendations/rows/{row}",
+  "get_items_id_similar": "/v1/items/{id}/similar",
   "get_items_id_source_availability": "/v1/items/{id}/source-availability",
   "get_items_id_trickplay": "/v1/items/{id}/trickplay",
   "get_items_id_trickplay_set_thumbnails_vtt": "/v1/items/{id}/trickplay/{set}/thumbnails.vtt",
@@ -16631,6 +17422,8 @@ export const routePaths = {
   "get_live_tuners": "/v1/admin/dvr/tuners",
   "get_me": "/v1/me",
   "get_me_library_navigation": "/v1/me/library-navigation",
+  "get_me_removed_titles_id": "/v1/me/removed-titles/{id}",
+  "get_me_saved_summary": "/v1/me/saved/summary",
   "get_media_grant": "/v1/media/{grant}",
   "get_media_grant_audio": "/v1/media/{grant}/audio",
   "get_media_grant_audio_converted": "/v1/media/{grant}/audio-converted",
@@ -16665,6 +17458,7 @@ export const routePaths = {
   "get_preferences": "/v1/preferences",
   "get_profiles_id_avatar": "/v1/profiles/{id}/avatar",
   "get_queue": "/v1/queues/{id}",
+  "get_queue_entry_for_item": "/v1/queues/{id}/entry",
   "get_queue_window": "/v1/queues/{id}/window",
   "get_rating_systems": "/v1/rating-systems",
   "get_readiness": "/v1/readiness",
@@ -16688,6 +17482,7 @@ export const routePaths = {
   "get_shows_screen_metadata": "/v1/shows/{id}/metadata/screen",
   "get_storage_mounts": "/v1/storage/mounts",
   "get_storage_operations_id": "/v1/storage/operations/{id}",
+  "get_storage_rclone_bundled": "/v1/storage/rclone/bundled",
   "get_storage_source_operations_id": "/v1/storage/source-operations/{id}",
   "get_storage_sources": "/v1/storage/sources",
   "get_storage_status": "/v1/admin/storage/status",
@@ -16732,7 +17527,6 @@ export const routePaths = {
   "list_live_source_channels": "/v1/admin/live/sources/{id}/channels",
   "list_live_source_groups": "/v1/admin/live/sources/{id}/groups",
   "list_live_sources": "/v1/admin/live-sources",
-  "list_member_access_tokens": "/v1/admin/access-tokens",
   "list_missing_titles": "/v1/admin/missing-titles",
   "list_playback_failure_memory": "/v1/admin/playback/route-failures",
   "list_queue_entries": "/v1/queues/{id}/entries",
@@ -16758,8 +17552,10 @@ export const routePaths = {
   "patch_preferences": "/v1/preferences",
   "patch_saved_resources_id": "/v1/saved-resources/{id}",
   "post_access_invitations_accept": "/v1/access/invitations/accept",
+  "post_admin_access_invitation_link": "/v1/admin/access/invitations/{id}/link",
   "post_admin_access_invitations": "/v1/admin/access/invitations",
   "post_admin_access_invitations_id_revoke": "/v1/admin/access/invitations/{id}/revoke",
+  "post_admin_access_members_bulk": "/v1/admin/access/members/bulk",
   "post_admin_background_pause": "/v1/admin/maintenance/background-pause",
   "post_admin_backups": "/v1/admin/backups",
   "post_admin_backups_restore": "/v1/admin/backups/restore",
@@ -16804,6 +17600,9 @@ export const routePaths = {
   "post_albums_id_metadata_musicbrainz_policy": "/v1/albums/{id}/metadata/musicbrainz/policy",
   "post_albums_id_metadata_musicbrainz_retry": "/v1/albums/{id}/metadata/musicbrainz/retry",
   "post_albums_id_metadata_musicbrainz_search": "/v1/albums/{id}/metadata/musicbrainz/search",
+  "post_auth_owner_reset_request": "/v1/auth/owner-reset/request",
+  "post_auth_owner_reset_verify": "/v1/auth/owner-reset/verify",
+  "post_auth_portico_return_exchange": "/v1/auth/portico-return/exchange",
   "post_auth_refresh": "/v1/auth/refresh",
   "post_auth_register": "/v1/auth/register",
   "post_auth_remembered_accounts": "/v1/auth/remembered-accounts",
@@ -16815,9 +17614,11 @@ export const routePaths = {
   "post_device_approval": "/v1/devices/{id}/approval",
   "post_device_session_binding": "/v1/devices/{id}/sessions/bind",
   "post_direct_members": "/v1/direct/members",
+  "post_direct_members_id_reset_code": "/v1/direct/members/{id}/reset-code",
   "post_direct_ownership": "/v1/direct/ownership",
   "post_direct_ownership_custody": "/v1/direct/ownership/custody",
   "post_direct_password": "/v1/direct/password",
+  "post_direct_password_reset": "/v1/direct/password/reset",
   "post_direct_portico_challenge": "/v1/direct/portico-challenge",
   "post_direct_profile_pin_reset": "/v1/direct/profiles/{id}/pin-reset",
   "post_direct_profile_switch": "/v1/direct/profile-switch",
@@ -16832,6 +17633,7 @@ export const routePaths = {
   "post_dvr_recordings": "/v1/dvr/recordings",
   "post_dvr_recordings_id_cancel": "/v1/dvr/recordings/{id}/cancel",
   "post_dvr_rules_preview": "/v1/dvr/rules/preview",
+  "post_empty_data_cache": "/v1/admin/storage/cache/empty",
   "post_feedback": "/v1/feedback",
   "post_feedback_reports": "/v1/feedback/reports",
   "post_home_destination_picker": "/v1/home/destination-picker",
@@ -16891,8 +17693,8 @@ export const routePaths = {
   "post_quick_connect_review": "/v1/quick-connect/review",
   "post_quick_connect_token": "/v1/quick-connect/token",
   "post_saved_resources": "/v1/saved-resources",
+  "post_setup_account_complete": "/v1/setup/account/complete",
   "post_setup_finish": "/v1/setup/finish",
-  "post_setup_remote_recovery": "/v1/setup/remote-recovery",
   "post_setup_resume": "/v1/setup/resume",
   "post_shows_id_metadata_screen_retry": "/v1/shows/{id}/metadata/screen/retry",
   "post_shows_id_metadata_screen_search": "/v1/shows/{id}/metadata/screen/search",
@@ -16915,6 +17717,8 @@ export const routePaths = {
   "prove_network_identity": "/v1/networking/identity-proof",
   "publish_remote_live_source": "/v1/admin/live-sources/remote/save",
   "put_admin_access_device_trust": "/v1/admin/access/devices/{id}/trust",
+  "put_admin_access_invitation": "/v1/admin/access/invitations/{id}",
+  "put_admin_access_member_notes": "/v1/admin/access/members/{id}/notes",
   "put_admin_access_members_id_limits": "/v1/admin/access/members/{id}/limits",
   "put_admin_access_members_id_role": "/v1/admin/access/members/{id}/role",
   "put_admin_console_schedules": "/v1/admin/console/schedules",
@@ -16937,6 +17741,7 @@ export const routePaths = {
   "put_dvr_recordings_id_keep": "/v1/dvr/recordings/{id}/keep",
   "put_dvr_rules_id": "/v1/dvr/rules/{id}",
   "put_dvr_storage": "/v1/dvr/storage",
+  "put_guide_reminders": "/v1/guide/reminders",
   "put_home_layout": "/v1/home/layout",
   "put_items_id_analysis_policy": "/v1/items/{id}/analysis/policy",
   "put_items_id_lyrics_selection": "/v1/items/{id}/lyrics/selection",
@@ -16976,7 +17781,6 @@ export const routePaths = {
   "revoke_access_token": "/v1/me/access-tokens/{id}",
   "revoke_api_key": "/v1/admin/api-keys/{id}",
   "revoke_download_receipts": "/v1/downloads/receipts/revoke",
-  "revoke_member_access_token": "/v1/admin/access-tokens/{id}",
   "revoke_profile_downloads": "/v1/admin/downloads/revoke",
   "save_live_source": "/v1/admin/live-sources",
   "save_queue_as_playlist": "/v1/queues/{id}:save-as-playlist",
@@ -17026,6 +17830,7 @@ export const routePaths = {
   "start_app_setup": "/v1/setup/app",
   "start_browser_setup": "/v1/setup/browser",
   "start_playback_session": "/v1/playback/sessions",
+  "stop_account_playback": "/v1/playback/controls/{id}:stop",
   "stop_playback_session": "/v1/playback/sessions/{id}",
   "sync_download_progress": "/v1/downloads/progress",
   "terminate_admin_session": "/v1/admin/sessions/{id}:terminate",

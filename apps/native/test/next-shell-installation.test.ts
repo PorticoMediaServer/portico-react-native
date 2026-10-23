@@ -3,7 +3,7 @@ import test, {type TestContext} from 'node:test';
 import {readFileSync} from 'node:fs';
 import {NativeModules, Platform} from './react-native-stub.mjs';
 import {beginNativeInstallation} from '../src-next/platform/installation.ts';
-import {nativeConnectionEnvironment} from '../src-next/platform/session.ts';
+import {nativeServerEnvironment} from '../src-next/platform/session.ts';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src/index.ts';
 import {installationIdentity, setInstallationIdentity} from '../../../packages/client-core/src/installation.ts';
 import {refreshStoredSession, type RememberedServer} from '../../../packages/client-core/src/server-connections.ts';
@@ -38,7 +38,7 @@ function fixture(t: TestContext) {
   const state = {
     id: id as unknown,
     selected: JSON.stringify(selectedViewerRecord(origin, expired, true)),
-    connection: JSON.stringify(remembered),
+    connection: JSON.stringify({version: 1, revision: 1, selectedServerId: 'server', servers: [{signIn: 'local', connection: remembered}]}),
     events: [] as string[], writes: [] as string[],
     requests: [] as {url: string; method: string; headers: Record<string, string>; body: string | null}[],
     prepare: async () => false,
@@ -51,8 +51,8 @@ function fixture(t: TestContext) {
   runtime.profileInstallation = async () => {state.events.push('installation-read'); return state.readId();};
   runtime.loadSelectedViewer = async () => {state.events.push('viewer-read'); return state.selected;};
   runtime.saveSelectedViewer = async () => {state.writes.push('viewer');};
-  runtime.loadQueueRecord = async (key: string) => {assert.equal(key, 'network.selected.v1'); state.events.push('connection-read'); return state.connection;};
-  runtime.saveQueueRecord = async (key: string, value: string) => {assert.equal(key, 'network.selected.v1'); state.writes.push('connection'); state.connection = value;};
+  runtime.loadQueueRecord = async (key: string) => {assert.equal(key, 'accounts.sessions.v1'); state.events.push('connection-read'); return state.connection;};
+  runtime.saveQueueRecord = async (key: string, value: string) => {assert.equal(key, 'accounts.sessions.v1'); state.writes.push('connection'); state.connection = value;};
   modules.PorticoCapabilities = {facts: async () => {state.events.push('facts'); return state.facts();}};
   runtime.networkRequest = async (_request: string, url: string, method: string, headers: Record<string, string>, body: string | null) => {
     state.events.push('request'); state.requests.push({url, method, headers, body});
@@ -67,8 +67,9 @@ function fixture(t: TestContext) {
     for (const key of ['OS', 'isTV', 'isPad', 'constants'] as const) delete (platform as Record<string, unknown>)[key];
     Object.assign(platform, platformBefore); setInstallationIdentity(previousClaim);
   });
-  const api = new HttpLocalApi(origin, expired.accessToken, nativeConnectionEnvironment.fetcher);
-  const refresh = () => refreshStoredSession({env: nativeConnectionEnvironment, api, family: {serverId: expired.viewer.serverId, sessionFamilyId: expired.sessionFamilyId}});
+  const env = nativeServerEnvironment('server');
+  const api = new HttpLocalApi(origin, expired.accessToken, env.fetcher);
+  const refresh = () => refreshStoredSession({env, api, family: {serverId: expired.viewer.serverId, sessionFamilyId: expired.sessionFamilyId}});
   return {state, begin, refresh, expired, fresh, remembered};
 }
 
@@ -109,7 +110,7 @@ test('startup prepares secure records before metadata, then real core renewal se
   assert.equal(headers.get('X-Portico-Device-Platform'), 'tvos');
   assert.equal(headers.get('X-Portico-App'), 'Portico');
   assert.equal(headers.get('X-Portico-App-Version'), metadata.appVersion);
-  assert.equal(JSON.parse(f.state.connection).session.refreshToken, f.fresh.refreshToken);
+  assert.equal(JSON.parse(f.state.connection).servers[0].connection.session.refreshToken, f.fresh.refreshToken);
   assert.ok(f.state.events.lastIndexOf('installation-read') < f.state.events.indexOf('request'));
 });
 
@@ -290,16 +291,16 @@ test('a different existing canonical installation is preserved rather than rebou
   assert.deepEqual(f.state.requests, []); assert.deepEqual(f.state.writes, []);
 });
 
-test('neither a selected viewer nor a protected connection can be silently rebound to another installation', async t => {
+test('historical viewer state is ignored and the canonical connection cannot be rebound to another installation', async t => {
   const f = fixture(t), selected = f.state.selected, connection = f.state.connection;
   f.state.selected = JSON.stringify(selectedViewerRecord(origin, {...f.expired, installationId: otherId}, true));
-  await assert.rejects(f.begin().prepare(), mismatchError);
+  await f.begin().prepare();
   f.state.selected = selected;
-  f.state.connection = JSON.stringify({...f.remembered, session: {...f.expired, installationId: otherId}});
+  f.state.connection = JSON.stringify({version: 1, revision: 1, selectedServerId: 'server', servers: [{signIn: 'local', connection: {...f.remembered, session: {...f.expired, installationId: otherId}}}]});
   await assert.rejects(f.begin().prepare(), mismatchError);
-  assert.equal(installationIdentity(), undefined);
+  assert.equal(installationIdentity()?.installationId, id);
   assert.equal(f.state.selected, selected);
-  assert.equal(JSON.parse(f.state.connection).session.installationId, otherId);
+  assert.equal(JSON.parse(f.state.connection).servers[0].connection.session.installationId, otherId);
   assert.notEqual(f.state.connection, connection);
   assert.deepEqual(f.state.requests, []); assert.deepEqual(f.state.writes, []);
 });
@@ -309,9 +310,10 @@ test('bootstrap awaits the scoped prerequisite before hosted or local restoratio
   const start = source.indexOf('const installation = beginNativeInstallation(options.signal)');
   const prepare = source.indexOf('await installation.prepare()');
   assert.ok(start >= 0 && prepare > start);
-  for (const operation of ['createCredentials(connection.hosted.origin)', 'await credentials.synchronize()', 'await restoreNativeConnection(']) {
+  for (const operation of ['await restoreNativeConnection(']) {
     assert.ok(source.indexOf(operation) > prepare, operation);
   }
+  assert.doesNotMatch(source, /credentials\.synchronize|createCredentials\(/, 'server restoration does not open a Portico Account');
   assert.match(source, /alive = false; installation\.dispose\(\)/);
   assert.match(source, /appVersion: installed\.appVersion/);
   assert.doesNotMatch(source, /PorticoCapabilities\.facts|package\.json/);

@@ -26,7 +26,7 @@ test('G14 renders only the owner glyph and invokes the genuine existing Dashboar
     });
     for (const role of ['owner', 'admin', 'member'] as const) {
       const opened: unknown[] = [];
-      const account = nativeAccountMenu({account: {role, username: 'verified-user'}} as DirectSnapshot, route => opened.push(route));
+      const account = nativeAccountMenu({account: {role, username: 'verified-user'}, capabilities: {manageAccount: true, managePeople: role !== 'member', manageServer: role !== 'member', manageSignIn: role === 'owner'}} as DirectSnapshot, route => opened.push(route));
       const tree = PhoneHomeHeader({profile: {}, unread: false, avatarRef: {current: null}, onProfile() {}, ...account});
       const glyphs = elements(tree).filter(node => node.type === 'Focusable');
       assert.equal(glyphs.length, role === 'owner' ? 1 : 0, role);

@@ -7,7 +7,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const profile = {id: 'profile', name: 'Demo', primary: true, position: 0, art: 'blue' as const, revision: 1, pinRevision: 1, pinRequired: false};
 const account: DirectSnapshot = {authority: 'local', serverId: 'server', account: {id: 'account', username: 'demo', primaryProfileId: profile.id,
-  role: 'owner', revision: 1, disabled: false, allowedLibraries: []}, profiles: [profile], canManage: true};
+  role: 'owner', revision: 1, disabled: false, allowedLibraries: []}, profiles: [profile], canManage: true, capabilities: {manageAccount: true, managePeople: true, manageServer: true, manageSignIn: true}};
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
 
 test('actual TV profile menu has ordered safe actions, member gating and no extra Settings stop', async () => {
@@ -18,6 +18,7 @@ test('actual TV profile menu has ordered safe actions, member gating and no extr
   assert.deepEqual(two.actions.map(action => action.id), ['profiles', 'servers', 'notifications', 'together']);
   assert.equal(nativeAccountMenu({...account, account: {...account.account, role: 'member'}}, open, true).serverAction, undefined);
   assert.deepEqual(nativeAccountMenu(account, open).actions.map(action => action.id), ['profiles', 'servers', 'notifications', 'together', 'settings'], 'phone action contract stays unchanged');
+  assert.equal(nativeAccountMenu({...account, capabilities: {manageAccount: false, managePeople: false, manageServer: false, manageSignIn: false}}, open, true).serverAction, undefined, 'owner account on another profile has no server action');
   const h = hooks();
   const {TVProfileMenu} = await screenModule(new URL('../src-next/shell/TVProfileMenu.tsx', import.meta.url), {
     react: h.react, '../kit/overlays': {Menu: 'Menu'}, './tv-focus': {tvFocusIds},

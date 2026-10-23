@@ -20,6 +20,7 @@ import {nativeAccountMenu} from './account';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {titleRoute, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
+import {AccountRoute} from '../screens/accounts/AccountRoutes';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
@@ -60,7 +61,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const canEditMetadata = document?.spotlight.some(value => value.entry.homeActions?.editMetadata || value.entry.homeActions?.selection.edit)
       || document?.rows.some(row => row.entries.some(entry => entry.homeActions?.editMetadata || entry.homeActions?.selection.edit)
         || row.collection?.actions?.editMetadata || row.collection?.actions?.selection.edit);
-    return {platform: Platform.isTV ? 'tv' as const : 'phone-app' as const, isOwner: context.account.account.role === 'owner', canEditMetadata: canEditMetadata === true};
+    return {platform: Platform.isTV ? 'tv' as const : 'phone-app' as const, isOwner: context.account.account.role === 'owner' && context.account.capabilities?.manageServer === true, canEditMetadata: canEditMetadata === true};
   };
   const playback = context.playback.selectionPlayback(isCurrent);
   const controller = new HomeSelectionController({api: context.api, events: context.events, home: context.home, context: homeSelectionContext(scope, initial), environment: environment(), isCurrent,
@@ -176,7 +177,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     registerSpotlights(document.spotlight); reconcileWindows(); publish();
   };
   const scopeForServices = {serverId: scope.serverId, viewerId: JSON.stringify([scope.authority, scope.accountId, scope.profileId])};
-  const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
+  const management = context.account.account.role === 'owner' && context.account.capabilities?.manageServer === true ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
   const cleanups = [context.home.subscribe(onDocument), controller.subscribe(publish), context.navigation.subscribe(() => {
     controller.clear();
     if (currentHome()) onDocument();
@@ -205,7 +206,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const operation = new AbortController(); operations.add(operation);
     void work(operation.signal).catch(reportError).finally(() => operations.delete(operation));
   };
-  const render = (route: NativeShellRoute) => runtime && context.current() ? nativeShellRoutes.get(route.kind)?.render(route, runtime) : null;
+  const render = (route: NativeShellRoute) => runtime && context.current() ? ['profiles', 'servers', 'account'].includes(route.kind)
+    ? <AccountRoute key={route.kind} route={route} context={context}/> : nativeShellRoutes.get(route.kind)?.render(route, runtime) : null;
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(); return {destination: context.navigation.getSnapshot().destination, selectionActive: state.selection.active,
@@ -265,7 +267,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
     renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
     renderDestination: destination => render({kind: 'shell', destination}),
-    renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
+    renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' && context.account.capabilities?.manageServer === true ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
     libraryMenu: library => {
       const common = {read: library.kind === 'books', onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
         onMarkAll: () => open({kind: 'library-mark-all', libraryId: library.id}), onEditPins: () => open({kind: 'library-edit-pins', libraryId: library.id})};

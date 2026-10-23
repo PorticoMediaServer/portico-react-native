@@ -66,7 +66,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}},
     './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {titleRoute},
-    './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': homeModel,
+    '../screens/accounts/AccountRoutes': {AccountRoute: () => {throw new Error('Account routes are outside this Home-only test.');}}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}}}, '../screens/home/model': homeModel,
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),

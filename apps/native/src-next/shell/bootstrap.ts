@@ -11,8 +11,8 @@ import {EventsClient} from '../../../../packages/client-core/src/playback-v1/eve
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
 import {runEventFeed} from '../../../../packages/client-core/src/event-feed';
 import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork';
-import type {HttpLocalApi, LocalSession, Library, CredentialSessionService} from '../../../../packages/client-core/src';
-import {restoreNativeConnection, createCredentials, nativeViewerStorage, nativeConnectionEnvironment, trackNativeConnection} from '../platform/session';
+import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/client-core/src';
+import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {profilePictureSource} from '../platform/profile-avatars';
@@ -89,16 +89,15 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const currentAccount = () => {assertCurrent(); if (!account) throw cancelled(); return account;};
   try {
     assertCurrent();
-    const {saved, connection, identity: installed} = await installation.prepare(); assertCurrent();
+    const {saved, connection, env, identity: installed} = await installation.prepare(); assertCurrent();
     if (!saved.viewer) {dispose(); return undefined;}
     const original = saved.viewer;
     nativeShellDirectViewer(original.session.viewer);
-    let credentials: CredentialSessionService | undefined;
-    if (connection?.hosted) {credentials = createCredentials(connection.hosted.origin); await credentials.synchronize(); assertCurrent();}
-    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, credentials, original.session);
+    // A server-local session renews locally even while Portico Services is unreachable.
+    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, undefined, original.session, env);
     api = restored?.api; assertCurrent();
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
-    const reread = await nativeViewerStorage.read(); assertCurrent();
+    const reread = await readNativeSelectedViewer(); assertCurrent();
     if (!reread || reread.serverUrl !== original.serverUrl || !sameViewer(reread.session, restored.session)) throw cancelled();
     api = restored.api;
     api.setDeviceClass(Platform.isTV ? 'television' : 'mobile');
@@ -153,7 +152,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       settings: () => nativePlaybackSettings(currentPreferences().effective, installationSettings), subscribeSettings: contextBase.subscribePreferences, appVersion: contextBase.appVersion});
     const context: NativeShellBootstrapContext = {...contextBase, playback, get account() {return currentAccount();}};
     bindings = await makeBindings(context); assertCurrent();
-    const selectedBeforePublish = await nativeViewerStorage.read(); assertCurrent();
+    const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
     const bound = bindings;
     const publish = () => {
@@ -163,7 +162,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       for (const listener of [...listeners]) listener();
     };
     publish();
-    refresher = new LocalSessionRefresher({env: nativeConnectionEnvironment, api: local, session, onRotated: renewed => {
+    refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
       if (!current() || !sameViewer(session!, renewed) || renewed.authorizationHorizon !== session!.authorizationHorizon) {end(); return;}
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
@@ -176,7 +175,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       signal.signal.addEventListener('abort', abortRound, {once: true});
       try {
         const [selection, me, nextLibraries, nextFacts, nextInstallation, nextAccount, nextAvatars] = await Promise.all([
-          nativeViewerStorage.read(), readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, round.signal),
+          readNativeSelectedViewer(), readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, round.signal),
           readers.request(routePath('get_libraries'), 'GET', undefined, round.signal).then(parseLibraryList), readers.read(round.signal),
           records.change('preferences:v1', raw => ({record: raw, value: raw})), readers.readAccount(round.signal), identities.avatars(round.signal),
         ]);
@@ -189,7 +188,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         // Revalidate Home before committing the other private facts. Same-scope read failures
         // retain the entire published body; a changed Home fence retires it in the transport.
         await documentService.revalidate({signal: round.signal}); assertCurrent();
-        const selectedBeforeRefreshPublish = await nativeViewerStorage.read(); assertCurrent();
+        const selectedBeforeRefreshPublish = await readNativeSelectedViewer(); assertCurrent();
         if (!selectedBeforeRefreshPublish || selectedBeforeRefreshPublish.serverUrl !== original.serverUrl || !sameViewer(selectedBeforeRefreshPublish.session, session!)) {end(); return;}
         preferences = nextFacts.preferences; installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
         account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;

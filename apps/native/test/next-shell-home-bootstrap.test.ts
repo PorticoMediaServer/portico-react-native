@@ -88,6 +88,7 @@ function fixture(t: TestContext, deviceClass: DeviceClass = 'mobile', role: 'own
       layout: {revision: 1, rowOrder: ['recent'], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-22T12:00:00Z'}};
     if (path === routePath('get_home_row', {id: 'recent'})) return {value: {...homeRow(state.fences.home), entries: [], start: 1, hasMore: false, nextCursor: ''}};
     if (path === routePath('get_direct_account')) return {value: {authority: 'local', serverId: 'server', canManage: true,
+      capabilities: {manageAccount: true, managePeople: state.role !== 'member', manageServer: state.role !== 'member', manageSignIn: state.role === 'owner'},
       account: {id: 'account', username: 'owner', primaryProfileId: 'profile', role: state.role, revision: 1, disabled: state.disabled, allowedLibraries: ['movies']},
       profiles: [{id: 'profile', name: 'Actual profile', primary: true, position: 0, art: 'mint', revision: 1, pinRevision: 1, pinRequired: false}]}};
     throw new Error('Unexpected request: ' + path);

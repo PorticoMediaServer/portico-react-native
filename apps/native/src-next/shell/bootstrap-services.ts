@@ -135,7 +135,8 @@ export class NativeShellBootstrapServices {
       || object(raw.account) && typeof raw.account.id === 'string' && raw.account.id !== viewer.accountId)) this.retire();
     const account = parseDirectSnapshot(raw, {authority: 'local', serverId: viewer.serverId, accountId: viewer.accountId}, true);
     this.assertCurrent();
-    if (account.account.disabled || account.account.role !== viewer.role) this.retire();
+    const effectiveRole = account.capabilities.managePeople ? account.account.role : 'member';
+    if (account.account.disabled || effectiveRole !== viewer.role) this.retire();
     return account;
   };
   private async readInbox(): Promise<number> {

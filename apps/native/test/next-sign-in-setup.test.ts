@@ -74,6 +74,7 @@ test('separate setup uses genuine React form, core auth, verified route and nati
             authority: 'local',
             serverId: fixture.pin.serverId,
             canManage: false,
+            capabilities: {manageAccount: false, managePeople: false, manageServer: false, manageSignIn: false},
             account: {
               id: 'account',
               username: 'synthetic_user',
@@ -256,8 +257,12 @@ test('separate setup uses genuine React form, core auth, verified route and nati
     );
     const { NativeSignInSetup } = await import('../setup/native-session.ts');
     await t.test(
-      'an already saved sign-in is refused without replacing its real product records',
+      'the historical adapter refuses an explicit synthetic current canonical sign-in',
       async () => {
+        const {nativeAppSessionStorage} = await import('../src-next/platform/app-session-storage.ts');
+        const connection = saved().connection;
+        // Explicit synthetic current envelope, not a product migration or fallback.
+        await nativeAppSessionStorage.change(() => ({version: 1, revision: 1, selectedServerId: connection.pin.serverId, servers: [{signIn: 'local', connection}]}));
         const before = saved(),
           setup = new NativeSignInSetup();
         try {

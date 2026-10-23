@@ -339,14 +339,14 @@ export async function standardHomeApp({
       ? []
       : [
           [
-            'network.selected.v1',
-            JSON.stringify({
+            'accounts.sessions.v1',
+            JSON.stringify({version: 1, revision: 1, selectedServerId: pin.serverId, servers: [{signIn: 'local', connection: {
               version: '1',
               logicalOrigin: origin,
               session,
               pin,
               routes: {paired: [origin]},
-            }),
+            }}]}),
           ],
         ],
   );
@@ -510,6 +510,7 @@ export async function standardHomeApp({
       const response = await nativeResponse(request, {
         pin,
         viewer,
+        session: {...session, serverIdentity: {publicKey: pin.publicKey, fingerprint: pin.fingerprint}},
         installationId,
         origin,
       });
@@ -546,7 +547,8 @@ export async function standardHomeApp({
         body: {
           authority: 'local',
           serverId: pin.serverId,
-          canManage: accountRole === 'owner',
+          canManage: true,
+          capabilities: {manageAccount: true, managePeople: accountRole !== 'member', manageServer: accountRole !== 'member', manageSignIn: accountRole === 'owner'},
           account: {
             id: 'account',
             username: 'fixture_member',
@@ -665,6 +667,7 @@ export async function standardHomeApp({
       pending.set(id, controller);
       const request = {
         method,
+        url,
         path: new URL(url).pathname + new URL(url).search,
         headers,
         body: body ? JSON.parse(body) : undefined,
