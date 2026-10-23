@@ -6,7 +6,10 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchReader} from '../src-next/shell/watch-outlet.ts';
-import {resolvePlayerPresentation} from '../src-next/platform/layout/player-presentation.ts';
+import {resolvePlayerPresentation, playerControlsRevealDeadline} from '../src-next/platform/layout/player-presentation.ts';
+import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
+import {focusTestID} from '../src-next/kit/focus/registry.ts';
+import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import type {NativeWatchPictureSlot} from '../src-next/screens/watch/picture-slot.tsx';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -27,22 +30,22 @@ function reader() {
   return {source, get subscriptions() {return listeners.size;}, async publish(next?: NativeExpandedVideoSlot, notify = true) {value = next; await act(() => {if (notify) for (const listener of listeners) listener();});}};
 }
 
-async function layer(withWatch = true, canonical?: NativeWatchReader) {
+async function layer(withWatch = true, canonical?: NativeWatchReader, options: {os?: string; tv?: boolean; capture?: (source: any) => Promise<any>} = {}) {
   const outlet = reader(), dock = new PlaybackDock(fence.playback.scope), transitions: any[] = [];
   dock.start({kind: 'video', fence, queue: null, positionSeconds: 540, playing: true, expanded: true});
   let dimensions = window, current: any, tree: any;
   const refresh = () => {current = {authority, fence, dock: dock.getSnapshot(), playback: {duration: 5700}, subject: {}, capabilities: {}};};
   refresh();
   const adapter = {getSnapshot: () => current, subscribe: () => () => {}, Surface: 'ActualSurface', dock,
-    captureVideoSnapshot: async () => undefined, onTransition: async (value: any) => {transitions.push(value);}};
+    captureVideoSnapshot: options.capture ?? (async () => undefined), onTransition: async (value: any) => {transitions.push(value);}};
   const callbacks: ((x: number, y: number) => void)[] = [];
   let node: any = {measureInWindow: (callback: any) => {callbacks.push(callback);}};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
-    react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => dimensions},
+    react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: options.os ?? 'android'}, View: 'View', useWindowDimensions: () => dimensions},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
     'react-native-reanimated': {default: {View: 'Animated.View'}, useAnimatedStyle: (style: () => unknown) => style()},
-    '../kit/focus': {}, './tv-focus': {}, '../kit/theme': {useTheme: () => ({isTV: false, layers: {player: 30}})},
+    '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds}, '../kit/theme': {useTheme: () => ({isTV: options.tv === true, layers: {player: 30}})},
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
@@ -55,7 +58,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader) {
     const props = picture(), frame = props.docked ? props.dockFrame : props.fullFrame;
     return props.children({bounds: {x: 0, y: 0, width: frame.width, height: frame.height}, docked: props.docked, subtitlesVisible: true, surfaceActive: true});
   };
-  return {host, outlet, dock, callbacks, transitions, picture, surface, get tree() {return tree;},
+  return {host, outlet, dock, adapter, callbacks, transitions, picture, surface, get tree() {return tree;},
     async render() {refresh(); await act(() => host.rerender());},
     async resize(next: typeof window) {dimensions = next; await act(() => host.rerender());},
     async replaceReader(next: ReturnType<typeof reader>) {runtime = {...runtime, watch: next.source}; await act(() => host.rerender());},
@@ -63,6 +66,67 @@ async function layer(withWatch = true, canonical?: NativeWatchReader) {
     detachHost() {node = null; tree.props.ref.current = null;},
     close() {host.unmount();},
   };
+}
+
+for (const os of ['android', 'ios']) {
+  test(`${os} persistent layer captures the fenced source and admits only its decoded retained image`, async () => {
+    let captures = 0, released = 0;
+    const d = await layer(true, undefined, {os, capture: async source => {
+      captures++; assert.ok(sameFence(source, fence));
+      return {fence: source, image: {uri: 'file:///native-current-frame.jpg', width: 890, height: 501}, release: async () => {released++;}};
+    }});
+    try {
+      const surface = d.surface();
+      await act(async () => {await d.picture().prepareLayout(fence);});
+      assert.equal(captures, 1);
+      assert.equal(d.picture().retainedSnapshot.ready, false);
+      assert.equal(d.picture().retainedSnapshot.failed, false);
+      assert.equal(d.picture().retainedSnapshot.image.props.resizeMode, 'contain');
+      await act(() => d.picture().retainedSnapshot.image.props.onLoad());
+      assert.equal(d.picture().retainedSnapshot.ready, true);
+      assert.strictEqual(d.surface().type, surface.type);
+      assert.strictEqual(d.surface().key, surface.key);
+      assert.deepEqual(d.transitions, []);
+      await act(() => d.picture().onPresentationChange({fence, docked: false, moving: false, hideSubtitles: false}));
+      assert.equal(d.picture().retainedSnapshot, undefined);
+      assert.equal(released, 1);
+      await act(async () => {await d.picture().prepareLayout(fence);});
+      const staleImage = d.picture().retainedSnapshot.image;
+      const replacement = {...fence, generation: 2};
+      d.setCurrent({fence: replacement});
+      await act(() => {d.host.rerender(); staleImage.props.onLoad();});
+      assert.equal(d.picture().retainedSnapshot, undefined, 'a late decode cannot cover a replacement source');
+      assert.equal(released, 2);
+      assert.deepEqual(d.transitions, []);
+    } finally {d.close();}
+  });
+
+  test(`${os} touch preparation uses the existing fenced capture and TV never starts it`, async () => {
+    for (const tv of [false, true]) {
+      let captures = 0, released = 0;
+      const d = await layer(true, undefined, {os, tv, capture: async source => {
+        captures++; return {fence: source, image: {uri: 'file:///native-current-frame.jpg', width: 840, height: 472}, release: async () => {released++;}};
+      }});
+      try {
+        if (!tv) {
+          await d.outlet.publish(slot); await act(() => d.callbacks.shift()!(0, 0));
+          const target = nodes(d.tree).find(node => node.type === 'GestureDetector').props.children;
+          await act(() => target.props.onTouchStart());
+          assert.equal(captures, 1);
+          await act(() => d.picture().retainedSnapshot.image.props.onError());
+          assert.equal(d.picture().retainedSnapshot.failed, true);
+          assert.equal(d.picture().retainedSnapshot.ready, false);
+          await act(() => target.props.onTouchEnd());
+          assert.equal(released, 1);
+        } else {
+          await act(async () => {await d.picture().prepareLayout(fence);});
+          await act(() => nodes(d.tree).find(node => node.props.onTouchStart)?.props.onTouchStart());
+          assert.equal(captures, 0);
+        }
+        assert.deepEqual(d.transitions, []);
+      } finally {d.close();}
+    }
+  });
 }
 
 test('watch consumption waits for its accepted measured picture, converts origin and scopes pan away from details', async () => {
@@ -144,6 +208,63 @@ test('the checked watch measurement publishes its full pane through the canonica
     assert.equal(d.surface().props.expandedBounds, undefined);
     assert.strictEqual(d.surface().type, surfaceType, 'retiring the watch producer cannot retire the player');
   } finally {owner.unmount(); d.close(); outlet.dispose();}
+});
+
+test('actual WatchHost panel/control geometry reaches the persistent layer through its measured canonical pane', async () => {
+  const wide = {width: 890, height: 626};
+  let posture: any = {status: 'unavailable', window: null, folds: []}, root: any, measured: any;
+  const outlet = new NativeWatchOutlet(() => ({authority, fence, window: wide}));
+  const d = await layer(true, outlet, {os: 'ios'}), controls = new NativeWatchControls(false);
+  const measurements: ((x: number, y: number, width: number, height: number) => void)[] = [];
+  const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide, Dimensions: {get: () => wide}},
+    '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
+    '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline},
+    '../../platform/platformPosture': {usePlatformPosture: () => posture},
+    './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+  });
+  const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},
+    '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
+  });
+  const view = {measureInWindow(callback: typeof measurements[number]) {measurements.push(callback);}};
+  const setPresentation = (context: any) => controls.source(fence, {...context, expanded: d.adapter.getSnapshot().dock.local?.expanded === true, paused: false});
+  const bindings = {chrome: () => ({}), panel: () => null};
+  const watch = createHookHost(() => {root = NativeWatchHost({authority, current: () => authority, playback: d.adapter as any, outlet, runtime: {text: {}} as any, controls, bindings: bindings as any, setPresentation});});
+  const picture = createHookHost(() => {measured = NativeWatchPicture(root.props.children[0].props); measured.props.ref.current = view;});
+  const measure = async (width: number, height: number) => {
+    await act(() => {picture.rerender(); measured.props.onLayout(); measurements.at(-1)!(0, 0, width, height);});
+    await act(() => d.callbacks.at(-1)!(0, 0));
+  };
+  try {
+    await d.resize(wide); watch.mount(); picture.mount();
+    await measure(890, 626);
+    const surface = d.surface();
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 890, height: 626});
+    posture = {status: 'available', window: wide, folds: [{bounds: {left: 445, right: 445, top: 0, bottom: 626}, orientation: 'vertical', state: 'flat'}]};
+    await act(() => watch.rerender());
+    await act(() => {controls.open('episodes', fence);});
+    assert.equal(controls.getSnapshot().visible, false, '3d panel suppression applies before fold reveal');
+    const panel = nodes(root).find(node => node.props.testID === 'watch-panel-pane');
+    assert.equal(panel.props.style.left, 445); assert.equal(panel.props.style.width, 445);
+    await measure(445, 626);
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 445, height: 626});
+    await act(() => {controls.closePanel(fence); posture = {...posture, folds: [{...posture.folds[0], state: 'half-opened'}]}; watch.rerender();});
+    await measure(445, 250.3125);
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 445, height: 250.3125});
+    const chrome = nodes(root).find(node => node.type === 'Chrome');
+    assert.equal(chrome.props.edgeInsets.right, 16);
+    assert.strictEqual(d.surface().type, surface.type); assert.strictEqual(d.surface().key, surface.key);
+    assert.deepEqual(d.transitions, []);
+    await act(() => {d.dock.collapse(fence);}); await d.render(); await act(() => watch.rerender());
+    assert.equal(root, null);
+    // This hook driver mounts child bodies explicitly; mirror the real root's
+    // removal of its measurement child when WatchHost returns null.
+    await act(() => picture.unmount());
+    assert.equal(outlet.getSnapshot(), undefined);
+    assert.equal(d.surface().props.docked, true); assert.strictEqual(d.surface().type, surface.type);
+    assert.deepEqual(d.transitions, []);
+  } finally {picture.unmount(); watch.unmount(); controls.dispose(); d.close(); outlet.dispose();}
 });
 
 test('watch origin callbacks reject replacement slot, source, authority, window, host, reader, dock and unmount before notification', async () => {
