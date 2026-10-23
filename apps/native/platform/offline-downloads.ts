@@ -79,6 +79,14 @@ export type OfflineEntry = Readonly<{
   changedOnServer: boolean;
 }>;
 export type OfflineSettings = Readonly<{wifiOnly: boolean; deleteWatched: boolean; autoNext: boolean; limitBytes: number}>;
+export type OfflinePlayabilityReason = 'sign_in'|'not_finished'|'needs_setup'|'needs_check_in'|'other_profile';
+export type OfflineEntryFacts = Readonly<{
+  /** The viewer's item bookmark, not a per-artifact observation or a completion flag. */
+  resumePositionSeconds?: number;
+  backdropUrl?: string;
+  /** Actual cached bundle facts, never a resolution inferred from a quality ID. */
+  media?: Readonly<{container?:string;videoCodec?:string;audioCodec?:string;width?:number;height?:number}>;
+}>;
 export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; error?: string}>;
 export type Viewer = Readonly<{authority: string; accountId: string; profileId: string; serverId: string}>;
 type Api = {baseUrl: string; mediaUrl(path: string): string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
@@ -334,7 +342,8 @@ export class OfflineDownloads {
     // A stored receipt is re-parsed every time it is read: a damaged one is no receipt at all.
     try { receipt = meta.receipt ? decodeDownloadReceipt(meta.receipt).receipt : undefined; } catch { receipt = undefined; }
     let info: DownloadTitle | undefined;
-    try { info = meta.title ? parseDownloadTitle(meta.title) : undefined; } catch { info = undefined; }
+    // Meta.title is the internal model serialized by transfer/patch, not an API response.
+    try { info = meta.title ? parseDownloadTitle(durationIntent({...meta.title}, {durationSeconds: 'durationMs'})) : undefined; } catch { info = undefined; }
     const dir = typeof raw.dir === 'string' ? raw.dir : this.dirs.get(raw.id) ?? '';
     if (dir) this.dirs.set(raw.id, dir);
     this.metas.set(raw.id, {...meta, receipt, title: info});
@@ -859,13 +868,18 @@ export class OfflineDownloads {
   }
 
   /** Whether this download may be played now, and if not, why. Usable with no connection. */
-  playable(entry: OfflineEntry, viewer: Viewer | undefined = this.viewer): string {
-    if (!viewer) return serviceText('downloads.offline.signIn');
-    if (entry.state !== 'ready') return serviceText('downloads.offline.notFinished');
-    if (!entry.receipt || !this.verified.has(signedIdentity(entry.receipt))) return serviceText('downloads.offline.needsSetup');
+  playabilityReason(entry: OfflineEntry, viewer: Viewer | undefined = this.viewer): OfflinePlayabilityReason|null {
+    if (!viewer) return 'sign_in';
+    if (entry.state !== 'ready') return 'not_finished';
+    if (!entry.receipt || !this.verified.has(signedIdentity(entry.receipt))) return 'needs_setup';
     const now = this.receiptNow();
-    if (!receiptUsable(entry.receipt.claims, viewer, new Date(now))) return serviceText(Date.parse(entry.receipt.claims.expiresAt) <= now ? 'downloads.offline.needsCheckIn' : 'downloads.offline.otherProfile');
-    return '';
+    if (!receiptUsable(entry.receipt.claims, viewer, new Date(now))) return Date.parse(entry.receipt.claims.expiresAt) <= now ? 'needs_check_in' : 'other_profile';
+    return null;
+  }
+  playable(entry: OfflineEntry, viewer: Viewer | undefined = this.viewer): string {
+    const reason = this.playabilityReason(entry,viewer);
+    const messages = {sign_in:'downloads.offline.signIn',not_finished:'downloads.offline.notFinished',needs_setup:'downloads.offline.needsSetup',needs_check_in:'downloads.offline.needsCheckIn',other_profile:'downloads.offline.otherProfile'} as const;
+    return reason ? serviceText(messages[reason]) : '';
   }
   /** A line to show under a download that plays but has something worth saying about it. */
   note(entry: OfflineEntry): string {
@@ -877,15 +891,51 @@ export class OfflineDownloads {
     const owner = this.entryOwner(entry);
     return Math.max(0, (owner ? this.stored.resume[owner]?.[entry.itemId] : 0) ?? 0);
   }
+  /** A local file read cannot escape the viewer/generation/artifact that admitted it. */
+  private localRead(entry: OfflineEntry): () => OfflineEntry {
+    const generation=this.generation, owner=this.ownerKey();
+    const identity=(value:OfflineEntry)=>JSON.stringify([value.id,value.itemId,this.entryOwner(value),value.receipt?.claims.preparationId,value.receipt?.claims.artifact.sha256,value.receipt?.claims.artifact.bytes]);
+    const expected=identity(entry);
+    const current=()=>{
+      const live=this.all.find(value=>value.id===entry.id);
+      if(!owner||generation!==this.generation||owner!==this.ownerKey()||!live||this.entryOwner(live)!==owner||identity(live)!==expected)throw new Error(serviceText('downloads.offline.otherProfile'));
+      return live;
+    };
+    current();return current;
+  }
+  async displayFacts(entry: OfflineEntry): Promise<OfflineEntryFacts> {
+    const current=this.localRead(entry);
+    let bundle:unknown;
+    try { const raw=await native?.readExtra(entry.id,'bundle.json');bundle=raw?JSON.parse(raw):undefined; } catch { /* Unknown cached fields stay absent. */ }
+    const live=current(),owner=this.ownerKey()!,result:{resumePositionSeconds?:number;backdropUrl?:string;media?:OfflineEntryFacts['media']}={};
+    const position=this.stored.resume[owner]?.[live.itemId];
+    if(typeof position==='number'&&Number.isFinite(position)&&position>=0)result.resumePositionSeconds=position;
+    const dir=this.dirs.get(live.id),meta=this.metas.get(live.id);
+    if(dir&&meta?.extras?.includes('backdrop'))result.backdropUrl=dir+'extras/backdrop';
+    const value=bundle!==null&&typeof bundle==='object'?bundle as Record<string,unknown>:undefined;
+    const claim=meta?.claim??live.receipt?.claims.preparationId??live.id;
+    const raw=value?.itemId===live.itemId&&(value?.preparationId===claim||value?.preparationId===live.id)?value.media:undefined;
+    if(raw!==null&&typeof raw==='object') {
+      const source=raw as Record<string,unknown>,media:{container?:string;videoCodec?:string;audioCodec?:string;width?:number;height?:number}={};
+      for(const key of ['container','videoCodec','audioCodec'] as const)if(typeof source[key]==='string'&&source[key].length>0&&source[key].length<=128&&!/[\u0000-\u001f\u007f]/.test(source[key]))media[key]=source[key];
+      for(const key of ['width','height'] as const)if(typeof source[key]==='number'&&Number.isSafeInteger(source[key])&&source[key]>0)media[key]=source[key];
+      if(Object.keys(media).length)result.media=Object.freeze(media);
+    }
+    return Object.freeze(result);
+  }
   /** The downloaded file, this viewer's resume point and everything that came with the download,
    * for Portico's own player (the only offline player). No connection needed. */
   async localMedia(entry: OfflineEntry): Promise<LocalMedia> {
     const reason = this.playable(entry); if (reason) throw new Error(reason);
+    const current=this.localRead(entry);
     if (!native?.localFile) throw new Error(serviceText('downloads.offline.notPlayableHere'));
     const file = await native.localFile(entry.id);
+    current();
+    const extras=await this.extras(entry),live=current();
+    const latestReason=this.playable(live);if(latestReason)throw new Error(latestReason);
     const playId = 'play_' + random();
     this.playing.set(entry.id, playId);
-    return {entryId: entry.id, itemId: entry.itemId, playId, fileUrl: file.url, durationSeconds: Math.max(0, Number(file.durationSeconds) || 0), startSeconds: this.resumePoint(entry), extras: await this.extras(entry)};
+    return {entryId: live.id, itemId: live.itemId, playId, fileUrl: file.url, durationSeconds: Math.max(0, Number(file.durationSeconds) || 0), startSeconds: this.resumePoint(live), extras};
   }
   /** What came with a download: its description, chapters, markers and audio tracks as the server
    * described them, and its subtitle tracks as files on this device. */

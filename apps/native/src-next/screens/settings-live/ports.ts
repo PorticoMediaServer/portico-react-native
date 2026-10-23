@@ -12,9 +12,15 @@ export type NativeSettingsLivePorts = Readonly<{
   settingsContext: () => SettingsContext;
   serverName: () => string;
   requestId: () => string;
+  /** DVR's existing protocol requires 24 genuine random bytes encoded as 48 lower-case hex
+   * characters. Accounts binds nativeRouteCrypto.random(24); the UUID port above is separate. */
+  dvrRequestId: () => Promise<string>;
   /** Borrowed from the app's one group/follower lifetime; this factory never duplicates it. */
   together: GroupSessionService;
-  /** Local composites use the canonical native preference owner and its observed values. */
+  /** Local composites use the same preferences:v1 NativeQueueStore record. write resolves
+   * only after durable native save/readback, preserves unrelated/server-cache fields, and
+   * notifies observed reads. No local revision/CAS ACK or server-scoped shadow writer.
+   * This is not the source69 row/codecs proposal; those require checked public MAIN. */
   deviceSettings: Readonly<{
     read: (id: CompositeId) => string | boolean | undefined;
     write: (id: CompositeId, value: string | boolean) => Promise<void>;
