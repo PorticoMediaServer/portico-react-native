@@ -5,6 +5,7 @@ import {dirname, join} from 'node:path';
 import {screenModule} from './screen-harness.mjs';
 import * as model from '../../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../../src-next/kit/dock/morph-fence.ts';
+import {playerPostureCrossFadeMs} from '../../src-next/platform/layout/player-presentation.ts';
 import {sameFence} from '../../../../packages/player-core/src/index.ts';
 import {NativeVideoSnapshotCapture} from '../../src-next/shell/video-snapshot.ts';
 import {sameAuthority} from '../../src-next/shell/model.ts';
@@ -46,7 +47,7 @@ export async function fabricPlayback(runtime, tv = true) {
   const common = {react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture: {Pan: pan}, GestureDetector: Container},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     '../Icon': {Icon: () => null}, './model': model, './morph-fence': {currentMorphFence}, './visual': {alpha: () => '#000', dockStyles: {fill: {}}}};
-  const {usePlayerMorph, PlayerMorph} = await screenModule(new URL('../../src-next/kit/dock/PlayerMorph.tsx', import.meta.url), common);
+  const {usePlayerMorph, PlayerMorph} = await screenModule(new URL('../../src-next/kit/dock/PlayerMorph.tsx', import.meta.url), {...common, '../../platform/layout/player-presentation': {playerPostureCrossFadeMs}});
   const {useDockPresence} = await screenModule(new URL('../../src-next/kit/dock/useDockPresence.ts', import.meta.url), common);
   const {DockHost} = await screenModule(new URL('../../src-next/kit/dock/DockHost.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, './MediaBar': {MediaBar: () => null}, './NowPlayingCard': {NowPlayingCard: () => null},
