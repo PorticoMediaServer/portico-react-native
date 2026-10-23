@@ -35,6 +35,7 @@ type Window = {registration?: Registration; row: HomeRow; order: number; first: 
 export function createNativeShellBindings(context: NativeShellBootstrapContext): NativeShellBindings {
   const initial = context.home.getSnapshot().document, session = context.session();
   if (!initial || !session || !context.current()) throw failure('native_home_authority_required');
+  const routes = nativeShellRoutes.bind(context);
   const scope = nativeHomeSelectionScope(session.viewer);
   let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
   let tvPageBack: (() => boolean) | undefined, tvRailBack: (() => boolean) | undefined;
@@ -192,6 +193,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     else if (state.menu) controller.closeMenu();
     else if (state.selection.active) controller.clear();
     else {
+      if (routes.back()) return true;
       if (context.playback.getSnapshot().dock.local?.expanded) return false;
       // Menus/selection own Back first, then the player, then the page.
       if (Platform.isTV && tvRailBack?.()) return true;
@@ -205,7 +207,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const operation = new AbortController(); operations.add(operation);
     void work(operation.signal).catch(reportError).finally(() => operations.delete(operation));
   };
-  const render = (route: NativeShellRoute) => runtime && context.current() ? nativeShellRoutes.get(route.kind)?.render(route, runtime) : null;
+  const render = (route: NativeShellRoute) => runtime && context.current() ? routes.render(route, runtime) : null;
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
   return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV);}, attach: value => {runtime = value;},
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
@@ -266,6 +268,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
     renderRoutes: () => {const route = context.navigation.getSnapshot().route; return route.kind === 'shell' ? null : <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{render(route)}</View>;},
     renderDestination: destination => render({kind: 'shell', destination}),
+    renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
     renderHomeEmpty: () => <StateView variant="centered" title={t('web.empty.homeTitle')} body={t(context.account.account.role === 'owner' ? 'web.empty.homeOwnerBody' : 'web.empty.homeMemberBody')}/>,
     libraryMenu: library => {
       const common = {read: library.kind === 'books', onSaveView: () => open({kind: 'library-save-view', libraryId: library.id}),
@@ -280,11 +283,11 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     error: (error, retry) => {const presented = presentError(error, 'home'); return {title: presented.title, body: presented.body, tone: 'error', ...(presented.action === 'try-again' || presented.action === 'refresh' ? {primaryAction: {id: 'retry', label: presented.actionLabel, onPress: retry}} : {})};},
     reportError, onDestination: destination => open({kind: 'shell', destination}),
-    scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; nativeShellRoutes.get(route.kind)?.scrollToTop?.(route);}}},
+    scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
   };
 }
