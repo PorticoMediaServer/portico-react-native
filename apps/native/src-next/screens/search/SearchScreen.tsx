@@ -141,37 +141,37 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined, text = content ? homeCardText(content, false, runtime.text) : undefined;
   const shape = group === 'movies' || group === 'shows' ? 'poster' : group === 'episodes' || group === 'live-tv' ? 'wide' : 'square';
   const width = shape === 'poster' ? 46 : shape === 'wide' ? 100 : 56, height = shape === 'poster' ? 69 : 56;
-  const key = nativeSearchEntryKey(group, entry);
+  const key = nativeSearchEntryKey(group, entry), title = content?.displayTitle || entry.title;
   return <View style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 20, gap: 13}}>
-    <CardFrame testID={`search-result-${key}`} focusId={key} title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
+    <CardFrame testID={`search-result-${key}`} focusId={key} title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
       onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
       {() => <>
-      {selection?.active && <SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/>}
+      {selection?.active && <SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/>}
       <View style={{width, height, borderRadius: 6, overflow: 'hidden'}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
-      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection?.selected ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
+      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection?.selected ? theme.colors.accentStrong : theme.colors.text}]}>{title}</Text>
         <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>{text?.caption.map(part => <Text key={part.id} numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part.text}</Text>)}</View>
       </View>
       </>}
     </CardFrame>
-    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
+    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
   </View>;
 }
 
 
 function SearchTopResult({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection}) {
-  const theme = useTheme(), menuAnchorRef = useRef<View>(null), kind = topResultKindLabel(group);
-  return <CardFrame testID="search-top-result" title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
+  const theme = useTheme(), menuAnchorRef = useRef<View>(null), kind = topResultKindLabel(group), title = media(entry) ? entry.displayTitle || entry.title : entry.title;
+  return <CardFrame testID="search-top-result" title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
     onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)}
     style={{marginHorizontal: 16, marginTop: 14}} pressableStyle={{height: 178, borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
     {() => <>
     <Artwork source={runtime.artwork(media(entry) ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl)} height={178}/>
     <View style={{position: 'absolute', left: 18, right: 18, top: 16, bottom: 18, justifyContent: 'flex-end'}}>
       <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong, marginBottom: 6}]}>{t('search.topResult')}</Text>
-      <Text numberOfLines={2} style={[browseType(theme, 26, 800, -.035, 28), {color: theme.colors.text}]}>{entry.title}</Text>
+      <Text numberOfLines={2} style={[browseType(theme, 26, 800, -.035, 28), {color: theme.colors.text}]}>{title}</Text>
       {kind && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary, marginTop: 6}]}>{t(kind)}</Text>}
     </View>
-    {selection?.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/></View>
-      : media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title: entry.title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
+    {selection?.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/></View>
+      : media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
     </>}
   </CardFrame>;
 }
