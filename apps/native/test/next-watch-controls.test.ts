@@ -68,3 +68,15 @@ test('paused, tabletop, scrub and held focus keep controls visible; docked clear
     controls.dispose();
   }
 });
+
+test('an actual scrub remains pinned through producer progress and releases only its own fence', () => {
+  const time = manualClock(), controls = new NativeWatchControls(false, time.clock), current = fence();
+  controls.source(current, expanded); controls.scrub(current, true);
+  time.advance(5000); controls.source(current, expanded); time.advance(5000);
+  assert.equal(controls.getSnapshot().visible, true);
+  controls.scrub(fence(2), false); time.advance(5000);
+  assert.equal(controls.getSnapshot().visible, true);
+  controls.scrub(current, false); time.advance(4000);
+  assert.equal(controls.getSnapshot().visible, false);
+  controls.dispose();
+});

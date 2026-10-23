@@ -38,8 +38,8 @@ export function NativeWatchPicture({authority, fence, outlet, current, style}: N
     });
   }, [authority, fence, current, window.width, window.height]);
   useEffect(() => {
-    const owner = outlet.register(authority); registration.current = owner; measure();
-    return () => {revision.current++; if (registration.current === owner) registration.current = undefined; owner.dispose();};
+    const owner = outlet.register(authority); registration.current = owner;
+    return () => {if (registration.current === owner) registration.current = undefined; owner.dispose();};
   }, [outlet, authority]);
   useEffect(() => {registration.current?.clear(); measure();}, [fence, window.width, window.height, measure]);
   return <View ref={node} collapsable={false} testID="watch-picture-slot" accessible={false} onLayout={measure} style={style}/>;

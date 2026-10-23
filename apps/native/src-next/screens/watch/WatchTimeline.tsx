@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {sameFence} from '../../../../../packages/player-core/src';
@@ -27,9 +27,9 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const [preview, setPreview] = useState<number>();
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
   const span = end - start;
-  const current = () => !!fence && sameFence(playback.getSnapshot().fence, fence) && !source.retired;
+  const current = useCallback(() => !!fence && sameFence(playback.getSnapshot().fence, fence) && !source.retired, [fence, playback, source.retired]);
   useEffect(() => {dragging.current = false; setPreview(undefined);}, [fence]);
-  const target = (x: number) => width.current > 0 && span > 0 ? Math.max(start, Math.min(end, start + x / width.current * span)) : undefined;
+  const target = useCallback((x: number) => width.current > 0 && span > 0 ? Math.max(start, Math.min(end, start + x / width.current * span)) : undefined, [start, end, span]);
   const gesture = useMemo(() => Gesture.Pan().enabled(enabled && source.capabilities.seek).minDistance(0).runOnJS(true)
     .onBegin(event => {if (!fence || !current()) return; dragging.current = true; controls.scrub(fence, true); setPreview(target(event.x));})
     .onUpdate(event => {if (dragging.current && current()) setPreview(target(event.x));})
@@ -37,7 +37,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
       const seconds = target(event.x);
       if (fence && dragging.current && current() && seconds !== undefined) void playback.seek(fence, seconds).catch(reportError);
     }).onFinalize(() => {dragging.current = false; setPreview(undefined); if (fence) controls.scrub(fence, false);}),
-    [enabled, fence, source.capabilities.seek, start, end, playback, controls, reportError]);
+    [enabled, fence, source.capabilities.seek, playback, controls, reportError, current, target]);
   const position = preview ?? source.playback.positionSeconds, progress = span > 0 ? Math.max(0, Math.min(1, (position - start) / span)) : 0;
   const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
   const marks = markers.filter(marker => ['intro', 'recap', 'credits'].includes(marker.type) && marker.endMs > marker.startMs && marker.startMs / 1000 < end && marker.endMs / 1000 > start);

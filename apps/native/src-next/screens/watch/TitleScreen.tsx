@@ -124,7 +124,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             const model = cardText({id: entry.id, kind: entry.kind, title: entry.title, episode: entry.absoluteNumber !== undefined ? {mode: 'absolute', number: entry.absoluteNumber} : entry.seasonNumber === 0 ? {mode: 'special'} : {mode: 'seasonal', season: entry.seasonNumber, episode: entry.episodeNumber}, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
             return cell(entry.id, <EpisodeTile title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
               artwork={props.artwork(entry.stillUrl ?? workspace.show.backdropUrl)} backdropFallback={!entry.stillUrl} synopsis={entry.overview}
-              primaryAction={theme.isTV ? 'play' : 'navigate'} onNavigate={() => props.navigate(entry)} onMore={() => props.more(entry)} onPlay={entry.playback ? () => {void controller.play(entry).catch(props.reportError);} : undefined} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
+              {...(theme.isTV && entry.playback ? {primaryAction: 'play' as const, onPlay: () => {void controller.play(entry).catch(props.reportError);}} : {primaryAction: 'navigate' as const})}
+              onNavigate={() => props.navigate(entry)} onMore={() => props.more(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
           })}
         </>}
         {selectedTab === 'related' && detail?.related?.rows.map(row => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>

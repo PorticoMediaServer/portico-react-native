@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useRef, useSyncExternalStore} from 'react';
 import {Text, View, useTVEventHandler} from 'react-native';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
@@ -53,7 +53,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const theme = useTheme(), motion = useMotion(), state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
   const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null);
   const fence = source.fence;
-  const current = () => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence);
+  const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
   useEffect(() => {
     // motion.html 2.6/4.5: controls enter standard, timer exit slow; no geometry animation here.
@@ -62,10 +62,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [visible, motion, opacity, state.hideReason]);
   const fade = useAnimatedStyle(() => ({opacity: opacity.value}));
   useEffect(() => {
-    if (!theme.isTV || !fence || !current()) return;
+    if (!theme.isTV || !fence || !current() || state.panel) return;
     const node = visible ? toggle.current : picture.current;
     node?.requestTVFocus?.();
-  }, [visible, fence, theme.isTV]); // The native focus engine owns movement inside the region.
+  }, [visible, fence, theme.isTV, current, state.panel]); // The native focus engine owns movement inside the region.
   useTVEventHandler(event => {
     if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || event.eventKeyAction === 1) return;
     if (['up', 'down', 'left', 'right', 'select', 'longLeft', 'longRight'].includes(event.eventType)) {
@@ -74,7 +74,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (current()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
-  const panel = (value: NativeWatchPanel) => {if (current()) props.onPanel(value, fence);};
+  const panel = (value: NativeWatchPanel) => {if (current() && controls.open(value, fence)) props.onPanel(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
   const big = theme.isTV ? 88 : compact ? 58 : 74, small = theme.isTV ? 64 : compact ? 46 : 58;
@@ -86,9 +86,9 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     style={{width: small, height: small, alignItems: 'center', justifyContent: 'center', opacity: source.capabilities.seek ? 1 : .4}}>
     <SkipIcon color={theme.colors.text} forward={forward} seconds={forward ? props.skipForwardSeconds : props.skipBackSeconds} size={theme.isTV ? 36 : compact ? 30 : 38}/>
   </Focusable>;
-  const option = (name: NativeWatchPanel, label: string, value?: string) => <Button variant="glass" size="small" focusable={visible} disabled={!visible} onPress={() => panel(name)} style={{height: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 16 : 12}}>
-    {theme.isTV ? <Text style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 20, color: theme.colors.text}}>{label}{value ? `\n${value}` : ''}</Text> : value ? `${label} ${value}` : label}
-  </Button>;
+  const option = (name: NativeWatchPanel, label: string, value?: string) => <Focusable accessibilityRole="button" focusable={visible} disabled={!visible} onPress={() => panel(name)} style={{minHeight: theme.isTV ? 64 : 36, paddingHorizontal: theme.isTV ? 16 : 12, paddingVertical: theme.isTV ? 10 : 6, justifyContent: 'center', borderRadius: theme.isTV ? 12 : 8, backgroundColor: theme.colors.raisedHigh}}>
+    {theme.isTV ? <><Text style={{fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 20, color: theme.colors.text}}>{label}</Text>{value && <Text style={{fontFamily: theme.type.body.fontFamily, fontSize: 17, color: theme.colors.textSecondary}}>{value}</Text>}</> : <Text style={[theme.type.caption, {color: theme.colors.text}]}>{value ? label ? `${label} ${value}` : value : label}</Text>}
+  </Focusable>;
   const transport = <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 20 : compact ? 12 : 38}}>
     {queue && icon('i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous)}
     {skip(false)}
@@ -101,7 +101,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   </View>;
   return <View testID="watch-chrome" pointerEvents="box-none" style={{width, height}}>
     <Focusable ref={picture} focusId="watch-picture" testID="watch-picture" focusTreatment="none" accessibilityRole="button" accessibilityLabel={identity?.title ?? t('player.opt.menu')}
-      hasTVPreferredFocus={theme.isTV && !visible} focusable={theme.isTV && !visible && !state.panel} onPress={() => controls.toggleVisibility(fence)} style={{position: 'absolute', inset: 0}}/>
+      hasTVPreferredFocus={theme.isTV && !visible} focusable={theme.isTV && !visible && !state.panel} onPress={() => {if (theme.isTV) controls.key(fence); else controls.toggleVisibility(fence);}} style={{position: 'absolute', inset: 0}}/>
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       <Svg pointerEvents="none" width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs>
         <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#03080c" stopOpacity={.82}/><Stop offset=".36" stopColor="#03080c" stopOpacity={0}/></LinearGradient>

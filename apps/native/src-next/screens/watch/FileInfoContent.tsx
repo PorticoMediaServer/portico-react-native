@@ -5,10 +5,13 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
+import type {NativeFileInfoLocation} from './file-info';
 
 export type NativeFileInfoContentProps = Readonly<{
   /** Constructed from the real lazy File info projection, never DetailProjection.files. */
   model: FileInfoModel;
+  /** Physical paths retain exact member IDs beneath their authoritative version group. */
+  locations?: readonly NativeFileInfoLocation[];
   onManage: (action: ManageAction['id'], fileId?: string) => void;
 }>;
 const words = (parts: readonly FactPart[]) => parts.map(part => part.text).join('');
@@ -18,7 +21,7 @@ function Parts({parts, comma = false}: {parts: readonly FactPart[]; comma?: bool
 }
 
 /** Informational version cards; no radio, Play button, grants or synthesized file count. */
-export function NativeFileInfoContent({model, onManage}: NativeFileInfoContentProps) {
+export function NativeFileInfoContent({model, locations, onManage}: NativeFileInfoContentProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const label = {color: theme.colors.textTertiary, fontFamily: theme.type.body.fontFamily, fontSize: theme.isTV ? 22 : 12.5};
   const value = {color: theme.colors.text, fontFamily: theme.type.bodyStrong.fontFamily, fontSize: theme.isTV ? 22 : 12.5};
@@ -29,7 +32,7 @@ export function NativeFileInfoContent({model, onManage}: NativeFileInfoContentPr
       {model.files.map(file => <View key={file.id} style={{flexDirection: 'row', paddingVertical: 16, borderBottomWidth: 1, borderColor: theme.colors.line}}>
         <Text style={[value, {flex: 1}]}>{file.display.heading.text}</Text>
         <View style={{flex: 1}}><Parts parts={file.rows.find(row => row.id === 'resolution')?.parts ?? []}/></View>
-        <View style={{flex: 1.4}}><Parts parts={file.display.video}/></View>
+        <View style={{flex: 1.4}}><Parts parts={file.display.video.filter(part => part.id === 'codec' || part.id === 'codec-profile')}/></View>
         <View style={{flex: 1.4}}>{file.display.audio.map(audio => <Parts key={audio.id} parts={audio.parts}/>)}</View>
         <View style={{flex: 1}}><Parts parts={file.rows.find(row => row.id === 'size')?.parts ?? []}/></View>
         <View style={{flex: 1}}><Parts parts={file.rows.find(row => row.id === 'length')?.parts ?? []}/></View>
@@ -57,12 +60,12 @@ export function NativeFileInfoContent({model, onManage}: NativeFileInfoContentPr
         <Text style={[label, {fontSize: theme.isTV ? 18 : 11}]}>{t('next.overlays.native.ownerOnly')}</Text>
       </View>
       <View style={{padding: theme.isTV ? 24 : 14, gap: 12}}>
-        {model.owner.locations.map(location => <View key={location.id} style={{gap: 8, borderBottomWidth: 1, borderColor: theme.colors.line, paddingBottom: 14}}>
-          <Text style={label}>{model.files.find(file => file.id === location.id)?.display.heading.text}</Text>
+        {(locations ?? model.owner.locations.map(location => ({...location, versionId: location.id}))).map(location => <View key={location.id} style={{gap: 8, borderBottomWidth: 1, borderColor: theme.colors.line, paddingBottom: 14}}>
+          <Text style={label}>{model.files.find(file => file.id === location.versionId)?.display.heading.text}</Text>
           {location.path && <Text selectable style={[label, {lineHeight: theme.isTV ? 30 : 19}]}>{location.path}</Text>}
           {location.actions.map(action => <Button key={action.id} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)} textStyle={{color: theme.colors.record}}>{action.label}</Button>)}
         </View>)}
-        {model.owner.actions.map(action => <Button key={action.id} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
+        {model.owner.actions.filter(action => !theme.isTV || action.id !== 'merge-title').map(action => <Button key={action.id} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
       </View>
     </View>}
   </ScrollView>;
