@@ -9,4 +9,4 @@ import {createNativeWatchBindings, registerNativeWatch} from '../screens/watch';
 registerNativeWatch(createNativeWatchBindings);
 
 export {RestoredShell as TVRoot} from '../shell/RestoredShell';
-export {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVProfilePINForm, TVRequiredSetupHandoff, TVManagementHandoff, TVForgotPINHandoff} from './auth';
+export {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVProfilePINForm, TVRequiredSetupHandoff, TVManagementHandoff, TVForgotPINHandoff, TVFrontDoor} from './auth';
