@@ -10,6 +10,7 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
+import {nativeVersionChoices} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
@@ -19,7 +20,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo},
   './track-identity': {nativeWatchTracks},
   './title-controller': {NativeTitleController: class {}}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './VersionChoices': {NativeVersionChoices: 'Versions'},
+  './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -59,14 +60,14 @@ test('episode menu retains its real show owner and sends the exact offered versi
     assert.equal(d.requests[0]?.path, '/v1/items/episode/playback-options');
     await d.menus[0][1].differentVersion();
     assert.equal(d.requests.length, 2);
-    const view = d.versions[0][1];
-    view.props.onChoose('unknown'); assert.equal(d.starts.length, 0);
-    view.props.onChoose('v2');
+    const destination = d.versions[0][1];
+    await destination.choose('unknown'); assert.equal(d.starts.length, 0);
+    await destination.choose('v2');
     assert.equal(d.starts[0][0].target.startSeconds, 17);
     assert.equal(d.starts[0][1].versionId, 'v2');
     assert.equal(d.starts[0][1].options.itemId, 'episode');
     assert.equal(d.starts[0][1].expectedFence, undefined);
-    d.route(); view.props.onChoose('v1'); assert.equal(d.starts.length, 1);
+    d.route(); await destination.choose('v1'); assert.equal(d.starts.length, 1); assert.equal(destination.isCurrent(), false);
   } finally {d.screens.dispose();}
   assert.equal(d.subscriptions(), 0);
 });
