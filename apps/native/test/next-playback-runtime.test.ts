@@ -1520,12 +1520,16 @@ test('the actual playback subject retains supplied display titles and otherwise 
   try {
     await d.runtime.start({entry: {id: 'movie-1', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', displayTitle: 'Genuine supplied display title', playback: {itemId: 'movie-1'}}, target: {itemId: 'movie-1'}});
     await settle();
-    assert.equal(d.runtime.getSnapshot().subject?.item.title, 'Genuine supplied display title');
+    const displayed = d.runtime.getSnapshot().subject;
+    assert.ok(displayed && 'item' in displayed);
+    assert.equal(displayed.item.title, 'Genuine supplied display title');
     d.respond(request => request.path === '/v1/items/movie-2' ? {status: 200, headers: {}, body: {
       id: 'movie-2', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', durationMs: 180000, progressMs: 0, available: true,
     }} : undefined);
     await d.runtime.start({entry: {id: 'movie-2', libraryId: 'library', kind: 'movie', title: 'Stored title: Special Edition', playback: {itemId: 'movie-2'}}, target: {itemId: 'movie-2'}});
     await settle();
-    assert.equal(d.runtime.getSnapshot().subject?.item.title, 'Stored title: Special Edition');
+    const stored = d.runtime.getSnapshot().subject;
+    assert.ok(stored && 'item' in stored);
+    assert.equal(stored.item.title, 'Stored title: Special Edition');
   } finally {d.runtime.dispose();}
 });

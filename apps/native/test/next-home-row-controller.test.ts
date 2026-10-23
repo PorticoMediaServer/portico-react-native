@@ -74,3 +74,23 @@ test('retired screens cannot start reads, expose a selector or publish another r
   assert.equal(f.controller.selectKind('tv'), false);
   f.controller.dispose();
 });
+
+test('filter preview counts the real draft while leaving the retained grid unchanged until Apply', async () => {
+  const f = fixture();
+  try {
+    await f.controller.load(); f.controller.collection.ensureRange(0, 0); await settle();
+    const item = f.controller.collection.itemAt(0), before = f.calls.length;
+    const draft = [{field: 'playState' as const, operator: 'equals' as const, value: 'in-progress'}];
+    const counts = await f.controller.previewCounts(draft);
+    assert.equal(counts[0].total, 87);
+    const requests = f.calls.slice(before);
+    assert.equal(requests.every(call => call.path === '/v1/browse/counts'), true);
+    assert.deepEqual(requests[0].body.queries[0].query, {all: [{field: 'homeRow', operator: 'equals', value: 'continue'}, ...draft]});
+    assert.deepEqual(f.controller.getSnapshot().filters, []);
+    assert.strictEqual(f.controller.collection.itemAt(0), item, 'closing a draft needs no scroll or collection restoration');
+    f.controller.setFilters(draft);
+    assert.deepEqual(f.controller.getSnapshot().filters, draft);
+    const cancelled = new AbortController(); cancelled.abort();
+    await assert.rejects(f.controller.previewCounts(draft, cancelled.signal), {name: 'AbortError'});
+  } finally {f.controller.dispose();}
+});

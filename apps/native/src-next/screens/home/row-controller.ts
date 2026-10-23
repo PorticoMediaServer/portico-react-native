@@ -92,13 +92,28 @@ export class NativeHomeRowController {
     });
     void this.readCounts(generation);
   }
-  facets = async (field: string, search = '') => {
+  facets = async (field: string, search = '', filters = this.state.filters) => {
     const offered = this.state.capabilities?.fields.some(value => value.id === field || value.facetSource?.field === field || field === 'decade' && value.id === 'year');
     if (!offered || this.state.phase !== 'ready') throw cancelled();
-    const query = this.query(), stamp = JSON.stringify(query);
+    const query = this.query(true, filters), stamp = JSON.stringify(this.query());
     const raw = await this.request(browseContextFacetsPath('*', field, acrossPivot('homeRow'), query, search, 200));
     if (stamp !== JSON.stringify(this.query())) throw cancelled();
     return parseBrowseFacets(raw, field);
+  };
+  /** Draft previews never change the retained grid or its committed filters. */
+  previewCounts = async (filters: readonly BrowseNode[], signal = this.abort.signal): Promise<readonly BrowseCount[]> => {
+    if (!this.valid() || this.state.phase !== 'ready') throw cancelled();
+    this.builder(this.query(true, filters)).build();
+    const base = this.query(false, filters), generation = this.generation, stamp = JSON.stringify(this.query());
+    const queries = [{id: 'all', query: base}, ...this.kinds.map(kind => ({id: kind.id, query: {all: [base, {field: 'library' as const, operator: 'in' as const, value: kind.libraryIds}]}}))];
+    const counts: BrowseCount[] = [];
+    for (let start = 0; start < queries.length; start += 8) {
+      const batch = queries.slice(start, start + 8);
+      const raw = await this.request(browseCountsPath('*'), 'POST', browseCountsRequest(acrossPivot('homeRow'), batch), signal);
+      if (!this.valid(generation) || stamp !== JSON.stringify(this.query())) throw cancelled();
+      counts.push(...parseBrowseCounts(raw, batch.map(query => query.id)));
+    }
+    return Object.freeze(counts);
   };
   setSort = (sort: BrowseSortSelection): boolean => {
     if (!this.valid() || !this.state.capabilities) return false;
