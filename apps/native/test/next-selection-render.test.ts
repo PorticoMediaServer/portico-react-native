@@ -276,6 +276,42 @@ test('TV mixed Edit offers genuine Keep-only callbacks and an actual initial foc
   } finally {mixed.host.unmount();}
 });
 
+test('phone mixed Edit uses full-width drawn rows and a continuous footer without changing Keep-only or Close', () => {
+  const previous = state.theme, calls: unknown[] = [];
+  const props = {open: true, onOpenChange: (...args: unknown[]) => calls.push(args), total: 4, description: 'Actual mixed reason', groups: [{kind: 'movie', label: 'Movie', count: 1, icon: 'i-film'}, {kind: 'episode', label: 'Episode', count: 1, icon: 'i-tv'}], onKeepOnly: (kind: string) => calls.push(kind)};
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 1024}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const mixed = mount(MixedEditExplainer, props);
+      try {
+        const surface = mixed.tree as Element, phone = state.theme.platform === 'phone';
+        assert.deepEqual(surface.props.footerPadding, phone ? {top: 12, bottom: 34, keyboardBottom: 12} : undefined);
+        assert.equal(surface.props.contentFooterGap, phone ? 0 : undefined);
+        assert.equal(surface.props.showFooterSeparator, phone ? false : undefined);
+        assert.equal(surface.props.contentStyle.paddingHorizontal, phone || options.isTV ? 0 : 20);
+        const rows = ofType(surface, Focusable);
+        assert.equal(rows.length, 2); assert.equal(rows[0].props.ref, surface.props.initialFocusRef);
+        if (phone) {
+          assert.equal(surface.props.headerContent.props.description, props.description);
+          assert.equal(surface.props.headerContent.props.descriptionTextStyle.color, state.theme.colors.textTertiary);
+          const labelRow = elements(surface.props.children).find(node => node.props.style?.minHeight === 48)!;
+          assert.ok(labelRow); assert.equal(labelRow.props.style.paddingHorizontal, 20);
+          for (const row of rows) {
+            const style = flattenStyle(row.props.style);
+            assert.equal(style.minHeight, 56); assert.equal(style.paddingVertical, 8); assert.equal(style.paddingHorizontal, 20);
+          }
+          rows[1].props.onPress(); surface.props.footer.props.onPress();
+          assert.deepEqual(calls, ['episode', [false, 'action'], [false, 'action']]);
+        } else assert.equal(surface.props.headerContent, undefined);
+        mixed.update({...props, groups: [props.groups[0]]});
+        const single = mixed.tree as Element;
+        assert.equal(single.props.headerContent, undefined); assert.equal(single.props.footerPadding, undefined);
+        assert.equal(single.props.initialFocusRef, single.props.footer.props.ref);
+      } finally {mixed.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('TV Delete keeps the owner, preview, exact confirmation and restriction gates on the real dialog', () => {
   const calls: unknown[] = [];
   const preview = {revision: 7, confirmation: '1', confirmationKind: 'count' as const, totalBytes: 0, totalFiles: 1, totalBytesText: '0 B', blocked: [], targets: [{itemId: 'a', title: 'Actual title', kind: 'movie', libraryId: 'one', libraryName: 'Actual library', allowMediaDeletion: true, titles: 1, bytes: 0, files: [], dependents: []}]};
