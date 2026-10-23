@@ -1149,6 +1149,51 @@ test('production Fabric playback progress settles without a parent render and ke
   } finally {await ui?.unmount(); d.runtime.dispose();}
 });
 
+test('production Fabric window settlement preserves the actual Surface owner/ref/tag, runtime lease and playing session', async () => {
+  const d = fixture();
+  const owners: object[] = [], tags: {owner: object; tag: number | null}[] = [];
+  const attachSurface = d.runtime.attachSurface.bind(d.runtime), setSurfaceTag = d.runtime.setSurfaceTag.bind(d.runtime);
+  d.runtime.attachSurface = owner => {owners.push(owner); return attachSurface(owner);};
+  d.runtime.setSurfaceTag = (owner, tag) => {tags.push({owner, tag}); setSurfaceTag(owner, tag);};
+  let ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  try {
+    await d.start('movie-1', 0);
+    ui = await fabricPlayback(d.runtime);
+    const initial = d.runtime.getSnapshot(), ref = ui.nativeProps.at(-1)!.ref;
+    const commands = d.engine.commands.length, requests = d.requests.length;
+    assert.equal(initial.playback.phase, 'ready');
+    assert.equal(d.engine.lastCommand.paused, false);
+    assert.equal(owners.length, 1);
+    assert.deepEqual(tags.map(value => value.tag), [71]);
+    for (const [width, height] of [[890, 626], [840, 880], [626, 890], [890, 626], [466, 678]]) {
+      await ui.resize(width, height);
+      const props: {ref: unknown; lease: string; surfaceActive: boolean; style: {width: number; height: number}} = ui.nativeProps.at(-1)!;
+      assert.equal(props.style.width, width);
+      assert.equal(props.style.height, height);
+      assert.strictEqual(props.ref, ref);
+      assert.equal(props.lease, initial.lease);
+      assert.equal(props.surfaceActive, true, 'bounds alone keep the live producer active');
+      assert.strictEqual(d.runtime.getSnapshot().fence, initial.fence);
+      assert.equal(d.runtime.getSnapshot().playback.phase, initial.playback.phase);
+      assert.equal(d.runtime.getSnapshot().retired, false);
+      assert.equal(d.engine.commands.length, commands, 'geometry sends no pause/stop/source/seek command');
+      assert.equal(d.engine.lastCommand.paused, false);
+      assert.equal(d.requests.length, requests, 'geometry creates no playback session or server mutation');
+      assert.equal(owners.length, 1);
+      assert.equal(tags.length, 1);
+      assert.strictEqual(tags[0]!.owner, owners[0]);
+      assert.equal(d.engine.released.length, 0);
+      assert.equal(d.engine.subscriptions, 1);
+    }
+    assert.equal(ui.parentRenders, 1, 'the persistent layer handles dimensions without replacing the shell');
+    await ui.unmount(); ui = undefined;
+    assert.deepEqual(tags.map(value => value.tag), [71, null]);
+    assert.equal(d.runtime.getSnapshot().retired, true, 'actual unmount still executes the authority cleanup microtask');
+    assert.equal(d.engine.released.length, 1);
+    assert.equal(d.engine.subscriptions, 0);
+  } finally {await ui?.unmount(); d.runtime.dispose();}
+});
+
 
 test('one accepted fact publishes its settled progress once and retains the current source identity', async () => {
   const d = fixture();

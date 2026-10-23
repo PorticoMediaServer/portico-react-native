@@ -42,8 +42,12 @@ export async function fabricPlayback(runtime, tv = true) {
   const pan = () => new Proxy({}, {get: (_target, name) => name === 'then' ? undefined : () => pan()});
   const theme = {isTV: tv, layers: {player: 30}, colors: {shadow: '#000', dim: '#000'}, layout: {gutter: {tvRight: 96}}};
   const motion = {reduce: false, transforms: true, timing: () => ({duration: 180}), spring: () => ({damping: 20})};
+  let window = {width: 1920, height: 1080};
+  const dimensionListeners = new Set();
+  const subscribeDimensions = listener => {dimensionListeners.add(listener); return () => dimensionListeners.delete(listener);};
+  const currentDimensions = () => window;
   const native = {View: Container, Image: () => null, Platform: {OS: 'android', isTV: tv, Version: 35, constants: {}},
-    BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 1920, height: 1080})};
+    BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => React.useSyncExternalStore(subscribeDimensions, currentDimensions)};
   const common = {react, 'react-native': native, 'react-native-reanimated': animated, 'react-native-gesture-handler': {Gesture: {Pan: pan}, GestureDetector: Container},
     '../../../../../packages/player-core/src/index': {sameFence}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     '../Icon': {Icon: () => null}, './model': model, './morph-fence': {currentMorphFence}, './visual': {alpha: () => '#000', dockStyles: {fill: {}}}};
@@ -85,5 +89,6 @@ export async function fabricPlayback(runtime, tv = true) {
   try {await settle();} catch (error) {exports.stopSurface(11); throw error;}
   return {adapter, commits, nativeProps, callbacks, errors, settle, get parentRenders() {return parentRenders;},
     get captureClears() {return captureClears;},
+    async resize(width, height) {window = {width, height}; for (const listener of dimensionListeners) listener(); await settle();},
     async unmount() {exports.stopSurface(11); await settle();}};
 }
