@@ -62,7 +62,7 @@ export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
             {phone ? <SelectionText size={14.5} weight={700}>{removeFilesLabel}</SelectionText> : removeFilesLabel}
           </Switch>
           {phone && !phoneSummary ? <SelectionText size={12} weight={400} secondary style={{lineHeight: 18 * theme.textScale, includeFontPadding: false}}>{removeFilesHelp}</SelectionText> : null}
-          <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending}
+          <TextField appearance="selection" testID={controlID(props.testID, 'confirmation')} value={props.confirmation} onChangeText={props.onConfirmationChange} editable={!props.pending} fieldStyle={phone ? {height: 46} : undefined}
             label={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
             accessibilityLabel={preview.confirmationKind === 'title' ? selectionText('next.selection.native.typeTitle') : selectionText('next.selection.native.typeCount', {count: preview.confirmation})}
             keyboardType={preview.confirmationKind === 'count' ? 'number-pad' : 'default'} autoCapitalize="none" autoCorrect={false}

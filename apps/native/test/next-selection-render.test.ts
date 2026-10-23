@@ -581,6 +581,31 @@ test('drawn Selection fields use native accent carets without changing selection
   } finally {state.theme = previousTheme; nativePlatform.OS = previousOS;}
 });
 
+test('phone sheet name and confirmation fields use the drawn 46pt height without changing editor or TV fields', () => {
+  const previous = state.theme;
+  try {
+    for (const options of [{isTV: false, width: 390}, {isTV: false, width: 820}, {isTV: true, width: 1920}]) {
+      state.theme = createTheme(options);
+      const phone = state.theme.platform === 'phone';
+      const wrapper = mount(PlaylistPicker, {open: true, onOpenChange() {}, count: 1, entries: [], creating: true, onCreatingChange() {}, name: '', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
+      const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+      const deletion = mount(DeleteMediaDialog, {open: true, onOpenChange() {}, owner: true, selectionCount: 1, preview: {revision: 1, confirmationKind: 'title', confirmation: 'Actual title', totalFiles: 1, totalBytesText: '1 KB', totalBytes: 1024, blocked: [], targets: []}, confirmation: '', onConfirmationChange() {}, removeFiles: true, onRemoveFilesChange() {}, onDelete() {}});
+      const editor = mount(BulkEditor, bulk());
+      try {
+        for (const owner of [picker, deletion]) {
+          const field = ofType(owner.tree, TextField)[0]!;
+          assert.equal(field.props.fieldStyle?.height, phone ? 46 : undefined);
+        }
+        if (phone) {
+          const scalarNode = elements(editor.tree).find(node => node.props.field?.field === 'year')!;
+          const scalar = mount(scalarNode.type, scalarNode.props);
+          try {assert.equal(ofType(scalar.tree, TextField)[0]!.props.fieldStyle.height, 44);} finally {scalar.host.unmount();}
+        }
+      } finally {editor.host.unmount(); deletion.host.unmount(); picker.host.unmount(); wrapper.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('phone More uses real selected-kind/offer descriptions and cannot invent download facts or owner commands', () => {
   const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: unknown[] = [];
   const props: SelectionBarProps = {testID: 'actual.more', count: 2, selectionLabel: '2 tracks', selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction: id => calls.push(id), menu: 'more', onMenuChange: id => calls.push(id), actions: [{id: 'download'}, {id: 'edit', disabled: true, reason: 'Actual denial', description: 'Actual shared field information'}]};
