@@ -16,11 +16,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import tv.getportico.portico.R
 
 /**
  * Music and audiobooks in the system: the lock screen, the media notification, a headset, a watch,
@@ -147,6 +149,8 @@ class PorticoListeningService : MediaSessionService() {
 
   override fun onCreate() {
     super.onCreate()
+    setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this)
+        .setChannelName(R.string.system_android_channel_playback).build())
     // After the process was killed there is no owner and nothing to resume: the service ends.
     if (PorticoListeningOwner.shared == null) return
     val builder = MediaSession.Builder(this, PorticoListeningSession.player()).setId("portico.listening")

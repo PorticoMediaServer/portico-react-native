@@ -121,6 +121,16 @@ def porticoFonts = tasks.register("porticoFonts", Copy) {
 }
 preBuild.dependsOn(porticoFonts)
 
+// Standard shared-package sync generates these resources from the canonical catalogue. A
+// build checks them without writing source files or falling back to hand-authored OS copy.
+def porticoSystemStrings = tasks.register("checkPorticoSystemStrings", Exec) {
+    workingDir rootProject.file("..")
+    commandLine "node", "--experimental-strip-types", rootProject.file("../../../packages/i18n/scripts/native-strings.mjs").absolutePath, "--platform", "android", "--check"
+    inputs.dir(rootProject.file("../../../packages/i18n/src"))
+    inputs.file(rootProject.file("../../../packages/i18n/scripts/native-strings.mjs"))
+}
+preBuild.dependsOn(porticoSystemStrings)
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")

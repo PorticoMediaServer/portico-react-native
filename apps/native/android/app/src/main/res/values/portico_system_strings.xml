@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from packages/i18n; do not edit. -->
+<resources>
+  <string name="home_row_becauseYouWatched" formatted="false">Because you watched {title}</string>
+  <string name="home_row_continueListening" formatted="false">Continue Listening</string>
+  <string name="home_row_continueWatching" formatted="false">Continue Watching</string>
+  <string name="home_row_directedBy" formatted="false">Directed by {name}</string>
+  <string name="home_row_fromCreator" formatted="false">From {name}</string>
+  <string name="home_row_genreForYou" formatted="false">{genre} for you</string>
+  <string name="home_row_hiddenGems" formatted="false">Hidden gems for you</string>
+  <string name="home_row_moodForYou" formatted="false">{mood} picks for you</string>
+  <string name="home_row_moreByAuthor" formatted="false">More by {name}</string>
+  <string name="home_row_moreFrom" formatted="false">More from {name}</string>
+  <string name="home_row_moreFromArtist" formatted="false">More from {name}</string>
+  <string name="home_row_moreLike" formatted="false">More like {title}</string>
+  <string name="home_row_moreRecommendations" formatted="false">More recommendations</string>
+  <string name="home_row_moreWith" formatted="false">More with {name}</string>
+  <string name="home_row_nextInFranchise" formatted="false">Next in the franchise</string>
+  <string name="home_row_nextInSeries" formatted="false">Next in the series</string>
+  <string name="home_row_popularOnServer" formatted="false">Popular on this server</string>
+  <string name="home_row_recentlyAdded" formatted="false">Recently added</string>
+  <string name="home_row_recentlyAddedIn" formatted="false">Recently added in {library}</string>
+  <string name="home_row_recommended" formatted="false">Recommended for you</string>
+  <string name="home_row_rediscover" formatted="false">Rediscover</string>
+  <string name="home_row_shortPicks" formatted="false">Short picks for you</string>
+  <string name="home_row_starring" formatted="false">Starring {name}</string>
+  <string name="home_row_themeForYou" formatted="false">{theme} for you</string>
+  <string name="home_row_topRated" formatted="false">Top rated you haven’t seen</string>
+  <string name="home_row_trending" formatted="false">Trending now</string>
+  <string name="home_row_upNext" formatted="false">Up Next</string>
+  <string name="home_row_viewersAlsoWatched" formatted="false">Viewers also watched</string>
+  <string name="next_home_addMyList" formatted="false">Add to My List</string>
+  <string name="next_home_allowedAdministrators" formatted="false">Only administrators and the owner see this page</string>
+  <string name="next_home_allowedEditors" formatted="false">Only you and people allowed to edit</string>
+  <string name="next_home_audioKinds" formatted="false">Audiobooks and music</string>
+  <string name="next_home_becauseHeading" formatted="false">Because you watched</string>
+  <string name="next_home_becauseYouWatched" formatted="false">Because you watched {title}</string>
+  <string name="next_home_booksAvailability" formatted="false">Shown when a book is in progress</string>
+  <string name="next_home_collection" formatted="false">Collection</string>
+  <string name="next_home_continueBooks" formatted="false">Continue your books</string>
+  <string name="next_home_continueWatching" formatted="false">Continue Watching</string>
+  <string name="next_home_editSelection" formatted="false">Edit selected titles</string>
+  <string name="next_home_last30Days" formatted="false">Last 30 days</string>
+  <string name="next_home_layoutConflict" formatted="false">Home changed on another device. Refresh the layout before saving.</string>
+  <string name="next_home_listenNext" formatted="false">Listen next</string>
+  <string name="next_home_moreFor" formatted="false">More for {title}</string>
+  <string name="next_home_mostWatched" formatted="false">Most watched on this server</string>
+  <string name="next_home_myList" formatted="false">My List</string>
+  <string name="next_home_native_mainNavigation" formatted="false">Main navigation</string>
+  <string name="next_home_native_mixedSelection" formatted="false">You’ve picked {types}. Their fields are different, so there is no single form for them. Keep one type to edit it.</string>
+  <string name="next_home_native_profileAndServer" formatted="false">Profile and server</string>
+  <string name="next_home_native_selectRow" formatted="false">Select row</string>
+  <string name="next_home_newOnServer" formatted="false">New on your server</string>
+  <string name="next_home_noRating" formatted="false">No rating</string>
+  <string name="next_home_onNow" formatted="false">On now</string>
+  <string name="next_home_openCollection" formatted="false">Open collection</string>
+  <string name="next_home_play" formatted="false">Play</string>
+  <string name="next_home_playEpisode" formatted="false">Play S{season} E{episode}</string>
+  <string name="next_home_ratingValue" formatted="false">{value} out of 10</string>
+  <string name="next_home_reason_newIn" formatted="false">New in {library}</string>
+  <string name="next_home_reason_recentTo" formatted="false">Recently added to {library}</string>
+  <string name="next_home_reason_recommended" formatted="false">Recommended for you</string>
+  <string name="next_home_removeMyList" formatted="false">Remove from My List</string>
+  <string name="next_home_resume" formatted="false">Resume</string>
+  <string name="next_home_resumeEpisode" formatted="false">Resume S{season} E{episode}</string>
+  <string name="next_home_seeAll" formatted="false">See all</string>
+  <string name="next_home_select" formatted="false">Select {title}</string>
+  <string name="next_home_shell_collapsePlayer" formatted="false">Collapse player</string>
+  <string name="next_home_shell_convertingTo" formatted="false">Converting to {quality}</string>
+  <string name="next_home_shell_home" formatted="false">Home</string>
+  <string name="next_home_shell_libraries" formatted="false">Libraries</string>
+  <string name="next_home_shell_live" formatted="false">Live TV</string>
+  <string name="next_home_shell_main" formatted="false">Main</string>
+  <string name="next_home_shell_more" formatted="false">More</string>
+  <string name="next_home_shell_notifications" formatted="false">Notifications</string>
+  <string name="next_home_shell_profileMenu" formatted="false">{name}, account menu</string>
+  <string name="next_home_shell_profiles" formatted="false">Profiles</string>
+  <string name="next_home_shell_saved" formatted="false">Saved</string>
+  <string name="next_home_shell_search" formatted="false">Search</string>
+  <string name="next_home_shell_settings" formatted="false">Settings</string>
+  <string name="next_home_shell_signOut" formatted="false">Sign out</string>
+  <string name="next_home_shell_skip" formatted="false">Skip to content</string>
+  <string name="next_home_shell_switchServer" formatted="false">Switch server</string>
+  <string name="next_home_shell_unread" formatted="false">Notifications, {count} unread</string>
+  <string name="next_home_someActionsFailed" formatted="false">Some titles could not be changed. Try again for the ones that failed.</string>
+  <string name="next_home_sourceName" formatted="false">{source}</string>
+  <string name="next_home_videoKinds" formatted="false">Movies, shows and anime</string>
+  <string name="next_home_whyPopular" formatted="false">Watched by people here over the last month. Only profiles that share their activity count.</string>
+  <string name="next_home_whyRecommended" formatted="false">Chosen from your viewing activity and available libraries.</string>
+  <string name="next_home_whyRecommendedFromActivity" formatted="false">Because you’ve been watching {titles}. Titles you’ve finished are left out.</string>
+  <string name="next_home_whyTrending" formatted="false">What people on this server are watching most this week.</string>
+  <string name="next_home_yourRating" formatted="false">Your rating</string>
+  <string name="system_android_channel_downloads" formatted="false">Downloads</string>
+  <string name="system_android_channel_playback" formatted="false">Now playing</string>
+  <string name="system_android_download_running" formatted="false">Downloading</string>
+</resources>

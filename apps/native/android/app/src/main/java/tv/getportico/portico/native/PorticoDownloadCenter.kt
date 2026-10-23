@@ -673,9 +673,9 @@ class PorticoDownloadService : Service() {
     /** The one quiet notification a running download carries (the service's, and a user-initiated job's). */
     internal fun notification(context: Context): Notification {
       val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-      if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.downloads_channel), NotificationManager.IMPORTANCE_LOW))
+      if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.system_android_channel_downloads), NotificationManager.IMPORTANCE_LOW))
       val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(context)
-      return builder.setContentTitle(context.getString(R.string.downloads_running)).setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).build()
+      return builder.setContentTitle(context.getString(R.string.system_android_download_running)).setSmallIcon(android.R.drawable.stat_sys_download).setOngoing(true).build()
     }
 
     fun keepAlive(context: Context) {
