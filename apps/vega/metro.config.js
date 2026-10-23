@@ -29,7 +29,7 @@ const sdkReactNative = '@amazon-devices/react-native-kepler';
 const aliases = {
   '@react-native-masked-view/masked-view': path.join(shims, 'masked-view.tsx'),
   '@react-native-community/blur': path.join(shims, 'blur.tsx'),
-  '@portico/design': path.join(packages, 'design'),
+  '@portico/design': path.join(packages, 'design/src/index.ts'),
   'react-native-gesture-handler': '@amazon-devices/react-native-gesture-handler',
   '@react-navigation/native': '@amazon-devices/react-navigation__native',
   '@react-navigation/native-stack': '@amazon-devices/react-navigation__native-stack',

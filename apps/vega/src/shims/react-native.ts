@@ -38,6 +38,7 @@ export * from '@amazon-devices/react-native-kepler';
 export interface ViewProps extends Vega.ViewProps {
   nextFocusUp?: number; nextFocusDown?: number; nextFocusLeft?: number; nextFocusRight?: number; nextFocusForward?: number;
 }
+export type PressableProps = Vega.PressableProps & {tvParallaxProperties?: Readonly<Record<string, unknown>>};
 export type HWEvent = Vega.HWEvent & {tag?: number};
 export type FocusGuideMethods = {setDestinations(destinations: (number | Parameters<Vega.FocusGuideMethods['setDestinations']>[0][number])[]): void};
 /** The newer subscription shape over the SDK's actual enable/disable listener. */
