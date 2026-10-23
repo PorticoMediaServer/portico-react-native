@@ -7,12 +7,13 @@ import {serverTextLabel} from '../../../../../packages/client-core/src/presentat
 import {homeEntryCapabilities} from '../../../../../packages/client-core/src/home-selection';
 import {idempotencyKey} from '../../../../../packages/client-core/src/playback-v1/http';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {Button, Chip} from '../../kit/controls';
+import {Button, Chip, Focusable} from '../../kit/controls';
 import {FiltersButton, QuickToggle, SortMenu} from '../../kit/browse';
 import {PosterCard} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {WindowedGrid, type LayoutSelection} from '../../kit/layout';
+import {Icon} from '../../kit/Icon';
 import {SkeletonBlock, StateView} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -59,13 +60,15 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
     {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
     <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>
       <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, paddingTop: tv ? 64 : 20, paddingBottom: tv ? 24 : 16}}>
-        <Button focusId="back" variant="text" icon="i-left" onPress={onBack} textStyle={{color: theme.colors.textTertiary, fontSize: tv ? 22 : 14}}>{t('next.home.shell.home')}</Button>
+        <Focusable focusId="back" onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')} style={{height: tv ? 32 : 28, marginBottom: 6, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start'}}>
+          <Icon name="i-left" size={tv ? 22 : 16} color={theme.colors.textTertiary}/><Text style={[nativeType({size: tv ? 22 : 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.home.shell.home')}</Text>
+        </Focusable>
         <Text accessibilityRole="header" style={[nativeType({size: tv ? 62 : 30, weight: 800, tracking: -.04, lineHeight: tv ? 62 : 30}, theme.textScale), {color: theme.colors.text, marginBottom: 12}]}>{title}</Text>
         {reason && <Text style={[nativeType({size: tv ? 24 : 15, weight: 400, tracking: 0, lineHeight: tv ? 34.8 : 22}, theme.textScale), {maxWidth: tv ? 1100 : undefined, color: theme.colors.textSecondary, marginBottom: 24}]}>{serverTextLabel(defaultI18n, reason)}</Text>}
         <View style={{flexDirection: 'row', gap: tv ? 16 : 10}}><Button focusId="play" icon="i-play" size={tv ? 'hero' : undefined} onPress={() => onPlay(false)}>{t('entry.play')}</Button>
           <Button focusId="shuffle" variant="glass" icon="i-shuffle" size={tv ? 'hero' : undefined} onPress={() => onPlay(true)}>{t('title.shuffle')}</Button></View>
       </View>
-      <View style={{paddingHorizontal: gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
+      <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
         <SortMenu sorts={model.sorts} value={model.sort} label={homeBrowseLabel} onValueChange={controller.setSort}
           onReshuffle={() => controller.setSort({...state.sort!, seed: idempotencyKey()})}/>
         <FiltersButton count={state.filters.length} onPress={onFilters}/>
