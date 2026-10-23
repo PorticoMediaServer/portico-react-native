@@ -42,6 +42,15 @@ test('both native listening boundaries present catalogue errors while retaining 
   }
 });
 
+test('native notice facts cannot become UI text before the frame and catalogue contract exist', () => {
+  for (const parse of [parseNativeListeningV1Event, parseShellListeningEvent]) {
+    const event = parse(raw('o', 1, session('s1'), {noticeCode: 'audio_gapless_unavailable', notice: 'Private diagnostic text'}), 'o', 's1');
+    assert.equal(Object.hasOwn(event, 'notice'), false);
+    assert.equal(Object.hasOwn(event, 'noticeCode'), false);
+    assert.throws(() => parse(raw('o', 2, session('s1'), {noticeCode: 'Invalid prose'}), 'o', 's1'), /notice code/);
+  }
+});
+
 test('a v1 snapshot reads its session, queue, seq and binding', () => {
   const e = parseNativeListeningV1Event(raw('o', 1, session('s1')), 'o', 's1');
   assert.equal(e.session.id, 's1');

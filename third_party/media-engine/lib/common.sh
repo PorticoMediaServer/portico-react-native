@@ -288,7 +288,7 @@ me_tools() {
 # protocols for HTTP(S) and HLS; TLS through OpenSSL. Nothing is autodetected: each external
 # library is named, so a stray library on the build machine can never end up linked.
 # Filters: only those mpv inserts by itself (deinterlacing, rotation, flips) and the plumbing
-# around them; the engines set no user filters. (All filters would add about 3.5 MB.)
+# around them, plus the fallback engine's app/device EQ and double-precision preamp.
 me_ffmpeg_common_flags() {
     printf '%s\n' \
         --enable-gpl --enable-version3 --disable-nonfree \
@@ -299,7 +299,7 @@ me_ffmpeg_common_flags() {
         --disable-encoders --disable-muxers \
         --enable-decoders --enable-demuxers --enable-parsers --enable-bsfs \
         --disable-filters \
-        --enable-filter=bwdif,yadif,w3fdif,rotate,transpose,hflip,vflip,crop,pad,format,scale,null,anull,aformat,aresample,setpts,asetpts,fps,hwdownload,hwupload,hwmap \
+        --enable-filter=bwdif,yadif,w3fdif,rotate,transpose,hflip,vflip,crop,pad,format,scale,null,anull,aformat,aresample,equalizer,volume,setpts,asetpts,fps,hwdownload,hwupload,hwmap \
         --enable-swresample --enable-swscale --enable-avfilter \
         --enable-network \
         --disable-protocols \

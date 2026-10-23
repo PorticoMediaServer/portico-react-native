@@ -5,6 +5,9 @@ import type {MessageId} from '../../../../../packages/i18n/src/index';
 // here, on the same catalogue as the shell, before it enters a UI snapshot.
 const messages: Readonly<Record<string, MessageId>> = Object.freeze({
   playback_failed: 'queuePlayer.startFailed',
+  playback_reconnecting: 'player.reconnecting',
+  playback_confirmation_expired: 'playback.message.lease_expired',
+  audio_render_failed: 'queuePlayer.startFailed',
   media_unavailable: 'queuePlayer.unsupported',
   seek_unavailable: 'playback.message.seek_mismatch',
   rate_unavailable: 'player.opt.speedUnsupported',

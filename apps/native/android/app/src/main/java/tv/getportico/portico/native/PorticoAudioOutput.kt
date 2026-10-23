@@ -6,7 +6,6 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioMixerAttributes
 import android.os.Build
-import java.security.MessageDigest
 
 /** The requested format and Android's accepted mixer state, never a physical DAC claim. */
 internal class PorticoAudioOutput(context: Context) {
@@ -39,10 +38,6 @@ internal class PorticoAudioOutput(context: Context) {
       val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
       val priorities = listOf(setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER),setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES,AudioDeviceInfo.TYPE_WIRED_HEADSET),USB,DIGITAL,setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
       return priorities.firstNotNullOfOrNull { types -> outputs.firstOrNull { it.type in types } }
-    }
-    fun key(device: AudioDeviceInfo?): String {
-      val bytes = "${device?.type}:${device?.address}:${device?.productName}".toByteArray()
-      return MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     }
   }
 }

@@ -22,7 +22,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -442,8 +441,12 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
   fun applyEqualizer(value: PorticoPcmDsp.Eq) {
+    val modeChanged = audioGains.values.any { it.equalizer.enabled != value.enabled }
     audioGains.values.forEach { it.equalizer = value }
-    if(listeningOwner != null && player != null && source != null) {
+    if(modeChanged && player != null && source != null) {
+      val preparedToken = nextToken
+      closeIncoming()
+      if (preparedToken != null) emit("audioPreparationFailed", "audio_preparation_failed", mapOf("token" to preparedToken))
       val position=sourcePosition();val url=parse((planOf(command?.get("audioRender"))?.get("url") as? String) ?: source!!)
       player?.let { it.removeListener(listener);it.release();audioGains.remove(it) };player=null
       if(url!=null)load(url,position.takeIf { it.isFinite() && it>=0 });applyIntent();attachmentListeners.toList().forEach { it() }
@@ -459,8 +462,8 @@ internal class PorticoPlaybackController(private val context: Context) {
    * One way to build a player, for the player itself and for the second one a music crossfade
    * starts under it (which then becomes the player): the same data source, the same memory limit
    * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
-   * A player built for listening has the gain stage and always decodes to plain sound; a player
-   * for a title with a picture keeps the ordinary output, passthrough included.
+   * Every player consumes the app/device EQ. Encoded passthrough is possible only with EQ off
+   * and no listening processing; enabling EQ switches to the same PCM biquad stage.
    */
   private fun build(music: Boolean, ownsFocus: Boolean, listening: Boolean = music): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
@@ -470,13 +473,12 @@ internal class PorticoPlaybackController(private val context: Context) {
     // A transport stream is searched further for the time asked for, so a seek in one lands.
     // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
-    val gain = if (listening) PorticoAudioGain().apply {
-      target=PorticoAudioPlan.gain(planOf(command?.get("audioRender")),settings())
-      val manager=context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-      PorticoEqualizerStore(context).use { equalizer=it.read(PorticoAudioOutput.key(PorticoAudioOutput.selected(manager))) }
-    } else null
-    val untouched = settings()?.get("normalization") == "off" && (number(settings()?.get("crossfadeSeconds")) ?: 0.0) == 0.0 && gain?.equalizer?.enabled != true
-    val renderers = if (gain != null) PorticoAudioRenderers(context, gain,untouched) else DefaultRenderersFactory(context).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+    val gain = PorticoAudioGain().apply {
+      target = if (listening) PorticoAudioPlan.gain(planOf(command?.get("audioRender")), settings()) else 1f
+      PorticoEqualizerStore(context).use { equalizer = it.read() }
+    }
+    val untouched = (!listening || (settings()?.get("normalization") == "off" && (number(settings()?.get("crossfadeSeconds")) ?: 0.0) == 0.0)) && !gain.equalizer.enabled
+    val renderers = PorticoAudioRenderers(context, gain, untouched)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(PorticoPlanMediaSource.Factory(DefaultDataSource.Factory(context, http), extractors))
         .setLoadControl(load.build())
@@ -496,7 +498,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     // (matchDisplay): the player's own request is only ever for a switch nobody sees.
     if (TelevisionDisplay.isTelevision) made.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
     made.addAnalyticsListener(bandwidth)
-    if (gain != null) audioGains[made] = gain
+    audioGains[made] = gain
     return made
   }
 

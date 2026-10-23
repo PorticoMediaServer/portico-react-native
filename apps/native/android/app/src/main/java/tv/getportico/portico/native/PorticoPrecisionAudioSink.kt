@@ -26,8 +26,6 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   private var audioFormat: AudioFormat? = null
   private var track: AudioTrack? = null
   private val output = PorticoAudioOutput(context)
-  private val store = PorticoEqualizerStore(context)
-  private var outputKey = ""
   private var attributes = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
   private var params = PlaybackParameters.DEFAULT
   private var listener: AudioSink.Listener? = null
@@ -77,7 +75,6 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
     try {
       val af = audioFormat!!
       val device = output.selected()
-      outputKey = PorticoAudioOutput.key(device); dsp.eq = store.read(outputKey)
       output.prefer(device,af,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
       val size = maxOf(AudioTrack.getMinBufferSize(format.sampleRate,af.channelMask,af.encoding),format.sampleRate * frameBytes / 5)
       val builder = AudioTrack.Builder().setAudioAttributes(attributes.audioAttributesV21.audioAttributes).setAudioFormat(af).setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(size)
@@ -102,10 +99,8 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
       pending = dsp.process(trim.process(buffer),encoding)
     } else check(input === buffer) { "The renderer changed a pending PCM buffer" }
     val active = track!!
-    val key = PorticoAudioOutput.key(active.routedDevice ?: active.preferredDevice)
-    if (key != outputKey) { outputKey = key; dsp.eq = store.read(key) }
     output.prefer(active.routedDevice ?: active.preferredDevice,audioFormat!!,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
-    dsp.outputStatus = mapOf("sampleRate" to format.sampleRate,"channels" to format.channelCount,"pcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"gain" to dsp.target,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"outputKey" to outputKey)
+    dsp.outputStatus = mapOf("sampleRate" to format.sampleRate,"channels" to format.channelCount,"pcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"gain" to dsp.target,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"eqNotBitPerfect" to dsp.eq.enabled)
     val data = pending!!
     if (data.hasRemaining()) {
       val written = active.write(data,data.remaining(),AudioTrack.WRITE_NON_BLOCKING)
@@ -145,7 +140,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   }
   private fun releaseTrack() { track?.let { it.pause(); it.flush(); it.release() }; track = null; output.clear(); pending = null; input = null; bytesWritten = 0; headWraps = 0; lastHead = 0; baseUs = C.TIME_UNSET }
   override fun reset() { releaseTrack(); raw = false; super.reset() }
-  override fun release() { releaseTrack(); store.close(); super.release() }
+  override fun release() { releaseTrack(); super.release() }
   companion object {
     fun platformEncoding(value: Int) = when(value) { C.ENCODING_PCM_24BIT -> AudioFormat.ENCODING_PCM_24BIT_PACKED; C.ENCODING_PCM_32BIT -> AudioFormat.ENCODING_PCM_32BIT; else -> value }
   }

@@ -60,10 +60,13 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  if(queue===undefined)throw new Error('Invalid native queue.');
  if(!Number.isSafeInteger(raw.lastSeq)||raw.lastSeq<0||!Number.isFinite(raw.durationSeconds)||raw.durationSeconds<0)throw new Error('Invalid native timeline.');
  if(raw.notice!==undefined&&(typeof raw.notice!=='string'||raw.notice.length>4096))throw new Error('Invalid native notice.');
+ if(raw.noticeCode!==undefined&&(typeof raw.noticeCode!=='string'||raw.noticeCode.length>128||!/^[a-z][a-z0-9_]*$/.test(raw.noticeCode)))throw new Error('Invalid native notice code.');
  const b=raw.binding;
  if(b!==null&&(!b||!wireID(b.lease)||!Number.isSafeInteger(b.intentId)||b.intentId<1||b.sessionId!==session.id||b.generation!==session.presentation.generation||b.itemId!==session.itemId))throw new Error('Native engine binding changed.');
  const end=raw.terminal?parseSessionEnd(raw.end):undefined;
- return Object.freeze({...raw,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
+ // Notice facts have no approved frame/catalogue copy yet; keep them outside UI state.
+ const status={...raw};delete status.notice;delete status.noticeCode;
+ return Object.freeze({...status,session,queue,transition,end,error:raw.error?nativePlaybackMessage(raw.error):raw.error,...(raw.rateError!==undefined?{rateError:nativeRateError(raw.rateError)??''}:{}),deadlines:Object.freeze({...raw.deadlines})});
 }
 
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are

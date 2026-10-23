@@ -5,34 +5,41 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-/** Local engine settings only. No access to account/auth storage, no serialized object graph. */
-internal class PorticoEqualizerStore(context: Context) : SQLiteOpenHelper(context, "portico-audio-output.db", null, 1) {
-  override fun onConfigure(db: SQLiteDatabase) { db.setForeignKeyConstraintsEnabled(true) }
+/** One app/device EQ. No account, profile, output selector, presets or serialized settings. */
+internal class PorticoEqualizerStore(context: Context) : SQLiteOpenHelper(context, "portico-equalizer.db", null, 1) {
   override fun onCreate(db: SQLiteDatabase) {
-    db.execSQL("CREATE TABLE output_eq (output_key TEXT PRIMARY KEY, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), preamp_db REAL NOT NULL CHECK(preamp_db BETWEEN -24 AND 12), preset TEXT NOT NULL)")
-    db.execSQL("CREATE TABLE output_eq_band (output_key TEXT NOT NULL REFERENCES output_eq(output_key) ON DELETE CASCADE, band INTEGER NOT NULL CHECK(band BETWEEN 0 AND 9), gain_db REAL NOT NULL CHECK(gain_db BETWEEN -12 AND 12), PRIMARY KEY(output_key,band))")
+    db.execSQL("CREATE TABLE equalizer_state (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), preamp_db REAL NOT NULL CHECK(preamp_db BETWEEN -24 AND 12))")
+    db.execSQL("CREATE TABLE equalizer_band (band INTEGER PRIMARY KEY CHECK(band BETWEEN 0 AND 9), gain_db REAL NOT NULL CHECK(gain_db BETWEEN -12 AND 12))")
+    save(db, PorticoPcmDsp.Eq())
   }
-  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Unsupported audio settings version") }
-  @Synchronized fun read(key: String): PorticoPcmDsp.Eq {
-    readableDatabase.rawQuery("SELECT enabled,preamp_db FROM output_eq WHERE output_key=?", arrayOf(key)).use { c ->
-      if (!c.moveToFirst()) return PorticoPcmDsp.Eq()
+  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Unsupported equalizer settings version") }
+
+  @Synchronized fun read(): PorticoPcmDsp.Eq {
+    val db = readableDatabase
+    db.rawQuery("SELECT enabled,preamp_db FROM equalizer_state WHERE id=1", null).use { state ->
+      check(state.moveToFirst())
       val bands = MutableList(10) { 0.0 }
-      readableDatabase.rawQuery("SELECT band,gain_db FROM output_eq_band WHERE output_key=? ORDER BY band", arrayOf(key)).use { b -> while (b.moveToNext()) bands[b.getInt(0)] = b.getDouble(1) }
-      return PorticoPcmDsp.Eq(c.getInt(0) == 1, c.getDouble(1), bands)
+      db.rawQuery("SELECT band,gain_db FROM equalizer_band ORDER BY band", null).use { rows ->
+        check(rows.count == bands.size)
+        while (rows.moveToNext()) bands[rows.getInt(0)] = rows.getDouble(1)
+      }
+      return PorticoPcmDsp.Eq(state.getInt(0) == 1, state.getDouble(1), bands.toList())
     }
   }
-  @Synchronized fun write(key: String, eq: PorticoPcmDsp.Eq, preset: String = "custom") {
-    require(key.length in 1..128 && preset.length in 1..128)
-    val db = writableDatabase; db.beginTransaction()
-    try {
-      db.insertWithOnConflict("output_eq", null, ContentValues().apply { put("output_key",key); put("enabled",if(eq.enabled)1 else 0); put("preamp_db",eq.preampDb); put("preset",preset) }, SQLiteDatabase.CONFLICT_REPLACE)
-      eq.bands.forEachIndexed { band, gain -> db.insertOrThrow("output_eq_band",null,ContentValues().apply { put("output_key",key); put("band",band); put("gain_db",gain) }) }
-      db.setTransactionSuccessful()
-    } finally { db.endTransaction() }
+
+  @Synchronized fun write(eq: PorticoPcmDsp.Eq) {
+    val value = PorticoPcmDsp.Eq(eq.enabled, eq.preampDb, eq.bands.toList())
+    val db = writableDatabase
+    db.beginTransaction()
+    try { save(db, value); db.setTransactionSuccessful() } finally { db.endTransaction() }
   }
-  companion object {
-    // Original Portico presets, no third-party headphone measurements are redistributed.
-    val presets = mapOf("flat" to PorticoPcmDsp.Eq(true), "headphones-gentle-bass" to PorticoPcmDsp.Eq(true, -3.0, listOf(3.0,3.0,2.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0)),
-      "headphones-softer-treble" to PorticoPcmDsp.Eq(true, 0.0, listOf(0.0,0.0,0.0,0.0,0.0,0.0,-1.0,-2.0,-3.0,-3.0)))
+
+  /** Reset gains and preamp, retaining the switch's current state. */
+  @Synchronized fun resetToFlat(): PorticoPcmDsp.Eq = read().copy(preampDb = 0.0, bands = List(10) { 0.0 }).also(::write)
+
+  private fun save(db: SQLiteDatabase, eq: PorticoPcmDsp.Eq) {
+    db.insertWithOnConflict("equalizer_state", null, ContentValues().apply { put("id", 1); put("enabled", if (eq.enabled) 1 else 0); put("preamp_db", eq.preampDb) }, SQLiteDatabase.CONFLICT_REPLACE)
+    db.delete("equalizer_band", null, null)
+    eq.bands.forEachIndexed { band, gain -> db.insertOrThrow("equalizer_band", null, ContentValues().apply { put("band", band); put("gain_db", gain) }) }
   }
 }

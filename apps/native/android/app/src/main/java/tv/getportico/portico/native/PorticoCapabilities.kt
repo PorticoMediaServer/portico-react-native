@@ -299,7 +299,6 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
       putInt("maxOutputChannels", channels.coerceIn(1, 32))
       putString("route", route)
       if(chosen != null) {
-        putString("outputKey",PorticoAudioOutput.key(chosen))
         val mixerRates=if(Build.VERSION.SDK_INT>=34 && chosen.type in PorticoAudioOutput.USB) audio.getSupportedMixerAttributes(chosen).map { it.format.sampleRate } else emptyList()
         val reported=(chosen.sampleRates.toList()+mixerRates).filter { it in 8000..768000 }.distinct().sorted()
         // Empty device arrays state no finite limit. Report the actual system mixer rate then.

@@ -164,6 +164,17 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     queue.post { for ((name, value) in values) setNow(name, value) }
   }
 
+  /** Ordered and checked: EQ cannot silently disappear into encoded passthrough. */
+  fun configureAudioProcessing(filter: String, passthrough: String, result: (Int) -> Unit) {
+    queue.post {
+      val disabled = if (filter.isNotEmpty()) setNow("audio-spdif", "") else 0
+      val filtered = if (disabled >= 0) setNow("af", filter) else disabled
+      val code = if (filtered >= 0 && filter.isEmpty()) setNow("audio-spdif", passthrough) else filtered
+      if (code < 0) setNow("pause", "yes")
+      main.post { result(code) }
+    }
+  }
+
   /** Runs a command; when [token] is not 0 its completion arrives as [PorticoMpvEvent.Reply]. */
   fun command(arguments: List<String>, token: Long = 0) {
     queue.post {

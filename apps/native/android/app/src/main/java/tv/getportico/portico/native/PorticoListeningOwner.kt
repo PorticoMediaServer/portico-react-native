@@ -59,7 +59,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var token = ""
   private var journalKey: String? = null
   private var error: String? = null
-  private var notice: String? = null
+  private var noticeCode: String? = null
   private var audioAttempt: String? = null
   // The session reported for now; while a committed edge drains, `audible` is the one heard.
   private var session: Map<String, Any?> = emptyMap()
@@ -181,7 +181,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     reportNow = true; patchWanted = false; ended = false; endedReported = false; terminal = false; safetyPaused = false; busy = false; rendering = false
     routeReady = true; routeRevision = -1; seekRevision = 0; sequence = 0; ackSequence = 0; transitionSequence = 0; failures = 0; commitTries = 0; actionRevision = 0
     nativeSeek = seekTo(startSeconds(session))
-    lastFact = null; transition = null; prepared = null; committed = null; audioReady = false; commitWanted = false; audioAttempt = null; error = null; notice = null
+    lastFact = null; transition = null; prepared = null; committed = null; audioReady = false; commitWanted = false; audioAttempt = null; error = null; noticeCode = null
     lostCommit = null; parkedCommit = null; startPending = null; checkEnd = false; renderFailures = 0; replayTries = 0; noRender = null; albumFor = null
     actions.clear(); policy = null; metadata = null; timerStopped = false; expiredTimerRevision = -1; activityWall = wall() * 1000; policyRateKey = null
     deadlines.clear(); deadlines["sleepAtMs"] = null; deadlines["passoutAtMs"] = null; deadlineMono.clear()
@@ -258,10 +258,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val plan = plan(presentation) ?: return false
     return PorticoAudioPlan.validate(mapOf("plan" to plan, "settings" to mapOf("gapless" to true, "crossfadeSeconds" to 0.0, "normalization" to "off"), "epoch" to 0.0, "startSeconds" to 0.0), origin) == null
   }
-  private fun renderNotice(presentation: Map<String, Any?>?): String? {
+  private fun renderNoticeCode(presentation: Map<String, Any?>?): String? {
     if (renders(presentation)) return null
-    val reason = decodePlan(presentation)?.get("reason") as? String
-    return if (!reason.isNullOrEmpty() && reason.length <= 512) reason else "Gapless playback and volume leveling aren’t available for this audio."
+    return "audio_processing_unavailable"
   }
 
   private fun renderCommand(): Map<String, Any?>? {
@@ -469,7 +468,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (patchWanted) { patch(); return }
     if (actions.isNotEmpty()) { runAction(); return }
     val reserved = prepared
-    if (reserved != null && committed == null && (num(reserved["expiresAtMs"]) ?: 0.0) <= wall() * 1000) { dropPrepared("The next track wasn’t ready in time; it plays normally."); return }
+    if (reserved != null && committed == null && (num(reserved["expiresAtMs"]) ?: 0.0) <= wall() * 1000) { dropPrepared("audio_transition_unavailable"); return }
     if (reportNow || mono() >= nextReport) { report(); return }
     maybePrepare()
   }
@@ -659,7 +658,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val previous = (audible?.get("id") ?: session["id"]) as? String
     transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to moved)
     transitionSequence = sequence + 1
-    session = next; audible = null; seq = 0; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; notice = null
+    session = next; audible = null; seq = 0; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; noticeCode = null
     prepared = null; committed = null; commitWanted = false; audioReady = false; renderFailures = 0; startPending = null; parkedCommit = null; replayTries = 0
     pausedAt = 0.0; wasPlaying = false
     intent = if (next["state"] == "paused") "paused" else "playing"
@@ -729,7 +728,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private fun dropPrepared(message: String?) {
     if (prepared == null || committed != null) return
     prepared = null; audioReady = false; commitWanted = false; audioCooldown = mono() + 3
-    if (message != null) notice = message
+    if (message != null) noticeCode = message
     persist(); apply()
   }
 
@@ -746,7 +745,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       // the token is replayed before any :advance (or when the old session reads as completed).
       if (commitTries > 1) lostCommit = mapOf("token" to reserved["token"], "queueId" to (queue?.get("id") ?: ""))
       commitWanted = false
-      dropPrepared("The next track plays normally.")
+      dropPrepared("audio_transition_unavailable")
       return
     }
     // Whether the edge is gapless (same album) or a crossfade is decided when it's committed, so
@@ -775,7 +774,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       }
       // 410 prepared_expired, 409 prepared_canceled, 404: finish this track, then advance as usual.
       commitWanted = false; lostCommit = null
-      dropPrepared(if (errorCode(value) == "prepared_expired") "The next track wasn’t ready in time; it plays normally." else "The next track plays normally.")
+      dropPrepared(if (errorCode(value) == "prepared_expired") "audio_transition_unavailable" else "audio_transition_unavailable")
       if (recovered) { safetyPaused = false; apply() }
     }
   }
@@ -838,7 +837,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (type == "audioBoundary") { boundary(fact); return }
     // The successor failed, or the old track ended with no boundary: start it as an ordinary track.
     if (committed != null && type in PROMOTING) { promoteCommitted(); return }
-    if (type == "audioPreparationFailed") dropPrepared("The next track couldn’t be buffered; it plays normally.")
+    if (type == "audioPreparationFailed") dropPrepared("audio_transition_unavailable")
     if (type == "seekApplied" && num(fact["seekRevision"]) == num(nativeSeek?.get("revision"))) { nativeSeek = null; reportNow = true; apply() }
     if (type == "seekFailed") { nativeSeek = null; safetyPaused = true; error = "seek_unavailable"; dropPrepared(null); apply() }
     if (type == "ended" && !ended && committed == null) { ended = true; reportNow = true; checkDeadlines() }
@@ -850,7 +849,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       dropPrepared(null)
       controller.resetListeningEngine(activeOwner!!)
       nativeSeek = seekTo(position)
-      notice = "Gapless playback isn’t available for this track right now; it plays normally."
+      noticeCode = "audio_gapless_unavailable"
       reportNow = true
       apply(); emit()
       return
@@ -1111,7 +1110,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     snapshot["timerStopped"] = timerStopped
     snapshot["expiredTimerRevision"] = expiredTimerRevision.toDouble()
     snapshot["policyRevision"] = num(policy?.get("revision")) ?: 0.0
-    (notice ?: if (effectsWanted()) renderNotice(presentation(heard)) else null)?.let { snapshot["notice"] = it }
+    (noticeCode ?: if (effectsWanted()) renderNoticeCode(presentation(heard)) else null)?.let { snapshot["noticeCode"] = it }
     end?.let { snapshot["end"] = it }
     snapshot["route"] = routeName()
     transition?.let { snapshot["transition"] = it }

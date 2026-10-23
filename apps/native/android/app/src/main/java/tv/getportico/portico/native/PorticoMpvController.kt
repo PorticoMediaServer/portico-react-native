@@ -32,6 +32,20 @@ import tv.getportico.portico.mpv.PorticoMpvNative
  * [PorticoMpvCore].
  */
 internal class PorticoMpvController(private val context: Context) {
+  private var equalizer = PorticoEqualizerStore(context).use { it.read() }
+  private var equalizerRevision = 0L
+
+  fun applyEqualizer(value: PorticoPcmDsp.Eq) {
+    equalizer = value
+    val engine = core ?: return
+    val revision = ++equalizerRevision
+    engine.configureAudioProcessing(PorticoMpvEqualizer.filter(value), passthrough()) { code ->
+      if (core !== engine || revision != equalizerRevision) return@configureAudioProcessing
+      if (code < 0) publishFailure(PorticoMpvNative.ERROR_UNSUPPORTED, "equalizer_filter_unavailable", emptyList())
+      else publishMediaInfo()
+    }
+  }
+
   /** A fact for JavaScript. */
   var onFact: ((WritableMap) -> Unit)? = null
 
@@ -507,7 +521,7 @@ internal class PorticoMpvController(private val context: Context) {
         "tls-verify" to "yes",
         // Sound: decoded on the device and handed to the system as PCM, in as many channels as
         // the output takes. Nothing is passed through as a bitstream.
-        "audio-spdif" to "", "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
+        "audio-spdif" to "", "af" to PorticoMpvEqualizer.filter(equalizer), "ao" to "audiotrack", "audio-channels" to PorticoMpvDevice.channelLayouts(outputChannels),
         "hr-seek" to "yes",
         "cache" to "yes", "demuxer-max-bytes" to (if (small) "48MiB" else "150MiB"), "demuxer-max-back-bytes" to (if (small) "8MiB" else "48MiB"),
         "network-timeout" to "30",
@@ -555,6 +569,7 @@ internal class PorticoMpvController(private val context: Context) {
       if (fileRequested) publishFailure(PorticoMpvNative.ERROR_VO_INIT_FAILED, "mpv could not start: $failure", emptyList())
       return
     }
+    applyEqualizer(equalizer)
     surface?.let { if (it.isValid) started.attachSurface(it, surfaceWidth, surfaceHeight) }
   }
 
@@ -1159,6 +1174,7 @@ internal class PorticoMpvController(private val context: Context) {
     fact["durationSeconds"] = if (snapshot.duration.isFinite()) snapshot.duration else 0.0
     fact["chapters"] = marks
     fact["video"] = picture
+    fact["audioProcessing"] = mapOf("eqEnabled" to equalizer.enabled, "eqNotBitPerfect" to equalizer.enabled)
     fact["audioTracks"] = PorticoMpvSupport.tracks(tracks, "audio").take(64).map(describe)
     fact["subtitleTracks"] = PorticoMpvSupport.tracks(tracks, "sub").take(128).map(describe)
     publish(fact)
@@ -1881,11 +1897,13 @@ internal class PorticoMpvController(private val context: Context) {
     core?.set("audio-channels", PorticoMpvDevice.channelLayouts(next))
   }
 
-  private fun updatePassthrough() {
+  private fun passthrough(): String {
+    if (equalizer.enabled) return ""
     val selected=PorticoMpvSupport.tracks(tracks,"audio").firstOrNull { it["selected"]==true }
     val profile=(selected?.get("codec-profile") as? String) ?: (selected?.get("codec-desc") as? String)
-    core?.set("audio-spdif",PorticoAudioVariants.mpv(context,selected?.get("codec") as? String,profile))
+    return PorticoAudioVariants.mpv(context,selected?.get("codec") as? String,profile)
   }
+  private fun updatePassthrough() { core?.set("audio-spdif", passthrough()) }
 
   // --- app life --------------------------------------------------------------------------
 
