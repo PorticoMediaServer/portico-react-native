@@ -36,22 +36,25 @@ export type NativeWatchPanelsProps = Readonly<{
 export function NativeWatchPanels({context, options, playback, names, copy, reportError, renderError, playbackInfo, episodes}: NativeWatchPanelsProps) {
   const {source, fence, state} = context, theme = useTheme(), t = defaultI18n.t;
   const choices = useSyncExternalStore(options.subscribe, options.getSnapshot);
-  const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false);
+  const first = useRef<View>(null), scroll = useRef<ScrollView>(null), busy = useRef(false), commandEpoch = useRef(0);
   const [pending, setPending] = useState(false);
   const latest = useRef(context); latest.current = context;
   const fenceKey = JSON.stringify(fence);
-  const current = useCallback(() => !playback.getSnapshot().retired && sameFence(playback.getSnapshot().fence, latest.current.fence)
-    && sameFence(latest.current.state.fence, latest.current.fence) && !!latest.current.state.panel, [playback]);
+  const current = useCallback(() => !playback.getSnapshot().retired && sameFence(playback.getSnapshot().fence, fence)
+    && sameFence(latest.current.fence, fence) && sameFence(latest.current.state.fence, fence)
+    && latest.current.state.panel === state.panel && !!state.panel, [playback, fence, state.panel]);
   const back = () => {if (current()) context.backPanel();};
   useOverlayLifecycle(!!state.panel, true, back, first, undefined, 0, 'watch-panel');
   useEffect(() => {const expected = latest.current.fence; void options.load(expected); return () => options.clear();}, [options, fenceKey]);
+  useEffect(() => {commandEpoch.current++; busy.current = false; setPending(false); return () => {commandEpoch.current++;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
   useEffect(() => {first.current?.requestTVFocus?.();}, [state.panel, state.panelFocus, choices.phase]);
   const run = async (command: () => Promise<void>) => {
     if (busy.current || !current()) return;
+    const epoch = commandEpoch.current;
     busy.current = true; setPending(true);
-    try {await command();} catch (error) {if (current()) reportError(error);}
-    finally {busy.current = false; if (current()) setPending(false);}
+    try {await command();} catch (error) {if (epoch === commandEpoch.current && current()) reportError(error);}
+    finally {if (epoch === commandEpoch.current) {busy.current = false; if (current()) setPending(false);}}
   };
   if (!state.panel || !sameFence(state.fence, fence)) return null;
   if (state.panel === 'episodes') return episodes?.(context) ?? null;

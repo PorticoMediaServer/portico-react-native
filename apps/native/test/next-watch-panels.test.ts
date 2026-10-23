@@ -55,3 +55,34 @@ test('real panel renderer sends exact selected-source track/quality commands, bl
     assert.equal(listeners.size, 0);
   }
 });
+
+test('a retiring panel command cannot keep a new source busy or report its old failure on the new panel', async () => {
+  isTV = true;
+  let rejectOld!: (error: unknown) => void;
+  const held = new Promise<void>((_, reject) => {rejectOld = reject;}), errors: unknown[] = [];
+  let source: any = {retired: false, fence, dock: {local: {fence, expanded: true}}, options, playback: {positionSeconds: 2},
+    session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'chosen', quality: {mode: 'original'}}}};
+  let context: any = {source, fence, state: {fence, panel: 'audio', panelOffset: 0}, runtime: {text: {locale: 'en-US'}}, layout: {mode: 'full-window'},
+    renderer: {width: 1920, height: 1080, scale: 1}, backPanel() {}, closePanel() {}, openPanel() {}, rememberPanel() {}};
+  let snapshot = {phase: 'ready', fence, options};
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, load: async () => {}, clear() {}};
+  const playback = {getSnapshot: () => source, change: () => held};
+  const names = {audio: (track: any) => ({primary: track.id}), subtitle: (track: any) => ({primary: track.id}), quality: (choice: any) => ({primary: choice.mode}), audioFooter: () => [], qualityFooter: () => []};
+  let tree: any;
+  const host = createHookHost(() => {tree = NativeWatchPanels({context, options: controller, playback, names,
+    copy: {sessionLead: 'Actual localized lead', sessionDefaults: 'Actual localized defaults', audioContinues: 'Actual localized continuing audio'}, reportError: (error: unknown) => errors.push(error), renderError: assert.fail});});
+  host.mount();
+  try {
+    await act(() => {descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.onPress();});
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, true);
+    const next = {...fence, generation: 4};
+    await act(() => {
+      source = {...source, fence: next, dock: {local: {fence: next, expanded: true}}, session: {...source.session, presentation: {...source.session.presentation, generation: 4}}};
+      snapshot = {...snapshot, fence: next}; context = {...context, source, fence: next, state: {...context.state, fence: next}}; host.rerender();
+    });
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, false);
+    await act(async () => {rejectOld(new Error('retired source command')); await Promise.resolve();});
+    assert.deepEqual(errors, []);
+    assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-first').props.disabled, false);
+  } finally {host.unmount();}
+});
