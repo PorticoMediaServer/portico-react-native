@@ -57,7 +57,7 @@ class Engine implements NativePlaybackTransport {
 
 const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
-function fixture() {
+function fixture(groupedVersions = false) {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
@@ -90,7 +90,9 @@ function fixture() {
       response = await server.handle(request);
       if (path.includes('/playback-options') && response.status === 200) {
         const body = response.body as Record<string, unknown>, id = body.itemId as string;
-        response = {...response, body: {...body, kind: itemKind(id), markers}};
+        const versions = body.versions as readonly Record<string, unknown>[];
+        response = {...response, body: {...body, kind: itemKind(id), markers,
+          ...(groupedVersions ? {versions:[...versions,{...versions[0],id:'v2',label:'Second version'}]} : {})}};
       }
     }
     // The existing fake owns session/revision/timeline receipts. Add its missing linear
@@ -133,6 +135,7 @@ function fixture() {
   });
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
   return {server, engine, runtime, requests, scopedRequests, start,
+    groupedVersions: (value: boolean) => { groupedVersions = value; },
     markers: (value: readonly Marker[]) => { markers = value; },
     pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
@@ -530,6 +533,62 @@ test('quality and audio changes replan the real session and fence old generation
     await d.start('movie-2');
     assert.equal(d.engine.lastCommand.rate, 1, 'a fresh playback reads Settings instead of the prior session override');
   } finally { d.runtime.dispose(); }
+});
+
+test('a selected grouped version reaches the actual queue/session start without defaulting', async () => {
+  const d=fixture(true);
+  try {
+    await d.start('movie-1',13);
+    const state=d.runtime.getSnapshot(), options=state.options!;
+    assert.deepEqual(options.versions.map(value=>value.id),['v1','v2']);
+    await d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1',startSeconds:17}},
+      {authority:state.authority,options,versionId:'v2',expectedFence:state.fence});
+    await settle();
+    assert.equal(d.runtime.getSnapshot().session?.versionId,'v2',JSON.stringify({requests:d.requests.slice(-12),before:state.fence,after:d.runtime.getSnapshot().fence}));
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds,17);
+    assert.ok(d.requests.some(request=>request.method==='POST' && record(request.body) && request.body.versionId==='v2'));
+  } finally {d.runtime.dispose();}
+});
+
+test('version selection rejects another authority, mismatched item and a no-longer-offered id', async () => {
+  const d=fixture(true);
+  try {
+    await d.start('movie-1'); const state=d.runtime.getSnapshot(), options=state.options!, input={entry:state.entry!,target:{itemId:'movie-1'}};
+    const before=d.requests.length;
+    await d.runtime.startVersion(input,{authority:{...state.authority,epoch:'old'},options,versionId:'v2',expectedFence:state.fence});
+    assert.equal(d.requests.length,before);
+    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options:{...options,itemId:'other'},versionId:'v2',expectedFence:state.fence}));
+    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options:{...options,versions:[...options.versions,options.versions[1]]},versionId:'v2',expectedFence:state.fence}));
+    d.groupedVersions(false);
+    await assert.rejects(d.runtime.startVersion(input,{authority:state.authority,options,versionId:'v2',expectedFence:state.fence}));
+    assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id);
+    assert.equal(d.runtime.getSnapshot().session?.versionId,'v1');
+  } finally {d.runtime.dispose();}
+});
+
+test('a version menu opened with no source cannot replace playback that started meanwhile', async () => {
+  const d=fixture(true);
+  try {
+    await d.start('movie-1'); const state=d.runtime.getSnapshot(), before=d.requests.length;
+    await d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+      {authority:state.authority,options:state.options!,versionId:'v2',expectedFence:undefined});
+    assert.equal(d.requests.length,before);assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id);
+  } finally {d.runtime.dispose();}
+});
+
+test('a delayed version revalidation cannot replace a later playback source', async () => {
+  const d=fixture(true);let release=()=>{};
+  try {
+    await d.start('movie-1'); const state=d.runtime.getSnapshot();
+    const held=new Promise<void>(resolve=>{release=resolve;});let entered=false;
+    d.intercept(async request=>{if(request.path.includes('/movie-1/playback-options')&&!entered){entered=true;await held;}});
+    const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+      {authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+    await settle();assert.equal(entered,true);await d.start('movie-current',27);
+    release();await late;await settle();
+    assert.equal(d.runtime.getSnapshot().playback.itemId,'movie-current');
+    assert.equal(d.requests.some(request=>request.method==='POST' && record(request.body) && request.body.versionId==='v2'),false);
+  } finally {release();d.runtime.dispose();}
 });
 
 test('a superseded preflight cannot create or mount a late session for its previous source', async () => {

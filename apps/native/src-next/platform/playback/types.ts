@@ -15,9 +15,16 @@ import type {NativeListeningV1Control} from '../../../../../packages/client-core
 import type {Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import type {HomeSelectionPlaybackPort} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
+import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
+import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
+export type NativePlaybackVersionSelection = Readonly<{
+  authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
+  /** Exact source when the menu opened, including an explicitly absent source. */
+  expectedFence: PlaybackFence | undefined;
+}>;
 export type NativePlaybackBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativePlaybackSurfaceProps = Readonly<{dockBounds?: NativePlaybackBounds; expandedBounds: NativePlaybackBounds; docked: boolean; subtitlesVisible: boolean}>;
 export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
@@ -65,6 +72,10 @@ export interface NativePlaybackAdapter {
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => NativePlaybackRuntimeSnapshot;
   start: (input: NativePlaybackStart) => Promise<void>;
+  startVersion: (input: NativePlaybackStart, selection: NativePlaybackVersionSelection) => Promise<void>;
+  change: (fence: PlaybackFence, choices: PlaybackChoices) => Promise<void>;
+  chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
+  setRate: (fence: PlaybackFence, rate: number) => void;
   selectionPlayback: (isCurrent: (context: SelectionContext) => boolean) => HomeSelectionPlaybackPort;
   onTransition: (transition: DockTransition) => Promise<void>;
   Surface: ComponentType<NativePlaybackSurfaceProps>;
