@@ -42,6 +42,8 @@ internal class PorticoMpvController(private val context: Context) {
     if (equalizer != value) equalizerUnavailable = false
     equalizer = value
     updateAudioProcessing()
+    // Even an untouched receiver bitstream must report a changed saved switch immediately.
+    publishMediaInfo()
   }
 
   private fun updateAudioProcessing() {
