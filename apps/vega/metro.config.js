@@ -21,11 +21,16 @@ const bridge = path.join(app, 'src/bridge');
 const debugFile = path.join(app, 'src/debug.tsx');
 const overrides = path.join(app, 'src/overrides');
 const reactNativeShim = path.join(shims, 'react-native.ts');
+const nextSrc = path.join(shared, 'src-next');
 const reanimatedShim = path.join(shims, 'reanimated.tsx');
 const sdkReactNative = '@amazon-devices/react-native-kepler';
 
 // The community names the shared sources import, and the SDK's builds of them.
 const aliases = {
+  '@react-native-masked-view/masked-view': path.join(shims, 'masked-view.tsx'),
+  '@react-native-community/blur': path.join(shims, 'blur.tsx'),
+  '@portico/design': path.join(packages, 'design'),
+  'react-native-gesture-handler': '@amazon-devices/react-native-gesture-handler',
   '@react-navigation/native': '@amazon-devices/react-navigation__native',
   '@react-navigation/native-stack': '@amazon-devices/react-navigation__native-stack',
   'react-native-safe-area-context': '@amazon-devices/react-native-safe-area-context',
@@ -84,9 +89,12 @@ module.exports = mergeConfig(getDefaultConfig(app), {
       if (moduleName === sdkReactNative && !inNodeModules(origin) && !within(shims, origin) && !within(bridge, origin) && origin !== debugFile) {
         return {type: 'sourceFile', filePath: reactNativeShim};
       }
-      // Reanimated's API comes from the shim; the library is not in this app (src/shims/motion.ts).
+      // Legacy motion keeps its existing shim; the new shell uses the actual SDK.
       if (requested === 'react-native-reanimated' && !inNodeModules(origin)) {
-        return {type: 'sourceFile', filePath: reanimatedShim};
+        // The new shell uses the SDK's full layout/scroll/worklet API. Keep the
+        // legacy screen workaround confined to the legacy sources it was built for.
+        if (!within(nextSrc, origin)) return {type: 'sourceFile', filePath: reanimatedShim};
+        return context.resolveRequest(context, '@amazon-devices/react-native-reanimated', platform);
       }
       const resolved = context.resolveRequest(context, moduleName, platform);
       if (resolved.type === 'sourceFile') {
