@@ -5,6 +5,7 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
 const {TitleEpisode, TitleRelated} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {},
+  '../../../../../packages/player-core/src': {}, '../../../../../packages/client-core/src/presentation/kit-model/text': {},
   '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../../../../packages/i18n/src': {},
   '../../kit/artwork': {}, '../../kit/cards': {EpisodeTile: 'EpisodeTile', PosterCard: 'PosterCard'},
   '../../kit/controls': {}, '../../kit/layout/Hero': {}, '../../kit/states': {}, '../../kit/theme': {},

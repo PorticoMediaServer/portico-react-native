@@ -8,6 +8,7 @@ import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
 import {nativeWatchPanelRows} from '../src-next/screens/watch/panel-model.ts';
+import {nativeWatchSubtitleTiming} from '../src-next/screens/watch/subtitle-timing.ts';
 let isTV = false;
 const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {ActivityIndicator: 'Loading', ScrollView: 'Scroll', Text: 'Text', View: 'View'},
@@ -17,6 +18,7 @@ const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watc
   '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/overlays/surface': {PanelBackground: 'Background'},
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {bodyStrong: {}, caption: {}}})},
   './track-identity': {nativeWatchTracks}, './panel-model': {nativeWatchPanelRows},
+  './subtitle-timing': {nativeWatchSubtitleTiming},
 });
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'v2', entryId: 'entry', generation: 3});
 const options = parseOptions({itemId: 'item', versions: [{id: 'v2', audio: [{id: 'first', default: true}, {id: 'chosen'}], subtitles: [{id: 'first', default: true}, {id: 'chosen'}]}], qualities: [{mode: 'original'}, {mode: 'automatic'}]});

@@ -1,6 +1,8 @@
 export {createNativeWatchScreens} from './factory';
 export type {NativeWatchFactoryPorts, NativeWatchCapture, NativeVersionStartSelection, NativeVersionLifetime, NativeWatchMenuActions, NativeVersionDestination} from './factory';
 export {NativeTitleController} from './title-controller';
+export {NativeTitleScreen} from './TitleScreen';
+export type {NativeTitleScreenProps} from './TitleScreen';
 export {NativeTitleMemory} from './title-memory';
 export {NativeWatchControls} from './controls';
 export type {NativeWatchControlContext, NativeWatchPanel} from './controls';

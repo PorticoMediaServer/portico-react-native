@@ -23,7 +23,7 @@ import {nativeVersionChoices, type NativeVersionPresentation} from './version-op
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
-import {NativeWatchHost, type NativeWatchHostBindings} from './WatchHost';
+import {NativeWatchHost, type NativeWatchHostBindings, type NativeWatchHostContext} from './WatchHost';
 
 export type NativeWatchCapture = Readonly<{
   entry: ContentEntry;
@@ -199,6 +199,27 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     watch: Object.freeze({render: (runtime: NativeShellRuntime) => alive() && ports.player
       ? <NativeWatchHost authority={ports.authority} current={ports.current} playback={ports.playback} outlet={ports.watch} runtime={runtime}
           controls={controls} bindings={ports.player} setPresentation={setPresentation} isTV={ports.isTV}/> : null,
+      /** Phone-player4 reuses a real retained title body. Its controller is
+       * separate from the underlying route's memory and survives geometry. */
+      body: (host: NativeWatchHostContext) => {
+        const source = host.source, entry = source.entry, pane = host.layout.content;
+        if (!alive() || ports.isTV || host.layout.mode !== 'watch' || !pane || !entry?.libraryId || source.retired || host.fence.kind !== 'queue'
+          || !sameFence(ports.playback.getSnapshot().fence, host.fence) || entry.id !== host.fence.itemId) return null;
+        const key = `watch:${titleKey(entry)}`;
+        let controller = controllers.get(key);
+        if (!controller) {controller = new NativeTitleController({...ports, entry}); controllers.set(key, controller);}
+        const owner = controller;
+        return <NativeTitleScreen {...ports.title} key={key} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
+          watch={{source, playback: ports.playback, width: pane.width}} back={() => {ports.navigation.back(ports.authority);}}
+          myList={ports.title.myList(entry)} download={ports.title.download} more={(member, anchorRef) => {
+            void menu(member, () => {
+              const state = owner.getSnapshot(), active = ports.playback.getSnapshot();
+              return !state.retired && !active.retired && active.dock.local?.expanded === true && !!active.entry && titleKey(active.entry) === titleKey(entry)
+                && (titleKey(state.entry) === titleKey(member) || state.episodes.some(value => titleKey(value) === titleKey(member))
+                || state.detail?.data?.related?.rows.some(row => row.entries.some(value => titleKey(value) === titleKey(member))) === true);
+            }, anchorRef).catch(ports.title.reportError);
+          }}/>;
+      },
       /** Assembly calls this before its existing player/destination Back handling. */
       back: () => {const fence = ports.playback.getSnapshot().fence; if (!alive() || !fence) return false; const result = controls.back(fence); return result === 'panel' || result === 'controls';}}),
     controls,
@@ -212,6 +233,8 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     renderWatch: (props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) => alive() ? <Watch {...props}/> : null,
     renderPictureSlot: (props: Omit<NativeWatchPictureProps, 'outlet' | 'authority'>) => alive() ? <NativeWatchPicture {...props} authority={ports.authority} outlet={ports.watch}/> : null,
     releaseTitle: (entry: ContentEntry) => {const key = titleKey(entry); controllers.get(key)?.dispose(); controllers.delete(key);},
+    /** Actual playback lifetime end only; never a dock/fold/full-window change. */
+    releaseWatchBody: (entry: ContentEntry) => {const key = `watch:${titleKey(entry)}`; controllers.get(key)?.dispose(); controllers.delete(key);},
     dispose: () => {if (disposed) return; disposed = true; offPlayback(); offAuthority(); offRoute(); for (const request of requests.keys()) request.abort(); requests.clear(); for (const lifetime of lifetimes.keys()) lifetime.abort(); lifetimes.clear(); for (const controller of controllers.values()) controller.dispose(); controllers.clear(); controls.dispose();},
   });
   function Watch(props: Omit<NativeWatchChromeProps, 'controls' | 'playback' | 'source'>) {
