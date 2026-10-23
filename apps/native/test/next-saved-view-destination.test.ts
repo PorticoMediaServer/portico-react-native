@@ -13,7 +13,7 @@ test('Saved directory reads its actual bounded page and canonical total, and ded
   const api: SavedApi = {request: async <T>(path: string) => {
     calls.push(path);
     if (path.endsWith('/saved/summary')) return summary() as T;
-    if (path.includes('cursor=')) return await new Promise(resolve => {finish = resolve;}) as T;
+    if (path.includes('cursor=')) return await new Promise<unknown>(resolve => {finish = resolve;}) as T;
     return directory('actual-next-cursor') as T;
   }};
   const view = new NativeSavedViewDestination({api, scope, requestId: async () => 'request-id', current: () => true});
