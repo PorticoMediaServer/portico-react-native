@@ -19,10 +19,17 @@ export type NativeWatchCurrent = Readonly<{
   fence?: PlaybackFence;
   window: Readonly<{width: number; height: number}>;
 }>;
+export interface NativeWatchReader {
+  getSnapshot: () => NativeExpandedVideoSlot | undefined;
+  subscribe: (listener: () => void) => () => void;
+}
+export interface NativeWatchOutletPort extends NativeWatchReader {
+  register: (authority: ShellAuthority) => NativeWatchLease;
+}
 
 /** A measured outlet for the single persistent playback surface. It owns no
  * route, panel, controls, media lease, playback command or screen memory. */
-export class NativeWatchOutlet {
+export class NativeWatchOutlet implements NativeWatchOutletPort {
   private slot?: NativeExpandedVideoSlot;
   private owner?: object;
   private alive = true;

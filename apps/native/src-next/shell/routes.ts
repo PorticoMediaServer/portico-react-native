@@ -28,8 +28,9 @@ export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: Na
  * mounted origin destination or the history used to return to it. */
 export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
   const route = snapshot.route;
-  return route.kind === 'title' && libraries.some(library => library.id === route.entry.libraryId)
-    ? {kind: 'library', libraryId: route.entry.libraryId} : snapshot.destination;
+  const libraryId = route.kind === 'title' ? route.entry.libraryId : undefined;
+  return libraryId && libraries.some(library => library.id === libraryId)
+    ? {kind: 'library', libraryId} : snapshot.destination;
 }
 
 /** One authority lifetime and one history. Async callers must retain the authority they read. */

@@ -50,7 +50,7 @@ export type NativeShellBootstrapContext = Readonly<{
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
-export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
+export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
   getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
@@ -178,7 +178,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const publish = () => {
       if (!current()) return;
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
-      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, account: bound.account});
+      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, serverName: server.name, unreadNotificationCount: unread,
+        profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0, account: bound.account});
       for (const listener of [...listeners]) listener();
     };
     publish();

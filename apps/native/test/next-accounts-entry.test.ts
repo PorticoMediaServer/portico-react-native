@@ -31,7 +31,7 @@ test('normal product entry signs in locally through actual React/native bridges 
     assert.equal(app.hosts().some((host: any) => host.name === 'TextInput' && host.props.accessibilityLabel === 'Password'), false);
     assert.deepEqual(app.requests.map((request: any) => request.path), ['/v1/system']);
     await app.tapLabel('Back'); kind = 'local';
-    await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue'); await app.tapLabel('Continue');
+    await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
     await app.fill('Username', 'synthetic_user'); await app.fill('Password', 'synthetic_password'); await app.tapLabel('Sign in');
     assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Who’s watching on Synthetic living room?'));
     await app.tapLabel('Synthetic viewer'); await app.fill('Four-digit PIN', '1234'); await app.tapLabel('Continue');

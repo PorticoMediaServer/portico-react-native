@@ -13,7 +13,7 @@ import type {StateViewProps} from '../kit/states';
 import type {ShellAuthority, ShellDestination} from './model';
 import type {LastLibraryMemory} from './library-memory';
 import type {NativeShellPlaybackAdapter} from './playback';
-import type {NativeWatchOutlet} from './watch-outlet';
+import type {NativeWatchOutletPort} from './watch-outlet';
 
 export type NativeShellSnapshot = Readonly<{
   authority: ShellAuthority;
@@ -27,6 +27,8 @@ export type NativeShellSnapshot = Readonly<{
   libraries: readonly Library[];
   hasLiveTV: boolean;
   profile: ProfileOption;
+  serverName: string;
+  unreadNotificationCount: number;
   unreadNotifications: boolean;
   account: Pick<AccountMenuProps, 'accountLine' | 'actions' | 'profiles' | 'viewerRole' | 'serverAction'>;
 }>;
@@ -59,6 +61,8 @@ export interface NativeShellRuntime {
   homeMenuRow?: (windowId: string) => HomeRow | undefined;
   renderSelection: () => ReactNode;
   renderRoutes: () => ReactNode;
+  /** Persistent watch chrome above the one native picture surface. */
+  renderWatch?: () => ReactNode;
   libraryMenu: (library: Library) => LibraryMenuProps;
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
@@ -74,7 +78,7 @@ export interface NativeShellRuntime {
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
   /** Real measured expanded picture slot; never a second playback surface. */
-  watch?: NativeWatchOutlet;
+  watch?: NativeWatchOutletPort;
   /** The effective server preference, expressed in seconds by the assembly. */
   skipBackSeconds: number;
   /** Only installed when a real device destination control exists. */

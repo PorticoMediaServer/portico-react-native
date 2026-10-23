@@ -132,7 +132,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
         {layout.kind === 'desktop' ? <DesktopHeader snapshot={snapshot} avatarRef={avatarRef} scrolled={homeScrolled} onNavigate={next => next.kind === 'library' ? openLibrary(next.libraryId) : navigate(next)} onProfile={() => setAccountOpen(true)} activity={runtime.desktopActivity}/>
-          : destination.kind === 'home' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+          : destination.kind === 'home' && snapshot.homeVisible && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => setAccountOpen(true)} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <PhoneTabBar destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
       </>)}
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>
@@ -142,6 +142,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
     {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority}/>}
     {runtime.renderRoutes()}
+    {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
     {runtime.renderSelection()}
   </View>;
 }
