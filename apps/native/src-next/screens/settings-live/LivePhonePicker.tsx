@@ -8,7 +8,7 @@ import {useTheme} from '../../kit/theme';
 
 /** phone-guide's inline controls retain their genuine native opener and use the
  * existing anchored menu. No settings, source or remembered-view store lives here. */
-export function NativeLivePhonePicker({value, options, onChange, children, accessibilityLabel, testID, style, disabled, placement = 'bottom-start', menuWidth = 230}: {
+export function NativeLivePhonePicker({value, options, onChange, children, accessibilityLabel, testID, style, disabled, placement = 'bottom-start', menuWidth = 230, secondary = false}: {
   value: string;
   options: readonly Omit<MenuAction, 'onSelect'>[];
   onChange: (value: string) => void;
@@ -19,6 +19,7 @@ export function NativeLivePhonePicker({value, options, onChange, children, acces
   disabled?: boolean;
   placement?: 'bottom-start' | 'bottom-end';
   menuWidth?: number;
+  secondary?: boolean;
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), [open, setOpen] = useState(false);
   const selectedLabel = options.find(option => option.id === value)?.label;
@@ -26,7 +27,7 @@ export function NativeLivePhonePicker({value, options, onChange, children, acces
     <Focusable ref={anchor} testID={testID} accessibilityRole="combobox" accessibilityLabel={accessibilityLabel}
       accessibilityState={{expanded: open, disabled}} accessibilityValue={typeof selectedLabel === 'string' ? {text: selectedLabel} : undefined} disabled={disabled} onPress={() => setOpen(true)}
       style={[{height: 32, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: disabled ? .45 : 1}, style]}>
-      {typeof children === 'string' ? <Text numberOfLines={1} style={[shellType(13, 600), {color: theme.colors.text}]}>{children}</Text> : children}
+      {typeof children === 'string' ? <Text numberOfLines={1} style={[shellType(13.5, 700), {color: secondary ? theme.colors.textSecondary : theme.colors.text}]}>{children}</Text> : children}
       <Icon name="i-down" size={15} color={theme.colors.textTertiary}/>
     </Focusable>
     <Menu testID={`${testID}-menu`} open={open} onOpenChange={setOpen} anchorRef={anchor} returnFocusRef={anchor}

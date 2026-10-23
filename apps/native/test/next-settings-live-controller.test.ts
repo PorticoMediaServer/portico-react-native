@@ -15,7 +15,7 @@ import {legacyChannel, legacyChannelRow} from '../../../packages/client-core/src
 import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/channel-guide';
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/directory';
-import {nativeGuideCellWindow, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
+import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
 import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {GroupMember} from '../../../packages/client-core/src/social-playback';
@@ -78,6 +78,15 @@ test('Guide keeps a clipped title inside the visible time lane during a pan', ()
   assert.deepEqual(nativeGuideCellWindow(20, 500, 300, -120), {cutLeft: 100, width: 300});
   assert.equal(nativeGuideCellWindow(-200, 100, 300, 0).width, 0);
   assert.equal(nativeGuideCellWindow(301, 100, 300, 0).width, 0);
+});
+
+test('Guide elapsed fill ends at the actual now line after the drawn gutter and clipping', () => {
+  // phone-guide1: now is105pt into the lane, cell begins2pt in, so fill is103pt.
+  assert.equal(nativeGuideElapsedWidth(2, 176, 105), 103);
+  // A cell mounted half a span before the visible lane retains time coordinates.
+  assert.equal(nativeGuideElapsedWidth(-178, 448, 105) - 178, 105);
+  assert.equal(nativeGuideElapsedWidth(2, 176, -75), 0);
+  assert.equal(nativeGuideElapsedWidth(2, 176, 400), 176);
 });
 
 test('guide favorite waits for receipt and retries the exact operation key and selected revision', async () => {
