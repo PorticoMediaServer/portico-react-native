@@ -64,4 +64,30 @@ class PorticoPcmConformanceTest {
       try { PorticoPcmDsp.Eq(true,0.0,eq);fail("accepted invalid EQ") } catch(_: IllegalArgumentException) {}
     }
   }
+
+  @Test fun appliedLevelingBelongsToProcessedNormalizationNotTransitionOrLaterControls() {
+    val dsp=PorticoPcmDsp()
+    fun process() = dsp.process(ByteBuffer.allocate(48000*4).order(ByteOrder.LITTLE_ENDIAN).apply {
+      repeat(48000) { putFloat(0.25f) };flip()
+    },PorticoPcmDsp.Encoding.FLOAT)
+    dsp.gain=PorticoPcmDsp.Gain(0.5,1.0);dsp.configure(48000,1)
+    assertFalse(dsp.processedLeveling)
+    assertEquals(0.125f,process().float,0f)
+    assertFalse("fade/user attenuation is not normalization",dsp.processedLeveling)
+    dsp.gain=PorticoPcmDsp.Gain(0.5,0.5)
+    assertFalse("a control update has not rendered samples",dsp.processedLeveling)
+    process();assertTrue(dsp.processedLeveling)
+    dsp.gain=PorticoPcmDsp.Gain(0.25,1.0)
+    assertTrue("a later control cannot relabel the previous buffer",dsp.processedLeveling)
+    assertEquals(0.5,dsp.processedGain.normalization,0.0)
+    process();assertTrue("the ramp still contains the old normalization",dsp.processedLeveling)
+    process();assertFalse(dsp.processedLeveling)
+    dsp.gain=PorticoPcmDsp.Gain(1.0000001,1.0000001)
+    process();assertTrue("display rounding never defines unity",dsp.processedLeveling)
+    dsp.reset();assertFalse(dsp.processedLeveling)
+    dsp.process(ByteBuffer.allocate(0),PorticoPcmDsp.Encoding.FLOAT)
+    assertFalse("no decoded frames is not applied processing",dsp.processedLeveling)
+    dsp.gain=PorticoPcmDsp.Gain(0.5,Double.NaN);dsp.reset()
+    process();assertFalse("unknown normalization is not observed leveling",dsp.processedLeveling)
+  }
 }

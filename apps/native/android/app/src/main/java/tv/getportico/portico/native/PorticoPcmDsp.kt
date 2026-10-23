@@ -14,11 +14,18 @@ internal class PorticoPcmDsp {
     }
   }
   @Volatile var outputStatus: Map<String,Any?> = emptyMap()
-  @Volatile var target = 1.0
+  /** One atomic control update keeps normalization distinct from transition/user gain. */
+  data class Gain(val linear: Double = 1.0, val normalization: Double = 1.0)
+  @Volatile var gain = Gain()
+  var target: Double
+    get() = gain.linear
+    set(value) { gain = gain.copy(linear = value) }
   @Volatile var eq = Eq()
   private var applied = Eq()
   /** The settings used for the last processed buffer, rather than a later control update. */
   val processedEqualizer: Eq get() = applied
+  var processedGain = Gain(); private set
+  var processedLeveling = false; private set
   private var filters = emptyArray<Array<Biquad>>()
   private var channels = 0
   private var rate = 0
@@ -26,6 +33,8 @@ internal class PorticoPcmDsp {
   private var goal = 1.0
   private var ramp = 0
   private var step = 0.0
+  private var normalizationActive = false
+  private var normalizationGoal = false
 
   val transparent: Boolean get() = target == 1.0 && !eq.enabled && level == 1.0
 
@@ -34,7 +43,15 @@ internal class PorticoPcmDsp {
     rate = sampleRate; channels = channelCount; rebuild(); reset()
   }
 
-  fun reset() { level = target; goal = target; ramp = 0; filters.forEach { it.forEach(Biquad::reset) } }
+  fun reset() {
+    val requested = gain
+    level = requested.linear.takeIf { it.isFinite() }?.coerceIn(0.0, 32.0) ?: 1.0
+    goal = level; ramp = 0
+    normalizationActive = requested.normalization.isFinite() && requested.normalization != 1.0
+    normalizationGoal = normalizationActive; processedLeveling = false
+    processedGain = Gain()
+    filters.forEach { it.forEach(Biquad::reset) }
+  }
 
   private fun rebuild() {
     applied = eq
@@ -47,8 +64,17 @@ internal class PorticoPcmDsp {
     input.order(ByteOrder.LITTLE_ENDIAN)
     val output = ByteBuffer.allocateDirect(input.remaining()).order(ByteOrder.LITTLE_ENDIAN)
     if (eq != applied) rebuild()
-    val wanted = target.takeIf { it.isFinite() }?.coerceIn(0.0, 32.0) ?: 1.0
-    if (wanted != goal) { goal = wanted; ramp = max(1, rate / 50); step = (goal - level) / ramp }
+    val requested = gain
+    val wanted = requested.linear.takeIf { it.isFinite() }?.coerceIn(0.0, 32.0) ?: 1.0
+    val normalizing = requested.normalization.isFinite() && requested.normalization != 1.0
+    if (wanted != goal) {
+      normalizationActive = normalizationActive || normalizationGoal
+      goal = wanted; ramp = max(1, rate / 50); step = (goal - level) / ramp
+    }
+    normalizationGoal = normalizing
+    if (ramp == 0) normalizationActive = normalizing
+    processedGain = requested
+    processedLeveling = input.hasRemaining() && (normalizationActive || normalizing)
     if (!applied.enabled && ramp == 0 && level == 1.0) { output.put(input); output.flip(); return output }
     val preamp = if (applied.enabled) 10.0.pow(applied.preampDb / 20.0) else 1.0
     while (input.hasRemaining()) {
@@ -59,6 +85,7 @@ internal class PorticoPcmDsp {
         write(output, encoding, value)
       }
     }
+    if (ramp == 0) normalizationActive = normalizing
     output.flip(); return output
   }
 

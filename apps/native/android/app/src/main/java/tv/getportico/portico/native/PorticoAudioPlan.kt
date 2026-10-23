@@ -93,6 +93,10 @@ internal object PorticoAudioPlan {
     return linear.coerceIn(0.0, if (peak == null) 1.0 else 32.0).toFloat()
   }
 
+  /** The normalization coefficient alone; a separate user preamp is not a leveling fact. */
+  fun normalizationGain(plan: Map<*, *>?, settings: Map<*, *>?): Float =
+      gain(plan, settings?.filterKeys { it != "preampDb" })
+
   fun durationSeconds(plan: Map<*, *>?): Double {
     val frames = number(plan?.get("durationFrames")) ?: return 0.0
     val rate = number(plan?.get("sampleRate")) ?: return 0.0

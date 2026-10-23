@@ -20,6 +20,9 @@ internal class PorticoAudioGain : BaseAudioProcessor() {
   var equalizer: PorticoPcmDsp.Eq
     get() = dsp.eq
     set(value) { dsp.eq = value }
+  fun setGain(linear: Float, normalization: Float) {
+    dsp.gain = PorticoPcmDsp.Gain(linear.toDouble(), normalization.toDouble())
+  }
   override fun onConfigure(input: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
     if (encoding(input.encoding) == null) throw AudioProcessor.UnhandledAudioFormatException(input)
     dsp.configure(input.sampleRate, input.channelCount); return input

@@ -34,6 +34,8 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
   private var ended = false
   private var pending: ByteBuffer? = null
   private var pendingEqApplied = false
+  private var pendingLevelingApplied = false
+  private var pendingGain = 1.0
   private var input: ByteBuffer? = null
   private var bytesWritten = 0L
   private var headWraps = 0L
@@ -97,7 +99,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
     if (!raw) {
       val position = buffer.position()
       val handled = super.handleBuffer(buffer,presentationTimeUs,encodedAccessUnitCount)
-      if (buffer.position() > position) dsp.outputStatus = mapOf("eqEnabled" to dsp.eq.enabled, "eqApplied" to false, "eqNotBitPerfect" to false)
+      if (buffer.position() > position) dsp.outputStatus = mapOf("eqEnabled" to dsp.eq.enabled, "eqApplied" to false, "levelingApplied" to false, "eqNotBitPerfect" to false)
       return handled
     }
     ensureTrack()
@@ -106,6 +108,8 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
       input = buffer
       pending = dsp.process(trim.process(buffer),encoding)
       pendingEqApplied = dsp.processedEqualizer.enabled
+      pendingLevelingApplied = dsp.processedLeveling
+      pendingGain = dsp.processedGain.linear
     } else check(input === buffer) { "The renderer changed a pending PCM buffer" }
     val active = track!!
     output.prefer(active.routedDevice ?: active.preferredDevice,audioFormat!!,dsp.transparent && params == PlaybackParameters.DEFAULT && volume == 1f)
@@ -115,7 +119,7 @@ internal class PorticoPrecisionAudioSink(private val context: Context, fallback:
       if (written < 0) throw AudioSink.WriteException(written,format,false)
       bytesWritten += written
       // AudioTrack's input format is not an observation of the hardware mixer/output rate.
-      if (written > 0) dsp.outputStatus = mapOf("inputSampleRate" to format.sampleRate,"inputChannels" to format.channelCount,"inputPcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"eqApplied" to pendingEqApplied,"gain" to dsp.target,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"eqNotBitPerfect" to pendingEqApplied)
+      if (written > 0) dsp.outputStatus = mapOf("inputSampleRate" to format.sampleRate,"inputChannels" to format.channelCount,"inputPcmEncoding" to format.pcmEncoding,"eqEnabled" to dsp.eq.enabled,"eqApplied" to pendingEqApplied,"levelingApplied" to pendingLevelingApplied,"gain" to pendingGain,"bitPerfectMixerAccepted" to output.accepted,"outputReason" to output.reason,"eqNotBitPerfect" to pendingEqApplied)
     }
     if (data.hasRemaining()) return false
     pending = null; input = null; return true

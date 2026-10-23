@@ -47,6 +47,10 @@ class PorticoAudioPlanTest {
     assertEquals("album gain, with the track's peak when the album has none", 0.7079f, PorticoAudioPlan.gain(plan + ("gain" to mapOf("trackDb" to -9.0, "albumDb" to -3.0, "trackPeak" to 0.5)), album), 0.0001f)
     assertEquals("album asked, none known: the track's", 0.5012f, PorticoAudioPlan.gain(plan + ("gain" to mapOf("trackDb" to -6.0)), album), 0.0001f)
     assertEquals("no gain in the plan", 1f, PorticoAudioPlan.gain(plan, track), 0f)
+    assertEquals("a separate preamp does not erase normalization provenance", 0.5012f,
+        PorticoAudioPlan.normalizationGain(plan + ("gain" to mapOf("trackDb" to -6.0)), track + ("preampDb" to 6.0)), 0.0001f)
+    assertEquals("user attenuation alone is not normalization", 1f,
+        PorticoAudioPlan.normalizationGain(plan + ("gain" to mapOf("trackDb" to 0.0)), track + ("preampDb" to -6.0)), 0f)
   }
 
   @Test
