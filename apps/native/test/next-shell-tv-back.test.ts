@@ -10,7 +10,7 @@ import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-n
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import {homePlayTarget} from '../src-next/screens/home/model';
 import * as readPlatform from '../src-next/screens/read/platform';
-import * as screenServices from '../src-next/screens/native-screen-services';
+import {NativeScreenServices} from '../src-next/screens/screen-services';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('actual assembly sends Back to topmost Home menu before player, then TV page, then OS', async () => {
@@ -26,6 +26,10 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   await home.load();
   const renderOrder: string[] = [];
   let back: () => boolean = () => false, expanded = false, pageCalls = 0, pageConsumes = true;
+  const screenServices = await screenModule(new URL('../src-next/screens/native-screen-services.tsx', import.meta.url), {
+    react: h.react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
+    '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
+  });
   const {createNativeShellBindings} = await screenModule(new URL('../src-next/shell/assembly.tsx', import.meta.url), {
     react: h.react, 'react-native': {BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back = fn; return {remove() {}};}}, NativeModules: {}, Platform: {isTV: true}, View: 'View'},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},

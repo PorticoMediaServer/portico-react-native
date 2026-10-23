@@ -18,7 +18,7 @@ import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
 import * as homeModel from '../src-next/screens/home/model';
 import * as readPlatform from '../src-next/screens/read/platform';
-import * as screenServices from '../src-next/screens/native-screen-services';
+import {NativeScreenServices} from '../src-next/screens/screen-services';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
@@ -59,6 +59,10 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../../kit/layout': {Row, Hero: 'Hero', FocusPreviewHero: 'Preview'}, '../../kit/layout/types': {}, '../../kit/layout/FocusAnchor': {useFocusAnchor},
     '../../kit/states': {SkeletonBlock: 'Skeleton', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => theme}, '../../kit/focus': {useFocusRegistry: () => registry},
     '../../shell/model': shellModel, '../../shell/tv-focus': focusModel, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './HomeHeroFacts': {}, './model': homeModel,
+  });
+  const screenServices = await screenModule(source('screens/native-screen-services.tsx'), {
+    react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
+    '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
   });
   const {createNativeShellBindings} = await screenModule(source('shell/assembly.tsx'), {
     react, 'react-native': {...native, Platform: {isTV: tv}, NativeModules: {}, BackHandler: {addEventListener: () => ({remove() {}})}},
