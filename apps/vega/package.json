@@ -39,7 +39,7 @@
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",
     "react": "19.2.0",
-    "react-native": "0.83.0",
+    "react-native": "0.88.0",
     "react-native-qrcode-svg": "6.3.22",
     "react-native-url-polyfill": "4.0.0"
   },
