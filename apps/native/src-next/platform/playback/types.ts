@@ -22,6 +22,8 @@ export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; p
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
 export type NativePlaybackVersionSelection = Readonly<{
   authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
+  /** The real chooser/route/entry lifetime. Output-fence checks remain runtime-owned. */
+  lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
   /** Exact source when the menu opened, including an explicitly absent source. */
   expectedFence: PlaybackFence | undefined;
 }>;

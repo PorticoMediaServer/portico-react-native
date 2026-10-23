@@ -398,34 +398,41 @@ export class NativePlaybackRuntime {
   startVersion = async (input: NativePlaybackStart, selection: NativePlaybackVersionSelection): Promise<void> => {
     this.connect();
     if (!this.active()) return;
-    const epoch = this.startEpoch, menu = ++this.versionMenuEpoch;
+    let epoch = this.startEpoch;
+    const menu = ++this.versionMenuEpoch, lifetime = selection.lifetime;
     const authority = authorityKey(selection.authority), expected = selection.expectedFence ? playbackFence(selection.expectedFence) : undefined;
     const versionId = selection.versionId;
     const sameSource = () => expected ? sameFence(this.snapshot.fence, expected) : this.snapshot.fence === undefined;
-    const current = () => this.currentAuthority() && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && sameSource();
+    // A captured output belongs to preflight. Once this command owns the queue intent,
+    // the core's generation/adoption guard must allow its own newly accepted output.
+    let dispatching = false;
+    const current = () => !lifetime.signal.aborted && lifetime.isCurrent() && this.currentAuthority() && epoch === this.startEpoch && menu === this.versionMenuEpoch && authority === authorityKey(this.bound) && (dispatching || sameSource());
     if (!current()) return;
-    if (!wireId(input.target.itemId) || !wireId(versionId) || input.target.startSeconds !== undefined && (!Number.isFinite(input.target.startSeconds) || input.target.startSeconds < 0) || selection.options.itemId !== input.target.itemId || selection.options.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
-    const cancellation = new AbortController(), scoped = this.selectionScope(cancellation.signal, current);
-    let offered: PlaybackOptions, capabilities: unknown;
+    if (!wireId(input.target.itemId) || !wireId(versionId) || selection.options.itemId !== input.target.itemId || selection.options.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
+    const scoped = this.selectionScope(lifetime.signal, current);
     try {
       await this.o.capabilitiesReady();
       if (!current()) return;
-      [offered, capabilities] = await Promise.all([
+      const [offered, capabilities] = await Promise.all([
         this.optionsClient.options(input.target.itemId, {}, scoped.signal),
         this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
       ]);
       if (!current()) return;
       if (offered.itemId !== input.target.itemId || offered.versions.filter(value => value.id === versionId).length !== 1) throw new Error(serviceText('queuePlayer.unsupported'));
+      // This final read owns resume. An earlier card/menu position has no authority here.
+      const positionMs = offered.resume?.positionMs ?? 0;
+      if (!Number.isFinite(positionMs) || positionMs < 0) throw new Error(serviceText('queuePlayer.unsupported'));
+      const fresh = {...input, target: {...input.target, startSeconds: positionMs / 1000}};
+      epoch = this.beginOperation();
+      await this.queue.cancel();
+      if (!current()) return;
+      dispatching = true;
+      await this.startOffered(fresh, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current});
     } catch (error) { if (!current() || scoped.signal.aborted) return; throw error; }
     finally { scoped.close(); }
-    if (!current()) return;
-    const adoptedEpoch = this.beginOperation();
-    await this.queue.cancel();
-    if (!this.active() || adoptedEpoch !== this.startEpoch || !sameSource()) return;
-    await this.startOffered(input, offered, capabilities, adoptedEpoch, versionId);
   };
 
-  private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string): Promise<void> {
+  private async startOffered(input: NativePlaybackStart, offered: PlaybackOptions, capabilities: unknown, epoch: number, versionId?: string, lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> {
     if (offered.itemId !== input.target.itemId || !offered.versions.length) throw new Error(serviceText('queuePlayer.unsupported'));
     this.serverKinds = serverPlaybackV1Kinds(capabilities);
     this.transitions = serverSupportsQueueTransitions(capabilities);
@@ -440,8 +447,8 @@ export class NativePlaybackRuntime {
     this.options = offered;
     this.expanded = !audioKind(offered.kind);
     try {
-      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined);
-      if (epoch === this.startEpoch && this.active() && this.queue.getSnapshot().error) { this.playback.pause(); throw new Error(serviceText('queuePlayer.startFailed')); }
+      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId} : undefined, lifetime);
+      if (epoch === this.startEpoch && this.active() && !lifetime?.signal.aborted && lifetime?.isCurrent() !== false && this.queue.getSnapshot().error) { this.playback.pause(); throw new Error(serviceText('queuePlayer.startFailed')); }
     }
     finally { if (epoch === this.startEpoch) { this.preparing = false; this.changed(); } }
   }
