@@ -49,6 +49,9 @@
 		A9E000000000000000000101 /* PorticoSubtitleOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000201 /* PorticoSubtitleOverlay.m */; };
 		A9E000000000000000000102 /* PorticoAudioProcessing.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000202 /* PorticoAudioProcessing.m */; };
 		A9E000000000000000000103 /* PorticoAudioCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A9E000000000000000000203 /* PorticoAudioCapture.m */; };
+		A9E100000000000000000001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000101 /* Localizable.xcstrings */; };
+		A9E100000000000000000002 /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000102 /* AppShortcuts.xcstrings */; };
+		A9E100000000000000000003 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9E100000000000000000103 /* InfoPlist.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -101,6 +104,9 @@
 		A9E000000000000000000201 /* PorticoSubtitleOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoSubtitleOverlay.m; sourceTree = "<group>"; };
 		A9E000000000000000000202 /* PorticoAudioProcessing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioProcessing.m; sourceTree = "<group>"; };
 		A9E000000000000000000203 /* PorticoAudioCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../Native/PorticoAudioCapture.m; sourceTree = "<group>"; };
+		A9E100000000000000000101 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/Localizable.xcstrings; sourceTree = "<group>"; };
+		A9E100000000000000000102 /* AppShortcuts.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/AppShortcuts.xcstrings; sourceTree = "<group>"; };
+		A9E100000000000000000103 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Portico/Strings/InfoPlist.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,6 +163,9 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
+				A9E100000000000000000101 /* Localizable.xcstrings */,
+				A9E100000000000000000102 /* AppShortcuts.xcstrings */,
+				A9E100000000000000000103 /* InfoPlist.xcstrings */,
 				13B07FAE1A68108700A75B9A /* Portico */,
 				A57C00000000000000000002 /* PorticoPlaybackController.m */,
 				A59B00000000000000000002 /* PorticoListeningOwner.m */,
@@ -219,6 +228,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Portico" */;
 			buildPhases = (
+				A9E100000000000000000201 /* Generate system strings */,
 				C38B50BA6285516D6DCD4F65 /* [CP] Check Pods Manifest.lock */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
@@ -259,6 +269,8 @@
 			knownRegions = (
 				en,
 				Base,
+				"en-CA",
+				"en-GB",
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
 			packageReferences = (
@@ -278,6 +290,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A9E100000000000000000001 /* Localizable.xcstrings in Resources */,
+				A9E100000000000000000002 /* AppShortcuts.xcstrings in Resources */,
+				A9E100000000000000000003 /* InfoPlist.xcstrings in Resources */,
 				A57AB0000000000000000003 /* manrope-700.ttf in Resources */,
 				A57AB0000000000000000004 /* manrope-800.ttf in Resources */,
 				A57AB0000000000000000002 /* manrope-600.ttf in Resources */,
@@ -364,6 +379,26 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Portico/Pods-Portico-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		A9E100000000000000000201 /* Generate system strings */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = (
+				"$(SRCROOT)/../../../packages/i18n/src/catalog",
+				"$(SRCROOT)/../../../packages/i18n/src/messageformat.ts",
+				"$(SRCROOT)/../../../packages/i18n/scripts/native-strings.mjs",
+			);
+			name = "Generate system strings";
+			outputPaths = (
+				"$(SRCROOT)/Portico/Strings/Localizable.xcstrings",
+				"$(SRCROOT)/Portico/Strings/AppShortcuts.xcstrings",
+				"$(SRCROOT)/Portico/Strings/InfoPlist.xcstrings",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nif [ -f \"$SRCROOT/.xcode.env\" ]; then . \"$SRCROOT/.xcode.env\"; fi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then . \"$SRCROOT/.xcode.env.local\"; fi\n: \"${NODE_BINARY:?node_binary_missing}\"\n\"$NODE_BINARY\" --experimental-strip-types \"$SRCROOT/../../../packages/i18n/scripts/native-strings.mjs\" --platform apple\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -430,6 +465,7 @@
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
@@ -460,6 +496,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = tv.getportico.portico.ios;
 				PRODUCT_NAME = Portico;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../Native/Portico-Bridging-Header.h";
+				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
