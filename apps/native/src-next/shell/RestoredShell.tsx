@@ -39,7 +39,9 @@ export function RestoredShell() {
     const started = Date.now(); setElapsed(0); setState({phase: 'loading'}); setShowAccounts(false);
     void nativeAccounts.snapshot().then(value => {if (alive) setRetained(value.servers.length > 0);}, () => {});
     const clock = setInterval(() => setElapsed(Date.now() - started), 120);
-    void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, onAuthorityEnded: error => {
+    void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, onSessionRenewed: () => {
+      if (alive && !abort.signal.aborted) {owned = undefined; setAttempt(value => value + 1);}
+    }, onAuthorityEnded: error => {
       if (alive && !abort.signal.aborted) {owned = undefined; setState({phase: 'ended', error});}
     }}).then(runtime => {
       clearInterval(clock);

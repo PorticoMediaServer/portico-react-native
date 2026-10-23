@@ -66,7 +66,7 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
-export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void}): Promise<RestoredNativeShellRuntime | undefined> {
+export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; onAuthorityEnded: (error?: NativeIdentityFailure) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
   const installation = beginNativeInstallation(options.signal);
   let alive = true, ready = false, api: HttpLocalApi | undefined, home: HomeService | undefined;
   let refresher: LocalSessionRefresher | undefined, bindings: NativeShellBindings | undefined;
@@ -188,15 +188,27 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
       if (!current() || !sameViewer(session!, renewed)) {end(); return;}
       if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
-        // Local renewal slides its inactivity horizon. This is the same admitted
-        // family/principal, so its immutable runtime epoch and Surface stay put.
-        // Portico's fixed admission horizon, backwards movement and a different
-        // installation/device still retire the captured authority.
+        // Local renewal slides its inactivity horizon. Re-enter the normal
+        // bootstrap from the committed selection instead of treating a new
+        // authorization epoch as either signed out or already admitted.
         const localAdvance = selected.signIn === 'local'
           && renewed.installationId === session!.installationId && renewed.deviceId === session!.deviceId
           && BigInt(renewed.tokenGeneration) > BigInt(session!.tokenGeneration)
           && Date.parse(renewed.authorizationHorizon) > Date.parse(session!.authorizationHorizon);
         if (!localAdvance) {end(); return;}
+        session = renewed;
+        void readNativeSelectedViewer().then(selectedViewer => {
+          if (!alive || session !== renewed) return;
+          if (!current() || !selectedViewer || selectedViewer.serverUrl !== original.serverUrl
+            || !sameViewer(selectedViewer.session, renewed)
+            || selectedViewer.session.installationId !== renewed.installationId
+            || selectedViewer.session.deviceId !== renewed.deviceId
+            || selectedViewer.session.tokenGeneration !== renewed.tokenGeneration
+            || selectedViewer.session.authorizationHorizon !== renewed.authorizationHorizon) {end(); return;}
+          dispose();
+          if (options.onSessionRenewed) options.onSessionRenewed(); else options.onAuthorityEnded();
+        }, () => end());
+        return;
       }
       // The refresher atomically owns the protected rotating credential. A second blind write
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
