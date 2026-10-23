@@ -75,3 +75,14 @@ test('the installed navigation policy rejects a direct render before its factory
   assert.equal(bound.render({kind: 'shell', destination: {kind: 'library', libraryId: 'restricted'}}, runtime), null);
   assert.equal(created, 0); bound.dispose();
 });
+
+test('legacy teardown belongs to its registration and never to another viewer binding', () => {
+  const registry = new NativeShellRouteRegistry(); let disposed = 0;
+  const unregister = registry.register('home-customize', {render: () => 'legacy', dispose: () => {disposed++;}});
+  const context = fixtureContext();
+  const first = registry.bind(context), second = registry.bind(context);
+  first.render({kind: 'home-customize'}, runtime); first.dispose(); assert.equal(disposed, 0);
+  assert.equal(second.render({kind: 'home-customize'}, runtime), 'legacy');
+  unregister(); unregister(); assert.equal(disposed, 1);
+  second.dispose(); assert.equal(disposed, 1);
+});

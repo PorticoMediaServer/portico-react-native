@@ -34,7 +34,11 @@ export class NativeShellRouteRegistry {
   register(kind: RouteKind, renderer: NativeRouteRenderer): () => void {
     if (this.renderers.has(kind) || this.routes.has(kind)) throw new Error('native_route_already_registered');
     this.renderers.set(kind, renderer); this.changed();
-    return () => {if (this.renderers.get(kind) === renderer) {this.renderers.delete(kind); this.changed();}};
+    // Legacy objects belong to their registration, not to any one bound viewer.
+    return () => {if (this.renderers.get(kind) === renderer) {
+      this.renderers.delete(kind);
+      try {renderer.dispose?.();} finally {this.changed();}
+    }};
   }
   get(kind: RouteKind): NativeRouteRenderer | undefined {return this.renderers.get(kind);}
   registerRoute(kind: RouteKind, create: NativeRouteFactory): () => void {
@@ -74,6 +78,8 @@ export class NativeShellRouteRegistry {
     const current = () => alive && context.current();
     return Object.freeze({
       render: (route, runtime) => current() && context.navigation.allows(route) ? renderer(route)?.render(route, runtime) : null,
+      // Persistent media has its own current-fence guard; page admission does
+      // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch).render(runtime) : null,
       back: () => current() && this.watch ? instance(this.watch).back?.() ?? false : false,
       scrollToTop: route => {if (current() && context.navigation.allows(route)) renderer(route)?.scrollToTop?.(route);},
