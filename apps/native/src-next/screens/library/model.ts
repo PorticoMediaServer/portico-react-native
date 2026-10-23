@@ -3,6 +3,7 @@ import {BrowseQueryBuilder, browseCapabilitiesPath, browsePath, parseBrowseCapab
 import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
+import {NativeLibraryFilterDraft} from './filters';
 
 export const nativeLibraryEntryKey = (entry: ContentEntry): string => JSON.stringify([entry.kind, entry.libraryId, entry.id]);
 const cancelled = () => Object.assign(new Error('native_library_retired'), {name: 'AbortError'});
@@ -12,12 +13,14 @@ export type NativeLibraryMemory = Readonly<{
   firstVisibleIndex: number;
   offset: number;
 }>;
+export type NativeLibraryViewDraft = Readonly<{predicates: readonly BrowseNode[]; sort: BrowseSortSelection}>;
 export type NativeLibrarySnapshot = Readonly<{
   library: Library;
   tab: LibraryTab;
   phase: 'idle' | 'loading' | 'ready' | 'error';
   capabilities?: BrowseCapabilities;
   predicates: readonly BrowseNode[];
+  queryRevision: number;
   sort?: BrowseSortSelection;
   collection?: WindowedCollection<ContentEntry>;
   discover: LibraryContentSnapshot;
@@ -39,12 +42,13 @@ export class NativeLibraryDestination {
   private memory: NativeLibraryMemory = {firstVisibleIndex: 0, offset: 0};
   private pending?: Promise<void>;
   private pendingTab?: LibraryTabId;
+  private readonly filters = new Set<NativeLibraryFilterDraft>();
 
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
     this.discover = new LibraryContentService({api: {request: this.request}, scope: options.scope});
     const tab = libraryTabs(options.library.kind).find(value => value.id === 'browse') ?? libraryTabs(options.library.kind)[0]!;
-    this.state = Object.freeze({library: options.library, tab, phase: 'idle', predicates: [], discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}});
+    this.state = Object.freeze({library: options.library, tab, phase: 'idle', predicates: [], queryRevision: 0, discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}});
     this.unsubscribe = this.discover.subscribe(() => this.publish({discover: this.discover.getSnapshot()}));
   }
   private current(): boolean {if (!this.disposed && !this.options.current()) this.dispose(); return !this.disposed;}
@@ -75,7 +79,7 @@ export class NativeLibraryDestination {
     const tab = libraryTabs(this.options.library.kind).find(value => value.id === tabId);
     if (!tab) throw new Error('native_library_tab_not_offered');
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
-    this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
+    this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
     this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
@@ -130,8 +134,9 @@ export class NativeLibraryDestination {
     if (!this.current() || !this.state.capabilities || !this.state.collection || !sort) return;
     const {capabilities, tab, collection} = this.state;
     this.build(capabilities, tab, predicates, sort, 0, 1);
+    this.retireFilters();
     collection.invalidate(this.pages(capabilities, tab, predicates, sort));
-    this.publish({predicates: Object.freeze([...predicates]), sort, memory: {firstVisibleIndex: 0, offset: 0}});
+    this.publish({predicates: Object.freeze([...predicates]), queryRevision: this.state.queryRevision + 1, sort, memory: {firstVisibleIndex: 0, offset: 0}});
   };
   setQuick = (id: string, enabled: boolean): void => {
     const preset = this.state.capabilities?.quickFilters.find(value => value.id === id);
@@ -139,6 +144,16 @@ export class NativeLibraryDestination {
     const same = (node: BrowseNode) => JSON.stringify(node) === JSON.stringify(preset.query);
     this.setQuery([...this.state.predicates.filter(node => !same(node)), ...(enabled ? [preset.query] : [])]);
   };
+  createFilters = (): NativeLibraryFilterDraft => {
+    const source = this.getSnapshot();
+    if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
+    const draft = new NativeLibraryFilterDraft({api: {request: this.request}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
+      predicates: source.predicates, fixed: (source.tab.fixedFilter ?? []) as readonly BrowseNode[],
+      current: () => this.current() && this.state.capabilities === source.capabilities && this.state.predicates === source.predicates && this.state.sort === source.sort,
+      apply: predicates => this.setQuery(predicates), onDispose: () => this.filters.delete(draft)});
+    this.filters.add(draft); return draft;
+  };
+  private retireFilters() {for (const draft of [...this.filters]) draft.dispose();}
   remember = (firstVisibleIndex: number, offset: number): void => {
     if (!this.current() || !Number.isSafeInteger(firstVisibleIndex) || firstVisibleIndex < 0 || !Number.isFinite(offset) || offset < 0) return;
     const first = this.state.collection?.itemAt(firstVisibleIndex);
@@ -150,7 +165,7 @@ export class NativeLibraryDestination {
   retry = (): void => {if (this.state.phase === 'error') void this.load(); else this.state.collection?.retry();};
   dispose = (): void => {
     if (this.disposed) return;
-    this.disposed = true; this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
+    this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose();
     this.memory = {firstVisibleIndex: 0, offset: 0};
     this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined,
