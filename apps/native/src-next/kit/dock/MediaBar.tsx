@@ -13,7 +13,7 @@ import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView} from '../../platform/native-blur';
 import {selectionHaptic} from '../../platform/haptics';
-import {commandAllowed, dockCommand, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
+import {commandAllowed, dockCommand, dockSourceIdentity, playbackPosition, progressOf, releaseAside, remoteSubtitle, seekTo, validRect} from './model';
 import {alpha, DockFacts, dockStyles as s, dockType} from './visual';
 import type {DockAction, DockRect, DockRenderProps, DockSlotAdmission, PlayerMorphController} from './types';
 
@@ -36,6 +36,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const menu = menuOpen ?? internalMenu;
   const width = useSharedValue(374), localX = useSharedValue(0), xOrigin = useSharedValue(0), held = useSharedValue(1), localFade = useSharedValue(1), words = useSharedValue(1);
   const {presentation: p, remote, playback} = occupant;
+  const sourceIdentity = dockSourceIdentity(playback.fence);
   const menuSource = useRef(playback.fence), menuRemote = useRef(remote?.id);
   const video = occupant.mode === 'video', wide = video || !!remote;
   const sharedPicture = video && morph?.dockMotionHosted === true, x = sharedPicture ? morph.dockX : localX, fade = sharedPicture ? morph.dockFade : localFade;
@@ -53,7 +54,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
     if (!sameFence(menuSource.current, playback.fence) || menuRemote.current !== remote?.id) {changeMenu(false); x.value = 0; fade.value = 1;}
     menuSource.current = playback.fence; menuRemote.current = remote?.id;
   }, [playback.fence, remote?.id, changeMenu, x, fade]);
-  useEffect(() => {words.value = 0; words.value = withTiming(1, motion.timing('standard'));}, [p.identity.title, playback.fence.sourceId, motion, words]);
+  useEffect(() => {words.value = 0; words.value = withTiming(1, motion.timing('standard'));}, [p.identity.title, sourceIdentity, motion, words]);
   const dismiss = useCallback(() => act(terminal ? 'dismiss-remote' : remote ? 'stop' : 'close'), [act, terminal, remote]);
   const spring = useMemo(() => motion.spring('settle'), [motion]);
   const latest = useRef({occupant, onAction, visible, isCurrent});

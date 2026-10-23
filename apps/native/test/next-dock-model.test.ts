@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {PlaybackDock, type DockPlayback, type PlaybackFence, type QueuePlaybackFence, type QueueScope, type RemoteDock} from '../../../packages/player-core/src/index.ts';
 import {playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
-import {commandAllowed, commandIsCurrent, currentOccupant, dockCommand, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
+import {commandAllowed, commandIsCurrent, currentOccupant, dockCommand, dockSourceIdentity, progressOf, releaseAside, releaseDock, remoteSubtitle, seekTo} from '../src-next/kit/dock/model.ts';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
 import type {DockPresentation} from '../src-next/kit/dock/types.ts';
 
@@ -18,6 +18,15 @@ function setup(model = presentation(), playback: DockPlayback = video) {
   const get = () => currentOccupant(dock, dock.getSnapshot(), {local: model, remote: model})!;
   return {dock, get};
 }
+
+test('dock text identity follows local plays and actual queue/channel sources', () => {
+  assert.equal(dockSourceIdentity(fence), 'source');
+  assert.equal(dockSourceIdentity({...fence, itemId: 'next-item', entryId: 'next-entry', generation: 2}), 'source');
+  assert.equal(dockSourceIdentity({kind: 'channel', sourceId: 'live-source'}), 'live-source');
+  assert.equal(dockSourceIdentity({kind: 'channel'}), undefined, 'a library channel without a separate source stays source-less');
+  assert.equal(dockSourceIdentity({kind: 'local', playId: 'local-play'}), 'local-play');
+  assert.notEqual(dockSourceIdentity({kind: 'local', playId: 'next-local-play'}), dockSourceIdentity({kind: 'local', playId: 'local-play'}));
+});
 
 test('presentation is bound to exact source and snapshot; a former render cannot paint a replacement', () => {
   const {dock} = setup(), old = dock.getSnapshot();
