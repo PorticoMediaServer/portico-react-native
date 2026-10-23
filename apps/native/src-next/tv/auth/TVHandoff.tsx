@@ -1,7 +1,7 @@
 import React, {useEffect} from 'react';
 import {BackHandler, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import {catalogue, defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
+import {catalogue, defaultI18n, enUS, type MessageId} from '../../../../../packages/i18n/src';
 import {Button} from '../../kit/controls';
 import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {stateSentenceParts} from '../../kit/states/sentence-parts';
@@ -28,7 +28,7 @@ function useHandoffBack(onBack: () => void, busy = false) {
 /** The actual QR/link part from tv-more24, without invented device rows or a sign-in code. */
 export function TVManagementHandoff({url, onBack}: {url: string; onBack: () => void}) {
   const theme = useTheme(), address = publicTVHandoffAddress(url);
-  const sentence = stateSentenceParts(catalogue(defaultI18n.locale)['settings.openOnWeb'], {url: address.display}, ['url']);
+  const sentence = stateSentenceParts(catalogue(defaultI18n.locale)['settings.openOnWeb'] ?? enUS['settings.openOnWeb'], {url: address.display}, ['url']);
   useHandoffBack(onBack);
   return <View testID="tv-management-handoff" onAccessibilityEscape={onBack} style={{flexDirection: 'row', alignItems: 'center', gap: 36,
     paddingVertical: 26, paddingHorizontal: 30, borderRadius: 18, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: `${theme.colors.line}B3`, marginBottom: 30}}>

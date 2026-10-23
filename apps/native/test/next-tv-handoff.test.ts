@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {catalogue, defaultI18n} from '../../../packages/i18n/src';
+import {catalogue, defaultI18n, enUS} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {stateSentenceParts} from '../src-next/kit/states/sentence-parts';
 import {act, createHookHost} from './hook-driver';
@@ -17,7 +17,7 @@ const scope = (component: (props: any) => any, props: any) => {
 };
 const handoffModule = (react: unknown, back: unknown, entry = (..._args: unknown[]) => {}) => screenModule(new URL('../src-next/tv/auth/TVHandoff.tsx', import.meta.url), {
   react, 'react-native': {View: 'View', Text: 'Text', BackHandler: back}, 'react-native-qrcode-svg': {default: 'QR'},
-  '../../../../../packages/i18n/src': {catalogue, defaultI18n}, '../../kit/controls': {Button: 'Button'},
+  '../../../../../packages/i18n/src': {catalogue, defaultI18n, enUS}, '../../kit/controls': {Button: 'Button'},
   '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/states/sentence-parts': {stateSentenceParts}, '../../platform/native-blur': {BlurView: 'Blur', glassRecipe: () => ({nativeBlur: true})},
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: entry}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
