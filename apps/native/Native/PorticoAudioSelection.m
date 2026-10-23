@@ -33,7 +33,7 @@
  if(!pending)return;
  NSInteger revision=[pending[@"revision"]integerValue];if(revision==_handledRevision)return;
  _handledRevision=revision;NSString *target=pending[@"renditionId"];AVMediaSelectionOption *option=_options[target];
- if(!option){[self emit:@"audioFailed" extra:@{@"audioRevision":@(revision),@"error":@"This audio track is unavailable in the current player."}];return;}
+ if(!option){[self emit:@"audioFailed" extra:@{@"audioRevision":@(revision),@"error":@"audio_track_unavailable"}];return;}
 #if DEBUG
  if(!_testDropped&&[NSProcessInfo.processInfo.environment[@"PORTICO_TEST_AUDIO_TIMEOUT"]isEqualToString:@"1"]){_testDropped=YES;_testDroppedRevision=revision;}
 #endif

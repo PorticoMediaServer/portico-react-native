@@ -75,10 +75,10 @@ struct PorticoTitleQuery: EntityStringQuery {
 /// "Play The Bear in Portico".
 @available(iOS 16.0, *)
 struct PlayTitleIntent: AppIntent {
-  static var title: LocalizedStringResource = "Play a Title"
-  static var description = IntentDescription("Plays a title from your Continue Watching or Saved in Portico.")
+  static var title: LocalizedStringResource = "Play a title"
+  static var description = IntentDescription("Plays something from Continue Watching or My List.")
   static var openAppWhenRun = true
-  @Parameter(title: "Title") var title: PorticoTitleEntity
+  @Parameter(title: "Title", requestValueDialog: IntentDialog("Which title?")) var title: PorticoTitleEntity
 
   @MainActor func perform() async throws -> some IntentResult {
     if let url = URL(string: "portico://play/" + title.id) { PorticoLink.open(url) }
@@ -89,8 +89,8 @@ struct PlayTitleIntent: AppIntent {
 /// "Resume Portico": plays the first title in Continue Watching.
 @available(iOS 16.0, *)
 struct ResumeWatchingIntent: AppIntent {
-  static var title: LocalizedStringResource = "Resume Watching"
-  static var description = IntentDescription("Picks up where you left off in Portico.")
+  static var title: LocalizedStringResource = "Resume watching"
+  static var description = IntentDescription("Picks up where you left off.")
   static var openAppWhenRun = true
 
   @MainActor func perform() async throws -> some IntentResult {

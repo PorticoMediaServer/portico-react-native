@@ -1,5 +1,4 @@
-// Objective-C declarations the Swift player engine uses.
-#import "PorticoEngineClock.h"
+// Objective-C declarations used by the native Swift modules.
 #import "PorticoSubtitleSelection.h"
 #import "PorticoPlaybackController.h"
 #import "PorticoServerTrust.h"
