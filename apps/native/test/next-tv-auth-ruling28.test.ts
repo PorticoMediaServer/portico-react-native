@@ -17,6 +17,9 @@ const inScope = (component: (props: any) => any, props: any) => {
 const common = {'../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}};
+const numericModule = (react: unknown) => screenModule(new URL('../src-next/tv/auth/TVNumericPad.tsx', import.meta.url), {
+  ...common, react, 'react-native': {Text: 'Text', View: 'View'}, '../../kit/focus': {FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+});
 
 for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use secure platform fields/autofill and only the owner's Submit/Back callbacks`, async () => {
   const focused: unknown[] = [], events: string[] = [];
@@ -92,12 +95,14 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
   const props = {kind: 'local', code: '', recovery: false, recoveryCode: '', busy: false,
     onCodeChange: (value: string) => {props.code = value;}, onRecoveryCodeChange() {}, onRecoveryChange() {},
     onSubmit: (value: string) => submitted.push(value), onBack() {}};
+  const numeric = await numericModule({...React, default: React});
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
     ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+    './TVNumericPad': numeric,
   });
   const host = createHookHost(() => {tree = inScope(TVVerificationForm, props);});
-  const press = (digit: string) => nodes(tree.props.aside).find(node => node.props.testID === `tv.auth.local.factor-pad-${digit}`).props.onPress();
+  const press = (digit: string) => nodes(numeric.TVNumericPad(tree.props.aside.props)).find(node => node.props.testID === `tv.auth.local.factor-pad-${digit}`).props.onPress();
   try {
     await act(() => host.mount());
     for (const digit of '123456') await act(() => {press(digit); host.rerender();});
@@ -121,6 +126,7 @@ test('recovery uses the authored uppercase/digit/dash keyboard and submits the e
   const h = hooks(), values: string[] = [], submits: string[] = [];
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
     ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler() {}}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+    './TVNumericPad': {TVNumericPad: 'Pad', TVCodeBoxes: 'Boxes'},
   });
   const props = {kind: 'portico', code: '', recovery: true, recoveryCode: 'R7-', busy: false, onCodeChange() {}, onRecoveryChange() {},
     onRecoveryCodeChange: (value: string) => values.push(value), onSubmit: (value: string) => submits.push(value), onBack() {}};
@@ -130,4 +136,40 @@ test('recovery uses the authored uppercase/digit/dash keyboard and submits the e
   assert.deepEqual(values, ['R7-A', 'R7-0', 'R7--']);
   nodes(tree).find(node => node.type === 'Button' && node.props.focusId === 'submit').props.onPress();
   assert.deepEqual(submits, ['R7-']);
+});
+
+test('profile PIN shares the actual pad, submits four digits once and exposes only masked boxes', async () => {
+  let tree: any, remote: (event: any) => void = () => {};
+  const submitted: string[] = [], actions: string[] = [], react = {...React, default: React};
+  const numeric = await numericModule(react);
+  const {TVProfilePINForm} = await screenModule(new URL('../src-next/tv/auth/TVProfilePINForm.tsx', import.meta.url), {
+    ...common, react, 'react-native': {useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    '../../kit/focus': {FocusProvider: 'Provider'}, './TVAuthLayout': {TVProfilePINLayout: 'PINLayout'}, './TVNumericPad': numeric,
+  });
+  const profile = {id: 'actual-profile', name: 'Actual name', initial: 'A', color: 'blue'};
+  const props = {profile, code: '', busy: false, onCodeChange: (value: string) => {props.code = value;},
+    onSubmit: (value: string) => submitted.push(value), onBack: () => actions.push('back'), onForgotPIN: () => actions.push('forgot')};
+  const host = createHookHost(() => {tree = inScope(TVProfilePINForm, props);});
+  const pad = () => numeric.TVNumericPad(tree.props.pad.props);
+  const press = (value: string) => nodes(pad()).find(node => node.type === 'Focusable' && node.props.focusId === value).props.onPress();
+  try {
+    await act(() => host.mount());
+    assert.equal(tree.props.profile, profile);
+    for (const digit of '1234') await act(() => {press(digit); host.rerender();});
+    await act(() => {press('5'); host.rerender();});
+    assert.deepEqual(submitted, ['1234']);
+    const boxes = nodes(tree).find(node => node.type === numeric.TVCodeBoxes);
+    assert.equal(boxes.props.length, 4); assert.equal(boxes.props.masked, true);
+    assert.equal(nodes(numeric.TVCodeBoxes(boxes.props)).filter(node => node.type === 'Text').length, 0, 'entered PIN characters are never drawn as text');
+    await act(() => {remote({eventType: 'playPause', eventKeyAction: 0}); host.rerender();});
+    assert.equal(props.code, '123');
+    await act(() => {props.code = ''; host.rerender();});
+    for (const digit of '1234') await act(() => {press(digit); host.rerender();});
+    assert.deepEqual(submitted, ['1234', '1234'], 'a rejected/reset controlled PIN can be retried');
+    nodes(pad()).find(node => node.type === 'Button').props.onPress(); tree.props.onBack();
+    assert.deepEqual(actions, ['forgot', 'back']);
+    await act(() => {props.busy = true; host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
+    assert.equal(props.code, '1234');
+    assert.ok(!nodes(tree).some(node => node.type === 'TextInput'));
+  } finally {host.unmount();}
 });

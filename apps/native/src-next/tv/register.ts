@@ -2,4 +2,4 @@
  * Screen-owned registration modules are imported at this platform entry. */
 import '../screens/home/CustomizeRoute';
 export {RestoredShell as TVRoot} from '../shell/RestoredShell';
-export {TVCredentialForm, TVCodePresenter, TVVerificationForm} from './auth';
+export {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVProfilePINForm} from './auth';

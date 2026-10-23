@@ -26,3 +26,9 @@ export function nativeGuideCellWindow(left: number, width: number, laneWidth: nu
   const visibleLeft = left + shift, cutLeft = Math.max(0, -visibleLeft);
   return {cutLeft, width: Math.max(0, Math.min(width - cutLeft, laneWidth - Math.max(0, visibleLeft)))};
 }
+
+/** Drawn gutters are outside elapsed time: the fill must end at the now line,
+ * including a clipped start or an elapsed portion entirely left of the viewport. */
+export function nativeGuideElapsedWidth(left: number, width: number, nowX: number): number {
+  return Math.max(0, Math.min(width, nowX - left));
+}
