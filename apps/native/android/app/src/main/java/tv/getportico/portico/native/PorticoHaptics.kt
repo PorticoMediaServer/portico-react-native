@@ -13,8 +13,6 @@ import tv.getportico.portico.TelevisionDisplay
 class PorticoHaptics(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   override fun getName() = "PorticoHaptics"
 
-  @ReactMethod fun contextMenu(promise: Promise) = selection(promise)
-
   @ReactMethod fun selection(promise: Promise) {
     Handler(Looper.getMainLooper()).post {
       val view = reactApplicationContext.currentActivity?.window?.decorView
