@@ -1,12 +1,12 @@
-import React, {useCallback, useRef} from 'react';
+import React, {useCallback, useRef, useSyncExternalStore} from 'react';
 import {motionRules} from '@portico/design';
-import {Image, ScrollView, Text, View} from 'react-native';
+import {findNodeHandle, Image, ScrollView, Text, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop, Path} from 'react-native-svg';
 import Animated, {useAnimatedStyle, useSharedValue, withDelay, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {Library} from '../../../../packages/client-core/src';
 import {Focusable} from '../kit/controls';
-import {FocusRegion, focusTestID, type FocusAddress} from '../kit/focus';
+import {FocusRegion, focusTestID, useFocusRegistry, type FocusAddress} from '../kit/focus';
 import {sameDestination, tvFocusIds} from './tv-focus';
 import {ProfileFace, type ProfileOption} from '../kit/artwork';
 import {Icon, type IconName} from '../kit/Icon';
@@ -21,6 +21,13 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   profileRef: React.RefObject<View | null>; onExpandedChange: (expanded: boolean) => void;
 }) {
   const theme = useTheme(), motion = useMotion(), spec = theme.spec.navigation.tv;
+  const registry = useFocusRegistry();
+  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
+  const returnHost = returnTo && registry.config(returnTo.regionId)?.enabled !== false ? registry.child(returnTo) : undefined;
+  const returnHandle = returnHost ? findNodeHandle(returnHost as View) : null;
+  // The native engine handles Right directly, including the remembered child.
+  // Without its live host, keep the region guide's normal memory/fallback path.
+  const returnProps = returnHandle == null ? {} : {nextFocusRight: returnHandle};
   const expanded = useSharedValue(0), labelOpacity = useSharedValue(0), [open, setOpen] = React.useState(false);
   const ids = tvFocusIds(authority);
   const change = (value: boolean) => {
@@ -44,7 +51,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   ];
   const item = (entry: RailEntry) => {
     const selected = sameDestination(entry.destination, destination);
-    return <Focusable key={entry.key} focusId={entry.key} testID={focusTestID(ids.rail, entry.key)} accessibilityRole="button" accessibilityLabel={entry.label} accessibilityState={{selected}} onPress={() => onNavigate(entry.destination)} focusRadius={spec.itemRadius} focusKind="button"
+    return <Focusable key={entry.key} {...returnProps} focusId={entry.key} testID={focusTestID(ids.rail, entry.key)} accessibilityRole="button" accessibilityLabel={entry.label} accessibilityState={{selected}} onPress={() => onNavigate(entry.destination)} focusRadius={spec.itemRadius} focusKind="button"
       style={({focused}) => ({height: spec.itemSize, width: spec.openItemWidth, paddingHorizontal: 17, flexDirection: 'row', alignItems: 'center', gap: spec.labelGap, borderRadius: spec.itemRadius, backgroundColor: focused ? `${theme.colors.text}0F` : undefined})}>
       {({focused}) => <>{selected && <View pointerEvents="none" style={{position: 'absolute', left: -16, top: 18, bottom: 18, width: 4, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
         <Icon name={entry.icon} size={30} color={selected || focused ? theme.colors.text : theme.colors.textTertiary}/>
@@ -66,7 +73,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
         <ScrollView style={{flex: 1, marginLeft: -24}} contentContainerStyle={{gap: spec.itemGap, paddingLeft: 24}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
         <View style={{gap: spec.itemGap, paddingTop: 8}}>
           {item({key: 'settings', label: defaultI18n.t('settings.title'), icon: 'i-settings', destination: {kind: 'settings'}})}
-          <Focusable ref={profileRef} focusId={ids.profile} testID={focusTestID(ids.rail, ids.profile)} accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={14}
+          <Focusable ref={profileRef} {...returnProps} focusId={ids.profile} testID={focusTestID(ids.rail, ids.profile)} accessibilityRole="button" accessibilityLabel={defaultI18n.t('next.home.native.profileAndServer')} onPress={onProfile} focusRadius={14}
             style={{height: 76, width: spec.openItemWidth, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 22}}>
             <ProfileFace {...profile} size={40} scaleOnFocus={false}/><Animated.View style={[{flex: 1}, labels]}><Text numberOfLines={1} style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{profile.name}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{defaultI18n.t('next.home.native.profileAndServer')}</Text></Animated.View>
           </Focusable>
