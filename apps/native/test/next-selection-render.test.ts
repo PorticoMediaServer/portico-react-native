@@ -726,6 +726,39 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
   } finally {sheet.host.unmount(); surface.host.unmount(); dialog.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
 });
 
+test('phone picker fits its continuous body to the authored action inset above the actual keyboard', () => {
+  const previousTheme = state.theme, previousViewport = state.viewport;
+  state.theme = createTheme({isTV: false, width: 390, reduceMotion: true});
+  state.viewport = {width: 390, height: 844, scale: 1, fontScale: 1};
+  const wrapper = mount(PlaylistPicker, {testID: 'phone.picker.flow', open: true, onOpenChange() {}, count: 4, entries: [], creating: true, onCreatingChange() {}, name: 'Actual name', onNameChange() {}, onCreateAndAdd() {}, onAdd() {}, query: '', onQueryChange() {}, onViewDestination() {}, onResultDismiss() {}});
+  const picker = mount((wrapper.tree as Element).type, (wrapper.tree as Element).props);
+  const surface = mount(SelectionSurface, (picker.tree as Element).props);
+  const sheet = mount(BottomSheet, (surface.tree as Element).props);
+  const panel = () => elements(sheet.tree).find(node => node.props.testID === 'phone.picker.flow')!;
+  const header = () => ofType(sheet.tree, 'GestureDetector')[0]!.props.children;
+  const body = () => elements(panel()).find(node => node.type === 'View' && node.props.onLayout)!;
+  const footer = () => elements(sheet.tree).find(node => node.props.onLayout && flattenStyle(node.props.style).position === 'absolute' && flattenStyle(node.props.style).borderTopColor)!;
+  const measure = (footerHeight: number, bottom: number) => {
+    header().props.onLayout({nativeEvent: {layout: {height: 53}}});
+    body().props.onLayout({nativeEvent: {layout: {height: 71}}});
+    footer().props.onLayout({nativeEvent: {layout: {height: footerHeight}}}); sheet.host.rerender();
+    const frame = flattenStyle(panel().props.style);
+    const bodyBottom = bottom - frame.height + frame.borderTopWidth + frame.paddingTop + 53 + 71;
+    assert.equal(bodyBottom, bottom - footerHeight, 'content ends at the footer; its twelve-point action inset supplies the drawn gap');
+    assert.equal(flattenStyle(footer().props.style).paddingTop, 12);
+    assert.equal(flattenStyle(footer().props.style).borderTopWidth, 0);
+  };
+  try {
+    const input = ofType(picker.tree, TextField)[0]!;
+    assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingBottom, 0);
+    assert.equal((surface.tree as Element).props.contentFooterGap, 0);
+    measure(94, 844);
+    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); sheet.host.rerender();
+    measure(72, 544);
+    assert.equal(flattenStyle(footer().props.style).paddingBottom, 12);
+  } finally {sheet.host.unmount(); surface.host.unmount(); picker.host.unmount(); wrapper.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}
+});
+
 test('phone Delete applies its authored context gap and text flow without changing other Selection footer recipes', () => {
   const previous = state.theme;
   const ownerHeader = React.createElement('View', {testID: 'actual.owner.context'});
