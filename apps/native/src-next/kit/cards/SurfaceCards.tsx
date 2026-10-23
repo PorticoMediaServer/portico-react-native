@@ -14,7 +14,6 @@ export type LiveCardProps = CardProps & {
   sourceName?: string;
   mark: ChannelMarkModel;
   logo?: ArtworkSource;
-  tint?: string;
   flags?: readonly FactPart[];
   range?: string;
   progress?: number;
@@ -23,10 +22,10 @@ export function LiveCard(props: LiveCardProps) {
   const t = useTheme(), width = props.width ?? (t.isTV ? 400 : 244), height = t.isTV ? 225 : 140, pad = t.isTV ? 22 : 14;
   return <CardFrame {...props} width={width} overlay={s => <CardOverlays props={props} hovered={s.hovered} holding={s.holding} height={height} />}>
     {s => <ArtFrame height={height} radius={12} focused={s.focused} hovered={s.hovered} holding={s.holding} hoverScale={t.spec.card.hover.liveScale} selected={props.selection?.selected}>
-      <AmbientArt palette={{first: props.tint ?? t.colors.ambient, second: t.colors.raised}} treatment="cover" visible={props.visible} priority={props.priority} />
+      <AmbientArt palette={{first: t.colors.ambient, second: t.colors.raised}} treatment="cover" visible={props.visible} priority={props.priority} />
       <View style={{flex: 1, padding: pad}}>
         <View style={{flexDirection: 'row', gap: 10, alignItems: 'center'}}>
-          <ChannelMark mark={props.mark} source={props.logo} tint={props.tint} size={t.isTV ? 48 : 34} visible={props.visible} />
+          <ChannelMark mark={props.mark} source={props.logo} size={t.isTV ? 48 : 34} visible={props.visible} />
           <View style={{flex: 1, minWidth: 0}}>
             <Text numberOfLines={1} style={[t.type.liveChannel, {color: t.colors.textSecondary}]}>{props.channel}</Text>
             {(props.number || props.sourceName) && <View style={{flexDirection: 'row', gap: 8}}>{props.number && <Text style={[t.type.cardSubtitle, {color: t.colors.textTertiary}]}>{props.number}</Text>}{props.sourceName && <Text numberOfLines={1} style={[t.type.cardSubtitle, {color: t.colors.textTertiary, flexShrink: 1}]}>{props.sourceName}</Text>}</View>}
