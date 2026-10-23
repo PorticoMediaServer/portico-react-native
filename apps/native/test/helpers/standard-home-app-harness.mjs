@@ -216,7 +216,7 @@ const loader = registerHooks({
       return next(specifier, context);
     } catch (error) {
       if (
-        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+        !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
           error.code,
         ) ||
         !specifier.startsWith('.')
@@ -227,7 +227,7 @@ const loader = registerHooks({
           return next(specifier + suffix, context);
         } catch (retry) {
           if (
-            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT'].includes(
+            !['ERR_MODULE_NOT_FOUND', 'ERR_UNSUPPORTED_DIR_IMPORT', 'MODULE_NOT_FOUND'].includes(
               retry.code,
             )
           )
