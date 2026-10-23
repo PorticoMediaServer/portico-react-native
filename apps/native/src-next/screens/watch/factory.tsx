@@ -140,7 +140,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
           void menu(entry, () => {
             const state = owner.getSnapshot();
             return !state.retired && (titleKey(state.entry) === titleKey(entry)
-              || state.workspace?.data?.episodes.sections.some(section => section.entries.some(item => titleKey(item) === titleKey(entry))) === true
+              || state.episodes.some(item => titleKey(item) === titleKey(entry))
               || state.detail?.data?.related?.rows.some(row => row.entries.some(item => titleKey(item) === titleKey(entry))) === true);
           }).catch(ports.title.reportError);
         }}

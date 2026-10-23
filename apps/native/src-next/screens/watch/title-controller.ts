@@ -4,6 +4,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './title-memory';
+import {NativeTitlePages} from './title-pages';
 
 export type NativeTitleControllerOptions = Readonly<{
   entry: ContentEntry;
@@ -22,6 +23,8 @@ export class NativeTitleController {
   readonly workspace: ShowWorkspaceService;
   readonly memory: NativeTitleMemory;
   readonly entry: ContentEntry;
+  private readonly pages = new NativeTitlePages();
+  private ingested: unknown;
   private readonly options: NativeTitleControllerOptions;
   private listeners = new Set<() => void>();
   private off: (() => void)[] = [];
@@ -38,7 +41,16 @@ export class NativeTitleController {
     this.off = [this.detail.subscribe(this.changed), this.workspace.subscribe(this.changed), options.subscribeCurrent(() => {if (!this.current()) this.dispose();})];
   }
   private current(): boolean {return !this.retired && sameAuthority(this.options.authority, this.options.current());}
-  private read() {return Object.freeze({entry: this.entry, detail: this.retired ? undefined : this.detail.getSnapshot(), workspace: this.retired ? undefined : this.workspace.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});}
+  private read() {
+    const workspace = this.retired ? undefined : this.workspace.getSnapshot(), data = workspace?.data;
+    if (workspace?.phase === 'ready' && data && data !== this.ingested) {
+      this.ingested = data;
+      this.pages.ingest({key: JSON.stringify([data.show.id, data.selected.seasonId, data.selected.group, workspace.route?.playState ?? 'all']),
+        fence: JSON.stringify([data.scope.serverId, data.scope.libraryId, data.scope.viewerFence, data.revision.catalog, data.revision.viewer]),
+        episodeCursor: workspace.pagination.cursor, seasonCursor: workspace.seasonPagination.cursor, episodes: data.episodes.sections[0]?.entries ?? [], seasons: data.seasons});
+    }
+    return Object.freeze({entry: this.entry, detail: this.retired ? undefined : this.detail.getSnapshot(), workspace, ...this.pages.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});
+  }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private changed = (): void => {
@@ -64,17 +76,29 @@ export class NativeTitleController {
   tab = (tab: NativeTitleTab): void => {if (this.current()) {this.memory.select({tab}); this.changed();}};
   remember = (anchor: NativeTitleAnchor): void => {if (this.current()) {this.memory.remember(anchor); this.snapshot = this.read();}};
   season = async (id: string): Promise<void> => {
-    if (!this.current()) return;
-    await this.workspace.selectSeason(id);
+    const data = this.workspace.getSnapshot().data;
+    if (!this.current() || !data || !this.snapshot.seasons.some(season => season.id === id)) return;
+    await this.workspace.select({libraryId: data.scope.libraryId, showId: data.show.id, selectedSeasonId: id, playState: this.memory.getSnapshot().hideWatched ? 'unplayed' : 'all'});
     if (!this.current() || this.workspace.getSnapshot().data?.selected.seasonId !== id) return;
     this.memory.select({seasonId: id}); this.changed();
   };
   group = async (id: string): Promise<void> => {
-    if (!this.current()) return;
-    await this.workspace.selectGroup(id);
+    const data = this.workspace.getSnapshot().data;
+    if (!this.current() || !data?.groups.some(group => group.id === id)) return;
+    await this.workspace.select({libraryId: data.scope.libraryId, showId: data.show.id, group: id, playState: this.memory.getSnapshot().hideWatched ? 'unplayed' : 'all'});
     if (!this.current() || this.workspace.getSnapshot().data?.selected.group !== id) return;
     this.memory.select({group: id}); this.changed();
   };
+  hideWatched = async (value: boolean): Promise<void> => {
+    const data = this.workspace.getSnapshot().data;
+    if (!this.current() || !data) return;
+    await this.workspace.select({libraryId: data.scope.libraryId, showId: data.show.id,
+      ...(data.selected.seasonId ? {selectedSeasonId: data.selected.seasonId} : data.selected.group ? {group: data.selected.group} : {}), playState: value ? 'unplayed' : 'all'});
+    if (!this.current() || this.workspace.getSnapshot().phase !== 'ready' || this.workspace.getSnapshot().route?.playState !== (value ? 'unplayed' : 'all')) return;
+    this.memory.select({hideWatched: value}); this.changed();
+  };
+  moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
+  moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
   play = async (entry = this.entry, fromStart = false): Promise<void> => {
     if (!this.current()) return;
     const data = this.detail.getSnapshot().data;
@@ -91,7 +115,7 @@ export class NativeTitleController {
     if (this.retired) return;
     this.retired = true;
     for (const off of this.off) off(); this.off = [];
-    this.detail.dispose(); this.workspace.dispose(); this.snapshot = this.read();
+    this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.snapshot = this.read();
     for (const listener of [...this.listeners]) listener(); this.listeners.clear();
   };
 }

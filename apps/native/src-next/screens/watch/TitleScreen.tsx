@@ -5,7 +5,7 @@ import {cardText, titleFactParts, type TextEnvironment} from '../../../../../pac
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
 import {EpisodeTile, PosterCard} from '../../kit/cards';
-import {Button, Tabs} from '../../kit/controls';
+import {Button, Chip, Tabs} from '../../kit/controls';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {TitleSkeleton} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
@@ -51,7 +51,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     if (!anchor) return;
     const cell = anchor.itemId ? cells.current.get(anchor.itemId) : undefined;
     if (cell || !anchor.itemId) {
-      scroll.current?.scrollTo({y: cell ? Math.max(0, bodyTop.current + cell.y + anchor.offset) : 0, animated: false});
+      scroll.current?.scrollTo({y: cell ? Math.max(0, bodyTop.current + cell.y + anchor.offset) : anchor.offset, animated: false});
       pendingAnchor.current = undefined;
     }
   };
@@ -81,9 +81,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const facts = titleFactParts({year: workspace?.show.year ?? detail?.item.year ?? snapshot.entry.year, durationSeconds: show ? undefined : duration,
     genres: workspace?.show.genres ?? detail?.metadata.genres.map(genre => genre.name) ?? snapshot.entry.genres, contentRating: workspace?.show.contentRating ?? detail?.facts?.contentRating ?? snapshot.entry.contentRating}, text, theme.isTV ? 'video' : 'home-movie');
   const heroHeight = theme.isTV ? 660 : Math.min(660, viewport.height * .69), overview = workspace?.show.overview ?? detail?.item.overview ?? snapshot.entry.overview;
-  const episodes = workspace?.episodes.sections[0]?.entries ?? [];
+  const episodes = snapshot.episodes;
   const remember = (y: number) => {
     setCollapsed(old => (y > heroHeight - 50) === old ? old : y > heroHeight - 50);
+    if (y < bodyTop.current) {controller.remember({itemId: null, offset: y}); return;}
     const local = Math.max(0, y - bodyTop.current);
     const first = [...cells.current].filter(([, cell]) => cell.y + cell.height > local).sort((a, b) => a[1].y - b[1].y)[0];
     if (first) controller.remember({itemId: first[0], offset: Math.max(0, local - first[1].y)});
@@ -97,7 +98,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     {label: t('title.added'), value: detail?.item.addedAt ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric'}).format(new Date(detail.item.addedAt)) : undefined},
   ].filter(row => row.value);
   return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => remember(event.nativeEvent.contentOffset.y)} scrollEventThrottle={32}>
+    <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
+      remember(event.nativeEvent.contentOffset.y);
+      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+      if (selectedTab === 'episodes' && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
+    }} scrollEventThrottle={32}>
       <View style={{height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={heroHeight + 120}/>
         <View style={{position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
@@ -119,7 +124,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
       <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
         {selectedTab === 'episodes' && workspace && <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}}>{workspace.seasons.map(season => <Button key={season.id} size="small" variant="glass" accessibilityState={{selected: workspace.selected.seasonId === season.id}} onPress={() => {void controller.season(season.id).catch(props.reportError);}}>{season.title || t('title.season', {number: season.number})}</Button>)}</ScrollView>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}} onScroll={event => {
+              const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+              if (contentSize.width - contentOffset.x - layoutMeasurement.width < layoutMeasurement.width) void controller.moreSeasons().catch(props.reportError);
+            }} scrollEventThrottle={64}>{workspace.settings.hideSeasons || workspace.settings.ranges ? workspace.groups.map(group => <Button key={group.id} size="small" variant="glass" accessibilityState={{selected: workspace.selected.group === group.id}} onPress={() => {void controller.group(group.id).catch(props.reportError);}}>{group.title}</Button>) : snapshot.seasons.map(season => <Button key={season.id} size="small" variant="glass" accessibilityState={{selected: workspace.selected.seasonId === season.id}} onPress={() => {void controller.season(season.id).catch(props.reportError);}}>{season.title || t('title.season', {number: season.number})}</Button>)}</ScrollView>
+            <Chip variant="facet" selected={snapshot.place.hideWatched} onSelectedChange={value => {void controller.hideWatched(value).catch(props.reportError);}}>{t('next.controls.hideWatched')}</Chip>
+          </View>
           {episodes.map(entry => {
             const model = cardText({id: entry.id, kind: entry.kind, title: entry.title, episode: entry.absoluteNumber !== undefined ? {mode: 'absolute', number: entry.absoluteNumber} : entry.seasonNumber === 0 ? {mode: 'special'} : {mode: 'seasonal', season: entry.seasonNumber, episode: entry.episodeNumber}, durationSeconds: entry.duration, positionSeconds: entry.progressSeconds}, 'in-show', text);
             return cell(entry.id, <EpisodeTile title={entry.title} label={model.caption} caption={model.detail} width={theme.isTV ? 356 : viewport.width - 40} layout={theme.isTV ? 'tile' : 'row'} watched={entry.watched} progress={model.progress}
