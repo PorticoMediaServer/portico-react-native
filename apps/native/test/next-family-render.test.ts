@@ -82,6 +82,7 @@ const {TextField, Button} = await import('../src-next/kit/controls/index.ts');
 const {OwnerTag} = await import('../src-next/kit/shell/index.ts');
 const {default: stateGalleries} = await import('../src-next/dev/families/states/states.gallery.tsx');
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
+const {Icon} = await import('../src-next/kit/Icon.tsx');
 const {PanelBackground} = await import('../src-next/kit/overlays/surface.tsx');
 const {Dialog, OverlaysProvider} = await import('../src-next/kit/overlays/index.ts');
 const {default: selectionGalleries} = await import('../src-next/dev/families/selection/selection.gallery.tsx');
@@ -456,7 +457,7 @@ test('real state galleries request initial TV focus only on TV, preserving the n
   }
 });
 
-test('state icon glass uses the drawn overlay on Android and retains Apple material and TV fill', () => {
+test('state icon glass excludes its Android foreground from root capture and retains Apple material and TV fill', () => {
   const previous = {theme: state.theme, os: state.os};
   try {
     for (const os of ['android', 'ios'] as const) {
@@ -468,9 +469,14 @@ test('state icon glass uses the drawn overlay on Android and retains Apple mater
           const blur = nodes(layout.tree).find(node => node.type === 'BlurView');
           const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
           assert.ok(disk);
-          assert.equal(disk.props.style.borderWidth, 1);
+          const androidGlass = os === 'android' && !isTV;
+          assert.equal(disk.props.style.borderWidth, androidGlass ? 0 : 1);
           assert.equal(disk.props.style.borderColor, `${state.theme.colors.text}1F`);
           assert.equal(disk.props.style.backgroundColor, os === 'android' && !isTV ? 'transparent' : `${state.theme.colors.text}1A`);
+          const icon = find(disk, Icon);
+          assert.equal(icon.props.name, 'i-download');
+          assert.equal(icon.props.size, isTV ? 40 : 26);
+          assert.equal(icon.props.color, state.theme.colors.text);
           if (os === 'android' && isTV) {
             assert.equal(blur, undefined, 'Android TV keeps the drawn translucent fill without video blur');
           } else {
@@ -479,6 +485,18 @@ test('state icon glass uses the drawn overlay on Android and retains Apple mater
             assert.equal(blur.props.blurType, 'dark');
             assert.equal(blur.props.overlayColor, os === 'android' ? `${state.theme.colors.text}1A` : undefined);
             assert.equal(blur.props.reducedTransparencyFallbackColor, state.theme.colors.raised);
+            if (androidGlass) {
+              assert.equal(disk.props.children, blur, 'Android must not capture any sibling foreground into its own blur');
+              assert.equal(find(blur, Icon), icon, 'the native root capture excludes the BlurView subtree');
+              const border = nodes(blur.props.children).find(node => node.props.style?.borderWidth === 1)!;
+              assert.ok(border, 'the drawn border remains in the excluded foreground subtree');
+              assert.equal(border.props.style.borderColor, `${state.theme.colors.text}1F`);
+              assert.equal(border.props.style.borderRadius, state.theme.baseRadii.pill);
+              assert.equal(blur.props.style.alignItems, 'center');
+              assert.equal(blur.props.style.justifyContent, 'center');
+            } else {
+              assert.equal(nodes(blur.props.children).includes(icon), false, 'Apple retains its existing native material composition');
+            }
           }
         } finally {layout.host.unmount();}
       }
