@@ -15,19 +15,24 @@ function elements(value: any): Element[] {
 }
 async function button(os: 'android' | 'ios', isTV: boolean) {
   const theme = createTheme({isTV, width: isTV ? 1920 : 390});
-  const {Button} = await screenModule(new URL('../src-next/kit/controls/Button.tsx', import.meta.url), {
+  const {Button, ResumeButton} = await screenModule(new URL('../src-next/kit/controls/Button.tsx', import.meta.url), {
     react: {...React, default: React}, '@portico/design': {buttonSpec},
     'react-native': {Platform: {OS: os, isTV}, View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator', StyleSheet: {create: (s: any) => s, flatten, absoluteFill: {position: 'absolute', inset: 0}}},
     './Focusable': {Focusable: 'Focusable'}, './control-model': controlModel,
     '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => glassRecipe(os, isTV)},
     '../theme': {useTheme: () => theme}, '../Icon': {Icon: 'Icon'},
   });
-  return {theme, render(variant: 'glass' | 'icon' | 'primary' | 'text', state: {focused: boolean; hovered: boolean; pressed: boolean}) {
+  function host(variant: 'glass' | 'icon' | 'primary' | 'text', extra: Record<string, any> = {}, ref: any = null, resume = false) {
     const onPress = () => {};
-    const content: Element = Button.render({variant, children: 'Action', onPress, accessibilityLabel: 'Action', nextFocusDown: 17}, null);
-    const focus: Element = (content.type as any).render(content.props, null);
+    const component = resume ? ResumeButton : Button;
+    const content: Element = component.render({variant, children: 'Action', onPress, accessibilityLabel: 'Action', nextFocusDown: 17, ...extra}, ref);
+    const focus: Element = (content.type as any).render(content.props, ref);
     assert.equal(focus.props.onPress, onPress); assert.equal(focus.props.nextFocusDown, 17); assert.equal(focus.props.accessibilityLabel, 'Action');
-    return elements(focus.props.children(state));
+    assert.equal(focus.props.ref, ref);
+    return focus;
+  }
+  return {theme, host, render(variant: 'glass' | 'icon' | 'primary' | 'text', state: {focused: boolean; hovered: boolean; pressed: boolean}) {
+    return elements(host(variant).props.children(state));
   }};
 }
 
@@ -47,6 +52,44 @@ test('actual glass and icon Buttons remove only Android dependency tint and reta
       const fills = nodes.filter(node => node.type === 'View').map(node => flatten(node.props.style).backgroundColor).filter(Boolean);
       assert.deepEqual(fills, [controlModel.colorAlpha(actual.theme.colors.text, alpha)], `${os}/${isTV}/${variant}: retain sole drawn fill`);
     }
+  }
+});
+
+test('Android phone glass owns every face foreground while one original Focusable keeps refs, input and accessibility', async () => {
+  const actual = await button('android', false), ref = React.createRef();
+  for (const loading of [undefined, false, true]) {
+    const state = {focused: true, hovered: true, pressed: true};
+    const style = (value: unknown) => {assert.equal(value, state); return {height: 50, maxWidth: 250, borderRadius: 11, paddingHorizontal: 23, paddingRight: 9, backgroundColor: '#ff000029', columnGap: 7};};
+    const focus = actual.host('glass', {style, loading, icon: 'i-play', trailingIcon: 'i-right', progress: .4, remaining: 'Time', accessibilityState: {selected: true}, testID: 'real-button', focusRadius: 13, focusInset: true, onLayout: style}, ref, true);
+    assert.equal(focus.type, 'Focusable'); assert.equal(focus.props.testID, 'real-button'); assert.equal(focus.props.onLayout, style);
+    assert.equal(focus.props.focusRadius, 13); assert.equal(focus.props.focusInset, true); assert.equal(focus.props.accessibilityRole, 'button');
+    assert.deepEqual(focus.props.accessibilityState, {selected: true, busy: loading}); assert.equal(focus.props.disabled, loading);
+    const face: Element = focus.props.children(state), nodes = elements(face);
+    assert.equal(face.type, 'BlurView', 'the entire face is one skipped capture subtree');
+    assert.equal(face.props.pointerEvents, 'none'); assert.equal(face.props.overlayColor, 'transparent');
+    assert.equal(nodes.filter(node => node.type === 'BlurView').length, 1);
+    assert.equal(nodes.filter(node => node.type === 'Text').length, 2, 'label and remaining are drawn once');
+    assert.equal(nodes.filter(node => node.type === 'ActivityIndicator').length, loading ? 1 : 0);
+    assert.equal(nodes.filter(node => node.type === 'Icon').length, loading ? 1 : 2, 'trailing glyph and current leading slot remain inside');
+    assert.ok(nodes.some(node => flatten(node.props.style).width === '40%'), 'edge progress is inside the skipped subtree');
+    const outer = flatten(focus.props.style(state)), inner = flatten(face.props.style);
+    assert.equal(outer.height, 50); assert.equal(outer.maxWidth, 250); assert.equal(outer.borderRadius, 11); assert.equal(outer.paddingHorizontal, 0); assert.equal(outer.paddingRight, 0); assert.equal(outer.backgroundColor, 'transparent');
+    assert.equal(inner.paddingHorizontal, 23); assert.equal(inner.paddingRight, 9); assert.equal(inner.borderRadius, 11); assert.equal(inner.backgroundColor, '#ff000029');
+    assert.equal(inner.alignSelf, 'stretch'); assert.equal(inner.flexGrow, 1); assert.equal(inner.flexShrink, 1); assert.equal(inner.overflow, 'hidden');
+    assert.ok(nodes.some(node => flatten(node.props.style).gap === 7));
+  }
+});
+
+test('Apple phone/TV and Android TV retain their background/content siblings and native blur semantics', async () => {
+  const state = {focused: true, hovered: false, pressed: false};
+  for (const [os, tv] of [['ios', false], ['ios', true], ['android', true]] as const) {
+    const actual = await button(os, tv), focus = actual.host('glass', {progress: .4, remaining: 'Time', style: {paddingHorizontal: 23, backgroundColor: '#ff000029'}});
+    const tree: Element = focus.props.children(state), nodes = elements(tree);
+    assert.equal(tree.type, React.Fragment); assert.equal(flatten(focus.props.style(state)).paddingHorizontal, 23);
+    assert.equal(flatten(focus.props.style(state)).backgroundColor, '#ff000029');
+    const blur = nodes.filter(node => node.type === 'BlurView'); assert.equal(blur.length, os === 'ios' ? 1 : 0);
+    if (blur.length) {assert.equal(blur[0]!.props.children, undefined); assert.equal(Object.hasOwn(blur[0]!.props, 'overlayColor'), false);}
+    assert.equal(nodes.filter(node => node.type === 'Text').length, 2);
   }
 });
 
