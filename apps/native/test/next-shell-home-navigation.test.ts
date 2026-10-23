@@ -55,6 +55,42 @@ test('Back returns through actual requests and disposal invalidates subsequent c
   assert.equal(routes.open({kind: 'account'}, authority), false);
 });
 
+test('retained route objects and their actual mounted origin survive a different shell destination', () => {
+  let current = authority;
+  const routes = new NativeShellNavigation(authority, () => current);
+  routes.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
+  const downloads = {kind: 'downloads'} as const;
+  routes.open(downloads, authority);
+  routes.open({kind: 'shell', destination: {kind: 'library', libraryId: 'actual-library'}}, authority);
+  assert.equal(routes.retainedRoutes().at(-1), downloads, 'a retained controller keeps its genuine descriptor identity');
+  assert.strictEqual(routes.retainedRoutes(), routes.retainedRoutes(), 'reads do not manufacture a new history');
+  routes.back(authority);
+  assert.equal(routes.getSnapshot().route, downloads);
+  assert.deepEqual(routes.getSnapshot().destination, {kind: 'saved'}, 'Back restores the origin recorded with this route');
+  current = {...authority, epoch: 'retired'};
+  assert.deepEqual(routes.retainedRoutes(), []);
+  routes.dispose();
+});
+
+test('the installed route policy guards direct navigation and Back before publishing a disallowed origin', () => {
+  let allow = true;
+  const routes = new NativeShellNavigation(authority, () => authority, (route, origin) => allow ||
+    origin.kind !== 'library' && !(route.kind === 'title' && route.entry.libraryId === 'restricted'));
+  routes.open({kind: 'shell', destination: {kind: 'library', libraryId: 'restricted'}}, authority);
+  const title = titleRoute({kind: 'movie', id: 'actual', title: 'Actual title', libraryId: 'restricted'});
+  routes.open(title, authority);
+  routes.open({kind: 'shell', destination: {kind: 'home'}}, authority);
+  allow = false;
+  const snapshot = routes.getSnapshot(), retained = routes.retainedRoutes();
+  assert.equal(routes.back(authority), false);
+  assert.equal(routes.getSnapshot(), snapshot);
+  assert.equal(routes.retainedRoutes(), retained, 'a refused Back does not mutate real history');
+  assert.equal(routes.open(title, authority), false);
+  assert.equal(routes.open({kind: 'shell', destination: {kind: 'library', libraryId: 'restricted'}}, authority), false);
+  assert.equal(routes.getSnapshot(), snapshot);
+  routes.dispose();
+});
+
 for (const destination of [{kind: 'search'}, {kind: 'saved'}, {kind: 'library', libraryId: 'movies'}] as const) test(`actual ${destination.kind} activation distinguishes entry, hidden title, Back restoration and top`, () => {
   const routes = new NativeShellNavigation(authority, () => authority), activation = nativeDestinationActivation(routes, destination);
   const initial = activation.getSnapshot();

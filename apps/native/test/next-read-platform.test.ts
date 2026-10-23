@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {nativeReadRouteAllowed} from '../src-next/screens/read/platform';
-import type {NativeShellRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
 
 const libraries = [{id: 'book', name: 'Read', kind: 'book'}, {id: 'comic', name: 'Comics', kind: 'comic'}, {id: 'audio', name: 'Listen', kind: 'audiobook'}];
 test('TV direct library and title registration cannot admit Read or a removed origin', () => {
@@ -28,4 +28,22 @@ test('a retained Read origin cannot reappear under a registered title and can le
     assert.equal(nativeReadRouteAllowed({kind: 'shell', destination: {kind: 'libraries'}}, libraries, true, origin), true);
     assert.equal(nativeReadRouteAllowed({kind: 'shell', destination: {kind: 'home'}}, libraries, true, origin), true);
   }
+});
+test('actual navigation admission rejects direct opens and stale Back before mutating history', () => {
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
+  let published = libraries;
+  const navigation = new NativeShellNavigation(authority, () => authority,
+    (route, origin) => nativeReadRouteAllowed(route, published, true, origin));
+  const first = navigation.getSnapshot(), retained = navigation.retainedRoutes();
+  assert.equal(navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'book'}}, authority), false);
+  assert.strictEqual(navigation.getSnapshot(), first); assert.strictEqual(navigation.retainedRoutes(), retained);
+  assert.equal(navigation.open({kind: 'shell', destination: {kind: 'library', libraryId: 'audio'}}, authority), true);
+  assert.equal(navigation.open({kind: 'title', entry: {id: 'audio-title', title: 'Unit title', kind: 'book', libraryId: 'audio'}}, authority), true);
+  assert.equal(navigation.open({kind: 'account'}, authority), true);
+  published = libraries.map(library => library.id === 'audio' ? {...library, kind: 'book'} : library);
+  const beforeBack = navigation.getSnapshot(), beforeHistory = navigation.retainedRoutes();
+  assert.equal(navigation.back(authority), false);
+  assert.strictEqual(navigation.getSnapshot(), beforeBack); assert.strictEqual(navigation.retainedRoutes(), beforeHistory);
+  assert.equal(navigation.open({kind: 'shell', destination: {kind: 'libraries'}}, authority), true);
+  navigation.dispose();
 });

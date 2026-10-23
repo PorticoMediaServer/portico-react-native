@@ -58,6 +58,8 @@ export type BottomSheetProps = SurfaceProps & {
   scrollable?: boolean;
   showClose?: boolean;
   fitContent?: boolean;
+  /** Content clearance above a fixed footer; defaults to 16 points. */
+  contentFooterGap?: number;
   /** Text-entry sheets move content and footer together above the native keyboard. */
   keyboardAvoiding?: boolean;
   /** Authored footer padding; bottom includes the actual safe area minimum. */
