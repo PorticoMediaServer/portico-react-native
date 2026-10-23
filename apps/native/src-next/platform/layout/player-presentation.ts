@@ -28,6 +28,8 @@ export type PlayerPresentation = Readonly<{
   hideNavigation: boolean;
   hideStatusBar: boolean;
   controlsAutoHide: boolean;
+  /** foldable3d keeps transport chrome hidden while its side panel is open. */
+  controlsHidden: boolean;
 }>;
 
 const positive = (value: number) => Number.isFinite(value) && value > 0;
@@ -57,9 +59,9 @@ function currentFold({window, posture}: PlayerPresentationInput): PlayerFold | u
 export function resolvePlayerPresentation(input: PlayerPresentationInput): PlayerPresentation | undefined {
   const {window: {width, height}, docked, panelOpen} = input;
   if (!positive(width) || !positive(height)) return;
-  if (docked) return {mode: 'docked', hideNavigation: false, hideStatusBar: false, controlsAutoHide: false};
+  if (docked) return {mode: 'docked', hideNavigation: false, hideStatusBar: false, controlsAutoHide: false, controlsHidden: false};
   const fold = currentFold(input), whole = rect(0, 0, width, height);
-  const common = {hideNavigation: true, hideStatusBar: false, controlsAutoHide: true};
+  const common = {hideNavigation: true, hideStatusBar: false, controlsAutoHide: true, controlsHidden: false};
   if (fold?.state === 'half-opened') {
     const b = fold.bounds;
     // foldable9: the physical fold plus16pt on each side is reserved in a half fold.
@@ -92,7 +94,8 @@ export function resolvePlayerPresentation(input: PlayerPresentationInput): Playe
       surface = rect(0, 0, width - 380, height); panel = rect(width - 380, 0, 380, height);
     }
   }
-  return {...common, mode: 'full-window', surface, picture: letterboxPlayerPicture(surface), controls: surface, panel, hideStatusBar: true};
+  return {...common, mode: 'full-window', surface, picture: letterboxPlayerPicture(surface), controls: panelOpen ? undefined : surface,
+    panel, hideStatusBar: true, controlsHidden: panelOpen};
 }
 
 function geometryKey(input: PlayerPresentationInput): string {
@@ -101,9 +104,10 @@ function geometryKey(input: PlayerPresentationInput): string {
   return JSON.stringify([input.window.width, input.window.height, fold?.orientation, fold?.state, b?.left, b?.top, b?.right, b?.bottom]);
 }
 
-/** notes/foldable9: fold, unfold or turn reveals controls for3s; panel/scroll events do not extend it. */
+/** notes/foldable9/3d: reveal for3s after geometry changes, except under an open full-window panel. */
 export function playerControlsRevealDeadline(previous: PlayerPresentationInput | undefined, next: PlayerPresentationInput, now: number, deadline = 0): number {
-  if (!Number.isFinite(now) || !resolvePlayerPresentation(next)) return deadline;
-  if (next.docked) return 0;
+  const presentation = resolvePlayerPresentation(next);
+  if (!Number.isFinite(now) || !presentation) return deadline;
+  if (next.docked || presentation.controlsHidden) return 0;
   return previous && geometryKey(previous) !== geometryKey(next) ? now + 3000 : deadline;
 }

@@ -56,6 +56,8 @@ test('full-window panels take the exact right page or tablet-play380pt beside th
   const duo = resolvePlayerPresentation({...input(890, 626, [vertical]), panelOpen: true})!;
   assert.deepEqual(duo.panel, {x: 445, y: 0, width: 445, height: 626});
   assert.equal(duo.surface!.width, 445);
+  assert.equal(duo.controlsHidden, true);
+  assert.equal(duo.controls, undefined);
   const tablet = resolvePlayerPresentation({...input(1180, 820), panelOpen: true})!;
   assert.deepEqual(tablet.panel, {x: 800, y: 0, width: 380, height: 820});
   assert.deepEqual(tablet.picture, {x: 0, y: 185, width: 800, height: 450});
@@ -66,7 +68,7 @@ test('full-window panels take the exact right page or tablet-play380pt beside th
 test('3f keeps the docked state and measured-slot authority through every posture', () => {
   for (const next of [input(466, 678), input(890, 626, [vertical]), input(840, 880), input(890, 626, [{...vertical, state: 'half-opened'}])]) {
     assert.deepEqual(resolvePlayerPresentation({...next, docked: true, panelOpen: true}), {
-      mode: 'docked', hideNavigation: false, hideStatusBar: false, controlsAutoHide: false,
+      mode: 'docked', hideNavigation: false, hideStatusBar: false, controlsAutoHide: false, controlsHidden: false,
     });
   }
 });
@@ -80,12 +82,16 @@ test('a stale or unsupported posture cannot reserve a hinge from the old window'
   for (const width of [0, -1, Infinity, NaN]) assert.equal(resolvePlayerPresentation({...next, window: {width, height: 626}}), undefined);
 });
 
-test('notes/foldable9 reveals for exactly3s on fold/unfold/turn, with no extension from panel changes', () => {
+test('notes/foldable9 reveals for exactly3s on fold/unfold/turn, except under the3d full-window panel', () => {
   const wide = input(890, 626, [vertical]), book = input(890, 626, [{...vertical, state: 'half-opened'}]), tall = input(626, 890);
   assert.equal(playerControlsRevealDeadline(wide, book, 100), 3100);
   assert.equal(playerControlsRevealDeadline(book, wide, 200), 3200);
   assert.equal(playerControlsRevealDeadline(wide, tall, 300), 3300);
-  assert.equal(playerControlsRevealDeadline(wide, {...wide, panelOpen: true}, 400, 3300), 3300);
+  assert.equal(playerControlsRevealDeadline(wide, {...wide, panelOpen: true}, 400, 3300), 0);
   assert.equal(playerControlsRevealDeadline(undefined, wide, 500), 0);
   assert.equal(playerControlsRevealDeadline(wide, {...tall, docked: true}, 600, 3300), 0);
+  assert.equal(playerControlsRevealDeadline(tall, {...wide, panelOpen: true}, 700, 3300), 0, 'unfolding with the panel open does not reveal controls');
+  assert.equal(playerControlsRevealDeadline({...wide, panelOpen: true}, wide, 800, 0), 0, 'panel closure alone is not a fold reveal');
+  const tabletop = input(626, 890, [{orientation: 'horizontal', state: 'half-opened', bounds: {left: 0, top: 445, right: 626, bottom: 445}}]);
+  assert.equal(resolvePlayerPresentation({...tabletop, panelOpen: true})!.controlsHidden, false, 'tabletop keeps its bottom controls visible');
 });
