@@ -27,7 +27,8 @@ test('actual TV profile menu has ordered safe actions, member gating and no extr
     react: h.react, 'react-native': {View: 'View', Text: 'Text'}, '../../../../packages/i18n/src': {defaultI18n}, '../kit/artwork': {ProfileFace: 'ProfileFace'}, '../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920}), nativeType}, '../kit/overlays': {Menu: 'Menu'}, './tv-focus': {tvFocusIds},
   });
   const ref = {current: null};
-  const tree = TVProfileMenu({snapshot: {authority, account: two, serverName: 'Actual verified server', profile: {id: 'profile', name: 'Demo'}}, open: true, onOpenChange() {}, returnFocusRef: ref});
+  const snapshot = {authority, account: two, unreadNotificationCount: 3, serverName: 'Actual verified server', profile: {id: 'profile', name: 'Demo'}};
+  const tree = TVProfileMenu({snapshot, open: true, onOpenChange() {}, returnFocusRef: ref});
   assert.equal(tree.props.testID, tvFocusIds(authority).profileMenu);
   assert.equal(tree.props.returnFocusRef, ref, 'the genuine rail profile ref is handed to the shared hold');
   assert.deepEqual(tree.props.items.map((item: any) => item.id), ['profiles', 'servers', 'notifications', 'together', 'server-separator', 'server']);
@@ -37,6 +38,8 @@ test('actual TV profile menu has ordered safe actions, member gating and no extr
   assert.equal(tree.props.width, 640);
   assert.equal(tree.props.offset, 168);
   assert.equal(tree.props.alignOffset, -8);
+  assert.deepEqual(tree.props.items.find((item: any) => item.id === 'notifications').trailing.props.children, ['3 new']);
+  assert.equal(TVProfileMenu({snapshot: {...snapshot, unreadNotificationCount: 0}, open: true, onOpenChange() {}, returnFocusRef: ref}).props.items.find((item: any) => item.id === 'notifications').trailing, undefined);
   assert.deepEqual(routes, [], 'rendering or native traversal never navigates');
   tree.props.items[0].onSelect();
   assert.deepEqual(routes, [{kind: 'profiles'}]);

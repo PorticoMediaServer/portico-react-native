@@ -13,7 +13,10 @@ export function TVProfileMenu({snapshot, open, onOpenChange, returnFocusRef}: {
   snapshot: NativeShellSnapshot; open: boolean; onOpenChange: (open: boolean) => void; returnFocusRef: React.RefObject<View | null>;
 }) {
   const account = snapshot.account, theme = useTheme();
-  const items: MenuEntry[] = account.actions.map(action => ({id: action.id, label: action.label, icon: action.icon, trailing: action.trailing,
+  const unread = snapshot.unreadNotificationCount;
+  const items: MenuEntry[] = account.actions.map(action => ({id: action.id, label: action.label, icon: action.icon,
+    trailing: action.id === 'notifications' && typeof unread === 'number' && Number.isSafeInteger(unread) && unread > 0
+      ? <Text style={[nativeType({size: 20, weight: 400, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{defaultI18n.t('settings.unreadCount', {count: unread})}</Text> : action.trailing,
     destructive: action.destructive, onSelect: action.onPress}));
   if (account.serverAction && account.viewerRole !== 'member') {
     const action = account.serverAction;
