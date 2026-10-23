@@ -25,7 +25,7 @@ const label = (id: SelectionAction) => selectionText(`next.selection.native.acti
 // Admission belongs to the canonical model/server offers, including TV curation.
 function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || action.id !== 'download');}
 function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
-  const {isTV, colors} = useTheme();
+  const {isTV, colors, platform} = useTheme();
   const queueFirst = useRef<View>(null);
   const ownerGradient = useId().replace(/:/g, '');
   const retainedMenu = useRef(props.menu ?? 'more'), retainedReturn = useRef(props.returnFocusRef);
@@ -53,8 +53,9 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
       title={menu === 'queue' ? selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})}) : props.menuTitle ?? defaultI18n.t('next.selection.selectedItems', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}
       description={menu === 'queue' ? selectionText('next.selection.native.queueOrder') : undefined} initialFocusRef={queueFirst} returnFocusRef={props.returnFocusRef ?? retainedReturn.current}>
       {actionItems.filter(entry => !ownerActions.includes(entry.id as SelectionAction)).map(entry => row(entry))}
-      {owners.length ? <View style={{marginHorizontal: 12, marginTop: 8, paddingVertical: 4, borderRadius: 16, backgroundColor: '#0b1822', borderWidth: 1, borderColor: 'rgba(92,179,226,.18)', overflow: 'hidden'}}>
+      {owners.length ? <View style={{marginHorizontal: 12, marginTop: 8, paddingVertical: 4, borderRadius: 16, backgroundColor: '#0b1822', borderWidth: platform === 'phone' ? 0 : 1, borderColor: 'rgba(92,179,226,.18)', overflow: 'hidden'}}>
         <Svg pointerEvents="none" style={StyleSheet.absoluteFill} width="100%" height="100%"><Defs><RadialGradient id={ownerGradient} cx="100%" cy="0%" rx="120%" ry="100%"><Stop offset="0" stopColor={colors.accentDeep} stopOpacity={.24} /><Stop offset={.62} stopColor={colors.accentDeep} stopOpacity={0} /></RadialGradient></Defs><Rect width="100%" height="100%" fill={`url(#${ownerGradient})`} /></Svg>
+        {platform === 'phone' ? <View pointerEvents="none" style={{position: 'absolute', inset: 0, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(92,179,226,.18)'}} /> : null}
         <View style={{paddingTop: 10, paddingBottom: 2, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10}}><ServerMark variant="editorPhone" /><SelectionText size={13.5} weight={800}>{defaultI18n.t('next.selection.owner')}</SelectionText><View style={{flex: 1}} />{props.ownerTag}</View>
         {owners.map(entry => row(entry, true))}
       </View> : null}
