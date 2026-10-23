@@ -147,6 +147,7 @@ function fixture(groupedVersions = false) {
     intercept: (fn: typeof before) => { before = fn; },
     respond: (fn: typeof respond) => { respond = fn; },
     authority: (patch: Partial<PlaybackAuthority>, notify = true) => { authority = {...authority, ...patch}; if (notify) for (const listener of [...authorityListeners]) listener(); },
+    family: (id: string) => { if (session) session = {...session, sessionFamilyId: id}; },
     changeAuthority: () => { authority = {...authority, epoch: 'epoch-2'}; session = undefined; for (const listener of [...authorityListeners]) listener(); },
     settings: (patch: Partial<NativePlaybackSettings>) => { settings = {...settings, ...patch}; for (const listener of settingsListeners) listener(); },
     get disposedCapabilities() { return disposedCapabilities; },
@@ -1540,6 +1541,34 @@ test('a closed chooser cannot adopt a version session returned after its own sta
       assert.ok(created,'the actual fake server created a session after cancellation');
       assert.ok(d.requests.some(request=>request.method==='DELETE'&&request.path===encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)})),closing+': retire the real late session');
       assert.equal(d.server.session(created)?.ended,true,closing);
+    } finally {release();d.runtime.dispose();}
+  }
+});
+
+test('late version cleanup survives ordinary disposal but never uses a replacement principal or family', async () => {
+  for (const closing of ['dispose', 'authority', 'family'] as const) {
+    const d = fixture(true); let release = () => {}, entered = false, created = '';
+    try {
+      await d.start('movie-1'); const state = d.runtime.getSnapshot();
+      const held = new Promise<void>(resolve => {release = resolve;});
+      d.respond(async request => {
+        if (request.method !== 'POST' || !record(request.body) || request.body.versionId !== 'v2' || entered) return;
+        entered = true; await held;
+        const response = await d.server.handle(request);
+        assert.equal(response.status, 201); assert.ok(record(response.body) && typeof response.body.id === 'string');
+        created = response.body.id; return response;
+      });
+      const late = d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
+        {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
+      await settle(); assert.equal(entered, true);
+      if (closing === 'dispose') d.runtime.dispose();
+      else if (closing === 'authority') d.authority({epoch:'replacement'}, false);
+      else d.family('replacement-family');
+      release(); await late; await settle(); assert.ok(created);
+      const stopped = d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)}));
+      assert.equal(stopped, closing === 'dispose', closing);
+      assert.equal(d.runtime.getSnapshot().session?.versionId === 'v2', false);
+      assert.equal(d.runtime.getSnapshot().retired, true);
     } finally {release();d.runtime.dispose();}
   }
 });

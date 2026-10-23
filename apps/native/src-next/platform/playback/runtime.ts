@@ -5,7 +5,7 @@ import {parseMediaItem} from '../../../../../packages/client-core/src/media-item
 import {encodedRoutePath, routePath} from '../../../../../packages/contracts/src/routes';
 import {SessionsClient} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
-import {call, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
+import {call, type V1Request, type V1Response} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import {V1QueuePlayer, serverSupportsQueueTransitions} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import {QueueClient} from '../../../../../packages/client-core/src/playback-v1/queue';
@@ -14,7 +14,7 @@ import {channelSeconds, type ChannelReference} from '../../../../../packages/cli
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
-import type {Session, PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
+import {parseSession, type Session, type PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {SubtitleService} from '../../../../../packages/client-core/src/subtitles';
@@ -66,6 +66,7 @@ export class NativePlaybackRuntime {
   readonly choices = new PlayerSessionChoices();
   private readonly o: NativePlaybackRuntimeOptions;
   private readonly bound: PlaybackAuthority;
+  private readonly sessionFamilyId: string;
   private readonly scope: QueueScope;
   private readonly http: PlaybackScopeHttp;
   private readonly optionsClient: PlaybackOptionsClient;
@@ -119,15 +120,17 @@ export class NativePlaybackRuntime {
   private completionTimer?: unknown;
   private completionKey = '';
   private skipped = new Set<string>();
+  private cleanupSessions = new Set<string>();
 
   constructor(options: NativePlaybackRuntimeOptions) {
     this.o = options;
     this.bound = Object.freeze({...options.authority()});
-    const viewer = options.session()?.viewer;
-    if (!viewer || !['local', 'hosted'].includes(viewer.authority) || viewer.serverId !== this.bound.serverId || viewer.accountId !== this.bound.accountId || viewer.profileId !== this.bound.profileId) throw new Error('Invalid playback authority.');
+    const session = options.session(), viewer = session?.viewer;
+    if (!session || !viewer || !['local', 'hosted'].includes(viewer.authority) || viewer.serverId !== this.bound.serverId || viewer.accountId !== this.bound.accountId || viewer.profileId !== this.bound.profileId) throw new Error('Invalid playback authority.');
+    this.sessionFamilyId = session.sessionFamilyId;
     // These are the actual controller identifiers V1QueuePlayer publishes (its constructor).
     this.scope = Object.freeze({serverId: viewer.serverId, authority: viewer.authority as 'local' | 'hosted', accountId: viewer.accountId, profileId: viewer.profileId, controllerId: 'v1', controllerEpoch: 'v1', commandLaneId: 'v1'});
-    this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority());
+    this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority(), (request, response) => this.retiredStart(request, response));
     this.optionsClient = new PlaybackOptionsClient(this.http);
     this.path = new NativePlayback({http: this.http, key: options.requestId, timers: options.timers});
     this.playback = new PlaybackService(this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
@@ -148,8 +151,26 @@ export class NativePlaybackRuntime {
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private authorityMatches(): boolean {
-    const viewer = this.o.session()?.viewer;
-    return authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
+    const session = this.o.session(), viewer = session?.viewer;
+    return session?.sessionFamilyId === this.sessionFamilyId && authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
+  }
+  private retiredStart(request: V1Request, response: V1Response): void {
+    if (request.method !== 'POST' || request.path !== routePath('start_playback_session') || ![200, 201].includes(response.status) || !this.authorityMatches()) return;
+    let session: Session;
+    try { session = parseSession(response.body); } catch { return; }
+    if (this.playback.getSnapshot().session?.id === session.id) return;
+    const body = request.body as {itemId?: unknown; queue?: {queueId?: unknown; entryId?: unknown}} | undefined;
+    if (!body || !body.queue && typeof body.itemId !== 'string') return;
+    if (body?.queue ? session.queue?.queueId !== body.queue.queueId || session.queue?.entryId !== body.queue.entryId : session.itemId !== body?.itemId) return;
+    this.stopOwnedSession(session.id);
+  }
+  private stopOwnedSession(id: string, positionMs?: number): void {
+    if (!this.authorityMatches() || this.cleanupSessions.has(id)) return;
+    this.cleanupSessions.add(id);
+    while (this.cleanupSessions.size > 32) this.cleanupSessions.delete(this.cleanupSessions.values().next().value!);
+    const cleanup = new PlaybackScopeHttp(localV1Http(this.o.api), () => this.authorityMatches());
+    const off = this.o.subscribeAuthority(() => { if (!this.authorityMatches()) cleanup.dispose(); });
+    void new SessionsClient(cleanup, this.o.timers).stop(id, positionMs).catch(() => {}).finally(() => { off(); cleanup.dispose(); });
   }
   private currentAuthority(): boolean { return !this.retired && this.authorityMatches(); }
   private active(): boolean { if (!this.currentAuthority()) { this.dispose(); return false; } return true; }
@@ -1006,9 +1027,7 @@ export class NativePlaybackRuntime {
     // authority change, no request is sent with the next viewer's credentials: the old lease
     // expires server-side, while the engine and every old request are torn down immediately.
     if (state.session && !this.playback.hasNativeOwner() && this.authorityMatches()) {
-      const cleanup = new PlaybackScopeHttp(localV1Http(this.o.api), () => this.authorityMatches());
-      const off = this.o.subscribeAuthority(() => { if (!this.authorityMatches()) cleanup.dispose(); });
-      void new SessionsClient(cleanup, this.o.timers).stop(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000))).catch(() => {}).finally(() => { off(); cleanup.dispose(); });
+      this.stopOwnedSession(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000)));
     }
     this.beginOperation(); this.retired = true; ++this.sourceEpoch;
     this.cancelSnapshot(); this.snapshotCapture?.dispose();
