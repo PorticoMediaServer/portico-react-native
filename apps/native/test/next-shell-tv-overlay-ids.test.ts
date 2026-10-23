@@ -22,6 +22,7 @@ test('actual Home overlays export fenced native rating controls and append genui
     react: h.react, 'react-native': {Text: 'Text', View: 'View', StyleSheet: {create: (styles: object) => styles}}, '../../../../packages/i18n/src': {defaultI18n},
     '../../../../packages/client-core/src/presentation/errors': {}, '../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_: unknown, text: unknown, fallback: string) => text ?? fallback},
     '../kit/shell': {ServerMark: 'ServerMark'}, '../kit/overlays': {Menu: 'Menu', Dialog: 'Dialog'}, '../kit/selection': {DeleteMediaDialog: 'Delete', MixedEditExplainer: 'Mixed'},
+    '../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'},
     '../kit/controls/Button': {Button: 'Button'}, '../kit/controls/Focusable': {Focusable: 'Focusable'}, '../kit/artwork': {}, '../kit/Icon': {Icon: 'Icon'},
     '../kit/theme': {useTheme: () => ({isTV: layoutMode === 'tv', layoutMode, type: {}, colors: {}})}, '../platform/haptics': {}, './selection-display': {memberTitle: () => 'Actual title'},
     './HomeDestinationPicker': {HomeDestinationPicker: 'Picker'}, './HomeBulkEditor': {HomeBulkEditor: 'Editor'}, './tv-focus': {tvFocusIds},
