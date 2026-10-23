@@ -18,7 +18,7 @@ import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeTitleController} from './title-controller';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
-import {readNativeFileInfo} from './file-info';
+import {readNativeFileInfo, type NativeFileInfo} from './file-info';
 import {nativeWatchTracks} from './track-identity';
 import {nativeVersionChoices} from './version-options';
 import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
@@ -66,12 +66,12 @@ export type NativeWatchFactoryPorts = Readonly<{
   /** Bound to Android's real fenced runtime command after it lands on MAIN. */
   startVersion?: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
-  openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode) => void;
+  openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination) => void;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate'> & Readonly<{
-    myList: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
+    myList?: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
     download?: NativeTitleScreenProps['download'];
     menu?: NativeTitleScreenProps['menu'];
     selection?: NativeTitleScreenProps['selection'];
@@ -79,6 +79,7 @@ export type NativeWatchFactoryPorts = Readonly<{
 }>;
 const titleKey = (entry: ContentEntry) => JSON.stringify([entry.libraryId, entry.kind, entry.id]);
 const sameOptionalFence = (a: PlaybackFence | undefined, b: PlaybackFence | undefined) => b ? sameFence(a, b) : !a;
+
 
 /** Explicit descriptors and disposal for the genuine assembly; importing never registers a route. */
 export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
@@ -116,7 +117,12 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       return readNativeFileInfo(ports.api, ports.scope, {libraryId: captured.entry.libraryId!, itemId: captured.entry.id}, offered, {t: defaultI18n.t}, ports.isTV, signal);
     });
     if (!info || !current(captured)) return;
-    ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>);
+    ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>, {info,
+      changed: async () => {if (current(captured)) await Promise.all([...controllers.values()].filter(controller => titleKey(controller.entry) === titleKey(captured.entry)).map(async controller => {
+        const state = controller.getSnapshot();
+        if (state.detail?.data) await controller.detail.refresh();
+        if (state.workspace?.data) await controller.workspace.retry();
+      }));}});
   };
   const publishVersions = (captured: NativeWatchCapture, offered: PlaybackOptions) => {
     const startVersion = ports.startVersion;
@@ -163,7 +169,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
               || state.detail?.data?.related?.rows.some(row => row.entries.some(item => titleKey(item) === titleKey(entry))) === true);
           }, anchorRef).catch(ports.title.reportError);
         }}
-        myList={ports.title.myList(route.entry)} download={ports.title.download}/>;
+        myList={ports.title.myList?.(route.entry)} download={ports.title.download}/>;
     },
   };
   const offPlayback = ports.playback.subscribe(update), offAuthority = ports.subscribeCurrent(update), offRoute = ports.navigation.subscribe(update);
@@ -186,7 +192,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         const owner = controller;
         return <NativeTitleScreen {...ports.title} key={key} controller={owner} text={host.runtime.text} artwork={host.runtime.artwork} ambient={host.runtime.ambient}
           watch={{source, playback: ports.playback, width: pane.width}} back={() => {ports.navigation.back(ports.authority);}}
-          myList={ports.title.myList(entry)} download={ports.title.download} more={(member, anchorRef) => {
+          myList={ports.title.myList?.(entry)} download={ports.title.download} more={(member, anchorRef) => {
             void menu(member, () => {
               const state = owner.getSnapshot(), active = ports.playback.getSnapshot();
               return !state.retired && !active.retired && active.dock.local?.expanded === true && !!active.entry && titleKey(active.entry) === titleKey(entry)

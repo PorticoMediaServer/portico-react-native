@@ -1,3 +1,4 @@
+import {nativeListeningStatus} from '../../src-next/platform/playback/listening-status';
 import type {RouteSnapshot} from '../../../../packages/client-core/src/route-connection';
 import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../packages/client-core/src/playback/native-listening.ts';
 import {parseQueue,parseSession,parseSessionEnd} from '../../../../packages/client-core/src/playback-v1/types.ts';
@@ -33,7 +34,7 @@ const nativeListeningRates: readonly number[] = [.5,.75,1,1.25,1.5,1.75,2,2.5,3]
 /** The checks every native listening snapshot passes. */
 function checkNativeStatus(raw:any,owner:string){
  if(!raw||raw.owner!==owner||!Number.isSafeInteger(raw.sequence)||raw.sequence<1||!['playing','paused'].includes(raw.intent)||!Number.isFinite(raw.positionSeconds)||raw.positionSeconds<0||!Number.isFinite(raw.rate)||raw.rate<=0||!Number.isSafeInteger(raw.commandRevision)||raw.commandRevision<0||typeof raw.route!=='string'||raw.route.length>4096||![raw.observed,raw.ready,raw.seeking,raw.ended,raw.terminal].every(v=>typeof v==='boolean')||raw.error!==null&&typeof raw.error!=='string'||!listeningDeadline(raw.deadlines?.sleepAtMs)||!listeningDeadline(raw.deadlines?.passoutAtMs))throw new Error('Invalid native listening snapshot.');
- for(const key of ['rendering','timerStopped','rateWaiting'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
+ for(const key of ['rendering','eqApplied','levelingApplied','timerStopped','rateWaiting'] as const)if(raw[key]!==undefined&&typeof raw[key]!=='boolean')throw new Error('Invalid native render status.');
  if(raw.effectiveRate!==undefined&&(!Number.isFinite(raw.effectiveRate)||raw.effectiveRate<0||raw.effectiveRate>3))throw new Error('Invalid native effective rate.');
  if(raw.supportedRates!==undefined&&(!Array.isArray(raw.supportedRates)||raw.supportedRates.length>nativeListeningRates.length||raw.supportedRates.some((rate:unknown)=>typeof rate!=='number'||!nativeListeningRates.includes(rate))))throw new Error('Invalid native supported rates.');
  if(raw.rateError!==undefined&&(typeof raw.rateError!=='string'||raw.rateError.length>4096))throw new Error('Invalid native rate error.');
@@ -62,7 +63,7 @@ export function parseNativeListeningV1Event(raw:any,owner:string,sessionId:strin
  const b=raw.binding;
  if(b!==null&&(!b||!wireID(b.lease)||!Number.isSafeInteger(b.intentId)||b.intentId<1||b.sessionId!==session.id||b.generation!==session.presentation.generation||b.itemId!==session.itemId))throw new Error('Native engine binding changed.');
  const end=raw.terminal?parseSessionEnd(raw.end):undefined;
- return Object.freeze({...raw,session,queue,transition,end,deadlines:Object.freeze({...raw.deadlines})});
+ return Object.freeze({...nativeListeningStatus(raw, key => activeI18n().t(key)),session,queue,transition,end,lastSeq:raw.lastSeq,durationSeconds:raw.durationSeconds});
 }
 
 /** The v1 native owner's JS side: one handover per session, then intents only. Snapshots are

@@ -25,7 +25,6 @@ export function useHostedAccount(hostedUrl: string, mode: 'local' | 'hosted', di
   );
 
   const [hosted, setHosted] = useState<HostedSession>();
-  const [hostedProfile, setHostedProfile] = useState('');
   const directory = useAccountDirectory({
     credentials,
     snapshot: credentialState,
@@ -38,11 +37,6 @@ export function useHostedAccount(hostedUrl: string, mode: 'local' | 'hosted', di
     if (!credentials || mode !== 'hosted') return;
     if (credentialState.session) {
       setHosted(credentialState.session);
-      setHostedProfile(
-        credentialState.context?.profileId ??
-          credentialState.session.profiles[0]?.id ??
-          '',
-      );
       setAttachedServer(credentialState.context?.server);
     } else if (credentialState.phase === 'signedOut') setHosted(undefined);
   }, [credentials, credentialState.session, credentialState.context?.profileId, credentialState.context?.server, credentialState.phase, mode]);
@@ -78,8 +72,6 @@ export function useHostedAccount(hostedUrl: string, mode: 'local' | 'hosted', di
     credentialState,
     hosted,
     setHosted,
-    hostedProfile,
-    setHostedProfile,
     ...directory,
     attachedServer,
     setAttachedServer,

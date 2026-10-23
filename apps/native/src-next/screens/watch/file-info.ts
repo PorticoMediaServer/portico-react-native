@@ -1,6 +1,10 @@
 import {readFileInfo, type DetailApi, type DetailScope, type DetailTarget, type TitleFile} from '../../../../../packages/client-core/src/detail';
+import {SPLITTABLE_KINDS} from '../../../../../packages/client-core/src/title-identity';
+import type {SearchGroup} from '../../../../../packages/client-core/src/search';
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {fileInfoModel, type FileFacts, type ManageAction, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+
+export const nativeFileInfoMergeGroups: Readonly<Partial<Record<string, SearchGroup>>> = Object.freeze({movie: 'movies', show: 'shows', episode: 'episodes', song: 'songs', album: 'albums', artist: 'artists', book: 'books', author: 'authors'});
 
 export type NativeFileInfoLocation = Readonly<{id: string; versionId: string; path?: string; actions: readonly ManageAction[]}>;
 
@@ -50,10 +54,16 @@ export async function readNativeFileInfo(api: DetailApi, scope: DetailScope, tar
     audio: version.audio.map(track => ({...track, channelLayout: track.layout, objectAudio: track.atmos ? 'atmos' : undefined})),
     subtitles: version.subtitles.map(track => ({...track, hearingImpaired: track.sdh, external: track.source === 'sidecar'}))}));
   const model = fileInfoModel(facts, first.manage ? {audience: 'owner', ownerFacts: {
-    locations: groups.map(({version}) => ({id: version.id, canDelete: first.manage!.delete})), canSplit: first.manage.split, canMerge: first.manage.merge,
+    locations: groups.map(({version}) => ({id: version.id, canDelete: first.manage!.delete})), // A multipart member is not a whole version to split. Keep server permissions
+    // intact below; expose only the real installed per-file/search flows here.
+    canSplit: first.manage.split && SPLITTABLE_KINDS.includes(first.kind) && groups.length >= 2 && groups.some(group => group.members.length === 1),
+    canMerge: first.manage.merge && !!nativeFileInfoMergeGroups[first.kind],
   }, manageSurface: isTV ? 'desktop' : 'phone'} : {audience: 'viewer'}, text, isTV ? 'desktop' : 'phone');
   const locations: readonly NativeFileInfoLocation[] | undefined = model.owner ? groups.flatMap(({version, members}) => members.map(file => ({
     id: file.id, versionId: version.id, path: file.path, actions: model.owner!.locations.find(location => location.id === version.id)?.actions ?? [],
   }))) : undefined;
-  return Object.freeze({model, locations, groups: Object.freeze(groups)});
+  return Object.freeze({model, locations, groups: Object.freeze(groups), scope: first.scope, revision: first.revision, kind: first.kind,
+    files: Object.freeze(files), manage: first.manage});
 }
+
+export type NativeFileInfo = Awaited<ReturnType<typeof readNativeFileInfo>>;

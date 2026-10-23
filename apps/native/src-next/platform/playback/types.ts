@@ -20,7 +20,10 @@ import type {QualityOption} from '../../../../../packages/client-core/src/playba
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
-export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>}>;
+export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  /** Real caller lifetime through options/create/adoption. It excludes an old output fence. */
+  lifetime?: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
+}>;
 export type NativePlaybackVersionSelection = Readonly<{
   authority: PlaybackAuthority; options: PlaybackOptions; versionId: string;
   /** The real chooser/route/entry lifetime. Output-fence checks remain runtime-owned. */

@@ -53,6 +53,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
   const pendingAnchor = useRef<ReturnType<NativeTitleController['memory']['getSnapshot']>['anchor'] | undefined>(controller.memory.getSnapshot().anchor);
   const detail = snapshot.detail?.data, workspace = snapshot.workspace?.data;
+  const myList = props.myList ?? (detail?.actions.some(action => action.id === 'watchlist' && action.enabled)
+    ? {selected: detail.personal.watchlisted, change: (value: boolean) => controller.personal({action: 'watchlist', value})} : undefined);
   const show = ['show', 'season', 'episode'].includes(snapshot.entry.kind);
   const loading = show ? snapshot.workspace?.phase === 'loading' : snapshot.detail?.phase === 'loading';
   useEffect(() => {void controller.open().catch(props.reportError);}, [controller, props.reportError]);
@@ -143,7 +145,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
                     progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{t('entry.resume')}</ResumeButton>
                 : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
             {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
-            {props.myList && <Button variant="glass" icon={props.myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} accessibilityLabel={t(props.myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void props.myList!.change(!props.myList!.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
+            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
             {!props.watch && theme.isTV && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly
               accessibilityLabel={t(detail.personal.watched ? 'entry.markUnwatched' : 'entry.markWatched')} accessibilityState={{selected: detail.personal.watched}}
               onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}/>}

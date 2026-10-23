@@ -22,3 +22,4 @@ export {createNativeWatchModule, nativeWatchChromeFacts} from './module';
 export type {NativeWatchModuleBindings} from './module';
 export {createNativeWatchPanelNames} from './panel-names';
 export {registerNativeWatch} from './register';
+export {createNativeWatchBindings} from './bindings';
