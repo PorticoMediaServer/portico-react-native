@@ -2,7 +2,7 @@ import React, {useEffect, useRef} from 'react';
 import {Text, View, useTVEventHandler} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../kit/controls';
-import {FocusRegion} from '../../kit/focus';
+import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
@@ -20,6 +20,9 @@ const padRows = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['delete', '
 
 /** Controlled same-account MFA; the transaction owner clears a rejected code and maps its shared error. */
 export function TVVerificationForm(props: TVVerificationFormProps) {
+  return <FocusProvider><VerificationForm {...props}/></FocusProvider>;
+}
+function VerificationForm(props: TVVerificationFormProps) {
   const theme = useTheme(), t = defaultI18n.t, id = `tv.auth.${props.kind}.factor`, submitted = useRef<string | undefined>(undefined);
   useEffect(() => {if (!props.code) submitted.current = undefined;}, [props.code]);
   const remove = () => {if (!props.busy) {submitted.current = undefined; props.onCodeChange(props.code.slice(0, -1));}};
@@ -91,7 +94,7 @@ export function TVVerificationForm(props: TVVerificationFormProps) {
         })}
       </FocusRegion>
       <FocusRegion id={`${id}.actions`} entry="submit" enabled={!props.busy} edges={{up: `${id}.keyboard.${recoveryRows.length - 1}`}} style={{flexDirection: 'row', gap: 20, marginTop: 24}}>
-        <Button focusId="submit" disabled={props.busy || !props.recoveryCode} loading={props.busy} onPress={() => {if (!props.busy && props.recoveryCode) props.onSubmit(props.recoveryCode);}}>{t('action.continue')}</Button>
+        <Button focusId="submit" disabled={props.busy || !props.recoveryCode} loading={props.busy ? true : undefined} onPress={() => {if (!props.busy && props.recoveryCode) props.onSubmit(props.recoveryCode);}}>{t('action.continue')}</Button>
         <Button focusId="back" variant="glass" disabled={props.busy} onPress={props.onBack}>{t('action.back')}</Button>
       </FocusRegion>
     </>}

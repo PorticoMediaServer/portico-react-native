@@ -2,7 +2,7 @@ import React, {useRef, useState} from 'react';
 import {Text, TextInput, View} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {Button} from '../../kit/controls';
-import {FocusRegion, useFocusRegistry, useFocusTarget} from '../../kit/focus';
+import {FocusProvider, FocusRegion, useFocusRegistry, useFocusTarget} from '../../kit/focus';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {TVAuthLayout} from './TVAuthLayout';
@@ -38,6 +38,9 @@ function CredentialField({id, label, value, onChangeText, password, placeholder,
 
 /** Presentation only. The account owner keeps credentials, transactions, error strings and Back target. */
 export function TVCredentialForm(props: TVCredentialFormProps) {
+  return <FocusProvider><CredentialForm {...props}/></FocusProvider>;
+}
+function CredentialForm(props: TVCredentialFormProps) {
   const {kind, username, password, busy} = props, registry = useFocusRegistry(), id = `tv.auth.${kind}.credentials`;
   const initial = useRef(!username ? 'username' : !password ? 'password' : 'submit');
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: 0}, {regionId: id, childId: initial.current});
@@ -56,7 +59,7 @@ export function TVCredentialForm(props: TVCredentialFormProps) {
           onSubmitEditing={() => {registry.focus({regionId: id, childId: 'submit'});}}/>
       </View>
       <View style={{flexDirection: 'row', gap: 20, marginTop: 32}}>
-        <Button focusId="submit" disabled={busy || !username || !password} loading={busy} onPress={submit}
+        <Button focusId="submit" disabled={busy || !username || !password} loading={busy ? true : undefined} onPress={submit}
           style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t(kind === 'portico' ? 'action.continue' : 'auth.signIn')}</Button>
         <Button focusId="back" variant="glass" disabled={busy} onPress={props.onBack} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('action.back')}</Button>
       </View>

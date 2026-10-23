@@ -8,6 +8,12 @@ import {createTheme, nativeType} from '../src-next/kit/theme';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const theme = createTheme({isTV: true, width: 1920});
+const inScope = (component: (props: any) => any, props: any) => {
+  const scope = component(props);
+  assert.equal(scope.type, 'Provider', 'pre-sign-in entry supplies its own focus scope');
+  const child = [scope.props.children].flat()[0];
+  return child.type(child.props);
+};
 const common = {'../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}};
@@ -16,12 +22,12 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   const h = hooks(), focused: unknown[] = [], events: string[] = [];
   const {TVCredentialForm} = await screenModule(new URL('../src-next/tv/auth/TVCredentialForm.tsx', import.meta.url), {
     ...common, react: h.react, 'react-native': {Text: 'Text', TextInput: 'TextInput', View: 'View'},
-    '../../kit/focus': {FocusRegion: 'Region', useFocusRegistry: () => ({focus: (address: unknown) => focused.push(address)}),
+    '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region', useFocusRegistry: () => ({focus: (address: unknown) => focused.push(address)}),
       useFocusTarget: () => ({onFocus() {}, onBlur() {}})},
   });
   const props = {kind, serverName: 'Actual local server', username: 'actual-user', password: 'in-memory-only', busy: false,
     usernamePlaceholder: 'auth.email', onUsernameChange() {}, onPasswordChange() {}, onSubmit: () => events.push('submit'), onBack: () => events.push('back')};
-  const tree = h.render(() => TVCredentialForm(props));
+  const tree = h.render(() => inScope(TVCredentialForm, props));
   const fields = nodes(tree).filter(node => typeof node.type === 'function');
   const username = h.render(() => fields[0].type(fields[0].props)), password = h.render(() => fields[1].type(fields[1].props));
   const input = (node: unknown) => nodes(node).find(value => value.type === 'TextInput');
@@ -41,7 +47,7 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   assert.equal(tree.props.portico, kind === 'portico', 'only Portico Account renders legal terms');
   assert.equal(tree.props.body, defaultI18n.t(kind === 'local' ? 'auth.direct.lead' : 'auth.accountLead'));
   props.busy = true;
-  const blocked = h.render(() => TVCredentialForm(props));
+  const blocked = h.render(() => inScope(TVCredentialForm, props));
   nodes(blocked).find(node => node.type === 'Button' && node.props.focusId === 'submit').props.onPress();
   assert.deepEqual(events, ['submit', 'back']);
 });
@@ -49,11 +55,11 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
 test('both actual TV code modes expose the drawn credential route without starting a transaction', async () => {
   const h = hooks(), calls: string[] = [];
   const {TVCodePresenter} = await screenModule(new URL('../src-next/tv/auth/TVCodePresenter.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'}, '../../kit/focus': {FocusRegion: 'Region'},
+    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'},
     '../../platform/native-blur': {BlurView: 'Blur', glassRecipe: () => ({nativeBlur: true})},
   });
   for (const mode of ['portico', 'local'] as const) {
-    const tree = h.render(() => TVCodePresenter({mode, serverName: 'Actual server', body: 'actual owner copy', userCode: 'ACTUAL-CODE',
+    const tree = h.render(() => inScope(TVCodePresenter, {mode, serverName: 'Actual server', body: 'actual owner copy', userCode: 'ACTUAL-CODE',
       verificationUri: 'https://account.example/device', verificationUriComplete: 'https://account.example/device?user_code=ACTUAL-CODE', busy: false,
       onTypeCredentials: () => calls.push(mode), onBack: () => calls.push('back')}));
     const buttons = nodes(tree).filter(node => node.type === 'Button');
@@ -74,9 +80,9 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
     onSubmit: (value: string) => submitted.push(value), onBack() {}};
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
     ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
-    '../../kit/focus': {FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
   });
-  const host = createHookHost(() => {tree = TVVerificationForm(props);});
+  const host = createHookHost(() => {tree = inScope(TVVerificationForm, props);});
   const press = (digit: string) => nodes(tree.props.aside).find(node => node.props.testID === `tv.auth.local.factor-pad-${digit}`).props.onPress();
   try {
     await act(() => host.mount());
@@ -100,11 +106,11 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
 test('recovery uses the authored uppercase/digit/dash keyboard and submits the exact controlled value', async () => {
   const h = hooks(), values: string[] = [], submits: string[] = [];
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler() {}}, '../../kit/focus': {FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler() {}}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
   });
   const props = {kind: 'portico', code: '', recovery: true, recoveryCode: 'R7-', busy: false, onCodeChange() {}, onRecoveryChange() {},
     onRecoveryCodeChange: (value: string) => values.push(value), onSubmit: (value: string) => submits.push(value), onBack() {}};
-  const tree = h.render(() => TVVerificationForm(props));
+  const tree = h.render(() => inScope(TVVerificationForm, props));
   assert.ok(!nodes(tree).some(node => node.type === 'TextInput'), 'recovery does not invoke the platform keyboard');
   for (const key of ['A', '0', '-']) nodes(tree).find(node => node.props.testID === `tv.auth.portico.factor-keyboard-${key}`).props.onPress();
   assert.deepEqual(values, ['R7-A', 'R7-0', 'R7--']);

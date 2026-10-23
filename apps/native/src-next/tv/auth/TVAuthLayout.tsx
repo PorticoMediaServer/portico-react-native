@@ -19,13 +19,13 @@ export function TVAuthLayout({heading, eyebrow, body, children, portico, aside, 
         <Image source={require('../../../assets/wordmark.png')} accessibilityLabel={defaultI18n.t('accounts.brand')}
           resizeMode="contain" style={{position: 'absolute', left: 0, top: 72, width: 174, height: 40}}/>
         {eyebrow && <Text style={[nativeType({size: 22, weight: 700, tracking: .1, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginBottom: 14}]}>{eyebrow}</Text>}
-        <Text accessibilityRole="header" style={[nativeType({size: 72, weight: 800, tracking: -.045, lineHeight: 1}, theme.textScale), {color: theme.colors.text, marginBottom: 22}]}>{heading}</Text>
-        <Text style={[nativeType({size: 26, weight: 400, tracking: 0, lineHeight: 1.45}, theme.textScale), {color: theme.colors.textSecondary, maxWidth: 760, marginBottom: 48}]}>{body}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: 72, weight: 800, tracking: -.045, lineHeight: 72}, theme.textScale), {color: theme.colors.text, marginBottom: 22}]}>{heading}</Text>
+        <Text style={[nativeType({size: 26, weight: 400, tracking: 0, lineHeight: 37.7}, theme.textScale), {color: theme.colors.textSecondary, maxWidth: 760, marginBottom: 48}]}>{body}</Text>
         {children}
         {portico && <View style={{position: 'absolute', left: 0, bottom: 64}}>
-          <Text style={[nativeType({size: 20, weight: 400, tracking: 0, lineHeight: 1.5}, theme.textScale), {color: theme.colors.textTertiary}]}>{defaultI18n.t('activation.termsNote').split('\n')[0]}</Text>
+          <Text style={[nativeType({size: 20, weight: 400, tracking: 0, lineHeight: 30}, theme.textScale), {color: theme.colors.textTertiary}]}>{defaultI18n.t('activation.termsNote').split('\n')[0]}</Text>
           <View style={{flexDirection: 'row', gap: 28}}>{(['accounts.legal.termsAddress', 'accounts.legal.privacyAddress'] as const).map(key => <Text key={key}
-            style={[nativeType({size: 20, weight: 400, tracking: 0, lineHeight: 1.5}, theme.textScale), {color: theme.colors.textTertiary}]}>{defaultI18n.t(key)}</Text>)}</View>
+            style={[nativeType({size: 20, weight: 400, tracking: 0, lineHeight: 30}, theme.textScale), {color: theme.colors.textTertiary}]}>{defaultI18n.t(key)}</Text>)}</View>
         </View>}
       </View>
       {aside}
