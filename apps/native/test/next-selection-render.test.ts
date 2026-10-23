@@ -466,6 +466,54 @@ test('phone queue uses the supplied kind, unboxed rows, denial copy and original
 });
 
 
+test('phone Selection action line boxes retain their type and exclude additional native font padding', () => {
+  const previous = state.theme;
+  try {
+    for (const width of [390, 820]) {
+      state.theme = createTheme({isTV: false, width, textScale: 1.2});
+      const calls: string[] = [], ref = {current: null};
+      const row = mount(SelectionActionRow, {label: 'Actual queue action', description: 'Actual queue order', icon: 'i-queue-next', ref, onPress: () => calls.push('press')});
+      try {
+        const [label, description] = ofType(row.tree, SelectionText), phone = width === 390;
+        assert.equal(label.props.weight, 600); assert.equal(description.props.weight, 500);
+        assert.equal(label.props.style.includeFontPadding, phone ? false : undefined);
+        assert.equal(description.props.style.includeFontPadding, phone ? false : undefined);
+        assert.equal(label.props.style.lineHeight, phone ? 24 * state.theme.textScale : 24);
+        assert.equal(description.props.style.lineHeight, phone ? 16.875 * state.theme.textScale : 16.875);
+        assert.equal(description.props.style.marginTop, 2);
+        const native = row.tree as Element;
+        assert.equal(native.props.ref, ref); assert.equal(native.props.focusKind, 'row');
+        assert.equal(flattenStyle(native.props.style({focused: false, hovered: false, pressed: false})).minHeight, 56);
+        native.props.onPress(); assert.deepEqual(calls, ['press']);
+      } finally {row.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
+test('phone More paints its owner border inside the group without adding a layout inset or changing actions', () => {
+  const previous = state.theme;
+  try {
+    for (const width of [390, 820]) {
+      state.theme = createTheme({isTV: false, width});
+      const calls: unknown[] = [], ownerTag = React.createElement('View', {testID: 'actual-policy-badge'});
+      const props: SelectionBarProps = {testID: 'actual.owner.more', count: 1, selectionLabel: '1 movie', selectAllLabel: 'All', menu: 'more', ownerTag,
+        onSelectAll() {}, onCancel() {}, onAction: action => calls.push(action), onMenuChange: menu => calls.push(menu), actions: [{id: 'edit'}, {id: 'delete'}]};
+      const bar = mount(SelectionBar, props), element = elements(bar.tree).find(node => node.props.menu === 'more' && node.type !== SelectionBar)!;
+      const menu = mount(element.type, element.props);
+      try {
+        const group = elements(menu.tree).find(node => node.props.style?.backgroundColor === '#0b1822')!;
+        assert.ok(group); assert.equal(group.props.style.borderWidth, width === 390 ? 0 : 1);
+        const border = elements(group.props.children).find(node => node.props.style?.borderWidth === 1);
+        assert.equal(!!border, width === 390);
+        if (border) {assert.equal(border.props.pointerEvents, 'none'); assert.equal(border.props.style.position, 'absolute'); assert.equal(border.props.style.borderColor, 'rgba(92,179,226,.18)');}
+        assert.ok(elements(group).includes(ownerTag));
+        const rows = ofType(group, SelectionActionRow); assert.equal(rows.length, 2); assert.ok(rows[0].props.ref);
+        assert.deepEqual(calls, []); rows[0].props.onPress(); assert.deepEqual(calls, ['edit', null]);
+      } finally {menu.host.unmount(); bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+
 test('content-fit Selection surfaces do not reserve an empty footer or default Done control', () => {
   const surface = mount(SelectionSurface, {open: true, onOpenChange() {}, title: 'Actual queue', children: null});
   try {const sheet = surface.tree as Element; assert.equal(sheet.props.footer, undefined); assert.equal(sheet.props.showClose, false); assert.equal(sheet.props.fitContent, true);} finally {surface.host.unmount();}
