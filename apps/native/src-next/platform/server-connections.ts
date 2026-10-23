@@ -1,3 +1,4 @@
+import {nativeReadingPolicy, nativeReadingResponse} from './reading-response';
 import {revisionRequiredFetch} from './revision-required-fetch';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import {
@@ -45,10 +46,13 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
   try {
     const headers: Record<string, string> = {};
     new Headers(options.headers).forEach((v, k) => (headers[k] = v));
-    let raw: {status: number; headers: Record<string, string>; body: string};
+    const reading = nativeReadingPolicy(input, options.method ?? 'GET');
+    let raw: {status: number; headers: Record<string, string>; body: string; bodyBase64?: string};
     const diagnostic = homeActionDiagnostics.request(options.method ?? 'GET', input);
     try {
-      raw = await NativeModules.PorticoRuntime.networkRequest(
+      raw = reading?.binaryLimit !== undefined
+        ? await NativeModules.PorticoRuntime.networkBytesRequest(id, input, options.method ?? 'GET', headers, reading.binaryLimit)
+        : await NativeModules.PorticoRuntime.networkRequest(
         id,
         input,
         options.method ?? 'GET',
@@ -64,6 +68,7 @@ const nativeRequest: typeof fetch = async (input, options = {}) => {
     homeActionDiagnostics.response(diagnostic, raw.status);
     if (options.signal?.aborted)
       throw new RouteError('cancelled', 'Connection request cancelled.');
+    if (reading) return nativeReadingResponse(raw, reading.binaryLimit, options.signal ?? undefined);
     return new Response(
       [204, 205, 304].includes(raw.status) ? null : raw.body,
       { status: raw.status, headers: raw.headers },
