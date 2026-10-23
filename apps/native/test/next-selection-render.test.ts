@@ -512,7 +512,7 @@ test('phone More uses real selected-kind/offer descriptions and cannot invent do
   try {
     const node = elements(bar.tree).find(n => n.props.menu === 'more' && n.type !== SelectionBar)!; const menu = mount(node.type, node.props);
     try {
-      assert.equal((menu.tree as Element).props.title, '2 tracks selected'); let rows = ofType(menu.tree, SelectionActionRow); assert.equal(rows[0].props.description, undefined); assert.equal(rows[1].props.description, 'Actual denial');
+      assert.equal((menu.tree as Element).props.title, '2 tracks selected'); assert.ok(elements(menu.tree).filter(n => n.type === 'Stop').every(n => typeof n.props.offset === 'number' || /^\d+(?:\.\d+)?%?$/.test(n.props.offset)), 'native SVG stops must use supported numeric or percentage values'); let rows = ofType(menu.tree, SelectionActionRow); assert.equal(rows[0].props.description, undefined); assert.equal(rows[1].props.description, 'Actual denial');
       rows[1].props.onPress(); assert.deepEqual(calls, []); rows[0].props.onPress(); assert.deepEqual(calls, ['download', null]);
       menu.update({...node.props, actions: [{id: 'download', description: 'Actual 42 MB estimate at actual quality'}]}); rows = ofType(menu.tree, SelectionActionRow); assert.equal(rows.length, 1); assert.equal(rows[0].props.description, 'Actual 42 MB estimate at actual quality'); assert.doesNotMatch(text(menu.tree), /Owner/);
     } finally {menu.host.unmount();}
