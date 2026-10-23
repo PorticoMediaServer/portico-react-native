@@ -70,9 +70,13 @@ Checks: `npx tsc --noEmit` (this app and the shared sources together), `npx tsc 
   `menu` for Back, `long…` for a held key).
 - Focus, scrolling and text entry follow the Apple TV's rules where the SDK's differ: see the
   comments at the top of `focus.tsx`, `snap.tsx`, `pressable.tsx` and `text-input.tsx`.
-- `react-native-reanimated` resolves to `src/shims/reanimated.tsx`. Amazon's build of the library
-  is not installed (styles it drove were applied late or to the wrong control); the shared code's
-  use of it is served by a small engine in `motion.ts`. React Native's own `Animated` is the SDK's.
+- The new `src-next` shell uses the SDK 0.24 gesture, Reanimated and Worklets packages, including
+  layout animations, scroll handlers and reactions. Babel uses the SDK Worklets plugin.
+  Legacy screens retain `src/shims/reanimated.tsx` and `motion.ts`, preserving their existing
+  focus-style workaround. React Native's own `Animated` is the SDK's.
+- The SDK MaskedView renders real alpha masks; the adapter removes Android's unsupported
+  `androidRenderingMode`. The existing TV glass policy selects translucent fills. An unexpected
+  native backdrop-blur mount fails explicitly; this app does not provide that native module.
 - A shared file that cannot be right on Vega has a replacement under `src/overrides` at the same
   relative path (a replacement may import the file it replaces, to wrap it). They are kept few and
   small: each is a statement of what this device is or can do, not a copy of a screen.

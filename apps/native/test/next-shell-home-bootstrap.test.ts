@@ -329,3 +329,14 @@ test('a late response observes an authority handover even before another consume
   assert.ok(lateRequest); delayed.resolve(f.response(lateRequest)); await assert.rejects(pending);
   assert.equal(f.services.getSnapshot(), undefined); assert.equal(f.services.home.getSnapshot().document, undefined); assert.equal(f.state.ended, 0);
 });
+
+for (const deviceClass of ['mobile', 'television'] as const) test(`native ${deviceClass} keeps its actual Home initial-window request through refresh`, async t => {
+  const f = fixture(t, deviceClass);
+  await f.services.home.load();
+  await f.services.home.revalidate();
+  const requests = f.state.calls.filter(value => value.url.pathname === routePath('get_home'));
+  assert.equal(requests.length, 2);
+  for (const request of requests) assert.equal(request.url.searchParams.get('limit'), deviceClass === 'television' ? '20' : null);
+  assert.equal(f.state.ended, 0);
+  assert.equal(f.services.home.getSnapshot().document?.viewerFence, f.state.fences.home);
+});

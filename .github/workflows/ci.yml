@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Finish MAIN's cold native build/cache save while retaining only the latest pending run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   javascript:
@@ -68,20 +69,69 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      MEDIA_ENGINE_WORK_DIR: ${{ github.workspace }}/.scratch/android-ci/engine/work
+      MEDIA_ENGINE_OUT_DIR: ${{ github.workspace }}/.scratch/android-ci/engine/out
+      MEDIA_ENGINE_JOBS: '2'
+      CARGO_BUILD_JOBS: '2'
+      CMAKE_BUILD_PARALLEL_LEVEL: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with: {distribution: temurin, java-version: '17'}
+      - name: Prepare the pinned Android toolchain
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.scratch/android-ci/tmp"
+          echo "TMPDIR=$GITHUB_WORKSPACE/.scratch/android-ci/tmp" >> "$GITHUB_ENV"
+          ndk_version=$(python3 -c 'import json; print(json.load(open("third_party/media-engine/sources.lock.json"))["tools"]["android-ndk"]["version"])')
+          rust_version=$(python3 -c 'import json; print(json.load(open("third_party/media-engine/sources.lock.json"))["tools"]["rust"]["version"])')
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk_version"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk_version" >> "$GITHUB_ENV"
+          echo "RUSTUP_TOOLCHAIN=$rust_version" >> "$GITHUB_ENV"
+          df -h "$GITHUB_WORKSPACE"
+          free -h
+      - name: Restore only the matching source-built media engine
+        id: media-engine
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.MEDIA_ENGINE_OUT_DIR }}/android
+          key: media-engine-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/media-engine/**', 'third_party/ffmpeg/**', 'scripts/prepare-ffmpeg-source.py') }}
+      - name: Build all Android media-engine ABIs from pinned source
+        if: steps.media-engine.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          third_party/media-engine/build-android.sh
+      - name: Verify the media engine, including restored bundles
+        run: python3 third_party/media-engine/verify.py android --out "$MEDIA_ENGINE_OUT_DIR" --work "$MEDIA_ENGINE_WORK_DIR"
+      - name: Cache the verified source-built media engine
+        if: steps.media-engine.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.MEDIA_ENGINE_OUT_DIR }}/android
+          key: ${{ steps.media-engine.outputs.cache-primary-key }}
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/native
       - name: Assemble the debug builds (phones and televisions, Fire OS)
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m' -I ../../../.github/android-ci.gradle "-PporticoLibmpvDir=$MEDIA_ENGINE_OUT_DIR/android" assembleDebug
         working-directory: apps/native/android
       - name: Kotlin unit tests (JVM, no device)
-        run: ./gradlew --no-daemon :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest
+        run: ./gradlew --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m' -I ../../../.github/android-ci.gradle "-PporticoLibmpvDir=$MEDIA_ENGINE_OUT_DIR/android" :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest
         working-directory: apps/native/android
+      - name: Retain media-engine build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-media-engine-logs
+          path: .scratch/android-ci/engine/work/logs
+          if-no-files-found: ignore
+      - name: Clean owned CI scratch
+        if: always()
+        run: |
+          df -h "$GITHUB_WORKSPACE"
+          rm -rf -- "$GITHUB_WORKSPACE/.scratch/android-ci"
+          df -h "$GITHUB_WORKSPACE"
 
   apple-contracts:
     runs-on: macos-15

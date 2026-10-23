@@ -7,7 +7,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
 import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
 import {Artwork} from '../../kit/artwork';
-import {GenreTile, PosterCard, SquareCard, CircleCard, EpisodeTile, type CardSelection} from '../../kit/cards';
+import {GenreTile, type CardSelection} from '../../kit/cards';
 import {CardFrame} from '../../kit/cards/primitives';
 import {Button, Chip, Focusable, TextField} from '../../kit/controls';
 import {SelectionCircle} from '../../kit/selection';
@@ -18,21 +18,26 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSearchDestination, nativeSearchEntryKey} from './model';
-import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort} from './types';
+import {SearchGridCard} from './SearchGridCard';
+import {TVSearchScreen} from './TVSearchScreen';
+import type {NativeDestinationActivationPort} from '../destinations/focus';
+import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from './types';
 
 const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
 
 export type NativeSearchScreenProps = Readonly<{
   destination: NativeSearchDestination; runtime: NativeShellRuntime;
-  explore: NativeSearchExplorePort; actions: NativeSearchActions; selection: NativeSearchSelectionPort;
+  explore: NativeSearchExplorePort; actions: NativeSearchActions; selection?: NativeSearchSelectionPort;
+  activation: NativeDestinationActivationPort; tvCopy: NativeSearchTVCopy;
 }>;
 
 /** Actual SearchService results and per-profile history. The shell owns authority lifetime. */
-export function SearchScreen({destination, runtime, explore, actions, selection}: NativeSearchScreenProps) {
+export function SearchScreen({destination, runtime, explore, actions, selection, activation, tvCopy}: NativeSearchScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   const landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
+  const activeRoute = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const scroll = useRef<ScrollView>(null), [focused, setFocused] = useState(false), [elapsed, setElapsed] = useState(0);
   const groups = useMemo(() => orderedSearchGroups(state.groups), [state.groups]);
   const typed = state.text.trim().length > 0;
@@ -41,8 +46,8 @@ export function SearchScreen({destination, runtime, explore, actions, selection}
   const top = state.group === 'all' ? topSearchResult(state.text, state.groups) : undefined;
   const run = useCallback((work: Promise<void>) => {void work.catch(runtime.reportError);}, [runtime]);
   useEffect(() => {run(destination.refreshHistory()); run(explore.load());}, [destination, explore, run]);
-  useEffect(() => selection.register(state.search, state.groups), [selection, state.groups, state.search]);
-  useEffect(() => runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
+  useEffect(() => selection?.register(state.search, state.groups), [selection, state.groups, state.search]);
+  useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.isTV, theme.reduceMotion]);
   useEffect(() => {
     if (!loading) {setElapsed(0); return;}
     const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
@@ -90,25 +95,27 @@ export function SearchScreen({destination, runtime, explore, actions, selection}
   const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>;
   const resultRows = groups.flatMap(group => group.items.filter(entry => !top || entry !== top.entry).slice(0, 3).map((entry, index) => ({entry, group: group.id, heading: index === 0})));
   const active = groups.find(group => group.id === state.group);
-  return <View testID="native-search-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  if (theme.isTV) return <TVSearchScreen destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
+  return <View testID="native-search-screen" pointerEvents={activeRoute.visible ? 'auto' : 'none'} accessibilityElementsHidden={!activeRoute.visible}
+    importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {fields}
     {state.group === 'all' || empty || !typed ? <ScrollView ref={scroll} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: 28}}>
       {problem && <StateView variant="search" title={problem} style={{margin: 20}}/>}
       {error}
       {empty && <StateView testID="search-no-matches" variant="search" title={t('next.states.noMatches', {query: state.text.trim()})} body={t('next.states.noMatchesBody')} style={{paddingTop: 26, marginHorizontal: 20}}/>}
       {(!typed || empty) && (empty ? <>{genres}{history}</> : <>{history}{genres}</>)}
-      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection.item(top.group, top.entry)}/>}
+      {top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)}/>}
       {resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
-        <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection.item(group, entry)}/>
+        <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>
       </React.Fragment>)}
       {loading && <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={Math.max(0, dimensions.height - 180)} width={dimensions.width} columns={3} totalCount={9}/>}
     </ScrollView> : <FlatList key={state.group} data={active?.items ?? []} numColumns={3} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
       keyExtractor={entry => nativeSearchEntryKey(state.group as SearchGroup, entry)} contentContainerStyle={{padding: 16, gap: 16, paddingBottom: 28}}
       columnWrapperStyle={{gap: 10}} onEndReachedThreshold={.5} onEndReached={() => {if (active?.nextCursor && state.search.phase === 'ready') run(destination.next(active.id));}}
-      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection.item(state.group as SearchGroup, item)} width={(dimensions.width - 52) / 3}/>}
+      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(dimensions.width - 52) / 3}/>}
       ListHeaderComponent={error || null} ListEmptyComponent={loading ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 180} width={dimensions.width} columns={3} totalCount={9}/> : null}/>}
-    {selection.render()}
+    {selection?.render()}
   </View>;
 }
 
@@ -130,7 +137,7 @@ function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSear
   </Focusable>;
 }
 
-function SearchResultRow({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection}) {
+function SearchResultRow({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection}) {
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined, text = content ? homeCardText(content, false, runtime.text) : undefined;
   const shape = group === 'movies' || group === 'shows' ? 'poster' : group === 'episodes' || group === 'live-tv' ? 'wide' : 'square';
   const width = shape === 'poster' ? 46 : shape === 'wide' ? 100 : 56, height = shape === 'poster' ? 69 : 56;
@@ -139,30 +146,19 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
     <CardFrame testID={`search-result-${key}`} focusId={key} title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
       onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)} style={{flex: 1}} pressableStyle={{flexDirection: 'row', gap: 13, alignItems: 'center'}}>
       {() => <>
-      {selection.active && <SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/>}
+      {selection?.active && <SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/>}
       <View style={{width, height, borderRadius: 6, overflow: 'hidden'}}><Artwork source={runtime.artwork(group === 'episodes' ? content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl : entry.posterUrl)} width={width} height={height}/></View>
-      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection.selected ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
+      <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: selection?.selected ? theme.colors.accentStrong : theme.colors.text}]}>{entry.title}</Text>
         <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>{text?.caption.map(part => <Text key={part.id} numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part.text}</Text>)}</View>
       </View>
       </>}
     </CardFrame>
-    {!selection.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
+    {!selection?.active && <Focusable testID={`search-more-${key}`} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, group, menuAnchorRef)} hitSlop={12}><Icon name="i-more" size={20} color={theme.colors.textTertiary}/></Focusable>}
   </View>;
 }
 
-function SearchGridCard({entry, group, runtime, actions, selection, width}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection; width: number}) {
-  const menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined;
-  const text = content ? homeCardText(content, false, runtime.text) : undefined;
-  const props = {testID: `search-result-${nativeSearchEntryKey(group, entry)}`, title: entry.title, width, caption: text?.caption,
-    onNavigate: () => actions.open(entry, group), onMore: () => actions.menu(entry, group, menuAnchorRef), selection, menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry, group)};
-  if (group === 'movies' || group === 'shows') return <PosterCard {...props} artwork={runtime.artwork(entry.posterUrl)}/>;
-  if (group === 'episodes') return <EpisodeTile {...props} label={text?.caption ?? []} layout="tile" artwork={runtime.artwork(content?.stillUrl ?? content?.backdropUrl ?? entry.posterUrl)}/>;
-  if (group === 'people') return <CircleCard {...props} person art={{source: runtime.artwork(entry.posterUrl), initials: entry.title.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('')}}/>;
-  if (group === 'artists') return <CircleCard {...props} art={{covers: content?.artworkPaths?.flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];}) ?? []}}/>;
-  return <SquareCard {...props} artwork={runtime.artwork(entry.posterUrl)}/>;
-}
 
-function SearchTopResult({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection: CardSelection}) {
+function SearchTopResult({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection}) {
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), kind = topResultKindLabel(group);
   return <CardFrame testID="search-top-result" title={entry.title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
     onNavigate={() => actions.open(entry, group)} onMore={() => actions.menu(entry, group, menuAnchorRef)}
@@ -174,7 +170,7 @@ function SearchTopResult({entry, group, runtime, actions, selection}: {entry: Se
       <Text numberOfLines={2} style={[browseType(theme, 26, 800, -.035, 28), {color: theme.colors.text}]}>{entry.title}</Text>
       {kind && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary, marginTop: 6}]}>{t(kind)}</Text>}
     </View>
-    {selection.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/></View>
+    {selection?.active ? <View style={{position: 'absolute', right: 14, top: 16}}><SelectionCircle selected={selection?.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.title})}/></View>
       : media(entry) && entry.playback && <Button testID="search-top-play" variant="primary" icon="i-play" accessibilityLabel={t('card.play', {title: entry.title})} onPress={() => actions.play(entry, group)} style={{position: 'absolute', right: 14, bottom: 16}}/>}
     </>}
   </CardFrame>;

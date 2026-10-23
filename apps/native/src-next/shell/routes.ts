@@ -23,6 +23,32 @@ export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.free
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;
+export type NativeDestinationIntent = 'enter' | 'restore' | 'top';
+export type NativeDestinationActivation = Readonly<{visible: boolean; intent: NativeDestinationIntent; revision: number}>;
+export type NativeDestinationActivationPort = Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeDestinationActivation}>;
+const sameDestination = (a: ShellDestination, b: ShellDestination): boolean => a.kind === b.kind &&
+  (a.kind !== 'library' || b.kind === 'library' && a.libraryId === b.libraryId);
+
+/** Read real navigation intent without taking ownership of screen focus or scroll memory. */
+export function nativeDestinationActivation(navigation: NativeShellNavigation, destination: ShellDestination): NativeDestinationActivationPort {
+  const target = Object.freeze({...destination});
+  let previous: NativeRouteSnapshot | undefined, previousCurrent: boolean | undefined, value: NativeDestinationActivation;
+  return Object.freeze({subscribe: navigation.subscribe, getSnapshot: (): NativeDestinationActivation => {
+    const state = navigation.getSnapshot(), current = navigation.isCurrent();
+    if (state !== previous || current !== previousCurrent) {
+      previous = state; previousCurrent = current;
+      value = Object.freeze({visible: current && state.route.kind === 'shell' && sameDestination(state.route.destination, target),
+        intent: navigation.getIntent(), revision: state.revision});
+    }
+    return value;
+  }});
+}
+
+/** Highlight the title's actual authorized library while retaining its mounted origin for Back. */
+export function nativeRailDestination(snapshot: NativeRouteSnapshot, libraries: readonly Readonly<{id: string}>[]): ShellDestination {
+  const libraryId = snapshot.route.kind === 'title' ? snapshot.route.entry.libraryId : undefined;
+  return libraryId && libraries.some(library => library.id === libraryId) ? {kind: 'library', libraryId} : snapshot.destination;
+}
 
 /** One authority lifetime and one history. Async callers must retain the authority they read. */
 export class NativeShellNavigation {
@@ -30,6 +56,7 @@ export class NativeShellNavigation {
   private history: NativeShellRoute[] = [];
   private listeners = new Set<() => void>();
   private alive = true;
+  private intent: NativeDestinationIntent = 'enter';
   readonly currentAuthority: () => ShellAuthority;
   constructor(authority: ShellAuthority, currentAuthority: () => ShellAuthority) {
     this.currentAuthority = currentAuthority;
@@ -38,6 +65,8 @@ export class NativeShellNavigation {
     this.snapshot = Object.freeze({authority, route, destination, revision: 0});
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
+  getIntent = (): NativeDestinationIntent => this.intent;
+  isCurrent = (): boolean => this.current(this.snapshot.authority);
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private current(authority: ShellAuthority): boolean {
     return this.alive && sameAuthority(authority, this.snapshot.authority) && sameAuthority(authority, this.currentAuthority());
@@ -45,19 +74,29 @@ export class NativeShellNavigation {
   open(route: NativeShellRoute, expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority)) return false;
     this.history.push(this.snapshot.route);
-    this.publish(route);
+    this.publish(route, 'enter');
     return true;
   }
   back(expectedAuthority: ShellAuthority): boolean {
     if (!this.current(expectedAuthority)) return false;
     const route = this.history.pop();
     if (!route) return false;
-    this.publish(route);
+    this.publish(route, 'restore');
     return true;
   }
-  private publish(route: NativeShellRoute): void {
+  top(destination: ShellDestination, expectedAuthority: ShellAuthority): boolean {
+    if (!this.current(expectedAuthority) || this.snapshot.route.kind !== 'shell' || !sameDestination(destination, this.snapshot.route.destination)) return false;
+    this.publish(this.snapshot.route, 'top'); return true;
+  }
+  private publish(route: NativeShellRoute, intent: NativeDestinationIntent): void {
+    this.intent = intent;
     this.snapshot = Object.freeze({...this.snapshot, route, destination: route.kind === 'shell' ? route.destination : this.snapshot.destination, revision: this.snapshot.revision + 1});
     for (const listener of [...this.listeners]) listener();
   }
-  dispose(): void {this.alive = false; this.history = []; this.listeners.clear();}
+  dispose(): void {
+    if (!this.alive) return;
+    this.alive = false; this.history = [];
+    for (const listener of [...this.listeners]) listener();
+    this.listeners.clear();
+  }
 }
