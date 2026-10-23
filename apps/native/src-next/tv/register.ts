@@ -4,5 +4,9 @@ import '../screens/home/CustomizeRoute';
 import '../screens/home/SeeAllRoute';
 import '../screens/settings-live/LiveRoute';
 import '../screens/settings-live/TogetherRoute';
+import {createNativeWatchBindings, registerNativeWatch} from '../screens/watch';
+
+registerNativeWatch(createNativeWatchBindings);
+
 export {RestoredShell as TVRoot} from '../shell/RestoredShell';
-export {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVProfilePINForm, TVRequiredSetupHandoff, TVManagementHandoff} from './auth';
+export {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVProfilePINForm, TVRequiredSetupHandoff, TVManagementHandoff, TVForgotPINHandoff} from './auth';

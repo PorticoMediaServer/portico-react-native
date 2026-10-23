@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {ApiError} from '../../../packages/client-core/src/index.ts';
 import {challengeNotProven} from '../../../packages/client-core/src/portico-servers.ts';
 import {signInCause, signInMessage} from '../src/app/errors.ts';
+import {defaultI18n} from '../../../packages/i18n/src';
 
 const server = 'E2E Server';
 const cause = (e: unknown, category?: string) => signInCause(e, category, server);
@@ -32,4 +33,10 @@ test('a sign-in the server moved to its own membership is re-admitted silently: 
 test('signInMessage uses the specific cause before any generic answer', () => {
   assert.equal(signInMessage(new ApiError(401, 'clock_skew', 'x')), signInCause(new ApiError(401, 'clock_skew', 'x')));
   assert.equal(signInMessage(new ApiError(403, 'access_refused', 'x')), signInCause(new ApiError(403, 'access_refused', 'x')));
+});
+
+test('a refused certificate requires identity confirmation without claiming that the server changed', () => {
+  for (const code of ['certificate_changed', 'certificate_unverified', 'certificate_untrusted']) {
+    assert.equal(signInMessage(new ApiError(0, code, 'private transport diagnostic')), defaultI18n.t('connection.identity.checkBody'));
+  }
 });

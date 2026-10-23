@@ -11,6 +11,7 @@ import {CoverMosaic, Artwork, type ArtworkSource} from '../../../kit/artwork/ind
 import {PosterCard} from '../../../kit/cards/index';
 import {Button} from '../../../kit/controls/Button';
 import {OverlaysProvider} from '../../../kit/overlays/index';
+import {alpha} from '../../../kit/overlays/surface';
 import {OwnerTag, ServerMark, ServerAudienceTag} from '../../../kit/shell/index';
 import {SelectionBar, SelectionPhoneActionBar, BulkEditor, PlaylistPicker, CollectionPicker, DeleteMediaDialog, MixedEditExplainer, bulkReceiptView, type BulkChanges, type BulkEditorProps, type DeleteMediaDialogProps, type DestinationPickerProps, type PickerEntry, type PickerResult, type SelectionAction, type SelectionActionOffer} from '../../../kit/selection/index';
 import {SelectionText} from '../../../kit/selection/surface';
@@ -109,7 +110,10 @@ function SelectionExample({scenario, deniedDestination = false, previewReadURL}:
   const bulkResult = bulkReceipts.length ? bulkReceiptView(bulkReceipts) : undefined;
   const close = (next: boolean, reason: Parameters<DeleteMediaDialogProps['onOpenChange']>[1]) => {traceSelection({kind: 'open-change', scenario, surface: `${prefix}.surface`, next, reason}); setOpen(next);};
   const onAction = (action: SelectionAction) => {traceSelection({kind: 'action', scenario, action}); setLastAction(action);};
-  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: defaultI18n.t('next.selection.movie', {count: selected.length}), selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: <OwnerTag compact variant="badge" />};
+  const moreOwnerTag = theme.platform === 'phone' ? <View testID={`${prefix}.more.owner-tag`} style={{alignSelf: 'center', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 6, backgroundColor: alpha(theme.colors.ink, .6)}}>
+    <SelectionText size={12} weight={700} style={{color: theme.colors.textSecondary, includeFontPadding: false}}>{defaultI18n.t('next.selection.onlyYou')}</SelectionText>
+  </View> : <OwnerTag compact variant="badge" />;
+  const barProps = {testID: `${prefix}.bar`, count: selected.length, subtitle: fixture.films, selectionLabel: defaultI18n.t('next.selection.movie', {count: selected.length}), selectAllLabel: fixture.selectAll, onSelectAll: () => setSelected(movieEntries.map(movie => movie.id)), onCancel: () => setSelected([]), actions, onAction, menu, onMenuChange: setMenu, topInset: insets.top, ownerTag: moreOwnerTag};
   const base = {testID: `${prefix}.surface`, open, onOpenChange: close, ownerHeader: <View style={{paddingHorizontal: 20, paddingTop: 6, paddingBottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8}}><ServerMark variant="editorPhone" /><OwnerTag compact variant="badge" /></View>};
   const isPicker = ['playlist', 'newPlaylist', 'partialPlaylist', 'collection'].includes(scenario);
   const isEditor = ['editor', 'episodes', 'tracks', 'editResult'].includes(scenario);
@@ -155,7 +159,7 @@ function SelectionExample({scenario, deniedDestination = false, previewReadURL}:
       resultEntries={movieEntries.map(movie => ({id: movie.id, title: movie.title, artwork: <Artwork source={art(movie.artworkIndex)} width={30} height={45} />}))}
       onRetry={requireSelectionEvidence}
       singleItemFields={referenceSingleItemFields(editorKind)} summary={summary} {...evidence?.editor} /> : null}
-    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-music'] as const)[index]}))} onKeepOnly={kind => {traceSelection({kind: 'action', scenario, action: 'keep-only', value: kind}); setSelected([kind]);}} /> : null}
+    {scenario === 'mixed' ? <MixedEditExplainer testID={`${prefix}.surface`} open={open} onOpenChange={close} total={4} description={fixture.mixedDescription} groups={fixture.groups.map((label, index) => ({kind: ['movie', 'episode', 'album', 'song'][index], label, count: 1, icon: (['i-film', 'i-tv', 'i-album', 'i-note'] as const)[index]}))} onKeepOnly={kind => {traceSelection({kind: 'action', scenario, action: 'keep-only', value: kind}); setSelected([kind]);}} /> : null}
     {scenario.startsWith('delete') ? <DeleteMediaDialog {...base} owner selectionCount={scenario === 'deleteLimit' ? 240 : scenario === 'deleteOne' || scenario === 'deleteShow' || scenario === 'deleteBlocked' ? 1 : 4}
       preview={previewReadURL ? null : deletionPreview(scenario)} loading={previewRead.loading} error={previewRead.error} removeFiles={removeFiles} onRemoveFilesChange={setRemoveFiles} confirmation={confirmation} onConfirmationChange={setConfirmation}
       onDelete={requireSelectionEvidence} result={deleteResult} renderArtwork={id => <Artwork source={art(movieEntries.find(movie => movie.id === id)?.artworkIndex ?? 0)} width={24} height={36} />} {...evidence?.deletion} /> : null}

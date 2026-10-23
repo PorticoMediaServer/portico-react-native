@@ -11,7 +11,7 @@ test('actual bound registry shares one Watch/title clock, Back and disposal per 
     './module': {createNativeWatchModule: (context: any, bindings: any) => {
       assert.equal(bindings.context, context); const identity = ++created;
       return {render: (runtime: any) => ({watch: identity, runtime}), title: {render: (route: any, runtime: any) => ({title: identity, route, runtime})},
-        back: () => identity === 1, dispose: () => {disposed++;}};
+        renderOverlays: () => ({overlay: identity}), back: () => identity === 1, dispose: () => {disposed++;}};
     }},
   });
   const remove = registerNativeWatch((context: any) => ({context}));
@@ -22,6 +22,7 @@ test('actual bound registry shares one Watch/title clock, Back and disposal per 
   assert.equal((first.render(route, runtime) as any).title, 1);
   assert.equal((first.renderWatch(runtime) as any).watch, 1);
   assert.equal(first.back(), true); assert.equal(created, 1);
+  assert.deepEqual(first.renderOverlays(runtime), [{overlay: 1}]); assert.equal(created, 1);
   assert.equal((second.renderWatch(runtime) as any).watch, 2); assert.equal(second.back(), false);
   first.dispose(); first.dispose(); assert.equal(disposed, 1);
   remove(); assert.equal(disposed, 2);

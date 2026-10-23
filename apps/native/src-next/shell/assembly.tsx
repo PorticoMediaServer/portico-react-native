@@ -1,17 +1,16 @@
 import React from 'react';
-import {BackHandler, NativeModules, Platform, View} from 'react-native';
+import {BackHandler, Platform, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {HomeSelectionController, homeSelectionContext} from '../../../../packages/client-core/src/home-selection/index';
 import {homeChannelSelection, homeCollectionSelection, homeEntryCapabilities, homeEntrySelection} from '../../../../packages/client-core/src/home-selection';
 import type {HomeRow, HomeSpotlight} from '../../../../packages/client-core/src/home';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {SelectionContext} from '../../../../packages/client-core/src/selection-model/index';
-import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {LibraryManagementService} from '../../../../packages/client-core/src/library-management';
 import {homeSpotlightModels} from '../../../../packages/client-core/src/presentation/home-spotlight';
 import {selectionHaptic} from '../platform/haptics';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
-import {ToastHost, type ToastMessage} from '../kit/overlays';
+import {nativeScreenServices, NativeScreenFeedbackHost} from '../screens/native-screen-services';
 import {StateView} from '../kit/states';
 import {OwnerTag} from '../kit/shell';
 import {HomeSelectionBars} from './HomeSelectionBars';
@@ -23,6 +22,7 @@ import {nativeShellRoutes} from './route-registry';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
+import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
 
@@ -37,8 +37,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const initial = context.home.getSnapshot().document, session = context.session();
   if (!initial || !session || !context.current()) throw failure('native_home_authority_required');
   const routes = nativeShellRoutes.bind(context);
+  const feedback = nativeScreenServices(context);
   const scope = nativeHomeSelectionScope(session.viewer);
-  let alive = true, runtime: NativeShellRuntime | undefined, toast: ToastMessage | null = null, toastSequence = 0;
+  let alive = true, runtime: NativeShellRuntime | undefined;
   let tvPageBack: (() => boolean) | undefined, tvRailBack: (() => boolean) | undefined;
   const listeners = new Set<() => void>(), windows = new Map<string, Window>(), spotlights = new Map<ContentEntry, {id: string; key: string; cleanup: () => void; spotlight: HomeSpotlight; index: number; context: string}>(), scroll = new Map<string, () => void>();
   const operations = new Set<AbortController>();
@@ -51,9 +52,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const reportError = (error: unknown, origin: 'assembly-error' | 'home-registration' | 'artwork-error' = 'assembly-error') => {
     homeActionDiagnostics.error(origin, error);
     if (!alive || !context.current()) return;
-    const message = presentError(error, 'home', {operation: 'action'});
-    if (message.silent) return;
-    toast = {id: `native-home-error-${++toastSequence}`, message: message.body}; publish();
+    feedback.reportError(error, 'home');
   };
   const open = (route: NativeShellRoute) => {if (alive && context.current()) context.navigation.open(route, context.authority());};
   const platform = {platform: Platform.isTV ? 'tv' as const : 'phone-app' as const, playbackAvailable: true, queueAvailable: true};
@@ -66,7 +65,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const playback = context.playback.selectionPlayback(isCurrent);
   const controller = new HomeSelectionController({api: context.api, events: context.events, home: context.home, context: homeSelectionContext(scope, initial), environment: environment(), isCurrent,
-    requestId: async () => NativeModules.PorticoRuntime.newRequestId(), playback, reportError,
+    requestId: feedback.requestId, playback, reportError,
     routes: {openEntry: entry => open(titleRoute(entry)), openCollection: collection => open({kind: 'home-see-all', destination: {type: 'collection', resourceId: collection.collection.id, libraryId: collection.collection.libraryId}}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   const windowId = (rowId: string) => `home-row:${rowId}`;
@@ -158,10 +157,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   registerSpotlights(initial.spotlight);
   const find = (entry: ContentEntry, rowId?: string) => {
-    const spotlight = spotlights.get(entry) ?? [...spotlights].find(([value]) => value.id === entry.id && value.libraryId === entry.libraryId && value.kind === entry.kind)?.[1]; if (!rowId && spotlight) return spotlight;
+    const spotlight = spotlights.get(entry) ?? [...spotlights].find(([value]) => value.id === entry.id && value.libraryId === entry.libraryId && value.kind === entry.kind)?.[1];
+    if (!rowId && spotlight) return {id: spotlight.id, key: spotlight.key, owner: spotlight};
     const window = rowId ? windows.get(rowId) : [...windows.values()].find(value => value.row.entries.includes(entry));
     const key = window?.keys.get(entry.id); if (!window || !key) throw failure('unregistered_home_entry');
-    return {id: window.memberWindows.get(entry.id)!, key};
+    const id = window.memberWindows.get(entry.id)!;
+    return {id, key, owner: members.get(id) ?? window.registration};
   };
   const menu = (entry: ContentEntry, rowId?: string) => {homeActionDiagnostics.action('home-assembly', 'menu'); if (!currentHome()) return; const member = find(entry, rowId); controller.openMenu(member.id, member.key);};
   const onDocument = () => {
@@ -223,8 +224,18 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const document = context.home.getSnapshot().document!;
         const offered = homeSpotlightModels(document).some(value => value.entry === entry && same(value.primary?.entry.playback, target)) || document.rows.some(row => row.entries.includes(entry) && same(homePlayTarget(row, entry)?.playback, target));
         if (!offered) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'unoffered'); reportError(failure('unoffered_home_playback')); return;}
+        const navigation = context.navigation.getSnapshot();
+        const selected = (() => {try {return find(entry);} catch (error) {reportError(error); return undefined;}})();
+        if (!selected) return;
+        const signal = new AbortController(); operations.add(signal);
+        const operation = nativeHomeEntryLifetime(() => {
+          if (!currentHome() || context.navigation.getSnapshot() !== navigation || context.home.getSnapshot().document !== document) return false;
+          try {const member = find(entry); return member.id === selected.id && member.key === selected.key && member.owner === selected.owner;} catch {return false;}
+        }, [context.navigation.subscribe, context.home.subscribe, controller.subscribe], signal.signal);
         homeActionDiagnostics.action('home-assembly', 'primary-play', 'dispatch');
-        void context.playback.start({entry, target}).catch(reportError);
+        void context.playback.start({entry, target, lifetime: operation.lifetime})
+          .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
+          .finally(() => {operation.dispose(); operations.delete(signal);});
       },
       more: menu,
       myList: async (entry, selected) => {
@@ -266,12 +277,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       try {reconcileWindows();} catch (error) {reportError(error, 'home-registration');}
     },
     homeMenuRow: id => [...windows.values()].find(window => [...window.memberWindows.values()].includes(id))?.row,
-    renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><ToastHost toast={toast} onDismiss={() => {toast = null; publish();}} bottomOffset={84}/></>,
+    renderSelection: () => <><HomeSelectionBars runtime={runtime} controller={controller} ownerTag={ownerTag} reportError={reportError}/><HomeSelectionOverlays controller={controller} runtime={runtime} ownerTag={ownerTag} reportError={reportError}/><NativeScreenFeedbackHost service={feedback} bottomOffset={84}/></>,
     renderRoutes: () => {
       const route = context.navigation.getSnapshot().route;
       // Instantiate the current module before asking it for retained native views.
       const active = route.kind === 'shell' ? null : render(route);
-      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{routes.renderRetained(runtime)}{active}</View> : null;
+      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{routes.renderRetained(runtime)}{active}{routes.renderOverlays(runtime)}</View> : null;
     },
     renderDestination: destination => render({kind: 'shell', destination}),
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
@@ -287,13 +298,13 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         if (result.error) throw failure(result.error.code);
       })} : {...common, owner: false as const};
     },
-    error: (error, retry) => {const presented = presentError(error, 'home'); return {title: presented.title, body: presented.body, tone: 'error', ...(presented.action === 'try-again' || presented.action === 'refresh' ? {primaryAction: {id: 'retry', label: presented.actionLabel, onPress: retry}} : {})};},
+    error: (error, retry) => feedback.error(error, retry, 'home'),
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler); return () => {if (scroll.get(key) === handler) scroll.delete(key);};},
     registerTVRailBack: handler => {tvRailBack = handler; return () => {if (tvRailBack === handler) tvRailBack = undefined;};},
     registerTVPageBack: handler => {tvPageBack = handler; return () => {if (tvPageBack === handler) tvPageBack = undefined;};},
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); toast = null; runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); runtime = undefined; listeners.clear();},
   };
 }

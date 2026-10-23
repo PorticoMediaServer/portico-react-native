@@ -24,6 +24,9 @@ test('the screen port observes the same device store and routes play through its
     localMedia: async (value: OfflineEntry) => ({entryId:value.id,itemId:value.itemId,playId:'play',fileUrl:'file:///media',durationSeconds:10,startSeconds:0}),
   };
   const adapter = createNativeOfflineDownloadsAdapter(async value => {calls.push(['play',value]);},device);
+  const storageOnly = createNativeOfflineDownloadsAdapter(undefined, device);
+  assert.equal(storageOnly.openOffline, undefined, 'no placeholder playback command is installed');
+  assert.equal(storageOnly.getSnapshot(), state, 'the genuine local store remains available without playback');
   assert.equal(adapter.getSnapshot(),state);
   const off = adapter.subscribe(listener); await adapter.open(); await adapter.setSettings({limitBytes:75});
   await adapter.openOffline(entry); await adapter.pause(entry); await adapter.resume(entry); await adapter.remove(entry); await adapter.removeOthers();

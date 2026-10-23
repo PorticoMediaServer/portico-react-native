@@ -6,7 +6,7 @@ import {Artwork} from '../../kit/artwork';
 import {ArtFrame, CardFrame, Progress} from '../../kit/cards/primitives';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
-import type {NativeOfflineDownloadsAdapter, OfflineGroup} from '../../platform/offline-downloads';
+import type {NativeOfflineDownloadsDevice, OfflineGroup} from '../../platform/offline-downloads';
 import {downloadEntryIdentity, downloadTransferProgress} from '../downloads/presentation';
 import {useDownloadArtwork} from '../downloads/useDownloadArtwork';
 
@@ -14,7 +14,7 @@ export type NativeSavedDownloadsCopy = Readonly<{downloading: MessageId}>;
 
 /** phone9 uses a real cached local backdrop and its own drawn caption. A generic
  * continuation card intentionally filters these facts out on phones. */
-export function SavedDownloadCard({group, device, copy, onOpen}: {group: OfflineGroup; device: NativeOfflineDownloadsAdapter; copy: NativeSavedDownloadsCopy; onOpen: () => void}) {
+export function SavedDownloadCard({group, device, copy, onOpen}: {group: OfflineGroup; device: NativeOfflineDownloadsDevice; copy: NativeSavedDownloadsCopy; onOpen: () => void}) {
   const theme = useTheme(), gradient = useId(), first = group.entries[0];
   const facts = useDownloadArtwork(device, first);
   const title = group.title || first.title, width = 214, height = width * 9 / 16;
