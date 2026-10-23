@@ -9,6 +9,9 @@
 @property(nonatomic,readonly) NSString *lease;
 /** Current source-ready video binding; nil while replanning, seeking, suspended or unready. */
 @property(nonatomic,copy,readonly) NSDictionary *externalPresentationBinding;
+/** Actual decoded current-item frame, independent of the presentation view's bounds.
+ * Main queue only. Caller owns the returned buffer. No seek or asset still-image fallback. */
+- (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform CF_RETURNS_RETAINED;
 @property(nonatomic,readonly) NSString *subtitleText;
 @property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
 @property(nonatomic,readonly) NSDictionary *subtitleCue;

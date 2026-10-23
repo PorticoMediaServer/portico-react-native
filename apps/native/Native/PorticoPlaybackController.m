@@ -91,6 +91,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  NSString *_itemInstanceId; NSString *_source; NSString *_instanceId; NSInteger _intentId; NSInteger _seekRevision; BOOL _paused; BOOL _observing; BOOL _seeking; NSNumber *_timelineOriginMS;
  // The item whose status is observed, held so the observer always comes off the item it went on.
  AVPlayerItem *_observedItem;
+ AVPlayerItemVideoOutput *_videoOutput; CVPixelBufferRef _capturedVideoFrame; CMTime _capturedVideoTime;
  // Portico's caption style from the subtitle command in force.
  NSDictionary *_subtitleStyle;
  // Television: the display is being asked to match the title before it is announced ready, so
@@ -171,6 +172,23 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (NSDictionary *)externalPresentationBinding {
  if(!_lease.length||![_binding[@"lease"] isEqual:_lease]||_invalidated||_audioRender.active||_displayWaiting||_routeSuspended||_routeResume||_routeSeeking||_routeFailed||_seeking||[_command[@"pendingSeek"] isKindOfClass:NSDictionary.class]||!_player.currentItem||_player.currentItem.status!=AVPlayerItemStatusReadyToPlay||_observedItem!=_player.currentItem)return nil;
  return [_binding copy];
+}
+- (void)clearCapturedVideoFrame {
+ if(_capturedVideoFrame){CVPixelBufferRelease(_capturedVideoFrame);_capturedVideoFrame=NULL;}
+ _capturedVideoTime=kCMTimeInvalid;
+}
+- (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform {
+ if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NULL;
+ AVPlayerItem *item=_observedItem;CMTime now=item.currentTime,actual=kCMTimeInvalid;
+ if(!CMTIME_IS_NUMERIC(now))return NULL;
+ CVPixelBufferRef frame=[_videoOutput copyPixelBufferForItemTime:now itemTimeForDisplay:&actual];
+ if(frame){[self clearCapturedVideoFrame];_capturedVideoFrame=frame;_capturedVideoTime=actual;}
+ // A paused frame may have already been consumed by a previous request. Reuse only the
+ // actual decoded buffer from this same item/binding and within one frame's coarse budget.
+ if(!_capturedVideoFrame||!CMTIME_IS_NUMERIC(_capturedVideoTime)||fabs(CMTimeGetSeconds(CMTimeSubtract(now,_capturedVideoTime)))>.25||item!=_player.currentItem||![binding isEqual:self.externalPresentationBinding])return NULL;
+ if(displayTime)*displayTime=_capturedVideoTime;
+ if(transform){*transform=CGAffineTransformIdentity;for(AVPlayerItemTrack *track in item.tracks)if([track.assetTrack.mediaType isEqual:AVMediaTypeVideo]){*transform=track.assetTrack.preferredTransform;break;}}
+ return CVPixelBufferRetain(_capturedVideoFrame);
 }
 - (PorticoSubtitleOverlay *)subtitleOverlay { return _subtitleOverlay; }
 - (AVPlayer *)player { return _player; }
@@ -280,7 +298,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   NSDictionary *renderBinding=binding;if(_applyingListening&&[render[@"opaqueBinding"] isEqual:@YES]&&[render[@"plan"] isKindOfClass:NSDictionary.class])renderBinding=@{@"sessionId":render[@"plan"][@"sessionId"]?:@"",@"generation":render[@"plan"][@"generation"]?:@0};
   NSString *error=[PorticoAudioRender validate:render source:command[@"source"] binding:renderBinding];if(error)return error;}
  // All validation precedes mutation. Equal live seek permits newer pause/rate commands.
- if(!sameBinding){_acceptedSeekRevision=-1;_seekRetired=NO;}
+ if(!sameBinding){_acceptedSeekRevision=-1;_seekRetired=NO;[self clearCapturedVideoFrame];}
  if(hasPending){_acceptedSeekRevision=incoming;_acceptedSeekTarget=target;_seekRetired=NO;}
  else if(_acceptedSeekRevision>=0)_seekRetired=YES;
  _timelineOriginMS=linear?[clock copy]:nil;
@@ -395,7 +413,9 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
    [self configureVideoAudioSession];
    // The owner's own certificate is answered the way every Portico connection answers it.
    AVURLAsset *asset=[AVURLAsset URLAssetWithURL:url options:nil];[asset.resourceLoader setDelegate:PorticoServerTrust.resourceLoaderDelegate queue:PorticoServerTrust.resourceLoaderQueue];
-   AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:asset];PorticoConfigureItem(item);_itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
+   AVPlayerItem *item=[AVPlayerItem playerItemWithAsset:asset];PorticoConfigureItem(item);
+   _videoOutput=[[AVPlayerItemVideoOutput alloc]initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];_videoOutput.suppressesPlayerRendering=NO;[item addOutput:_videoOutput];
+   _itemInstanceId=NSUUID.UUID.UUIDString;[item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];[item addObserver:self forKeyPath:@"seekableTimeRanges" options:NSKeyValueObservingOptionNew context:NULL];_observing=YES;_observedItem=item;[_player replaceCurrentItemWithPlayerItem:item];
    if(_routeResume){NSInteger routeEpoch=_routeEpoch;__weak PorticoPlaybackController *weakSelf=self;dispatch_after(dispatch_time(DISPATCH_TIME_NOW,10*NSEC_PER_SEC),dispatch_get_main_queue(),^{PorticoPlaybackController *view=weakSelf;if(view&&!view->_invalidated&&view->_routeEpoch==routeEpoch&&view->_player.currentItem==item&&view->_routeResume){view->_routeResume=NO;view->_routeSeeking=NO;view->_routeFailed=YES;view->_routeEpoch++;[view->_player.currentItem cancelPendingSeeks];[view->_player pause];[view emit:@"error" error:@"playback_retained_position_unavailable"];}});}
   }
  }
@@ -438,7 +458,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  NSInteger revision=[pending[@"revision"] integerValue];if(revision<=_seekRevision)return;
  double target=[pending[@"positionSeconds"] doubleValue];if(!isfinite(target)||(!_timelineOriginMS&&target<0))return;
  if(_timelineOriginMS&&!_player.currentItem.currentDate)return;
- _seekRevision=revision;_seeking=YES;[_player pause];
+ _seekRevision=revision;_seeking=YES;[self clearCapturedVideoFrame];[_player pause];
  NSDictionary *capturedBinding=_binding;NSInteger intent=_intentId;AVPlayerItem *item=_player.currentItem;__weak PorticoPlaybackController *weakSelf=self;
  double seekTarget=target;
 #if DEBUG
@@ -659,6 +679,6 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  double now=CMTimeGetSeconds(item.currentTime);
  if(isfinite(now)){for(NSValue *value in item.loadedTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end)&&start<=now+0.5&&end>now){fact[@"bufferedSeconds"]=@(end-now);break;}}}
 }
-- (void)removeObservation{if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
+- (void)removeObservation{[self clearCapturedVideoFrame];if(_videoOutput&&[_observedItem.outputs containsObject:_videoOutput])[_observedItem removeOutput:_videoOutput];_videoOutput=nil;if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
 - (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end
