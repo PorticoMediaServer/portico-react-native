@@ -90,7 +90,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
           {primaryAction && action(primaryAction, true)}
           {secondaryAction && action(secondaryAction, false)}
           {additionalActions?.map(item => action(item, false))}
-          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, trailingIcon: detailsAction.trailingIcon ?? (tv || detailsPresentation === 'link' ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined}
+          {detailsAction && <StateActionButton testID={testID} action={{...detailsAction, trailingIcon: detailsAction.trailingIcon ?? (tv || detailsPresentation === 'link' ? undefined : 'i-right')}} size={tv ? 'hero' : 'small'} variant={tv ? 'glass' : 'text'} iconSize={!tv ? 16 : undefined} iconColor={!tv ? theme.colors.textSecondary : undefined}
             style={!tv ? detailsPresentation === 'link' ? {height: 20, paddingHorizontal: 0, alignSelf: 'center'} : {height: player ? 40 : 44, paddingHorizontal: 6} : undefined}
             textStyle={!tv ? {fontSize: (player ? 14 : 14.5) * theme.textScale, color: theme.colors.textSecondary} : undefined} />}
         </View>
