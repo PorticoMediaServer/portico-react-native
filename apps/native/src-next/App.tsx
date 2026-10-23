@@ -9,6 +9,7 @@ import {RestoredShell} from './shell/RestoredShell';
 // Only the selected platform loads its screen-owned registration modules.
 if (!Platform.isTV) require('./screens/downloads/register');
 require('./screens/home/CustomizeRoute');
+const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
 export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentType; runtime?: NativeShellRuntime; reduceMotion?: boolean; textScale?: number};
@@ -16,7 +17,7 @@ export type NativeAppProps = {phoneShell?: ComponentType; tvShell?: ComponentTyp
 function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const {colors} = useTheme();
   const RuntimeShell = useMemo(() => runtime ? function BoundNativeShell() {return <NativeShell runtime={runtime}/>;} : undefined, [runtime]);
-  const Shell = RuntimeShell ?? (Platform.isTV ? tvShell : phoneShell) ?? RestoredShell;
+  const Shell = RuntimeShell ?? (Platform.isTV ? tvShell ?? TVRoot : phoneShell) ?? RestoredShell;
   return <View testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null}</View>;
 }
 
