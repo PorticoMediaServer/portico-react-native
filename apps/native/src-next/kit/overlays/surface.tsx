@@ -100,29 +100,33 @@ export function Dialog(props: DialogProps) {
 function useScrimStyle(progress: {value: number}) {
   return useAnimatedStyle(() => ({opacity: progress.value}));
 }
-export function SidePanel({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true, showClose = true}: SidePanelProps) {
+export function SidePanel({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width, topInset = 76, closeOnOutsidePress = false, dismissOnBack = true, showClose = true, logicalCanvas}: SidePanelProps) {
   const theme = useTheme();
-  const actualWidth = width ?? (theme.isTV ? 640 : 440);
   const frame = useOverlayFrame();
   const viewport = useWindowDimensions();
+  const hostWidth = frame.width || viewport.width;
+  const hostHeight = frame.height || viewport.height;
+  const canvas = theme.isTV && logicalCanvas && Number.isFinite(logicalCanvas.width) && logicalCanvas.width > 0 && Number.isFinite(logicalCanvas.height) && logicalCanvas.height > 0 ? logicalCanvas : undefined;
+  const canvasScale = canvas ? Math.min(hostWidth / canvas.width, Math.max(0, hostHeight - topInset) / canvas.height) : 1;
+  const actualWidth = canvas ? canvas.width * canvasScale : width ?? (theme.isTV ? 640 : 440);
   const animation = useSurfaceMotion(open, 'side', actualWidth);
   const closeRef = useRef<View>(null);
   const dismiss = (reason: OverlayReason) => {if ((reason !== 'back' && reason !== 'escape') || dismissOnBack) onOpenChange(false, reason);};
   useOverlayLifecycle(animation.present, false, dismiss, initialFocusRef ?? closeRef, returnFocusRef, animation.enterMs, testID);
-  const hostWidth = frame.width || viewport.width;
-  const hostHeight = frame.height || viewport.height;
   const panelWidth = Math.min(actualWidth, hostWidth);
   const rect = {x: frame.x + hostWidth - panelWidth, y: frame.y + topInset, width: panelWidth, height: Math.max(0, hostHeight - topInset)};
   if (!animation.present) return null;
-  return <OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
-    <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu, paddingTop: theme.isTV ? 64 : 24, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0}, animation.style, style]}>
-      {theme.isTV && <PanelBackground/>}
+  const padding = {paddingTop: theme.isTV ? 64 : 24, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 0, paddingRight: theme.isTV ? 96 : 0};
+  const content = <>{theme.isTV && <PanelBackground/>}
       <FocusBoundary modal testID={testID} style={styles.root}>
         {headerContext}
         <SurfaceHeader side title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={showClose ? <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" onPress={() => dismiss('close-button')}>{defaultI18n.t('action.close')}</Button> : undefined}/>
         <View style={[styles.root, contentStyle]}>{children}</View>
         {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}
-      </FocusBoundary>
+      </FocusBoundary></>;
+  return <OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
+    <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu}, canvas ? undefined : padding, animation.style, canvas ? undefined : style]}>
+      {canvas ? <View style={[padding, style, {position: 'absolute', top: 0, left: 0, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvasScale}]}]}>{content}</View> : content}
     </Animated.View>
   </OverlayPortal>;
 }
