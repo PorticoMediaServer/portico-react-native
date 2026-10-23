@@ -1046,7 +1046,8 @@ test('a genuine detail response with a different Home fence supplies episode met
     assertEpisodeDetail(d, 'show-1');
     const snapshot = d.runtime.getSnapshot();
     assert.equal(snapshot.fence?.sessionId, snapshot.session?.id);
-    assert.equal(snapshot.fence?.sourceId, snapshot.session?.versionId);
+    assert.ok(snapshot.fence?.kind === 'queue');
+    assert.equal(snapshot.fence.sourceId, snapshot.session?.versionId);
     assert.equal(snapshot.fence?.generation, snapshot.session?.presentation.generation);
     assert.equal(d.engine.lastCommand.binding.sessionId, snapshot.session?.id);
     assert.equal(snapshot.playback.phase, 'ready');
