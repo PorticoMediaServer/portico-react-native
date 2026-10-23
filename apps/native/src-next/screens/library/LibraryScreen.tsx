@@ -91,7 +91,9 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   </FocusRegion>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
   const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher}>{tabs}</LibraryHeader>
-    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}/>}
+    : <StickyBrowseHeader name={state.library.name} switcher={switcher} menu={<LibraryMenu {...runtime.libraryMenu(state.library)} onSaveView={() => {
+      if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
+    }}/>}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</StickyBrowseHeader>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
