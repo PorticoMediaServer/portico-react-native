@@ -8,6 +8,8 @@ import {RestoredShell} from './shell/RestoredShell';
 
 if (!Platform.isTV) require('./screens/downloads/register');
 require('./screens/home/CustomizeRoute');
+require('./screens/home/SeeAllRoute');
+require('./screens/settings-live/LiveRoute');
 require('./screens/settings-live/TogetherRoute');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
