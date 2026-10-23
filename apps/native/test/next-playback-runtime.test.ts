@@ -14,6 +14,7 @@ import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/
 import type {SelectionContext} from '../../../packages/client-core/src/selection-model/index.ts';
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
+import type {ExpandedSlotLayout} from '../src-next/shell/watch-slot-layout.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
@@ -1194,6 +1195,56 @@ test('production Fabric window settlement preserves the actual Surface owner/ref
   } finally {await ui?.unmount(); d.runtime.dispose();}
 });
 
+
+test('production Fabric watch-slot invalidation and docking keep one actual Surface owner and engine lease', async () => {
+  const d = fixture(), owners: object[] = [], tags: (number | null)[] = [], listeners = new Set<() => void>();
+  let slot: ExpandedSlotLayout | undefined, ui: Awaited<ReturnType<typeof fabricPlayback>> | undefined;
+  const watch = {getSnapshot: () => slot, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
+  const attachSurface = d.runtime.attachSurface.bind(d.runtime), setSurfaceTag = d.runtime.setSurfaceTag.bind(d.runtime);
+  d.runtime.attachSurface = owner => {owners.push(owner); return attachSurface(owner);};
+  d.runtime.setSurfaceTag = (owner, tag) => {tags.push(tag); setSurfaceTag(owner, tag);};
+  const publish = async (next?: ExpandedSlotLayout) => {slot = next; for (const listener of listeners) listener(); await ui!.settle();};
+  try {
+    await d.start('movie-1', 0);
+    const initial = d.runtime.getSnapshot(), commands = d.engine.commands.length, requests = d.requests.length;
+    ui = await fabricPlayback(d.runtime, true, watch);
+    const ref = ui.nativeProps.at(-1)!.ref;
+    assert.equal(ui.nativeProps.at(-1)!.style.display, 'none', 'a real outlet without a picture cannot create a full-window host');
+    await ui.resize(840, 880);
+    for (const [revision, width, height] of [[1, 840, 472.5], [2, 445, 626], [3, 840, 880]]) {
+      await publish({authority: initial.authority, fence: initial.fence!, layoutRevision: revision, window: {width: 840, height: 880}, frameInWindow: {x: 0, y: 0, width, height}});
+      const props: {style: {width: number; height: number; display: string}; ref: unknown; lease: string} = ui.nativeProps.at(-1)!;
+      assert.equal(props.style.width, width);
+      assert.equal(props.style.height, height);
+      assert.equal(props.style.display, 'flex');
+      assert.strictEqual(props.ref, ref);
+      assert.equal(props.lease, initial.lease);
+      await publish();
+      assert.equal(ui.nativeProps.at(-1)!.style.display, 'none');
+      assert.strictEqual(ui.nativeProps.at(-1)!.ref, ref);
+      assert.strictEqual(d.runtime.getSnapshot().fence, initial.fence);
+      assert.equal(d.runtime.getSnapshot().retired, false);
+      assert.equal(owners.length, 1);
+      assert.deepEqual(tags, [71]);
+      assert.equal(d.engine.released.length, 0);
+      assert.equal(d.engine.commands.length, commands);
+      assert.equal(d.requests.length, requests);
+    }
+    await ui.adapter.onTransition(ui.adapter.dock.collapse(initial.fence!)); await ui.settle();
+    assert.equal(ui.adapter.getSnapshot().dock.local?.expanded, false);
+    await publish();
+    assert.equal(ui.adapter.getSnapshot().dock.local?.expanded, false, 'watch invalidation cannot expand a docked video');
+    assert.equal(owners.length, 1); assert.deepEqual(tags, [71]);
+    assert.equal(d.engine.commands.length, commands);
+    assert.equal(d.engine.released.length, 0);
+    assert.equal(ui.parentRenders, 1);
+    await ui.unmount(); ui = undefined;
+    assert.deepEqual(tags, [71, null]);
+    assert.equal(d.runtime.getSnapshot().retired, true);
+    assert.equal(d.engine.released.length, 1);
+    assert.equal(listeners.size, 0);
+  } finally {await ui?.unmount(); d.runtime.dispose();}
+});
 
 test('one accepted fact publishes its settled progress once and retains the current source identity', async () => {
   const d = fixture();

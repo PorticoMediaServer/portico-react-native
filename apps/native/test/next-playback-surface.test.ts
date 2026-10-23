@@ -120,7 +120,7 @@ test('a leased native host stays hidden for missing or invalid target bounds', a
     surface.update({...props, docked: true});
     assert.equal(flatten(surface.tree.props.style).display, 'none');
     assert.equal(surface.tree.props.surfaceActive, false);
-    for (const bounds of [{...frame, width: 0}, {...frame, height: -1}, {...frame, x: NaN}, {...frame, width: Infinity}]) {
+    for (const bounds of [undefined, {...frame, width: 0}, {...frame, height: -1}, {...frame, x: NaN}, {...frame, width: Infinity}]) {
       surface.update({...props, expandedBounds: bounds});
       assert.equal(flatten(surface.tree.props.style).display, 'none');
       assert.equal(surface.tree.props.surfaceActive, false);

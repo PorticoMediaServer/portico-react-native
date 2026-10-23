@@ -1,0 +1,154 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as React from 'react';
+import {PlaybackDock, playbackFence, sameFence} from '../../../packages/player-core/src';
+import {sameAuthority} from '../src-next/shell/model.ts';
+import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
+import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
+import type {ExpandedSlotLayout, ExpandedSlotReader} from '../src-next/shell/watch-slot-layout.ts';
+import {act, createHookHost} from './hook-driver.ts';
+import {screenModule} from './helpers/screen-harness.mjs';
+
+const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
+const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
+const window = {width: 840, height: 880};
+const slot: ExpandedSlotLayout = {authority, fence, layoutRevision: 1, window, frameInWindow: {x: 0, y: 32, width: 840, height: 472.5}};
+const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : React.isValidElement<any>(node) ? [node, ...nodes(node.props.children)] : [];
+
+function reader() {
+  let value: ExpandedSlotLayout | undefined;
+  const listeners = new Set<() => void>();
+  const source: ExpandedSlotReader = {
+    getSnapshot() {assert.strictEqual(this, source); return value;},
+    subscribe(listener) {assert.strictEqual(this, source); listeners.add(listener); return () => {listeners.delete(listener);};},
+  };
+  return {source, get subscriptions() {return listeners.size;}, async publish(next?: ExpandedSlotLayout, notify = true) {value = next; await act(() => {if (notify) for (const listener of listeners) listener();});}};
+}
+
+async function layer(withWatch = true) {
+  const outlet = reader(), dock = new PlaybackDock(fence.playback.scope), transitions: any[] = [];
+  dock.start({kind: 'video', fence, queue: null, positionSeconds: 540, playing: true, expanded: true});
+  let dimensions = window, current: any, tree: any;
+  const refresh = () => {current = {authority, fence, dock: dock.getSnapshot(), playback: {duration: 5700}, subject: {}, capabilities: {}};};
+  refresh();
+  const adapter = {getSnapshot: () => current, subscribe: () => () => {}, Surface: 'ActualSurface', dock,
+    captureVideoSnapshot: async () => undefined, onTransition: async (value: any) => {transitions.push(value);}};
+  const callbacks: ((x: number, y: number) => void)[] = [];
+  let node: any = {measureInWindow: (callback: any) => {callbacks.push(callback);}};
+  const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
+  const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => dimensions},
+    'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
+    'react-native-reanimated': {default: {View: 'Animated.View'}, useAnimatedStyle: (style: () => unknown) => style()},
+    '../kit/focus': {}, './tv-focus': {}, '../kit/theme': {useTheme: () => ({isTV: false, layers: {player: 30}})},
+    '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
+    '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
+    './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout,
+  });
+  let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? outlet.source : undefined};
+  const host = createHookHost(() => {tree = NativePlaybackLayer({adapter, runtime, authority}); if (tree) tree.props.ref.current = node;});
+  host.mount(); await act(() => {});
+  const picture = () => nodes(tree).find(item => item.type === 'PlayerMorph').props;
+  const surface = () => {
+    const props = picture(), frame = props.docked ? props.dockFrame : props.fullFrame;
+    return props.children({bounds: {x: 0, y: 0, width: frame.width, height: frame.height}, docked: props.docked, subtitlesVisible: true, surfaceActive: true});
+  };
+  return {host, outlet, dock, callbacks, transitions, picture, surface, get tree() {return tree;},
+    async render() {refresh(); await act(() => host.rerender());},
+    async resize(next: typeof window) {dimensions = next; await act(() => host.rerender());},
+    async replaceReader(next: ReturnType<typeof reader>) {runtime = {...runtime, watch: next.source}; await act(() => host.rerender());},
+    setCurrent(patch: any) {current = {...current, ...patch};},
+    detachHost() {node = null; tree.props.ref.current = null;},
+    close() {host.unmount();},
+  };
+}
+
+test('watch consumption waits for its accepted measured picture, converts origin and scopes pan away from details', async () => {
+  const d = await layer();
+  try {
+    const type = d.surface().type;
+    assert.equal(d.surface().props.expandedBounds, undefined);
+    assert.equal(nodes(d.tree).filter(node => node.type === 'GestureDetector').length, 0);
+    await d.outlet.publish(slot);
+    assert.equal(d.callbacks.length, 1);
+    assert.equal(d.surface().props.expandedBounds, undefined);
+    await act(() => d.callbacks.shift()!(4, -45));
+    assert.deepEqual(d.picture().fullFrame, {x: -4, y: 77, width: 840, height: 472.5});
+    assert.deepEqual(d.surface().props.expandedBounds, {x: 0, y: 0, width: 840, height: 472.5});
+    assert.deepEqual(nodes(d.tree).find(node => node.type === 'GestureDetector').props.children.props.style,
+      {position: 'absolute', left: -4, top: 77, width: 840, height: 472.5});
+    const panel = {...slot, layoutRevision: 2, frameInWindow: {x: 0, y: 0, width: 445, height: 626}};
+    await d.outlet.publish(panel);
+    assert.deepEqual(d.picture().fullFrame, {x: -4, y: 77, width: 840, height: 472.5}, 'internal geometry is retained, never promoted while measuring');
+    assert.equal(d.surface().props.expandedBounds, undefined);
+    await act(() => d.callbacks.shift()!(0, 0));
+    assert.deepEqual(d.picture().fullFrame, panel.frameInWindow);
+    assert.equal(nodes(d.tree).find(node => node.type === 'GestureDetector').props.children.props.style.width, 445);
+    await d.outlet.publish();
+    assert.equal(d.surface().props.expandedBounds, undefined);
+    assert.equal(nodes(d.tree).filter(node => node.type === 'GestureDetector').length, 0);
+    assert.strictEqual(d.surface().type, type);
+    assert.deepEqual(d.transitions, []);
+  } finally {d.close();}
+  assert.equal(d.outlet.subscriptions, 0);
+});
+
+test('watch origin callbacks reject replacement slot, source, authority, window, host, reader, dock and unmount before notification', async () => {
+  for (const stop of ['slot', 'source', 'authority', 'window', 'host', 'reader', 'dock', 'unmount']) {
+    const d = await layer(); let closed = false;
+    try {
+      await d.outlet.publish(slot);
+      const late = d.callbacks.shift()!;
+      if (stop === 'slot') await d.outlet.publish({...slot, layoutRevision: 2}, false);
+      else if (stop === 'source') d.setCurrent({fence: {...fence, generation: 2}});
+      else if (stop === 'authority') d.setCurrent({authority: {...authority, viewerFence: 'retired'}});
+      else if (stop === 'window') await d.resize({width: 880, height: 840});
+      else if (stop === 'host') d.detachHost();
+      else if (stop === 'reader') {const next = reader(); await next.publish(slot); await d.replaceReader(next);}
+      else if (stop === 'dock') {d.dock.collapse(fence); await d.render();}
+      else {d.close(); closed = true;}
+      await act(() => late(0, -45));
+      if (!closed) assert.equal(d.surface().props.expandedBounds, undefined, stop);
+      assert.deepEqual(d.transitions, []);
+    } finally {if (!closed) d.close();}
+  }
+});
+
+test('only the newest persistent-host origin measurement can move the same watch picture', async () => {
+  const d = await layer();
+  try {
+    await d.outlet.publish(slot); await act(() => d.callbacks.shift()!(0, 0));
+    d.tree.props.onLayout(); d.tree.props.onLayout();
+    await act(() => d.callbacks.shift()!(0, -40));
+    assert.equal(d.picture().fullFrame.y, 32);
+    await act(() => d.callbacks.shift()!(0, -45));
+    assert.equal(d.picture().fullFrame.y, 77);
+  } finally {d.close();}
+});
+
+test('docking keeps its measured slot while expanded watch layout is invalidated', async () => {
+  const d = await layer();
+  try {
+    await d.outlet.publish(slot); await act(() => d.callbacks.shift()!(0, 0));
+    d.dock.collapse(fence); await d.render();
+    const dockFrame = {x: 16, y: 720, width: 80, height: 45};
+    nodes(d.tree).find(node => node.type === 'DockHost').props.onVideoSlot(dockFrame);
+    await act(() => d.callbacks.shift()!(0, 0));
+    await d.outlet.publish();
+    assert.equal(d.picture().docked, true);
+    assert.deepEqual(d.picture().dockFrame, dockFrame);
+    assert.equal(d.surface().props.docked, true);
+    assert.deepEqual(d.surface().props.dockBounds, {x: 0, y: 0, width: 80, height: 45});
+    assert.equal(d.callbacks.length, 0);
+  } finally {d.close();}
+});
+
+test('old fixture runtimes without a watch reader preserve the existing full-window behavior', async () => {
+  const d = await layer(false);
+  try {
+    assert.deepEqual(d.picture().fullFrame, {x: 0, y: 0, width: 840, height: 880});
+    assert.deepEqual(d.surface().props.expandedBounds, {x: 0, y: 0, width: 840, height: 880});
+    assert.deepEqual(nodes(d.tree).find(node => node.type === 'GestureDetector').props.children.props.style, {position: 'absolute', inset: 0});
+    assert.equal(d.callbacks.length, 0);
+  } finally {d.close();}
+});
