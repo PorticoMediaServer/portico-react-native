@@ -12,7 +12,7 @@ internal object PorticoDownloadStorage {
   private fun stat(file: File): DownloadStorageNode {
     // lstat never traverses a symbolic link outside the app-owned Downloads tree.
     val value = Os.lstat(file.absolutePath)
-    return DownloadStorageNode(value.st_dev, value.st_ino, OsConstants.S_ISDIR(value.st_mode), value.st_size, Math.multiplyExact(value.st_blocks, 512L))
+    return DownloadStorageNode(value.st_dev, value.st_ino, OsConstants.S_ISDIR(value.st_mode), if (OsConstants.S_ISREG(value.st_mode)) value.st_size else 0L, Math.multiplyExact(value.st_blocks, 512L))
   }
 
   /** A failed/overflowed/transiently disappearing entry is unknown, never an invented zero. */

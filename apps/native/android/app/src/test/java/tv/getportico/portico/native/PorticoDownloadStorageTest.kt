@@ -13,8 +13,8 @@ class PorticoDownloadStorageTest {
   }
   @Test fun symbolicLinkNodeIsCountedWithoutFollowingItsTarget() {
     val root=File("downloads"); val link=File(root,"link"); var listed=0
-    val measured=PorticoDownloadStorage.measure(root,{if(it==root)DownloadStorageNode(1,1,true,0,512) else DownloadStorageNode(1,2,false,12,0)},{listed++;listOf(link)})
-    assertEquals(1,listed);assertEquals(DownloadStorageUsage(12,512),measured)
+    val measured=PorticoDownloadStorage.measure(root,{if(it==root)DownloadStorageNode(1,1,true,0,512) else DownloadStorageNode(1,2,false,0,512)},{listed++;listOf(link)})
+    assertEquals(1,listed);assertEquals(DownloadStorageUsage(0,1024),measured)
   }
   @Test fun partialReadFailureOrOverflowRemainsUnknown() {
     val root=File("downloads")
