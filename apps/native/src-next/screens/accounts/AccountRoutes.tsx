@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
@@ -11,6 +11,7 @@ import {nativeAppSessions, subscribeNativeAppSessions} from '../../platform/app-
 import {nativeProfileSelection} from '../../platform/profile-selection';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
+import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {StateLayout} from '../../kit/states';
 import {ProfilePicker} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
@@ -38,6 +39,8 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) setError(failure);} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
+  const back = () => {if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busy) back(); return true;}); return () => subscription.remove();});
   return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
     beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <TextField label={t('pin.fourDigit')} value={pin} onChangeText={setPin} secureTextEntry keyboardType="number-pad" editable={!busy}/> :
       <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
@@ -45,7 +48,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
           if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>}
       {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
     primaryAction={profile ? {id: 'choose-profile', label: t('action.continue'), disabled: busy || !/^\d{4}$/.test(pin), loading: busy, onPress: () => {void choose(profile.id, pin);}} : undefined}
-    secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: () => {if (profile) {setProfile(undefined); setPin('');} else onBack();}}}/>;
+    secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>;
 }
 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
@@ -64,6 +67,11 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
   };
   const close = () => {approver.current?.dispose(); approver.current = undefined; setPreview(undefined); setCode(''); setError(undefined); setPanel('servers');};
   const cancel = () => {if (panel === 'servers') onBack?.(); else close();};
+  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+    if (busy) return true;
+    if (panel === 'servers' && !onBack) return false;
+    cancel(); return true;
+  }); return () => subscription.remove();});
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
   const errorView = error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 12}]}>{presentError(error, 'account').body}</Text> : null;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-servers" title={title} body={body}
@@ -108,3 +116,10 @@ export function ServersRoute({context, onBack, onComplete}: {context?: NativeShe
     });}}>{t('accounts.signOut.portico')}</Button>}
   </View>);
 }
+
+const createAccountRoute: NativeRouteFactory = context => ({render: route => {
+  if (route.kind !== 'profiles' && route.kind !== 'servers') throw new Error('native_account_route_mismatch');
+  return <AccountRoute route={route} context={context}/>;
+}});
+nativeShellRoutes.registerRoute('profiles', createAccountRoute);
+nativeShellRoutes.registerRoute('servers', createAccountRoute);
