@@ -4,15 +4,17 @@ import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {NativeShellNavigation, titleRoute} from '../src-next/shell/routes';
 import {NativeHomeRowController} from '../src-next/screens/home/row-controller';
+import {NativeShellRouteRegistry} from '../src-next/shell/route-registry';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
 test('real row outlet retains its exact controller through a title and cancels only pending navigation work', async () => {
   const navigation = new NativeShellNavigation(authority, () => authority), starts: any[] = [];
-  const {createNativeHomeRows} = await screenModule(new URL('../src-next/shell/HomeRowDestination.tsx', import.meta.url), {
-    react: {...React, default: React}, 'react-native': {View: 'View'}, '../kit/focus': {},
-    '../screens/home/HomeSeeAll': {}, '../screens/home/HomeRowFilters': {},
-    '../screens/home/row-controller': {NativeHomeRowController}, '../platform/server-connections': {}, './routes': {titleRoute},
+  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View'}, '../../kit/focus': {},
+    './HomeSeeAll': {}, './HomeRowFilters': {},
+    './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute},
+    '../../shell/route-registry': {nativeShellRoutes: new NativeShellRouteRegistry()}, '../../shell/model': {}, '../../kit/theme': {},
   });
   let resolve!: () => void;
   const pending = new Promise<void>(done => {resolve = done;});

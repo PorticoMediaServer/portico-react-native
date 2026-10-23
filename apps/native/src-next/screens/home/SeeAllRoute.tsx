@@ -1,16 +1,43 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {View} from 'react-native';
-import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
-import {HomeSeeAll} from '../screens/home/HomeSeeAll';
-import {HomeRowFilters} from '../screens/home/HomeRowFilters';
-import {NativeHomeRowController} from '../screens/home/row-controller';
-import {nativeRouteCrypto} from '../platform/server-connections';
-import type {NativeShellBootstrapContext} from './bootstrap';
-import type {NativeShellRuntime} from './runtime';
-import {titleRoute, type NativeShellRoute} from './routes';
+import {View, useWindowDimensions} from 'react-native';
+import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
+import {HomeSeeAll} from './HomeSeeAll';
+import {HomeRowFilters} from './HomeRowFilters';
+import {NativeHomeRowController} from './row-controller';
+import {nativeRouteCrypto} from '../../platform/server-connections';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import type {NativeShellRuntime} from '../../shell/runtime';
+import {titleRoute, type NativeShellRoute} from '../../shell/routes';
+import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
+import {shellLayout} from '../../shell/model';
+import {useTheme} from '../../kit/theme';
 
 type RowRoute = Extract<NativeShellRoute, {kind: 'home-see-all'}>;
 type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
+
+export function createNativeHomeSeeAllRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer & {renderRetained: (runtime: NativeShellRuntime) => React.ReactNode} {
+  let disposed = false, runtime: NativeShellRuntime | undefined;
+  const rows = createNativeHomeRows(context, error => {if (!disposed && context.current()) {if (!runtime) throw error; runtime.reportError(error);}});
+  const unsubscribe = context.navigation.subscribe(rows.reconcile);
+  rows.reconcile();
+  return {
+    render: (route, actual) => {
+      if (route.kind !== 'home-see-all' || route.destination.type !== 'row') throw new Error('native_home_row_route_mismatch');
+      runtime = actual; rows.reconcile(); return null;
+    },
+    renderRetained: actual => {runtime = actual; return <HomeRowsCanvas>{rows.render(actual)}</HomeRowsCanvas>;},
+    dispose: () => {disposed = true; unsubscribe(); rows.dispose(); runtime = undefined;},
+  };
+}
+
+function HomeRowsCanvas({children}: {children: React.ReactNode}) {
+  const theme = useTheme(), window = useWindowDimensions();
+  const layout = shellLayout(window.width, window.height, theme.isTV);
+  return <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
+    {theme.isTV ? <View pointerEvents="box-none" style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height,
+      transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{children}</View> : children}
+  </View>;
+}
 
 /** Own only actual row destinations. Retaining a title never replaces the
  * requested row, its sparse collection, sort/filter state or mounted grid. */
@@ -37,7 +64,9 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
     const pending = new AbortController(), abort = () => pending.abort();
     source.abort.signal.addEventListener('abort', abort, {once: true});
     const off = context.navigation.subscribe(() => {if (!current(source)) pending.abort();});
-    void context.playback.runtime.startGroup({query, shuffle, signal: pending.signal, isCurrent: () => current(source)}).catch(reportError).finally(() => {
+    void context.playback.runtime.startGroup({query, shuffle, signal: pending.signal, isCurrent: () => current(source)}).catch(error => {
+      if (!pending.signal.aborted && current(source)) reportError(error);
+    }).finally(() => {
       source.abort.signal.removeEventListener('abort', abort); off();
     });
   };
@@ -53,6 +82,8 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
     dispose: () => {alive = false; for (const source of rows.values()) {source.abort.abort(); source.controller.dispose();} rows.clear();},
   };
 }
+
+nativeShellRoutes.registerRoute('home-see-all', createNativeHomeSeeAllRenderer);
 
 function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPlayEntry, kindLabel}: {
   source: RowLifetime; runtime: NativeShellRuntime; active: boolean;
