@@ -66,6 +66,7 @@ registerHooks({
   },
 });
 const NativeInput = (await import('react-native')).TextInput;
+const nativePlatform = (await import('react-native')).Platform as {OS: 'android' | 'ios'};
 const {selectionControlID: controlID} = await import('../src-next/kit/selection/focus-ids.ts');
 const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
@@ -554,6 +555,32 @@ test('Selection input uses real native focus/blur/ref and keeps default and TV f
   assert.equal(forwarded.current, null);
 });
 
+test('drawn Selection fields use native accent carets without changing selection or caller colours', () => {
+  const previousTheme = state.theme, previousOS = nativePlatform.OS;
+  const selection = {start: 2, end: 4}, onSelectionChange = () => {};
+  try {
+    for (const os of ['android', 'ios'] as const) {
+      nativePlatform.OS = os;
+      for (const isTV of [false, true]) {
+        state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+        const field = mount(TextField, {appearance: 'selection', value: 'Actual input', selection, onSelectionChange, autoCorrect: false});
+        try {
+          const input = () => elements(field.tree).find(node => node.type === NativeInput)!;
+          assert.equal(input().props.cursorColor, !isTV && os === 'android' ? state.theme.colors.accentStrong : undefined);
+          assert.equal(input().props.selectionColor, !isTV && os === 'ios' ? state.theme.colors.accentStrong : undefined);
+          assert.equal(input().props.selection, selection);
+          assert.equal(input().props.onSelectionChange, onSelectionChange);
+          assert.equal(input().props.autoCorrect, false);
+          field.update({appearance: 'selection', value: '', cursorColor: '#123456', selectionColor: '#654321'});
+          assert.equal(input().props.cursorColor, '#123456'); assert.equal(input().props.selectionColor, '#654321');
+          field.update({value: ''});
+          assert.equal(input().props.cursorColor, undefined); assert.equal(input().props.selectionColor, undefined);
+        } finally {field.host.unmount();}
+      }
+    }
+  } finally {state.theme = previousTheme; nativePlatform.OS = previousOS;}
+});
+
 test('phone More uses real selected-kind/offer descriptions and cannot invent download facts or owner commands', () => {
   const previous = state.theme; state.theme = createTheme({isTV: false, width: 390}); const calls: unknown[] = [];
   const props: SelectionBarProps = {testID: 'actual.more', count: 2, selectionLabel: '2 tracks', selectAllLabel: 'All', onSelectAll() {}, onCancel() {}, onAction: id => calls.push(id), menu: 'more', onMenuChange: id => calls.push(id), actions: [{id: 'download'}, {id: 'edit', disabled: true, reason: 'Actual denial', description: 'Actual shared field information'}]};
@@ -995,6 +1022,9 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
         if (phone) {
           assert.match(content, /Playlist and collection entries and saved places go too\./);
           assert.doesNotMatch(content, /Actual target|Artwork actual-|12 playlists/);
+          const toggle = ofType(dialog.tree, Switch)[0]!;
+          assert.ok(toggle.props.accessibilityHint, 'the real removal consequence remains available to accessibility');
+          assert.equal(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), false, 'the compact bulk frame omits the separate removal helper');
         } else {
           assert.match(content, /Actual target 0/);
           assert.match(content, /Actual target 4/);
@@ -1013,6 +1043,8 @@ test('phone multi-delete shows the drawn aggregate while retaining the complete 
           dialog.update({...props, preview: other});
           assert.match(text(dialog.tree), /2 scheduled library channel slots/);
           assert.doesNotMatch(text(dialog.tree), /Playlist and collection entries and saved places go too/);
+          const toggle = ofType(dialog.tree, Switch)[0]!;
+          assert.ok(ofType(dialog.tree, SelectionText).some(node => text(node) === toggle.props.accessibilityHint), 'other dependency previews retain the existing helper');
         }
       } finally {dialog.host.unmount();}
     }

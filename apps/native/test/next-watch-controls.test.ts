@@ -80,3 +80,15 @@ test('an actual scrub remains pinned through producer progress and releases only
   assert.equal(controls.getSnapshot().visible, false);
   controls.dispose();
 });
+test('Back from Playback info restores the actual Options opener and its retained scroll before leaving', () => {
+  const controls = new NativeWatchControls(true), current = fence();
+  controls.source(current, expanded); controls.open('options', current); controls.rememberPanel(current, 470);
+  controls.open('playback-info', current); controls.rememberPanel(current, 93);
+  assert.equal(controls.back(current), 'panel');
+  assert.equal(controls.getSnapshot().panel, 'options');
+  assert.equal(controls.getSnapshot().panelFocus, 'playback-info');
+  assert.equal(controls.getSnapshot().panelOffset, 470);
+  assert.equal(controls.back(current), 'panel'); assert.equal(controls.getSnapshot().panel, undefined);
+  controls.open('playback-info', current); assert.equal(controls.getSnapshot().panelOffset, 93);
+  controls.dispose();
+});
