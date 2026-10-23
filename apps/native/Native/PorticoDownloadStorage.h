@@ -13,11 +13,11 @@ static inline BOOL PorticoStorageAdd(PorticoStorageCount *count,const struct sta
  NSString *identity=[NSString stringWithFormat:@"%llu:%llu",(unsigned long long)attributes->st_dev,(unsigned long long)attributes->st_ino];
  if([count->seen containsObject:identity])return NO;[count->seen addObject:identity];
  if(S_ISREG(attributes->st_mode)&&count->storedKnown){
-  if(attributes->st_size<0||(uint64_t)attributes->st_size>PorticoStorageMaxSafe-count->stored)count->storedKnown=NO;
+  if(attributes->st_size<0||(uint64_t)attributes->st_size>PorticoStorageMaxSafe-count->stored)PorticoStorageUnknown(count);
   else count->stored+=(uint64_t)attributes->st_size;
  }
  if(count->allocatedKnown){
-  if(attributes->st_blocks<0||(uint64_t)attributes->st_blocks>(PorticoStorageMaxSafe-count->allocated)/512)count->allocatedKnown=NO;
+  if(attributes->st_blocks<0||(uint64_t)attributes->st_blocks>(PorticoStorageMaxSafe-count->allocated)/512)PorticoStorageUnknown(count);
   else count->allocated+=(uint64_t)attributes->st_blocks*512;
  }return YES;
 }

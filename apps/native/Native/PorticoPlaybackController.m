@@ -182,6 +182,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  AVPlayerItem *item=_observedItem;CMTime now=item.currentTime,actual=kCMTimeInvalid;
  if(!CMTIME_IS_NUMERIC(now))return NULL;
  CVPixelBufferRef frame=[_videoOutput copyPixelBufferForItemTime:now itemTimeForDisplay:&actual];
+ if(frame){size_t width=CVPixelBufferGetWidth(frame),height=CVPixelBufferGetHeight(frame);if(!width||!height||width>8192||height>8192||width*height>16777216){CVPixelBufferRelease(frame);[self clearCapturedVideoFrame];return NULL;}}
  if(frame){[self clearCapturedVideoFrame];_capturedVideoFrame=frame;_capturedVideoTime=actual;}
  // A paused frame may have already been consumed by a previous request. Reuse only the
  // actual decoded buffer from this same item/binding and within one frame's coarse budget.

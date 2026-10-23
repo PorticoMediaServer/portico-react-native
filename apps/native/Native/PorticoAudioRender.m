@@ -349,7 +349,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
   if(AudioConverterNew(&source,&client,&_aac)!=noErr)return @"This AAC configuration couldn’t be decoded.";
   UInt32 prime=kConverterPrimeMethod_None;
   if(AudioConverterSetProperty(_aac,kAudioConverterPrimeMethod,sizeof(prime),&prime)!=noErr)return @"This AAC decoder cannot expose its measured audio frames.";
-  UInt32 cookieSize=0;Boolean writable=false;
+  UInt32 cookieSize=0,writable=0;
   if(AudioFileGetPropertyInfo(_file,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0){
    if(cookieSize>65536)return @"The AAC configuration exceeds its limit.";
    void *cookie=malloc(cookieSize);if(!cookie)return @"The audio decoder is out of memory.";
@@ -459,7 +459,7 @@ static OSStatus ARIndexInput(AudioConverterRef converter,UInt32 *count,AudioBuff
  if(AudioConverterNew(&source,&client,&_ix)!=noErr){_ix=NULL;[self leaveIndex];return NO;}
  UInt32 prime=kConverterPrimeMethod_None;
  if(AudioConverterSetProperty(_ix,kAudioConverterPrimeMethod,sizeof(prime),&prime)!=noErr){[self leaveIndex];return NO;}
- UInt32 cookieSize=0;Boolean writable=false;
+ UInt32 cookieSize=0,writable=0;
  if(AudioFileGetPropertyInfo(_shifted,kAudioFilePropertyMagicCookieData,&cookieSize,&writable)==noErr&&cookieSize>0&&cookieSize<=65536){
   void *cookie=malloc(cookieSize);
   if(cookie&&AudioFileGetProperty(_shifted,kAudioFilePropertyMagicCookieData,&cookieSize,cookie)==noErr)AudioConverterSetProperty(_ix,kAudioConverterDecompressionMagicCookie,cookieSize,cookie);

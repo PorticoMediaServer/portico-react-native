@@ -367,3 +367,44 @@ or Apple mpv dependency is built.
 
 Each is declared in `features` or in the capability profile (Android's per-engine display ranges
 come from `facts()`), and the player hides what does not apply.
+
+## 11. Apple transition snapshots
+
+`PorticoVideoSnapshot` uses the existing cross-platform envelope:
+
+```
+capture(id, {reactTag, engine: 'native', lease,
+  binding: {intentId, sessionId, generation, itemId}})
+  -> {id, uri, width, height}
+release(id) -> boolean
+```
+
+The actual retained `PorticoPlayerView` tag must resolve to the same attached controller,
+AVPlayer and lease. The complete current source-ready binding is checked before copying a
+decoded `AVPlayerItemVideoOutput` buffer and again after JPEG encoding. There is no asset
+image generator, seek, remount, view rasterization or replacement playback source. Missing
+bounds leave that attachment intact. The app must be active and the retained view must
+still belong to a window; geometry and hidden state are not source authority.
+
+One encoding operation and one retained image are allowed. The native deadline is 1.5 seconds;
+late work is discarded. JPEGs live in a private per-module cache directory, at most 1280 pixels
+on either side and 921600 pixels total. Release, cancellation, binding replacement, detachment,
+backgrounding and invalidation remove owned files. Phone/tablet helpers require the actual
+bridge; TV remains unavailable. Capture can decline until a real decoded buffer arrives.
+The live surface remains the fallback. This API alone does not qualify frame 9's composition,
+caption continuity, HDR appearance or the common presentation's one-pass fade.
+
+## 12. Apple device-local audio processing
+
+The playback module exposes `audioProcessing()`, `setAudioSampleRateMatching(value)`,
+`setAudioEqualizer({enabled, preampDb, bands})` and `resetAudioEqualizer()`. Each returns the
+committed native snapshot. Matching is `smart | strict | off`, default `smart`. EQ is one
+app/device record with ten gains and a preamp, each -12..12 dB in 0.5 dB steps. Reset flattens
+the gains/preamp while preserving its switch and matching mode. There are no output-specific
+keys, presets, account writes, aliases or migrations.
+
+`sampleRateMatching`, `eqEnabled`, `eqPreampDb` and `eqBands` describe committed settings.
+Requested/output rates and channel counts are actual audio-session observations; failures
+remain machine codes. Persisted intent never proves processing. Current-song `eqApplied`
+and `levelingApplied` come from rendered-deck/connected-graph observations and clear for
+new, failed, ended or stopped playback. These facts do not claim physical bit-perfect output.
