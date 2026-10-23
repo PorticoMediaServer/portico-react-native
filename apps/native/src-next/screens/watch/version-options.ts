@@ -6,7 +6,6 @@ export type NativeVersionRow = NativeVersionRowText & Readonly<{id: string}>;
 /** Native owns row composition. Inject canonical technical names and localized
  * size formatting, never a shared row helper, generic label or preferred track. */
 export type NativeVersionPresentation = Readonly<{
-  title: string;
   videoPictureName: (video: VideoStream, text: TextEnvironment) => string | undefined;
   videoAudioFormatName: (audio: AudioStream, text: TextEnvironment) => string | undefined;
   sizeName: (sizeBytes: number, text: TextEnvironment) => string | undefined;

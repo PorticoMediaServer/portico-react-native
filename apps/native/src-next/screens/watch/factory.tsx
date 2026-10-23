@@ -1,5 +1,6 @@
 import React, {useSyncExternalStore} from 'react';
 import type {View} from 'react-native';
+import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src';
 import type {DetailScope} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -130,7 +131,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const destinationCurrent = () => hostLifetime.isCurrent() && current(captured);
     const source = ports.playback.getSnapshot();
     const selectedVersionId = source.session?.itemId === captured.entry.id ? nativeWatchTracks(source).version?.id : undefined;
-    ports.openVersions(captured, Object.freeze({title: ports.versionPresentation.title, subject: captured.entry.displayTitle ?? captured.entry.title, options: offered, rows, selectedVersionId,
+    ports.openVersions(captured, Object.freeze({title: defaultI18n.t('next.overlays.versionChooserTitle'), subject: captured.entry.displayTitle ?? captured.entry.title, options: offered, rows, selectedVersionId,
       subscribe: (listener: () => void) => {const off = [ports.subscribeCurrent(listener), ports.navigation.subscribe(listener), ports.playback.subscribe(listener)]; lifetime.signal.addEventListener('abort', listener); return () => {lifetime.signal.removeEventListener('abort', listener); for (const dispose of off) dispose();};},
       dispose: () => lifetime.abort(),
       isCurrent: destinationCurrent, choose: async (versionId: string) => {

@@ -43,7 +43,7 @@ function fixture(hasDestination = true) {
   const screens = createNativeWatchScreens({api, text: {t: defaultI18n.t, locale: 'en-US'}, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route: {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}}), subscribe: subscribe(routeListeners), back() {}},
     playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), startVersion: async (...args: unknown[]) => {starts.push(args); await finishStart();}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    manageFile() {}, openFileInfo() {}, versionPresentation: {title: 'Play a different version', videoPictureName: () => '4K Dolby Vision', videoAudioFormatName: () => 'Dolby TrueHD with Atmos 7.1', sizeName: () => '58.2 GB'}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
+    manageFile() {}, openFileInfo() {}, versionPresentation: {videoPictureName: () => '4K Dolby Vision', videoAudioFormatName: () => 'Dolby TrueHD with Atmos 7.1', sizeName: () => '58.2 GB'}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
   return {screens, requests, menus, versions, starts, errors,
@@ -65,6 +65,7 @@ test('episode menu retains its real show owner and sends the exact offered versi
     await d.menus[0][1].differentVersion();
     assert.equal(d.requests.length, 2);
     const destination = d.versions[0][1];
+    assert.equal(destination.title, defaultI18n.t('next.overlays.versionChooserTitle'));
     await destination.choose('unknown'); assert.equal(d.starts.length, 0);
     await destination.choose('v2');
     assert.equal(d.starts[0][0].target.startSeconds, 43);
