@@ -23,13 +23,13 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
   const [draft, setDraft] = useState<readonly BrowseNode[]>(state.filters), [counts, setCounts] = useState<readonly BrowseCount[]>([]);
   const [open, setOpen] = useState<readonly string[]>([]), [facets, setFacets] = useState<Readonly<Record<string, Facet>>>({});
   const alive = useRef(true), tickets = useRef(new Map<string, number>()), countTicket = useRef(0);
-  useEffect(() => {alive.current = true; return () => {alive.current = false; tickets.current.clear();};}, []);
+  useEffect(() => {const lifetime = alive, pending = tickets.current; lifetime.current = true; return () => {lifetime.current = false; pending.clear();};}, []);
   useEffect(() => {
     const ticket = ++countTicket.current, abort = new AbortController();
     setCounts([]);
-    void controller.previewCounts(draft, abort.signal).then(value => {if (alive.current && ticket === countTicket.current) setCounts(value);})
-      .catch(error => {if (alive.current && ticket === countTicket.current) runtime.reportError(error);});
-    return () => {countTicket.current++; abort.abort();};
+    void controller.previewCounts(draft, abort.signal).then(value => {if (!abort.signal.aborted && alive.current && ticket === countTicket.current) setCounts(value);})
+      .catch(error => {if (!abort.signal.aborted && alive.current && ticket === countTicket.current) runtime.reportError(error);});
+    return () => abort.abort();
   }, [controller, draft, runtime]);
   const load = async (field: BrowseFieldCapability, search: string, filters = draft) => {
     const ticket = (tickets.current.get(field.id) ?? 0) + 1; tickets.current.set(field.id, ticket);
