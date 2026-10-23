@@ -6,6 +6,7 @@
 #import <AVKit/AVKit.h>
 #import <MediaAccessibility/MediaAccessibility.h>
 #import <CoreText/CoreText.h>
+#import <QuartzCore/QuartzCore.h>
 #import <Security/Security.h>
 #import "PorticoPlaybackController.h"
 #import "PorticoSubtitleSelection.h"
@@ -26,9 +27,13 @@
  [self addSubview:_richSubtitle];_subtitle=[UILabel new];_subtitle.textColor=UIColor.whiteColor;_subtitle.backgroundColor=[UIColor colorWithWhite:0 alpha:0.7];_subtitle.textAlignment=NSTextAlignmentCenter;_subtitle.numberOfLines=0;_subtitle.userInteractionEnabled=NO;_subtitle.hidden=YES;_subtitle.isAccessibilityElement=YES;[self addSubview:_subtitle];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:@"PorticoPlaybackSubtitleChanged" object:nil];[_layer addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];[[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(attachLayer) name:@"PorticoPlaybackAttachmentChanged" object:nil];
  // The viewer's caption style in the device's Accessibility settings is followed as it changes.
  [[NSNotificationCenter defaultCenter]addObserver:self selector:@selector(updateSubtitle) name:(__bridge NSString *)kMACaptionAppearanceSettingsChangedNotification object:nil];}return self;}
-- (void)setLease:(NSString *)lease {_lease=[lease copy];[self attachLayer];}
+- (void)setLease:(NSString *)lease {
+ if(_lease==lease||[_lease isEqualToString:lease])return;
+ _lease=[lease copy];_richSubtitle.image=nil;[self attachLayer];
+}
 - (void)setController:(PorticoPlaybackController *)controller {
- _controller.subtitleOverlay.onImage=nil;_controller=controller;
+ if(_controller==controller)return;
+ _controller.subtitleOverlay.onImage=nil;_controller=controller;_richSubtitle.image=nil;
  __weak PorticoPlayerView *weakSelf=self;controller.subtitleOverlay.onImage=^(UIImage *image){PorticoPlayerView *v=weakSelf;if(v)v->_richSubtitle.image=(v->_lease.length&&[v->_lease isEqual:v->_controller.lease])?image:nil;};[self attachLayer];
 }
 - (void)subtitleFrame {
@@ -36,12 +41,17 @@
  CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))return;CGFloat scale=self.window.screen.scale;
  [_controller.subtitleOverlay renderAtSourceTime:_controller.currentSourcePosition size:CGSizeMake(video.size.width*scale,video.size.height*scale)];
 }
-- (void)attachLayer {if(![_lease isEqual:_controller.lease]){[self.pictureInPicture stopPictureInPicture];self.pictureInPicture=nil;}
+- (void)attachLayer {
+ BOOL valid=_lease.length&&[_lease isEqual:_controller.lease];
+ if(!valid){[self.pictureInPicture stopPictureInPicture];self.pictureInPicture=nil;_richSubtitle.image=nil;}
 #if TARGET_OS_TV
- if(!_lease.length||![_lease isEqual:_controller.lease])self.window.avDisplayManager.preferredDisplayCriteria=nil;
+ if(!valid)self.window.avDisplayManager.preferredDisplayCriteria=nil;
  else if(self.window)_controller.displayWindow=self.window;
 #endif
- _richSubtitle.image=nil;_layer.player=(_lease.length&&[_lease isEqual:_controller.lease])?_controller.player:nil;[self updateSubtitle];[self preparePictureInPicture];}
+ AVPlayer *player=valid?_controller.player:nil;
+ if(_layer.player!=player){_richSubtitle.image=nil;_layer.player=player;}
+ [self updateSubtitle];[self preparePictureInPicture];
+}
 /** OS-04: the controller exists as soon as a video is attached, so leaving the app (Home swipe)
  * can continue the film in Picture in Picture, as the system's own players do. The system's
  * "Start PiP Automatically" setting still decides. This view stays the controller's only owner. */
@@ -80,7 +90,19 @@
 - (void)styleSubtitle:(CGFloat)base {
  [PorticoSubtitleSelection applyCaptionAppearanceToLabel:_subtitle baseSize:base style:_controller.subtitleStyle italic:[_controller.subtitleCue[@"italic"]boolValue]];
 }
-- (void)layoutSubviews{[super layoutSubviews];_layer.frame=self.bounds;CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;_richSubtitle.frame=video;CGFloat width=video.size.width*0.9;[self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);_subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,(([_controller.subtitleCue[@"top"]boolValue]||[_controller.subtitleStyle[@"position"] isEqual:@"top"])?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*([_controller.subtitleStyle[@"position"] isEqual:@"raised"]?.20:.08))-height),width,height);}
+- (void)layoutSubviews {
+ [super layoutSubviews];
+ if(!CGRectEqualToRect(_layer.frame,self.bounds)){
+  // The persistent shell owns the single presentation cross-fade. Resize the same
+  // aspect-fit layer immediately, without a second implicit Core Animation transition.
+  [CATransaction begin];[CATransaction setDisableActions:YES];_layer.frame=self.bounds;[CATransaction commit];
+ }
+ CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))video=self.bounds;
+ _richSubtitle.frame=video;CGFloat width=video.size.width*0.9;
+ [self styleSubtitle:MAX(12,MIN(40,video.size.width*0.035))];
+ CGSize size=[_subtitle sizeThatFits:CGSizeMake(width,video.size.height*0.6)];CGFloat height=MIN(size.height+8,video.size.height*0.6);
+ _subtitle.frame=CGRectMake(CGRectGetMidX(video)-width/2,(([_controller.subtitleCue[@"top"]boolValue]||[_controller.subtitleStyle[@"position"] isEqual:@"top"])?MAX(CGRectGetMinY(video)+8,self.safeAreaInsets.top):CGRectGetMaxY(video)-MAX(8,video.size.height*([_controller.subtitleStyle[@"position"] isEqual:@"raised"]?.20:.08))-height),width,height);
+}
 // The display is matched to the title by the controller before the title is announced ready
 // (it used to be asked for here, at the first frame, when the title was already playing).
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==_layer&&_layer.readyForDisplay)[_controller displayReadyForLease:_lease];}

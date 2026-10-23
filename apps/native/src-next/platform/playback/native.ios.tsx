@@ -3,7 +3,7 @@ import {AppState, NativeEventEmitter, NativeModules, Platform, UIManager, findNo
 import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {parseEngineFeatures, type EngineKind} from './engine-choice';
+import {parseEngineFeatures} from './engine-choice';
 import {deviceCapabilityDocument} from './capability-document';
 import type {NativeFacts} from './device-profile';
 import {NativeListeningV1Adapter, type NativeListeningBridge} from './NativeListeningAdapter';
@@ -25,7 +25,7 @@ type EngineModule = NativeListeningBridge & {
   purgeAudioCache?: () => Promise<unknown>;
 };
 type NativeSurfaceProps = ViewProps & {lease: string};
-const views: Partial<Record<EngineKind, HostComponent<NativeSurfaceProps>>> = {};
+let appleSurfaceView: HostComponent<NativeSurfaceProps> | undefined;
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
 function transport(module: EngineModule, event: string): NativePlaybackTransport {
@@ -40,6 +40,8 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const native = NativeModules[names.native.module] as EngineModule | undefined;
   const requestId = NativeModules.PorticoRuntime?.playbackRequestId as undefined | (() => string);
   if (!native || !requestId || !viewAvailable(names.native.view)) throw new Error(serviceText('player.nativeHandoverFailed'));
+  // One host component for this adapter lifetime. Presentation changes only its bounds.
+  const SurfaceView = appleSurfaceView ??= requireNativeComponent<NativeSurfaceProps>(names.native.view);
   const nativeFeatures = parseEngineFeatures(moduleConstants(native).features);
   const nativeTransport = transport(native, names.native.fact);
   const viewer = options.session()?.viewer;
@@ -87,8 +89,6 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     const state = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
     useEffect(() => runtime.attachSurface(owner.current), []);
     useEffect(() => { runtime.setSubtitleDisplay(subtitlesVisible && !docked); }, [subtitlesVisible, docked]);
-    const kind = state.engine;
-    const SurfaceView = views[kind] ??= requireNativeComponent<NativeSurfaceProps>(names.native.view);
     const target = docked ? dockBounds : expandedBounds;
     const bounds = target && [target.x, target.y, target.width, target.height].every(Number.isFinite) && target.width > 0 && target.height > 0 ? target : undefined;
     const visible = !!bounds && !!state.fence && !!state.lease;
