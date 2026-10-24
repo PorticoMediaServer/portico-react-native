@@ -1,5 +1,6 @@
 import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
+import {localPlaybackFence, type LocalPlaybackFence} from '../../../../../packages/player-core/src';
 import {isLocalSession, LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
@@ -48,6 +49,18 @@ export class NativeOfflinePlayback {
       }
       return wrapped.progressPlayback(id, payload);
     }};
+  }
+  /** Only an actual admitted session can publish the local identity used by the
+   * existing dock and controls. Paths and receipt payloads stay app-private. */
+  fence(session: PlaybackSession, run: number): LocalPlaybackFence | undefined {
+    const held = [...this.sessions.values()].find(value => value.sessionId === session.id && value.generation === session.generation);
+    if (!held || session.mode !== 'local' || session.streamUrl !== held.media.fileUrl || !held.source.current()) return;
+    const {source, media} = held;
+    try {
+      return localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: source.owner, run},
+        sessionId: session.id, generation: session.generation, itemId: source.itemId,
+        entryId: source.entryId, playId: media.playId, artifact: source.artifact});
+    } catch { return; }
   }
   async prepare(entry: OfflineEntry, isCurrent: () => boolean): Promise<NativeOfflineSource> {
     const owner = this.owner(), claims = entry.receipt?.claims;

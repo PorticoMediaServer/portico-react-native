@@ -47,9 +47,9 @@ test('a retried local session cannot receive a retired session observation for t
   const x = setup(), source = await x.owner.prepare(x.entry, () => true), original = source.session(), retry = source.session();
   assert.notEqual(original.id, retry.id);
   await x.api.progressPlayback(original.id, {...observed, positionSeconds: 12});
-  assert.deepEqual(x.progress, []);
+  assert.equal(x.progress.length, 0);
   await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation + 1, positionSeconds: 90});
-  assert.deepEqual(x.progress, []);
+  assert.equal(x.progress.length, 0);
   await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation, positionSeconds: 51});
   assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.positionSeconds, 51); assert.equal(x.progress[0]!.playId, x.media.playId);
   await x.api.progressPlayback(retry.id, {...observed, sequence: 1, positionSeconds: 12});
@@ -58,6 +58,25 @@ test('a retried local session cannot receive a retired session observation for t
   assert.equal(x.progress.length, 2); assert.equal(x.progress[1]!.positionSeconds, 20, 'a genuinely later seek back remains valid');
   assert.deepEqual(x.network, []);
   x.owner.dispose();
+});
+
+test('only the current actual local session projects a complete private-path-free playback fence', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), original = source.session();
+  const fence = x.owner.fence(original, 3);
+  assert.deepEqual(fence, {kind: 'local', playback: {kind: 'local', scope: source.owner, run: 3},
+    sessionId: original.id, generation: original.generation, itemId: x.entry.itemId,
+    entryId: x.entry.id, playId: x.media.playId, artifact: source.artifact});
+  assert.equal(JSON.stringify(fence).includes(x.media.fileUrl), false);
+  assert.equal(Object.isFrozen(fence), true); assert.equal(Object.isFrozen(fence!.playback.scope), true);
+  assert.equal(x.owner.fence(original, 0), undefined);
+  assert.equal(x.owner.fence({...original, streamUrl: 'file:///other.mp4'}, 3), undefined);
+  assert.equal(x.owner.fence({...original, generation: original.generation + 1}, 3), undefined);
+  const retry = source.session();
+  assert.equal(x.owner.fence(original, 3), undefined);
+  assert.equal(x.owner.fence(retry, 3)?.sessionId, retry.id);
+  x.setSession({...x.getSession()!, sessionFamilyId: 'replacement'});
+  assert.equal(x.owner.fence(retry, 3), undefined);
+  assert.deepEqual(x.network, []);
 });
 
 test('same entry IDs cannot authorize replaced artifacts, another viewer or ambiguous rows', async () => {
