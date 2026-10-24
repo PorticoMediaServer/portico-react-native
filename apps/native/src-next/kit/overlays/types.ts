@@ -154,6 +154,7 @@ export type BannerProps = {
   icon?: IconName;
   action?: {label: string; onPress: () => void};
   visible?: boolean;
+  placement?: 'overlay' | 'inline';
   topInset?: number;
   testID?: string;
 };
