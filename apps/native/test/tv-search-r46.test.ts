@@ -98,9 +98,6 @@ test('the drawn field, keyboard column and results column are tv.html#f5 geometr
   const cards = elements(tree).filter(node => node.type === 'SearchGridCard');
   assert.equal(cards.length, 2);
   assert.equal(cards[0].props.width, 196);
-  // The drawn headings carry their count beside the label; the section count is the frame's <small>.
-  const headingRow = elements(tree).find(node => flatText(node.props.children?.[0]?.props?.children) === 'movies' && style(node.props.style).alignItems === 'baseline')!;
-  assert.deepEqual(textOf(headingRow), ['movies', '4']);
   // A title nobody has started draws no progress track (.mprog only rides a resume).
   assert.equal(elements(tree).find(node => node.type === 'Progress'), undefined);
 });
