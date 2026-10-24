@@ -24,6 +24,8 @@ class SavedFixture {
   readonly calls: Call[] = [];
   readonly views = new Map<string, FixtureView>();
   readonly requestIds: string[] = [];
+  /** Receipts already applied, so a byte-identical retry is idempotent. */
+  readonly applied = new Map<string, number>();
   patch: (body: Readonly<Record<string, unknown>>) => Promise<unknown>;
   constructor(views: readonly FixtureView[]) {
     for (const view of views) this.views.set(view.id, view);
@@ -33,10 +35,18 @@ class SavedFixture {
   get reads(): number { return this.calls.filter(call => call.method === 'GET').length; }
   succeed(body: Readonly<Record<string, unknown>>): unknown {
     const view = this.views.get(viewId)!;
+    const operationId = String(body.operationId);
+    const prior = this.applied.get(operationId);
+    if (prior !== undefined) return {serverId: scope.serverId, viewerFence: fence,
+      receipt: {operationId, revision: prior, resourceId: view.id, deleted: false}};
+    if (typeof body.expectedRevision === 'number' && body.expectedRevision !== view.revision) {
+      throw Object.assign(new Error('This saved view changed.'), {code: 'revision_mismatch'});
+    }
     if (typeof body.name === 'string') view.name = body.name;
     view.revision += 1;
+    this.applied.set(operationId, view.revision);
     return {serverId: scope.serverId, viewerFence: fence,
-      receipt: {operationId: body.operationId, revision: view.revision, resourceId: view.id, deleted: false}};
+      receipt: {operationId, revision: view.revision, resourceId: view.id, deleted: false}};
   }
   readonly api: SavedApi = {request: async <T>(path: string, method = 'GET', body?: unknown): Promise<T> => this.route(path, method, body) as Promise<T>};
   private async route(path: string, method: string, body?: unknown): Promise<unknown> {
@@ -396,4 +406,57 @@ test("two rename presentations sharing one service never consume each other's co
     assert.equal(fixture.patchCalls.length, 2);
     assert.notEqual(fixture.requestIds[0], fixture.requestIds[1]);
   } finally {first.dispose(); second.dispose();}
+});
+
+test('an unknown outcome owns its original command; only the owner dismissal starts a new one after the canonical refresh', async () => {
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    let attempt = 0;
+    fixture.patch = async body => {
+      attempt += 1;
+      if (attempt === 1) {
+        fixture.succeed(body);
+        throw Object.assign(new Error('The answer was lost.'), {code: 'timeout'});
+      }
+      return fixture.succeed(body);
+    };
+    assert.equal(controller.setName('Renamed'), true);
+    assert.equal(await controller.save(), false);
+    const uncertain = controller.getSnapshot();
+    assert.equal(uncertain.retryPending, true);
+    assert.equal(uncertain.name, 'Renamed');
+    assert.equal(controller.setName('New name'), false, 'an unknown outcome refuses a name edit');
+    const original = fixture.patchCalls[0]!.body as Record<string, unknown>;
+    assert.equal(await controller.save(), false, 'an unknown outcome refuses a new Save');
+    assert.equal(fixture.patchCalls.length, 1);
+    assert.equal(fixture.requestIds.length, 1);
+    service.dismiss();
+    assert.equal(controller.getSnapshot().retryPending, false);
+    assert.equal(controller.getSnapshot().name, 'Renamed');
+    assert.equal(controller.getSnapshot().canSave, true);
+    assert.equal(await controller.retry(), false, 'a dismissed operation cannot be re-sent');
+    assert.equal(fixture.patchCalls.length, 1);
+    assert.equal(await controller.save(), false, 'the stale CAS after an applied-but-unknown rename is a canonical conflict');
+    const conflicted = controller.getSnapshot();
+    assert.equal(conflicted.error?.code, 'revision_mismatch');
+    assert.equal(conflicted.error?.conflict, true);
+    assert.equal(conflicted.retryPending, true);
+    assert.equal(conflicted.name, 'Renamed');
+    assert.equal(service.getSnapshot().resource?.revision, 5);
+    assert.equal(service.getSnapshot().resource?.name, 'Renamed');
+    const second = fixture.patchCalls[1]!.body as Record<string, unknown>;
+    assert.equal(second.name, 'Renamed');
+    assert.equal(second.expectedRevision, 4);
+    assert.notEqual(second.operationId, original.operationId);
+    service.dismiss();
+    assert.equal(await controller.save(), true, 'the canonical refreshed CAS makes the next Save a new command');
+    const third = fixture.patchCalls[2]!.body as Record<string, unknown>;
+    assert.equal(third.expectedRevision, 5);
+    assert.notEqual(third.operationId, original.operationId);
+    assert.notEqual(third.operationId, second.operationId);
+    assert.equal(controller.getSnapshot().closed, true);
+    assert.equal(controller.getSnapshot().name, '');
+    assert.equal(service.getSnapshot().resource?.name, 'Renamed');
+  } finally {controller.dispose();}
 });
