@@ -35,7 +35,15 @@ export function savedViewSummary(definition: SavedDefinition, capabilities: Brow
       const key = browseNameId(id === 'decade' ? 'year' : id, capability?.labelKey, text.has);
       return key && text.has(key) ? text.t(key) : undefined;
     };
-    const list = new Intl.ListFormat(text.locale, {type: 'disjunction', style: 'long'});
+    // Hermes on Android ships no Intl.ListFormat; the catalogue's guarded fallback is the
+    // same shape, so build the disjunction only where the runtime actually has it.
+    const list = {
+      format: (items: readonly string[]): string => {
+        const ListFormat = (Intl as {ListFormat?: new (locale: string, options: object) => {format(values: readonly string[]): string}}).ListFormat;
+        if (ListFormat) {try {return new ListFormat(text.locale, {type: 'disjunction', style: 'long'}).format(items);} catch { /* fall through */ }}
+        return items.join(', ');
+      },
+    };
     const words: string[] = [], consumed = new Set<Condition>();
     const ordered = orderToolbarPredicates(conditions);
     for (const node of ordered) {
