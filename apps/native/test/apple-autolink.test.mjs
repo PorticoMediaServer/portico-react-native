@@ -45,25 +45,17 @@ test('real Fabric component generation omits unlinked tvOS WebView in Xcode and 
     const output = path.join(temporary, platform);
     const env = {...process.env, PLATFORM_NAME: platform};
     delete env.PORTICO_APPLE_TARGET;
-    const program = `
-      const fs=require('node:fs'),path=require('node:path');
-      const root=process.argv[1],output=process.argv[2];
-      const utils=require('react-native/scripts/codegen/generate-artifacts-executor/utils.js');
-      const generator=require('react-native/scripts/codegen/generate-artifacts-executor/generateRCTThirdPartyComponents.js');
-      const manifest=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
-      if(process.argv[3]==='true'){
-        const cli=require.resolve('@react-native-community/cli/build/bin.js');
-        const actual=require('node:child_process').execFileSync(process.execPath,[cli,'config'],{cwd:root,encoding:'utf8'});
-        const target=path.join(output,'build/generated/autolinking');fs.mkdirSync(target,{recursive:true});
-        fs.writeFileSync(path.join(target,'autolinking.json'),actual);
-      }
-      const config=utils.readReactNativeConfig(root,output);
-      const disabled=utils.findDisabledLibrariesByPlatform(config,'ios');
-      const libraries=utils.findCodegenEnabledLibraries(manifest,root,output,config,{}).filter(library=>!disabled.includes(library.name));
-      generator.generateRCTThirdPartyComponents(libraries,output);
-    `;
-    execFileSync(process.execPath, ['-e', program, root, output, String(generatedAutolink)], {cwd: root, env, encoding: 'utf8'});
-    const provider = readFileSync(path.join(output, 'RCTThirdPartyComponentsProvider.mm'), 'utf8');
+    if (generatedAutolink) {
+      const cli = require.resolve('@react-native-community/cli/build/bin.js');
+      const actual = execFileSync(process.execPath, [cli, 'config'], {cwd: root, env, encoding: 'utf8'});
+      const target = path.join(output, 'build/generated/autolinking');
+      mkdirSync(target, {recursive: true}); writeFileSync(path.join(target, 'autolinking.json'), actual);
+    }
+    const entry = require.resolve('react-native/scripts/generate-codegen-artifacts.js');
+    execFileSync(process.execPath, [entry, '--path', root, '--outputPath', output, '--targetPlatform', 'ios'], {
+      cwd: root, env: {...env, RCT_SCRIPT_OUTPUT_DIR: output}, encoding: 'utf8',
+    });
+    const provider = readFileSync(path.join(output, 'build/generated/ios/ReactCodegen/RCTThirdPartyComponentsProvider.mm'), 'utf8');
     assert.match(provider, /NSClassFromString/);
     assert.match(provider, /RNSVG/); // Other real native components remain installed.
     if (platform.startsWith('appletv')) assert.doesNotMatch(provider, /RNCWebView/);
