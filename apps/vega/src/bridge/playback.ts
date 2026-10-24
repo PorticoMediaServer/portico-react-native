@@ -1,3 +1,4 @@
+import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
 import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
 import {AppState, StyleSheet, Text, View, useKeplerAppStateManager, type LayoutChangeEvent, type ViewProps} from '@amazon-devices/react-native-kepler';
 import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
@@ -59,12 +60,12 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 const PROGRESS_MS = 500, SUBTITLE_MS = 100;
 const SEEK_LIMIT_MS = 10000;
-// The Apple module's words, which the shared player shows as they are.
-const RATE_UNAVAILABLE = 'This speed is unavailable for this media. Choose a supported speed, then press Play.';
-const SEEK_UNAVAILABLE = 'That position is not available yet. Try seeking again.';
-const NETWORK_ERROR = 'The media connection was interrupted. Verifying another route.';
-const MEDIA_ERROR = 'This media could not be played. Check its format or try again.';
-const ADDRESS_ERROR = 'Invalid media address.';
+// The shared player shows these engine facts using the product catalogue.
+const RATE_UNAVAILABLE = defaultI18n.t('playback.engine.rateUnavailable');
+const SEEK_UNAVAILABLE = defaultI18n.t('playback.engine.seekUnavailable');
+const NETWORK_ERROR = defaultI18n.t('playback.engine.networkInterrupted');
+const MEDIA_ERROR = defaultI18n.t('playback.engine.mediaUnavailable');
+const ADDRESS_ERROR = defaultI18n.t('playback.engine.invalidAddress');
 
 /**
  * Why playback cannot continue, as the contract's error facts say it (section 5): the server's
@@ -275,7 +276,7 @@ class Engine {
     if (!held || this.closed) return;
     clearTimeout(held.timer); this.restoring = undefined;
     if (!applied || !Number.isFinite(this.position()) || Math.abs(this.position() - held.target) > 0.5) {
-      this.fail({uncertain: true, message: timedOut ? 'Connection restored, but the retained position is not available. Your playback session was not replaced.' : 'The previous playback position is unavailable on this connection. Your position has been retained.'}, 'position restoration');
+      this.fail({uncertain: true, message: timedOut ? defaultI18n.t('playback.engine.restoredPositionUnavailable') : defaultI18n.t('playback.engine.previousPositionUnavailable')}, 'position restoration');
       return;
     }
     this.completeReady();

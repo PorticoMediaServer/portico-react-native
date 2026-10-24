@@ -1,3 +1,4 @@
+import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
 /**
  * The subtitle command and the server's cue document, read strictly (ENGINE-CONTRACT.md §7).
  * Nothing here touches the device, so it runs under test as it is.
@@ -46,8 +47,8 @@ export function captionStyleOf(style: SubtitleCommand['style']): CaptionStyle {
 }
 
 export type Selection = Readonly<{url: string; revision: number; offsetUs: number; refreshRevision: unknown; binding: string; style: CaptionStyle}>;
-export const INVALID_COMMAND = 'The subtitle command is invalid.';
-export const FOREIGN_ADDRESS = 'The subtitle address does not belong to this playback session.';
+export const INVALID_COMMAND = defaultI18n.t('playback.engine.invalidSubtitleCommand');
+export const FOREIGN_ADDRESS = defaultI18n.t('playback.engine.foreignSubtitleAddress');
 
 /**
  * The track a command names, or why it is refused. The cue document must be this playback
