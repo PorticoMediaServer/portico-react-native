@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useId, useMemo, useRef, useState, useSync
 import {FlatList, Keyboard, ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
 import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
@@ -25,7 +24,6 @@ import type {NativeSearchActions, NativeSearchExplorePort, NativeSearchGenre, Na
 import {nativeSearchGenreTiles} from './genre-tiles';
 import {channelTint} from '../../../../../packages/client-core/src/presentation/kit-model';
 
-const t = defaultI18n.t;
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
 
 export type NativeSearchScreenProps = Readonly<{
@@ -36,6 +34,7 @@ export type NativeSearchScreenProps = Readonly<{
 
 /** Actual SearchService results and per-profile history. The shell owns authority lifetime. */
 export function SearchScreen({destination, runtime, explore, actions, selection, activation, tvCopy}: NativeSearchScreenProps) {
+  const t = runtime.text.t;
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -48,7 +47,11 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const loading = state.search.phase === 'loading' && !state.groups.length;
   const top = state.group === 'all' ? topSearchResult(state.text, state.groups) : undefined;
   const run = useCallback((work: Promise<void>) => {void work.catch(runtime.reportError);}, [runtime]);
-  useEffect(() => {run(destination.refreshHistory()); run(explore.load());}, [destination, explore, run]);
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!activeRoute.visible || initialized.current) return;
+    initialized.current = true; run(destination.refreshHistory()); run(explore.load());
+  }, [activeRoute.visible, destination, explore, run]);
   useEffect(() => selection?.register(state.search, state.groups), [selection, state.groups, state.search]);
   useEffect(() => theme.isTV ? undefined : runtime.registerScrollToTop({kind: 'search'}, () => {
     scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion});
@@ -92,7 +95,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
       <Icon name="i-clock" size={19} color={theme.colors.textTertiary}/><Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary, flex: 1}]}>{recent.q}</Text>
     </Focusable>)}
   </>;
-  const genreTiles = nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone');
+  const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone') : [];
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
     {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
@@ -137,6 +140,7 @@ function SectionHeading({title, action, disabled, onAction}: {title: string; act
 
 /** Ruling 36: phone 7 uses two covers; the no-match state 17a uses a backdrop. */
 function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSearchGenre; empty: boolean; runtime: NativeShellRuntime; width: number; onPress: () => void}) {
+  const t = runtime.text.t;
   const theme = useTheme(), gradient = useId();
   const tint = channelTint(genre.id);
   if (!empty) return <GenreTile testID={`search-genre-${encodeURIComponent(genre.id)}`} title={genre.name} variant="video" width={width}
@@ -150,6 +154,7 @@ function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSear
 }
 
 function SearchResultRow({entry, group, runtime, actions, selection}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection}) {
+  const t = runtime.text.t;
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), content = media(entry) ? entry : undefined, text = content ? homeCardText(content, false, runtime.text) : undefined;
   const shape = group === 'movies' || group === 'shows' ? 'poster' : group === 'episodes' || group === 'live-tv' ? 'wide' : 'square';
   const width = shape === 'poster' ? 46 : shape === 'wide' ? 100 : 56, height = shape === 'poster' ? 69 : 56;
@@ -172,6 +177,7 @@ function SearchResultRow({entry, group, runtime, actions, selection}: {entry: Se
 
 
 function SearchTopResult({entry, group, runtime, actions, selection, width}: {entry: SearchEntry; group: SearchGroup; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: CardSelection; width: number}) {
+  const t = runtime.text.t;
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), gradient = useId(), kind = topResultKindLabel(group), title = media(entry) ? entry.displayTitle || entry.title : entry.title;
   return <CardFrame testID="search-top-result" title={title} selection={selection} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry, group)}
     onNavigate={() => actions.open(entry, group)} onMore={actions.canMenu?.(entry, group) === false ? undefined : () => actions.menu(entry, group, menuAnchorRef)}

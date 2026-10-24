@@ -13,6 +13,7 @@ if (!Platform.isTV) {
   require('./screens/destinations/PinsRoute');
   require('./screens/read/register');
   require('./screens/people/register');
+  require('./screens/search/register');
   const {registerNativeWatch, createNativeWatchBindings} = require('./screens/watch') as typeof import('./screens/watch');
   registerNativeWatch(createNativeWatchBindings);
 }
