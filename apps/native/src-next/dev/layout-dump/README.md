@@ -94,6 +94,8 @@ and an actually proved absent text shadow. Text transform remains unavailable.
 Image presence and scale-type mechanisms remain internal; a retained/intermediate
 drawable is not current-request decode completion and does not supply canonical
 image loaded/fit fields or new diagnostic fields.
+These optional reply facts are independent: an older carrier or one unsupported
+paint mechanism leaves that fact unavailable without granting a substitute value.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.
 The checked canonical identity field is `style.resolvedFontFamily`, supplied only
