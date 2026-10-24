@@ -24,9 +24,9 @@ export const isLocalSource = (url: string | undefined): boolean => !!url && url.
 /**
  * OS-07: a downloaded title plays in Portico's own player. `PlaybackService.playLocal` takes the
  * session this makes (a file inside the app's Downloads folder, which the native controller
- * accepts) instead of asking the server for one; the API wrapper keeps that session's progress and
- * stop on the device: no queue, no server session, no network. Everything else passes through to
- * the server API unchanged.
+ * accepts) instead of asking the server for one. The service captures this wrapper's explicit
+ * localPlayback owner for its progress and stop: no queue, server session or network. Base API
+ * calls retain server custody regardless of how their IDs are spelled.
  */
 export class LocalPlayback {
   private sessions = new Map<string, LocalMedia>();
@@ -58,20 +58,10 @@ export class LocalPlayback {
     const stopPlayback: PlaybackApi['stopPlayback'] = () => Promise.resolve();
     const wrapped: PlaybackApi = {
       createPlayback: (itemId, requestId, signal) => inner.createPlayback(itemId, requestId, signal),
-      progressPlayback: (id, payload) => {
-        if (!isLocalSession(id)) return inner.progressPlayback(id, payload);
-        // A local id never reaches the server, even one replayed from the journal after a restart
-        // (its file mapping is gone then, and the offline journal already holds its position).
-        return progressPlayback(id, payload);
-      },
-      stopPlayback: (id, signal) => {
-        // The mapping stays (bounded) so a checkpoint flushed after the stop is still recorded.
-        return isLocalSession(id) ? stopPlayback(id, signal) : inner.stopPlayback(id, signal);
-      },
-      // A download is what it is: no server can deliver it another way.
-      ...(inner.reportPlayerFailure ? {reportPlayerFailure: (id: string, code: Parameters<NonNullable<PlaybackApi['reportPlayerFailure']>>[1], detail: string, positionSeconds: number) => (isLocalSession(id) ? Promise.resolve({escalates: false}) : inner.reportPlayerFailure!(id, code, detail, positionSeconds))} : {}),
-      // A skipped marker is evidence for the server's session; a download has none.
-      ...(inner.markerSkipped ? {markerSkipped: (id: string, skipped: Parameters<NonNullable<PlaybackApi['markerSkipped']>>[1]) => (isLocalSession(id) ? Promise.resolve() : inner.markerSkipped!(id, skipped))} : {}),
+      progressPlayback: (id, payload) => inner.progressPlayback(id, payload),
+      stopPlayback: (id, signal) => inner.stopPlayback(id, signal),
+      ...(inner.reportPlayerFailure ? {reportPlayerFailure: (id: string, code: Parameters<NonNullable<PlaybackApi['reportPlayerFailure']>>[1], detail: string, positionSeconds: number) => inner.reportPlayerFailure!(id, code, detail, positionSeconds)} : {}),
+      ...(inner.markerSkipped ? {markerSkipped: (id: string, skipped: Parameters<NonNullable<PlaybackApi['markerSkipped']>>[1]) => inner.markerSkipped!(id, skipped)} : {}),
       ...(inner.onServerEnded ? {onServerEnded: (listener: Parameters<NonNullable<PlaybackApi['onServerEnded']>>[0]) => inner.onServerEnded!(listener)} : {}),
     };
     return Object.assign(wrapped, {localPlayback: Object.freeze({progressPlayback, stopPlayback})});

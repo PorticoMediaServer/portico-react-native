@@ -27,7 +27,7 @@ test('the admitted artifact uses the real local session and journal without a se
   assert.equal(session.id,'local:copy:1'); assert.equal(session.mode,'local');
   assert.equal(session.streamUrl,x.media.fileUrl); assert.equal(session.resumeSeconds,42);
   assert.equal(source.owner.sessionFamilyId,'family-1'); assert.deepEqual(source.artifact,{sha256:'a'.repeat(64),bytes:10});
-  await x.api.progressPlayback(session.id,observed); await x.api.stopPlayback(session.id);
+  await x.api.localPlayback.progressPlayback(session.id,observed); await x.api.localPlayback.stopPlayback(session.id);
   assert.deepEqual(x.network,[]); assert.equal(x.progress.length,1);
   assert.equal(x.progress[0]?.playId,x.media.playId);
   await x.api.progressPlayback('server-session',observed);
@@ -48,6 +48,14 @@ test('explicit custody retains the actual session generation, sequence and curre
   assert.equal(x.progress.length, 1); assert.deepEqual(x.network, []);
 });
 
+test('ordinary V1 calls never infer local custody from an admitted session ID', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), session = source.session();
+  await x.api.progressPlayback(session.id, observed); await x.api.stopPlayback(session.id);
+  assert.deepEqual(x.network, [`progress:${session.id}`, `stop:${session.id}`]); assert.equal(x.progress.length, 0);
+  await x.api.localPlayback.progressPlayback(session.id, observed);
+  assert.equal(x.progress.length, 1); assert.deepEqual(x.network, [`progress:${session.id}`, `stop:${session.id}`]);
+});
+
 test('a late file read cannot cross a renewed installation family or a retired caller', async () => {
   for (const change of ['family','caller'] as const) {
     const x = setup(); let resolve!: (value:LocalMedia) => void, current = true;
@@ -61,15 +69,15 @@ test('a late file read cannot cross a renewed installation family or a retired c
 test('a retried local session cannot receive a retired session observation for the same journal play', async () => {
   const x = setup(), source = await x.owner.prepare(x.entry, () => true), original = source.session(), retry = source.session();
   assert.notEqual(original.id, retry.id);
-  await x.api.progressPlayback(original.id, {...observed, positionSeconds: 12});
+  await x.api.localPlayback.progressPlayback(original.id, {...observed, positionSeconds: 12});
   assert.equal(x.progress.length, 0);
-  await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation + 1, positionSeconds: 90});
+  await x.api.localPlayback.progressPlayback(retry.id, {...observed, generation: retry.generation + 1, positionSeconds: 90});
   assert.equal(x.progress.length, 0);
-  await x.api.progressPlayback(retry.id, {...observed, generation: retry.generation, positionSeconds: 51});
+  await x.api.localPlayback.progressPlayback(retry.id, {...observed, generation: retry.generation, positionSeconds: 51});
   assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.positionSeconds, 51); assert.equal(x.progress[0]!.playId, x.media.playId);
-  await x.api.progressPlayback(retry.id, {...observed, sequence: 1, positionSeconds: 12});
+  await x.api.localPlayback.progressPlayback(retry.id, {...observed, sequence: 1, positionSeconds: 12});
   assert.equal(x.progress.length, 1, 'a duplicate/older observation cannot roll back the same current session');
-  await x.api.progressPlayback(retry.id, {...observed, sequence: 2, positionSeconds: 20});
+  await x.api.localPlayback.progressPlayback(retry.id, {...observed, sequence: 2, positionSeconds: 20});
   assert.equal(x.progress.length, 2); assert.equal(x.progress[1]!.positionSeconds, 20, 'a genuinely later seek back remains valid');
   assert.deepEqual(x.network, []);
   x.owner.dispose();
@@ -134,9 +142,9 @@ test('same entry IDs cannot authorize replaced artifacts, another viewer or ambi
 test('current receipt expiry or owner loss drops progress before it reaches the offline journal', async () => {
   const x = setup(), source = await x.owner.prepare(x.entry,() => true), session = source.session();
   x.setReason('needs_check_in'); assert.throws(source.session);
-  await x.api.progressPlayback(session.id,observed); assert.equal(x.progress.length,0);
+  await x.api.localPlayback.progressPlayback(session.id,observed); assert.equal(x.progress.length,0);
   x.setReason(null); x.setSession(undefined);
-  await x.api.progressPlayback(session.id,observed); assert.equal(x.progress.length,0); assert.deepEqual(x.network,[]);
+  await x.api.localPlayback.progressPlayback(session.id,observed); assert.equal(x.progress.length,0); assert.deepEqual(x.network,[]);
 });
 
 test('retirement withholds the file immediately but permits only a still-current final journal checkpoint', async () => {
@@ -144,12 +152,12 @@ test('retirement withholds the file immediately but permits only a still-current
   x.owner.dispose();
   assert.equal(x.owner.mediaUrl(session), undefined); assert.equal(x.owner.fence(session, 1), undefined);
   assert.throws(source.session); await assert.rejects(x.owner.prepare(x.entry, () => true));
-  await x.api.progressPlayback(session.id, {...observed, sequence: 1});
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, sequence: 1});
   assert.equal(x.progress.length, 0);
-  await x.api.progressPlayback(session.id, {...observed, sequence: 2, state: 'paused'});
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, sequence: 2, state: 'paused'});
   assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.state, 'paused');
   x.setSession({...x.getSession()!, sessionFamilyId: 'replacement'});
-  await x.api.progressPlayback(session.id, {...observed, sequence: 3, state: 'ended'});
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, sequence: 3, state: 'ended'});
   assert.equal(x.progress.length, 1); assert.deepEqual(x.network, []);
 });
 

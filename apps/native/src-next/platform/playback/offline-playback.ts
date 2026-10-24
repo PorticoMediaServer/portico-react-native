@@ -1,7 +1,7 @@
 import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {localPlaybackFence, type LocalPlaybackFence, type LocalPlaybackScope} from '../../../../../packages/player-core/src';
-import {isLocalSession, LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
+import {LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
 /** Captured from the genuine installation session, never a server queue/controller scope. */
@@ -49,8 +49,7 @@ export class NativeOfflinePlayback {
       held.sequence = payload.sequence;
       return wrapped.localPlayback.progressPlayback(id, payload);
     };
-    return Object.assign({...wrapped, progressPlayback: (id: string, payload: Parameters<PlaybackApi['progressPlayback']>[1]) =>
-      isLocalSession(id) ? progressPlayback(id, payload) : wrapped.progressPlayback(id, payload)},
+    return Object.assign({...wrapped},
     {localPlayback: Object.freeze({progressPlayback, stopPlayback: wrapped.localPlayback.stopPlayback})});
   }
   /** Resolve only the native file already admitted for this exact current local
