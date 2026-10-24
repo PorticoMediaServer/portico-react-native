@@ -11,7 +11,7 @@ import {Button} from '../../../kit/controls/Button';
 import {TextField} from '../../../kit/controls/TextField';
 import {Tabs} from '../../../kit/controls/Tabs';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
-import {Menu, type MenuEntry} from '../../../kit/overlays/Menu';
+import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {StateView} from '../../../kit/states';
 import {alpha, shellType} from '../../../kit/shell/visual';
@@ -104,7 +104,7 @@ function MessagesTab({api, runtime, t}: {api: {request<T>(path: string, method?:
         <Text style={[shellType(13, 400, 18), {color: theme.colors.text, marginTop: 2}]}>{row.message}</Text>
       </View>)}
     </View>
-    <Menu open={Boolean(picking)} onOpenChange={open => {if (!open) setPicking(undefined);}} presentation="sheet" testID="server-messages-filter" items={picking === 'category' ? categoryItems : levelItems}/>
+    <Menu open={Boolean(picking)} onOpenChange={open => {if (!open) setPicking(undefined);}} presentation="sheet" testID="server-messages-filter" title={picking === 'category' ? t('feedback.category') : t('web.logs.level')} items={picking === 'category' ? categoryItems : levelItems}/>
   </View>;
 }
 
