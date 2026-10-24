@@ -226,6 +226,7 @@ RCT_REMAP_METHOD(networkBytesRequest,networkBytesRequest:(NSString *)identifier 
  PorticoQueueRequest *request=PorticoReadingBytesRequest(identifier,url,method,headers,byteLimit,self,resolve,reject);
  if(request)[PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_bytes_busy"];
 }
+#if !TARGET_OS_TV
 RCT_REMAP_METHOD(networkStreamOpen,networkStreamOpen:(NSString *)identifier url:(NSString *)url headers:(NSDictionary *)headers resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  PorticoQueueRequest *request=PorticoReadingStreamRequest(identifier,url,headers,self,resolve,reject);
  if(request)[PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_stream_busy"];
@@ -233,6 +234,7 @@ RCT_REMAP_METHOD(networkStreamOpen,networkStreamOpen:(NSString *)identifier url:
 RCT_REMAP_METHOD(networkStreamRead,networkStreamRead:(NSString *)identifier resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  PorticoReadingStreamRead(identifier,self,resolve,reject);
 }
+#endif
 - (void)boundedRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body fullAPI:(BOOL)fullAPI resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
 
  NSURL *target=[NSURL URLWithString:url];BOOL avatar=PorticoAvatarUploadPath(target.path,method);NSData *data=avatar?PorticoAvatarUploadBody(body):[body dataUsingEncoding:NSUTF8StringEncoding];
