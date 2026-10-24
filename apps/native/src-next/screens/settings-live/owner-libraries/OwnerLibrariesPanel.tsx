@@ -77,6 +77,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime}: {ports: NativeSettin
   if (library) return <>
     <LibraryPage library={library} document={document} state={state} tab={tab} tabChange={setTab} t={t} runtime={runtime} serverName={context.serverName} viewerRole={viewerRole}
       back={() => setOpenId(undefined)} menu={() => {setMenuOnPage(true); setLibraryMenu(library);}} scan={() => {void controller.scanNow();}} cancel={() => {void controller.cancelScan();}}
+      dashboard={() => {context.navigation.open({kind: 'server-dashboard'}, authority);}}
       renameLibrary={() => setRename(true)} removeLibrary={() => setLeaving(true)} addFolder={() => setFolderForm({})} folderMenu={setFolderMenu} skipped={() => setSkipped(true)}
       moreUnmatched={() => {void controller.loadUnmatchedMore();}}
       save={patch => {void controller.save(patch);}} saveAgent={id => {void controller.saveAgent(id);}} scanAll={() => {void controller.scanAll();}}/>
@@ -147,9 +148,9 @@ function LibraryListRow({library, first, t, runtime, state, onOpen, onMenu}: {li
   </View>;
 }
 
-function LibraryPage({library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll}: {
+function LibraryPage({library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll}: {
   library: ManagedLibrary; document?: LibraryAdminDocument; state: NativeOwnerLibrariesSnapshot; tab: string; tabChange: (id: string) => void;
-  t: Translate; runtime: NativeShellRuntime; serverName: string; viewerRole: ViewerRole; back: () => void; menu: () => void; scan: () => void; cancel: () => void;
+  t: Translate; runtime: NativeShellRuntime; serverName: string; viewerRole: ViewerRole; back: () => void; menu: () => void; scan: () => void; cancel: () => void; dashboard: () => void;
   renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; skipped: () => void; moreUnmatched: () => void;
   save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; scanAll: () => void;
 }) {
@@ -183,7 +184,7 @@ function LibraryPage({library, document, state, tab, tabChange, t, runtime, serv
         {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu}/>}
         {tab === 'metadata' && <MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/>}
         {tab === 'attention' && <AttentionTab state={state} t={t} more={moreUnmatched}/>}
-        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} save={save}/>}
+        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save}/>}
         {tab === 'advanced' && <AdvancedTab document={document} t={t} scanAll={scanAll} save={save}/>}
       </View>
     </ScrollView>
@@ -246,14 +247,17 @@ function AttentionTab({state, t, more}: {state: NativeOwnerLibrariesSnapshot; t:
   </>;
 }
 
-function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; save: (patch: Partial<LibrarySettings>) => void}) {
+function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void}) {
   const theme = useTheme(), active = ownerLibraryScan(library), settings = document?.settings;
   if (!document || !settings) return null;
   const skippedCount = ownerSkippedFiles(state.skipped?.items ?? []).length || (library.filesSkipped ?? 0);
   return <>
-    {active && <View style={{flexDirection: 'row', gap: 10, padding: 12, marginTop: 4, borderRadius: 12, backgroundColor: alpha(theme.colors.accent, .12)}}>
-      <Icon name="i-info" size={18} color={theme.colors.accentStrong}/>
-      <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textSecondary, flex: 1}]}>{t('next.ownerLibraries.scanningNote')}</Text>
+    {active && <View style={{gap: 8, padding: 12, marginTop: 4, borderRadius: 12, backgroundColor: alpha(theme.colors.accent, .12)}}>
+      <View style={{flexDirection: 'row', gap: 10}}>
+        <Icon name="i-info" size={18} color={theme.colors.accentStrong}/>
+        <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textSecondary, flex: 1}]}>{t('next.ownerLibraries.scanningNote')}</Text>
+      </View>
+      <Button variant="glass" size="xs" trailingIcon="i-right" onPress={dashboard} style={{alignSelf: 'flex-start', marginLeft: 28}}>{t('next.ownerLibraries.openDashboard')}</Button>
     </View>}
     <LibraryGroup style={{marginTop: 12}}>
       <LibraryRow first label={t('next.ownerLibraries.lastScan')} value={ownerLibraryState(library, {t, locale}).text}
