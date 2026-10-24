@@ -1,5 +1,5 @@
 import {settingsBinding, readSettingsBinding, settingsBindingPatch, type SettingsBindingValue} from '../../../../../packages/client-core/src/presentation/settings-bindings';
-import type {NativeDeviceSettings} from '../../platform/device-settings';
+import {nativeDeviceSettings, type NativeDeviceSettings} from '../../platform/device-settings';
 
 const unavailable = () => Object.assign(new Error('native_device_setting_unsupported'), {code: 'unsupported'});
 
@@ -30,4 +30,17 @@ export async function writeNativeDevicePreference(rowId: string, value: unknown,
   const confirmed = readNativeDevicePreference(rowId, source);
   if (!confirmed) throw new Error('native_device_preference_unreadable');
   return confirmed;
+}
+
+export type NativeDevicePreferenceOwner = Readonly<{current: () => boolean; subscribePreferences: (listener: () => void) => () => void}>;
+
+/** Borrows the one bootstrap-bound device source. No second store, source
+ * cache, cloned owner, controller or dispose port is created here. */
+export function bindNativeDevicePreferences(owner: NativeDevicePreferenceOwner) {
+  const source = nativeDeviceSettings(owner);
+  return Object.freeze({
+    read: (rowId: string) => readNativeDevicePreference(rowId, source),
+    write: (rowId: string, value: unknown) => writeNativeDevicePreference(rowId, value, source),
+    subscribe: (listener: () => void): (() => void) => source.subscribe(listener),
+  });
 }
