@@ -30,6 +30,8 @@ import {nativePlaybackSettings} from './playback-settings';
 import {authorityKey, type ShellAuthority} from './model';
 import {nativeReadRouteAllowed} from '../screens/read/platform';
 import {nativeRuntimeRegionText} from '../screens/settings/runtime-region';
+import {bindNativeTopShelfLocale} from '../screens/settings/top-shelf-locale';
+import {nativeScreenServices} from '../screens/native-screen-services';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
 import {NativeShellNavigation} from './routes';
 import {NativeWatchOutlet} from './watch-outlet';
@@ -298,6 +300,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     // behind the live authority too, instead of retaining the copied menu on retirement.
     Object.defineProperty(runtime, 'account', {get: () => {assertCurrent(); return bound.account;}});
     bound.attach(runtime);
+    const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));
+    if (retireTopShelfLocale) cleanups.push(retireTopShelfLocale);
     return runtime;
   } catch (error) {dispose(); throw nativeIdentityFailure(error, identityServer) ?? error;}
 }
