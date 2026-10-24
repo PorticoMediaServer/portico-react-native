@@ -162,7 +162,7 @@ export class NativeTVMusicController {
       source: {container: {kind: this.options.entry.kind, id: this.options.entry.id}},
       ...(shuffle ? {order: {mode: 'shuffle' as const}} : {}),
       ...(anchorItemId ? {anchor: {itemId: anchorItemId}} : {}),
-    }], {signal: controller.signal, isCurrent});
+    }], {signal: controller.signal, isCurrent}).then(() => undefined);
   };
   toggleFavorite = async (): Promise<void> => {
     if (!this.current()) return;

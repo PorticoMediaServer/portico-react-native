@@ -4,7 +4,7 @@ import type {PersonalResource, PersonalSavedSnapshot} from '../../../../../../pa
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../../../shell/bootstrap';
 import {routePath} from '../../../../../../packages/contracts/src/routes';
-import type {NativeSavedViewDestination, NativeSavedViewSnapshot} from '../../saved/view-model';
+import type {NativeSavedViewDestination} from '../../saved/view-model';
 import {NativeSavedViewDestination as SavedView} from '../../saved/view-model';
 import {nativeDestinationLifetime} from '../lifetime';
 import {nativeScreenServices} from '../../native-screen-services';
