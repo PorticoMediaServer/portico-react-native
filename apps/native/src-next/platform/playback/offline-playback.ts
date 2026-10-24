@@ -25,7 +25,7 @@ export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
   private readonly session: () => LocalSession | undefined;
   private readonly device: NativeOfflinePlaybackDevice;
-  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number; sequence: number; journalCurrent: () => boolean}>();
+  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number; sequence: number; run?: number; journalCurrent: () => boolean}>();
   private disposed = false;
   constructor(session: () => LocalSession | undefined, device: NativeOfflinePlaybackDevice) {
     this.session = session;
@@ -66,12 +66,16 @@ export class NativeOfflinePlayback {
    * existing dock and controls. Paths and receipt payloads stay app-private. */
   fence(session: PlaybackSession, run: number): LocalPlaybackFence | undefined {
     const held = this.admitted(session);
-    if (!held) return;
+    if (!held || held.run !== undefined && held.run !== run) return;
     const {source, media} = held;
     try {
-      return localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: source.owner, run},
+      const fence = localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: source.owner, run},
         sessionId: session.id, generation: session.generation, itemId: source.itemId,
         entryId: source.entryId, playId: media.playId, artifact: source.artifact});
+      // A following Play increments the service run before retiring its old
+      // session. That must never relabel this admitted source as the new play.
+      held.run = run;
+      return fence;
     } catch { return; }
   }
   /** A parked bookmark reopens its actual device entry and journal play. Neither

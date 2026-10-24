@@ -70,6 +70,7 @@ test('only the current actual local session projects a complete private-path-fre
   assert.equal(JSON.stringify(fence).includes(x.media.fileUrl), false);
   assert.equal(Object.isFrozen(fence), true); assert.equal(Object.isFrozen(fence!.playback.scope), true);
   assert.equal(x.owner.fence(original, 0), undefined);
+  assert.equal(x.owner.fence(original, 4), undefined, 'a following service run cannot relabel the admitted old session');
   assert.equal(x.owner.fence({...original, streamUrl: 'file:///other.mp4'}, 3), undefined);
   assert.equal(x.owner.fence({...original, generation: original.generation + 1}, 3), undefined);
   const retry = source.session();
