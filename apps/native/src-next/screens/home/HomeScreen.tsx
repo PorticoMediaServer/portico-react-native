@@ -159,7 +159,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     target: focusedRow && homePlayTarget(focusedRow, focusedEntry),
   } satisfies HomeCandidate : undefined;
   const candidates: readonly HomeCandidate[] = useMemo(() => document ? homeSpotlightModels(document).map(model => ({
-    id: model.entry.id, title: model.entry.title, entry: model.entry, overview: model.overview,
+    id: model.entry.id, title: model.entry.displayTitle || model.entry.title, entry: model.entry, overview: model.overview,
     reason: serverTextLabel(defaultI18n, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
   })) : [], [document, runtime.text]);

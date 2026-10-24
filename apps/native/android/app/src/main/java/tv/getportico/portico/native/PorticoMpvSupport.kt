@@ -320,6 +320,21 @@ internal object PorticoMpvSupport {
         else -> "scale"
       }
 
+  /** An original file's offset is the complete source-relative correction,
+   * including explicit zero and fractions. Never add it to the plan, clamp an
+   * unsupported clock, or replace an invalid explicit value with the plan. */
+  fun originalSubtitleDelay(command: Map<*, *>, render: Map<*, *>): String? {
+    if (render.containsKey("timeDomain") && render["timeDomain"] != "source-relative") return null
+    if (render.containsKey("offsetMs")) {
+      val ms = (render["offsetMs"] as? Number)?.toDouble() ?: return null
+      return if (ms.isFinite() && ms in -86_400_000.0..86_400_000.0) (ms / 1000).toString() else null
+    }
+    val raw = command["offsetUs"] as? String ?: return null
+    if (raw.length > 10 || !Regex("-?(?:0|[1-9][0-9]*)").matches(raw)) return null
+    val us = raw.toLongOrNull() ?: return null
+    return if (us in -600_000_000L..600_000_000L) (us.toDouble() / 1_000_000).toString() else null
+  }
+
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String
