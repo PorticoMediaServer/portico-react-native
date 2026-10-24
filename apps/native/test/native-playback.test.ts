@@ -240,7 +240,11 @@ test('a session update that is only this device\'s own report asks the server no
 test('Automatic steps down when the engine measures a connection that cannot carry the picture', async () => {
   let now = 0;
   const server = new FakePlaybackServer();
-  const http = fakeHttp(server);
+  const inner = fakeHttp(server), changes: unknown[] = [];
+  const http: typeof inner = {send: request => {
+    if (request.method === 'PATCH' && request.body && typeof request.body === 'object' && 'quality' in request.body) changes.push(request.body.quality);
+    return inner.send(request);
+  }};
   let serial = 0;
   const path = new NativePlayback({http, timers: {now: () => now, setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}-key-0000000000`});
   const playback = new PlaybackService(path.transport, () => `r${++serial}`, {queueRequired: true, deferRecovery: true});
@@ -272,6 +276,7 @@ test('Automatic steps down when the engine measures a connection that cannot car
     for (let i = 0; i < 13; i++) { now += 1000; engine.position += 1; engine.fact('progress', {throughputKbps: 3000}); await settle(4); }
     await settle();
     assert.deepEqual(notices, ['qualityLowered:720p-low'], 'one change, to what the connection carries with room to spare');
+    assert.deepEqual(changes.at(-1), {mode: 'automatic', id: '720p-low'}, 'the exact canonical offered target reaches the real session PATCH');
     assert.equal(playback.getSnapshot().session!.id, id, 'the same session');
     assert.deepEqual(path.session(id)!.presentation.quality, {mode: 'automatic', id: '720p-low'});
   } finally { coordinator.stop(); stop(); unbind(); player.dispose(); path.dispose(); }
