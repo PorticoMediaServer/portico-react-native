@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      base:
+        description: Optional comparison commit (otherwise use origin/main)
+        type: string
+        required: false
+        default: ''
   workflow_call:
     inputs:
       legacy_compatibility:
@@ -13,7 +19,7 @@ on:
 permissions:
   contents: read
 env:
-  CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+  CI_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
 jobs:
   javascript:
     runs-on: ubuntu-24.04
@@ -61,3 +67,12 @@ jobs:
           "$RUNNER_TEMP/portico-download-attempts"
           clang -fobjc-arc -framework Foundation -framework Security -o "$RUNNER_TEMP/portico-installation-storage" apps/native/test/native-installation-storage-tests.m
           "$RUNNER_TEMP/portico-installation-storage"
+      - name: Public Foundation-only Reading and playback tests
+        run: |
+          set -euo pipefail
+          for name in apple-reading-bytes apple-presentation-readiness apple-subtitle-offset apple-subtitle-payload; do
+            xcrun clang -fobjc-arc -fblocks -framework Foundation -framework AVFoundation "apps/native/test/${name}-tests.m" -o "$RUNNER_TEMP/$name"
+            "$RUNNER_TEMP/$name"
+          done
+          xcrun clang -fobjc-arc -fblocks -framework Foundation -framework CoreVideo apps/native/test/apple-playback-observation-tests.m -o "$RUNNER_TEMP/apple-playback-observation"
+          "$RUNNER_TEMP/apple-playback-observation"
