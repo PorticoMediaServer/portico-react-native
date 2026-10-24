@@ -39,7 +39,7 @@ test('font scaling is optional unscored metadata and never changes logical obser
 test('DEV metadata getter reads fresh font scaling only for an active capture', async () => {
   const globals = globalThis as typeof globalThis & {__DEV__?: boolean};
   const original = globals.__DEV__;
-  let installed: ReturnType<typeof installNativeLayoutDump>;
+  let installed: ReturnType<typeof installNativeLayoutDump> = undefined;
   let fontScale = 1, reads = 0;
   try {
     globals.__DEV__ = true;
