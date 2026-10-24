@@ -25,6 +25,7 @@ export type FocusableProps = Omit<PressableProps, 'children'> & {
 type PressableStyleAdapterProps = Omit<PressableProps, 'style'> & {
   style?: StyleProp<ViewStyle>;
   pressableStyleInput?: PressableProps['style'];
+  observeResolvedStyle?: (style: ViewStyle | undefined) => void;
 };
 
 // Reanimated 4.6 turns its style prop into an array, including functions.
@@ -32,10 +33,14 @@ type PressableStyleAdapterProps = Omit<PressableProps, 'style'> & {
 // still drives them, while Reanimated animates that same forwarded host ref.
 // Static styles stay on Reanimated's style prop for animated-handle discovery.
 const PressableStyleAdapter = forwardRef<View, PressableStyleAdapterProps>(function PressableStyleAdapter({
-  style, pressableStyleInput, ...props
+  style, pressableStyleInput, observeResolvedStyle, ...props
 }, ref) {
   return <Pressable {...props} ref={ref}
-    style={state => [typeof pressableStyleInput === 'function' ? pressableStyleInput(state) : pressableStyleInput, style]} />;
+    style={state => {
+      const resolved = [typeof pressableStyleInput === 'function' ? pressableStyleInput(state) : pressableStyleInput, style];
+      observeResolvedStyle?.(StyleSheet.flatten(resolved));
+      return resolved;
+    }} />;
 });
 const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter);
 
@@ -49,7 +54,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   const motion = useMotion();
   const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || focusable === false, ref});
   const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: props.accessibilityRole ?? 'button',
-    flattenedStyle: typeof style === 'function' ? undefined : StyleSheet.flatten(style)}, binding.ref);
+    flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ && typeof style !== 'function' ? StyleSheet.flatten(style) : undefined,
+    declaredStyleComplete: typeof style !== 'function'}, binding.ref);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const scale = useSharedValue(1);
@@ -78,6 +84,7 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
     onPressOut={event => {pressed.value = withTiming(0, motion.timing('quick')); onPressOut?.(event);}}
     onLongPress={disabled || waiting ? undefined : event => {onLongPressAction?.(); onLongPress?.(event);}}
     pressableStyleInput={typeof style === 'function' ? style : undefined}
+    observeResolvedStyle={typeof __DEV__ !== 'undefined' && __DEV__ ? observation.recordDeclaredStyle : undefined}
     style={[typeof style === 'function' ? undefined : style, {zIndex: focused ? layers.tvFocus : undefined}, animated]}>
     {(state: PressableStateCallbackType) => <>
       {focusTreatment === 'default' && isTV && !focusInset ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"

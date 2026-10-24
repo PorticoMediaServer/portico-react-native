@@ -11,15 +11,15 @@ async function fixture(dev: boolean) {
       slot.cleanup?.(); slot.deps = deps; slot.cleanup = run() || undefined;
     });
   }};
-  const observations: {host: object; active: boolean; lines?: unknown; focus?: boolean; invalidations: number}[] = [];
+  const observations: {host: object; active: boolean; lines?: unknown; focus?: boolean; facts?: object; invalidations: number}[] = [];
   let imports = 0;
   const originalDev = Reflect.get(globalThis, '__DEV__'), originalRequire = Reflect.get(globalThis, 'require');
   Reflect.set(globalThis, '__DEV__', dev);
   Reflect.set(globalThis, 'require', (name: string) => {
     assert.equal(name, '../dev/layout-dump/index'); imports++;
-    return {registerNativeHost(host: object) {
-      const record = {host, active: true, invalidations: 0} as typeof observations[number]; observations.push(record);
-      return {update() {}, invalidateTextLayout() {record.invalidations++;},
+    return {registerNativeHost(host: object, facts: object) {
+      const record = {host, facts, active: true, invalidations: 0} as typeof observations[number]; observations.push(record);
+      return {update(next: object) {assert.ok(record.active); record.facts = next;}, invalidateTextLayout() {record.invalidations++;},
         recordTextLayout(lines: unknown) {assert.ok(record.active); record.lines = lines;},
         recordNativeFocus(value: boolean) {assert.ok(record.active); record.focus = value;},
         recordResolvedStyle() {throw new Error('input styles must not become resolved paint');},
@@ -49,6 +49,21 @@ test('actual text events preserve forwarded ref cleanup and retire replaced/unmo
     binding.textProps.onTextLayout({nativeEvent: {target: 11, lines}}); assert.equal(f.observations[1].lines, undefined);
     binding.textProps.onTextLayout({nativeEvent: {target: 22, lines}}); assert.deepEqual(f.observations[1].lines, lines);
     cleanup(); assert.equal(f.observations[1].active, false); assert.equal(cleanups, 2); assert.deepEqual(forwarded, [a, b]);
+  } finally {f.dispose();}
+});
+test('actual Pressable declaration updates are current, separate from measured paint and retired with the host', async () => {
+  const f = await fixture(true);
+  try {
+    const binding = f.render({kind: 'view', semanticId: 'public-action'});
+    const cleanup = binding.ref({handle: 11});
+    binding.recordDeclaredStyle({backgroundColor: '#fff', opacity: .5});
+    assert.deepEqual(f.observations[0].facts, {kind: 'view', semanticId: 'public-action',
+      flattenedStyle: {backgroundColor: '#fff', opacity: .5}, declaredStyleComplete: true});
+    binding.recordDeclaredStyle({backgroundColor: '#000', opacity: 1});
+    assert.equal((f.observations[0].facts as any).flattenedStyle.opacity, 1);
+    cleanup();
+    binding.recordDeclaredStyle({opacity: .2});
+    assert.equal((f.observations[0].facts as any).flattenedStyle.opacity, 1);
   } finally {f.dispose();}
 });
 test('focus observations come only from the current native event target', async () => {
