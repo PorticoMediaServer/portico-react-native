@@ -20,7 +20,18 @@ export function installNativePublicMeasurement(root: () => object | null, isCurr
     },
     diagnostics: () => ({fontScale: PixelRatio.getFontScale()}),
     platform: Platform.OS === 'android' ? 'android' : Platform.isTV ? 'tvos' : 'ios',
-    anchors: {'accounts-welcome-portico': 'primary-action', 'tv-front-door-portico': 'primary-action'},
+    anchors: {
+      'accounts-welcome-title': 'title',
+      'accounts-welcome-portico': 'primary-action',
+      'accounts-welcome-portico/label': 'primary-action-label',
+      'accounts-welcome-local': 'secondary-action',
+      'accounts-welcome-local/label': 'secondary-action-label',
+      'tv-front-door-title': 'title',
+      'tv-front-door-portico': 'primary-action',
+      'tv-front-door-portico/label': 'primary-action-label',
+      'tv-front-door-local': 'secondary-action',
+      'tv-front-door-local/label': 'secondary-action-label',
+    },
   });
   if (!owner) throw new Error('The DEV native collector is unavailable.');
   const command = Object.freeze({capture: (options?: Parameters<NativeLayoutDump['capture']>[0]) => owner.capture(options)});
