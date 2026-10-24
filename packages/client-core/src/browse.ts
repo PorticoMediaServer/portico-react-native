@@ -32,7 +32,7 @@ export type BrowseFieldCapability=Readonly<{id:string;labelKey:string;type:Brows
 /** `requiresGroup`: the group's own order (a playlist's, a season's, an album's), offered on a group's page and never on a library tab. */
 export type BrowseSortCapability=Readonly<{id:string;labelKey:string;directions:readonly BrowseDirection[];defaultDirection:BrowseDirection;expensive:boolean;seeded?:boolean;requiresGroup?:boolean;ownerOnly?:boolean;applicableKinds:readonly string[]}>;
 /** `members`: a pivot read within one group (a book's parts), never a library tab. Paging is by key in a library and by position across libraries. */
-export type BrowsePivotCapability=Readonly<{id:string;labelKey:string;entityKinds:readonly string[];defaultSort:readonly BrowseSortSelection[];supportedViews:readonly string[];browsable:boolean;aggregate?:string;members?:boolean;sorts?:readonly string[];filters?:readonly string[];paging?:BrowsePaging}>;
+export type BrowsePivotCapability=Readonly<{facetSource?:Readonly<{endpoint:string;field:string}>;id:string;labelKey:string;entityKinds:readonly string[];defaultSort:readonly BrowseSortSelection[];supportedViews:readonly string[];browsable:boolean;aggregate?:string;members?:boolean;sorts?:readonly string[];filters?:readonly string[];paging?:BrowsePaging}>;
 export type BrowsePaging='keyset'|'offset';
 export type BrowseQuickFilter=Readonly<{id:string;labelKey:string;query:BrowseNode}>;
 export type BrowseQueryLimits=Readonly<{maximumDepth:number;maximumClauses:number;maximumBytes:number;maximumSorts:number;defaultLimit:number;maximumLimit:number;cursorTtlMs:number}>;
@@ -46,7 +46,12 @@ export type BrowsePageInfo=Readonly<{start:number;total:number;totalIsLowerBound
 export type BrowseRange=Readonly<{start:number;revision?:string;anchorId?:string}>;
 export type BrowseSeek=Readonly<{prefix:string}>;
 export type BrowseApplied=Readonly<{query:BrowseNode|null;sort:readonly BrowseSortSelection[];seek:BrowseSeek|null}>;
-export type BrowseResult=Readonly<{pivot:string;applied:BrowseApplied;entries:readonly ContentEntry[];pageInfo:BrowsePageInfo;positionIndex:readonly BrowsePositionAnchor[];displayTargets?:readonly BrowseDisplayTarget[]}>;
+export type BrowseSelectionCapabilities=Readonly<{play:number;queue:number;playlist:number;myList:number;watched:number;collection:number;favorite:number;download:number;edit:number;refresh:number;delete:number}>;
+export type BrowseSelectionType=Readonly<{kind:string;count:number;capabilities:BrowseSelectionCapabilities;libraries:readonly Readonly<{libraryId:string;count:number}>[]}>;
+/** Exact facts about the whole authorized view, present only on a view the server can replay
+ * unchanged as one job. Counts are displayed titles; nothing here is inferred from a loaded page. */
+export type BrowseWholeSelection=Readonly<{libraryId:string;pivot:string;filter:BrowseNode|null;sort:readonly BrowseSortSelection[];catalogRevision:string;total:number;types:readonly BrowseSelectionType[]}>;
+export type BrowseResult=Readonly<{pivot:string;applied:BrowseApplied;entries:readonly ContentEntry[];pageInfo:BrowsePageInfo;positionIndex:readonly BrowsePositionAnchor[];displayTargets?:readonly BrowseDisplayTarget[];wholeSelection?:BrowseWholeSelection}>;
 export type BrowseDisplayTarget=Readonly<{membershipId:string;entryId:string}>;
 export type BrowseFacetValue=Readonly<{value:string;label:string;count:number;countIsLowerBound?:boolean}>;
 export type BrowseFacetPage=Readonly<{field:string;total:number;values:readonly BrowseFacetValue[];totalIsLowerBound?:boolean;revision?:string}>;
@@ -158,7 +163,8 @@ export function parseBrowseCapabilities(raw:unknown):BrowseCapabilities{
  const pivot=(v:unknown):BrowsePivotCapability=>{
   if(!obj(v)||!id(v.id)||!id(v.labelKey))bad();
   // A pivot that does not say it can be queried is not queried.
-  return {id:v.id,labelKey:v.labelKey,entityKinds:known('pivot.entityKinds',v.entityKinds,32),defaultSort:keepReadable('browse','pivot.defaultSort',rows(v.defaultSort??[],3),sortSelection),supportedViews:known('pivot.supportedViews',v.supportedViews,8),sorts:known('pivot.sorts',v.sorts,64),filters:known('pivot.filters',v.filters,128),...(v.paging==='keyset'||v.paging==='offset'?{paging:v.paging}:{}),browsable:v.browsable===true,...(v.members===true?{members:true}:{}),...(v.aggregate===undefined?{}:{aggregate:id(v.aggregate)?v.aggregate:bad()})};
+  const facetSource=v.facetSource==null?undefined:obj(v.facetSource)&&v.facetSource.endpoint==='/v1/libraries/{id}/facets'&&(v.facetSource.field==='author'||v.facetSource.field==='series')?{endpoint:v.facetSource.endpoint,field:v.facetSource.field}:bad();
+  return {...(facetSource?{facetSource}:{}),id:v.id,labelKey:v.labelKey,entityKinds:known('pivot.entityKinds',v.entityKinds,32),defaultSort:keepReadable('browse','pivot.defaultSort',rows(v.defaultSort??[],3),sortSelection),supportedViews:known('pivot.supportedViews',v.supportedViews,8),sorts:known('pivot.sorts',v.sorts,64),filters:known('pivot.filters',v.filters,128),...(v.paging==='keyset'||v.paging==='offset'?{paging:v.paging}:{}),browsable:v.browsable===true,...(v.members===true?{members:true}:{}),...(v.aggregate===undefined?{}:{aggregate:id(v.aggregate)?v.aggregate:bad()})};
  };
  const pivots=firstOfEach('browse','pivots',keepReadable('browse','pivots',rows(raw.pivots,32),pivot),p=>p.id);
  const fields=firstOfEach('browse','fields',keepReadable('browse','fields',rows(raw.fields,128),v=>{
@@ -228,17 +234,82 @@ export function parseBrowseResult(raw:unknown):BrowseResult{
  const reachedEnd=sent.length>0&&!more;
  const duration=info.durationMs===undefined?{}:count(info.durationMs)&&typeof info.durationIsLowerBound==='boolean'?{durationMs:info.durationMs,durationIsLowerBound:info.durationIsLowerBound}:bad();
  const applied=raw.applied;
+ const appliedQuery=applied.query===undefined||applied.query===null?null:parseBrowseNode(applied.query);
+ const appliedSort=rows(applied.sort,3).map(sortSelection);
+ const wholeSelection=parseWholeSelection(raw.wholeSelection,{revision:info.revision,pivot:raw.pivot,query:appliedQuery,sort:appliedSort});
  return freeze({
   pivot:raw.pivot,
   applied:{
-   query:applied.query===undefined||applied.query===null?null:parseBrowseNode(applied.query),
-   sort:rows(applied.sort,3).map(sortSelection),
+   query:appliedQuery,
+   sort:appliedSort,
    seek:applied.seek===undefined||applied.seek===null?null:(obj(applied.seek)&&str(applied.seek.prefix,8)&&applied.seek.prefix?{prefix:applied.seek.prefix}:bad()),
   },
   entries,
   pageInfo:{start:info.start,total,totalIsLowerBound:lowerBound&&!reachedEnd,revision:info.revision,hasMore:lowerBound?more:info.start+sent.length<total,nextCursor:(info.nextCursor??'') as string,...duration},
   positionIndex,...(displayTargets?{displayTargets}:{}),
+  ...(wholeSelection?{wholeSelection}:{}),
  });
+}
+
+/** The page a descriptor must describe exactly to be retained: its revision, its pivot and its
+ * applied predicate and ordering. A descriptor for another view is stale, not useful. */
+export type WholeSelectionPage=Readonly<{revision:string;pivot:string;query:BrowseNode|null;sort:readonly BrowseSortSelection[]}>;
+
+const wholeSelectionKinds:readonly string[]=['movie','show','season','episode','artist','album','song','book','audiobook_file','collection','extra','disc','author'];
+const capabilityKeys:readonly string[]=['play','queue','playlist','myList','watched','collection','favorite','download','edit','refresh','delete'];
+const sameJson=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
+
+/** The exact whole-view aggregate. A malformed or inconsistent descriptor is dropped alone —
+ * the page still parses — so a stale or wrong server can never make a client over-count, and a
+ * descriptor is retained only when it describes this exact page. */
+export function parseWholeSelection(raw:unknown,page?:WholeSelectionPage):BrowseWholeSelection|undefined{
+ if(raw===undefined||raw===null)return;
+ try{
+  if(!obj(raw)||!obj(raw.selector))return;
+  // Query-only: the existing job selector's container/items forms cannot describe a library view.
+  if(Object.keys(raw.selector).some(key=>key!=='query')||!obj(raw.selector.query))return;
+  const query=raw.selector.query;
+  if(Object.keys(query).some(key=>!['libraryId','pivot','filter','sort'].includes(key)))return;
+  if(!id(query.libraryId)||!id(query.pivot)||!(str(raw.catalogRevision,128)&&(raw.catalogRevision as string).length>0)||!count(raw.total)||!Array.isArray(raw.types)||raw.types.length>16)return;
+  const filter=query.filter===undefined||query.filter===null?null:parseBrowseNode(query.filter);
+  const sort=query.sort===undefined?[]:rows(query.sort,3).map(sortSelection);
+  if(page){
+   if(raw.catalogRevision!==page.revision||query.pivot!==page.pivot)return;
+   if(!sameJson(filter,page.query)||!sameJson(sort,page.sort))return;
+  }
+  const seen=new Set<string>();
+  let summed=0;
+  const types:BrowseSelectionType[]=[];
+  for(const value of raw.types as unknown[]){
+   if(!obj(value)||!id(value.kind)||!wholeSelectionKinds.includes(value.kind)||seen.has(value.kind)||!count(value.count)||!obj(value.capabilityCounts)||!Array.isArray(value.libraries))return;
+   seen.add(value.kind);
+   const counts=value.capabilityCounts as Record<string,unknown>;
+   if(Object.keys(counts).length!==capabilityKeys.length||Object.keys(counts).some(key=>!capabilityKeys.includes(key)))return;
+   const capabilities={} as Record<string,number>;
+   for(const key of capabilityKeys){
+    const amount=counts[key];
+    if(!count(amount)||amount>value.count)return;
+    capabilities[key]=amount;
+   }
+   const libraries:Readonly<{libraryId:string;count:number}>[]=[];
+   const seenLibraries=new Set<string>();
+   let libraryTotal=0;
+   for(const row of value.libraries as unknown[]){
+    if(!obj(row)||!id(row.libraryId)||row.libraryId!==query.libraryId||seenLibraries.has(row.libraryId)||!count(row.count))return;
+    seenLibraries.add(row.libraryId);
+    libraryTotal+=row.count;
+    libraries.push({libraryId:row.libraryId,count:row.count});
+   }
+   if(!libraries.length||libraryTotal!==value.count)return;
+   summed+=value.count;
+   types.push({kind:value.kind,count:value.count,capabilities:capabilities as BrowseSelectionCapabilities,libraries:libraries});
+  }
+  if(summed!==raw.total)return;
+  return freeze({libraryId:query.libraryId,pivot:query.pivot,filter,sort,catalogRevision:raw.catalogRevision,total:raw.total,types});
+ }catch{
+  // A malformed optional descriptor never fails the page it rides on.
+  return undefined;
+ }
 }
 
 /** Anchors for the position rail, on the first page of every sort (M20): letters for
@@ -488,9 +559,10 @@ export function parseBrowseCounts(raw:unknown,expected:readonly string[]):readon
 }
 /** Contextual facet URL; query includes current filters and immutable group.
  * The server leaves the counted field out and rechecks current authority. */
-export function browseContextFacetsPath(libraryId:string,field:string,pivot:string,query?:BrowseNode,q='',limit=200):string{
- if(!id(field)||!id(pivot)||!count(limit)||limit<1||limit>200||q.length>100)bad();
+export function browseContextFacetsPath(libraryId:string,field:string,pivot:string,query?:BrowseNode,q='',limit=200,offset=0):string{
+ if(!id(field)||!id(pivot)||!count(limit)||limit<1||limit>200||q.length>100||!count(offset)||(offset>0&&libraryId===acrossLibraries))bad();
  const params=new URLSearchParams({field,pivot,limit:String(limit)});
+ if(offset>0)params.set('offset',String(offset));
  if(query)params.set('query',JSON.stringify(parseBrowseNode(query)));
  if(q)params.set('q',q);
  return browseFacetsPath(libraryId)+'?'+params.toString();
