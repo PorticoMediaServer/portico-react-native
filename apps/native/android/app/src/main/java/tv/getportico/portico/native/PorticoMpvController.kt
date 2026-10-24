@@ -1363,7 +1363,7 @@ internal class PorticoMpvController(private val context: Context) {
     core?.set("sub-scale", PorticoMpvSupport.decimal(PorticoMpvSupport.captionScale(context, style) * PorticoMpvSupport.styleScale(style), 2))
     // Plain/stripped text uses the same canonical/system colour as the cue view.
     // An ASS track retaining its file style ignores these fallback properties
-    // through the explicit sub-ass-override=no above.
+    // through sub-ass-override=scale above, retaining caption size scaling.
     val (text, box) = PorticoMpvSupport.captionColors(context, style)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
     core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))

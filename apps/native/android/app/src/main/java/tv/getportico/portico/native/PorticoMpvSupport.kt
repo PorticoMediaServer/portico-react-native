@@ -310,11 +310,12 @@ internal object PorticoMpvSupport {
   }
 
   /** Only the actual ASS/SSA render kind opts into file-style policy. The
-   * pinned mpv's strip mode renders its text with the existing subtitle style;
+   * pinned mpv's scale mode keeps authored styles while honoring caption size;
+   * strip mode renders its text with the existing subtitle style.
    * no bitmap or plain-text track inherits an earlier ASS override. */
   fun captionAssOverride(style: Map<*, *>?, kind: Any?): String =
       if (kind != "ass") "scale" else when (style?.get("keepStyling")) {
-        true -> "no"
+        true -> "scale"
         false -> "strip"
         else -> "scale"
       }

@@ -129,7 +129,9 @@ class PorticoMpvSupportTest {
 
   @Test
   fun assFileStylingIsExplicitAndCannotLeakIntoAnotherTrack() {
-    assertEquals("no", support.captionAssOverride(mapOf("keepStyling" to true), "ass"))
+    val styled = mapOf("keepStyling" to true, "scale" to 1.6, "color" to "yellow", "position" to "top")
+    assertEquals("preserve script styles with size scaling", "scale", support.captionAssOverride(styled, "ass"))
+    assertEquals(1.6, support.styleScale(styled), 0.0)
     assertEquals("strip", support.captionAssOverride(mapOf("keepStyling" to false), "ass"))
     for (kind in listOf("pgs", "vobsub", "dvb", "text", "ssa", null)) {
       assertEquals("scale", support.captionAssOverride(mapOf("keepStyling" to false), kind))
@@ -137,7 +139,7 @@ class PorticoMpvSupportTest {
     }
     for (style in listOf(null, emptyMap<String, Any>(), mapOf("keepStyling" to "false"), mapOf("keepStyling" to 0)))
       assertEquals("legacy or malformed command", "scale", support.captionAssOverride(style, "ass"))
-    assertEquals("switching back restores script styling", "no", support.captionAssOverride(mapOf("keepStyling" to true), "ass"))
+    assertEquals("switching back restores script styling with scaling", "scale", support.captionAssOverride(mapOf("keepStyling" to true), "ass"))
   }
 
   @Test
