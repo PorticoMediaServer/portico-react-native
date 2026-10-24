@@ -141,19 +141,21 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
  PorticoQueueRequest *request=[self requestFor:task];if(!request)return;
- BOOL over=NO;@synchronized(request){
+ BOOL over=NO;NSString *streamFailure=@"network_stream_state_invalid";@synchronized(request){
   if(request.completed)return;
   if(request.streamingResponse){
    // Suspend on every incoming window. A single bounded window also accommodates
    // already-in-flight delegate bytes; a slow JS consumer cannot grow a body buffer.
    if(!request.streamPaused){request.streamPaused=YES;[task suspend];}
-   if(!request.streamOpened||request.streamEOF||request.data.length>PorticoStreamChunkLimit||data.length>PorticoStreamChunkLimit-request.data.length)over=YES;
+   if(!request.streamOpened||request.streamEOF)over=YES;
+   else if(data.length>PorticoStreamChunkLimit){over=YES;streamFailure=@"network_stream_chunk_exceeded";}
+   else if(request.data.length>PorticoStreamChunkLimit||data.length>PorticoStreamChunkLimit-request.data.length){over=YES;streamFailure=@"network_stream_window_exceeded";}
    else{[request.data appendData:data];[request deliverStream];}
   }else{
    NSUInteger limit=request.responseLimit?:1048576;if(request.data.length>limit||data.length>limit-request.data.length)over=YES;else [request.data appendData:data];
   }
  }
- if(over)[request finish:request.streamingResponse?@"network_stream_window_exceeded":@"Queue response exceeded its limit."];
+ if(over)[request finish:request.streamingResponse?streamFailure:@"Queue response exceeded its limit."];
 }
 - (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
  [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
