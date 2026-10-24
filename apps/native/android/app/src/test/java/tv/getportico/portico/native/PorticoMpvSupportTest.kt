@@ -176,19 +176,19 @@ class PorticoMpvSupportTest {
   fun mpvProfileEdgesClearTheirBoxAndRestoreOnTheNextChoice() {
     val softBox = 0xb3000000.toInt()
     val outline = support.mpvCaptionEdges(mapOf("background" to "outline", "useSystemCaptionStyle" to false), softBox)
-    assertEquals(0, outline.background); assertEquals(3, outline.outline); assertEquals(0, outline.shadow)
+    assertEquals(0, outline.backColor); assertFalse(outline.boxed); assertEquals(3, outline.outline); assertEquals(0, outline.shadow)
     val shadow = support.mpvCaptionEdges(mapOf("background" to "shadow", "useSystemCaptionStyle" to false), softBox)
-    assertEquals(0, shadow.background); assertEquals(0, shadow.outline); assertEquals(2, shadow.shadow)
+    assertEquals(0xff000000.toInt(), shadow.backColor); assertFalse(shadow.boxed); assertEquals(0, shadow.outline); assertEquals(2, shadow.shadow)
     for ((choice, box) in mapOf("translucent" to softBox, "opaque" to 0xff000000.toInt(), "unknown" to softBox)) {
       val restored = support.mpvCaptionEdges(mapOf("background" to choice, "useSystemCaptionStyle" to false), box)
-      assertEquals(box, restored.background); assertEquals(0, restored.outline); assertEquals(0, restored.shadow)
+      assertEquals(box, restored.backColor); assertTrue(restored.boxed); assertEquals(0, restored.outline); assertEquals(0, restored.shadow)
     }
     for (system in listOf(true, null)) {
       val retained = support.mpvCaptionEdges(mapOf("background" to "shadow", "useSystemCaptionStyle" to system), softBox)
-      assertEquals(softBox, retained.background); assertEquals(0, retained.outline); assertEquals(0, retained.shadow)
+      assertEquals(softBox, retained.backColor); assertTrue(retained.boxed); assertEquals(0, retained.outline); assertEquals(0, retained.shadow)
     }
     val oldTransparent = support.mpvCaptionEdges(null, 0)
-    assertEquals(0, oldTransparent.background); assertEquals(3, oldTransparent.outline); assertEquals(0, oldTransparent.shadow)
+    assertEquals(0, oldTransparent.backColor); assertFalse(oldTransparent.boxed); assertEquals(3, oldTransparent.outline); assertEquals(0, oldTransparent.shadow)
   }
 
   @Test
