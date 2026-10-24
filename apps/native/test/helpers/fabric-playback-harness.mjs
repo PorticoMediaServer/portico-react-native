@@ -119,7 +119,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
       '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => motion},
       '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': tvFocus, './model': shellModel,
       '../screens/home/HomeScreen': {HomeScreen: Empty}, './NativePlaybackLayer': {NativePlaybackLayer},
-      './PhoneTabBar': {PhoneTabBar: Empty}, './MediumRail': {MediumRail: Empty}, './PhoneHomeHeader': {PhoneHomeHeader: Empty}, './DesktopHeader': {DesktopHeader: Empty},
+      './PhoneTabBar': {PhoneTabBar: Empty}, './MediumRail': {MediumRail: Empty}, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}}, './PhoneHomeHeader': {PhoneHomeHeader: Empty}, './DesktopHeader': {DesktopHeader: Empty},
       './TVRail': {TVRail: Empty}, './TVProfileMenu': {TVProfileMenu: Empty}}));
   }
   let parentRenders = 0;
