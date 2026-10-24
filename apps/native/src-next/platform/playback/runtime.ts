@@ -16,7 +16,7 @@ import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src
 import type {HomeChannel} from '../../../../../packages/client-core/src/home';
 import type {HomeSelectionPlaybackPort, HomeSelectionPlaybackRequest} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../../packages/client-core/src/selection-model/index';
-import {parseSession, type Session, type PlaybackOptions, type QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
+import {obj, parseQueue, parseSession, type Session, type PlaybackOptions, type QueueHeader} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {PlaybackChoices} from '../../../../../packages/client-core/src/playback-v1/choices';
 import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
@@ -158,13 +158,24 @@ export class NativePlaybackRuntime {
     return session?.sessionFamilyId === this.sessionFamilyId && authorityKey(this.o.authority()) === authorityKey(this.bound) && viewer?.serverId === this.scope?.serverId && viewer.accountId === this.scope.accountId && viewer.profileId === this.scope.profileId && viewer.authority === this.scope.authority;
   }
   private retiredStart(request: V1Request, response: V1Response): void {
-    if (request.method !== 'POST' || request.path !== routePath('start_playback_session') || ![200, 201].includes(response.status) || !this.authorityMatches()) return;
+    if (request.method !== 'POST' || ![200, 201].includes(response.status) || !this.authorityMatches()) return;
     let session: Session;
-    try { session = parseSession(response.body); } catch { return; }
+    if (request.path === routePath('create_queue')) {
+      // A combined queue create can also return a real session after its caller
+      // retires. Scope HTTP rejects that response before the core can abandon it.
+      if (!obj(request.body) || request.body.owner !== 'device' || !obj(request.body.startPlayback) || !obj(response.body)) return;
+      try {
+        const queue = parseQueue(response.body.queue);
+        session = parseSession(response.body.session);
+        if (session.role !== 'local' || session.queue?.queueId !== queue.id || !queue.current || session.queue.entryId !== queue.current.entryId) return;
+      } catch {return;}
+    } else if (request.path === routePath('start_playback_session')) {
+      try {session = parseSession(response.body);} catch {return;}
+      const body = request.body as {itemId?: unknown; queue?: {queueId?: unknown; entryId?: unknown}} | undefined;
+      if (!body || !body.queue && typeof body.itemId !== 'string') return;
+      if (body.queue ? session.queue?.queueId !== body.queue.queueId || session.queue?.entryId !== body.queue.entryId : session.itemId !== body.itemId) return;
+    } else return;
     if (this.playback.getSnapshot().session?.id === session.id) return;
-    const body = request.body as {itemId?: unknown; queue?: {queueId?: unknown; entryId?: unknown}} | undefined;
-    if (!body || !body.queue && typeof body.itemId !== 'string') return;
-    if (body?.queue ? session.queue?.queueId !== body.queue.queueId || session.queue?.entryId !== body.queue.entryId : session.itemId !== body?.itemId) return;
     this.stopOwnedSession(session.id);
   }
   private stopOwnedSession(id: string, positionMs?: number): void {

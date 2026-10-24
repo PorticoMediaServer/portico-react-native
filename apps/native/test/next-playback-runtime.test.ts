@@ -1731,3 +1731,41 @@ test('a retired catalogue caller abandons the exact session from a late real com
     assert.equal(d.server.session(created)?.ended, true);
   } finally {release?.(); d.runtime.dispose();}
 });
+
+
+for (const closing of ['member', 'dispose', 'authority', 'family'] as const) test(`late combined queue cleanup retains the original principal boundary: ${closing}`, async () => {
+  const d = fixture(); let release!: () => void, entered = false, created = '', current = true;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  try {
+    d.respond(async request => {
+      if (request.method !== 'POST' || request.path !== routePath('create_queue') || entered) return;
+      entered = true; await held; const response = await d.server.handle(request);
+      assert.equal(response.status, 201); created = (response.body as {session: {id: string}}).session.id; return response;
+    });
+    const pending = d.runtime.cataloguePlayback().playSegments([{source: {items: {ids: ['movie-1']}}}], {signal: new AbortController().signal, isCurrent: () => current});
+    const rejected = assert.rejects(pending); await settle(); assert.equal(entered, true);
+    if (closing === 'member') current = false; else if (closing === 'dispose') d.runtime.dispose();
+    else if (closing === 'authority') d.authority({epoch: 'replacement'}, false); else d.family('replacement-family');
+    release(); await rejected; await settle(); assert.ok(created);
+    const stopped = d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session', {id: created}));
+    assert.equal(stopped, closing === 'member' || closing === 'dispose');
+    assert.notEqual(d.runtime.getSnapshot().fence?.sessionId, created);
+  } finally {release?.(); d.runtime.dispose();}
+});
+
+test('late combined cleanup refuses a session that does not match its returned queue', async () => {
+  const d = fixture(), controller = new AbortController(); let release!: () => void, entered = false, created = '';
+  const held = new Promise<void>(resolve => {release = resolve;});
+  try {
+    d.respond(async request => {
+      if (request.method !== 'POST' || request.path !== routePath('create_queue') || entered) return;
+      entered = true; await held; const response = await d.server.handle(request);
+      const body = response.body as {queue: {id: string}; session: {id: string}}; created = body.session.id;
+      return {...response, body: {...body, queue: {...body.queue, id: 'unrelated-queue'}}};
+    });
+    const pending = d.runtime.cataloguePlayback().playSegments([{source: {items: {ids: ['movie-1']}}}], {signal: controller.signal, isCurrent: () => true});
+    const rejected = assert.rejects(pending); await settle(); assert.equal(entered, true);
+    controller.abort(); release(); await rejected; await settle(); assert.ok(created);
+    assert.equal(d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session', {id: created})), false);
+  } finally {release?.(); d.runtime.dispose();}
+});
