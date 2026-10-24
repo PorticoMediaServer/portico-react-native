@@ -1,4 +1,5 @@
-import type {SavedRoute, HistoryPeriod, SavedListFilter, SavedListSort, SavedProjection, SavedShapeCounts} from '../../../../../../packages/client-core/src/saved';
+import type {SavedRoute, HistoryPeriod, PlaylistListFilter, SavedListFilter, SavedListSort, SavedProjection, SavedShapeCounts} from '../../../../../../packages/client-core/src/saved';
+import {savedListSorts} from '../../../../../../packages/client-core/src/saved';
 import {SavedService, fetchSavedSummary} from '../../../../../../packages/client-core/src/saved';
 import type {PersonalResource, PersonalSavedSnapshot} from '../../../../../../packages/client-core/src/personal-saved';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
@@ -85,7 +86,7 @@ export class NativeTVSavedController {
     this.publish({phase: view.phase, playlists: view.saved?.projection ?? undefined, resources: view.personal?.resources ?? [],
       entries: view.personal?.entries ?? [], error: view.error});
   }
-  select = async (tab: NativeTVSavedTab, options: Readonly<{sort?: SavedListSort; filter?: SavedListFilter; period?: HistoryPeriod; direction?: 'asc' | 'desc'}> = {}): Promise<void> => {
+  select = async (tab: NativeTVSavedTab, options: Readonly<{sort?: string; filter?: SavedListFilter | PlaylistListFilter; period?: HistoryPeriod; direction?: 'asc' | 'desc'}> = {}): Promise<void> => {
     if (!this.live() || !tabs.includes(tab)) return;
     const generation = ++this.generation;
     this.publish({phase: 'loading', tab, error: undefined, posters: undefined, squares: undefined, playlists: undefined, resources: [], entries: []});
@@ -100,12 +101,17 @@ export class NativeTVSavedController {
       return;
     }
     const route: SavedRoute = tab === 'history' ? {view: 'history', ...(options.period ? {period: options.period} : {})}
-      : tab === 'playlists' ? {view: 'playlists'} : {view: tab};
+      : tab === 'playlists' ? {view: 'playlists', ...(options.filter ? {filter: options.filter as PlaylistListFilter} : {}),
+        ...(options.sort && (savedListSorts as readonly string[]).includes(options.sort) ? {sort: options.sort as SavedListSort} : {}),
+        ...(options.direction ? {direction: options.direction} : {})} : {view: tab};
     const view = this.view(tab);
     try {await view.select(route); if (generation === this.generation) this.refresh();}
     catch (error) {if (generation === this.generation) this.publish({phase: 'error', error});}
   };
-  summary = async (): Promise<SavedShapeCounts | undefined> => {    if (!this.live()) return;
+  /** The body from screens/saved reads this exact source and owns no route. */
+  source = (view: 'playlists' | 'collections' | 'views'): NativeSavedViewDestination => this.view(view);
+  summary = async (): Promise<SavedShapeCounts | undefined> => {
+    if (!this.live()) return;
     try {
       const summary = await fetchSavedSummary(this.options.api, this.options.scope);
       if (!this.live()) return;

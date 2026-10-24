@@ -4,7 +4,6 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {durationText} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import type {HistoryPeriod, SavedListFilter, SavedListSort, SavedRoute} from '../../../../../../packages/client-core/src/saved';
-import type {PersonalResource} from '../../../../../../packages/client-core/src/personal-saved';
 import {Artwork} from '../../kit/artwork';
 import {Button, Chip, Focusable} from '../../kit/controls';
 import {PosterCard, SquareCard} from '../../kit/cards';
@@ -17,6 +16,7 @@ import type {NativeDestinationActivationPort} from '../focus';
 import {nativeDestinationFocusIds} from '../focus';
 import type {NativeEntryActions} from '../entry-actions';
 import {SavedTVTabs} from '../../saved/SavedTVTabs';
+import {SavedTVDirectory} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
 
@@ -132,17 +132,15 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && !['album', 'song', 'book', 'audiobook_file', 'artist'].includes(entry.kind));
   const squares = (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
-  const playlists = snapshot.playlists?.sections.flatMap(section => section.entries) ?? [];
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
   const card = (entry: ContentEntry) => <PosterCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={[historyLine(entry)]} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
   const square = (entry: ContentEntry) => <SquareCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={[entry.artist?.name ?? entry.author ?? '']} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
-  const resource = (value: PersonalResource) => <SquareCard key={value.id} width={200} title={value.name} caption={[value.summary]}
-    artwork={runtime.artwork(value.artworkPaths?.[0])} onNavigate={() => openSaved({view: 'resource', resourceId: value.id})}/>;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
+  const directory = tab === 'playlists' || tab === 'collections' || tab === 'views';
   const body = snapshot.phase === 'error' ? <StateView variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
     : snapshot.phase !== 'ready' ? null
       : tab === 'history' ? (snapshot.entries.length ? <View>
@@ -155,19 +153,18 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
             {posters.length ? <>{squareCount ? heading(t('saved.postersHeading'), posterCount) : null}<View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{posters.map(card)}</View></> : null}
             {squares.length ? <>{posterCount ? heading(t('saved.squaresHeading'), squareCount) : null}<View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{squares.map(square)}</View></> : null}
           </View> : <Empty tab={tab} browseHome={browseHome}/>)
-          : tab === 'playlists' ? (playlists.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>
-            {playlists.filter(entry => entry.kind === 'playlist').map(entry => <SquareCard key={entry.id} width={200} title={entry.kind === 'playlist' ? entry.title : entry.title}
-              caption={[entry.kind === 'playlist' && entry.count !== undefined ? t('count.titles', {count: entry.count}) : '']} artwork={runtime.artwork(entry.kind === 'playlist' ? entry.artworkPaths?.[0] : undefined)}
-              onNavigate={() => openSaved({view: 'playlist', playlistId: entry.id})}/>)}
-          </View> : <Empty tab="playlists" browseHome={browseHome}/>)
-            : snapshot.resources.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, rowGap: 40}}>{snapshot.resources.map(resource)}</View>
-              : <Empty tab={tab} browseHome={browseHome}/>;
+        : null;
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
   return <View testID="native-tv-saved" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
       <View style={{paddingHorizontal: 200}}>
         <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
       </View>
+      {directory ? <View style={{paddingTop: 12}}>
+        <SavedTVDirectory view={tab} destination={controller.source(tab)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
+          enabled regionId={ids.savedGrid} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
+          openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
+      </View> : <>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 200, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
@@ -184,6 +181,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         <Text style={[browseType(theme, 22), {marginLeft: tab === 'history' ? 0 : 'auto', color: theme.colors.textTertiary}]}>{t('count.titles', {count})}</Text>
       </View>
       <View style={{paddingHorizontal: 200, paddingTop: 38, minHeight: 520}}>{body}</View>
+      </>}
     </ScrollView>
     <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
