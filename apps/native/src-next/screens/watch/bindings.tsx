@@ -18,6 +18,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     requestId: common.requestId,
     title: {
       aboutLabel: defaultI18n.t('next.browse.native.aboutTitle'), navigate: common.navigate,
+      person: personId => {const authority = context.authority(); if (context.current()) context.navigation.open({kind: 'person', personId}, authority);},
       renderError: nativeScreenError(common, 'detail'), reportError: (error: unknown) => common.reportError(error, 'detail'),
       menu: {subscribe: presenters.subscribe, getSnapshot: presenters.getMenuEntry},
     },

@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import {ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {cardText, playbackIdentity, titleFactParts, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -11,6 +11,7 @@ import {TitleSkeleton} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeTitleController} from './title-controller';
 import type {NativeTitleTab} from './title-memory';
+import {TitlePeople} from './TitlePeople';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {sameFence} from '../../../../../packages/player-core/src';
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
@@ -29,6 +30,8 @@ export type NativeTitleScreenProps = Readonly<{
   aboutLabel: string;
   /** A real native download action, absent on a server/device where it is not offered. */
   download?: (entry: ContentEntry) => void;
+  /** A registered person route, where the shell has one. */
+  person?: (personId: string) => void;
   /** Current producer state and command, never a fabricated default grant. */
   myList?: Readonly<{selected: boolean; change: (selected: boolean) => Promise<void>}>;
   /** Live captured entry from the actual menu owner, not local open state. */
@@ -51,6 +54,12 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const bodyWidth = props.watch?.width ?? viewport.width;
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0);
+  const [tvFocus, setTvFocus] = useState<{play?: number; episodes?: number; related?: number}>({});
+  const captureTag = (key: keyof typeof tvFocus) => theme.isTV ? (event: LayoutChangeEvent) => {
+    const tag = event.target;
+    if (typeof tag === 'number' && tag > 0 && tag !== tvFocus[key]) setTvFocus(value => ({...value, [key]: tag}));
+  } : undefined;
+  const tab = snapshot.place.tab, focusDown = theme.isTV ? (tab === 'episodes' ? tvFocus.episodes : tab === 'related' ? tvFocus.related : undefined) : undefined;
   const pendingAnchor = useRef<ReturnType<NativeTitleController['memory']['getSnapshot']>['anchor'] | undefined>(controller.memory.getSnapshot().anchor);
   const detail = snapshot.detail?.data, workspace = snapshot.workspace?.data;
   const myList = props.myList ?? (detail?.actions.some(action => action.id === 'watchlist' && action.enabled)
@@ -125,6 +134,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     {label: t('title.studio'), value: workspace?.show.studio ?? detail?.facts?.studio},
     {label: t('title.added'), value: detail?.item.addedAt ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric'}).format(new Date(detail.item.addedAt)) : undefined},
   ].filter(row => row.value);
+  const credits = detail?.metadata.credits ?? [], creditNames = (departments: readonly string[]) =>
+    [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
+  const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
+  const listed = new Intl.ListFormat(text.locale ?? 'en-US', {type: 'conjunction'});
   return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
       remember(event.nativeEvent.contentOffset.y);
@@ -141,20 +154,23 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={{flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
               icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
               : playback && (theme.isTV && resuming && duration && progress !== undefined
-                ? <ResumeButton ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus icon="i-play" onPress={play} onLongPressAction={playMenu}
+                ? <ResumeButton ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}
                     progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{t('entry.resume')}</ResumeButton>
-                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
-            {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
-            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
-            {!props.watch && theme.isTV && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly
+                : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" onPress={play} onLongPressAction={playMenu} onLayout={captureTag('play')} nextFocusDown={focusDown}>{t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
+            {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" nextFocusDown={focusDown} onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
+            {myList && <Button variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV} nextFocusDown={focusDown} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
+            {!props.watch && theme.isTV && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly nextFocusDown={focusDown}
               accessibilityLabel={t(detail.personal.watched ? 'entry.markUnwatched' : 'entry.markWatched')} accessibilityState={{selected: detail.personal.watched}}
               onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}/>}
             {props.download && !theme.isTV && <Button variant="glass" icon="i-dl" iconOnly accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}/>}
-            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
+            <Button ref={titleMore} variant="glass" icon="i-more" iconOnly nextFocusDown={focusDown} accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
           </View>
-          {!props.watch && !theme.isTV && resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 10}}>
+          {!props.watch && !theme.isTV && resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 8}}>
             <View style={{height: 4, backgroundColor: '#edf5fa26'}}><View style={{height: 4, width: `${Math.min(1, progress / duration) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
-            {detail?.actions.some(action => action.id === 'start_over' && action.enabled && action.playback) && <Button variant="text" size="small" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
+            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
+              {remainingTitle ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{text.t('next.kit.remaining', {time: remainingTitle})}</Text> : <View/>}
+              {startOver && <Button variant="text" size="small" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
+            </View>
           </View>}
           {!props.watch && overview && <Text numberOfLines={theme.isTV ? 3 : 2} style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 18}]}>{overview}</Text>}
         </View>
@@ -166,7 +182,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8}} onScroll={event => {
               const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
               if (contentSize.width - contentOffset.x - layoutMeasurement.width < layoutMeasurement.width) void controller.moreSeasons().catch(props.reportError);
-            }} scrollEventThrottle={64}>{workspace.settings.hideSeasons || workspace.settings.ranges ? workspace.groups.map(group => <Button key={group.id} size="small" variant="glass" accessibilityState={{selected: workspace.selected.group === group.id}} onPress={() => {void controller.group(group.id).catch(props.reportError);}}>{group.title}</Button>) : snapshot.seasons.map(season => <Button key={season.id} size="small" variant="glass" accessibilityState={{selected: workspace.selected.seasonId === season.id}} onPress={() => {void controller.season(season.id).catch(props.reportError);}}>{season.title || t('title.season', {number: season.number})}</Button>)}</ScrollView>
+            }} scrollEventThrottle={64}>{workspace.settings.hideSeasons || workspace.settings.ranges ? workspace.groups.map((group, index) => <Button key={group.id} size="small" variant="glass" onLayout={index === 0 ? captureTag('episodes') : undefined} nextFocusUp={index === 0 && theme.isTV ? tvFocus.play : undefined} accessibilityState={{selected: workspace.selected.group === group.id}} onPress={() => {void controller.group(group.id).catch(props.reportError);}}>{group.title}</Button>) : snapshot.seasons.map((season, index) => <Button key={season.id} size="small" variant="glass" onLayout={index === 0 ? captureTag('episodes') : undefined} nextFocusUp={index === 0 && theme.isTV ? tvFocus.play : undefined} accessibilityState={{selected: workspace.selected.seasonId === season.id}} onPress={() => {void controller.season(season.id).catch(props.reportError);}}>{season.title || t('title.season', {number: season.number})}</Button>)}</ScrollView>
             <Chip variant="facet" selected={snapshot.place.hideWatched} onSelectedChange={value => {void controller.hideWatched(value).catch(props.reportError);}}>{t('next.controls.hideWatched')}</Chip>
           </View>
           {episodes.map(entry => {
@@ -177,13 +193,21 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
               onNavigate={() => props.navigate(entry)} onDownload={props.download ? () => props.download!(entry) : undefined}/>);
           })}
         </>}
-        {selectedTab === 'related' && detail?.related?.rows.map(row => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (bodyWidth - 60) / 3} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
+        {selectedTab === 'related' && detail?.related?.rows.map((row, rowIndex) => cell(row.id, <View><Text style={[theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map((entry, entryIndex) => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={theme.isTV ? 214 : (bodyWidth - 60) / 3}
+            onLayout={rowIndex === 0 && entryIndex === 0 ? captureTag('related') : undefined} nextFocusUp={rowIndex === 0 && entryIndex === 0 && theme.isTV ? tvFocus.play : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView></View>))}
         {selectedTab === 'details' && cell('details', <View style={{gap: 16}}>
           <Text style={[theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
           <View style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 14, paddingHorizontal: 14}}>{detailRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.line}}><Text style={[theme.type.caption, {width: 90, color: theme.colors.textTertiary}]}>{row.label}</Text><Text style={[theme.type.body, {flex: 1, color: theme.colors.text}]}>{row.value}</Text></View>)}</View>
-          {detail?.metadata.credits.length ? <View style={{gap: 8}}><Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>{detail.metadata.credits.map(credit => <Text key={credit.id} style={[theme.type.body, {color: theme.colors.text}]}>{credit.name}</Text>)}</View> : null}
+          {credits.length ? <View style={{gap: 10}}>
+            <Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
+            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/>
+            {(directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
+              {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: listed.format(directors)})}</Text> : null}
+              {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: listed.format(writers)})}</Text> : null}
+            </View>}
+          </View> : null}
         </View>)}
       </View>
     </ScrollView>{header}

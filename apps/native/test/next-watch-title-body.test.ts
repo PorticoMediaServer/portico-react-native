@@ -13,7 +13,7 @@ const {NativeTitleScreen} = await screenModule(new URL('../src-next/screens/watc
   '../../../../../packages/client-core/src/presentation/kit-model': {cardText, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/artwork': {AmbientArt: 'Ambient'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
   '../../kit/controls': {Button: 'Button', Chip: 'Chip', Tabs: 'Tabs'}, '../../kit/layout/Hero': {HeroMetadata: 'Facts'},
-  '../../kit/states': {TitleSkeleton: 'Skeleton'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV: false, colors: {}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}}})},
+  '../../kit/states': {TitleSkeleton: 'Skeleton'}, './TitlePeople': {TitlePeople: 'TitlePeople'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV: false, colors: {}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}}})},
 });
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'v2', entryId: 'entry', generation: 3});
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
@@ -56,5 +56,30 @@ test('title My List reads actual Detail actions and personal state after the fir
     snapshot = {...snapshot, detail: {...snapshot.detail, data: {...snapshot.detail.data, personal: {watchlisted: true}}}};
     host.rerender();
     assert.ok(descendants(tree).some(node => node.props.accessibilityLabel === defaultI18n.t('entry.removeFromWatchlist')));
+  } finally {host.unmount();}
+});
+
+test('phone details draws the real cast and crew row, its credit lines and the in-progress remaining line', () => {
+  const personCalls: string[] = [], entry = {id: 'item', kind: 'movie', title: 'Real film', duration: 5700, progressSeconds: 540};
+  const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
+    detail: {phase: 'ready', data: {item: entry, facts: {},
+      actions: [{id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}}, {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}],
+      personal: {progressSeconds: 540, watched: false},
+      metadata: {genres: [], ratings: [], status: 'available', credits: [
+        {id: 'c1', name: 'Timothée Chalamet', role: 'Paul Atreides', department: 'acting', provider: 'tmdb', personId: 'p1'},
+        {id: 'c2', name: 'Denis Villeneuve', role: 'Director', department: 'directing', provider: 'tmdb', personId: 'p2'}]}}}};
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, open: async () => {}, play: async () => {}, personal: async () => {}};
+  let tree: any;
+  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+    back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About', person: id => personCalls.push(id)});});
+  host.mount();
+  try {
+    const people = descendants(tree).find(node => node.type === 'TitlePeople');
+    assert.equal(people.props.credits.length, 2);
+    people.props.onPerson('p1'); assert.deepEqual(personCalls, ['p1']);
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.directedBy', {names: 'Denis Villeneuve'})));
+    const remaining = defaultI18n.t('next.kit.remaining', {time: durationText(5160, defaultI18n.t)});
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === remaining));
+    assert.ok(descendants(tree).some(node => node.type === 'Button' && node.props.icon === 'i-replay'));
   } finally {host.unmount();}
 });
