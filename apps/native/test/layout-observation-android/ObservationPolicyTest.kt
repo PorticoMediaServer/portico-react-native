@@ -12,6 +12,22 @@ fun main() {
     verify(LayoutObservationPolicy.failure(stage, false) == mapOf("nativeObservationStage" to stage.code))
     verify(LayoutObservationPolicy.failure(stage, true) == mapOf("nativeObservationStage" to stage.code + "-exception"))
   }
+  verify(LayoutObservationPolicy.ScopeCheck.entries.map { it.code } == listOf("activity-intent-current", "root-tag-current", "root-attached",
+    "decor-attached", "decor-current", "root-window-current", "decor-window-current", "root-in-decor", "fixture-found",
+    "fixture-tag-current", "fixture-attached", "fixture-window-current", "fixture-in-root"))
+  verify(LayoutObservationPolicy.scopeFailure { true } == null)
+  for (failed in LayoutObservationPolicy.ScopeCheck.entries) {
+    val read = mutableListOf<LayoutObservationPolicy.ScopeCheck>()
+    verify(LayoutObservationPolicy.scopeFailure { read.add(it); it != failed } == failed)
+    verify(read == LayoutObservationPolicy.ScopeCheck.entries.take(failed.ordinal + 1))
+    for (stage in listOf(LayoutObservationPolicy.Stage.PRE_OBSERVATION_SCOPE, LayoutObservationPolicy.Stage.POST_OBSERVATION_SCOPE))
+      verify(LayoutObservationPolicy.failure(stage, false, failed) == mapOf("nativeObservationStage" to stage.code, "nativeObservationScopeCheck" to failed.code))
+    for (stage in LayoutObservationPolicy.Stage.entries) {
+      verify("nativeObservationScopeCheck" !in LayoutObservationPolicy.failure(stage, true, failed))
+      if (stage != LayoutObservationPolicy.Stage.PRE_OBSERVATION_SCOPE && stage != LayoutObservationPolicy.Stage.POST_OBSERVATION_SCOPE)
+        verify("nativeObservationScopeCheck" !in LayoutObservationPolicy.failure(stage, false, failed))
+    }
+  }
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, listOf(1.0, 2.0, 3.0)))
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, emptyList()))
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, (1..2000).map(Int::toDouble)))
