@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {BackHandler, NativeModules, Platform, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer, type HostedSession, type LocalSession} from '../../../../../packages/client-core/src';
@@ -22,15 +22,15 @@ import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 
-type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
+export type NativeAccountEntryStage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
 type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'} | RequiredSetup;
 const t = defaultI18n.t;
 
 /** Current normal entry, drawn in connect39 onward. The separately labelled historical
  * setup entry is not imported. Every button below dispatches an actual native/core command. */
-export function AccountEntry({onBack, onComplete, initialStage = 'welcome', initialAddress = ''}: {onBack?: () => void; onComplete: () => void; initialStage?: 'welcome' | 'address'; initialAddress?: string}) {
-  const theme = useTheme(), [stage, setStage] = useState<Stage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+export function AccountEntry({onBack, onComplete, onStageChange, initialStage = 'welcome', initialAddress = ''}: {onBack?: () => void; onComplete: () => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string}) {
+  const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(initialAddress), [username, setUsername] = useState(''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   const [name, setName] = useState(''), [email, setEmail] = useState(''), [masked, setMasked] = useState('');
   const [server, setServer] = useState<ServerSignIn>(), [profiles, setProfiles] = useState<readonly ManagedProfile[]>([]), [profile, setProfile] = useState<ManagedProfile>();
@@ -46,6 +46,9 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   const accountScope = useRef<{accountId: string; familyId: string} | undefined>(undefined);
   const acting = useRef(false), adoptingTV = useRef(false);
+  // Publish only the public stage before layout observers can collect this commit.
+  // Credentials, server/profile data and commands never leave through this port.
+  useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
   useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
   useEffect(() => {
     if (stage !== 'address') return;
