@@ -139,7 +139,7 @@ test('alerts are named from the catalogue and the permissions warning keeps its 
 test('viewing statistics carry the four figures and the real Converted share', () => {
   const figures = ownerStatistics({period: '7d', timeZone: 'UTC', from: '2026-10-17T00:00:00.000Z', until: '2026-10-24T16:00:00.000Z', buckets: [], plays: 46, people: 4, watchedMs: 31 * 3_600_000, converted: 7, mostPlayed: [], mostActive: []}, t);
   assert.deepEqual(figures.map(figure => figure.value), ['46', '4', '31.0', '7']);
-  assert.equal(figures[3].note, '15% of streams');
+  assert.equal(figures[3].note, '15% of plays');
   assert.deepEqual(ownerStatistics(undefined, t), []);
 });
 
