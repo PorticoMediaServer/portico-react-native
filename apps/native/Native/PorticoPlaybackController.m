@@ -4,6 +4,7 @@
 #import "PorticoAudioRender.h"
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSubtitleOverlay.h"
+#import "PorticoPlaybackObservation.h"
 #import <UIKit/UIKit.h>
 #import <AVKit/AVKit.h>
 #import <sys/utsname.h>
@@ -668,7 +669,17 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  _videoSessionActive=YES;
 }
 - (void)ended:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self ended:note];});return;}if(note.object==_player.currentItem)[self emit:@"ended" error:nil];}
-- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"])[self addConnectionFacts:fact position:position];[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+- (NSDictionary *)observedPlayback {
+ NSDictionary *binding=self.externalPresentationBinding;
+ if(!binding)return @{};
+ // The existing capture outlet is independent of view bounds and validates item, lease,
+ // intent, generation and frame age. It reuses the same decoded buffer as snapshot capture.
+ CVPixelBufferRef frame=[self copyVideoFrameForBinding:binding displayTime:NULL transform:NULL];
+ NSDictionary *observation=PorticoObservedDecodedVideo(frame);
+ if(frame)CVPixelBufferRelease(frame);
+ return [binding isEqual:self.externalPresentationBinding]?observation:@{};
+}
+- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"]){[self addConnectionFacts:fact position:position];fact[@"observedPlayback"]=[self observedPlayback];}[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
 /** What the player measured of the connection and how much it holds ahead of the picture, for
  * Automatic quality: the transfer rate of the stream's own downloads (a stream only; a file read
  * in place reports none), and the buffered media after the position. */
