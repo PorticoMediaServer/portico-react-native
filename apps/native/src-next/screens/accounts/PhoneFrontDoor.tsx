@@ -21,9 +21,9 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
           {includeFontPadding: false, color: theme.colors.text, marginBottom: 22}]}>{t('web.signin.welcomeHome')}</Text>
         {error}
         <Button testID="accounts-welcome-portico" disabled={busy} loading={busy || undefined} onPress={onPortico}
-          style={{height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.portico')}</Button>
+          style={{alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.portico')}</Button>
         <Button testID="accounts-welcome-local" variant="glass" disabled={busy} onPress={onLocal}
-          style={{height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.local')}</Button>
+          style={{alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.local')}</Button>
       </View>
     </ScrollView>
   </View>;
