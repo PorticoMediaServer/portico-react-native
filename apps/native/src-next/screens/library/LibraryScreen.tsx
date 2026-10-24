@@ -12,7 +12,7 @@ import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
-import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, type BrowseLabels} from '../../kit/browse';
+import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {Menu} from '../../kit/overlays';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
@@ -26,6 +26,7 @@ import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDesti
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {NativeLibraryDestination, nativeLibraryEntryKey, nativeLibraryCanSave, type NativeLibrarySnapshot, type NativeLibraryViewDraft} from './model';
 import {LibraryToolbar} from './LibraryToolbar';
+import {LibraryListRow} from './LibraryListRow';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
 import type {NativeLibraryFilterDraft} from './filters';
@@ -140,9 +141,10 @@ export function LibraryTabs({items, selected, enabled, disabled, regionId, leftE
 
 /** The drawn result count: its own left-aligned row under the toolbar on a
  * phone (`.cnt`), and the toolbar's trailing text on TV. */
-export function LibraryResultCount({phone, style, children}: {phone: boolean; style?: StyleProp<TextStyle>; children: ReactNode}) {
+export function LibraryResultCount({phone, style, children, controls}: {phone: boolean; style?: StyleProp<TextStyle>; children: ReactNode; controls?: ReactNode}) {
   const theme = useTheme();
-  return <Text accessibilityLiveRegion="polite" style={[browseType(theme, phone ? 13 : 22, 600), {color: theme.colors.textTertiary}, phone ? nativeLibraryR46.count : undefined, style]}>{children}</Text>;
+  const count = <Text accessibilityLiveRegion="polite" style={[browseType(theme, phone ? 13 : 22, 600), {color: theme.colors.textTertiary}, !controls && phone ? nativeLibraryR46.count : undefined, style]}>{children}</Text>;
+  return controls ? <View style={[nativeLibraryR46.count, {flexDirection: 'row', alignItems: 'center', gap: 10}]}>{count}<View style={{marginLeft: 'auto'}}>{controls}</View></View> : count;
 }
 
 /** The actual library route, independently retained below a title page. The
@@ -228,6 +230,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const toolbar = useMemo(() => browseToolbarModel(source.capabilities!, source.library.kind, source.predicates, source.sort!, {...runtime.text, owner, textEntry: !theme.isTV}),
     [owner, runtime.text, source.capabilities, source.library.kind, source.predicates, source.sort, theme.isTV]);
   const [visible, setVisible] = useState({first: source.memory.firstVisibleIndex, last: source.memory.firstVisibleIndex});
+  const geometry = useRef(0), [view, setView] = useState<{mode: 'grid' | 'list'; anchor: number; generation: number}>({mode: 'grid', anchor: source.memory.firstVisibleIndex, generation: 0});
+  const list = theme.platform === 'phone' && view.mode === 'list';
   const [jumpOpen, setJumpOpen] = useState(false), jumpAnchor = useRef<View>(null);
   const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
   const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noSelection);
@@ -239,12 +243,19 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const offset = useRef(destination.getMemory().offset), range = useRef(visible), registered = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {const held = registered; return () => {held.current?.(); held.current = undefined;};}, [collection]);
   const changedRange = useCallback((firstIndex: number, lastIndex: number) => {
+    if (geometry.current !== view.generation) return;
     range.current = {first: firstIndex, last: lastIndex}; setVisible(range.current); destination.remember(firstIndex, offset.current);
     const entries: ContentEntry[] = [];
     for (let index = firstIndex; index <= lastIndex; index++) {const entry = collection.itemAt(index); if (entry) entries.push(entry);}
     registered.current?.(); registered.current = selection?.register(destination.getSnapshot(), entries, firstIndex, lastIndex);
-  }, [collection, destination, selection]);
-  const changedOffset = useCallback((measured: number) => {offset.current = measured; destination.remember(range.current.first, measured);}, [destination]);
+  }, [collection, destination, selection, view.generation]);
+  const changedOffset = useCallback((measured: number) => {if (geometry.current !== view.generation) return; offset.current = measured; destination.remember(range.current.first, measured);}, [destination, view.generation]);
+  const changeView = (mode: 'grid' | 'list') => {
+    if (!active.visible || theme.platform !== 'phone' || mode === view.mode) return;
+    geometry.current++; offset.current = 0;
+    destination.remember(range.current.first, 0);
+    setView({mode, anchor: range.current.first, generation: geometry.current});
+  };
   const base = source.tab.fixedFilter ?? [], filtered = JSON.stringify(source.predicates) !== JSON.stringify(base);
   const applied = libraryAppliedFilters(toolbar.applied.filter(node => !base.some(fixed => JSON.stringify(fixed) === JSON.stringify(node))), source.capabilities!, labels);
   const appliedRegion = `${ids.libraryToolbar(source.library.id)}.applied`;
@@ -253,8 +264,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(state.total)}${state.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
       total: defaultI18n.t(total.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total.total, pivot: source.tab.pivot ?? 'other'})})
     : defaultI18n.t(state.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: state.total, pivot: source.tab.pivot ?? 'other'});
-  const width = theme.isTV ? 200 : Math.floor((dimensions.width - 62) / 3), gap = theme.isTV ? 32 : 10;
-  const columns = theme.isTV ? 7 : 3;
+  const width = list ? dimensions.width - 32 : theme.isTV ? 200 : Math.floor((dimensions.width - 62) / 3), gap = list ? 0 : theme.isTV ? 32 : 10;
+  const columns = list ? 1 : theme.isTV ? 7 : 3;
   return <View style={{flex: 1}}>
     <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id)}}>
       <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filterState?.open ?? false}
@@ -279,17 +290,17 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
       </Focusable>
       {count && theme.platform !== 'phone' && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{count}</Text>}
     </FocusRegion> : count && theme.platform !== 'phone' && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
-    {count && theme.platform === 'phone' && <LibraryResultCount phone>{count}</LibraryResultCount>}
+    {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
-    <WindowedGrid ref={grid} testID="library-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={width * 1.5 + (theme.isTV ? 72 : 43)}
-      gap={gap} rowGap={theme.isTV ? 40 : 22} gutter={theme.isTV ? theme.gutter : 16} rightGutter={theme.isTV ? 72 : 26} selection={selected}
-      onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={initialIndex} paddingBottom={28} style={{flex: 1}}
-      renderPlaceholder={() => <View style={{width, height: width * 1.5, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
+    <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : width * 1.5 + (theme.isTV ? 72 : 43)}
+      gap={gap} rowGap={list ? 0 : theme.isTV ? 40 : 22} gutter={theme.isTV ? theme.gutter : 16} rightGutter={list ? 16 : theme.isTV ? 72 : 26} selection={selected}
+      onVisibleRange={changedRange} onScrollOffset={changedOffset} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
+      renderPlaceholder={() => <View style={{width, height: list ? 70 : width * 1.5, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
       renderItem={(entry, context) => {
         const key = nativeLibraryEntryKey(entry);
         return <FocusRegion id={ids.libraryCard(source.library.id, key)} entry={key} entryPolicy="entry" order={[key]} enabled={active.visible}
           edges={{...(context.index % columns === 0 ? {left: ids.rail} : {}), ...(context.index < columns ? {up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : {})}}>
-          <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/>
+          {list ? <LibraryListRow entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/> : <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} disabled={!active.visible} selected={context.selection} focusId={key} onFocus={context.onFocus} onBlur={context.onBlur}/>}
         </FocusRegion>;
       }}/>
     {state.positionIndex && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length && <AlphabetRail positionIndex={state.positionIndex}
