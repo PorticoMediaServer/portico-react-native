@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaultI18n} from '../../../packages/i18n/src';
+import {createI18n, defaultI18n, resolveRegion} from '../../../packages/i18n/src';
 import {channelTint} from '../../../packages/client-core/src/presentation/kit-model';
 import {SEARCH_CHIPS, orderedSearchGroups, searchGroupLabel, topResultKindLabel, topSearchResult} from '../../../packages/client-core/src/presentation/search-model';
 import {browseType} from '../src-next/kit/browse/presentation';
@@ -39,7 +39,7 @@ const genres = [
   {id: 'western', name: 'Western', count: 1, coverPaths: ['/western/1']},
 ];
 
-async function mount(snapshot: any, landing: any) {
+async function mount(snapshot: any, landing: any, text = defaultI18n) {
   const host = hooks();
   (host.react as any).useId = () => 'search-r46';
   const theme = createTheme({width: 390, isTV: false});
@@ -62,7 +62,7 @@ async function mount(snapshot: any, landing: any) {
   const tree = host.render(() => view.SearchScreen({
     destination: {subscribe: () => () => {}, getSnapshot: () => snapshot, refreshHistory: async () => {}, clearHistory: async () => calls.push('clear'), setText: () => {},
       selectGroup: () => {}, commit: async () => {}, useRecent: () => calls.push('recent'), next: async () => {}, retry: async () => {}},
-    runtime: {artwork: (path: string) => ({uri: path, cacheKey: path}), text: {t: defaultI18n.t}, reportError: () => {}, error: () => ({title: 'error'}),
+    runtime: {artwork: (path: string) => ({uri: path, cacheKey: path}), text, reportError: () => {}, error: () => ({title: 'error'}),
       registerScrollToTop: () => () => {}},
     explore: {subscribe: () => () => {}, getSnapshot: () => landing, load: async () => {}, openGenre: (genre: any) => calls.push(genre.id)},
     actions: {open: () => {}, play: () => {}, menu: () => {}}, activation: {subscribe: () => () => {}, getSnapshot: () => ({visible: true, intent: 'enter', revision: 1})},
@@ -202,4 +202,19 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
   assert.equal(find(props => props.entry === show && props.width === undefined), undefined);
   for (const id of ['movies', 'episodes', 'songs', 'books'])
     assert.ok(texts(tree).some(node => label(node) === defaultI18n.t(searchGroupLabel(id as any))), `${id} keeps its drawn section heading`);
+});
+
+
+test('Search no-match genre counts use the actual runtime regional formatter', async () => {
+  const groups = [group('movies', [])];
+  const snapshot = {text: 'unmatched', group: 'all', search: {...idle, phase: 'ready', groups,
+    data: {groups, capabilities}, query: {q: 'unmatched'}}, groups, recent: [], clearing: false};
+  const text = createI18n(resolveRegion({locale: 'en-US', formats: 'de-DE'}, {locales: ['en-US']}));
+  const genre = {id: 'actual-metadata-value', name: 'Stored metadata label', count: 1234, coverPaths: [], backdropPath: '/actual/backdrop'};
+  const {tree, paint} = await mount(snapshot, {phase: 'ready', genres: [genre], initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}, text);
+  const tile = nodes(tree).find(node => typeof node.type === 'function' && node.props.genre === genre);
+  assert.ok(tile);
+  const count = text.t('next.selection.titles', {count: genre.count});
+  assert.notEqual(count, defaultI18n.t('next.selection.titles', {count: genre.count}));
+  assert.ok(texts(paint(tile)).some(node => label(node) === count));
 });
