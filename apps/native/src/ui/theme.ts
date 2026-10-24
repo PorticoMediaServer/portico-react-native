@@ -2,7 +2,7 @@ import React, {createContext, useContext, useMemo} from 'react';
 import {AccessibilityInfo, Platform, useWindowDimensions, type TextStyle} from 'react-native';
 import {cardScaleFor} from './card-scale';
 export {cardScaleFor};
-import {colors as designColors, radii as designRadii, motion as designMotion, layers as designLayers, typeScale, tvRadiusMultiplier, targets, componentSpec} from '../../../../packages/design/src/index';
+import {colors as designColors, radii as designRadii, motion as designMotion, layers as designLayers, typeScale, platformRadii, targets, componentSpec} from '../../../../packages/design/src/index';
 
 /**
  * The single source of visual truth for the app. Every component in `ui/`
@@ -81,7 +81,7 @@ function typeRoles(scale: (typeof typeScale)['handheld']): Record<Role, TextStyl
   const out = {} as Record<Role, TextStyle>;
   for (const role of Object.keys(scale) as Role[]) {
     const t = scale[role];
-    out[role] = {fontSize: t.size, lineHeight: t.lineHeight, fontFamily: family[t.weight] ?? 'Manrope-Regular', letterSpacing: Math.round(t.tracking * t.size * 100) / 100, ...(t.uppercase ? {textTransform: 'uppercase' as const} : null)};
+    out[role] = {fontSize: t.size, ...(t.lineHeight === 'normal' ? {} : {lineHeight: t.lineHeight}), fontFamily: family[t.weight] ?? 'Manrope-Regular', letterSpacing: Math.round(t.tracking * t.size * 100) / 100, ...(t.uppercase ? {textTransform: 'uppercase' as const} : null)};
   }
   return out;
 }
@@ -137,7 +137,7 @@ const televisionMetrics = {
   focusRing: 4,
   focusScale: 1.08,
   pressScale: 1.02,
-  radius: {small: Math.round(designRadii.small * tvRadiusMultiplier), control: Math.round(designRadii.control * tvRadiusMultiplier), card: Math.round(designRadii.artwork * tvRadiusMultiplier), panel: Math.round(designRadii.overlay * tvRadiusMultiplier), pill: designRadii.pill},
+  radius: {small: platformRadii.tv.tag, control: platformRadii.tv.chip, card: platformRadii.tv.artwork, panel: platformRadii.tv.panel, pill: designRadii.pill},
 };
 
 export type Theme = {
