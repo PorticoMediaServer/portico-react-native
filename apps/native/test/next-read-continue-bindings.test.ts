@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
+import {HttpLocalApi, ReadingError, type LocalSession} from '../../../packages/client-core/src';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {sameAuthority, type ShellAuthority} from '../src-next/shell/model';
 import {nativeReadRouteAllowed} from '../src-next/screens/read/platform';
@@ -187,6 +187,41 @@ test('a caller cancel aborts the page and ignores its late reply', async t => {
   release(json(pageOf([row('late')])));
   await new Promise<void>(resolve => setImmediate(resolve));
   assert.equal(f.calls.length, 1);
+});
+
+test('a late source failure after cancellation cannot replace the cancelled page', async t => {
+  let release!: (value: Response) => void, signal: AbortSignal | undefined;
+  const pending = new Promise<Response>(resolve => {release = resolve;});
+  const f = fixture(call => {signal = call.init.signal ?? undefined; return pending;});
+  t.after(() => f.bindings.dispose());
+  const load = f.bindings.continue(), cancelled = assert.rejects(load, isCancelled);
+  await until(() => signal !== undefined);
+  f.bindings.dispose();
+  await cancelled;
+  assert.equal(signal?.aborted, true);
+  release(json({error: {code: 'internal'}}, 500));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(f.calls.length, 1, 'a failed late reply issues no replacement request');
+  assert.equal(await f.bindings.open(row('late')), false);
+});
+
+test('a canonical Continue source failure is surfaced unchanged, never as an empty page', async t => {
+  const f = fixture(() => json({error: {code: 'internal'}}, 500));
+  t.after(() => f.bindings.dispose());
+  await assert.rejects(f.bindings.continue({limit: 1}),
+    error => error instanceof ReadingError && error.code === 'internal' && error.status === 500);
+  assert.equal(f.calls.length, 1);
+});
+
+test('an already-cancelled caller signal refuses before any Continue request', async t => {
+  const f = fixture(() => {
+    throw new Error('no request after cancellation');
+  });
+  t.after(() => f.bindings.dispose());
+  const caller = new AbortController();
+  caller.abort();
+  await assert.rejects(f.bindings.continue({limit: 1}, caller.signal), isCancelled);
+  assert.equal(f.calls.length, 0);
 });
 
 test('the captured original authority is what a later Continue still belongs to', async t => {
