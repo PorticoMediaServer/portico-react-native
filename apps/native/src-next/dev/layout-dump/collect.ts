@@ -22,6 +22,10 @@ type Node = object & NativeHostReader & {
 type Element = Record<string, unknown> & {id: string; parent: string | null; box?: HostRect};
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+// This producer only emits RN dp/pt. Match the canonical sameLogicalExtent
+// representational relation; do not round observations or use a geometric epsilon.
+const sameNativeExtent = (left: number, right: number) => finite(left) && finite(right)
+  && (left === right || left === Math.fround(right) || right === Math.fround(left));
 
 export async function collectNativeScreen(options: NativeCaptureOptions) {
   const {registry, root, viewport, signal} = options;
@@ -41,7 +45,7 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   const knownViewport = finite(viewport.width) && viewport.width > 0 && finite(viewport.height) && viewport.height > 0
     && finite(viewport.deviceScaleFactor) && viewport.deviceScaleFactor > 0;
   const fullViewport = !!rootBox && knownViewport && rootBox.x === 0 && rootBox.y === 0
-    && rootBox.width === viewport.width && rootBox.height === viewport.height;
+    && sameNativeExtent(rootBox.width, viewport.width) && sameNativeExtent(rootBox.height, viewport.height);
   if (!fullViewport) missing('root', 'fullViewport', 'measured screen root does not equal the actual logical window');
   const mounted = new Set<object>();
   const nodes = new Map<string, Node>();

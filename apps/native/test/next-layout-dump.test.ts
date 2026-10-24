@@ -20,6 +20,25 @@ test('native host numbers remain fractional logical window coordinates, never de
   assert.equal('unavailable' in await measureNativeHost({getBoundingClientRect: () => ({x: NaN, y: 0, width: 10, height: 10})}), true);
 });
 
+test('RN full viewport accepts exact float32 extents without changing raw facts or accepting epsilon drift', async () => {
+  const width = 411.42857142857144, height = 914.2857142857143;
+  for (const platform of ['android', 'ios', 'tvos'] as const) {
+    const rect = {x: 0, y: 0, width: Math.fround(width), height: Math.fround(height)};
+    const viewport = {width, height, deviceScaleFactor: 2.625};
+    const options = {root: host('RN:View', rect), viewport, platform, registry: createNativeMeasurementRegistry()};
+    const measured = await collectNativeScreen(options);
+    assert.equal(measured.fullViewport, true);
+    assert.deepEqual(measured.root, rect);
+    assert.deepEqual(measured.viewport, viewport);
+    const reverse = await collectNativeScreen({...options, root: host('RN:View', {x: 0, y: 0, width, height}),
+      viewport: {...viewport, width: Math.fround(width), height: Math.fround(height)}});
+    assert.equal(reverse.fullViewport, true);
+    for (const invalid of [{...rect, width: rect.width + 0.0001}, {...rect, x: 0.000001}, {...rect, y: 0.000001}, {...rect, width: 390, height: 844}]) {
+      assert.equal((await collectNativeScreen({...options, root: host('RN:View', invalid)})).fullViewport, false);
+    }
+  }
+});
+
 test('font scaling is optional unscored metadata and never changes logical observations', async () => {
   const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
   const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const,
