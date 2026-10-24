@@ -179,7 +179,7 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
           : unavailableReason('textLineRects', 'current native window text runs are not observed; host boxes are not text runs'));
         if (record.ownText) strings.push({id: `${id}:text:0`, owner: id, frame: frame ?? null, kind: 'text', text: record.ownText, rects: record.textRects, style: record.style});
       }
-      for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'color']) {
+      for (const property of ['resolvedFontFamily', 'fontSize', 'fontWeight', 'color']) {
         if (typeof (record.style as Record<string, unknown>)[property] !== 'string') missing(id, property,
           unavailableReason(property === 'color' ? 'textColor' : property, 'resolved native font/paint fact is not available'));
       }

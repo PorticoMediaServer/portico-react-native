@@ -12,6 +12,8 @@ export type HostFacts = Readonly<{
 export type ResolvedStyle = Readonly<{
   /** The supplier must observe/resolve these on the native host, not infer them from input style. */
   fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
+  /** Active shaped resource's verified typographic name16, else name1. */
+  resolvedFontFamily?: string;
   backgroundColor?: string; effectiveBackgroundColor?: string; effectiveOpacity?: number;
 }>;
 export type NativeTextLine = Readonly<{
@@ -99,7 +101,8 @@ function textLines(value: unknown): readonly NativeTextLine[] | undefined {
 
 function observedStyle(raw: ResolvedStyle): Pick<HostObservation, 'measuredStyle' | 'effectiveOpacity' | 'effectiveBackgroundColor'> {
   const style: Record<string, string | number> = {};
-  if (safeText(raw.fontFamily) && !assetLike.test(raw.fontFamily)) style.fontFamily = raw.fontFamily;
+  if (safeText(raw.fontFamily) && !assetLike.test(raw.fontFamily)) style.platformFontFamily = raw.fontFamily;
+  if (safeText(raw.resolvedFontFamily) && !assetLike.test(raw.resolvedFontFamily)) style.resolvedFontFamily = raw.resolvedFontFamily;
   if (finite(raw.fontSize) && raw.fontSize > 0) style.fontSize = `${raw.fontSize}px`;
   if (finite(raw.fontWeight) && Number.isInteger(raw.fontWeight) && raw.fontWeight >= 1 && raw.fontWeight <= 1000) style.fontWeight = String(raw.fontWeight);
   for (const key of ['color', 'backgroundColor'] as const) {

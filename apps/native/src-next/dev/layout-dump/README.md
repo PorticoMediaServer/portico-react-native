@@ -77,6 +77,10 @@ forwarded. Real false/zero facts remain distinct from unavailable observations.
 Native paint does not fall back to diagnostic styles or stale registered paint.
 Unassociated family labels remain unavailable; they never become a requested CSS
 family chain or an observed typographic identity.
+The checked canonical identity field is `style.resolvedFontFamily`, supplied only
+from the active shaped resource's verified name16 (otherwise name1). Legacy
+observed platform labels belong to unscored `style.platformFontFamily`. Native
+system labels and diagnostic/requested family chains never fill the identity.
 
 An optional native window rectangle is coordinate evidence, not a replacement
 for a collector box. A failing `fullViewport` reason retains the selected API,

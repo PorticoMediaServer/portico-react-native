@@ -9,7 +9,7 @@ function host(name: string, box: {x: number; y: number; width: number; height: n
   return {nodeType: 1, nodeName: name, isConnected: true, childNodes: children,
     offsetWidth: box.width, offsetHeight: box.height, getBoundingClientRect: () => ({...box})};
 }
-const paint = {fontFamily: 'Public Test Font', fontSize: 24, fontWeight: 700, color: 'rgb(237, 245, 250)',
+const paint = {fontFamily: 'Public Test Font', resolvedFontFamily: 'Public Test Font', fontSize: 24, fontWeight: 700, color: 'rgb(237, 245, 250)',
   effectiveOpacity: 1, effectiveBackgroundColor: 'rgb(7, 16, 24)'};
 
 test('native host numbers remain fractional logical window coordinates, never density-adjusted', async () => {

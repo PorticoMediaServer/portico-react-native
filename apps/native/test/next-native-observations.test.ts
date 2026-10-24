@@ -159,7 +159,7 @@ test('collector uses observed native paint and same-window runs without promotin
   assert.deepEqual(title.textRects, [{x: 10, y: 20, width: 100, height: 30}]);
   assert.equal(title.focused, false);
   assert.equal('fontFamily' in (title.style as object), false);
-  assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'fontFamily'));
+  assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'resolvedFontFamily'));
   assert.ok(measured.unavailable.some(fact => fact.element === title.id && fact.property === 'boxShadow'));
 });
 

@@ -34,6 +34,7 @@ function normalized(facts: NativeHostFacts): NativeObservedHost {
   const weight = value('fontWeight'); if (typeof weight === 'number') style.fontWeight = String(weight);
   // Never promote a requested CSS chain or unassociated native system label.
   value('fontFamily');
+  if (missing.fontFamily) {missing.resolvedFontFamily = missing.fontFamily; delete missing.fontFamily;}
   const focus = value('isFocused'), opacity = value('effectiveOpacity'), background = value('effectiveBackgroundColor');
   const lines = value('textLineRects'), window = value('windowRect');
   return Object.freeze({style: Object.freeze(style),
