@@ -18,8 +18,8 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const welcomeStyle = {flex: 1, backgroundColor: theme.colors.ink};
   const wordmarkStyle = {width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start' as const};
-  const welcomeObservation = useNativeObservation<View>({kind: 'view', semanticId: 'accounts-welcome', flattenedStyle: __DEV__ ? StyleSheet.flatten(welcomeStyle) : undefined});
-  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'accounts-welcome-wordmark', flattenedStyle: __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined});
+  const welcomeObservation = useNativeObservation<View>({kind: 'view', semanticId: 'accounts-welcome', flattenedStyle: __DEV__ ? StyleSheet.flatten(welcomeStyle) : undefined, declaredStyleComplete: true});
+  const wordmarkObservation = useNativeObservation<Image>({kind: 'image', semanticId: 'accounts-welcome-wordmark', flattenedStyle: __DEV__ ? StyleSheet.flatten(wordmarkStyle) : undefined, declaredStyleComplete: true});
   const title = t('web.signin.welcomeHome'), committedTitle = useRef(title);
   useLayoutEffect(() => {committedTitle.current = title;}, [title]);
   const titleStyle = useMemo(() => [nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale),
@@ -27,7 +27,7 @@ export function PhoneFrontDoor({busy, error, onPortico, onLocal}: {
   const titleMeasurement = useMemo(() => {
     if (!registerNativeHost) return;
     let lease: HostRegistration | undefined, current: React.ElementRef<typeof Text> | null = null, previousLayout: string | undefined;
-    const facts = {kind: 'text' as const, semanticId: 'accounts-welcome-title', flattenedStyle: StyleSheet.flatten(titleStyle)};
+    const facts = {kind: 'text' as const, semanticId: 'accounts-welcome-title', flattenedStyle: StyleSheet.flatten(titleStyle), declaredStyleComplete: true};
     const unregister = () => {lease?.unregister(); lease = undefined; current = null; previousLayout = undefined;};
     return {
       ref: (host: React.ElementRef<typeof Text> | null) => {
