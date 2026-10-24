@@ -994,9 +994,11 @@ export class NativePlaybackRuntime {
    * caller owns host/navigation lifetime; the accepted new generation is ours. */
   prepareExternalPresentation = async (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime): Promise<NativeBinding | undefined> => {
     if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
-    const original = this.currentSession(), playback = this.playback.getSnapshot();
+    const original = this.currentSession(), playback = this.playback.getSnapshot(), controllerState = this.path.controller.getSnapshot();
     if (!original || original.kind !== 'vod' || original.id !== fence.sessionId || !original.queue || original.queue.entryId !== fence.entryId || playback.nativeListening
-      || playback.phase !== 'ready' || playback.pendingSeek || playback.failedSeek || this.path.controller.getSnapshot().changing) return;
+      || playback.phase !== 'ready' || playback.pendingSeek || playback.failedSeek || controllerState.changing
+      || !controllerState.observation || controllerState.observation.generation !== original.presentation.generation
+      || !Number.isFinite(controllerState.observation.positionMs) || controllerState.observation.state === 'idle' || controllerState.observation.state === 'error') return;
     const subtitles = this.subtitleService?.getSnapshot();
     const preparation = externalSubtitlePreparation(subtitles?.suppressed ? null : subtitles?.plan, original);
     if (preparation.kind === 'unavailable') return;

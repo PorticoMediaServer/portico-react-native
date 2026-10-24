@@ -286,11 +286,15 @@ test('an old binary without an external acknowledgement times out without a PiP 
   const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
   try {
     await d.start('movie-1');
-    const generation = d.runtime.getSnapshot().fence!.generation, pending = d.runtime.requestPictureInPicture(d.runtime.getSnapshot().fence!, versionLifetime());
+    const generation = d.runtime.getSnapshot().fence!.generation, sessionId = d.runtime.getSnapshot().session!.id, pending = d.runtime.requestPictureInPicture(d.runtime.getSnapshot().fence!, versionLifetime());
     await settle(); assert.ok(d.runtime.getSnapshot().fence!.generation > generation);
-    const timers = d.pendingTimers(10000); assert.equal(timers.length, 1); timers[0]!.run();
+    const timers = d.pendingTimers(10000); assert.ok(timers.length >= 1);
+    // Session keepalive and the external-ready deadline share this duration.
+    // Let each actual scheduled callback run; the current session remains owned.
+    for (const timer of timers) timer.run();
     assert.equal(await pending, false); assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 0);
-    assert.equal(d.pendingTimers(10000).length, 0);
+    assert.equal(d.runtime.getSnapshot().session?.id, sessionId);
+    assert.equal(d.requests.filter(request => request.method === 'POST' && request.path === '/v1/playback/sessions').length, 1);
   } finally {d.runtime.dispose();}
 });
 
