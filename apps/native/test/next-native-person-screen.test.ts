@@ -5,8 +5,10 @@ import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
 const elements = (node: any): any[] => Array.isArray(node) ? node.flatMap(elements) : node?.props ? [node, ...elements(node.props.children)] : [];
 const style = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(style)) : value ?? {};
-const entry = {id: 'movie', kind: 'movie', libraryId: 'movies', title: 'Actual credit movie', year: 1994,
+const entry = {id: 'movie', kind: 'movie', libraryId: 'movies', title: 'Actual credit movie (Legacy cut)', displayTitle: 'Stored Edition — The Actual Cut', year: 1994,
   navigation: {view: 'item', entityId: 'movie'}, posterUrl: '/v1/items/movie/poster'};
+
+const fallback = {id: 'fallback-film', kind: 'movie', libraryId: 'movies', title: 'Fallback Film (Extended Cut) [2026]', navigation: {view: 'item', entityId: 'fallback-film'}};
 
 test('real App mounts the handheld Person route, exact credit actions and retained native list through Title/Back', async () => {
   const reads: string[] = [];
@@ -15,9 +17,9 @@ test('real App mounts the handheld Person route, exact credit actions and retain
     reads.push(request.path);
     const role = new URL(request.path, 'https://fixture.invalid').searchParams.get('role');
     return {status: 200, body: {serverId: fixture.pin.serverId, viewerFence: 'Person-actual-response', revision: {catalog: 12, viewer: 7},
-      person: {id: 'person-no-library', name: 'Actual Person', revision: 2, biography: 'Actual canonical biography', roles: ['Acting'], knownFor: [entry]},
-      groups: [], credits: role === 'crew' ? [] : [{media: entry, creditKind: 'cast', character: 'Actual character', role: 'Actor'}],
-      pageInfo: {total: role === 'crew' ? 0 : 1, nextCursor: ''}}};
+      person: {id: 'person-no-library', name: 'Actual Person', revision: 2, biography: 'Actual canonical biography', roles: ['Acting'], knownFor: [entry, fallback]},
+      groups: [], credits: role === 'crew' ? [] : [{media: entry, creditKind: 'cast', character: 'Actual character', role: 'Actor'}, {media: fallback, creditKind: 'cast', character: '', role: 'Actor'}],
+      pageInfo: {total: role === 'crew' ? 0 : 2, nextCursor: ''}}};
   }});
   let runtime: RestoredNativeShellRuntime | undefined;
   try {
@@ -38,10 +40,14 @@ test('real App mounts the handheld Person route, exact credit actions and retain
     const heading = header.find(node => node.props.children === 'Actual Person'); assert.ok(heading);
     assert.equal(style(heading.props.style).fontSize, 30, 'phone-detail7 prh h1');
     assert.ok(header.some(node => node.props.children === 'Actual canonical biography'));
+    assert.equal(header.find(node => node.props.testID === 'person-known-movie')!.props.title, entry.displayTitle);
+    assert.equal(header.find(node => node.props.testID === 'person-known-fallback-film')!.props.title, fallback.title);
     assert.ok(header.some(node => node.props.testID === 'person-role-all' && node.props.selected));
     const row = arrived.props.renderItem({item: 0});
     assert.equal(style(row.props.style).paddingHorizontal, 16); assert.equal(style(row.props.style).gap, 10);
     const card = elements(row).find(node => node.props.testID === 'person-credit-0'); assert.ok(card);
+    assert.equal(card.props.title, entry.displayTitle);
+    assert.equal(elements(row).find(node => node.props.testID === 'person-credit-1')!.props.title, fallback.title);
     assert.equal(card.props.density, 'grid'); assert.equal(card.props.width, (390 - 32 - 20) / 3);
     assert.equal(card.props.caption[0].text, 'as Actual character');
     card.props.onNavigate(); await app.settle();

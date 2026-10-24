@@ -333,6 +333,11 @@ internal object PorticoMpvSupport {
 
   fun captionBottomInset(style: Map<*, *>?): Float = if (style?.get("position") == "raised") .20f else .08f
 
+  /** Select only actual supplied platform faces. A configured system face wins;
+   * no rounded face or font-resource identity is invented from a family label. */
+  fun <T : Any> captionTypeface(style: Map<*, *>?, system: T?, ordinary: T, serif: T, mono: T): T =
+      system ?: when (style?.get("font")) { "serif" -> serif; "mono" -> mono; else -> ordinary }
+
   private fun systemCaptionStyle(context: Context, style: Map<*, *>?): CaptioningManager.CaptionStyle? {
     val manager = try { context.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager } catch (_: Exception) { null }
     return try { if (manager != null && usesSystemCaptionStyle(style, manager.isEnabled)) manager.userStyle else null } catch (_: Exception) { null }
@@ -362,7 +367,8 @@ internal object PorticoMpvSupport {
     val system = systemCaptionStyle(context, style)
     val size = base * captionScale(context, style).toFloat() * styleScale(style).toFloat()
     line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size)
-    val face = try { system?.typeface } catch (_: Exception) { null } ?: android.graphics.Typeface.DEFAULT
+    val systemFace = try { system?.typeface } catch (_: Exception) { null }
+    val face = captionTypeface(style, systemFace, android.graphics.Typeface.DEFAULT, android.graphics.Typeface.SERIF, android.graphics.Typeface.MONOSPACE)
     line.setTypeface(face, if (italic) android.graphics.Typeface.ITALIC else android.graphics.Typeface.NORMAL)
     val (text, box) = captionColors(context, style)
     line.setTextColor(text)
