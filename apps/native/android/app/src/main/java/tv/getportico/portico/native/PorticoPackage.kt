@@ -5,6 +5,7 @@ import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.uimanager.ViewManager
 import tv.getportico.portico.TelevisionDisplay
+import tv.getportico.portico.BuildConfig
 
 /**
  * Portico's native layer. Module names, methods and events are the ones the Apple modules in
@@ -29,7 +30,7 @@ class PorticoPackage : ReactPackage {
       PorticoSystemMedia(reactContext),
       PorticoImagePicker(reactContext),
       PorticoSubtitleFiles(reactContext),
-  ) + (
+  ) + (if (BuildConfig.DEBUG) listOf(PorticoLayoutObservation(reactContext)) else emptyList()) + (
       // Downloads belong to phones and tablets, the home-screen rows to televisions: the other
       // kind of device has no such module, and the shared screens hide the feature.
       if (TelevisionDisplay.isTelevision) listOf(PorticoTopShelf(reactContext)) else listOf(PorticoDownloads(reactContext), PorticoReaderAssets(reactContext))) + flavorModules(reactContext)
