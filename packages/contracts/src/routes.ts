@@ -7115,7 +7115,8 @@ export const routes = [
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
-      "not_found"
+      "not_found",
+      "revision_mismatch"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7137,7 +7138,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_found",
-      "queue_building"
+      "queue_building",
+      "revision_mismatch"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7160,7 +7162,8 @@ export const routes = [
     "errors": [
       "invalid_request",
       "unauthorized",
-      "not_found"
+      "not_found",
+      "revision_mismatch"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7237,6 +7240,35 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "get_reading_discover",
+    "method": "GET",
+    "path": "/v1/reading/discover",
+    "summary": "Read the server-composed Discover rows",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "libraryId",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_required",
+      "revision_mismatch",
+      "request_in_progress",
+      "body_too_large",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
     "id": "get_reading_items",
     "method": "GET",
     "path": "/v1/reading/items",
@@ -7260,6 +7292,33 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
+      "internal"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "browsing"
+  },
+  {
+    "id": "get_reading_series_items",
+    "method": "GET",
+    "path": "/v1/libraries/{libraryId}/reading/series/{seriesId}",
+    "summary": "Read one complete authorized Reading series",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "request_in_progress",
       "internal"
     ],
     "status": 200,
@@ -8031,6 +8090,30 @@ export const routes = [
     "status": 200,
     "http": true,
     "admission": "default"
+  },
+  {
+    "id": "get_storage_source_read_profile",
+    "method": "GET",
+    "path": "/v1/storage/sources/{id}/settings/read-profile",
+    "summary": "Read one source's normalized reading profile and current revisions",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "idempotency_key_reused",
+      "request_in_progress",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin"
   },
   {
     "id": "get_storage_sources",
@@ -9492,7 +9575,8 @@ export const routes = [
     "errors": [
       "invalid_request",
       "unauthorized",
-      "not_found"
+      "not_found",
+      "revision_mismatch"
     ],
     "status": 200,
     "admission": "browsing"
@@ -15106,6 +15190,31 @@ export const routes = [
     "admission": "browsing"
   },
   {
+    "id": "put_storage_source_read_profile",
+    "method": "PUT",
+    "path": "/v1/storage/sources/{id}/settings/read-profile",
+    "summary": "Save one source's reading limits with current revisions and a durable receipt",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "invalid_request",
+      "revision_mismatch",
+      "idempotency_key_reused",
+      "request_in_progress",
+      "administration_unavailable",
+      "internal",
+      "revision_required"
+    ],
+    "status": 200,
+    "admission": "admin"
+  },
+  {
     "id": "put_storage_sources_webdav_id",
     "method": "PUT",
     "path": "/v1/storage/sources/webdav/{id}",
@@ -18113,6 +18222,27 @@ export const routes = [
     "admission": "admin"
   },
   {
+    "id": "test_storage_source_webdav",
+    "method": "POST",
+    "path": "/v1/storage/sources/webdav/test",
+    "summary": "Test a new WebDAV connection and bounded ranges without saving a source",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 65536,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "invalid_request",
+      "source_credentials_required",
+      "administration_unavailable",
+      "internal"
+    ],
+    "status": 200,
+    "admission": "admin-long"
+  },
+  {
     "id": "test_webhook",
     "method": "POST",
     "path": "/v1/admin/webhooks/{id}/test",
@@ -18522,7 +18652,9 @@ export const routePaths = {
   "get_rating_systems": "/v1/rating-systems",
   "get_readiness": "/v1/readiness",
   "get_reading_continue": "/v1/reading/continue",
+  "get_reading_discover": "/v1/reading/discover",
   "get_reading_items": "/v1/reading/items",
+  "get_reading_series_items": "/v1/libraries/{libraryId}/reading/series/{seriesId}",
   "get_reading_sessions_sessionId_assets": "/v1/reading/sessions/{sessionId}/assets",
   "get_reading_sessions_sessionId_pages_pageIndex": "/v1/reading/sessions/{sessionId}/pages/{pageIndex}",
   "get_reading_sessions_sessionId_progress": "/v1/reading/sessions/{sessionId}/progress",
@@ -18554,6 +18686,7 @@ export const routePaths = {
   "get_storage_operations_id": "/v1/storage/operations/{id}",
   "get_storage_rclone_bundled": "/v1/storage/rclone/bundled",
   "get_storage_source_operations_id": "/v1/storage/source-operations/{id}",
+  "get_storage_source_read_profile": "/v1/storage/sources/{id}/settings/read-profile",
   "get_storage_sources": "/v1/storage/sources",
   "get_storage_status": "/v1/admin/storage/status",
   "get_subtitle_fonts_cjk": "/v1/subtitle-fonts/cjk",
@@ -18854,6 +18987,7 @@ export const routePaths = {
   "put_shows_id_metadata_screen": "/v1/shows/{id}/metadata/screen",
   "put_shows_id_metadata_screen_season": "/v1/shows/{id}/metadata/screen/season",
   "put_shows_id_metadata_tvdb": "/v1/shows/{id}/metadata/tvdb",
+  "put_storage_source_read_profile": "/v1/storage/sources/{id}/settings/read-profile",
   "put_storage_sources_webdav_id": "/v1/storage/sources/webdav/{id}",
   "put_v1_items_itemId_subtitles_resource": "/v1/items/{itemId}/subtitles/{resource}",
   "query_titles": "/v1/titles",
@@ -18923,6 +19057,7 @@ export const routePaths = {
   "stop_playback_session": "/v1/playback/sessions/{id}",
   "sync_download_progress": "/v1/downloads/progress",
   "terminate_admin_session": "/v1/admin/sessions/{id}:terminate",
+  "test_storage_source_webdav": "/v1/storage/sources/webdav/test",
   "test_webhook": "/v1/admin/webhooks/{id}/test",
   "undo_container_personal_state": "/v1/containers/{kind}/{id}/personal-state/undo",
   "update_queue": "/v1/queues/{id}",

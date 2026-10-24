@@ -239,182 +239,253 @@ export const schemas = {
       },
       "placement": {},
       "source": {
-        "properties": {
-          "container": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ],
-            "type": "object"
-          },
-          "items": {
-            "properties": {
-              "ids": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "ids"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "properties": {
-              "libraryId": {
-                "type": "string"
-              },
-              "pivot": {
-                "type": "string"
-              },
-              "query": {
-                "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
-                    "properties": {
-                      "field": {
-                        "enum": [
-                          "releaseDate",
-                          "dateAdded",
-                          "lastPlayedAt"
-                        ],
-                        "type": "string"
-                      },
-                      "operator": {
-                        "enum": [
-                          "within-last-days"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {
-                        "maximum": 36500,
-                        "minimum": 1,
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "field",
-                      "operator",
-                      "value"
-                    ],
-                    "type": "object"
+              "container": {
+                "properties": {
+                  "id": {
+                    "type": "string"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "all": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "container"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "properties": {
+                  "libraryId": {
+                    "type": "string"
+                  },
+                  "pivot": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
+                        "properties": {
+                          "field": {
+                            "enum": [
+                              "releaseDate",
+                              "dateAdded",
+                              "lastPlayedAt"
+                            ],
+                            "type": "string"
+                          },
+                          "operator": {
+                            "enum": [
+                              "within-last-days"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 36500,
+                            "minimum": 1,
+                            "type": "integer"
+                          }
                         },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "any": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
-                        },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "field": {
-                        "type": "string"
-                      },
-                      "not": {
-                        "additionalProperties": {},
-                        "properties": {},
-                        "required": [],
+                        "required": [
+                          "field",
+                          "operator",
+                          "value"
+                        ],
                         "type": "object"
                       },
-                      "operator": {
-                        "enum": [
-                          "equals",
-                          "not-equals",
-                          "in",
-                          "not-in",
-                          "contains",
-                          "starts-with",
-                          "is-present",
-                          "is-missing",
-                          "less-than",
-                          "at-most",
-                          "greater-than",
-                          "at-least",
-                          "between",
-                          "contains-any",
-                          "contains-all"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {}
-                    },
-                    "required": [],
-                    "type": "object"
-                  }
-                ]
-              },
-              "sort": {
-                "items": {
-                  "properties": {
-                    "direction": {
-                      "type": "string"
-                    },
-                    "field": {
-                      "type": "string"
-                    },
-                    "seed": {
-                      "maximum": 9007199254740991,
-                      "minimum": -9007199254740991,
-                      "type": "integer"
-                    }
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "any": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "field": {
+                            "type": "string"
+                          },
+                          "not": {
+                            "additionalProperties": {},
+                            "properties": {},
+                            "required": [],
+                            "type": "object"
+                          },
+                          "operator": {
+                            "enum": [
+                              "equals",
+                              "not-equals",
+                              "in",
+                              "not-in",
+                              "contains",
+                              "starts-with",
+                              "is-present",
+                              "is-missing",
+                              "less-than",
+                              "at-most",
+                              "greater-than",
+                              "at-least",
+                              "between",
+                              "contains-any",
+                              "contains-all"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {}
+                        },
+                        "required": [],
+                        "type": "object"
+                      }
+                    ]
                   },
-                  "required": [
-                    "field",
-                    "direction"
-                  ],
-                  "type": "object"
+                  "sort": {
+                    "items": {
+                      "properties": {
+                        "direction": {
+                          "type": "string"
+                        },
+                        "field": {
+                          "type": "string"
+                        },
+                        "seed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "direction"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
                 },
-                "type": "array"
+                "required": [
+                  "libraryId"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "libraryId"
+              "query"
             ],
             "type": "object"
           },
-          "saved": {
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
+              "saved": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "id"
+              "saved"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "properties": {
+                  "ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "ids"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "journey": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "length": {
+                    "maximum": 128,
+                    "minimum": 2,
+                    "type": "integer"
+                  },
+                  "to": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "journey"
             ],
             "type": "object"
           }
-        },
-        "required": [],
-        "type": "object"
+        ]
       }
     },
     "required": [
@@ -3425,182 +3496,253 @@ export const schemas = {
         "type": "string"
       },
       "source": {
-        "properties": {
-          "container": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ],
-            "type": "object"
-          },
-          "items": {
-            "properties": {
-              "ids": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "ids"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "properties": {
-              "libraryId": {
-                "type": "string"
-              },
-              "pivot": {
-                "type": "string"
-              },
-              "query": {
-                "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
-                    "properties": {
-                      "field": {
-                        "enum": [
-                          "releaseDate",
-                          "dateAdded",
-                          "lastPlayedAt"
-                        ],
-                        "type": "string"
-                      },
-                      "operator": {
-                        "enum": [
-                          "within-last-days"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {
-                        "maximum": 36500,
-                        "minimum": 1,
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "field",
-                      "operator",
-                      "value"
-                    ],
-                    "type": "object"
+              "container": {
+                "properties": {
+                  "id": {
+                    "type": "string"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "all": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "container"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "properties": {
+                  "libraryId": {
+                    "type": "string"
+                  },
+                  "pivot": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
+                        "properties": {
+                          "field": {
+                            "enum": [
+                              "releaseDate",
+                              "dateAdded",
+                              "lastPlayedAt"
+                            ],
+                            "type": "string"
+                          },
+                          "operator": {
+                            "enum": [
+                              "within-last-days"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 36500,
+                            "minimum": 1,
+                            "type": "integer"
+                          }
                         },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "any": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
-                        },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "field": {
-                        "type": "string"
-                      },
-                      "not": {
-                        "additionalProperties": {},
-                        "properties": {},
-                        "required": [],
+                        "required": [
+                          "field",
+                          "operator",
+                          "value"
+                        ],
                         "type": "object"
                       },
-                      "operator": {
-                        "enum": [
-                          "equals",
-                          "not-equals",
-                          "in",
-                          "not-in",
-                          "contains",
-                          "starts-with",
-                          "is-present",
-                          "is-missing",
-                          "less-than",
-                          "at-most",
-                          "greater-than",
-                          "at-least",
-                          "between",
-                          "contains-any",
-                          "contains-all"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {}
-                    },
-                    "required": [],
-                    "type": "object"
-                  }
-                ]
-              },
-              "sort": {
-                "items": {
-                  "properties": {
-                    "direction": {
-                      "type": "string"
-                    },
-                    "field": {
-                      "type": "string"
-                    },
-                    "seed": {
-                      "maximum": 9007199254740991,
-                      "minimum": -9007199254740991,
-                      "type": "integer"
-                    }
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "any": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "field": {
+                            "type": "string"
+                          },
+                          "not": {
+                            "additionalProperties": {},
+                            "properties": {},
+                            "required": [],
+                            "type": "object"
+                          },
+                          "operator": {
+                            "enum": [
+                              "equals",
+                              "not-equals",
+                              "in",
+                              "not-in",
+                              "contains",
+                              "starts-with",
+                              "is-present",
+                              "is-missing",
+                              "less-than",
+                              "at-most",
+                              "greater-than",
+                              "at-least",
+                              "between",
+                              "contains-any",
+                              "contains-all"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {}
+                        },
+                        "required": [],
+                        "type": "object"
+                      }
+                    ]
                   },
-                  "required": [
-                    "field",
-                    "direction"
-                  ],
-                  "type": "object"
+                  "sort": {
+                    "items": {
+                      "properties": {
+                        "direction": {
+                          "type": "string"
+                        },
+                        "field": {
+                          "type": "string"
+                        },
+                        "seed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "direction"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
                 },
-                "type": "array"
+                "required": [
+                  "libraryId"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "libraryId"
+              "query"
             ],
             "type": "object"
           },
-          "saved": {
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
+              "saved": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "id"
+              "saved"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "properties": {
+                  "ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "ids"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "journey": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "length": {
+                    "maximum": 128,
+                    "minimum": 2,
+                    "type": "integer"
+                  },
+                  "to": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "journey"
             ],
             "type": "object"
           }
-        },
-        "required": [],
-        "type": "object"
+        ]
       }
     },
     "required": [
@@ -14377,182 +14519,253 @@ export const schemas = {
               "type": "object"
             },
             "source": {
-              "properties": {
-                "container": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
                   "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "kind": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind",
-                    "id"
-                  ],
-                  "type": "object"
-                },
-                "items": {
-                  "properties": {
-                    "ids": {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "ids"
-                  ],
-                  "type": "object"
-                },
-                "query": {
-                  "properties": {
-                    "libraryId": {
-                      "type": "string"
-                    },
-                    "pivot": {
-                      "type": "string"
-                    },
-                    "query": {
-                      "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
-                      "oneOf": [
-                        {
-                          "additionalProperties": false,
-                          "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
-                          "properties": {
-                            "field": {
-                              "enum": [
-                                "releaseDate",
-                                "dateAdded",
-                                "lastPlayedAt"
-                              ],
-                              "type": "string"
-                            },
-                            "operator": {
-                              "enum": [
-                                "within-last-days"
-                              ],
-                              "type": "string"
-                            },
-                            "value": {
-                              "maximum": 36500,
-                              "minimum": 1,
-                              "type": "integer"
-                            }
-                          },
-                          "required": [
-                            "field",
-                            "operator",
-                            "value"
-                          ],
-                          "type": "object"
+                    "container": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
                         },
-                        {
-                          "additionalProperties": false,
-                          "properties": {
-                            "all": {
-                              "items": {
-                                "additionalProperties": {},
-                                "properties": {},
-                                "required": [],
-                                "type": "object"
+                        "kind": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "id"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "container"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "query": {
+                      "properties": {
+                        "libraryId": {
+                          "type": "string"
+                        },
+                        "pivot": {
+                          "type": "string"
+                        },
+                        "query": {
+                          "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
+                              "properties": {
+                                "field": {
+                                  "enum": [
+                                    "releaseDate",
+                                    "dateAdded",
+                                    "lastPlayedAt"
+                                  ],
+                                  "type": "string"
+                                },
+                                "operator": {
+                                  "enum": [
+                                    "within-last-days"
+                                  ],
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "maximum": 36500,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                }
                               },
-                              "maxItems": 40,
-                              "minItems": 1,
-                              "type": "array"
-                            },
-                            "any": {
-                              "items": {
-                                "additionalProperties": {},
-                                "properties": {},
-                                "required": [],
-                                "type": "object"
-                              },
-                              "maxItems": 40,
-                              "minItems": 1,
-                              "type": "array"
-                            },
-                            "field": {
-                              "type": "string"
-                            },
-                            "not": {
-                              "additionalProperties": {},
-                              "properties": {},
-                              "required": [],
+                              "required": [
+                                "field",
+                                "operator",
+                                "value"
+                              ],
                               "type": "object"
                             },
-                            "operator": {
-                              "enum": [
-                                "equals",
-                                "not-equals",
-                                "in",
-                                "not-in",
-                                "contains",
-                                "starts-with",
-                                "is-present",
-                                "is-missing",
-                                "less-than",
-                                "at-most",
-                                "greater-than",
-                                "at-least",
-                                "between",
-                                "contains-any",
-                                "contains-all"
-                              ],
-                              "type": "string"
-                            },
-                            "value": {}
-                          },
-                          "required": [],
-                          "type": "object"
-                        }
-                      ]
-                    },
-                    "sort": {
-                      "items": {
-                        "properties": {
-                          "direction": {
-                            "type": "string"
-                          },
-                          "field": {
-                            "type": "string"
-                          },
-                          "seed": {
-                            "maximum": 9007199254740991,
-                            "minimum": -9007199254740991,
-                            "type": "integer"
-                          }
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "all": {
+                                  "items": {
+                                    "additionalProperties": {},
+                                    "properties": {},
+                                    "required": [],
+                                    "type": "object"
+                                  },
+                                  "maxItems": 40,
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "any": {
+                                  "items": {
+                                    "additionalProperties": {},
+                                    "properties": {},
+                                    "required": [],
+                                    "type": "object"
+                                  },
+                                  "maxItems": 40,
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "field": {
+                                  "type": "string"
+                                },
+                                "not": {
+                                  "additionalProperties": {},
+                                  "properties": {},
+                                  "required": [],
+                                  "type": "object"
+                                },
+                                "operator": {
+                                  "enum": [
+                                    "equals",
+                                    "not-equals",
+                                    "in",
+                                    "not-in",
+                                    "contains",
+                                    "starts-with",
+                                    "is-present",
+                                    "is-missing",
+                                    "less-than",
+                                    "at-most",
+                                    "greater-than",
+                                    "at-least",
+                                    "between",
+                                    "contains-any",
+                                    "contains-all"
+                                  ],
+                                  "type": "string"
+                                },
+                                "value": {}
+                              },
+                              "required": [],
+                              "type": "object"
+                            }
+                          ]
                         },
-                        "required": [
-                          "field",
-                          "direction"
-                        ],
-                        "type": "object"
+                        "sort": {
+                          "items": {
+                            "properties": {
+                              "direction": {
+                                "type": "string"
+                              },
+                              "field": {
+                                "type": "string"
+                              },
+                              "seed": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "direction"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "libraryId"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "libraryId"
+                    "query"
                   ],
                   "type": "object"
                 },
-                "saved": {
+                {
+                  "additionalProperties": false,
                   "properties": {
-                    "id": {
-                      "type": "string"
+                    "saved": {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "id"
+                    "saved"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "properties": {
+                        "ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "ids"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "journey": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "from": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                          "type": "string"
+                        },
+                        "length": {
+                          "maximum": 128,
+                          "minimum": 2,
+                          "type": "integer"
+                        },
+                        "to": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "from",
+                        "to",
+                        "length"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "journey"
                   ],
                   "type": "object"
                 }
-              },
-              "required": [],
-              "type": "object"
+              ]
             }
           },
           "required": [
@@ -14563,182 +14776,253 @@ export const schemas = {
         "type": "array"
       },
       "selector": {
-        "properties": {
-          "container": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "kind": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "id"
-            ],
-            "type": "object"
-          },
-          "items": {
-            "properties": {
-              "ids": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "ids"
-            ],
-            "type": "object"
-          },
-          "query": {
-            "properties": {
-              "libraryId": {
-                "type": "string"
-              },
-              "pivot": {
-                "type": "string"
-              },
-              "query": {
-                "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
-                    "properties": {
-                      "field": {
-                        "enum": [
-                          "releaseDate",
-                          "dateAdded",
-                          "lastPlayedAt"
-                        ],
-                        "type": "string"
-                      },
-                      "operator": {
-                        "enum": [
-                          "within-last-days"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {
-                        "maximum": 36500,
-                        "minimum": 1,
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "field",
-                      "operator",
-                      "value"
-                    ],
-                    "type": "object"
+              "container": {
+                "properties": {
+                  "id": {
+                    "type": "string"
                   },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "all": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "container"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "properties": {
+                  "libraryId": {
+                    "type": "string"
+                  },
+                  "pivot": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "description": "A predicate or all/any/not group. The parser enforces recursive vocabulary and published depth/clause bounds.",
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Matches dates from the evaluation instant minus N times 24 hours through that instant, inclusive. Future dates do not match. Signed continuations retain the first page's instant.",
+                        "properties": {
+                          "field": {
+                            "enum": [
+                              "releaseDate",
+                              "dateAdded",
+                              "lastPlayedAt"
+                            ],
+                            "type": "string"
+                          },
+                          "operator": {
+                            "enum": [
+                              "within-last-days"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 36500,
+                            "minimum": 1,
+                            "type": "integer"
+                          }
                         },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "any": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {},
-                          "required": [],
-                          "type": "object"
-                        },
-                        "maxItems": 40,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "field": {
-                        "type": "string"
-                      },
-                      "not": {
-                        "additionalProperties": {},
-                        "properties": {},
-                        "required": [],
+                        "required": [
+                          "field",
+                          "operator",
+                          "value"
+                        ],
                         "type": "object"
                       },
-                      "operator": {
-                        "enum": [
-                          "equals",
-                          "not-equals",
-                          "in",
-                          "not-in",
-                          "contains",
-                          "starts-with",
-                          "is-present",
-                          "is-missing",
-                          "less-than",
-                          "at-most",
-                          "greater-than",
-                          "at-least",
-                          "between",
-                          "contains-any",
-                          "contains-all"
-                        ],
-                        "type": "string"
-                      },
-                      "value": {}
-                    },
-                    "required": [],
-                    "type": "object"
-                  }
-                ]
-              },
-              "sort": {
-                "items": {
-                  "properties": {
-                    "direction": {
-                      "type": "string"
-                    },
-                    "field": {
-                      "type": "string"
-                    },
-                    "seed": {
-                      "maximum": 9007199254740991,
-                      "minimum": -9007199254740991,
-                      "type": "integer"
-                    }
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "any": {
+                            "items": {
+                              "additionalProperties": {},
+                              "properties": {},
+                              "required": [],
+                              "type": "object"
+                            },
+                            "maxItems": 40,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "field": {
+                            "type": "string"
+                          },
+                          "not": {
+                            "additionalProperties": {},
+                            "properties": {},
+                            "required": [],
+                            "type": "object"
+                          },
+                          "operator": {
+                            "enum": [
+                              "equals",
+                              "not-equals",
+                              "in",
+                              "not-in",
+                              "contains",
+                              "starts-with",
+                              "is-present",
+                              "is-missing",
+                              "less-than",
+                              "at-most",
+                              "greater-than",
+                              "at-least",
+                              "between",
+                              "contains-any",
+                              "contains-all"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {}
+                        },
+                        "required": [],
+                        "type": "object"
+                      }
+                    ]
                   },
-                  "required": [
-                    "field",
-                    "direction"
-                  ],
-                  "type": "object"
+                  "sort": {
+                    "items": {
+                      "properties": {
+                        "direction": {
+                          "type": "string"
+                        },
+                        "field": {
+                          "type": "string"
+                        },
+                        "seed": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "direction"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
                 },
-                "type": "array"
+                "required": [
+                  "libraryId"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "libraryId"
+              "query"
             ],
             "type": "object"
           },
-          "saved": {
+          {
+            "additionalProperties": false,
             "properties": {
-              "id": {
-                "type": "string"
+              "saved": {
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "id"
+              "saved"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "properties": {
+                  "ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "ids"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "journey": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  },
+                  "length": {
+                    "maximum": 128,
+                    "minimum": 2,
+                    "type": "integer"
+                  },
+                  "to": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "journey"
             ],
             "type": "object"
           }
-        },
-        "required": [],
-        "type": "object"
+        ]
       },
       "shuffle": {
         "properties": {
@@ -19215,6 +19499,83 @@ export const schemas = {
           },
           "operationId": {
             "type": "string"
+          },
+          "readSettings": {
+            "additionalProperties": false,
+            "properties": {
+              "generation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "sourceId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytesPerSecond": {
+                    "anyOf": [
+                      {
+                        "const": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "maximum": 1000000000,
+                        "minimum": 1000000,
+                        "multipleOf": 1000000,
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "connections": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "requestsPerSecond": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scanDepth": {
+                    "enum": [
+                      "file_list_only",
+                      "basic",
+                      "complete"
+                    ],
+                    "type": "string"
+                  },
+                  "wholeFileReads": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scanDepth",
+                  "wholeFileReads",
+                  "connections",
+                  "requestsPerSecond",
+                  "bytesPerSecond"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "sourceId",
+              "generation",
+              "revision",
+              "saved",
+              "values"
+            ],
+            "type": "object"
           },
           "removed": {
             "type": "boolean"
@@ -32799,6 +33160,16 @@ export const schemas = {
               "type": "string"
             },
             "providerReleaseId": {
+              "type": "string"
+            },
+            "role": {
+              "enum": [
+                "album",
+                "ep",
+                "single",
+                "compilation",
+                "appearance"
+              ],
               "type": "string"
             },
             "title": {
@@ -113102,6 +113473,70 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "setupContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "state": {
         "type": "string"
       }
@@ -124120,6 +124555,30 @@ export const schemas = {
           "properties": {
             "item": {
               "properties": {
+                "author": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata",
+                        "file-name",
+                        "folder"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "source"
+                  ],
+                  "type": "object"
+                },
                 "format": {
                   "enum": [
                     "epub",
@@ -124136,6 +124595,39 @@ export const schemas = {
                 },
                 "libraryId": {
                   "type": "string"
+                },
+                "series": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "number": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "source": {
+                      "enum": [
+                        "owner",
+                        "file-metadata",
+                        "file-name",
+                        "folder"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "source"
+                  ],
+                  "type": "object"
                 },
                 "sourceId": {
                   "type": "string"
@@ -124235,6 +124727,130 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "GetReadingDiscoverRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetReadingDiscoverResponse": {
+    "properties": {
+      "rows": {
+        "items": {
+          "properties": {
+            "items": {
+              "items": {
+                "properties": {
+                  "author": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "source": {
+                        "enum": [
+                          "owner",
+                          "file-metadata",
+                          "file-name",
+                          "folder"
+                        ],
+                        "type": "string"
+                      },
+                      "value": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  "format": {
+                    "enum": [
+                      "epub",
+                      "pdf",
+                      "cbz"
+                    ],
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "inventoryAvailable": {
+                    "type": "boolean"
+                  },
+                  "libraryId": {
+                    "type": "string"
+                  },
+                  "series": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "name": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "number": {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "source": {
+                        "enum": [
+                          "owner",
+                          "file-metadata",
+                          "file-name",
+                          "folder"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  "sourceId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "libraryId",
+                  "title",
+                  "format",
+                  "sourceId",
+                  "inventoryAvailable"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "items"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "rows"
+    ],
+    "type": "object"
+  },
   "GetReadingItemsRequest": {
     "properties": {},
     "required": [],
@@ -124245,6 +124861,30 @@ export const schemas = {
       "items": {
         "items": {
           "properties": {
+            "author": {
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata",
+                    "file-name",
+                    "folder"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "source"
+              ],
+              "type": "object"
+            },
             "format": {
               "enum": [
                 "epub",
@@ -124261,6 +124901,151 @@ export const schemas = {
             },
             "libraryId": {
               "type": "string"
+            },
+            "series": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "number": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata",
+                    "file-name",
+                    "folder"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "source"
+              ],
+              "type": "object"
+            },
+            "sourceId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "libraryId",
+            "title",
+            "format",
+            "sourceId",
+            "inventoryAvailable"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "nextCursor": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "items"
+    ],
+    "type": "object"
+  },
+  "GetReadingSeriesItemsRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetReadingSeriesItemsResponse": {
+    "properties": {
+      "items": {
+        "items": {
+          "properties": {
+            "author": {
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata",
+                    "file-name",
+                    "folder"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value",
+                "source"
+              ],
+              "type": "object"
+            },
+            "format": {
+              "enum": [
+                "epub",
+                "pdf",
+                "cbz"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "inventoryAvailable": {
+              "type": "boolean"
+            },
+            "libraryId": {
+              "type": "string"
+            },
+            "series": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "number": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "source": {
+                  "enum": [
+                    "owner",
+                    "file-metadata",
+                    "file-name",
+                    "folder"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "source"
+              ],
+              "type": "object"
             },
             "sourceId": {
               "type": "string"
@@ -145483,6 +146268,83 @@ export const schemas = {
           "operationId": {
             "type": "string"
           },
+          "readSettings": {
+            "additionalProperties": false,
+            "properties": {
+              "generation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "sourceId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytesPerSecond": {
+                    "anyOf": [
+                      {
+                        "const": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "maximum": 1000000000,
+                        "minimum": 1000000,
+                        "multipleOf": 1000000,
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "connections": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "requestsPerSecond": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scanDepth": {
+                    "enum": [
+                      "file_list_only",
+                      "basic",
+                      "complete"
+                    ],
+                    "type": "string"
+                  },
+                  "wholeFileReads": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scanDepth",
+                  "wholeFileReads",
+                  "connections",
+                  "requestsPerSecond",
+                  "bytesPerSecond"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "sourceId",
+              "generation",
+              "revision",
+              "saved",
+              "values"
+            ],
+            "type": "object"
+          },
           "removed": {
             "type": "boolean"
           },
@@ -145574,6 +146436,112 @@ export const schemas = {
     "required": [
       "scope",
       "receipt"
+    ],
+    "type": "object"
+  },
+  "GetStorageSourceReadProfileRequest": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "GetStorageSourceReadProfileResponse": {
+    "properties": {
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      },
+      "settings": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "saved": {
+            "type": "boolean"
+          },
+          "sourceId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": false,
+            "properties": {
+              "bytesPerSecond": {
+                "anyOf": [
+                  {
+                    "const": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "maximum": 1000000000,
+                    "minimum": 1000000,
+                    "multipleOf": 1000000,
+                    "type": "integer"
+                  }
+                ]
+              },
+              "connections": {
+                "maximum": 32,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "requestsPerSecond": {
+                "maximum": 50,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "scanDepth": {
+                "enum": [
+                  "file_list_only",
+                  "basic",
+                  "complete"
+                ],
+                "type": "string"
+              },
+              "wholeFileReads": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "scanDepth",
+              "wholeFileReads",
+              "connections",
+              "requestsPerSecond",
+              "bytesPerSecond"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "sourceId",
+          "generation",
+          "revision",
+          "saved",
+          "values"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "settings"
     ],
     "type": "object"
   },
@@ -163397,6 +164365,61 @@ export const schemas = {
           "purpose"
         ],
         "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "setup",
+            "type": "string"
+          },
+          "registrationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "transactionId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "verifier": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "state",
+          "verifier",
+          "registrationId",
+          "installationId",
+          "serverChallenge",
+          "purpose"
+        ],
+        "type": "object"
       }
     ]
   },
@@ -175403,6 +176426,70 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "setupContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "state": {
         "type": "string"
       }
@@ -175548,6 +176635,70 @@ export const schemas = {
         "type": "object"
       },
       "ownerContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "setupContinuation": {
         "properties": {
           "claim": {
             "properties": {
@@ -175822,6 +176973,70 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "setupContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "state": {
         "type": "string"
       }
@@ -175970,6 +177185,70 @@ export const schemas = {
         "type": "object"
       },
       "ownerContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "setupContinuation": {
         "properties": {
           "claim": {
             "properties": {
@@ -176316,6 +177595,70 @@ export const schemas = {
         ],
         "type": "object"
       },
+      "setupContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
       "state": {
         "type": "string"
       }
@@ -176330,65 +177673,128 @@ export const schemas = {
     "type": "object"
   },
   "PostNetworkingClaimWebApprovalRequest": {
-    "additionalProperties": false,
-    "properties": {
-      "approvalEnvelope": {
-        "type": "string"
-      },
-      "expected": {
+    "oneOf": [
+      {
         "additionalProperties": false,
         "properties": {
-          "localGeneration": {
+          "approvalEnvelope": {
             "type": "string"
           },
-          "operationId": {
-            "type": "string"
+          "expected": {
+            "additionalProperties": false,
+            "properties": {
+              "localGeneration": {
+                "type": "string"
+              },
+              "operationId": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "operationId",
+              "localGeneration",
+              "revision"
+            ],
+            "type": "object"
           },
-          "revision": {
-            "type": "string"
+          "ownerStart": {
+            "additionalProperties": false,
+            "properties": {
+              "codeChallenge": {
+                "maxLength": 43,
+                "minLength": 43,
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+                "type": "string"
+              },
+              "installationId": {
+                "maxLength": 128,
+                "minLength": 32,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              "state": {
+                "maxLength": 43,
+                "minLength": 43,
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "codeChallenge",
+              "installationId"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "operationId",
-          "localGeneration",
-          "revision"
+          "expected"
         ],
         "type": "object"
       },
-      "ownerStart": {
+      {
         "additionalProperties": false,
         "properties": {
-          "codeChallenge": {
-            "maxLength": 43,
-            "minLength": 43,
-            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
-            "type": "string"
+          "expected": {
+            "additionalProperties": false,
+            "properties": {
+              "localGeneration": {
+                "type": "string"
+              },
+              "operationId": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "operationId",
+              "localGeneration",
+              "revision"
+            ],
+            "type": "object"
           },
-          "installationId": {
-            "maxLength": 128,
-            "minLength": 32,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "type": "string"
-          },
-          "state": {
-            "maxLength": 43,
-            "minLength": 43,
-            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
-            "type": "string"
+          "setupStart": {
+            "additionalProperties": false,
+            "properties": {
+              "codeChallenge": {
+                "maxLength": 43,
+                "minLength": 43,
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+                "type": "string"
+              },
+              "installationId": {
+                "maxLength": 128,
+                "minLength": 32,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              "state": {
+                "maxLength": 43,
+                "minLength": 43,
+                "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "codeChallenge",
+              "installationId"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "state",
-          "codeChallenge",
-          "installationId"
+          "expected",
+          "setupStart"
         ],
         "type": "object"
       }
-    },
-    "required": [
-      "expected"
-    ],
-    "type": "object"
+    ]
   },
   "PostNetworkingClaimWebApprovalResponse": {
     "properties": {
@@ -176495,6 +177901,70 @@ export const schemas = {
         "type": "object"
       },
       "ownerContinuation": {
+        "properties": {
+          "claim": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "returnRegistration": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "origin"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "properties": {
+              "payload": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "transactionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "phase",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "setupContinuation": {
         "properties": {
           "claim": {
             "properties": {
@@ -180120,6 +181590,83 @@ export const schemas = {
           },
           "operationId": {
             "type": "string"
+          },
+          "readSettings": {
+            "additionalProperties": false,
+            "properties": {
+              "generation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "sourceId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytesPerSecond": {
+                    "anyOf": [
+                      {
+                        "const": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "maximum": 1000000000,
+                        "minimum": 1000000,
+                        "multipleOf": 1000000,
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "connections": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "requestsPerSecond": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scanDepth": {
+                    "enum": [
+                      "file_list_only",
+                      "basic",
+                      "complete"
+                    ],
+                    "type": "string"
+                  },
+                  "wholeFileReads": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scanDepth",
+                  "wholeFileReads",
+                  "connections",
+                  "requestsPerSecond",
+                  "bytesPerSecond"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "sourceId",
+              "generation",
+              "revision",
+              "saved",
+              "values"
+            ],
+            "type": "object"
           },
           "removed": {
             "type": "boolean"
@@ -191403,6 +192950,260 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "PutStorageSourceReadProfileRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "expectedGeneration": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "expectedRevision": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "operationId": {
+        "pattern": "^([0-9]{13})-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "type": "string"
+      },
+      "values": {
+        "additionalProperties": false,
+        "properties": {
+          "bytesPerSecond": {
+            "anyOf": [
+              {
+                "const": 0,
+                "type": "integer"
+              },
+              {
+                "maximum": 1000000000,
+                "minimum": 1000000,
+                "multipleOf": 1000000,
+                "type": "integer"
+              }
+            ]
+          },
+          "connections": {
+            "maximum": 32,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "requestsPerSecond": {
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "scanDepth": {
+            "enum": [
+              "file_list_only",
+              "basic",
+              "complete"
+            ],
+            "type": "string"
+          },
+          "wholeFileReads": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scanDepth",
+          "wholeFileReads",
+          "connections",
+          "requestsPerSecond",
+          "bytesPerSecond"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "operationId",
+      "expectedGeneration",
+      "expectedRevision",
+      "values"
+    ],
+    "type": "object"
+  },
+  "PutStorageSourceReadProfileResponse": {
+    "properties": {
+      "receipt": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "readSettings": {
+            "additionalProperties": false,
+            "properties": {
+              "generation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "sourceId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytesPerSecond": {
+                    "anyOf": [
+                      {
+                        "const": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "maximum": 1000000000,
+                        "minimum": 1000000,
+                        "multipleOf": 1000000,
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "connections": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "requestsPerSecond": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scanDepth": {
+                    "enum": [
+                      "file_list_only",
+                      "basic",
+                      "complete"
+                    ],
+                    "type": "string"
+                  },
+                  "wholeFileReads": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scanDepth",
+                  "wholeFileReads",
+                  "connections",
+                  "requestsPerSecond",
+                  "bytesPerSecond"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "sourceId",
+              "generation",
+              "revision",
+              "saved",
+              "values"
+            ],
+            "type": "object"
+          },
+          "removed": {
+            "type": "boolean"
+          },
+          "source": {
+            "properties": {
+              "credentialPresent": {
+                "type": "boolean"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "generation": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "insecureLocal": {
+                "type": "boolean"
+              },
+              "kind": {
+                "enum": [
+                  "rclone",
+                  "webdav",
+                  "sftp",
+                  "smb"
+                ],
+                "type": "string"
+              },
+              "mountId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "rangeSupport": {
+                "type": "string"
+              },
+              "rootPath": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "rootPath",
+              "generation",
+              "state",
+              "rangeSupport",
+              "insecureLocal",
+              "credentialPresent"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "operationId",
+          "accepted",
+          "removed",
+          "source"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "receipt"
+    ],
+    "type": "object"
+  },
   "PutStorageSourcesWebdavIdRequest": {
     "properties": {
       "expectedGeneration": {
@@ -191454,6 +193255,83 @@ export const schemas = {
           },
           "operationId": {
             "type": "string"
+          },
+          "readSettings": {
+            "additionalProperties": false,
+            "properties": {
+              "generation": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "saved": {
+                "type": "boolean"
+              },
+              "sourceId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytesPerSecond": {
+                    "anyOf": [
+                      {
+                        "const": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "maximum": 1000000000,
+                        "minimum": 1000000,
+                        "multipleOf": 1000000,
+                        "type": "integer"
+                      }
+                    ]
+                  },
+                  "connections": {
+                    "maximum": 32,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "requestsPerSecond": {
+                    "maximum": 50,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "scanDepth": {
+                    "enum": [
+                      "file_list_only",
+                      "basic",
+                      "complete"
+                    ],
+                    "type": "string"
+                  },
+                  "wholeFileReads": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scanDepth",
+                  "wholeFileReads",
+                  "connections",
+                  "requestsPerSecond",
+                  "bytesPerSecond"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "sourceId",
+              "generation",
+              "revision",
+              "saved",
+              "values"
+            ],
+            "type": "object"
           },
           "removed": {
             "type": "boolean"
@@ -197781,6 +199659,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -198246,6 +200127,9 @@ export const schemas = {
             },
             "permissions": {
               "properties": {
+                "canClaimHost": {
+                  "type": "boolean"
+                },
                 "canControl": {
                   "type": "boolean"
                 },
@@ -199652,6 +201536,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -200116,6 +202003,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -200594,6 +202484,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -201140,6 +203033,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -201880,6 +203776,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -202551,6 +204450,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -203031,6 +204933,9 @@ export const schemas = {
           },
           "permissions": {
             "properties": {
+              "canClaimHost": {
+                "type": "boolean"
+              },
               "canControl": {
                 "type": "boolean"
               },
@@ -205770,6 +207675,72 @@ export const schemas = {
   "TerminateAdminSessionResponse": {
     "properties": {},
     "required": [],
+    "type": "object"
+  },
+  "TestStorageSourceWebdavRequest": {
+    "properties": {
+      "insecureLocal": {
+        "type": "boolean"
+      },
+      "name": {
+        "type": "string"
+      },
+      "password": {
+        "type": "string"
+      },
+      "root": {
+        "type": "string"
+      },
+      "username": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "root",
+      "username",
+      "password",
+      "insecureLocal"
+    ],
+    "type": "object"
+  },
+  "TestStorageSourceWebdavResponse": {
+    "properties": {
+      "result": {
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "rangeSupport": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "rangeSupport"
+        ],
+        "type": "object"
+      },
+      "scope": {
+        "properties": {
+          "serverId": {
+            "type": "string"
+          },
+          "viewerFence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "viewerFence"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "scope",
+      "result"
+    ],
     "type": "object"
   },
   "TestWebhookRequest": {

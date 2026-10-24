@@ -3526,6 +3526,7 @@ export const schemas = {
     "type": "object"
   },
   "ServerClaimLookupResponse": {
+    "additionalProperties": false,
     "properties": {
       "address": {
         "type": "string"
@@ -3542,6 +3543,11 @@ export const schemas = {
       },
       "name": {
         "type": "string"
+      },
+      "otherPeopleCount": {
+        "maximum": 10000,
+        "minimum": 0,
+        "type": "integer"
       },
       "ownerTransactionId": {
         "type": "string"
@@ -3572,6 +3578,9 @@ export const schemas = {
         "type": "object"
       },
       "serverId": {
+        "type": "string"
+      },
+      "setupTransactionId": {
         "type": "string"
       },
       "status": {
@@ -3675,6 +3684,24 @@ export const schemas = {
             ],
             "type": "object"
           },
+          "ownerSwitchCount": {
+            "additionalProperties": false,
+            "properties": {
+              "payload": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "signature": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
           "payload": {
             "minLength": 1,
             "type": "string"
@@ -3688,6 +3715,43 @@ export const schemas = {
           "payload",
           "signature",
           "ownerStart"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "payload": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "setupStart": {
+            "additionalProperties": false,
+            "properties": {
+              "payload": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "signature": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "payload",
+              "signature"
+            ],
+            "type": "object"
+          },
+          "signature": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload",
+          "signature",
+          "setupStart"
         ],
         "type": "object"
       }
@@ -3740,6 +3804,9 @@ export const schemas = {
         "type": "object"
       },
       "serverId": {
+        "type": "string"
+      },
+      "setupTransactionId": {
         "type": "string"
       },
       "status": {
@@ -4385,6 +4452,61 @@ export const schemas = {
           },
           "purpose": {
             "const": "switch",
+            "type": "string"
+          },
+          "registrationId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "serverChallenge": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "transactionId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "verifier": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transactionId",
+          "state",
+          "verifier",
+          "registrationId",
+          "installationId",
+          "serverChallenge",
+          "purpose"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "setup",
             "type": "string"
           },
           "registrationId": {

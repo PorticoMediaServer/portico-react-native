@@ -1,8 +1,8 @@
 import {
-  routePath, errors, decodeGetReadingContinueResponse, decodeGetReadingItemsResponse, decodeGetItemsItemIdReadingVersionsResponse,
+  routePath, errors, decodeGetReadingSeriesItemsResponse, decodeGetReadingDiscoverResponse, decodeGetReadingContinueResponse, decodeGetReadingItemsResponse, decodeGetItemsItemIdReadingVersionsResponse,
   decodePostReadingSessionsResponse, decodeGetReadingSessionsSessionIdProgressResponse,
   decodePutReadingSessionsSessionIdProgressResponse,
-  type GetReadingContinueResponse, type GetReadingItemsResponse, type GetItemsItemIdReadingVersionsResponse,
+  type GetReadingSeriesItemsResponse, type GetReadingDiscoverResponse, type GetReadingContinueResponse, type GetReadingItemsResponse, type GetItemsItemIdReadingVersionsResponse,
   type PostReadingSessionsRequest, type PostReadingSessionsResponse,
   type GetReadingSessionsSessionIdProgressResponse,
   type PutReadingSessionsSessionIdProgressRequest, type PutReadingSessionsSessionIdProgressResponse,
@@ -12,6 +12,14 @@ import type {Viewer} from './index.ts';
 export type ReadingScope = Readonly<{viewer: Readonly<Viewer>; isCurrent: () => boolean; signal?: AbortSignal}>;
 type Immutable<T> = T extends readonly (infer V)[] ? readonly Immutable<V>[] : T extends object ? {readonly [K in keyof T]: Immutable<T[K]>} : T;
 export type ReadingManifest = Immutable<PostReadingSessionsResponse>;
+/** Derived from the generated official response, never a hand-written mirror. */
+export type ReadingItem = GetReadingItemsResponse['items'][number];
+export type ReadingContinueItem = GetReadingContinueResponse['items'][number];
+export type ReadingDiscover = GetReadingDiscoverResponse;
+export type ReadingSeriesPage = GetReadingSeriesItemsResponse;
+export type ReadingAuthor = NonNullable<ReadingItem['author']>;
+export type ReadingSeries = NonNullable<ReadingItem['series']>;
+export type ReadingAttributionSource = ReadingAuthor['source'];
 export type ReadingPage = Readonly<{index: number; name: string; bytes: Uint8Array; mime: 'image/jpeg' | 'image/png' | 'image/webp'}>;
 export type ReadingLocation = PutReadingSessionsSessionIdProgressRequest['location'];
 export type ReadingProgress = GetReadingSessionsSessionIdProgressResponse;
@@ -262,6 +270,29 @@ export class ReadingClient {
     if (options.libraryId !== undefined && !id(options.libraryId) || !integer(options.limit ?? 50, 1, 100) || (options.cursor !== undefined && !/^\d{1,20}$/.test(options.cursor))) fail('invalid_request');
     const out = await this.json(query(routePath('get_reading_items'), options), 'GET', undefined, signal, decodeGetReadingItemsResponse, 256 << 10);
     if (out.items.length > 100 || out.items.some(row => !id(row.id) || !id(row.sourceId) || !format(row.format))) fail('invalid_document');
+    return out;
+  }
+  async discover(options: Readonly<{libraryId?: string; limit?: number}> = {}, signal?: AbortSignal): Promise<ReadingDiscover> {
+    if (options.libraryId !== undefined && !id(options.libraryId) || !integer(options.limit ?? 20, 1, 100)) fail('invalid_request');
+    const out = await this.json(query(routePath('get_reading_discover'), options), 'GET', undefined, signal, decodeGetReadingDiscoverResponse, 256 << 10);
+    if (out.rows.length !== 1 || out.rows[0].key !== 'recent' || out.rows[0].items.length > (options.limit ?? 20)) fail('invalid_document');
+    const seen = new Set<string>();
+    for (const item of out.rows[0].items) {
+      if (!id(item.id) || !id(item.libraryId) || !id(item.sourceId) || !format(item.format) || seen.has(item.id) || (options.libraryId !== undefined && item.libraryId !== options.libraryId)) fail('invalid_document');
+      seen.add(item.id);
+    }
+    return out;
+  }
+  async series(libraryId: string, seriesId: string, options: Readonly<{cursor?: string; limit?: number}> = {}, signal?: AbortSignal): Promise<ReadingSeriesPage> {
+    const cursor = options.cursor;
+    if (!id(libraryId) || !/^[A-Za-z0-9_-]{43}$/.test(seriesId) || !integer(options.limit ?? 50, 1, 100) || (cursor !== undefined && !/^[A-Za-z0-9_-]{171}\.[A-Za-z0-9_-]{43}$/.test(cursor))) fail('invalid_request');
+    const out = await this.json(query(routePath('get_reading_series_items', {libraryId, seriesId}), options), 'GET', undefined, signal, decodeGetReadingSeriesItemsResponse, 2 << 20);
+    if (out.items.length > (options.limit ?? 50) || (out.nextCursor !== undefined && !/^[A-Za-z0-9_-]{171}\.[A-Za-z0-9_-]{43}$/.test(out.nextCursor))) fail('invalid_document');
+    const seen = new Set<string>();
+    for (const item of out.items) {
+      if (!id(item.id) || item.libraryId !== libraryId || !id(item.sourceId) || !format(item.format) || item.series?.id !== seriesId || seen.has(item.id)) fail('invalid_document');
+      seen.add(item.id);
+    }
     return out;
   }
   async continue(options: Readonly<{libraryId?: string; cursor?: string; limit?: number}> = {}, signal?: AbortSignal): Promise<GetReadingContinueResponse> {
