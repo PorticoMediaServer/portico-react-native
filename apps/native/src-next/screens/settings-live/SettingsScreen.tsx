@@ -44,7 +44,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
   const managesServer = ports.context.account.account.role === 'owner';
   // The Server group on the phone draws the pages this client can actually administer; the rest land with their owners.
-  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'libraries' || managesServer && value.id === 'live'), [structure, theme.isTV, managesServer]);
+  const serverPages = useMemo(() => theme.isTV ? [] : (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || managesServer && value.id === 'live'), [structure, theme.isTV, managesServer]);
   const [selected, setSelected] = useState(accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
   const [restoreRevision, setRestoreRevision] = useState(0);
@@ -101,7 +101,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
             </FocusRegion>}
           {!theme.isTV && serverPages.length > 0 && <View style={{marginHorizontal: 16, marginTop: 20, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.accentStrong, .28)}}>
             <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
-            {serverPages.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
+            {serverPages.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority()) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
               <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
               <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
             </Focusable>)}
@@ -109,7 +109,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
         </ScrollView>}
       </View>}
       {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t('action.back')}</Button>}
+        {compact && <Button variant="text" size="small" icon="i-left" onPress={() => setPushed(false)}>{t(serverPage ? 'next.shell.settings' : 'action.back')}</Button>}
         {!(theme.isTV && searching) && !librariesPage && !livePage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
         {livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
