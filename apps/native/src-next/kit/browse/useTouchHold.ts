@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {AppState, type GestureResponderEvent} from 'react-native';
+import {AppState, Platform, type GestureResponderEvent} from 'react-native';
 import {createTouchHold, type TouchHoldPhase} from './touch-hold';
 
 /** The native timer owns the threshold; Pressability's wider retention area cannot fire it. */
@@ -16,8 +16,10 @@ export function useTouchHold(onFire: () => void, enabled: boolean) {
       foreground.current = next === 'active';
       if (!foreground.current) hold.cancel();
     });
-    const focus = AppState.addEventListener('blur', () => hold.cancel());
-    return () => {state.remove(); focus.remove();};
+    // 'blur' is an Android-only AppState event: iOS/tvOS route it to appStateFocusChange,
+    // which RCTAppState does not implement, so registering it there is fatal in Debug.
+    const focus = Platform.OS === 'android' ? AppState.addEventListener('blur', () => hold.cancel()) : undefined;
+    return () => {state.remove(); focus?.remove();};
   }, [hold]);
   useEffect(() => {if (!enabled) hold.cancel();}, [enabled, hold]);
   return {phase, consumePress: hold.consumePress, cancel: hold.cancel, end: hold.end, handlers: {
