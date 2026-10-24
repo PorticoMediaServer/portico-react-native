@@ -47,3 +47,9 @@ test('actual navigation admission rejects direct opens and stale Back before mut
   assert.equal(navigation.open({kind: 'shell', destination: {kind: 'libraries'}}, authority), true);
   navigation.dispose();
 });
+
+test('a dedicated Read descriptor is never admitted on TV, including an audiobook origin', () => {
+  const route: NativeShellRoute = {kind: 'read', itemId: 'actual-item', sourceId: 'actual-source'};
+  assert.equal(nativeReadRouteAllowed(route, libraries, true, {kind: 'library', libraryId: 'audio'}), false);
+  assert.equal(nativeReadRouteAllowed(route, libraries, false), true);
+});
