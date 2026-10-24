@@ -7,6 +7,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {PersonCircle} from '../../kit/artwork';
 import {PosterCard} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
+import {Menu, type MenuEntry} from '../../kit/overlays';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -86,6 +87,7 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
     </View>
   </>;
   const rows = useMemo(() => Math.ceil((state.total ?? page.pageInfo.total) / columns), [columns, page.pageInfo.total, state.total]);
+  if (theme.isTV) return <TVPerson page={page} role={role} collection={collection} runtime={runtime} actions={actions} onRole={onRole} onBack={onBack}/>;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-person">
     <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={version()}
       initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5} ListHeaderComponent={header} onViewableItemsChanged={visible}
@@ -103,5 +105,89 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
       ListFooterComponent={state.status === 'error' ? <StateView {...runtime.error(state.error, () => collection.retry())}/> : null}/>
     <Focusable testID="person-back" accessibilityLabel={t('action.back')} onPress={onBack} focusRadius={20}
       style={{position: 'absolute', left: 16, top: insets.top + 12, width: 40, height: 40, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable>
+  </View>;
+}
+
+/** tv-detail frame 10: the ten-foot person page. One blur mosaic circle,
+ * the person's own facts and biography, then the real windowed credits as a
+ * horizontal row; Sort is not produced by the person read, so only the real
+ * All/Cast/Crew filter is drawn. */
+export function TVPerson({page, role, collection, runtime, actions, onRole, onBack}: {
+  page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
+  onRole: (role: PersonRole) => void; onBack: () => void;
+}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const [expanded, setExpanded] = useState(false), [filters, setFilters] = useState(false), [visible, setVisible] = useState(20);
+  const firstPage = collection.pageOf(0), lastPage = collection.pageOf(Math.max(0, visible - 1));
+  const subscribePages = useCallback((listener: () => void) => {
+    const stops = [collection.subscribe(listener)];
+    for (let index = firstPage; index <= lastPage; index++) stops.push(collection.subscribePage(index, listener));
+    return () => stops.forEach(stop => stop());
+  }, [collection, firstPage, lastPage]);
+  const version = useCallback(() => {
+    const state = collection.getSnapshot(), values = [`${state.generation}:${state.total}:${state.status}:${state.refreshing}`];
+    for (let index = firstPage; index <= lastPage; index++) values.push(collection.getPageVersion(index));
+    return values.join('|');
+  }, [collection, firstPage, lastPage]);
+  useSyncExternalStore(subscribePages, version);
+  useEffect(() => {collection.ensureRange(0, Math.max(0, visible - 1));}, [collection, visible]);
+  useEffect(() => runtime.registerTVPageBack?.(() => {onBack(); return true;}), [runtime, onBack]);
+  const state = collection.getSnapshot(), total = state.total ?? page.pageInfo.total;
+  const person = page.person, born = person.birthDate ? defaultI18n.date(person.birthDate, 'long') : undefined;
+  const died = person.deathDate ? defaultI18n.date(person.deathDate, 'long') : undefined;
+  const dates = born && died ? t('web.person.lived', {born, died}) : born ? t('web.person.born', {date: born}) : undefined;
+  const initials = person.name.split(/\s+/u).filter(Boolean).slice(0, 2).map(word => [...word][0]).join('');
+  const known = page.person.knownFor;
+  const items = Array.from({length: Math.min(total, Math.max(visible, 1))}, (_, index) => collection.itemAt(index));
+  const filterItems: MenuEntry[] = ([['all', 'title.creditsAll'], ['cast', 'web.person.cast'], ['crew', 'web.person.crew']] as const).map(([value, label]) =>
+    ({id: value, label: t(label), selected: role === value, onSelect: () => onRole(value)}));
+  return <View testID="native-person" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    <ScrollView contentContainerStyle={{paddingLeft: 200, paddingRight: 96, paddingTop: 88, paddingBottom: 80}}>
+      <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 44}}>
+        <PersonCircle size={260} initials={initials} source={runtime.artwork(person.portraitUrl)}
+          covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
+        <View style={{flex: 1, minWidth: 0}}>
+          {person.roles.length > 0 && <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary}]}>{new Intl.ListFormat(runtime.text.locale, {type: 'conjunction'}).format(person.roles)}</Text>}
+          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 76, 800, -.035), {color: theme.colors.text, marginTop: 6}]}>{person.name}</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 28, rowGap: 10, marginTop: 10}}>
+            {dates && <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{dates}</Text>}
+            <Text style={[browseType(theme, 24, 500), {color: theme.colors.textSecondary}]}>{t('web.person.titles', {count: total})}</Text>
+          </View>
+          {person.biography && <Focusable testID="person-biography" onPress={() => setExpanded(value => !value)} accessibilityRole="button"
+            accessibilityState={{expanded}} focusKind="row" focusRadius={10} style={{marginTop: 18, paddingVertical: 6}}>
+            <Text numberOfLines={expanded ? undefined : 3} style={[browseType(theme, 26, 500), {lineHeight: 40, color: theme.colors.textSecondary}]}>{person.biography}</Text>
+          </Focusable>}
+        </View>
+      </View>
+      {!!known.length && <View style={{marginTop: 48}}>
+        <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text, marginBottom: 22}]}>{t('web.person.knownFor')}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28}}>
+          {known.map((entry, index) => <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
+            hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>)}
+        </ScrollView>
+      </View>}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 52, marginBottom: 24}}>
+        <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text}]}>{t('web.person.credits')}</Text>
+        <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary}]}>{t('web.person.titles', {count: total})}</Text>
+        <View style={{flex: 1}}/>
+        <Chip testID="person-role-filter" selected={role !== 'all'} onPress={() => setFilters(true)}>{t('next.browse.native.filters')}</Chip>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28}}
+        onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+          if (contentOffset.x + layoutMeasurement.width > contentSize.width - layoutMeasurement.width) setVisible(value => Math.min(total, value + 20));}} scrollEventThrottle={64}>
+        {items.map((credit, index) => {
+          const entry = credit?.media;
+          if (!entry) return <View key={`placeholder-${index}`} style={{width: 214, height: 321, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
+          return <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-credit-${index}`} title={entry.displayTitle || entry.title} width={214}
+            hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} progress={entry.duration && entry.progressSeconds ? entry.progressSeconds / entry.duration : undefined}
+            caption={[...(entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context' as const}]),
+              ...(credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context' as const}] : [])]}
+            onNavigate={() => actions.open(entry)}/>;
+        })}
+      </ScrollView>
+      {state.status === 'error' && <View style={{marginTop: 30, width: 900}}><StateView {...runtime.error(state.error, () => collection.retry())}/></View>}
+    </ScrollView>
+    <Menu open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
   </View>;
 }
