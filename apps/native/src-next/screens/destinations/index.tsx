@@ -76,6 +76,7 @@ export {nativeSearchRememberHistory, openNativeSearchGenre, openNativeSearchGenr
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
 export {openNativeSavedView, createNativeSavedHubController, createNativeSavedViewController} from '../saved/navigation';
 export type {NativeSavedViewRoute} from '../saved/navigation';
+export {createNativeSavedState} from '../saved/state';
 export type {NativeSavedDownloadsCopy} from '../saved/SavedDownloadCard';
 export {createNativeSavedRenderer};
 export type {NativeSavedRendererPorts} from '../saved/renderer';

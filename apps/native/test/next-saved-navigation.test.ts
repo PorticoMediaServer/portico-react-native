@@ -6,6 +6,9 @@ import type {ContentEntry} from '../../../packages/client-core/src/library-conte
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {createNativeSavedHubController, createNativeSavedViewController, openNativeSavedView} from '../src-next/screens/saved/navigation';
+import * as savedNavigation from '../src-next/screens/saved/navigation';
+import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
+import {screenModule} from './helpers/screen-harness.mjs';
 
 const title: ContentEntry = {kind: 'movie', id: 'actual-film', libraryId: 'movies', title: 'Stored title'};
 function fixture() {
@@ -113,4 +116,51 @@ test('retirement aborts a pending Saved request and late private pages never rep
   await loading; assert.equal(controller.source.getSnapshot(), closed); assert.equal(controller.activation.getSnapshot().visible, false);
   assert.throws(() => createNativeSavedViewController(f.context, target, async () => 'unused'), /authority_required/);
   controller.dispose(); f.navigation.dispose();
+});
+
+test('headless Saved binding borrows one device lease and actual Watch menu with exact entry and route lifetimes', async () => {
+  const f = fixture(), errors: unknown[] = [], opened: {entry: ContentEntry; current: () => boolean; anchor: unknown}[] = [];
+  const menuListeners = new Set<() => void>();
+  let menuEntry: ContentEntry | undefined, devices = 0, releases = 0;
+  const offline = {actual: 'existing native adapter'};
+  const common = {requestId: async () => 'request-id', reportError: (error: unknown) => {errors.push(error);},
+    navigate: (entry: ContentEntry) => f.navigation.open({kind: 'title', entry}, f.authority)};
+  const menu = {open: async (entry: ContentEntry, current: () => boolean, anchor: unknown) => {
+    opened.push({entry, current, anchor}); menuEntry = entry; for (const listener of [...menuListeners]) listener();
+  }, isOpen: (entry: ContentEntry) => menuEntry === entry,
+  subscribe: (listener: () => void) => {menuListeners.add(listener); return () => {menuListeners.delete(listener);};}};
+  const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
+    './lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => common},
+    '../watch': {nativeWatchEntryMenu: (context: NativeShellBootstrapContext) => {assert.equal(context, f.context); return menu;}},
+  });
+  const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
+    '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
+    '../downloads/device': {createNativeDownloadsDevice: (context: NativeShellBootstrapContext) => {
+      assert.equal(context, f.context); devices++; return {device: offline, dispose: () => {releases++;}};
+    }},
+  });
+  const state = createNativeSavedState(f.context);
+  try {
+    assert.deepEqual(f.paths, []); assert.equal(devices, 1); assert.equal(state.offline, offline);
+    await state.source.load(); const member = state.source.getSnapshot().myList.projection.sections[0].entries[0];
+    const anchor = {current: {native: 'actual child ref'}};
+    let menuChanges = 0; state.actions.menuState.subscribe(() => {menuChanges++;});
+    state.actions.menuEntry({...member}, anchor); assert.equal(opened.length, 0);
+    state.actions.menuEntry(member, anchor); assert.equal(opened.length, 1); assert.equal(opened[0].anchor, anchor);
+    assert.equal(state.actions.isMenuOpen(member), true); assert.equal(menuChanges, 1); assert.equal(opened[0].current(), true);
+    state.actions.openEntry(member); assert.equal(f.navigation.getSnapshot().route.kind, 'title'); assert.equal(opened[0].current(), false);
+    f.navigation.back(f.authority); state.actions.openView({view: 'watchlist'});
+    const route = f.navigation.getSnapshot().route;
+    if (route.kind !== 'saved-view') throw new Error('expected Saved route');
+    const view = state.view(route); assert.ok(view); assert.equal(state.view(route), view); assert.equal(devices, 1);
+    await view.load(); const leaf = view.source.getSnapshot().saved.projection.sections[0].entries[0];
+    view.actions.open(leaf); assert.equal(f.navigation.getSnapshot().route.kind, 'title');
+    assert.equal(state.view(route), view); f.navigation.back(f.authority); assert.equal(state.view(route), view);
+    f.navigation.back(f.authority); assert.equal(state.view(route), undefined); assert.equal(view.source.getSnapshot().phase, 'idle');
+    view.actions.open(leaf); assert.equal(f.navigation.getSnapshot().route.kind, 'shell');
+    f.retire(); assert.equal(releases, 1); assert.equal(menuListeners.size, 0); assert.equal(state.activation.getSnapshot().visible, false);
+    assert.deepEqual(errors, []);
+  } finally {state.dispose(); f.navigation.dispose();}
+  assert.equal(releases, 1); assert.equal(f.listeners.size, 0);
 });
