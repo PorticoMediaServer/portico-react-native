@@ -6,7 +6,7 @@ type Owner = Readonly<{current: () => boolean; subscribePreferences: (listener: 
 /** The existing tvOS producer owns persistence and shelf invalidation. This
  * caller lends it only the resolved UI locale, never a token or viewer record. */
 export function bindNativeTopShelfLocale(owner: Owner, text: TextEnvironment, reportError: (error: unknown) => void): (() => void) | undefined {
-  if (Platform.OS !== 'ios' || !Platform.isTV) return;
+  if (Platform.OS !== 'ios' || !Platform.isTV || !owner.current()) return;
   const native = NativeModules.PorticoTopShelf as {setLocale?: (tag: string) => void} | undefined;
   if (typeof native?.setLocale !== 'function') return;
   let live = true, delivered: string | undefined;

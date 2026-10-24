@@ -36,6 +36,9 @@ test('phones, Android TV and missing producers do not subscribe or invent a loca
     assert.equal(bindNativeTopShelfLocale({current: () => true, subscribePreferences() {throw new Error('unexpected_subscription');}},
       {t: defaultI18n.t, get locale() {throw new Error('unexpected_locale_read');}}, () => {throw new Error('unexpected_error');}), undefined);
   }
+  const {bindNativeTopShelfLocale} = await load({OS: 'ios', isTV: true}, {setLocale() {throw new Error('unexpected_native_command');}});
+  assert.equal(bindNativeTopShelfLocale({current: () => false, subscribePreferences() {throw new Error('unexpected_subscription');}},
+    {t: defaultI18n.t, get locale() {throw new Error('unexpected_locale_read');}}, () => {throw new Error('unexpected_error');}), undefined, 'a retired bootstrap cannot install a new borrower');
 });
 
 test('native command refusal uses the same feedback and does not mark an undelivered locale as delivered', async () => {
