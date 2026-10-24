@@ -174,6 +174,22 @@ adb reverse tcp:19424 tcp:19424                       # Metro, for a debug build
 - **JDK 17** (the React Native Gradle plugin pins it) and the Android SDK
   (platform 36, NDK 27). Add `-PreactNativeArchitectures=arm64-v8a` to build one
   ABI.
+- **An APK for an emulator with no Metro.** The same file draws the phone and
+  television layouts. `node scripts/package-android-emulator.mjs --variant
+  googleDebug --abi x86_64 --reader-bundle <PorticoReader.bundle>` builds with
+  `-PporticoEmbeddedJs=true`: the debug variants leave React Native's
+  `debuggableVariants`, so its own bundle task packages
+  `assets/index.android.bundle`, and `BuildConfig.PORTICO_EMBEDDED_JAVASCRIPT`
+  stops the app asking Metro for the script. The script runs in its own process
+  group under `/tmp/portico-gradle.lock`: the lock covers the build, the checks
+  and the artifact, and a timeout or a signal reaches the whole group, so Gradle,
+  the JVM and CMake cannot outlive it. It keeps Gradle's output in `build.log`
+  beside the artifact, verifies that the APK carries the JavaScript and the same
+  Reader tree it staged, writes exactly the bytes it verified, and prints one
+  JSON summary with the artifact's SHA-256. Release variants embed the bundle
+  already; the variable the Reader stager reads is `PORTICO_READER_BUNDLE_DIR`. A worktree does not carry `third_party/media-engine/out`,
+  so point `--libmpv-dir` at an engine build verified by `verify.py` (for example
+  the main checkout's) when the one here is absent.
 - **A server on the development machine**: plain HTTP is accepted only for
   loopback at sign-in, so forward it (`adb reverse tcp:32500 tcp:32500`) and
   sign in to `127.0.0.1:32500`.
