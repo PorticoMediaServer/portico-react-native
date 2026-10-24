@@ -23,13 +23,15 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
   const theme = useTheme(), motion = useMotion(), spec = theme.spec.navigation.tv;
   const registry = useFocusRegistry();
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
-  const returnHost = returnTo && registry.config(returnTo.regionId)?.enabled !== false ? registry.child(returnTo) : undefined;
+  const ids = tvFocusIds(authority);
+  const returnEnabled = !returnTo || registry.config(returnTo.regionId)?.enabled !== false;
+  const returnRegion = returnTo ? returnEnabled ? returnTo.regionId : undefined : ids.spotlight;
+  const returnHost = returnTo && returnEnabled ? registry.child(returnTo) : undefined;
   const returnHandle = returnHost ? findNodeHandle(returnHost as View) : null;
   // The native engine handles Right directly, including the remembered child.
   // Without its live host, keep the region guide's normal memory/fallback path.
   const returnProps = returnHandle == null ? {} : {nextFocusRight: returnHandle};
   const expanded = useSharedValue(0), labelOpacity = useSharedValue(0), [open, setOpen] = React.useState(false);
-  const ids = tvFocusIds(authority);
   const change = (value: boolean) => {
     setOpen(value); onExpandedChange(value);
     // motion.html 4.2: panel/page share standard/out; labels use token delay.
@@ -63,7 +65,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, onNavigate, 
       <Svg width="100%" height="100%"><Defs><LinearGradient id="native-rail" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={open ? .99 : .78}/><Stop offset={open ? .66 : .45} stopColor={theme.colors.ink} stopOpacity={open ? .96 : .42}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#native-rail)"/></Svg>
     </Animated.View>
     <FocusRegion id={ids.rail} entry={ids.destination(destination)} entryPolicy="entry" orientation="vertical"
-      order={[...entries.map(entry => entry.key), 'settings', ids.profile]} edges={{right: returnTo?.regionId ?? ids.spotlight}} onFocusChange={focusChanged}
+      order={[...entries.map(entry => entry.key), 'settings', ids.profile]} edges={{right: returnRegion}} onFocusChange={focusChanged}
       accessibilityLabel={defaultI18n.t('next.home.native.mainNavigation')} style={{flex: 1}}>
     <Animated.View style={[{flex: 1, width: spec.openWidth, paddingLeft: spec.insetLeft, paddingTop: spec.paddingTop, paddingBottom: spec.paddingBottom}, panel]}>
       <Animated.View style={[{flex: 1}, counter]}>
