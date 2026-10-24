@@ -221,7 +221,10 @@ test('session reads discard late responses after caller retirement, viewer repla
       d.intercept(request => request.method === 'GET' && request.path === path ? new Promise<void>(resolve => {release = resolve; entered();}) : Promise.resolve());
       const pending = d.runtime.readSession(fence, {signal: controller.signal, isCurrent: () => current});
       await started;
-      if (retire === 'abort') controller.abort();
+      if (retire === 'abort') {
+        controller.abort();
+        assert.equal(d.scopedRequests.filter(request => request.path === path).at(-1)?.signal?.aborted, true);
+      }
       else if (retire === 'member') current = false;
       else if (retire === 'family') d.family('replacement-family');
       else await d.start('movie-next');
@@ -229,6 +232,21 @@ test('session reads discard late responses after caller retirement, viewer repla
       if (retire === 'play') assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-next');
     } finally {d.runtime.dispose();}
   }
+});
+
+test('retired callers, stale fences and non-VOD sessions never dispatch an Info read', async () => {
+  const d = fixture(); await d.start('movie');
+  try {
+    const fence = d.runtime.getSnapshot().fence!, aborted = new AbortController(); aborted.abort();
+    let before = d.requests.length;
+    assert.equal(await d.runtime.readSession(fence, {signal: aborted.signal, isCurrent: () => true}), undefined);
+    assert.equal(await d.runtime.readSession(fence, {signal: new AbortController().signal, isCurrent: () => false}), undefined);
+    assert.equal(d.requests.length, before);
+    await d.start('song-1'); before = d.requests.length;
+    assert.equal(await d.runtime.readSession(fence, {signal: new AbortController().signal, isCurrent: () => true}), undefined);
+    assert.equal(await d.runtime.readSession(d.runtime.getSnapshot().fence!, {signal: new AbortController().signal, isCurrent: () => true}), undefined);
+    assert.equal(d.requests.length, before);
+  } finally {d.runtime.dispose();}
 });
 
 test('fresh session reads refuse mismatched response revision, source, generation or occurrence', async () => {
