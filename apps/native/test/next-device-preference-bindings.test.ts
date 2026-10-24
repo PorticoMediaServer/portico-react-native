@@ -77,7 +77,7 @@ test('device writes use canonical codecs and return the committed reread', async
       assert.deepEqual(await writeNativeDevicePreference(rowId, asked, f.source), value(asked), rowId);
       assert.equal((JSON.parse(state.raw!) as Record<string, unknown>)[stored], raw, rowId);
     }
-    assert.deepEqual(JSON.parse(state.raw!), device());
+    assert.deepEqual(JSON.parse(state.raw!), device({playerEngine: 'mpv'}));
   });
 });
 
