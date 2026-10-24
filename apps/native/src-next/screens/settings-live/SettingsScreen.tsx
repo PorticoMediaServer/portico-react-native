@@ -24,6 +24,7 @@ import type {NativeSettingsLivePorts} from './ports';
 import type {NativeSettingsController} from './settings-controller';
 import type {NativeDevicePreferences} from './device-preference-consumer';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
+import {nativeSettingsActionTarget} from './settings-actions';
 import {NativeOwnerLibrariesPanel} from './owner-libraries/OwnerLibrariesPanel';
 import {ServerHeader} from '../../kit/shell/ServerIdentity';
 import {alpha} from '../../kit/shell/visual';
@@ -156,7 +157,15 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
         const id = settingsRowId(row);
         if (row.kind === 'custom') return <React.Fragment key={id}>{ports.renderSettingsPanel(row.id, runtime)}</React.Fragment>;
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
-        if (row.kind === 'action') return <SettingsRow key={id} testID={id} label={t(row.label)} first={index === 0} onPress={() => {controller.lifetime.assert(); if (row.id === 'linkTV') ports.accountActions.linkTV(); else setConfirmation(row.id);}}/>;
+        if (row.kind === 'action') {
+          const target = nativeSettingsActionTarget(row.id);
+          return <SettingsRow key={id} testID={id} label={t(row.label)} description={row.help ? t(row.help) : undefined} first={index === 0} onPress={() => {
+            controller.lifetime.assert();
+            if (target === 'linkTV') ports.accountActions.linkTV();
+            else if (target === 'customizeHome') ports.context.navigation.open({kind: 'home-customize'}, ports.context.authority());
+            else setConfirmation(row.id === 'signOut' ? 'signOut' : 'resetRecommendations');
+          }}/>;
+        }
         const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
         if (value === undefined) return null;
         const scope = settingsScopeLabel(row.scope, theme.isTV ? 'tv' : 'phone');
