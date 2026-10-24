@@ -8,6 +8,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {splitCopyright} from '../../../packages/client-core/src/licences/inventory.ts';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -100,7 +101,7 @@ test('the refreshed tvOS lock belongs to the actual target-selecting Podfile', (
   assert.equal(/^PODFILE CHECKSUM: (\S+)$/m.exec(lock)?.[1], checksum);
 });
 
-test('installed WebView native code and its notice are iOS-only in the actual Apple Pod graphs', () => {
+test('WebView native code stays iOS-only while its bundled JS has one exact npm notice', () => {
   const ios = readFileSync(path.join(root, 'ios/Podfile.lock'), 'utf8');
   const tvos = readFileSync(path.join(root, 'tvos/Podfile.lock'), 'utf8');
   assert.match(ios, /^  - react-native-webview \(16\.0\.0\):$/m);
@@ -108,9 +109,27 @@ test('installed WebView native code and its notice are iOS-only in the actual Ap
   const inventory = JSON.parse(readFileSync(path.join(root, 'src/licences/apple.json'), 'utf8'));
   const entries = inventory.components.filter(component => component.name === 'react-native-webview');
   assert.equal(entries.length, 1);
-  assert.deepEqual(entries[0].only, ['ios']);
-  assert.equal(entries[0].licence, 'MIT');
-  assert.ok(inventory.texts[entries[0].text].includes('Permission is hereby granted'));
+  const entry = entries[0];
+  assert.equal(manifest.dependencies['react-native-webview'], '16.0.0');
+  assert.equal(entry.id, 'npm:react-native-webview@16.0.0');
+  assert.equal(entry.version, '16.0.0'); assert.equal(entry.group, 'packages');
+  // The recorded Metro graphs now contain the JS package. Native Pod scope
+  // above still excludes tvOS; its notice must not omit JS shipped in the bundle.
+  for (const client of ['ios', 'android']) {
+    const graph = readFileSync(path.join(root, `licences/js-${client}.txt`), 'utf8');
+    assert.match(graph, /^react-native-webview@16\.0\.0\t/m);
+  }
+  assert.doesNotMatch(readFileSync(path.join(root, 'licences/js-vega.txt'), 'utf8'), /^react-native-webview@/m);
+  assert.equal(entry.only, undefined); assert.equal(entry.licence, 'MIT'); assert.equal(entry.textPending, undefined);
+  const registrations = JSON.parse(readFileSync(path.join(root, 'licences/native-npm.json'), 'utf8'));
+  const registration = registrations.find(component => component.name === 'react-native-webview');
+  assert.equal(registration.version, '16.0.0'); assert.equal(registration.licence, 'MIT');
+  assert.deepEqual(registration.platforms, ['android', 'apple']);
+  const upstream = readFileSync(path.join(root, 'node_modules/react-native-webview', registration.licenceFile), 'utf8');
+  assert.equal(createHash('sha256').update(upstream).digest('hex'), registration.licenceSHA256);
+  const licence = splitCopyright(upstream);
+  assert.equal(inventory.texts[entry.text], licence.body);
+  assert.deepEqual(entry.copyright ?? [], licence.copyright);
 });
 
 test('actual installed CLI selects the tvOS project without changing Android or other dependency declarations', () => {

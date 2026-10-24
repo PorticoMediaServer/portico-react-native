@@ -56,7 +56,19 @@ test('invalid chunks and EOF bytes fail closed and cancel the same native reques
   }
 });
 
-test('actual native fetch selects canonical no-Range Reading stream and retains abort ownership after headers', async t => {
+test('empty native responses preserve 200/204/304 metadata and explicit EOF without inventing bytes', async () => {
+  for (const status of [200, 204, 304]) {
+    let reads = 0, cancels = 0;
+    const response = nativeReadingStreamResponse({status, headers: {'Content-Length': '0'}}, {
+      async read() {reads++; return {done: true, bodyBase64: ''};}, cancel() {cancels++;},
+    });
+    assert.equal(response.status, status); assert.equal(reads, 0);
+    const reader = response.body!.getReader(); assert.equal((await reader.read()).done, true);
+    assert.equal(reads, 1); assert.equal(cancels, 1); reader.releaseLock();
+  }
+});
+
+test('actual native fetch selects canonical no-Range Reading stream and retains abort ownership after metadata', async t => {
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>;
   const before = {open: runtime.networkStreamOpen, read: runtime.networkStreamRead, cancel: runtime.cancelQueueRequest, bytes: runtime.networkBytesRequest};
   t.after(() => {runtime.networkStreamOpen = before.open; runtime.networkStreamRead = before.read; runtime.cancelQueueRequest = before.cancel; runtime.networkBytesRequest = before.bytes;});

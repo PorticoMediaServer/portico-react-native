@@ -79,14 +79,18 @@ test('missing installed dependency fails closed', t => {
   assert.throws(() => patchAndroidBlur(root), /Cannot find module/);
 });
 
-test('npm hook verifies both platform patches in order without changing the Apple hook', t => {
+test('npm hook preserves both blur patches before the guarded Reader patch', t => {
   const {root, dependency} = fixture(t);
   const scripts = join(root, 'scripts');
   mkdirSync(scripts);
   for (const file of ['patch-apple-blur.mjs', 'patch-android-blur.mjs']) cpSync(join(app, 'scripts', file), join(scripts, file));
   cpSync(join(app, 'scripts/patches'), join(scripts, 'patches'), {recursive: true});
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  assert.equal(manifest.scripts.postinstall, 'node scripts/patch-apple-blur.mjs && node scripts/patch-android-blur.mjs');
+  assert.deepEqual(manifest.scripts.postinstall.split(' && '), [
+    'node scripts/patch-apple-blur.mjs',
+    'node scripts/patch-android-blur.mjs',
+    'node scripts/patch-android-reader.mjs',
+  ]);
   const result = spawnSync(process.execPath, [join(scripts, 'patch-android-blur.mjs')], {cwd: scripts, encoding: 'utf8'});
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /window-root patch verified/);
