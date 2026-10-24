@@ -4,6 +4,7 @@ import '../screens/accounts/AccountRoutes';
 import '../screens/home/CustomizeRoute';
 import '../screens/home/SeeAllRoute';
 import '../screens/library/register';
+import '../screens/collections/register';
 import '../screens/library/OverviewRoute';
 // App.tsx loads this only for handsets; the TV rail's Search needs it too.
 import '../screens/search/register';

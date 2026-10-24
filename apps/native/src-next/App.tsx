@@ -12,6 +12,7 @@ if (!Platform.isTV) {
   // shell would have no profiles/servers renderer. Require the module eagerly.
   require('./screens/accounts/AccountRoutes');
   require('./screens/downloads/register');
+  require('./screens/collections/register');
   require('./screens/library/register');
   require('./screens/library/OverviewRoute');
   require('./screens/destinations/PinsRoute');

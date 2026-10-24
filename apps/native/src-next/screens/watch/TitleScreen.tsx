@@ -3,9 +3,10 @@ import {ScrollView, Text, View, useWindowDimensions, type LayoutChangeEvent} fro
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {cardText, episodeLabel, playbackIdentity, titleFactParts, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {AmbientArt, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
+import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
 import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
-import {Button, Chip, ResumeButton, Tabs} from '../../kit/controls';
+import {Button, Chip, Focusable, ResumeButton, Tabs} from '../../kit/controls';
+import {Icon} from '../../kit/Icon';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {TitleSkeleton} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
@@ -38,6 +39,8 @@ export type NativeTitleScreenProps = Readonly<{
   person?: (personId: string) => void;
   /** The signed-in viewer owns this server; Show settings is drawn for owners. */
   owner?: boolean;
+  /** A real catalogue collection named by the title's detail projection. */
+  openCollection?: (collection: Readonly<{id: string; name: string; libraryId: string; memberCount: number; posterUrls: readonly string[]}>) => void;
   /** Current producer state and command, never a fabricated default grant. */
   myList?: Readonly<{selected: boolean; change: (selected: boolean) => Promise<void>}>;
   /** Live captured entry from the actual menu owner, not local open state. */
@@ -169,6 +172,13 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       <View style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         <AmbientArt source={source} foreground={foreground} treatment="title" height={props.watch ? 520 : heroHeight + 120}/>
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
+          {theme.isTV && !props.watch && detail?.collections?.[0] ? <Focusable testID="watch-title-collection" focusKind="row" focusRadius={8}
+            onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
+            style={{alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12}}>
+            <Icon name="i-layers" size={24} color={theme.colors.accentStrong}/>
+            <Text style={[nativeType({size: 24, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.accentStrong}]}>{detail.collections[0].name}</Text>
+            <Text style={[nativeType({size: 22, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.browse.filmCount', {count: detail.collections[0].memberCount})}</Text>
+          </Focusable> : null}
           <Text accessibilityRole="header" numberOfLines={2} style={[nativeType({size: props.watch ? 28 : theme.isTV ? 76 : 40, weight: 800, tracking: props.watch ? -.035 : -.04, lineHeight: props.watch ? 30.8 : theme.isTV ? 84 : 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
           <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10}}>
@@ -251,6 +261,20 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           {theme.isTV && detail?.facts?.tagline ? <Text style={[theme.type.body, {color: theme.colors.textTertiary, fontStyle: 'italic'}]}>{detail.facts.tagline}</Text> : null}
           {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
           <View style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 14, paddingHorizontal: 14}}>{detailRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.line}}><Text style={[theme.type.caption, {width: 90, color: theme.colors.textTertiary}]}>{row.label}</Text><Text style={[theme.type.body, {flex: 1, color: theme.colors.text}]}>{row.value}</Text></View>)}</View>
+          {!theme.isTV && detail?.collections?.[0] ? <Focusable testID="title-collection-card" focusKind="row" focusRadius={14}
+            onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
+            style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.raised}}>
+            <View style={{width: 58, height: 54}}>
+              {detail.collections[0].posterUrls.slice(0, 2).map((poster, index) => <Artwork key={poster} source={props.artwork(poster)} width={36} height={54}
+                style={{position: 'absolute', top: 0, left: index * 22, borderRadius: 5, transform: [{rotate: index ? '6deg' : '-7deg'}]}}/>)}
+            </View>
+            <View style={{flex: 1, minWidth: 0}}>
+              <Text style={[theme.type.captionStrong, {color: theme.colors.accentStrong}]}>{t('next.home.collection')}</Text>
+              <Text numberOfLines={1} style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{detail.collections[0].name}</Text>
+              <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.collection.filmsOnServer', {count: detail.collections[0].memberCount})}</Text>
+            </View>
+            <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
+          </Focusable> : null}
           {credits.length ? <View style={{gap: 10}}>
             <Text style={[theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
             <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person}/>

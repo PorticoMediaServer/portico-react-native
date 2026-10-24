@@ -22,6 +22,8 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
       aboutLabel: defaultI18n.t('next.browse.native.aboutTitle'), navigate: common.navigate, owner: context.session()?.viewer.role === 'owner',
       person: personId => {const authority = context.authority(); if (context.current()) context.navigation.open({kind: 'person', personId}, authority);},
       download: entry => {const request = nativeDownloadRequest(entry); if (request) askNativeDownload(request);},
+      openCollection: collection => {const authority = context.authority();
+        if (context.current()) context.navigation.open({kind: 'collection', libraryId: collection.libraryId, collectionId: collection.id, title: collection.name}, authority);},
       renderError: nativeScreenError(common, 'detail'), reportError: (error: unknown) => common.reportError(error, 'detail'),
       menu: {subscribe: presenters.subscribe, getSnapshot: presenters.getMenuEntry},
     },

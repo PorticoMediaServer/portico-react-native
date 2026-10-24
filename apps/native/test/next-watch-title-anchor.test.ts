@@ -8,7 +8,7 @@ const {TitleEpisode, TitleRelated} = await screenModule(new URL('../src-next/scr
   '../../../../../packages/player-core/src': {}, '../../../../../packages/client-core/src/presentation/kit-model/text': {},
   '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../../../../packages/i18n/src': {},
   '../../kit/artwork': {}, '../../kit/cards': {EpisodeTile: 'EpisodeTile', PosterCard: 'PosterCard'},
-  '../../kit/controls': {}, '../../kit/layout/Hero': {}, '../../kit/states': {}, './TVEpisodeBrowser': {TVEpisodeBrowser: 'TVEpisodeBrowser'}, './SeasonsSheet': {NativeSeasonsSheet: 'SeasonsSheet'}, './ShowSettingsSheet': {NativeShowSettingsSheet: 'ShowSettingsSheet'}, './TitleEpisodePlate': {NativeTitleEpisodePlate: 'EpisodePlate'}, './TitlePeople': {TitlePeople: 'TitlePeople'}, '../../kit/theme': {},
+  '../../kit/Icon': {Icon: 'Icon'}, '../../kit/controls': {}, '../../kit/layout/Hero': {}, '../../kit/states': {}, './TVEpisodeBrowser': {TVEpisodeBrowser: 'TVEpisodeBrowser'}, './SeasonsSheet': {NativeSeasonsSheet: 'SeasonsSheet'}, './ShowSettingsSheet': {NativeShowSettingsSheet: 'ShowSettingsSheet'}, './TitleEpisodePlate': {NativeTitleEpisodePlate: 'EpisodePlate'}, './TitlePeople': {TitlePeople: 'TitlePeople'}, '../../kit/theme': {},
 });
 test('each real title card retains its own native ref and unchanged TV/keyboard/a11y callback shape', () => {
   for (const render of [TitleEpisode, TitleRelated]) {
