@@ -144,6 +144,14 @@ export class NativeSavedViewDestination {
     if (this.disposed || !this.personal) return Promise.resolve(false);
     return this.personal.mutate(intent);
   };
+  /** Re-read the current page in place after another Saved page changed it. */
+  refresh = (): Promise<void> => {
+    this.current();
+    if (this.disposed) return Promise.resolve();
+    if (this.personal) return this.personal.refresh();
+    if (this.saved && this.state.route) return this.saved.refresh();
+    return Promise.resolve();
+  };
   /** A full playlist order window, read only when a move needs it. */
   loadOrder = (): Promise<void> => {
     this.current();

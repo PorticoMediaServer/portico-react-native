@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore, type 
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PersonalResource, PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
@@ -77,7 +78,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const run = async (work: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true); setProblem('');
-    try {await work();} catch (error) {setProblem(error instanceof Error ? error.message : t('error.unavailable'));} finally {setBusy(false);}
+    try {await work();} catch (error) {setProblem(presentError(error, 'saved', {operation: 'save'}).body);} finally {setBusy(false);}
   };
   const play = (shuffle = false) => {
     if (!playable.length) return;

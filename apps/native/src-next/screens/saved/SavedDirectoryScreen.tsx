@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore, type 
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
@@ -62,7 +63,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       ? destination.mutateSaved({action: 'create', name: input.name, ...(input.summary ? {summary: input.summary} : {})})
       : destination.mutatePersonal({action: 'create', kind: 'collection', name: input.name, summary: input.summary, visibility: input.visibility});
     void Promise.resolve(task).then(result => {if (result === false) throw new Error(t('error.unavailable')); setCreating(false);})
-      .catch((failure: unknown) => setProblem(failure instanceof Error ? failure.message : t('error.unavailable')))
+      .catch((failure: unknown) => setProblem(presentError(failure, 'saved', {operation: 'save'}).body))
       .finally(() => setBusy(false));
   };
   const retry = () => {void destination.retry().catch(runtime.reportError);};
