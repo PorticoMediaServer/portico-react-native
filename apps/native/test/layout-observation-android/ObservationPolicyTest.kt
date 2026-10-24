@@ -6,6 +6,12 @@ fun main() {
   val action = "android.intent.action.VIEW"
   var checks = 0
   fun verify(ok: Boolean) { check(ok); checks++ }
+  verify(LayoutObservationPolicy.Stage.entries.map { it.code }.toSet() == setOf("admission", "ui-current", "root-resolve", "root-attachment",
+    "root-walk", "pre-observation-scope", "observation", "post-observation-scope", "response"))
+  for (stage in LayoutObservationPolicy.Stage.entries) {
+    verify(LayoutObservationPolicy.failure(stage, false) == mapOf("nativeObservationStage" to stage.code))
+    verify(LayoutObservationPolicy.failure(stage, true) == mapOf("nativeObservationStage" to stage.code + "-exception"))
+  }
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, listOf(1.0, 2.0, 3.0)))
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, emptyList()))
   verify(LayoutObservationPolicy.admitted(true, action, uri, 1.0, 2.0, (1..2000).map(Int::toDouble)))

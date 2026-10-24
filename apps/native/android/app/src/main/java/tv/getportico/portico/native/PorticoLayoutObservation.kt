@@ -46,31 +46,38 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     val intent = activity?.intent
     if (retired || activity == null || intent == null || tags == null || !LayoutObservationPolicy.admitted(
         BuildConfig.DEBUG, intent.action, intent.dataString, rootReactTag, fixtureReactTag, tags)) {
-      promise.reject("layout_observation_scope", "layout_observation_scope"); return
+      rejectScope(promise, LayoutObservationPolicy.Stage.ADMISSION); return
     }
     UiThreadUtil.runOnUiThread {
+      var stage = LayoutObservationPolicy.Stage.UI_CURRENT
       try {
         fun intentCurrent() = !retired && reactApplicationContext.currentActivity === activity && activity.intent === intent &&
           LayoutObservationPolicy.publicIntent(BuildConfig.DEBUG, intent.action, intent.dataString) && !activity.isFinishing && !activity.isDestroyed
-        if (!intentCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
+        if (!intentCurrent()) { rejectScope(promise, stage); return@runOnUiThread }
         // Only this captured root is resolved by RN. All other IDs are found below it.
+        stage = LayoutObservationPolicy.Stage.ROOT_RESOLVE
         val root = UIManagerHelper.getUIManagerForReactTag(reactApplicationContext, rootReactTag.toInt())?.resolveView(rootReactTag.toInt())
+        if (root == null) { rejectScope(promise, stage); return@runOnUiThread }
+        stage = LayoutObservationPolicy.Stage.ROOT_ATTACHMENT
         val decor = activity.window?.decorView
-        if (root == null || root.id != rootReactTag.toInt() || decor == null || !root.isAttachedToWindow || root.windowToken == null ||
+        if (root.id != rootReactTag.toInt() || decor == null || !root.isAttachedToWindow || root.windowToken == null ||
             root.windowToken != decor.windowToken || !descendant(root, decor)) {
-          promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread
+          rejectScope(promise, stage); return@runOnUiThread
         }
+        stage = LayoutObservationPolicy.Stage.ROOT_WALK
         val window = root.windowToken
         val requested = tags.map { it.toInt() }
         val wanted = (requested + fixtureReactTag.toInt()).toSet()
         val found = LayoutObservationPolicy.collect(root, wanted, { it.id }, { if (it is ViewGroup) it.childCount else 0 },
           { view, index -> (view as ViewGroup).getChildAt(index) })
-        if (found == null) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
+        if (found == null) { rejectScope(promise, stage); return@runOnUiThread }
+        stage = LayoutObservationPolicy.Stage.PRE_OBSERVATION_SCOPE
         val fixture = found[fixtureReactTag.toInt()]
         fun scopeCurrent() = intentCurrent() && root.id == rootReactTag.toInt() && root.isAttachedToWindow && decor.isAttachedToWindow &&
           activity.window?.decorView === decor && root.windowToken == window && decor.windowToken == window &&
           descendant(root, decor) && fixture != null && fixture.id == fixtureReactTag.toInt() && fixture.isAttachedToWindow && fixture.windowToken == window && descendant(fixture, root)
-        if (!scopeCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
+        if (!scopeCurrent()) { rejectScope(promise, stage); return@runOnUiThread }
+        stage = LayoutObservationPolicy.Stage.OBSERVATION
         val budget = LayoutObservationPolicy.TextBudget()
         val hosts = requested.map { tag ->
           val view = found[tag]
@@ -87,14 +94,20 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
           mapOf("reactTag" to tag, "facts" to if (view != null && (view.id != tag || !view.isAttachedToWindow ||
             view.windowToken != window || !descendant(view, root))) unavailableFacts("root-changed") else observed)
         }
-        if (!scopeCurrent()) { promise.reject("layout_observation_scope", "layout_observation_scope"); return@runOnUiThread }
+        stage = LayoutObservationPolicy.Stage.POST_OBSERVATION_SCOPE
+        if (!scopeCurrent()) { rejectScope(promise, stage); return@runOnUiThread }
+        stage = LayoutObservationPolicy.Stage.RESPONSE
         promise.resolve(Arguments.makeNativeMap(mapOf("version" to 1, "unit" to "dp", "rootReactTag" to rootReactTag.toInt(),
           "fixtureReactTag" to fixtureReactTag.toInt(), "hosts" to hosts)))
       } catch (_: Exception) {
         // Neither target exception strings nor native paths are diagnostics for this public fixture.
-        promise.reject("layout_observation_scope", "layout_observation_scope")
+        rejectScope(promise, stage, exception = true)
       }
     }
+  }
+
+  private fun rejectScope(promise: Promise, stage: LayoutObservationPolicy.Stage, exception: Boolean = false) {
+    promise.reject("layout_observation_scope", "layout_observation_scope", Arguments.makeNativeMap(LayoutObservationPolicy.failure(stage, exception)))
   }
 
   private fun facts(view: View, decor: View, budget: LayoutObservationPolicy.TextBudget): Map<String, Any> {
@@ -255,6 +268,13 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
 
 /** Pure admission/composition math; tests do not claim native paint/device coverage. */
 internal object LayoutObservationPolicy {
+  enum class Stage(val code: String) {
+    ADMISSION("admission"), UI_CURRENT("ui-current"), ROOT_RESOLVE("root-resolve"), ROOT_ATTACHMENT("root-attachment"),
+    ROOT_WALK("root-walk"), PRE_OBSERVATION_SCOPE("pre-observation-scope"), OBSERVATION("observation"),
+    POST_OBSERVATION_SCOPE("post-observation-scope"), RESPONSE("response")
+  }
+  // Typed finite phase only: never a Throwable, class, target value, tag or diagnostic sentence.
+  fun failure(stage: Stage, exception: Boolean): Map<String, String> = mapOf("nativeObservationStage" to (stage.code + if (exception) "-exception" else ""))
   const val MAX_HOSTS = 2000
   const val MAX_NODES = 20000
   const val MAX_LINES = 512
