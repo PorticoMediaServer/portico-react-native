@@ -15,6 +15,7 @@ import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/cli
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeQueueStore} from '../platform/queue-storage';
+import {bindNativeDeviceSettings} from '../platform/device-settings';
 import {rememberNativeServerDisplay} from '../platform/server-display';
 import {readNativeServerDisplays} from '../platform/server-display';
 import {nativeAppSessions} from '../platform/app-session-storage';
@@ -175,6 +176,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
     cleanups.push(() => windowSubscription.remove());
     const context: NativeShellBootstrapContext = {...contextBase, playback, watch, get account() {return currentAccount();}};
+    bindNativeDeviceSettings(context, {storage: records, readRecord: () => installationSettings, acceptRecord: raw => {
+      assertCurrent(); installationSettings = raw; for (const listener of [...preferenceListeners]) listener();
+    }});
     bindings = await makeBindings(context); assertCurrent();
     const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
@@ -224,10 +228,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       const round = new AbortController(), abortRound = () => round.abort();
       signal.signal.addEventListener('abort', abortRound, {once: true});
       try {
-        const [selection, me, nextLibraries, nextFacts, nextInstallation, nextAccount, nextAvatars] = await Promise.all([
+        const [selection, me, nextLibraries, nextFacts, nextAccount, nextAvatars] = await Promise.all([
           readNativeSelectedViewer(), readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, round.signal),
           readers.request(routePath('get_libraries'), 'GET', undefined, round.signal).then(parseLibraryList), readers.read(round.signal),
-          records.change('preferences:v1', raw => ({record: raw, value: raw})), readers.readAccount(round.signal), identities.avatars(round.signal),
+          readers.readAccount(round.signal), identities.avatars(round.signal),
         ]);
         assertCurrent();
         const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
@@ -240,6 +244,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         await documentService.revalidate({signal: round.signal}); assertCurrent();
         const selectedBeforeRefreshPublish = await readNativeSelectedViewer(); assertCurrent();
         if (!selectedBeforeRefreshPublish || selectedBeforeRefreshPublish.serverUrl !== original.serverUrl || !sameViewer(selectedBeforeRefreshPublish.session, session!)) {end(); return;}
+        // Observe the native record after all network/identity awaits. An older
+        // parallel read must not overwrite a device setting committed meanwhile.
+        const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
         preferences = nextFacts.preferences; installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
         account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;
         for (const listener of [...preferenceListeners]) listener();
