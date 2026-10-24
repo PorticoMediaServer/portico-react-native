@@ -53,7 +53,10 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const textStyle = nativeType({size: 26, weight: 700, lineHeight: 'normal', tracking: 0}, theme.textScale);
   const title = defaultI18n.t('web.signin.welcomeHome');
   const titleStyle = useMemo(() => [nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),
-    {color: theme.colors.text, marginBottom: 56}], [theme.textScale, theme.colors.text]);
+    // connect40's `.tvl h1`: text-shadow 0 2px 30px rgba(7,16,24,.5), the ink at 50%.
+    {color: theme.colors.text, marginBottom: 56,
+      textShadowColor: 'rgba(7, 16, 24, 0.5)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 30}],
+  [theme.textScale, theme.colors.text]);
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
   const rootStyle = {flex: 1, backgroundColor: theme.colors.ink};
   const wordmarkStyle: ImageStyle = {position: 'absolute', left: 0, top: 72, width: 174, height: 40};
