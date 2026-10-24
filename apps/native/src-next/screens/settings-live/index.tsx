@@ -3,7 +3,7 @@ import {ConsoleClient} from '../../../../../packages/client-core/src/console';
 import {AdminSessionsClient} from '../../../../../packages/client-core/src/playback-v1/admin-sessions';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {NativeScreenLifetime} from './lifetime';
-import {createNativeSettingsController} from './settings-controller';
+import {createBoundNativeSettingsController} from './settings-controller';
 import {NativeLiveController} from './live-controller';
 import {nativeGuideMemory} from './guide-memory';
 import {nativeScreenServices} from '../native-screen-services';
@@ -32,7 +32,7 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
   const raw = localV1Http(context.api);
   const sessions = new AdminSessionsClient({send: request => lifetime.request(signal => raw.send({...request, signal}), request.signal)}, ports.requestId);
-  const settings = createNativeSettingsController(lifetime, api, context.preferences());
+  const settings = createBoundNativeSettingsController(lifetime, context);
   const live = new NativeLiveController(lifetime, api, Intl.DateTimeFormat().resolvedOptions().timeZone, {port: nativeGuideMemory(context.session()?.viewer, lifetime), reportError: error => nativeScreenServices(context).reportError(error)});
   const recordings = createNativeRecordingsController(lifetime, api, ports.dvrRequestId);
   const together = new NativeTogetherController(lifetime, ports.together);

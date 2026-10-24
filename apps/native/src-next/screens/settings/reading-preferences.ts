@@ -4,7 +4,7 @@ import {readingSettingsProperty} from '../../../../../packages/client-core/src/p
 import {settingsSpec, type SettingsRow} from '../../../../../packages/client-core/src/presentation/settings-spec';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {NativeScreenLifetime} from '../settings-live/lifetime';
-import {createNativeSettingsController, type NativeSettingsController} from '../settings-live/settings-controller';
+import {createBoundNativeSettingsController, type NativeSettingsController} from '../settings-live/settings-controller';
 
 export const nativeReadingSettingsSection = settingsSpec.find(section => section.scope === 'account' && section.id === 'reading')!;
 const rows = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows);
@@ -29,13 +29,10 @@ export class NativeReadingSettingsPreferences {
   constructor(context: Owner) {
     if (!context.current() || !nativeReadingPreferencesAvailable(context.preferences())) throw unavailable();
     const lifetime = this.lifetime = new NativeScreenLifetime(context);
-    this.controller = createNativeSettingsController(lifetime, context.api, context.preferences());
-    const offPreferences = context.subscribePreferences(() => {
-      if (lifetime.current()) this.controller.accept(context.preferences());
-    });
+    this.controller = createBoundNativeSettingsController(lifetime, context);
     const offAuthority = context.subscribeAuthority(() => {
       if (lifetime.current()) return;
-      offPreferences(); offAuthority(); this.controller.dispose(); this.lastProjection = undefined; this.lastPreferences = undefined;
+      offAuthority(); this.controller.dispose(); this.lastProjection = undefined; this.lastPreferences = undefined;
     });
   }
   current = (): boolean => this.lifetime.current();

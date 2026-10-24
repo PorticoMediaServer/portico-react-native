@@ -31,6 +31,8 @@ export class NativeSearchDestination {
   private historyRevision = 0;
   private readonly unsubscribe: () => void;
   private disposed = false;
+  private paused = false;
+  private selectionRevision = 0;
   private pageQuery = '';
   private pages = new Map<SearchGroup, SearchGroupResult>();
 
@@ -69,8 +71,8 @@ export class NativeSearchDestination {
   };
   private stopTimer(): void {clearTimeout(this.timer); this.timer = undefined;}
   setText(text: string): void {
-    if (!this.current()) return;
-    this.stopTimer(); this.service.cancel();
+    if (!this.current() || this.paused) return;
+    this.selectionRevision++; this.stopTimer(); this.service.cancel();
     const problem = searchQueryProblem(text);
     this.publish({text, group: 'all', problem});
     if (!text.trim() || problem) return;
@@ -78,28 +80,48 @@ export class NativeSearchDestination {
     this.timer = setTimeout(() => {this.timer = undefined; void this.select(false);}, 260);
   }
   selectGroup(group: SearchGroup | 'all'): void {
-    if (!this.current()) return;
+    if (!this.current() || this.paused) return;
     this.stopTimer(); this.publish({group}); void this.select(false);
   }
   private async select(record: boolean): Promise<void> {
-    if (!this.current() || !this.state.text.trim() || this.state.problem) return;
+    if (!this.current() || this.paused || !this.state.text.trim() || this.state.problem) return;
+    const revision = ++this.selectionRevision;
     try {
       await this.service.select(this.state.text, {
         ...(this.state.group === 'all' ? {} : {group: this.state.group}),
         record: record && this.options.rememberHistory(),
       });
-      if (record && this.current()) await this.refreshHistory();
-    } catch (error) {if (this.current()) this.options.reportError(error);}
+      if (record && this.current() && !this.paused && revision === this.selectionRevision) await this.refreshHistory();
+    } catch (error) {if (this.current() && !this.paused && revision === this.selectionRevision) this.options.reportError(error);}
   }
   commit = async (): Promise<void> => {this.stopTimer(); await this.select(true);};
   useRecent = (query: string): void => {this.setText(query); void this.commit();};
-  next = (group: SearchGroup): Promise<void> => this.current() ? this.service.next(group) : Promise.resolve();
-  retry = (): Promise<void> => this.current() ? this.service.retry() : Promise.resolve();
+  next = (group: SearchGroup): Promise<void> => this.current() && !this.paused ? this.service.next(group) : Promise.resolve();
+  retry = (): Promise<void> => this.current() && !this.paused ? this.service.retry() : Promise.resolve();
+  /** Stop hidden work without turning a real arrived query/page into a draft. */
+  pause = (): void => {
+    if (!this.current() || this.paused) return;
+    this.paused = true; this.selectionRevision++; this.stopTimer(); this.historyRevision++; this.history?.abort(); this.history = undefined;
+    this.service.pause();
+    if (this.state.clearing) this.publish({recent: [], clearing: false});
+  };
+  /** A paused arrived page needs no synthetic reread. An interrupted draft
+   * resumes only as a normal non-recording search after actual activation. */
+  resume = (): void => {
+    if (!this.current() || !this.paused) return;
+    this.paused = false;
+    if (this.state.search.phase === 'idle') void this.select(false);
+  };
   refreshHistory = async (): Promise<void> => {
-    if (!this.current() || this.state.clearing) return;
+    if (!this.current()) return;
+    if (!this.options.rememberHistory()) {
+      if (!this.state.clearing) {this.history?.abort(); this.history = undefined; this.historyRevision++;}
+      this.publish({recent: []}); return;
+    }
+    if (this.state.clearing) return;
     this.history?.abort();
     const revision = ++this.historyRevision;
-    if (!this.options.rememberHistory()) {this.publish({recent: []}); return;}
+    if (this.paused) return;
     const controller = new AbortController(); this.history = controller;
     try {
       const page = await readSearchHistory(this.options.api, this.options.scope, controller.signal);
@@ -108,7 +130,7 @@ export class NativeSearchDestination {
     finally {if (this.history === controller) this.history = undefined;}
   };
   clearHistory = async (): Promise<void> => {
-    if (!this.current() || this.state.clearing) return;
+    if (!this.current() || this.paused || this.state.clearing) return;
     this.history?.abort(); const revision = ++this.historyRevision;
     const controller = new AbortController(); this.history = controller;
     this.publish({clearing: true});
@@ -120,7 +142,7 @@ export class NativeSearchDestination {
   };
   dispose = (): void => {
     if (this.disposed) return;
-    this.disposed = true; this.stopTimer(); this.history?.abort(); this.historyRevision++;
+    this.disposed = true; this.selectionRevision++; this.stopTimer(); this.history?.abort(); this.historyRevision++;
     this.unsubscribe(); this.service.cancel(); this.service.dispose(); this.pages.clear(); this.listeners.clear();
     this.state = Object.freeze({...this.state, text: '', search: this.service.getSnapshot(), groups: [], recent: [], clearing: false});
   };

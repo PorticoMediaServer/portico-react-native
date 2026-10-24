@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
 import {parsePreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
-import {NativeShellNavigation, nativeDestinationActivation} from '../src-next/shell/routes';
+import {NativeShellNavigation} from '../src-next/shell/routes';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
 import {NativeSearchDestination} from '../src-next/screens/search/model';
 import {NativeSearchExplore} from '../src-next/screens/search/explore';
@@ -20,6 +20,13 @@ function preferences(remember: boolean) {
   ], effective: {'search.rememberHistory': remember}, effectiveSource: {'search.rememberHistory': 'profile-server'}, clampedFields: []});
 }
 const art = (id: string) => ({kind: 'item', id, path: `/v1/metadata/item/${id}/art/backdrop?v=${'a'.repeat(64)}&w=1920`});
+const searchPage = (url: URL) => ({
+  scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view: 'search', entityId: '', viewerFence: 'Search-own-fence'}, revision: {catalog: 3, viewer: 7},
+  query: {q: url.searchParams.get('q'), group: url.searchParams.get('group') || '', groups: ['movies'], limit: 40, sort: 'relevance', direction: 'desc', libraryIds: [], recorded: false},
+  capabilities: {groups: [{id: 'movies', title: '', available: true, reason: '', sorts: ['relevance']}], sorts: ['relevance'], directions: ['desc'], maxLimit: 40, groupBudgetMs: 1000},
+  groups: [{id: 'movies', entityKind: 'movie', title: '', status: 'success', errorCode: '', totalCount: 1, totalCountExact: true, nextCursor: '',
+    items: [{id: 'actual-film', kind: 'movie', libraryId: 'movies', title: 'Stored title', navigation: {view: 'item', entityId: 'actual-film'}}]}],
+});
 const history = {serverId: 'server', viewerFence: 'actual-history-fence', maxEntries: 8,
   entries: [{q: 'actual recent search', updatedAt: '2026-10-23T00:00:00Z', uses: 1}]};
 async function setup() {
@@ -35,7 +42,7 @@ async function setup() {
     api: new HttpLocalApi('https://fixture.invalid', '', async (input, init) => {
       const url = new URL(String(input)); paths.push(url.pathname + url.search);
       if (init?.signal) signals.push(init.signal);
-      const data = url.pathname.includes('/history') ? await historyReply()
+      const data = url.pathname === '/v1/search' ? searchPage(url) : url.pathname.includes('/history') ? await historyReply()
         : url.searchParams.has('cursor') ? {revision: 'opaque', genres: [{value: 'later', label: 'Later metadata', count: 2, covers: []}]}
         : {revision: 'opaque', genres: [{value: 'no-art', label: 'No art', count: 30, covers: []},
           ...['drama', 'action', 'comedy', 'thriller'].map((value, index) => ({value, label: `Metadata ${value}`, count: 20 - index, covers: [], backdrop: art(value)}))], nextCursor: 'actual-next'};
@@ -46,10 +53,13 @@ async function setup() {
     get home() {return unavailable();}, get events() {return unavailable();}, get appVersion() {return unavailable();}, get serverName() {return unavailable();},
     get playback() {return unavailable();}, get watch() {return unavailable();}, get account() {return unavailable();}, libraries: () => [],
   };
+  const {createNativeSearchController} = await screenModule(new URL('../src-next/screens/search/controller.ts', import.meta.url), {
+    react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, './navigation': navigationPorts, './model': {NativeSearchDestination},
+    '../native-screen-services': {nativeScreenServices: () => ({reportError: (error: unknown) => errors.push(error)})},
+  });
   const {createNativeTVSearchState} = await screenModule(new URL('../src-next/tv/search/state.ts', import.meta.url), {
-    react: {default: {}}, '../../shell/routes': {nativeDestinationActivation}, '../../screens/destinations/lifetime': {nativeDestinationLifetime},
-    '../../screens/native-screen-services': {nativeScreenServices: () => ({reportError: (error: unknown) => errors.push(error)})},
-    '../../screens/search/model': {NativeSearchDestination}, '../../screens/search/explore': {NativeSearchExplore}, '../../screens/search/navigation': navigationPorts,
+    react: {default: {}}, '../../screens/destinations/lifetime': {nativeDestinationLifetime},
+    '../../screens/search/controller': {createNativeSearchController}, '../../screens/search/explore': {NativeSearchExplore}, '../../screens/search/navigation': navigationPorts,
   });
   navigation.open({kind: 'shell', destination: {kind: 'search'}}, authority);
   const binding = createNativeTVSearchState(context);
@@ -112,5 +122,60 @@ test('TV Search privacy changes clear history immediately and retirement fences 
     assert.equal(s.paths.length, count, 'retired held references cannot issue requests under the next viewer');
     assert.deepEqual(s.errors, []);
     assert.equal(s.authorityListeners.size, 0); assert.equal(s.preferenceListeners.size, 0);
+  } finally {s.binding.dispose(); s.navigation.dispose();}
+});
+
+
+test('TV Search shares the retained root controller: hidden work stops, Back restores the arrived page, and root drop retires held ports', async () => {
+  const s = await setup();
+  try {
+    s.binding.destination.setText('arrived query');
+    await s.binding.destination.commit();
+    const arrived = s.binding.destination.getSnapshot().search;
+    const root = s.navigation.getSnapshot().route;
+    assert.equal(arrived.phase, 'ready');
+    assert.equal(s.binding.destination.getSnapshot().groups[0].items[0].id, 'actual-film');
+    assert.equal(s.binding.destination.getSnapshot().recent.length, 1);
+    s.navigation.open({kind: 'title', entry: {id: 'actual-film', kind: 'movie', libraryId: 'movies', title: 'Stored title'}}, s.authority);
+    const count = s.paths.length;
+    assert.equal(s.binding.activation.getSnapshot().visible, false);
+    s.binding.destination.setText('hidden');
+    await s.binding.destination.commit(); await s.binding.load();
+    assert.equal(s.paths.length, count);
+    s.preference(false);
+    assert.deepEqual(s.binding.destination.getSnapshot().recent, []);
+    s.navigation.back(s.authority);
+    assert.equal(s.binding.activation.getSnapshot().visible, true);
+    assert.equal(s.binding.activation.getSnapshot().intent, 'restore');
+    assert.equal(s.binding.destination.getSnapshot().text, 'arrived query');
+    assert.equal(s.binding.destination.getSnapshot().search.data, arrived.data);
+    assert.deepEqual(s.binding.destination.getSnapshot().search.query, arrived.query);
+    assert.equal(s.paths.length, count, 'arrived page is retained without another request');
+    s.navigation.back(s.authority);
+    s.binding.destination.setText('dropped');
+    await s.binding.destination.commit(); await s.binding.explore.load(); await s.binding.load();
+    assert.equal(s.paths.length, count);
+    assert.equal(s.binding.openGenres(), false);
+    s.navigation.open(root, s.authority);
+    assert.equal(s.binding.activation.getSnapshot().visible, false);
+    assert.equal(s.authorityListeners.size, 0); assert.equal(s.preferenceListeners.size, 0);
+    assert.deepEqual(s.errors, []);
+  } finally {s.binding.dispose(); s.navigation.dispose();}
+});
+
+test('TV Search resumes an interrupted debounce only on actual Back without recording it', async () => {
+  const s = await setup();
+  try {
+    s.binding.destination.setText('interrupted draft');
+    s.navigation.open({kind: 'title', entry: {id: 'actual-film', kind: 'movie', libraryId: 'movies', title: 'Stored title'}}, s.authority);
+    assert.deepEqual(s.paths, []);
+    s.navigation.back(s.authority); await tick();
+    assert.equal(s.paths.length, 1);
+    const request = new URL(s.paths[0], 'https://fixture.invalid');
+    assert.equal(request.pathname, '/v1/search');
+    assert.equal(request.searchParams.get('q'), 'interrupted draft');
+    assert.equal(request.searchParams.get('record'), null);
+    assert.equal(s.binding.destination.getSnapshot().search.phase, 'ready');
+    assert.deepEqual(s.errors, []);
   } finally {s.binding.dispose(); s.navigation.dispose();}
 });
