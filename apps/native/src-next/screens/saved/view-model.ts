@@ -1,5 +1,5 @@
-import {PersonalSavedService, isPersonalSavedRoute, type PersonalResource, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
-import {SavedService, fetchSavedSummary, type SavedApi, type SavedLandingSummary, type SavedRoute, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import {PersonalSavedService, isPersonalSavedRoute, type PersonalResource, type PersonalSavedIntent, type PersonalSavedSnapshot} from '../../../../../packages/client-core/src/personal-saved';
+import {SavedService, fetchSavedSummary, type SavedApi, type SavedIntent, type SavedLandingSummary, type SavedRoute, type SavedScope, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeSavedViewRenamePort} from './rename-view';
 
@@ -132,6 +132,24 @@ export class NativeSavedViewDestination {
     this.pending = task; return task;
   };
   retry = (): Promise<void> => this.state.route ? this.select(this.state.route) : Promise.resolve();
+  /** The exact playlist command port for the loaded playlist route, if it is loaded. */
+  mutateSaved = (intent: SavedIntent): Promise<void> => {
+    this.current();
+    if (this.disposed || !this.saved || this.state.route?.view !== 'playlist') return Promise.reject(new Error('A loaded playlist is required before changing it.'));
+    return this.saved.mutate(intent);
+  };
+  /** The exact personal-resource command port for the loaded collection/view route. */
+  mutatePersonal = (intent: PersonalSavedIntent): Promise<boolean> => {
+    this.current();
+    if (this.disposed || !this.personal) return Promise.resolve(false);
+    return this.personal.mutate(intent);
+  };
+  /** A full playlist order window, read only when a move needs it. */
+  loadOrder = (): Promise<void> => {
+    this.current();
+    if (this.disposed || !this.saved) return Promise.resolve();
+    return this.saved.loadOrder();
+  };
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true; this.generation++; this.retire(); this.pending = undefined;

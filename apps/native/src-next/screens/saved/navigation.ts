@@ -8,6 +8,14 @@ import {NativeSavedDestination} from './model';
 import {NativeSavedViewDestination} from './view-model';
 
 export type NativeSavedViewRoute = Extract<NativeShellRoute, {kind: 'saved-view'}>;
+/** The two shell descriptors that point at a Saved page: a renamed Saved view
+ * (the hub's directory rows) and a Home destination (playlist or collection). */
+export type NativeSavedRouteTarget = NativeSavedViewRoute | Extract<NativeShellRoute, {kind: 'saved-destination'}>;
+export function nativeSavedRouteTarget(target: NativeSavedRouteTarget): SavedRoute {
+  return target.kind === 'saved-view' ? target.view
+    : target.destination.kind === 'playlist' ? {view: 'playlist', playlistId: target.destination.id}
+      : {view: 'resource', resourceId: target.destination.id};
+}
 
 /** Capture the actual Saved query/resource identity. Its canonical service
  * validates the query before dispatch; this does not expand a resource locally. */
@@ -55,7 +63,7 @@ export function createNativeSavedHubController(context: NativeShellBootstrapCont
 
 /** A Saved source belongs to one exact history object. Title/Back retains it;
  * removing that object or changing principal retires it permanently. */
-export function createNativeSavedViewController(context: NativeShellBootstrapContext, target: NativeSavedViewRoute, requestId: () => Promise<string>) {
+export function createNativeSavedViewController(context: NativeShellBootstrapContext, target: NativeSavedRouteTarget, requestId: () => Promise<string>) {
   const lifetime = nativeDestinationLifetime(context);
   let disposed = false;
   const retained = () => context.navigation.getSnapshot().route === target || context.navigation.retainedRoutes().includes(target);
@@ -83,5 +91,5 @@ export function createNativeSavedViewController(context: NativeShellBootstrapCon
   };
   const check = () => {if (!current()) dispose(); else emit();};
   cleanups.push(context.navigation.subscribe(check), context.subscribeAuthority(check));
-  return Object.freeze({source, activation, load: () => current() ? source.select(target.view) : Promise.resolve(), dispose});
+  return Object.freeze({source, activation, load: () => current() ? source.select(nativeSavedRouteTarget(target)) : Promise.resolve(), dispose});
 }

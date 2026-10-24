@@ -21,6 +21,7 @@ require('./screens/home/CustomizeRoute');
 require('./screens/home/SeeAllRoute');
 require('./screens/settings-live/LiveRoute');
 require('./screens/settings-live/TogetherRoute');
+require('./screens/saved/register');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
