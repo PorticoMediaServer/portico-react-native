@@ -29,13 +29,15 @@ async function controller(entry: any, options: Fixture = {}) {
     throw new Error(`unexpected ${path}`);
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
-    './lifetime': {nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
-    '../../../../../../packages/client-core/src/library-content': {validateContentEntry: (value: any) => value},
-    '../../../../../../packages/client-core/src/browse': {BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
+    '../../../shell/bootstrap': {default: {}},
+    '../../../shell/playback': {default: {}},
+    './lifetime': {default: {}, nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
+    '../../../../../../packages/client-core/src/library-content': {default: {}, validateContentEntry: (value: any) => value},
+    '../../../../../../packages/client-core/src/browse': {default: {}, BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
       parseBrowseCapabilities: (value: any) => value, parseBrowseResult: (value: any) => value},
-    '../../../../../../packages/client-core/src/container-state': {getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
-    '../../../../../../packages/contracts/src/routes': {encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
-    '../../../../../../packages/client-core/src/server-messages': {unreadableServerResponse: 'unreadable'},
+    '../../../../../../packages/client-core/src/container-state': {default: {}, getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
+    '../../../../../../packages/contracts/src/routes': {default: {}, encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
+    '../../../../../../packages/client-core/src/server-messages': {default: {}, unreadableServerResponse: 'unreadable'},
   });
   const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => true}, playback});
   return {value, calls};
