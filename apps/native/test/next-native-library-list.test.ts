@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {defaultI18n} from '../../../packages/i18n/src';
 import type {BrowseCapabilities, BrowseRequestBody} from '../../../packages/client-core/src/browse';
 import type {NativeShellBootstrapContext, RestoredNativeShellRuntime} from '../src-next/shell/bootstrap';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
@@ -43,12 +44,12 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     grid.props.onLayout({nativeEvent: {layout: {width: 390, height: 600}}}); await app.settle();
     grid.props.onScroll({contentOffset: {x: 0, y: 800}}); await app.settle();
     const before = browseReads;
-    const list = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === 'List'); assert.ok(list);
+    const list = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === defaultI18n.t('next.browse.native.list')); assert.ok(list);
     list.props.onPress(); await app.settle();
     const listHost = app.hosts().find((host: any) => host.props.testID === 'library-list'); assert.ok(listHost);
     listHost.props.onLayout({nativeEvent: {layout: {width: 390, height: 600}}}); await app.settle();
     assert.equal(browseReads, before, 'presentation does not reselect or refetch the arrived Browse source');
-    const selectedList = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === 'List');
+    const selectedList = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === defaultI18n.t('next.browse.native.list'));
     assert.equal(selectedList?.props.accessibilityState.checked, true);
     const row = app.hosts().find((host: any) => host.props.testID?.startsWith('library-list-') && host.props.accessibilityLabel?.startsWith('Actual display title ')); assert.ok(row);
     assert.equal(row.props.style.height, 70, 'the list uses the drawn catalogue row height');
@@ -62,7 +63,7 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     const retained = app.hosts().find((host: any) => host.props.testID === 'library-list'); assert.ok(retained);
     assert.equal(retained.host, listHost.host, 'Title/Back retains the same physical list host');
     assert.equal(browseReads, before);
-    const toGrid = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === 'Grid'); assert.ok(toGrid);
+    const toGrid = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === defaultI18n.t('next.browse.native.grid')); assert.ok(toGrid);
     toGrid.props.onPress(); await app.settle();
     assert.ok(app.hosts().some((host: any) => host.props.testID === 'library-grid'));
     const restoredGrid = app.hosts().find((host: any) => host.props.testID === 'library-grid');
