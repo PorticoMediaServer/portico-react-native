@@ -126,7 +126,14 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   registry.attach(returnTo, {requestTVFocus() {}});
   assert.ok(controls(render()).every(node => node.props.nextFocusRight === 720), 'a reattached card replaces the old native handle');
   registry.configure({id: returnTo.regionId, enabled: false});
-  assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
+  const hidden = render();
+  assert.ok(controls(hidden).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
+  assert.equal(nodes(hidden).find(node => node.type === 'FocusRegion').props.edges.right, undefined,
+    'the region guide must also release the hidden page, rather than routing native Right to its disabled guide');
+  registry.configure({id: returnTo.regionId, enabled: true});
+  const restored = render();
+  assert.equal(nodes(restored).find(node => node.type === 'FocusRegion').props.edges.right, returnTo.regionId);
+  assert.ok(controls(restored).every(node => node.props.nextFocusRight === 720), 'reactivation restores the current real native host');
   region.props.onFocusChange(true);
   assert.deepEqual(changes, [true]); assert.deepEqual(navigations, []);
   assert.equal(search.props.onFocus, undefined, 'Up/Down has no application navigation handler');
