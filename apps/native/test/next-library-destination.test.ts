@@ -34,8 +34,10 @@ test('native staged Save view preserves canonical relative dates and leaves abso
   const date = {id: 'dateAdded', labelKey: 'filter.field.dateAdded', type: 'date', operators: ['between', 'within-last-days'],
     controlHint: 'date-range', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']} as const;
   const datedPivot = {...pivot, filters: [...pivot.filters, date.id]};
+  const surfaces = capabilities.surfaces;
+  assert.ok(surfaces);
   const dated: BrowseCapabilities = {...capabilities, pivots: [datedPivot], resolvedPivot: datedPivot,
-    fields: [...capabilities.fields, date], surfaces: capabilities.surfaces.map(surface => ({...surface, filters: [...surface.filters, date.id]}))};
+    fields: [...capabilities.fields, date], surfaces: surfaces.map(surface => ({...surface, filters: [...surface.filters, date.id]}))};
   const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) =>
     (path.includes('capabilities') ? dated : page(body as BrowseRequestBody, 3)) as T};
   const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
@@ -44,7 +46,8 @@ test('native staged Save view preserves canonical relative dates and leaves abso
     const presets = rangePresets(date, new Date('2026-10-24T12:00:00Z'));
     const recent = presets.find(preset => preset.id === 'last-30')!;
     assert.deepEqual(recent.predicates, [{field: 'dateAdded', operator: 'within-last-days', value: 30}]);
-    const captured = destination.captureSavedView({predicates: recent.predicates, sort: {field: 'title', direction: 'asc'}});
+    const selected = libraryFilterChange(dated, date, [], {kind: 'range', value: recent.id}, [], new Date('2026-10-24T12:00:00Z'));
+    const captured = destination.captureSavedView({predicates: selected, sort: {field: 'title', direction: 'asc'}});
     assert.deepEqual(captured.query, recent.predicates[0]);
     assert.equal(Object.isFrozen(captured.query), true);
     const reopened = JSON.parse(JSON.stringify(captured));
