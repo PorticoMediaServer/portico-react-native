@@ -87,7 +87,9 @@ test('what the device answers replaces the table: more codecs where it has them'
   assert.equal(native.evidence, 'probed');
   assert.equal(native.name, 'w3cmedia');
   assert.deepEqual(native.video?.map(v => v.codec), ['h264', 'hevc', 'av1']);
-  assert.equal(native.video?.find(v => v.codec === 'hevc')?.maxHeight, 2160);
+  // Canonical probeWebProfile tries 7680x4320 before 3840x2160 and grants it only for a smooth
+  // answer; this mock answers smooth for hvc1, so the truthful ceiling is now 4320, not 2160.
+  assert.equal(native.video?.find(v => v.codec === 'hevc')?.maxHeight, 4320);
   assert.equal(native.video?.find(v => v.codec === 'h264')?.maxHeight, 1080);
   // SDK output answers describe playable audio, without inventing a passthrough route.
   assert.deepEqual(native.audio?.map(a => a.codec), ['aac', 'mp3', 'ac3', 'eac3', 'flac', 'opus']);
