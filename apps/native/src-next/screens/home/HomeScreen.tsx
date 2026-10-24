@@ -92,6 +92,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
   const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
   const desktop = theme.layoutMode === 'desktop', medium = theme.platform === 'tablet' && !theme.isTV;
+  // Confirmed Appearance effects: the drawn card is 100 percent, and the picture is drawn unless the viewer turned backdrops off.
+  const cardScale = (runtime.appearanceCardSizePercent ?? 100) / 100, showBackdrops = runtime.appearanceShowBackdrops !== false;
   const windowWidth = theme.isTV ? 1920 : dimensions.width, windowHeight = theme.isTV ? 1080 : dimensions.height;
   const heroHeight = theme.isTV ? 820 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
@@ -192,7 +194,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
   })) : [], [document, runtime.text, labels, t]);
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
-    foreground={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
+    foreground={showBackdrops ? runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl) : undefined} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
     onReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={viewportWidth} height={theme.isTV ? 900 : heroHeight}
     foregroundFraction={medium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium ? 'left' : undefined}
     position={medium ? {x: 0.38, y: 0.22} : undefined}/>;
@@ -258,10 +260,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);
       const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
       const ranked = presentation.cards.some(card => card.rank !== undefined);
-      const width = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
+      const drawnWidth = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
         : wide ? medium ? mediumCardWidth(true) : desktop || theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
         : square ? theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false) : theme.spec.card.width.poster[theme.platform];
-      const posterWidth = ranked ? theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116 : width;
+      const width = cardScale === 1 ? drawnWidth : Math.round(drawnWidth * cardScale);
+      const posterWidth = ranked ? Math.round((theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116) * cardScale) : width;
       const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const pending = pages.state(row.id), waitingItem = presentation.cards.at(-1);
       const waitingId = pending?.loading ? pending.waitingId : ids.page(row.id, row.nextCursor);

@@ -50,7 +50,8 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   const title = serverTextLabel(labels, row.titleText, row.title);
   const reason = row.reason?.text ?? row.why ?? row.subtitleText;
   const artwork = row.entries.find(entry => entry.backdropUrl || entry.posterUrl);
-  const tv = theme.isTV, gutter = tv ? 200 : theme.gutter, width = tv ? 200 : theme.spec.card.width.poster[theme.platform];
+  const tv = theme.isTV, gutter = tv ? 200 : theme.gutter, cardScale = (runtime.appearanceCardSizePercent ?? 100) / 100,
+    width = Math.round((tv ? 200 : theme.spec.card.width.poster[theme.platform]) * cardScale);
   return <View testID="home-see-all" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
     <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>

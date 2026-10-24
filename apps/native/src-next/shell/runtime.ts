@@ -85,6 +85,10 @@ export interface NativeShellRuntime {
   registerTVRailBack?: (handler: () => boolean) => () => void;
   /** Destination-scoped; legacy Home callers omit destination. Other destinations may continue navigation Back when false. */
   registerTVPageBack?: (handler: () => boolean, destination?: ShellDestination) => () => void;
+  /** Confirmed Appearance effects. Absent until the shell binds a preference snapshot;
+   * a missing effect keeps the drawn default rather than inventing a value. */
+  appearanceCardSizePercent?: 85 | 100 | 125;
+  appearanceShowBackdrops?: boolean;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;
   /** Present in the real bootstrap. Missing measurement withholds expanded
