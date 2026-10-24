@@ -29,6 +29,7 @@ async function controller(entry: any, options: Fixture = {}) {
     throw new Error(`unexpected ${path}`);
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
+    react: {default: {}},
     '../../../shell/bootstrap': {default: {}},
     '../../../shell/playback': {default: {}},
     './lifetime': {default: {}, nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
