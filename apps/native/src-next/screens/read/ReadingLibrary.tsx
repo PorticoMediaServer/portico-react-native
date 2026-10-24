@@ -51,7 +51,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
       {state.items.length > 0 ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, marginBottom: 12}}>
         {state.items.map(item => <PosterCard key={item.id} testID={`reading-item-${item.id}`} title={item.title} width={width}
           artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants"><GeneratedCover title={item.title}
-            author={item.author?.value} tint={generatedCoverTint(item.title)} width={width} height={width * 1.5}/></View>}
+            author={item.author?.value} glyph={item.title.trim().slice(0, 1).toUpperCase() || '·'}
+            tint={generatedCoverTint(item.title)} width={width} height={width * 1.5}/></View>}
           caption={item.author ? [{id: 'author', text: item.author.value, role: 'context'}] : []} disabled={!item.inventoryAvailable}
           onNavigate={() => open(item)}/>)}
       </View> : null}
