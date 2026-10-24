@@ -70,6 +70,9 @@ export function createNativeDestinationRenderers(ports: NativeDestinationPorts):
 export type {NativeSearchActions, NativeSearchExplorePort, NativeSearchExploreSnapshot, NativeSearchGenre, NativeSearchSelectionPort, NativeSearchTVCopy} from '../search/types';
 export {NativeSearchExplore} from '../search/explore';
 export type {NativeSearchGenresSnapshot} from '../search/explore';
+export {NativeGenreBrowseDestination} from '../search/genre-browse';
+export type {NativeGenreBrowseSnapshot} from '../search/genre-browse';
+export {nativeSearchRememberHistory, openNativeSearchGenre, openNativeSearchGenres, createNativeSearchGenreController} from '../search/navigation';
 export type {NativeSavedActions, NativeSavedSelectionPort} from '../saved/SavedScreen';
 export type {NativeSavedDownloadsCopy} from '../saved/SavedDownloadCard';
 export {createNativeSavedRenderer};
