@@ -76,15 +76,15 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       borderBottomWidth: theme.isTV ? 0 : 1, borderBottomColor: '#3b566873'})}>
     {({focused}) => <>
       {theme.isTV && <View style={{width: 28}}>{row.selected && <Icon name="i-check" size={24} color={theme.colors.accentStrong}/>}</View>}
-      <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: row.selected || focused || !theme.isTV ? theme.colors.text : theme.colors.textSecondary}]}>{row.primary}</Text>
-        {row.secondary && <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}), {marginTop: theme.isTV ? 2 : 1, color: row.selected || focused ? theme.colors.textSecondary : theme.colors.textTertiary}]}>{row.secondary}</Text>}</View>
+      <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 22 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: row.selected || focused || !theme.isTV ? theme.colors.text : theme.colors.textSecondary}]}>{row.primary}</Text>
+        {row.secondary && <Text style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginTop: theme.isTV ? 2 : 1, color: row.selected || focused ? theme.colors.textSecondary : theme.colors.textTertiary}]}>{row.secondary}</Text>}</View>
       {row.unavailable ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('player.opt.unavailable')}</Text> : !theme.isTV && row.selected && <Icon name="i-check" size={20} color={theme.colors.accentStrong}/>}
     </>}
   </Focusable>;
   const list = <T,>(values: readonly NativeWatchChoiceRow<T>[], action: (value: T) => Promise<void>) => <View style={theme.isTV ? {padding: 4, borderRadius: 14, backgroundColor: '#edf5fa0d'} : {marginHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.raisedHigh, overflow: 'hidden'}}>
     {values.map((row, index) => chooseRow(row, action, values.some(value => value.selected && !value.unavailable) ? row.selected && !row.unavailable : index === 0))}
   </View>;
-  const footer = (lines: readonly string[]) => lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}), {marginHorizontal: theme.isTV ? 14 : 18, marginTop: index ? 0 : 10, color: theme.colors.textTertiary}]}>{line}</Text>);
+  const footer = (lines: readonly string[]) => lines.map((line, index) => <Text key={index} style={[nativeType({size: theme.isTV ? 19 : 12.5, weight: 500, tracking: 0, lineHeight: theme.isTV ? 28.5 : 18.75}, theme.textScale), {marginHorizontal: theme.isTV ? 14 : 18, marginTop: index ? 0 : 10, color: theme.colors.textTertiary}]}>{line}</Text>);
   const retry = () => {void options.load(fence);};
   let body: React.ReactNode = null;
   if (state.panel === 'playback-info') body = playbackInfo?.(context);
@@ -113,8 +113,8 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
     focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" onPress={() => {if (current()) context.openPanel(panel);}}
     style={({focused}) => ({minHeight: theme.isTV ? 60 : 44, paddingHorizontal: theme.isTV ? 20 : 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: theme.isTV ? 14 : 0, backgroundColor: focused ? '#edf5fa29' : undefined})}>
-    {!theme.isTV && <Icon name={icon} size={18}/>}<Text style={[nativeType({size: theme.isTV ? 24 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.text, flex: 1}]}>{labels[panel as keyof typeof labels]}</Text>
-    {value && <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textSecondary}]}>{value}</Text>}<Icon name="i-right" size={theme.isTV ? 24 : 18}/>
+    {!theme.isTV && <Icon name={icon} size={18}/>}<Text style={[nativeType({size: theme.isTV ? 24 : 15, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{labels[panel as keyof typeof labels]}</Text>
+    {value && <Text style={[nativeType({size: theme.isTV ? 22 : 14, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{value}</Text>}<Icon name="i-right" size={theme.isTV ? 24 : 18}/>
   </Focusable>;
   const expandedBody = body;
   if (state.panel === 'options' || theme.isTV && state.panel !== 'playback-info') body = <View style={{marginHorizontal: theme.isTV ? 0 : 12, borderRadius: 14, backgroundColor: theme.isTV ? undefined : theme.colors.raisedHigh}}>
@@ -137,11 +137,11 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     <FocusRegion id="watch-panel" hold orientation="vertical" style={{flex: 1}}>
       <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.isTV ? 0 : 6, paddingBottom: theme.isTV ? 0 : 8}}>
         {!theme.isTV && state.panel !== 'options' && <Button focusId="watch-panel-back" variant="text" iconOnly icon="i-left" accessibilityLabel={t('player.opt.menu')} onPress={back}/>}
-        <Text accessibilityRole="header" style={[nativeType({size: theme.isTV ? 44 : upright ? 19 : 18, weight: 800, tracking: theme.isTV ? -.03 : -.02, lineHeight: 'normal'}), {color: theme.colors.text, flex: 1}]}>{theme.isTV && state.panel !== 'playback-info' ? t('player.opt.menu') : labels[state.panel]}</Text>
+        <Text accessibilityRole="header" style={[nativeType({size: theme.isTV ? 44 : upright ? 19 : 18, weight: 800, tracking: theme.isTV ? -.03 : -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{theme.isTV && state.panel !== 'playback-info' ? t('player.opt.menu') : labels[state.panel]}</Text>
         {!theme.isTV && (upright ? <Button focusId="watch-panel-close" variant="text" textStyle={{color: theme.colors.accentStrong}} onPress={context.closePanel}>{t('action.done')}</Button>
           : <Button focusId="watch-panel-close" variant="text" iconOnly icon="i-close" accessibilityLabel={t('action.close')} onPress={context.closePanel}/>)}
       </View>
-      {(theme.isTV && state.panel !== 'playback-info' || state.panel === 'options') && <Text style={[nativeType({size: theme.isTV ? 22 : 12.5, weight: 400, tracking: 0, lineHeight: theme.isTV ? 31.9 : 18.125}), {marginTop: theme.isTV ? 10 : 2, marginBottom: theme.isTV ? 20 : 10, marginHorizontal: theme.isTV ? 0 : 18, color: theme.colors.textSecondary}]}><Text style={{fontFamily: theme.type.bodyStrong.fontFamily}}>{copy.sessionLead}</Text>{' '}{copy.sessionDefaults}</Text>}
+      {(theme.isTV && state.panel !== 'playback-info' || state.panel === 'options') && <Text style={[nativeType({size: theme.isTV ? 22 : 12.5, weight: 400, tracking: 0, lineHeight: theme.isTV ? 31.9 : 18.125}, theme.textScale), {marginTop: theme.isTV ? 10 : 2, marginBottom: theme.isTV ? 20 : 10, marginHorizontal: theme.isTV ? 0 : 18, color: theme.colors.textSecondary}]}><Text style={{fontFamily: theme.type.bodyStrong.fontFamily}}>{copy.sessionLead}</Text>{' '}{copy.sessionDefaults}</Text>}
       <ScrollView ref={scroll} contentContainerStyle={{paddingTop: theme.isTV ? 4 : 0, paddingBottom: theme.isTV ? 72 : 12}} onScroll={event => {if (current()) context.rememberPanel(event.nativeEvent.contentOffset.y);}} scrollEventThrottle={32}>{body}</ScrollView>
       {theme.isTV && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 14}}><Text style={[theme.type.caption, {color: theme.colors.textSecondary, borderWidth: 1, borderColor: theme.colors.textTertiary, borderRadius: 6, padding: 4}]}>{t('action.back')}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>}
     </FocusRegion>
