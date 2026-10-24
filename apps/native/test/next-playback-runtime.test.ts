@@ -134,7 +134,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     scopedRequests.push({path, signal: options.signal});
     return requestRaw(path, method, options);
   };
-  let settings: NativePlaybackSettings = {engine: 'automatic', videoRate: 1, audiobookRate: 1, subtitleSize: 'medium', subtitleBackground: 'translucent', skips: {intro: 'ask', recap: 'ask', credits: 'ask'}};
+  let settings: NativePlaybackSettings = {engine: 'automatic', videoRate: 1, audiobookRate: 1, subtitles: {size: 'medium', color: 'white', background: 'translucent', position: 'bottom', font: 'default', keepStyling: true, useSystemCaptionStyle: false}, skips: {intro: 'ask', recap: 'ask', credits: 'ask'}};
   const settingsListeners = new Set<() => void>();
   let disposedCapabilities = 0;
   const runtime = new NativePlaybackRuntime({api, authority: () => authority, session: () => session,
@@ -510,6 +510,31 @@ test('an installed native rich producer receives the actual companion and comple
   } finally {d.runtime.dispose();}
 });
 
+test('complete caption preferences update the same bound subtitle source and retire with its authority', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}); richSubtitleResponses(d);
+  try {
+    await d.start('movie-1');
+    const fence = d.runtime.getSnapshot().fence!, binding = d.engine.lastCommand.subtitles.binding;
+    const original = d.engine.lastCommand.subtitles.style;
+    const sent = d.requests.length;
+    const subtitles = {size: 'extra-large', color: 'cyan', background: 'shadow', position: 'top', font: 'serif', keepStyling: false, useSystemCaptionStyle: true} as const;
+    d.settings({subtitles}); await settle();
+    assert.deepEqual(d.engine.lastCommand.subtitles.style, {...subtitles, scale: 1.6});
+    assert.deepEqual(d.engine.lastCommand.subtitles.binding, binding);
+    assert.deepEqual(d.runtime.getSnapshot().fence, fence);
+    assert.equal(original.color, 'white', 'an old command is not mutated');
+    assert.equal(d.requests.slice(sent).some(request => request.method !== 'GET'), false, 'appearance does not replan or replace the session');
+    assert.equal(d.runtime.choices.set('subtitleSize', fence.playback, 'small'), true);
+    assert.equal(d.runtime.choices.set('subtitleBackground', fence.playback, 'opaque'), true);
+    await settle();
+    assert.deepEqual(d.engine.lastCommand.subtitles.style, {...subtitles, size: 'small', scale: 0.8, background: 'opaque'});
+    d.changeAuthority(); await settle();
+    const count = d.engine.commands.length;
+    d.settings({subtitles: {...subtitles, color: 'yellow'}}); await settle();
+    assert.equal(d.engine.commands.length, count, 'retired preferences cannot issue another native command');
+  } finally {d.runtime.dispose();}
+});
+
 test('PiP replan preserves the actual source/track/file clock then waits for new-generation native acknowledgement', async () => {
   const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
   try {
@@ -728,7 +753,7 @@ for (const kind of ['queue', 'live'] as const) test(`Back keeps an actual ${kind
       try {
         if (kind === 'queue') await d.runtime.queue.refresh();
         await d.runtime.refreshAuthority();
-        d.settings({subtitleSize: 'large'});
+        d.settings({subtitles: {size: 'large', color: 'white', background: 'translucent', position: 'bottom', font: 'default', keepStyling: true, useSystemCaptionStyle: false}});
         d.engine.emit('error', {deliveryError: true, networkError: false});
         d.engine.emit('progress'); await settle();
         const collapsed = d.runtime.getSnapshot();

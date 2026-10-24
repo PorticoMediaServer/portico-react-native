@@ -462,6 +462,11 @@ export async function standardHomeApp({
     'playback.creditsSkip': 'off',
     'playback.subtitleSize': 'medium',
     'playback.subtitleBackground': 'translucent',
+    'playback.subtitleColor': 'white',
+    'playback.subtitlePosition': 'bottom',
+    'playback.subtitleFont': 'default',
+    'playback.keepSubtitleStyling': true,
+    'playback.useSystemCaptionStyle': false,
   };
   const prefs = () => ({
     deviceClass: 'mobile',
@@ -470,7 +475,7 @@ export async function standardHomeApp({
       revision: 'fixture-preferences',
       fields: Object.entries(effective).map(([key, value]) => ({
         key,
-        type: typeof value === 'number' ? 'number' : 'string',
+        type: typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'string',
         default: value,
         group: key.split('.')[0],
         labelKey: 'preferences.' + key,
