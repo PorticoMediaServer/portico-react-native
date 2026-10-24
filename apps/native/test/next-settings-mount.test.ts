@@ -1,0 +1,28 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {screenModule} from './helpers/screen-harness.mjs';
+
+test('the one settings mount registers the Settings destination and owner Dashboard on the family factories', async () => {
+  const registrations: {kind: string; route: string; factory: (context: unknown) => unknown}[] = [];
+  const built: unknown[] = [];
+  const mount = await screenModule(new URL('../src-next/shell/settings-mount.ts', import.meta.url), {
+    react: {default: {}},
+    '../screens/settings-live/SettingsRoute': {
+      createNativeSettingsRenderer: (context: unknown) => {built.push(['settings', context]); return {render: (route: unknown) => ({screen: 'settings', route})};},
+      createNativeServerDashboardRenderer: (context: unknown) => {built.push(['dashboard', context]); return {render: (route: unknown) => ({screen: 'dashboard', route})};},
+    },
+    './route-registry': {nativeShellRoutes: {
+      registerDestination: (kind: string, factory: never) => registrations.push({kind: 'destination', route: kind, factory}),
+      registerRoute: (kind: string, factory: never) => registrations.push({kind: 'route', route: kind, factory}),
+    }},
+  });
+  assert.deepEqual(registrations.map(value => [value.kind, value.route]), [['destination', 'settings'], ['route', 'server-dashboard']]);
+  assert.deepEqual(built, [], 'registering a factory composes nothing before a viewer binds');
+  const context = {serverName: 'Demo server'};
+  const settings = registrations[0]!.factory(context) as {render: (route: unknown) => unknown};
+  assert.deepEqual(built, [['settings', context]]);
+  const route = {kind: 'shell', destination: {kind: 'settings'}};
+  assert.deepEqual(settings.render(route), {screen: 'settings', route});
+  const dashboard = registrations[1]!.factory(context) as {render: (route: unknown) => unknown};
+  assert.deepEqual(dashboard.render({kind: 'server-dashboard'}), {screen: 'dashboard', route: {kind: 'server-dashboard'}});
+});

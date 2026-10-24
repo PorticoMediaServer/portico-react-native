@@ -17,6 +17,7 @@ if (!Platform.isTV) {
   const {registerNativeWatch, createNativeWatchBindings} = require('./screens/watch') as typeof import('./screens/watch');
   registerNativeWatch(createNativeWatchBindings);
 }
+require('./shell/settings-mount');
 require('./screens/home/CustomizeRoute');
 require('./screens/home/SeeAllRoute');
 require('./screens/settings-live/LiveRoute');
