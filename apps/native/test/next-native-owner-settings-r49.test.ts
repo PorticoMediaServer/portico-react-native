@@ -15,7 +15,7 @@ const env = {t, locale: 'en-US'};
 function session(overrides: Partial<AdminSession> = {}): AdminSession {
   return Object.freeze({
     id: 's1', user: 'priya.n', profile: 'priya.n', device: 'iPhone', title: 'Spirited Away', kind: 'vod', state: 'playing', positionMs: 3_225_000, durationMs: 7_500_000,
-    decision: {video: {action: 'transcode'}, audio: {action: 'direct'}}, location: 'remote', quality: {mode: 'fixed', maxHeight: 1080}, bandwidthKbps: 8000,
+    decision: {video: {action: 'transcode', reasons: []}, audio: {action: 'direct', reasons: []}}, location: 'remote', quality: {mode: 'fixed', maxHeight: 1080}, bandwidthKbps: 8000,
     startedAt: '2026-10-24T15:49:00Z', ...overrides,
   }) as AdminSession;
 }
@@ -23,8 +23,8 @@ function session(overrides: Partial<AdminSession> = {}): AdminSession {
 const measurement = (facts: Record<string, {state: string; value: unknown}>) => ({name: 'health', observedAt: 1, freshUntil: 2, facts});
 
 test('Ruling 4 route facts name Original, Repackaged and Converted with its height', () => {
-  assert.equal(ownerStreamView(session({decision: {video: {action: 'direct'}, audio: {action: 'direct'}}}), env).facts.find(part => part.id === 'route')?.text, 'Original');
-  assert.equal(ownerStreamView(session({decision: {video: {action: 'copy'}, audio: {action: 'direct'}}, quality: undefined}), env).facts.find(part => part.id === 'route')?.text, 'Repackaged');
+  assert.equal(ownerStreamView(session({decision: {video: {action: 'direct', reasons: []}, audio: {action: 'direct', reasons: []}}}), env).facts.find(part => part.id === 'route')?.text, 'Original');
+  assert.equal(ownerStreamView(session({decision: {video: {action: 'copy', reasons: []}, audio: {action: 'direct', reasons: []}}, quality: undefined}), env).facts.find(part => part.id === 'route')?.text, 'Repackaged');
   assert.equal(ownerStreamView(session(), env).facts.find(part => part.id === 'route')?.text, 'Converted to 1080p');
   assert.equal(ownerStreamView(session({quality: {mode: 'automatic'}}), env).facts.find(part => part.id === 'route')?.text, 'Converted');
   assert.equal(ownerStreamView(session({decision: {}}), env).facts.find(part => part.id === 'route'), undefined);
@@ -41,7 +41,7 @@ test('a stream card carries only the session facts the server supplied', () => {
 });
 
 test('a paused episode card keeps the show title, the episode subtitle and Paused', () => {
-  const view = ownerStreamView(session({state: 'paused', kind: 'episode', item: {id: 'e1', kind: 'episode', title: 'Long, Long Time', showId: 'show', showTitle: 'The Last of Us', seasonNumber: 1, episodeNumber: 3, art: []} as AdminSession['item']}), env);
+  const view = ownerStreamView(session({state: 'paused', item: {id: 'e1', kind: 'episode', title: 'Long, Long Time', showId: 'show', showTitle: 'The Last of Us', seasonNumber: 1, episodeNumber: 3, art: []} as AdminSession['item']}), env);
   assert.equal(view.title, 'The Last of Us');
   assert.deepEqual(view.identity.map(part => part.text), ['S1 E3', 'Long, Long Time']);
   assert.equal(view.state?.text, 'Paused');
@@ -155,7 +155,7 @@ test('the updated line says seconds only while that is true', () => {
 });
 
 test('derived totals count every loaded stream without inventing one', () => {
-  const totals = ownerDerivedTotals([session(), session({id: 's2', state: 'paused', location: 'local', decision: {video: {action: 'direct'}}})]);
+  const totals = ownerDerivedTotals([session(), session({id: 's2', state: 'paused', location: 'local', decision: {video: {action: 'direct', reasons: []}}})]);
   assert.equal(totals.streams, 2);
   assert.equal(totals.paused, 1);
   assert.equal(totals.converting, 1);
