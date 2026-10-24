@@ -102,6 +102,10 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     val density = view.resources.displayMetrics.density.toDouble()
     if (!density.isFinite() || density <= 0) return result
     result["isFocused"] = value(view.isFocused, "android.View.isFocused")
+    val coordinates = windowCoordinates(view, decor)
+    result["windowRect"] = coordinates?.rect(RectF(0f, 0f, view.width.toFloat(), view.height.toFloat()), density)?.let {
+      value(it, "android.View.transformMatrixToGlobal+getLocationInWindow.boundsDp")
+    } ?: missing("unsupported-transform")
     val chain = ancestry(view, decor) ?: return result
     val alpha = chain.map { if (Build.VERSION.SDK_INT >= 29 && it.layerType == View.LAYER_TYPE_NONE &&
       (it.animation == null || it.animation.hasEnded())) it.alpha.toDouble() * it.transitionAlpha.toDouble() else Double.NaN }
@@ -198,8 +202,33 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
     return result
   }
 
+  private class WindowCoordinates(val matrix: Matrix, val mappedOrigin: FloatArray, val nativeWindowOrigin: IntArray) {
+    fun rect(local: RectF, density: Double): Map<String, Double>? {
+      matrix.mapRect(local)
+      return LayoutObservationPolicy.windowRect(doubleArrayOf(local.left.toDouble(), local.top.toDouble(), local.right.toDouble(), local.bottom.toDouble()),
+        doubleArrayOf(mappedOrigin[0].toDouble(), mappedOrigin[1].toDouble()),
+        doubleArrayOf(nativeWindowOrigin[0].toDouble(), nativeWindowOrigin[1].toDouble()), density)
+    }
+  }
+
+  private fun windowCoordinates(view: View, decor: View): WindowCoordinates? {
+    if (Build.VERSION.SDK_INT < 29 || view.isLayoutRequested || ancestry(view, decor)?.any {
+        it.animation != null && !it.animation.hasEnded() || it.animationMatrix?.isIdentity == false
+      } != false) return null
+    val matrix = Matrix(); view.transformMatrixToGlobal(matrix)
+    val mappedOrigin = floatArrayOf(0f, 0f); matrix.mapPoints(mappedOrigin)
+    // SAME-view public window origin supplies the native coordinate-space translation.
+    // Its integer physical-pixel precision is retained; no zero/reference-fitting origin is chosen.
+    val nativeWindowOrigin = IntArray(2); view.getLocationInWindow(nativeWindowOrigin)
+    return WindowCoordinates(matrix, mappedOrigin, nativeWindowOrigin)
+  }
+
   private fun background(view: View): Int? {
     val drawable = view.background ?: return Color.TRANSPARENT
+    // RN 0.83 CompositeBackgroundDrawable/BackgroundDrawable are intentionally unsupported:
+    // actual backgroundPaint is private. backgroundColor is only backing state; setAlpha
+    // changes the paint independently without exposing its resolved alpha via getAlpha.
+    // Unwrapping props or reflecting that private Paint would not be an observation API.
     if (drawable !is ColorDrawable || drawable.colorFilter != null) return null
     return (drawable.color and 0x00ffffff) or (drawable.alpha shl 24)
   }
@@ -221,7 +250,7 @@ class PorticoLayoutObservation(context: ReactApplicationContext) : ReactContextB
 
   companion object {
     private val TEXT_FIELDS = listOf("textColor", "fontFamily", "fontSize", "fontWeight", "lineHeight", "textLineRects")
-    private val FIELDS = listOf("isFocused", "effectiveOpacity", "backgroundColor", "effectiveBackgroundColor", "borderRadius", "boxShadow") + TEXT_FIELDS
+    private val FIELDS = listOf("isFocused", "effectiveOpacity", "backgroundColor", "effectiveBackgroundColor", "borderRadius", "boxShadow", "windowRect") + TEXT_FIELDS
   }
 }
 
@@ -258,6 +287,15 @@ internal object LayoutObservationPolicy {
     return found
   }
   fun opacity(alpha: List<Double>): Double? = if (alpha.isEmpty() || alpha.any { !it.isFinite() || it < 0 || it > 1 }) null else alpha.fold(1.0) { a, b -> a * b }
+  fun windowRect(bounds: DoubleArray, mappedOrigin: DoubleArray, nativeWindowOrigin: DoubleArray, density: Double): Map<String, Double>? {
+    if (bounds.size != 4 || mappedOrigin.size != 2 || nativeWindowOrigin.size != 2 || !density.isFinite() || density <= 0 ||
+        bounds.any { !it.isFinite() } || mappedOrigin.any { !it.isFinite() } || nativeWindowOrigin.any { !it.isFinite() } ||
+        bounds[2] < bounds[0] || bounds[3] < bounds[1]) return null
+    val rect = mapOf("x" to (bounds[0] - mappedOrigin[0] + nativeWindowOrigin[0]) / density,
+      "y" to (bounds[1] - mappedOrigin[1] + nativeWindowOrigin[1]) / density,
+      "width" to (bounds[2] - bounds[0]) / density, "height" to (bounds[3] - bounds[1]) / density)
+    return rect.takeIf { it.values.all(Double::isFinite) }
+  }
   data class Rgba(val red: Double, val green: Double, val blue: Double, val alpha: Double)
   fun rgba(color: Int) = rgba(Rgba((color ushr 16 and 255).toDouble(), (color ushr 8 and 255).toDouble(), (color and 255).toDouble(), (color ushr 24 and 255) / 255.0))
   fun rgba(color: Rgba): String {

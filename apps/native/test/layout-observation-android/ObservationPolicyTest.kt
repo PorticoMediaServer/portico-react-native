@@ -43,6 +43,21 @@ fun main() {
   verify(LayoutObservationPolicy.opacity(emptyList()) == null)
   verify(LayoutObservationPolicy.fontFamily("sans-serif"))
   for (bad in listOf(null, "", " ", "sans\nserif", "asset/font.ttf", "https://example.invalid", "A".repeat(129))) verify(!LayoutObservationPolicy.fontFamily(bad))
+  val box = doubleArrayOf(105.0, 210.0, 1275.0, 2742.0)
+  val mappedOrigin = doubleArrayOf(105.0, 210.0)
+  val nativeOrigin = doubleArrayOf(15.0, 72.0)
+  val window = LayoutObservationPolicy.windowRect(box, mappedOrigin, nativeOrigin, 3.0)!!
+  verify(window == mapOf("x" to 5.0, "y" to 24.0, "width" to 390.0, "height" to 844.0))
+  // Negative position, transformed AABB extending left of mapped local origin,
+  // and non-zero window origin stay visible; none are normalized to zero.
+  verify(LayoutObservationPolicy.windowRect(doubleArrayOf(-10.0, 5.0, 50.0, 95.0), doubleArrayOf(20.0, 5.0), doubleArrayOf(-6.0, 12.0), 3.0) ==
+    mapOf("x" to -12.0, "y" to 4.0, "width" to 20.0, "height" to 30.0))
+  verify(LayoutObservationPolicy.windowRect(box, mappedOrigin, nativeOrigin, 1.0)!!.getValue("y") == 72.0)
+  for (bad in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY)) verify(LayoutObservationPolicy.windowRect(box, mappedOrigin, nativeOrigin, bad) == null)
+  verify(LayoutObservationPolicy.windowRect(doubleArrayOf(1.0, 1.0, 0.0, 0.0), mappedOrigin, nativeOrigin, 3.0) == null)
+  verify(LayoutObservationPolicy.windowRect(doubleArrayOf(Double.NaN, 1.0, 2.0, 3.0), mappedOrigin, nativeOrigin, 3.0) == null)
+  verify(LayoutObservationPolicy.windowRect(box, doubleArrayOf(1.0), nativeOrigin, 3.0) == null)
+  verify(LayoutObservationPolicy.windowRect(box, mappedOrigin, doubleArrayOf(1.0, Double.NaN), 3.0) == null)
   verify(LayoutObservationPolicy.rgba(0xffff0000.toInt()) == "rgba(255, 0, 0, 1)")
   verify(LayoutObservationPolicy.rgba(0) == "rgba(0, 0, 0, 0)")
   verify(LayoutObservationPolicy.rgba(0x8000ff00.toInt()) == "rgba(0, 255, 0, 0.50196078)")
