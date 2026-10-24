@@ -301,6 +301,7 @@ export const settingsMessages = {
   'settings.server.skippedPartsCount': '{count, plural, one {# left out} other {# left out}}',
   'settings.server.capabilities': 'What this server can do',
   'settings.server.supportExport': 'Support export',
+  'server.support': 'Support',
   'settings.server.feedback': 'Viewer feedback',
   'settings.server.general': 'General',
   'settings.server.updates': 'Version and updates',
