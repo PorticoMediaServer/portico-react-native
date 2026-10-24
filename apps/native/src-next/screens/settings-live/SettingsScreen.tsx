@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Dimensions, Platform, ScrollView, Text, View} from 'react-native';
+import {Dimensions, Platform, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
@@ -91,7 +91,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
-  return <Screen style={!theme.isTV ? {paddingTop: insets.top + 14} : undefined}>
+  // Android may report 0 here while the surface still draws under the status bar; StatusBar.currentHeight is the measured fallback.
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0);
+  return <Screen style={!theme.isTV ? {paddingTop: topInset + 14} : undefined}>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
         {(!theme.isTV || !searching) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}
