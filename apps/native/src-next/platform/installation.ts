@@ -39,7 +39,19 @@ function description(raw: unknown): Pick<InstallationIdentity, 'name' | 'appVers
 export function beginNativeInstallation(signal?: AbortSignal) {
   const owned = ++generation;
   let disposed = false, claim = installationIdentity();
-  const current = () => !disposed && !signal?.aborted && owned === generation && installationIdentity() === claim;
+  let invalidWarned = false;
+  const current = () => {
+    const now = installationIdentity(), valid = !disposed && !signal?.aborted && owned === generation && now === claim;
+    // DEV-only first-cause evidence: a newer restore generation and a rewritten
+    // identity are different bugs. This reports which one retired the claim and
+    // never changes the guard or the identity setter.
+    if (!valid && typeof __DEV__ !== 'undefined' && __DEV__ && !invalidWarned) {
+      invalidWarned = true;
+      console.warn('portico_installation_invalid', JSON.stringify({disposed, aborted: !!signal?.aborted, owned, latest: generation,
+        sameReference: now === claim, sameId: now?.installationId === claim?.installationId, hasClaim: !!claim, hasNow: !!now}), new Error().stack);
+    }
+    return valid;
+  };
   const assertCurrent = () => {if (!current()) throw cancelled();};
   const dispose = () => {disposed = true;};
   let preparing: ReturnType<typeof prepare> | undefined;
@@ -66,5 +78,5 @@ export function beginNativeInstallation(signal?: AbortSignal) {
     if (!claim) throw invalid();
     return {saved, connection, env, identity: claim};
   }
-  return {prepare: () => preparing ??= prepare(), current, dispose};
+  return {prepare: () => preparing ??= prepare(), current, dispose, generation: owned};
 }
