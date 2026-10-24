@@ -44,6 +44,8 @@ rn_jars = sorted((gradle_home / 'caches').glob('*/transforms/*/transformed/react
 if not android_jar.is_file() or not rn_jars:
     raise RuntimeError('Actual declared SDK/RN API cache is required; no synthetic Android/RN API')
 source = native / 'android/app/src/main/java/tv/getportico/portico/native/PorticoLayoutObservation.kt'
+if re.search(r'\.systemFontFamilyName\b|\.getSystemFontFamilyName\(', source.read_text()):
+    raise RuntimeError('System family label is not associated typographic name-table evidence')
 package = source.with_name('PorticoPackage.kt').read_text()
 if '(if (BuildConfig.DEBUG) listOf(PorticoLayoutObservation(reactContext)) else emptyList())' not in package:
     raise RuntimeError('Observation module must be registered only in DEBUG')
