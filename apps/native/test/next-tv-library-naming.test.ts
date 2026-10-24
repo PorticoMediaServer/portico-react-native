@@ -36,6 +36,7 @@ async function fixture(value = 'Action') {
       return {serverId: 'server', viewerFence: 'actual-viewer', revision: 1, resources: [], nextCursor: ''} as T;
     }}};
   const {createNativeTVLibraryNaming} = await screenModule(new URL('../src-next/tv/library/save-view.ts', import.meta.url), {
+    react: {default: {}},
     '../../../../../packages/client-core/src/presentation/saved-view-summary': {savedViewSummary},
     '../../screens/destinations/lifetime': {nativeDestinationLifetime}, '../../screens/native-screen-services': {nativeScreenServices: () => ({requestId: async () => operationId})},
     '../../screens/library/model': {nativeLibraryCanSave}, '../../screens/library/save-view': {NativeLibrarySaveView}, './keyboard-state': {createNativeTVNameInput},
@@ -53,7 +54,9 @@ test('TV naming uses the canonical conditions only, then saves the one real capt
     assert.equal(naming.controller.getSnapshot().name, 'Genre Actiona');
     assert.equal(naming.input.back(), 'keyboard'); assert.equal(naming.controller.getSnapshot().open, true);
     f.draft.predicates = []; // The mounted toolbar can change; this opening keeps its captured definition.
-    await naming.controller.save();
+    const pending = naming.controller.save();
+    assert.equal(naming.close(), false, 'an accepted pending save keeps its real receipt owner');
+    await pending;
     assert.equal(f.posts.length, 1); assert.equal(f.posts[0].name, 'Genre Actiona');
     assert.notEqual(f.posts[0].summary, 'Genre Action. Title A to Z.');
     assert.deepEqual(f.posts[0].definition.query, {all: [{field: 'genre', operator: 'contains-any', value: ['Action']}]});
@@ -61,7 +64,7 @@ test('TV naming uses the canonical conditions only, then saves the one real capt
   } finally {naming.dispose(); f.navigation.dispose();}
 });
 
-test('unsupported/over-limit suggestions start empty without inventing names', async () => {
+test('over-limit suggestions start empty without inventing names', async () => {
   const f = await fixture('x'.repeat(201)), naming = f.open();
   try {assert.equal(naming.controller.getSnapshot().name, ''); assert.equal(f.posts.length, 0);}
   finally {naming.dispose(); f.navigation.dispose();}
