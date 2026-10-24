@@ -14,7 +14,7 @@ async function fixture() {
   const host = hooks(), bodyHost = hooks();
   let nested = false, language = 'CA';
   const react: any = {...host.react};
-  for (const name of Object.keys(host.react).filter(name => name.startsWith('use'))) react[name] = (...args: any[]) => (nested ? bodyHost.react : host.react)[name](...args);
+  for (const name of Object.keys(host.react).filter(name => name.startsWith('use'))) react[name] = (...args: any[]) => {const active: any = nested ? bodyHost.react : host.react; return active[name](...args);};
   react.default = react;
   const theme = createTheme({width: 800, isTV: false});
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
@@ -69,7 +69,7 @@ test('Settings page body uses the same live translator for its own control and c
   const body = nodes(tree).find(node => typeof node.type === 'function' && node.type.name === 'SettingsPageBody');
   assert.ok(body);
   let rendered = f.body(body);
-  assert.ok(nodes(rendered).some(node => node.type === 'Button' && node.props.children.includes('CA/action.cancel')));
+  assert.ok(nodes(nodes(rendered).find(node => node.type === 'Dialog').props.footer).some(node => node.type === 'Button' && node.props.children.includes('CA/action.cancel')));
   f.setLanguage('GB'); rendered = f.body(body);
-  assert.ok(nodes(rendered).some(node => node.type === 'Button' && node.props.children.includes('GB/action.cancel')));
+  assert.ok(nodes(nodes(rendered).find(node => node.type === 'Dialog').props.footer).some(node => node.type === 'Button' && node.props.children.includes('GB/action.cancel')));
 });
