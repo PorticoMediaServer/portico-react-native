@@ -87,7 +87,17 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
       assertCurrent();
       // Connect after the actual native read succeeds. A failed native read is
       // returned to the screen's retry state, not an unhandled connect chain.
-      if (!connected && adapter.getSnapshot().supported) {device.connect(api, service, viewer); connected = true;}
+      if (!connected && adapter.getSnapshot().supported) {
+        device.connect(api, service, viewer);
+        // The service's list and the device's whole-container requests are only
+        // read while it is started and following this device (legacy downloads
+        // provider did both on active). Without them nothing is ever fetched or
+        // enrolled, even after a persisted want.
+        service.start();
+        const deviceId = context.session()?.deviceId;
+        if (deviceId) service.followDevice(deviceId);
+        connected = true;
+      }
     }).finally(() => {if (opening === task) opening = undefined;});
     opening = task; return task;
   };
@@ -111,7 +121,7 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     want: (...args) => {assertCurrent(); return device.want(...args);},
     display: (...args) => {assertCurrent(); return device.display(...args);},
     dispose: () => {
-      if (!alive) return; alive = false; abort.abort(); service.dispose();
+      if (!alive) return; alive = false; abort.abort(); service.stop(); service.dispose();
       // A late retired screen cannot disconnect a newer restored viewer.
       if (connection === owner) {connection = undefined; device.disconnect(); device.adopt(undefined);}
     },

@@ -52,6 +52,9 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     if (busy) return;
     setBusy(quality); setError(undefined);
     try {
+      // A title page has no Saved/Downloads screen mounted, so this lease must
+      // connect (and start) the one device service before it asks or wants.
+      await download().device.open();
       if (container) {
         if (!deviceId) throw Object.assign(new Error('downloads.noDevice'), {code: 'noDevice'});
         const followed = await service().requestContainer({target: {kind: container.kind, id: container.id, title: request.title}, deviceId, quality,

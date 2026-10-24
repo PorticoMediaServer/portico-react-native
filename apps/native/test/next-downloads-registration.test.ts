@@ -29,7 +29,7 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
 });
 
 test('Downloads storage authority retires old actions, requests and disconnects without touching a newer viewer', async () => {
-  const host = hooks(), connections: any[] = []; let disposed = 0, disconnects = 0;
+  const host = hooks(), connections: any[] = [], followed: string[] = []; let disposed = 0, disconnects = 0, starts = 0, stops = 0;
   const deviceSnapshot = {entries: [], supported: true};
   const device = {
     connect: (...args: any[]) => {connections.push(args);}, disconnect: () => {disconnects++;}, adopt() {},
@@ -39,7 +39,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   };
   const {createNativeDownloadsDevice} = await screenModule(new URL('../src-next/screens/downloads/device.ts', import.meta.url), {
     react: host.react,
-    '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {dispose() {disposed++;}}},
+    '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {start() {starts++;} stop() {stops++;} followDevice(id: string) {followed.push(id);} dispose() {disposed++;}}},
     '../destinations/lifetime': {nativeDestinationLifetime},
     './playback': {createNativeOfflineEntryPlayback},
     '../../platform/offline-downloads': {offlineDownloads: device, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
@@ -47,11 +47,14 @@ test('Downloads storage authority retires old actions, requests and disconnects 
   const viewer = {serverId: 'server', accountId: 'account', profileId: 'first', authority: 'local'};
   const authority = {...viewer, epoch: 'epoch', viewerFence: 'home-fence'};
   let current = true, finish: (value: unknown) => void = () => {};
-  const context = {session: () => ({viewer}), authority: () => authority, current: () => current,
+  const context = {session: () => ({viewer, deviceId: 'device-1'}), authority: () => authority, current: () => current,
     api: {baseUrl: 'https://server.test', mediaUrl: (path: string) => path, request: () => new Promise(resolve => {finish = resolve;})}};
   const first = createNativeDownloadsDevice(context);
   await first.device.open();
   assert.equal(connections[0][2], viewer);
+  assert.equal(starts, 1, 'the connected service reads its list');
+  assert.deepEqual(followed, ['device-1'], 'whole-container requests are found again on reconnect');
+  assert.equal(stops, 0);
   assert.equal(first.device.openOffline, undefined);
   const retainedSaved = createNativeDownloadsDevice(context);
   assert.equal(retainedSaved.device.getSnapshot(), first.device.getSnapshot(), 'Saved and Downloads read the same authority-local native snapshot');
@@ -81,7 +84,7 @@ test('Saved and Downloads leases expose the same installed offline command witho
     connect: () => {connections++;}, disconnect: () => {disconnects++;}, playable: () => ''};
   const {createNativeDownloadsDevice} = await screenModule(new URL('../src-next/screens/downloads/device.ts', import.meta.url), {
     react: host.react,
-    '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {dispose() {}}},
+    '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {start() {} stop() {} followDevice() {} dispose() {}}},
     '../destinations/lifetime': {nativeDestinationLifetime}, './playback': {createNativeOfflineEntryPlayback},
     '../../platform/offline-downloads': {offlineDownloads: source, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
   });
