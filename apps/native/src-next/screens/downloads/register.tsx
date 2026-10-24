@@ -1,5 +1,6 @@
 import React from 'react';
 import {View, useWindowDimensions} from 'react-native';
+import {useTheme} from '../../kit/theme';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
@@ -17,10 +18,13 @@ export const nativeDownloadsCopy = Object.freeze({
 } satisfies NativeDownloadsCopy);
 
 function DownloadsRoute(props: React.ComponentProps<typeof DownloadsScreen>) {
-  const insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
+  const insets = useSafeAreaInsets(), dimensions = useWindowDimensions(), theme = useTheme();
   const layout = shellLayout(dimensions.width, dimensions.height, false);
   // This route covers the Saved page while its genuine bottom navigation remains mounted.
-  return <View style={{flex: 1, marginBottom: layout.tabs ? phoneBarHeight(insets.bottom) : 0}}><DownloadsScreen {...props}/></View>;
+  // Its own absolute box (and ink) means a natural-height screen can never let the
+  // previous route show through below the list.
+  return <View style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: theme.colors.ink,
+    paddingBottom: layout.tabs ? phoneBarHeight(insets.bottom) : 0}}><DownloadsScreen {...props}/></View>;
 }
 
 export const createNativeDownloadsModule: NativeRouteFactory = context => {

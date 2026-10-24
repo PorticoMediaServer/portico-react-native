@@ -59,7 +59,7 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle}: Native
       </Focusable>
       <Text pointerEvents="none" accessibilityRole="header" style={[browseType(theme, 17, 700), {position: 'absolute', left: 80, right: 80, bottom: 13, textAlign: 'center', color: theme.colors.text}]}>{t('downloads.title')}</Text>
     </View>
-    <ScrollView ref={scroll} contentContainerStyle={{paddingBottom: 28}}>
+    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingBottom: 28}}>
       {!snapshot.supported ? <StateView title={t('downloads.unavailableOnDevice')}/> : <>
         {failure && <StateView {...runtime.error(failure, () => run(device.open))}/>}
         {empty && <View style={{paddingTop: 58, paddingHorizontal: 24, alignItems: 'center'}}>
