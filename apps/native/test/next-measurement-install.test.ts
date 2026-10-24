@@ -36,6 +36,7 @@ test('App measurement command borrows only the current public root and live view
     const previousReads = reads;
     await assert.rejects(command.capture(), /mounted whole-screen native root/);
     assert.equal(reads, previousReads, 'retirement refuses before lending the root to the collector');
+    assert.ok(dispose);
     dispose(); dispose = undefined;
     assert.equal(globals.__PORTICO_NATIVE_LAYOUT_DUMP__, undefined);
     await assert.rejects(command.capture(), /disposed/);
