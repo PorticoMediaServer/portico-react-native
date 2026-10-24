@@ -31,7 +31,7 @@ async function setup() {
       navigation: {view: 'playlist', entityId: 'actual-playlist'}}] : [title];
     return {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view, entityId: '', viewerFence: 'Saved-own-fence'},
       revision: {catalog: 9, viewer: 13}, heading: {key: 'saved.title', fallback: ''}, navigation: [{id: view, labelKey: 'saved.title', view}],
-      query: {sort: 'title', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [],
+      query: {sort: 'title', direction: 'asc', category: view === 'watchlist' || view === 'favorites' ? 'all' : '', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [],
       sections: [{id: 'actual-section', type: 'grid', heading: {key: 'saved.title', fallback: ''}, entries, totalCount: 12, nextCursor: ''}]};
   };
   const unavailable = (): never => {throw new Error('unexpected_tv_saved_port');};
@@ -111,7 +111,9 @@ test('TV Saved keeps inline tabs in the exact root history entry and borrows one
     f.navigation.back(f.authority);
     assert.equal(root.source.getSnapshot().route.view, 'collections');
     await root.selectTab('playlists');
-    const playlist = root.source.getSnapshot().saved.projection.sections[0].entries[0];
+    const playlistState = root.source.getSnapshot();
+    assert.equal(playlistState.phase, 'ready', playlistState.error?.message);
+    const playlist = playlistState.saved.projection.sections[0].entries[0];
     assert.equal(root.openPlaylist({...playlist}), false); assert.equal(root.openPlaylist(playlist), true);
     assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'saved-view', view: {view: 'playlist', playlistId: playlist.id}});
     f.navigation.back(f.authority);
