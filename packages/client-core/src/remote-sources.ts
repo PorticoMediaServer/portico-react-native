@@ -6,8 +6,10 @@ import {routePath, encodedRoutePath} from "../../contracts/src/routes.ts";
 import type {ContentScope,LibraryContentApi} from './library-content.ts';
 import {firstOfEach,keepReadable,noteSkipped,oneOfOr} from './tolerant.ts';
 import {rebaseDraft} from './freshness-actions.ts';
-export type RemoteSource=Readonly<{id:string;kind:'rclone'|'webdav';name:string;rootPath:string;generation:number;state:string;errorCode?:string;rangeSupport:'unknown'|'conditional'|'unsupported'|'sequential';origin?:string;insecureLocal:boolean;credentialPresent:boolean;mountId?:string}>;
+export type RemoteSource=Readonly<{id:string;kind:'rclone'|'webdav'|'sftp'|'smb';name:string;rootPath:string;generation:number;state:string;errorCode?:string;rangeSupport:'unknown'|'conditional'|'unsupported'|'sequential';origin?:string;insecureLocal:boolean;credentialPresent:boolean;mountId?:string}>;
 export type DAVConfiguration=Readonly<{name:string;root:string;username:string;password:string;keepPassword:boolean;keepConnection:boolean;insecureLocal:boolean;expectedGeneration?:number}>;
+export type DAVConnectionInput=Pick<DAVConfiguration,'name'|'root'|'username'|'password'|'insecureLocal'>;
+export type DAVConnectionResult=Readonly<{origin:string;rangeSupport:'unknown'|'conditional'|'unsupported'}>;
 export type RemoteReceipt=Readonly<{operationId:string;accepted:true;removed:boolean;source:RemoteSource}>;
 export type AnalysisPolicy=Readonly<{libraryId:string;enabled:boolean;revision:number;effective?:boolean;scanTier?:string}>;
 /** `alreadyDone`: the last command found, on a fresh read, that what it asked for is already so (a share removed elsewhere). */
@@ -16,12 +18,28 @@ const record=(x:unknown):x is Record<string,unknown>=>!!x&&typeof x==='object'&&
 const text=(x:unknown,n=8192):x is string=>typeof x==='string'&&x.length<=n&&!/[\x00-\x1f\x7f]/.test(x);
 const integer=(x:unknown):x is number=>typeof x==='number'&&Number.isSafeInteger(x)&&x>=0;
 function invalid():never{throw new Error('Invalid remote source response.');}
+/** Display-only saved endpoint fact. This never authorizes a connection. Native
+ * schemes remain distinct from HTTP, including inside imported rclone sources. */
+function sourceOrigin(value:string,kind:RemoteSource['kind']):boolean{
+ const match=/^(https?|sftp|smb):\/\/([^/?#@%\\\s]+)\/?$/.exec(value);
+ if(!match)return false;
+ const scheme=match[1];
+ if(kind==='webdav'&&scheme!=='http'&&scheme!=='https'||kind==='sftp'&&scheme!=='sftp'||kind==='smb'&&scheme!=='smb')return false;
+ try{
+  const url=new URL(value);
+  if(!url.hostname||url.username||url.password||url.search||url.hash||url.pathname&&url.pathname!=='/')return false;
+  if(scheme==='sftp'||scheme==='smb'){
+   if(!/^(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+):[0-9]{1,5}$/.test(match[2])||!url.port||Number(url.port)<1||Number(url.port)>65535)return false;
+  }
+  return true;
+ }catch{return false;}
+}
 function source(x:unknown):RemoteSource{
- if(!record(x)||!text(x.id,256)||!x.id||!['rclone','webdav'].includes(String(x.kind))||!text(x.name,512)||!text(x.rootPath)||!integer(x.generation)||x.generation<1||!text(x.state,100)||!x.state||typeof x.insecureLocal!=='boolean'||typeof x.credentialPresent!=='boolean'||x.password!==undefined||x.config!==undefined||x.username!==undefined||x.root!==undefined)invalid();
- if(x.origin!==undefined&&(!text(x.origin)||!/^https?:\/\/[^/?#@]+$/.test(x.origin)))invalid();
+ if(!record(x)||!text(x.id,256)||!x.id||!['rclone','webdav','sftp','smb'].includes(String(x.kind))||!text(x.name,512)||!text(x.rootPath)||!integer(x.generation)||x.generation<1||!text(x.state,100)||!x.state||typeof x.insecureLocal!=='boolean'||typeof x.credentialPresent!=='boolean'||x.password!==undefined||x.config!==undefined||x.username!==undefined||x.root!==undefined)invalid();
+ if(x.origin!==undefined&&(!text(x.origin)||!sourceOrigin(x.origin,x.kind as RemoteSource['kind'])))invalid();
  // A state this app does not know is kept as the server named it, an error code it does not know is left off,
  // and range support it does not know reads as unknown. Credentials are never part of a read.
- const errorCode=text(x.errorCode,100)&&['source_changed','credentials_required','binary_changed','range_unsupported','invalid_configuration','cursor_expired','budget_exceeded','rate_limited','cancelled','offline'].includes(x.errorCode)?x.errorCode:undefined;if(x.errorCode!==undefined&&errorCode===undefined)noteSkipped('remote-sources','source.errorCode');
+ const errorCode=text(x.errorCode,100)&&['source_changed','credentials_required','binary_changed','range_unsupported','invalid_configuration','cursor_expired','budget_exceeded','rate_limited','quota_exceeded','cancelled','offline'].includes(x.errorCode)?x.errorCode:undefined;if(x.errorCode!==undefined&&errorCode===undefined)noteSkipped('remote-sources','source.errorCode');
  if(x.mountId!==undefined&&!text(x.mountId,256))invalid();
  return Object.freeze({id:x.id,kind:x.kind as RemoteSource['kind'],name:x.name,rootPath:x.rootPath,generation:x.generation,state:x.state,rangeSupport:oneOfOr('remote-sources','source.rangeSupport',x.rangeSupport,['unknown','conditional','unsupported','sequential'] as const,'unknown'),insecureLocal:x.insecureLocal,credentialPresent:x.credentialPresent,...(x.origin===undefined?{}:{origin:x.origin as string}),...(errorCode===undefined?{}:{errorCode}),...(x.mountId===undefined?{}:{mountId:x.mountId as string})});
 }
@@ -53,7 +71,7 @@ export class RemoteSourceService{
  private fence(raw:unknown){if(!record(raw)||!record(raw.scope)||raw.scope.serverId!==this.scope.serverId||!text(raw.scope.viewerFence,256)||!raw.scope.viewerFence||this.viewerFence&&this.viewerFence!==raw.scope.viewerFence)invalid();this.viewerFence=raw.scope.viewerFence;}
  private async request(path:string,method='GET',body?:unknown):Promise<unknown>{if(this.disposed)throw new Error('Scope changed.');const c=new AbortController();this.controllers.add(c);let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([this.api.request(path,method,body,c.signal),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{c.abort();reject(new Error('timeout'));},45000);})]);}finally{if(timer)clearTimeout(timer);this.controllers.delete(c);}}
  /** The sources as the server has them, checked; `undefined` when a later read or another viewer has taken over. */
- private async readSources(epoch:number,sequence:number){const raw=await this.request(routePath("get_storage_sources"));if(this.disposed||epoch!==this.epoch||sequence!==this.read)return undefined;this.fence(raw);if(!record(raw)||!Array.isArray(raw.sources)||raw.sources.length>16||typeof raw.mountSupported!=='boolean')invalid();const rows=firstOfEach('remote-sources','sources',keepReadable('remote-sources','sources',raw.sources,source),s=>s.id);return {sources:Object.freeze(rows),mountSupported:raw.mountSupported};}
+ private async readSources(epoch:number,sequence:number){const raw=await this.request(routePath("get_storage_sources"));if(this.disposed||epoch!==this.epoch||sequence!==this.read)return undefined;this.fence(raw);if(!record(raw)||!Array.isArray(raw.sources)||typeof raw.mountSupported!=='boolean')invalid();const rows=firstOfEach('remote-sources','sources',keepReadable('remote-sources','sources',raw.sources,source),s=>s.id);return {sources:Object.freeze(rows),mountSupported:raw.mountSupported};}
  /**
   * Reads the sources again while they are on screen (a share that became reachable, or stopped
   * being). What is shown stays; a failure leaves it as it was and rejects. Nothing is read while
@@ -62,6 +80,28 @@ export class RemoteSourceService{
  async revalidate(){if(this.disposed||this.state.busy||this.state.ambiguous||this.state.loading)return;const epoch=this.epoch,sequence=++this.read;const next=await this.readSources(epoch,sequence);if(next&&!this.state.busy)this.publish({...next,error:''});}
  async load(){const epoch=this.epoch,sequence=++this.read;this.publish({loading:true,error:''});try{const next=await this.readSources(epoch,sequence);if(!next)return;this.publish(next);}catch(e){if(epoch===this.epoch&&sequence===this.read)this.publish({error:safeError(e),sources:[],receipt:null,mountSupported:false});}finally{if(epoch===this.epoch&&sequence===this.read)this.publish({loading:false});}}
  private parseReceipt(raw:unknown,op:string):RemoteReceipt{this.fence(raw);if(!record(raw)||!record(raw.receipt)||raw.receipt.operationId!==op||raw.receipt.accepted!==true||typeof raw.receipt.removed!=='boolean')invalid();return Object.freeze({operationId:op,accepted:true,removed:raw.receipt.removed,source:source(raw.receipt.source)});}
+ /** A new-source test uses one explicit in-flight credential request. It saves no source or retry receipt. */
+ async testConnection(input:DAVConnectionInput):Promise<DAVConnectionResult>{
+  if(this.disposed||this.state.busy||this.state.ambiguous)throw new Error('Finish or recover the current source command first.');
+  if(!text(input.name,100)||!input.name.trim()||!text(input.root)||!text(input.username,1024)||!text(input.password)||typeof input.insecureLocal!=='boolean')throw new Error('Invalid connection fields.');
+  const epoch=this.epoch;this.publish({busy:true,error:'',errorCode:''});
+  try{
+   const raw=await this.request(routePath('test_storage_source_webdav'),'POST',routeBody('test_storage_source_webdav',{name:input.name,root:input.root,username:input.username,password:input.password,insecureLocal:input.insecureLocal}));
+   if(epoch!==this.epoch||this.disposed)throw new Error('Scope changed.');
+   this.fence(raw);
+   if(!record(raw)||!record(raw.result))invalid();
+   const result=raw.result;
+   if(!text(result.origin)||!sourceOrigin(result.origin,'webdav')||!['unknown','conditional','unsupported'].includes(String(result.rangeSupport))||['password','username','config','root'].some(key=>result[key]!==undefined))invalid();
+   return Object.freeze({origin:result.origin,rangeSupport:result.rangeSupport as DAVConnectionResult['rangeSupport']});
+  }catch(error){
+   if(epoch!==this.epoch||this.disposed)throw new Error('Scope changed.');
+   const rawCode=record(error)&&typeof error.code==='string'?error.code:'';
+   const code=['unauthorized','not_permitted','invalid_request','source_credentials_required','internal'].includes(rawCode)?rawCode:'internal';
+   const aliases:Record<string,string>={not_permitted:'forbidden',invalid_request:'remote_invalid_configuration',source_credentials_required:'remote_credentials_required'};
+   const message=safeError({code:aliases[code]??(code==='internal'?'remote_invalid_configuration':code)});
+   this.publish({error:message,errorCode:code});throw Object.assign(new Error(message),{code});
+  }finally{if(epoch===this.epoch&&!this.disposed)this.publish({busy:false});}
+ }
  /**
   * Adds a share (`id` null) or changes one. `base` is the share as the edit started from it: when
   * someone else changed the share meanwhile, it is read again and the edit, carried onto it field by
