@@ -1,6 +1,7 @@
 #import "PorticoSubtitleOverlay.h"
 #import "PorticoServerTrust.h"
 #import "PorticoSubtitleSelection.h"
+#import "PorticoSubtitlePayload.h"
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 
 /* One bounded scoped fetch. No ambient credentials, redirect, cookies or URL cache. */
@@ -51,15 +52,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
 }
 /* The URL must belong to this media grant's resource, including each font and IDX companion. */
 - (NSURL *)scoped:(id)value source:(NSString *)source resource:(NSString *)resource {
- if(![value isKindOfClass:NSString.class]||[value length]>4096)return nil;
- NSURL *url=[NSURL URLWithString:value],*media=[NSURL URLWithString:source];NSArray *parts=media.path.pathComponents;
- if(parts.count<4||!url.host.length||![@[@"http",@"https"] containsObject:url.scheme.lowercaseString]||![url.scheme.lowercaseString isEqual:media.scheme.lowercaseString]||![url.host.lowercaseString isEqual:media.host.lowercaseString]||![(url.port?:@([url.scheme isEqual:@"https"]?443:80)) isEqual:(media.port?:@([media.scheme isEqual:@"https"]?443:80))]||url.user||url.password||url.query||url.fragment)return nil;
- NSString *prefix=[NSString stringWithFormat:@"/v1/media/subtitles/%@/",parts[3]];
- if(![url.path hasPrefix:prefix])return nil;
- NSString *tail=[url.path substringFromIndex:prefix.length];
- NSRegularExpression *pattern=[NSRegularExpression regularExpressionWithPattern:@"^[A-Za-z0-9_-]{1,128}/[1-9][0-9]*(?:/original\\.(?:ass|ssa|sup|idx|sub|mks)|/fonts/[0-9]{1,2})$" options:0 error:nil];
- if(![pattern firstMatchInString:tail options:0 range:NSMakeRange(0,tail.length)])return nil;
- if(resource.length&&![url.path hasPrefix:[resource stringByAppendingString:@"/"]])return nil;return url;
+ return PorticoScopedSubtitleURL(value,source,resource);
 }
 - (void)fetch:(NSURL *)url limit:(NSUInteger)limit epoch:(NSUInteger)epoch done:(void (^)(NSData *))done {
  PSFetch *f=[PSFetch new];[_fetches addObject:f];__weak PorticoSubtitleOverlay *weakSelf=self;
@@ -85,7 +78,7 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
  NSString *kind=render[@"kind"];
  if(![@[@"ass",@"pgs",@"vobsub",@"dvb"] containsObject:kind]){if(_active)[self invalidate];return;}
  NSURL *url=[self scoped:render[@"url"] source:source resource:nil];
- if(!url){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
+ if(!url||([kind isEqual:@"vobsub"]&&!PorticoVobSubCompanionURL(render,source,url))){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  if([_command isEqual:command]&&[_source isEqual:source])return;
  [self invalidate];_active=YES;_command=[command copy];_source=[source copy];[self load];
 }
@@ -121,12 +114,11 @@ static BOOL PSNumber(id n,double lo,double hi){return [n isKindOfClass:NSNumber.
    });
   };
   if([kind isEqual:@"vobsub"]){
-   NSString *companion=[render[@"companionUrl"] isKindOfClass:NSString.class]?render[@"companionUrl"]:[[url.absoluteString stringByDeletingPathExtension] stringByAppendingPathExtension:@"sub"];
-   NSURL *pair=[s scoped:companion source:s->_source resource:resource];if(!pair){s->_loading=NO;return;}
+   NSURL *pair=PorticoVobSubCompanionURL(render,s->_source,url);if(!pair){s->_loading=NO;if(s.onStatus)s.onStatus(@"subtitle_source_invalid");return;}
    [s fetch:pair limit:64*1024*1024-data.length epoch:epoch done:^(NSData *bytes){finish(bytes,@[]);}];return;
   }
   NSArray *named=[render[@"fonts"] isKindOfClass:NSArray.class]?render[@"fonts"]:@[];
-  if(named.count>16){s->_loading=NO;return;}
+  if(named.count>16){s->_loading=NO;if(s.onStatus)s.onStatus(@"subtitle_font_invalid");return;}
   [s loadFonts:named index:0 total:0 fonts:[NSMutableArray new] resource:resource epoch:epoch done:^(NSArray *fonts){finish(nil,fonts);}];
  }];
 }
