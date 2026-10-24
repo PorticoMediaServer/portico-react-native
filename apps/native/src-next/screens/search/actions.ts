@@ -42,7 +42,7 @@ export function createNativeSearchActions(context: NativeShellBootstrapContext, 
   const offSource = source.subscribe(reconcile);
   reconcile();
   return Object.freeze({
-    menuState: Object.freeze({getSnapshot: () => revision, subscribe: listener => {
+    menuState: Object.freeze({getSnapshot: () => revision, subscribe: (listener: () => void) => {
       if (disposed) return () => {};
       listeners.add(listener); return () => {listeners.delete(listener);};
     }}),
