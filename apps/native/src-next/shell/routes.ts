@@ -2,7 +2,6 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {SavedRoute} from '../../../../packages/client-core/src/saved';
 import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
-import {Platform} from 'react-native';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
 export type NativeShellRoute = Readonly<
@@ -32,10 +31,10 @@ export type NativeShellRoute = Readonly<
 >;
 
 export const titleRoute = (entry: ContentEntry): NativeShellRoute => Object.freeze({kind: 'title', entry});
-/** TV opens albums and artists on their own drawn pages; every other platform keeps
- * the existing title route exactly. */
+/** Albums and artists open on their own drawn page on every platform; every other
+ * entry keeps the existing title route exactly. */
 export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute =>
-  Platform.isTV && (entry.kind === 'album' || entry.kind === 'artist') ? Object.freeze({kind: 'music', entry}) : titleRoute(entry);
+  entry.kind === 'album' || entry.kind === 'artist' ? Object.freeze({kind: 'music', entry}) : titleRoute(entry);
 export const channelRoute = (item: HomeChannel): NativeShellRoute => Object.freeze({kind: 'channel', sourceId: item.source.id, channelId: item.channel.id});
 
 export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: NativeShellRoute; destination: ShellDestination; revision: number}>;

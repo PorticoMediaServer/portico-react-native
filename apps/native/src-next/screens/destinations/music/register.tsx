@@ -1,3 +1,4 @@
+import {Platform} from 'react-native';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
@@ -5,6 +6,7 @@ import {nativeDestinationLifetime} from '../lifetime';
 import {createNativeEntryActions} from '../entry-actions';
 import {NativeTVMusicController} from './model';
 import {TVAlbumScreen, TVArtistScreen} from './TVMusicScreens';
+import {PhoneAlbumScreen, PhoneArtistScreen} from './PhoneMusicScreens';
 
 type Page = Readonly<{key: string; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>}>;
 
@@ -40,6 +42,10 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       const page = pageFor(route);
       if (!page) return null;
       const openEntry = (entry: ContentEntry) => {if (current()) context.navigation.open({kind: 'music', entry}, context.authority());};
+      const back = () => {if (current()) context.navigation.back(context.authority());};
+      if (!Platform.isTV) return page.entry.kind === 'album'
+        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>
+        : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
       return page.entry.kind === 'album'
         ? <TVAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>
         : <TVArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>;
