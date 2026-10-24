@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
+import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
@@ -31,6 +32,12 @@ export const phoneMusicGeometry = Object.freeze({
 function usePlayback(runtime: NativeShellRuntime) {
   const adapter = runtime.playback;
   return useSyncExternalStore(adapter?.subscribe ?? (() => () => {}), adapter?.getSnapshot ?? (() => undefined));
+}
+
+/** The album page is a detail surface: retry its own read, never send the person Home. */
+function retryAction(failure: ReturnType<typeof presentError>, retry: () => void) {
+  if (failure.action !== 'try-again' && failure.action !== 'refresh') return undefined;
+  return {id: 'retry', label: failure.actionLabel ?? t('action.tryAgain'), onPress: retry};
 }
 
 /** The floating back/More header the phone music frames draw over the wash. */
@@ -124,6 +131,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
   controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onBack: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime);
+  const failure = snapshot.error === undefined ? undefined : presentError(snapshot.error, 'detail', {operation: 'load'});
   const art = runtime.artwork(entry.posterUrl), more = useRef<NativeView>(null);
   const minutes = snapshot.songDurationSeconds === undefined ? undefined : Math.max(1, Math.round(snapshot.songDurationSeconds / 60));
   const facts = [
@@ -145,7 +153,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         {facts.length ? <Facts facts={facts}/> : null}
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false}/></View>
-      {snapshot.phase === 'error' ? <StateView variant="inline" {...runtime.error(snapshot.error, () => {void controller.load();})} style={{margin: 20}}/> : null}
+      {failure ? <StateView variant="inline" title={failure.title} body={failure.body} tone="error" primaryAction={retryAction(failure, () => {void controller.load();})} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View> : null}
     </ScrollView>
     <PhoneHeader title={title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
@@ -157,6 +165,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
   controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onBack: () => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime);
+  const failure = snapshot.error === undefined ? undefined : presentError(snapshot.error, 'detail', {operation: 'load'});
   const more = useRef<NativeView>(null);
   const covers = snapshot.albums.flatMap(album => {const source = runtime.artwork(album.posterUrl); return source ? [source] : [];});
   const facts = [
@@ -173,7 +182,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
         {facts.length ? <Facts facts={facts} strongFirst={false}/> : null}
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore/></View>
-      {snapshot.phase === 'error' ? <StateView variant="inline" {...runtime.error(snapshot.error, () => {void controller.load();})} style={{margin: 20}}/> : null}
+      {failure ? <StateView variant="inline" title={failure.title} body={failure.body} tone="error" primaryAction={retryAction(failure, () => {void controller.load();})} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 18}}>
         <Text style={[browseType(theme, phoneMusicGeometry.sectionLabel, 700), {color: theme.colors.textTertiary, marginHorizontal: 20, marginBottom: 8}]}>{t('music.topSongs')}</Text>
         <SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>
