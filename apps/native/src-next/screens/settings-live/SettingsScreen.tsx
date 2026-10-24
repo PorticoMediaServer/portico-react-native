@@ -30,7 +30,7 @@ export function nativeSettingsIcon(name: string): IconName {
 }
 
 export function NativeSettingsScreen({ports, controller, runtime, devicePreferences}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences}) {
-  const theme = useTheme(), t = defaultI18n.t, registry = useFocusRegistry();
+  const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
@@ -92,7 +92,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
 }
 
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
-  const theme = useTheme(), t = defaultI18n.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
   const [confirmation, setConfirmation] = useState<'signOut' | 'resetRecommendations'>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   const cancel = useRef<View>(null);
