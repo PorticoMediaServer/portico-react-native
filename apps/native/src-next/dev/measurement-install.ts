@@ -1,6 +1,6 @@
 /** App imports this module only inside its DEV branch. */
 import {Dimensions, PixelRatio, Platform} from 'react-native';
-import {installNativeLayoutDump, type NativeLayoutDump} from './layout-dump';
+import {createAndroidNativeTreeObserver, installNativeLayoutDump, type NativeLayoutDump} from './layout-dump';
 
 type CommandHost = typeof globalThis & {
   __PORTICO_NATIVE_LAYOUT_DUMP__?: Readonly<Pick<NativeLayoutDump, 'capture'>>;
@@ -19,6 +19,7 @@ export function installNativePublicMeasurement(root: () => object | null, isCurr
       return {width: window.width, height: window.height, deviceScaleFactor: PixelRatio.get()};
     },
     diagnostics: () => ({fontScale: PixelRatio.getFontScale()}),
+    observe: createAndroidNativeTreeObserver(),
     platform: Platform.OS === 'android' ? 'android' : Platform.isTV ? 'tvos' : 'ios',
     anchors: {
       'accounts-welcome-title': 'title',
