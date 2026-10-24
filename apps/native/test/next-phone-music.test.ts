@@ -15,6 +15,7 @@ const stubs = {
   '../../../kit/states': {StateView: 'StateView'},
   '../../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
   '../../../kit/theme': {useTheme: () => ({})},
+  './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
 };
 
 test('the phone album and artist pages keep the drawn frame values', async () => {
