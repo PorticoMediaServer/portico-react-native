@@ -17,6 +17,9 @@ export function LibrarySortMenu({sorts, value, label, onValueChange, onReshuffle
   onValueChange: (value: BrowseSortSelection) => void; onReshuffle: () => void;
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), [open, setOpen] = useState(false), active = sorts.find(sort => sort.id === value.field);
+  // Phone chip geometry from `.phone .chip` (34 high, 9 radius, 13 padding, 6 gap,
+  // 17 glyph, 13.5 label); TV and tablet keep their drawn control.
+  const phone = theme.platform === 'phone';
   const direction = (dir: 'asc' | 'desc') => defaultI18n.t('web.filters.direction', {kind: sortDirectionKind(value.field), dir});
   const choose = (choice: BrowseSortCapability) => {
     if (choice.id === value.field && value.reshufflable) onReshuffle();
@@ -25,11 +28,11 @@ export function LibrarySortMenu({sorts, value, label, onValueChange, onReshuffle
   };
   return <>
     <Focusable ref={anchor} focusId="sort" testID="library-sort" accessibilityLabel={defaultI18n.t('next.browse.native.sort')} accessibilityState={{expanded: open}}
-      focusKind="chip" focusRadius={theme.isTV ? 14 : 10} onPress={() => setOpen(true)} style={{height: theme.isTV ? 64 : 34, paddingHorizontal: theme.isTV ? 26 : 14,
-        borderRadius: theme.isTV ? 14 : 10, backgroundColor: theme.isTV ? alpha(theme.colors.text, .08) : theme.colors.raisedHigh, flexDirection: 'row', alignItems: 'center', gap: 8}}>
-      <Icon name="i-sort" size={theme.isTV ? 26 : 18} color={theme.colors.textTertiary}/>
-      {active && <><Text style={[browseType(theme, theme.isTV ? 22 : 14.5, 700), {color: theme.colors.text}]}>{label(active)}</Text>
-        {value.flippable && !active.seeded && <Text style={[browseType(theme, theme.isTV ? 22 : 14.5), {color: theme.colors.textTertiary}]}>{direction(value.direction)}</Text>}</>}
+      focusKind="chip" focusRadius={theme.isTV ? 14 : phone ? 9 : 10} onPress={() => setOpen(true)} style={{height: theme.isTV ? 64 : 34, paddingHorizontal: theme.isTV ? 26 : phone ? 13 : 14,
+        borderRadius: theme.isTV ? 14 : phone ? 9 : 10, backgroundColor: theme.isTV ? alpha(theme.colors.text, .08) : theme.colors.raisedHigh, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 8 : phone ? 6 : 8}}>
+      <Icon name="i-sort" size={theme.isTV ? 26 : phone ? 17 : 18} color={theme.colors.textTertiary}/>
+      {active && <><Text style={[browseType(theme, theme.isTV ? 22 : phone ? 13.5 : 14.5, 700), {color: theme.colors.text}]}>{label(active)}</Text>
+        {value.flippable && !active.seeded && <Text style={[browseType(theme, theme.isTV ? 22 : phone ? 13.5 : 14.5), {color: theme.colors.textTertiary}]}>{direction(value.direction)}</Text>}</>}
     </Focusable>
     <Popover open={open} onOpenChange={setOpen} anchorRef={anchor} returnFocusRef={anchor} title={defaultI18n.t('next.browse.native.sort')}
       width={theme.isTV ? 560 : 300} placement="bottom-end">

@@ -11,8 +11,8 @@ function nodes(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
   return node && typeof node === 'object' && 'props' in node ? [node, ...nodes(node.props.children)] : [];
 }
-async function fixture(isTV: boolean) {
-  const host = hooks(), calls: any[] = [], theme = createTheme({width: isTV ? 1920 : 390, isTV});
+async function fixture(isTV: boolean, width = isTV ? 1920 : 390) {
+  const host = hooks(), calls: any[] = [], theme = createTheme({width, isTV});
   const field = {id: 'genre', labelKey: 'filter.field.genre', type: 'identity-set', operators: ['contains-any'], controlHint: 'facet-multi-select', complexity: 'quick', cost: 'indexed', applicableKinds: ['movie']};
   const capability = {library: {id: 'actual-library', kind: 'movie'}, fields: [field], sorts: [], quickFilters: [], resolvedPivot: null};
   const original = {field: 'genre', operator: 'contains-any', value: ['Drama']};
@@ -33,6 +33,21 @@ async function fixture(isTV: boolean) {
   const tree = host.render(() => LibraryFilters({draft, source, runtime, labels: {field: () => 'Genre'}, owner: true, onClose: () => calls.push('close'), onSave: (value: unknown) => calls.push(['save', value])}));
   return {tree, calls, state, source};
 }
+
+test('phone filter-sheet detents preserve the existing tablet defaults and TV panel', async () => {
+  const phone = await fixture(false, 390);
+  assert.equal(phone.tree.type, 'BottomSheet');
+  assert.deepEqual(phone.tree.props.detents, [580, 698]);
+  assert.equal(phone.tree.props.defaultDetent, 1);
+  const tablet = await fixture(false, 768);
+  assert.equal(tablet.tree.type, 'BottomSheet');
+  assert.deepEqual(tablet.tree.props.detents, [580, 780]);
+  assert.equal(tablet.tree.props.defaultDetent, undefined, 'tablet retains the BottomSheet default detent zero');
+  const tv = await fixture(true);
+  assert.equal(tv.tree.type, 'SidePanel');
+  assert.equal(tv.tree.props.width, 680);
+  assert.equal(tv.tree.props.detents, undefined);
+});
 
 test('TV Library filters enter the actual first field and Apply returns through the real staged controller', async () => {
   const {tree, calls, state} = await fixture(true);

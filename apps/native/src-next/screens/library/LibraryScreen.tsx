@@ -1,11 +1,12 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
-import {defaultI18n} from '../../../../../packages/i18n/src';
+import {ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type TextStyle} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {Library} from '../../../../../packages/client-core/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {BrowseNode} from '../../../../../packages/client-core/src/browse';
 import {browseToolbarModel} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {libraryTabs} from '../../../../../packages/client-core/src/presentation/library-tabs';
+import {libraryTabs, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {AmbientArt} from '../../kit/artwork';
@@ -18,6 +19,7 @@ import {Icon} from '../../kit/Icon';
 import {WindowedGrid, AlphabetRail, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
 import {StateView} from '../../kit/states';
 import {useTheme} from '../../kit/theme';
+import {BlurView, glassRecipe} from '../../platform/native-blur';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {createDestinationEntryFocus, nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
@@ -28,7 +30,7 @@ import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
 import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
-import {hiddenReadingLibraryOnTV} from '../read/platform';
+import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 
 export type NativeLibraryActions = Readonly<{
@@ -63,6 +65,86 @@ export type NativeLibraryScreenProps = Readonly<{
 const noSubscribe = () => () => {};
 const noSelection = () => undefined;
 
+/** Screen-local geometry named for this lane. Numbers come from the phone frame's
+ * own CSS: the compact row is 44 high, the back control 38 with its optical -4
+ * offset, the pivot strip 46 with a 3px accent underline, and the count row
+ * `padding: 10px 20px`. */
+const nativeLibraryR46 = StyleSheet.create({
+  header: {borderBottomWidth: 1},
+  navRow: {height: 44, paddingLeft: 12, paddingRight: 10, flexDirection: 'row', alignItems: 'center'},
+  back: {height: 38, marginLeft: -4, paddingRight: 6, justifyContent: 'center'},
+  backContent: {flexDirection: 'row', alignItems: 'center'},
+  /** The switcher centres on the screen, not on the space the row leaves; the
+   * side bounds keep a long library name clear of both controls. */
+  centre: {position: 'absolute', left: 118, right: 118, top: 0, height: 44, alignItems: 'center', justifyContent: 'center'},
+  centreInner: {maxWidth: '100%'},
+  trailing: {marginLeft: 'auto'},
+  tabStrip: {paddingHorizontal: 20, gap: 24},
+  tab: {height: 46, justifyContent: 'center'},
+  tabUnderline: {position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, borderRadius: 3},
+  wash: {position: 'absolute', top: 0, left: 0, right: 0, height: 470, overflow: 'hidden'},
+  count: {paddingHorizontal: 20, paddingTop: 10, paddingBottom: 10},
+});
+
+/** The wash behind the compact row belongs to the Listen and Read libraries
+ * (phone-app 15a and the Books row). Movies, TV Shows and Anime are flat. */
+export function libraryWashKind(kind: string): boolean {
+  return kind === 'music' || kind === 'audiobook' || isReadingLibraryKind(kind);
+}
+
+/** Phone Library's compact header (phone-app #r2a 4): one 44 row with
+ * "‹ Libraries", the centred switcher and ⋯, then the pivot strip. The
+ * switcher is centred on the screen itself, not on the space the row leaves. */
+export function LibraryCompactHeader({switcher, menu, wash, children, onLibraries, testID}: {
+  switcher?: ReactNode; menu?: ReactNode; wash?: boolean; children?: ReactNode; onLibraries: () => void; testID?: string;
+}) {
+  const theme = useTheme(), insets = useSafeAreaInsets(), recipe = glassRecipe();
+  return <View testID={testID} style={[nativeLibraryR46.header, {paddingTop: insets.top, backgroundColor: alpha(theme.colors.ink, wash ? .62 : .84),
+    borderBottomColor: alpha(theme.colors.text, .07), zIndex: theme.layers.sticky}]}>
+    {recipe.nativeBlur && <BlurView pointerEvents="none" style={StyleSheet.absoluteFill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.ink}/>}
+    <View style={nativeLibraryR46.navRow}>
+      <Focusable accessibilityRole="button" focusKind="row" onPress={onLibraries} accessibilityLabel={defaultI18n.t('next.browse.native.libraries')} style={nativeLibraryR46.back}>
+        <View style={nativeLibraryR46.backContent}>
+          <Icon name="i-left" size={22} color={theme.colors.textSecondary}/>
+          <Text style={[browseType(theme, 16, 600), {color: theme.colors.textSecondary}]}>{defaultI18n.t('next.browse.native.libraries')}</Text>
+        </View>
+      </Focusable>
+      <View pointerEvents="box-none" style={nativeLibraryR46.centre}><View style={nativeLibraryR46.centreInner}>{switcher}</View></View>
+      <View style={nativeLibraryR46.trailing}>{menu}</View>
+    </View>
+    {children}
+  </View>;
+}
+
+/** The pivot strip: it scrolls on a phone because Music and Audiobooks have more
+ * pivots than fit (phone-app 15a), and stays one drawn row on TV. */
+export function LibraryTabs({items, selected, enabled, disabled, regionId, leftEdge, phone, onSelect, onFocusTab}: {
+  items: readonly Readonly<{id: LibraryTabId; label: MessageId}>[]; selected: string; enabled: boolean; disabled?: boolean;
+  regionId: string; leftEdge: string; phone: boolean; onSelect: (id: LibraryTabId) => void; onFocusTab?: (id: LibraryTabId) => void;
+}) {
+  const theme = useTheme();
+  const strip = items.map(tab => <Focusable key={tab.id} focusId={tab.id} accessibilityRole="tab" accessibilityLabel={defaultI18n.t(tab.label)}
+    accessibilityState={{selected: selected === tab.id}} disabled={!enabled || !!disabled} onPress={() => onSelect(tab.id)}
+    onFocus={theme.isTV ? () => onFocusTab?.(tab.id) : undefined}
+    style={theme.isTV ? {height: 64, justifyContent: 'center', borderBottomWidth: selected === tab.id ? 4 : 0, borderBottomColor: theme.colors.accentStrong}
+      : phone ? nativeLibraryR46.tab
+      : {height: 46, justifyContent: 'center', borderBottomWidth: selected === tab.id ? 4 : 0, borderBottomColor: theme.colors.accentStrong}}>
+    <Text style={[browseType(theme, theme.isTV ? 24 : 15.5, 700), {color: selected === tab.id ? theme.colors.text : theme.colors.textTertiary}]}>{defaultI18n.t(tab.label)}</Text>
+    {phone && selected === tab.id && <View style={[nativeLibraryR46.tabUnderline, {backgroundColor: theme.colors.accent}]}/>}
+  </Focusable>);
+  return <FocusRegion id={regionId} entry="browse" orientation="horizontal" enabled={enabled} edges={{left: leftEdge}}
+    style={phone ? undefined : {flexDirection: 'row', gap: theme.isTV ? 32 : 28, paddingHorizontal: theme.isTV ? 0 : 20}}>
+    {phone ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexGrow: 0, flexShrink: 0}} contentContainerStyle={nativeLibraryR46.tabStrip}>{strip}</ScrollView> : strip}
+  </FocusRegion>;
+}
+
+/** The drawn result count: its own left-aligned row under the toolbar on a
+ * phone (`.cnt`), and the toolbar's trailing text on TV. */
+export function LibraryResultCount({phone, style, children}: {phone: boolean; style?: StyleProp<TextStyle>; children: ReactNode}) {
+  const theme = useTheme();
+  return <Text accessibilityLiveRegion="polite" style={[browseType(theme, phone ? 13 : 22, 600), {color: theme.colors.textTertiary}, phone ? nativeLibraryR46.count : undefined, style]}>{children}</Text>;
+}
+
 /** The actual library route, independently retained below a title page. The
  * initial TV card is a real producer entity, never an index or placeholder. */
 export function LibraryScreen(props: NativeLibraryScreenProps) {
@@ -81,27 +163,28 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', gap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
   });
-  const tabs = <FocusRegion id={ids.libraryTabs(state.library.id)} entry="browse" orientation="horizontal" enabled={active.visible}
-    edges={{left: ids.rail}} style={{flexDirection: 'row', gap: theme.isTV ? 32 : 28, paddingHorizontal: theme.isTV ? 0 : 20}}>
-    {libraryTabs(state.library.kind).map(tab => <Focusable key={tab.id} focusId={tab.id} accessibilityRole="tab" accessibilityLabel={defaultI18n.t(tab.label)}
-      accessibilityState={{selected: state.tab.id === tab.id}} disabled={!active.visible || theme.isTV && active.intent === 'enter' && !entered} onPress={() => {void destination.load(tab.id).catch(runtime.reportError);}}
-      onFocus={theme.isTV ? () => {void destination.load(tab.id).catch(runtime.reportError);} : undefined}
-      style={{height: theme.isTV ? 64 : 46, justifyContent: 'center', borderBottomWidth: state.tab.id === tab.id ? 4 : 0, borderBottomColor: theme.colors.accentStrong}}>
-      <Text style={[browseType(theme, theme.isTV ? 24 : 15.5, 700), {color: state.tab.id === tab.id ? theme.colors.text : theme.colors.textTertiary}]}>{defaultI18n.t(tab.label)}</Text>
-    </Focusable>)}
-  </FocusRegion>;
+  const tabs = <LibraryTabs items={libraryTabs(state.library.kind)} selected={state.tab.id} enabled={active.visible} phone={theme.platform === 'phone'}
+    disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail}
+    onSelect={id => {void destination.load(id).catch(runtime.reportError);}} onFocusTab={id => {void destination.load(id).catch(runtime.reportError);}}/>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV ? 'chevron' : 'name'}/>;
   const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
   const source = latestArtwork ? runtime.ambient(latestArtwork) : undefined;
-  const ambient = source ? <AmbientArt source={source} treatment="library"/> : undefined;
-  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
-    : <StickyBrowseHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={<LibraryMenu {...runtime.libraryMenu(state.library)}
-      canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
+  // The phone's wash sits behind the pinned header and the first rows (`.lwash`).
+  const washed = !!source && theme.platform === 'phone' && libraryWashKind(state.library.kind);
+  const wash = washed ? <View pointerEvents="none" style={nativeLibraryR46.wash}><AmbientArt source={source} treatment="library"/></View> : undefined;
+  const ambient = source && !washed ? <AmbientArt source={source} treatment="library"/> : undefined;
+  const menu = <LibraryMenu {...runtime.libraryMenu(state.library)}
+    canSaveView={!!state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})} onSaveView={() => {
       if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
-    }}/>}
+    }}/>;
+  const header = theme.isTV ? <LibraryHeader name={state.library.name} switcher={switcher} ambient={ambient}>{tabs}</LibraryHeader>
+    : theme.platform === 'phone' ? <LibraryCompactHeader switcher={switcher} menu={menu} wash={washed}
+      onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</LibraryCompactHeader>
+    : <StickyBrowseHeader name={state.library.name} switcher={switcher} ambient={ambient} menu={menu}
       onLibraries={() => runtime.onDestination({kind: 'libraries'})}>{tabs}</StickyBrowseHeader>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    {wash}
     {header}
     {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
@@ -184,18 +267,19 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     </FocusRegion>
     {!!applied.length ? <FocusRegion id={appliedRegion} entry={applied[0].id} orientation="horizontal" enabled={active.visible}
       edges={{left: ids.rail, up: ids.libraryToolbar(source.library.id), ...(firstKey ? {down: ids.libraryCard(source.library.id, firstKey)} : {})}}
-      style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 10, paddingBottom: theme.isTV ? 14 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
+      style={{paddingHorizontal: theme.gutter, paddingTop: theme.isTV ? 24 : 10, paddingBottom: theme.isTV ? 14 : theme.platform === 'phone' ? 0 : 10, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 12 : 8, flexWrap: 'wrap'}}>
       {applied.map(filter => <Focusable key={filter.id} focusId={filter.id} disabled={!active.visible} accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: filter.fieldName})}
         onPress={() => destination.setQuery(source.predicates.filter(node => JSON.stringify(node) !== filter.id))}
-        style={{height: theme.isTV ? 52 : 30, borderRadius: theme.isTV ? 14 : 17, paddingLeft: theme.isTV ? 20 : 11, paddingRight: 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.colors.raisedBright,
+        style={{height: theme.isTV ? 52 : 30, borderRadius: theme.isTV ? 14 : theme.platform === 'phone' ? 9 : 17, paddingLeft: theme.isTV ? 20 : 11, paddingRight: theme.platform === 'phone' ? 8 : 7, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: theme.isTV ? alpha(theme.colors.accent, .18) : theme.platform === 'phone' ? theme.colors.raisedHigh : theme.colors.raisedBright,
           borderWidth: theme.isTV ? 1.5 : 0, borderColor: alpha(theme.colors.accentStrong, .5)}}>
         <Text numberOfLines={1} style={[browseType(theme, theme.isTV ? 20 : 13, 600), {color: theme.colors.text}]}>{filter.label}</Text><Icon name="i-close" size={theme.isTV ? 22 : 14} color={theme.colors.textSecondary}/>
       </Focusable>)}
       <Focusable focusId="clear" disabled={!active.visible} onPress={() => destination.setQuery(base as readonly BrowseNode[])} style={{height: theme.isTV ? 52 : 30, justifyContent: 'center', paddingHorizontal: 8}}>
         <Text style={[browseType(theme, theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.t('next.browse.native.clearAll')}</Text>
       </Focusable>
-      {count && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{count}</Text>}
-    </FocusRegion> : count && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
+      {count && theme.platform !== 'phone' && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{count}</Text>}
+    </FocusRegion> : count && theme.platform !== 'phone' && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
+    {count && theme.platform === 'phone' && <LibraryResultCount phone>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
     <WindowedGrid ref={grid} testID="library-grid" collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={width * 1.5 + (theme.isTV ? 72 : 43)}
       gap={gap} rowGap={theme.isTV ? 40 : 22} gutter={theme.isTV ? theme.gutter : 16} rightGutter={theme.isTV ? 72 : 26} selection={selected}
