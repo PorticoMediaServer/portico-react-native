@@ -5,6 +5,7 @@ import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PinnedResource} from '../../../../../packages/client-core/src/library-pins';
 import type {SavedEntry, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {Focusable} from '../../kit/controls';
 import {StateView} from '../../kit/states';
@@ -74,7 +75,8 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
       <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
         <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text}]}>{t('saved.title')}</Text>
       </View>
-      {snapshot.phase === 'error' && <StateView {...runtime.error(snapshot.error, () => {void destination.load().catch(report);})}/>}
+      {snapshot.phase === 'error' && <StateView variant="inline" title={t('saved.loadFailed')} body={presentError(snapshot.error, 'saved', {operation: 'load'}).body}
+        primaryAction={{id: 'retry', label: t('saved.retry'), onPress: () => {void destination.load().catch(report);}}}/>}
       <SavedSection first>
         <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
         {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>

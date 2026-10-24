@@ -54,13 +54,17 @@ export class NativeSavedDestination {
     this.controller?.abort(); const controller = new AbortController(); this.controller = controller;
     const revision = ++this.revision;
     this.publish({phase: 'loading', error: undefined, summary: undefined});
-    const task = Promise.all([
+    const task = Promise.allSettled([
       this.myList.select({view: 'watchlist', shape: 'posters'}), fetchSavedSummary(this.options.api, this.options.scope, controller.signal),
       readPinOrder(this.options.api, this.options.scope.serverId, controller.signal),
     ]).then(results => {
       if (!this.current() || revision !== this.revision || controller.signal.aborted) return;
+      // The drawn My List is the hub; its failure is the page's error. Missing counts or
+      // pins are absent sections, never a fake zero or a Home-shaped error over Saved.
       const failure = this.myList.getSnapshot().error;
-      this.publish({phase: failure ? 'error' : 'ready', summary: results[1], pins: results[2].order, error: failure ?? undefined});
+      const summary = results[1].status === 'fulfilled' ? results[1].value : undefined;
+      const pins = results[2].status === 'fulfilled' ? results[2].value.order : [];
+      this.publish({phase: failure ? 'error' : 'ready', summary, pins, error: failure ?? undefined});
     }).catch(error => {if (this.current() && revision === this.revision && !controller.signal.aborted) this.publish({phase: 'error', error});})
       .finally(() => {if (this.pending === task) this.pending = undefined;});
     this.pending = task; return task;
