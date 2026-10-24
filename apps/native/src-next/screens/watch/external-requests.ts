@@ -18,7 +18,9 @@ type Host = Readonly<{
 export class NativeWatchExternalRequests {
   private active = true;
   private controllers = new Set<AbortController>();
-  constructor(private readonly host: Host, private readonly reportError: (error: unknown) => void) {}
+  private readonly host: Host;
+  private readonly reportError: (error: unknown) => void;
+  constructor(host: Host, reportError: (error: unknown) => void) {this.host = host; this.reportError = reportError;}
   request = async (fence: PlaybackFence): Promise<boolean> => {
     const revision = this.host.navigation.getSnapshot().revision;
     const current = () => this.active && this.host.current() && this.host.navigation.getSnapshot().revision === revision
