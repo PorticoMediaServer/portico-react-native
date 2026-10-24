@@ -12,6 +12,7 @@ import {NativeTogetherController} from './together-controller';
 import {NativeTogetherMedia} from './together-media';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeSettingsScreen} from './SettingsScreen';
+import {nativeDevicePreferences} from './device-preference-consumer';
 import {NativeLiveScreen} from './LiveScreen';
 import {NativeTogetherScreen} from './TogetherScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
@@ -28,6 +29,7 @@ export {NativeRecordingsController, type NativeRecordingsSnapshot, type NativeRe
 /** No global registration. Accounts composes the one shell dispatcher with Destinations. */
 export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts): NativeSettingsLiveRenderers {
   const {context} = ports;
+  const devicePreferences = nativeDevicePreferences(context);
   const lifetime = new NativeScreenLifetime(context);
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
   const raw = localV1Http(context.api);
@@ -49,10 +51,10 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const dispose = () => {if (disposed) return; disposed = true; releaseAuthority(); unsubscribe(); settings.dispose(); live.dispose(); recordings.dispose(); together.dispose(); togetherMedia.dispose(); dashboard.dispose(); lifetime.dispose();};
   releaseAuthority = context.subscribeAuthority(() => {if (!lifetime.current()) dispose();});
   return {
-    settings: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'settings') throw new Error('native_settings_route_mismatch'); return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime}/>;}},
+    settings: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'settings') throw new Error('native_settings_route_mismatch'); return <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>;}},
     live: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch'); return <NativeLiveScreen ports={ports} controller={live} recordings={recordings} runtime={runtime}/>;}},
     together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); return <NativeTogetherScreen ports={ports} controller={together} media={togetherMedia} runtime={runtime}/>;}},
-    serverDashboard: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'server-dashboard') throw new Error('native_dashboard_route_mismatch'); return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime}/>}/>;}},
+    serverDashboard: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'server-dashboard') throw new Error('native_dashboard_route_mismatch'); return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences}/>}/>;}},
     dispose,
   };
 }
