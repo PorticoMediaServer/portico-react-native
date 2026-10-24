@@ -60,9 +60,9 @@ test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV
   assert.equal(phone.homeFactStrong(tvTheme), tvTheme.type.bodyStrong.fontFamily);
 });
 
-async function homeModule(theme: typeof phoneTheme, rows: readonly any[], registry = createFocusRegistry()) {
+async function homeModule(theme: typeof phoneTheme, rows: readonly any[], react: any = {...React, default: React}, registry = createFocusRegistry()) {
   return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
-    react: {...React, default: React},
+    react,
     'react-native': {AppState: {currentState: 'active'}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
     '../../../../../packages/i18n/src': {defaultI18n},
@@ -103,7 +103,7 @@ test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row
     actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {},
     renderHomeEmpty: () => null, error: () => ({}),
   };
-  const {HomeScreen} = await homeModule(phoneTheme, rows);
+  const {HomeScreen} = await homeModule(phoneTheme, rows, h.react);
   const tree = h.render(() => HomeScreen({runtime, authority}));
   const wrappers = descendants(tree).filter(node => node.type === 'View' && node.props.onLayout);
   assert.equal(wrappers.length, 2);
