@@ -131,15 +131,17 @@ test('a rejected or contradictory native acknowledgement retains the last confir
   assert.equal(facts.value.on, false);
 });
 
-test('the projection makes no port call and never mutates the store snapshot', async () => {
+test('the projection keeps the frozen actual snapshot and value identity without a port call or mutation', async () => {
   const f = fixture();
   assert.deepEqual(nativeSettingsEqualizerFacts(f.store.getSnapshot()), {state: 'unconfirmed', pending: false});
   assert.deepEqual(f.calls, {read: 0, write: 0, reset: 0});
   await f.store.refresh();
-  const snapshot = f.store.getSnapshot(), calls = {...f.calls}, before = JSON.stringify(snapshot);
-  assert.ok(Object.isFrozen(snapshot) && Object.isFrozen(snapshot.value!.gains));
-  for (let index = 0; index < 5; index++) confirmed(snapshot);
+  const snapshot = f.store.getSnapshot(), value = snapshot.value!, calls = {...f.calls}, before = JSON.stringify(snapshot);
+  assert.ok(Object.isFrozen(snapshot) && Object.isFrozen(value) && Object.isFrozen(value.gains));
+  const projected = Array.from({length: 5}, () => confirmed(snapshot));
+  assert.ok(projected.every(facts => facts.value === value));
   assert.deepEqual(f.calls, calls);
   assert.equal(JSON.stringify(snapshot), before);
-  assert.equal(confirmed(snapshot).value, f.store.getSnapshot().value);
+  assert.equal(f.store.getSnapshot(), snapshot);
+  assert.equal(projected[0].value, f.store.getSnapshot().value);
 });
