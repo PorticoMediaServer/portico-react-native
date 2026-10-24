@@ -21,6 +21,7 @@ import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
 
 const t = defaultI18n.t;
+const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
 type Tab = NativeTVSavedTab;
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen' | 'play'>;
 const sorts: readonly Readonly<{id: Exclude<SavedListSort, 'updated'>; label: Parameters<typeof t>[0]}>[] = [
@@ -133,9 +134,9 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const squares = (tab === 'watchlist' || tab === 'favorites' ? snapshot.squares?.sections.flatMap(section => section.entries) ?? [] : [])
     .filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry');
   const posterCount = snapshot.counts?.posters ?? posters.length, squareCount = snapshot.counts?.squares ?? squares.length;
-  const card = (entry: ContentEntry) => <PosterCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={[historyLine(entry)]} artwork={runtime.artwork(entry.posterUrl)}
+  const card = (entry: ContentEntry) => <PosterCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(historyLine(entry))} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
-  const square = (entry: ContentEntry) => <SquareCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={[entry.artist?.name ?? entry.author ?? '']} artwork={runtime.artwork(entry.posterUrl)}
+  const square = (entry: ContentEntry) => <SquareCard key={entry.id} width={200} title={entry.displayTitle ?? entry.title} caption={factLine(entry.artist?.name ?? entry.author ?? '')} artwork={runtime.artwork(entry.posterUrl)}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry)} moreExpanded={actions.isMenuOpen(entry)}/>;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
@@ -188,6 +189,6 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     <Menu open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,
       onSelect: () => {setFilter(value.id); run(controller.select(tab, {sort, filter: value.id, period}));}}))}/>
     <Dialog open={clearOpen} onOpenChange={setClearOpen} title={t('web.saved.clearHistoryTitle')} description={t('web.saved.clearHistoryBody')}
-      footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}/>
+      footer={<><Button variant="glass" onPress={() => setClearOpen(false)}>{t('action.cancel')}</Button><Button variant="primary" onPress={() => {setClearOpen(false); run(controller.clearHistory(period));}}>{t('web.saved.clearHistoryAction')}</Button></>}><View/></Dialog>
   </View>;
 }

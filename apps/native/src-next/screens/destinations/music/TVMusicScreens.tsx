@@ -15,6 +15,7 @@ import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
 
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen'>;
+const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
 const noSelection: TrackSelection = {active: false, isSelected: () => false, onToggle: () => {}, onEnter: () => {}, renderControl: () => null};
 const t = defaultI18n.t;
 
@@ -80,7 +81,7 @@ function AlbumCard({album, runtime, actions, openEntry, width = 200, caption}: {
   const artwork = runtime.artwork(album.posterUrl);
   const entry: ContentEntry = useMemo(() => Object.freeze({id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title,
     ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})}), [album]);
-  return <SquareCard width={width} title={album.title} caption={[caption]} artwork={artwork} menuAnchorRef={anchor}
+  return <SquareCard width={width} title={album.title} caption={factLine(caption)} artwork={artwork} menuAnchorRef={anchor}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, anchor)} moreExpanded={actions.isMenuOpen(entry)}/>;
 }
 
@@ -110,7 +111,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry}: 
         <SectionHeading title={t('music.moreLikeThis')} detail={t('music.moreLikeThisHint')} left={200} top={896}/>
         <View style={{position: 'absolute', left: 200, top: 954, flexDirection: 'row', gap: 32, zIndex: 2}}>
           {snapshot.similar.filter(value => value.kind === 'album').slice(0, 7).map(value => <SquareCard key={value.id} width={200} title={value.displayTitle ?? value.title}
-            caption={[value.artist?.name ?? '']} artwork={runtime.artwork(value.posterUrl)} onNavigate={() => openEntry(value)} onMore={() => actions.menu(value)} moreExpanded={actions.isMenuOpen(value)}/>)}
+            caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={() => openEntry(value)} onMore={() => actions.menu(value)} moreExpanded={actions.isMenuOpen(value)}/>)}
         </View>
       </View>
     </ScrollView>
