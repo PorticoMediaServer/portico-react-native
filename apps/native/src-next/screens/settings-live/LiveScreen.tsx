@@ -105,6 +105,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
   const chooseDay = (day: string) => Number(day) === today ? goNow() : setStart(dayPrimeTime(Number(day), state.options.timezone));
   const shortDate = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'short', month: 'short', day: 'numeric'}), [locale, state.options.timezone]);
   const longDay = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'long'}), [locale, state.options.timezone]);
+  const fullDate = useMemo(() => nativeGuideDate(locale, state.options.timezone, {weekday: 'long', month: 'short', day: 'numeric'}), [locale, state.options.timezone]);
   const dayName = (day: number) => day === today ? t('guide.today') : day === days[1] ? t('guide.tomorrow') : longDay(day);
   const dayPicker = phone ? <NativeLivePhonePicker testID="live-day" accessibilityLabel={t('guide.day')} value={String(currentDay)} disabled={daysCount < 1} onChange={chooseDay}
     options={days.map(day => ({id: String(day), label: dayName(day), trailing: shortDate(day)}))} style={{gap: 6}} menuWidth={252}>
@@ -112,7 +113,7 @@ export function NativeLiveScreen({controller, recordings, ports, runtime}: {cont
       <Text style={[shellType(13.5, 700), {color: theme.colors.text}]}>{dayName(currentDay)}</Text>
       {!landscape && <Text style={[shellType(13.5, 600), {color: theme.colors.textTertiary}]}>{shortDate(currentDay)}</Text>}
     </NativeLivePhonePicker>
-    : <Select testID="live-day" accessibilityLabel={t('guide.day')} disabled={daysCount < 1} value={String(currentDay)} options={days.map(day => ({value: String(day), label: day === today ? t('guide.today') : defaultI18n.formatDate(day, {weekday: 'long', month: 'short', day: 'numeric', timeZone: state.options.timezone})}))} onValueChange={chooseDay}/>;
+    : <Select testID="live-day" accessibilityLabel={t('guide.day')} disabled={daysCount < 1} value={String(currentDay)} options={days.map(day => ({value: String(day), label: day === today ? t('guide.today') : fullDate(day)}))} onValueChange={chooseDay}/>;
   const sortOptions = [{value: 'number', label: t('channels.sortNumber')}, {value: 'name', label: t('channels.sortName')}];
   const chooseSort = (sort: string) => select({sort: sort as 'number' | 'name'});
   const sortPicker = phone ? <NativeLivePhonePicker testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions.map(option => ({id: option.value, label: option.label}))} onChange={chooseSort} placement="bottom-end" secondary>{sortOptions.find(option => option.value === state.options.sort)?.label}</NativeLivePhonePicker>
