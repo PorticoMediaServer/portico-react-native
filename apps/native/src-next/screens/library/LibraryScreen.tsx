@@ -13,7 +13,6 @@ import {AmbientArt} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, StickyBrowseHeader, ViewToggle, type BrowseLabels} from '../../kit/browse';
-import {Menu} from '../../kit/overlays';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
 import {WindowedGrid, AlphabetRail, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
@@ -29,6 +28,8 @@ import {LibraryToolbar} from './LibraryToolbar';
 import {LibraryListRow} from './LibraryListRow';
 import {NativeLibraryDirectory} from './directory';
 import {LibraryFilters} from './LibraryFilters';
+import {LibraryJumpSheet} from './LibraryJumpSheet';
+import {libraryJumpLetter, libraryJumpLetters} from './jump';
 import type {NativeLibraryFilterDraft} from './filters';
 import {libraryAppliedFilters} from './applied-filters';
 import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
@@ -233,6 +234,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
   const geometry = useRef(0), [view, setView] = useState<{mode: 'grid' | 'list'; anchor: number; generation: number}>({mode: 'grid', anchor: source.memory.firstVisibleIndex, generation: 0});
   const list = theme.platform === 'phone' && view.mode === 'list';
   const [jumpOpen, setJumpOpen] = useState(false), jumpAnchor = useRef<View>(null);
+  const jumpLetters = useMemo(() => libraryJumpLetters(state.positionIndex), [state.positionIndex]);
+  const jumpLetter = useMemo(() => libraryJumpLetter(jumpLetters, visible.first), [jumpLetters, visible.first]);
   const [filterDraft, setFilterDraft] = useState<NativeLibraryFilterDraft>();
   const filterState = useSyncExternalStore(filterDraft?.subscribe ?? noSubscribe, filterDraft?.getSnapshot ?? noSelection);
   const filterOpening = useRef(0);
@@ -306,8 +309,8 @@ function LibraryGrid({destination, runtime, activation, actions, labels, selecti
     {state.positionIndex && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length && <AlphabetRail positionIndex={state.positionIndex}
       total={state.total} firstVisible={visible.first} lastVisible={visible.last} testID="library-alphabet" onJump={index => grid.current?.scrollToIndex(index)}
       height={theme.isTV ? 514 : 480} style={{position: 'absolute', right: theme.isTV ? 40 : 2, top: theme.isTV ? 174 : 110}}/>}
-    <Menu open={jumpOpen} onOpenChange={setJumpOpen} anchorRef={jumpAnchor} returnFocusRef={jumpAnchor} title={defaultI18n.t('next.browse.native.jumpTo')}
-      items={Object.keys(state.positionIndex ?? {}).map(key => ({id: key, label: key, onSelect: () => grid.current?.scrollToLetter(key)}))}/>
+    <LibraryJumpSheet open={jumpOpen} panelId={`${ids.libraryToolbar(source.library.id)}.jump`} letters={jumpLetters} selected={jumpLetter}
+      onSelect={key => {setJumpOpen(false); grid.current?.scrollToLetter(key);}} onClose={() => setJumpOpen(false)}/>
     {filterDraft && <LibraryFilters key={filterOpening.current} draft={filterDraft} source={source} runtime={runtime} labels={labels} owner={owner} onClose={closeFilters}
       onSave={view => actions.saveView(destination, view)}/>}
   </View>;
