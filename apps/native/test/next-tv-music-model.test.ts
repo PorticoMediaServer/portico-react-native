@@ -24,7 +24,7 @@ async function controller(entry: any, options: Fixture = {}) {
   const api = {request: async (path: any, _method?: any, body?: any) => {
     if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: options.maximumLimit ?? 200}};
     if (String(path).startsWith('browse:')) {
-      browseBodies.push(body);
+      browseBodies.push(JSON.parse(JSON.stringify(body)));
       const pageSize = options.pageSize ?? songs.length;
       const start = body?.cursor ? Number(body.cursor) : 0;
       const rows = songs.slice(start, start + pageSize);
