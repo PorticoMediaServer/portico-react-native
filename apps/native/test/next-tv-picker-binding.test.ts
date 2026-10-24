@@ -97,6 +97,11 @@ test('TV profile-switch hand-off preserves its current family, selection control
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
       return {select: async (...args: unknown[]) => {attempts.push(args); throw new Error('refused');}, dispose: () => {disposed++;}};
     }}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, './AccountEntry': {AccountEntry: 'Entry'}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
+    '../../../../../packages/client-core/src': {HttpHostedApi: 'HttpHostedApi'},
+    '../../platform/profile-recovery': {NativeProfileRecovery: 'Recovery', temporaryRecoveryApi: () => ({})},
+    '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
+    '../../platform/server-connections': {nativeNetworkFetch: async () => ({})},
+    './PhoneProfileRecovery': {PhoneProfileRecovery: 'PhoneProfileRecovery'},
   });
   const context = {session: () => current, current: () => true, serverName: 'Verified server', api: {baseUrl: 'https://verified.example'},
     account: {profiles: [profile]}, authority: () => ({}), navigation: {back: () => {exited++;}}};
