@@ -37,22 +37,22 @@ const t = defaultI18n.t;
  * (kit.css's shared row-subtitle role is 14). TV and desktop keep their shipped values.
  */
 export function homeRowSpacing(theme: Theme) {
-  return theme.isTV ? {marginBottom: 30} : theme.layoutMode === 'phone' ? {marginTop: 28} : {marginBottom: 18};
+  return theme.isTV ? {marginBottom: 30} : theme.layoutMode === 'phone' && theme.platform === 'phone' ? {marginTop: 28} : {marginBottom: 18};
 }
 
 /** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
 export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
-  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' ? heroHeight : heroHeight + theme.spec.shelf.homeOverlap;
+  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : heroHeight + theme.spec.shelf.homeOverlap;
 }
 
 /** The drawn phone row sub-line is 13 px; the shared rowSubtitle role carries 14. */
 export function homeRowSubtitle(theme: Theme) {
-  return theme.layoutMode === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
+  return theme.layoutMode === 'phone' && theme.platform === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
 }
 
 /** kit.css draws the phone scroll 96 px deep over an 84 px bar; other platforms keep their padding. */
 export function homeContentBottom(theme: Theme, bottomInset: number): number {
-  return bottomInset + (theme.isTV ? 96 : theme.layoutMode === 'phone' ? 12 : 24);
+  return bottomInset + (theme.isTV ? 96 : theme.layoutMode === 'phone' && theme.platform === 'phone' ? 12 : 24);
 }
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
@@ -239,7 +239,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         waitingId, waitingItem, fulfilled: pending?.fulfilled, requestNext: () => {if (shown && current()) void pages.request(sourceRow, waitingId);}} : undefined;
       const title = serverTextLabel(defaultI18n, presentation.title), subtitle = serverTextLabel(defaultI18n, presentation.subtitle);
       // The drawn phone subtitle is 13 px; the shared role carries 14 until the kit models it.
-      const rowSubtitle = subtitle ? theme.layoutMode === 'phone'
+      const rowSubtitle = subtitle ? theme.layoutMode === 'phone' && theme.platform === 'phone'
         ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
         : subtitle : undefined;
       const retainedIds = theme.isTV && registry.isRegionActive(ids.row(row.id)) && focus?.rowId === row.id ? [focus.entryId] : undefined;
@@ -326,7 +326,7 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, 
   if (Date.now() >= Date.parse(live.expiresAt)) return null;
   // The drawn live row carries its server-authored sub-line ("Synthetic Live TV").
   const subtitle = serverTextLabel(defaultI18n, row.subtitleText);
-  const rowSubtitle = subtitle && theme.layoutMode === 'phone'
+  const rowSubtitle = subtitle && theme.layoutMode === 'phone' && theme.platform === 'phone'
     ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
     : undefined;
   return <Row title={serverTextLabel(defaultI18n, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}

@@ -12,7 +12,7 @@ function withAlpha(color: string, value: number): string {
 
 /** kit.css `.tag`: 3×9 padding, 1px rgba(237,245,250,.28), radius 6 (TV draws 3×12, 1.5px, radius 8). */
 export function homeFactTag(theme: Theme) {
-  const phone = theme.layoutMode === 'phone';
+  const phone = theme.layoutMode === 'phone' && theme.platform === 'phone';
   return {
     paddingHorizontal: phone ? 9 : theme.isTV ? 12 : 8,
     paddingVertical: 3,
@@ -24,7 +24,7 @@ export function homeFactTag(theme: Theme) {
 
 /** kit.css `.meta strong` draws the 700 face; native supplies one file per weight. */
 export function homeFactStrong(theme: Theme): string {
-  return (theme.layoutMode === 'phone' ? theme.type.rowHeading : theme.type.bodyStrong).fontFamily ?? '';
+  return (theme.layoutMode === 'phone' && theme.platform === 'phone' ? theme.type.rowHeading : theme.type.bodyStrong).fontFamily ?? '';
 }
 
 /** The display context stays canonical; continuation timing is a separate genuine projection. */

@@ -42,6 +42,12 @@ test('phone Home rows take the drawn 28 px rhythm while the hero keeps its own h
   assert.equal(home.homeRowSubtitle(desktopTheme).fontSize, desktopTheme.type.rowSubtitle.fontSize);
   assert.equal(home.homeContentBottom(tvTheme, 0), 96);
   assert.equal(home.homeContentBottom(desktopTheme, 0), 24);
+  assert.equal(tabletTheme.platform, 'tablet');
+  assert.equal(tabletTheme.layoutMode, 'phone', 'tablet shares the shell mode, so mode alone cannot admit phone-only changes');
+  assert.deepEqual(home.homeRowSpacing(tabletTheme), {marginBottom: 18});
+  assert.equal(home.homeHeroBlock(tabletTheme, 560, false), 520);
+  assert.equal(home.homeRowSubtitle(tabletTheme), tabletTheme.type.rowSubtitle);
+  assert.equal(home.homeContentBottom(tabletTheme, 84), 108);
 });
 
 test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV paint is unchanged', async () => {
