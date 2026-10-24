@@ -49,3 +49,8 @@ export function directoryOfflineBody(server: HostedServer): Readonly<{
     ? {key: 'web.chooser.unreachableBody', values: {date: defaultI18n.date(label.lastSeenAt, 'dayMonth')}}
     : {key: 'web.chooser.unreachableBodyNever'};
 }
+
+/** The waiting chooser retries after 20 seconds, doubling to a five-minute ceiling. */
+export function nextRetryDelay(current: number): number {
+  return Math.min(Math.max(current, 20) * 2, 300);
+}

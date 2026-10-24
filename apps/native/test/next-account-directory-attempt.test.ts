@@ -31,7 +31,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   })};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     react: {...React, default: React},
-    'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
       NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView', Linking: {openURL: async () => {}}},
     'react-native-qrcode-svg': {default: 'QR'},
     '../../../../../packages/i18n/src': {defaultI18n},
@@ -88,6 +88,8 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     await act(async () => {pending[3]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-waiting');
     assert.equal(tree.props.title, defaultI18n.t('web.chooser.waitingTitle', {server: 'Two'}));
+    assert.ok(tree.props.retry, 'the waiting state carries its automatic retry schedule');
+    assert.equal(tree.props.retry.label, defaultI18n.t('web.chooser.checkingAgain', {seconds: 20}));
     assert.equal(completed, 0);
   } finally {host.unmount();}
 });
