@@ -74,7 +74,7 @@ export function OwnerJobRow({job, onMenu}: {job: OwnerJobView; onMenu?: () => vo
     <OwnerRing progress={job.progress} icon={job.icon} tone={job.tone} waiting={job.progress === undefined && job.tone === 'neutral'}/>
     <View style={{flex: 1, minWidth: 0}}>
       <Text numberOfLines={1} style={[shellType(15, 700), {color: theme.colors.text}]}>{job.title}</Text>
-      {job.subtitle || job.detail ? <Text numberOfLines={1} style={[shellType(13, 400, 18.2), {color: theme.colors.textTertiary, marginTop: 2}]}>{[job.subtitle, job.detail].filter(Boolean).join(' · ')}</Text> : null}
+      {job.subtitle ? <Text numberOfLines={1} style={[shellType(13, 400, 18.2), {color: theme.colors.textTertiary, marginTop: 2}]}>{job.subtitle}</Text> : null}
     </View>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
       <Text style={[shellType(job.progress === undefined ? 13 : 15, 700), {color: job.tone === 'danger' ? theme.colors.danger : job.progress === undefined ? theme.colors.textTertiary : theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{job.status}</Text>
@@ -84,6 +84,12 @@ export function OwnerJobRow({job, onMenu}: {job: OwnerJobView; onMenu?: () => vo
   return onMenu
     ? <Focusable testID={`owner-job-${job.id}`} accessibilityRole="button" accessibilityLabel={job.title} onPress={onMenu} focusKind="row" focusRadius={14} style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 13}}>{content}</Focusable>
     : <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 13}}>{content}</View>;
+}
+
+/** A group's own label inside Background activity: library scans first, then the other tasks. */
+export function OwnerSubheading({children, first = false}: {children: React.ReactNode; first?: boolean}) {
+  const theme = useTheme();
+  return <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, marginHorizontal: 4, marginTop: first ? 0 : 18, marginBottom: 8}]}>{children}</Text>;
 }
 
 /** Tasks of one group, with the hairline between them drawn from inside the surface. */

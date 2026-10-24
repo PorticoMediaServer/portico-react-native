@@ -101,7 +101,7 @@ export function NativeOwnerDashboardPhone({controller, ports, runtime}: {control
       onStop={view => {setMessage(''); setStopView(view);}} onStreamMenu={view => {setStreamMenu(view); setActionError(undefined);}}/>
     <Menu open={Boolean(streamMenu)} onOpenChange={open => {if (!open) setStreamMenu(undefined);}} presentation="sheet" testID="owner-stream-menu"
       title={streamMenu?.title} description={streamMenu ? `${streamMenu.viewer.username || streamMenu.viewer.name} · ${streamMenu.viewer.device}` : undefined} items={menuItems}/>
-    <Menu open={Boolean(jobMenu)} onOpenChange={open => {if (!open) setJobMenu(undefined);}} presentation="sheet" testID="owner-job-menu" title={jobMenu?.title} description={jobMenu?.detail ?? jobMenu?.status} items={jobItems}/>
+    <Menu open={Boolean(jobMenu)} onOpenChange={open => {if (!open) setJobMenu(undefined);}} presentation="sheet" testID="owner-job-menu" title={jobMenu?.title} description={jobMenu?.subtitle ?? jobMenu?.status} items={jobItems}/>
     <BottomSheet open={Boolean(stopView)} onOpenChange={open => {if (!open && !busy) setStopView(undefined);}} testID="owner-stop-sheet" keyboardAvoiding
       title={stopSession ? t('web.nowPlaying.stopTitle', {title: stopSession.title || t('web.nowPlaying.untitled')}) : t('web.nowPlaying.stop')}
       description={stopSession ? t('web.nowPlaying.stopBody', {viewer: sessionViewer(stopSession, t)}) : undefined}

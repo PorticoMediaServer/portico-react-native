@@ -168,6 +168,8 @@ export const dashboardMessages = {
   'next.dashboard.streamsLabel': 'Streams',
   'next.dashboard.streamsPaused': '{count} paused',
   'next.dashboard.convertingShare': '{percent}% of streams',
+  'next.dashboard.convertedShare': '{percent}% of plays',
+  'next.dashboard.nothingRunning': 'Nothing is running.',
   'next.dashboard.sentToViewers': 'Sent to viewers',
   'next.dashboard.delivered': 'How it was delivered',
   'next.dashboard.originalCount': 'Original, {count}',

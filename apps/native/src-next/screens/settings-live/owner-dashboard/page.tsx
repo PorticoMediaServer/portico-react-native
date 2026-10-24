@@ -5,11 +5,11 @@ import type {TelemetryReading} from '../../../../../../packages/client-core/src/
 import {Button, Focusable} from '../../../kit/controls';
 import {Icon} from '../../../kit/Icon';
 import {BlurView} from '../../../platform/native-blur';
-import {ServerMark} from '../../../kit/shell';
+import {ServerBand} from '../../../kit/shell';
 import {useTheme} from '../../../kit/theme';
 import {alpha, shellType} from '../../../kit/shell/visual';
 import type {OwnerAlertView, OwnerJobView, Translate} from './model';
-import {OwnerAlertCard, OwnerCalm, OwnerJobGroup, OwnerJobRow, OwnerSection} from './parts';
+import {OwnerAlertCard, OwnerCalm, OwnerJobGroup, OwnerJobRow, OwnerSection, OwnerSubheading} from './parts';
 import {OwnerHealthSection} from './health';
 import {OwnerStatisticsSection} from './statistics';
 import {OwnerNowPlaying, type OwnerStreamEntry} from './streams';
@@ -52,6 +52,7 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
   const {t, role} = props, theme = useTheme(), [scrolled, setScrolled] = useState(false), bar = props.topInset + 48;
   const owner = role === 'owner';
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    <ServerBand viewerRole={role} audience="administrators" height={400}/>
     <ScrollView scrollEventThrottle={16} onScroll={event => setScrolled(event.nativeEvent.contentOffset.y > 56)} contentContainerStyle={{paddingTop: bar + 8, paddingBottom: 80}}>
       <OwnerHeader {...props}/>
       {props.error !== undefined && props.streams.length ? <View style={{paddingHorizontal: 16}}><OwnerCalm icon="i-warn" tone="error" title={t('next.shell.activityError')} action={{label: t('next.shell.tryAgain'), onPress: props.onRetry}}/></View> : null}
@@ -62,8 +63,10 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
             : <OwnerCalm icon="i-check" tone="good" title={t('web.overview.noAlerts')}/>}
         </OwnerSection>
         <OwnerSection title={t('settings.server.activity')}>
-          {props.jobs.length ? <OwnerJobGroup>{props.jobs.map(job => <OwnerJobRow key={job.id} job={job} onMenu={() => props.onJobMenu(job)}/>)}</OwnerJobGroup>
-            : <OwnerCalm icon="i-clock" title={t('web.activity.noTasks')} body={t('web.activity.noTasksBody')}/>}
+          {props.jobs.length ? <>
+            {props.jobs.some(job => job.scan) ? <><OwnerSubheading first>{t('next.shell.libraryScans')}</OwnerSubheading><OwnerJobGroup>{props.jobs.filter(job => job.scan).map(job => <OwnerJobRow key={job.id} job={job} onMenu={() => props.onJobMenu(job)}/>)}</OwnerJobGroup></> : null}
+            {props.jobs.some(job => !job.scan) ? <><OwnerSubheading first={!props.jobs.some(job => job.scan)}>{t('next.dashboard.tasks')}</OwnerSubheading><OwnerJobGroup>{props.jobs.filter(job => !job.scan).map(job => <OwnerJobRow key={job.id} job={job} onMenu={() => props.onJobMenu(job)}/>)}</OwnerJobGroup></> : null}
+          </> : <OwnerCalm icon="i-clock" title={t('web.activity.noTasks')} body={t('web.activity.noTasksBody')}/>}
         </OwnerSection>
         <OwnerHealthSection reading={props.telemetry} error={props.telemetryError} window={props.healthWindow} onWindow={props.onHealthWindow} note={props.healthNote} onRetry={props.onRetry} t={t}/>
         <OwnerStatisticsSection summary={props.summary} error={props.statisticsError} period={props.viewingPeriod} onPeriod={props.onViewingPeriod} onRetry={props.onRetry} t={t}/>
@@ -87,9 +90,9 @@ function OwnerHeader({t, role, serverName, health, updated, loading, onRefresh}:
   const audience = role === 'owner' ? t('next.shell.serverVisibility.ownerShared') : t('next.shell.serverVisibility.administrator');
   return <View style={{paddingHorizontal: 20}}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap'}}>
-      <ServerMark variant="editorPhone"/>
-      <View style={{height: 28, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: alpha(theme.colors.ink, .55)}}>
-        <Text style={[shellType(12, 700), {color: theme.colors.text}]}>{t('next.shell.server')}</Text>
+      <View style={{height: 28, flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 8, paddingRight: 11, borderRadius: 8, backgroundColor: alpha(theme.colors.ink, .55)}}>
+        <Icon name="i-server" size={15} color={theme.colors.text}/>
+        <Text style={[shellType(12.5, 700), {color: theme.colors.text}]}>{t('next.shell.server')}</Text>
       </View>
       <Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{audience}</Text>
     </View>
