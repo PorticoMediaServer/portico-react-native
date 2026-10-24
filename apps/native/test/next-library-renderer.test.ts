@@ -18,7 +18,8 @@ test('the Library descriptor requires the actual authorized ID and never supplie
   });
   const {createNativeLibraryRenderer, createNativeLibraryPlaySelection: exportedPlay} = await screenModule(new URL('../src-next/screens/library/index.tsx', import.meta.url), {
     react: {default: React}, 'react-native': {Platform: platform}, './LibraryScreen': {LibraryScreen: 'LibraryScreen'}, './model': {NativeLibraryDestination}, './directory': {NativeLibraryDirectory},
-    '../read/platform': {hiddenReadingLibraryOnTV},
+    '../read/platform': {hiddenReadingLibraryOnTV, isReadingLibraryKind: (kind: string) => kind === 'book' || kind === 'comic'},
+    '../read/ReadingLibrary': {NativeReadingLibraryScreen: 'NativeReadingLibraryScreen'},
     '../destinations/lifetime': {nativeDestinationLifetime},
     './play-selection': {createNativeLibraryPlaySelection},
     // The TV Library module owns only the F-LIB-52 Save view surface; the page
@@ -47,6 +48,18 @@ test('the Library descriptor requires the actual authorized ID and never supplie
     const renamed = renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {});
     assert.equal(renamed.props.destination.getSnapshot().library.name, 'Actual renamed library');
     assert.notEqual(renamed.props.destination, element.props.destination, 'old header/model callbacks retire when the actual library metadata changes');
+    assert.equal(element.props.destination.getSnapshot().collection, undefined);
+    // Phone reading libraries have no browse pivot: they open the bounded Reading
+    // list and retire any media destination that was selected before them.
+    for (const [id, name, kind] of [['books', 'Books', 'book'], ['comics', 'Comics', 'comic']] as const) {
+      libraries = [{id, name, kind}];
+      const reading = renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: id}}, {});
+      assert.equal(reading.type, 'NativeReadingLibraryScreen', `${kind} uses the reading renderer`);
+      assert.equal(reading.props.libraryId, id); assert.equal(reading.props.title, name);
+      assert.equal(reading.props.context, context); assert.equal(typeof reading.props.onBack, 'function');
+    }
+    libraries = [{id: 'real-id', name: 'Movies', kind: 'movie'}];
+    assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {}).type, 'LibraryScreen', 'normal media keeps the browse screen');
     platform.isTV = true;
     for (const kind of ['book', 'comic', 'books']) {
       libraries = [{id: 'reading', name: 'Actual reading library', kind}];
@@ -58,7 +71,6 @@ test('the Library descriptor requires the actual authorized ID and never supplie
     assert.equal(tvAudio.props.panelId, 'tv."audio".naming');
     assert.equal(tvAudio.props.library.props.destination.getSnapshot().library.id, 'audio');
     libraries = []; assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {}), null);
-    assert.equal(element.props.destination.getSnapshot().collection, undefined);
     current = false; assert.equal(renderer.render({kind: 'shell', destination: {kind: 'library', libraryId: 'real-id'}}, {}), null);
   } finally {renderer.dispose();}
 });
