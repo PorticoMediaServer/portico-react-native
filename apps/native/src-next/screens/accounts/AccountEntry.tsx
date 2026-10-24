@@ -19,10 +19,10 @@ import {NativePorticoSignIn} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
 import {hostedUrl} from '../../platform/account-authority';
-import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor} from '../../tv/auth';
+import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 import {PhoneFrontDoor} from './PhoneFrontDoor';
 
-type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
+type Stage = 'welcome' | 'address' | 'identity-code' | 'local' | 'factor' | 'uses-portico' | 'portico' | 'register' | 'verify' | 'provider' | 'contact' | 'servers' | 'account-sign-out' | 'profiles' | 'profile-pin' | 'profile-forgot-pin' | 'tv' | 'tv-credentials' | 'tv-required-setup';
 type RequiredSetup = Readonly<{kind: 'required-setup'; requirement: 'password' | 'two-step'; serverName: string; serverOrigin: string}>;
 type Result = {kind: 'profiles'; profiles: readonly ManagedProfile[]} | {kind: 'challenge'; expiresAt: string} | {kind: 'complete'} | RequiredSetup;
 const t = defaultI18n.t;
@@ -77,13 +77,15 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
     if (busy || acting.current || adoptingTV.current || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
     try {await work();} catch (failure) {if (lifetime.current) {
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
-      else {if (Platform.isTV && stage === 'factor' && !recovery) setCode(''); setError(failure);}
+      else {if (Platform.isTV && (stage === 'profile-pin' || stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
   };
   const reset = () => {operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
     setPassword(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setError(undefined); setStage(initialStage);};
   const back = () => {
+    if (stage === 'profile-forgot-pin') {setCode(''); setError(undefined); setStage('profile-pin'); return;}
+    if (theme.isTV && stage === 'profile-pin') {setCode(''); setProfile(undefined); setError(undefined); setStage('profiles'); return;}
     if (Platform.isTV && (stage === 'tv-credentials' || stage === 'factor' || stage === 'tv-required-setup')) {void run(returnToTVCode); return;}
     if (stage === initialStage) onBack?.(); else reset();
   };
@@ -264,6 +266,13 @@ export function AccountEntry({onBack, onComplete, initialStage = 'welcome', init
   if (stage === 'profiles') return layout(t('accounts.profiles.onServer', {server: server!.name}), t('accounts.session.' + server!.signIn as 'accounts.session.portico' | 'accounts.session.local'),
     <ProfilePicker profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} showTitle={false}
       onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>);
+  if (theme.isTV && stage === 'profile-forgot-pin') return <TVForgotPINHandoff profileName={profile!.name}
+    url={new URL('/settings/profile', operation.current!.serverOrigin()).href} body="next.auth.tv.forgotPINBody" onBack={back}/>;
+  if (theme.isTV && stage === 'profile-pin') return <TVProfilePINForm
+    profile={{id: profile!.id, name: profile!.name, initial: [...profile!.name][0] ?? '', color: profile!.art, primary: profile!.primary, pinRequired: true}}
+    code={code} onCodeChange={setCode} busy={busy} error={status} onBack={back}
+    onSubmit={value => {void run(() => choose(profile!.id, value));}}
+    onForgotPIN={() => {if (!busy) {setCode(''); setError(undefined); setStage('profile-forgot-pin');}}}/>;
   if (stage === 'profile-pin') return layout(t('profile.pinTitle', {name: profile!.name}), undefined, fields(field(t('pin.fourDigit'), code, setCode, true)), action('profile-pin', t('action.continue'), () => choose(profile!.id, code), !/^\d{4}$/.test(code)));
   const consentBody = tvKind === 'local' && server
     ? tvState.verificationUri ? t('accounts.consent.local', {server: server.name, address: tvState.verificationUri}) : undefined
