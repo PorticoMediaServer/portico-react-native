@@ -102,6 +102,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     image().props.ref(wordmark);
     assert.equal(registry.read(wordmark)?.kind, 'image');
     assert.equal(registry.read(wordmark)?.semanticId, 'tv-front-door-wordmark');
+    assert.equal(registry.read(wordmark)?.declaredStyleComplete, true);
     assert.deepEqual(registry.read(wordmark)?.flattenedStyle, image().props.style, 'registration declares exactly the existing Image style');
     assert.deepEqual(registry.read(wordmark)?.measuredStyle, {}, 'asset contents and paint are not observed by this hook');
     const imageRef = image().props.ref;
@@ -112,6 +113,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     tree.props.ref(root);
     assert.equal(registry.read(root)?.kind, 'view');
     assert.equal(registry.read(root)?.semanticId, 'tv-front-door');
+    assert.equal(registry.read(root)?.declaredStyleComplete, true);
     assert.deepEqual(registry.read(root)?.flattenedStyle, {backgroundColor: tree.props.style.backgroundColor}, 'the root declares its actual theme background, not observed paint');
     assert.deepEqual(registry.read(root)?.measuredStyle, {});
     tree.props.ref(replacementRoot);
@@ -125,6 +127,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     heading().props.onTextLayout(event(first.tag));
     assert.deepEqual(registry.read(first)?.lines, observed);
     assert.equal(registry.read(first)?.semanticId, 'tv-front-door-title');
+    assert.equal(registry.read(first)?.declaredStyleComplete, true);
     assert.equal(registry.read(first)?.flattenedStyle.fontSize, 88);
     assert.deepEqual(registry.read(first)?.measuredStyle, {}, 'flattened inputs are never promoted to observed paint/fonts');
     assert.equal(registry.read(first)?.effectiveBackgroundColor, undefined);
@@ -147,6 +150,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.deepEqual(registry.read(replacementRoot)?.measuredStyle, {}, 'declared paint remains separate from native observations');
     assert.equal(registry.read(replacement)?.lines, undefined);
     assert.equal(registry.read(replacement)?.flattenedStyle.fontSize, 110);
+    for (const current of [replacementRoot, replacementWordmark, replacement]) assert.equal(registry.read(current)?.declaredStyleComplete, true, 'the current final declaration stays complete after the theme update');
     heading().props.onTextLayout(event(replacement.tag));
     assert.equal(heading().props.onLayout, undefined, 'generic layout delivery cannot erase fresh native text lines');
     assert.deepEqual(registry.read(replacement)?.lines, observed);
