@@ -8,8 +8,11 @@ function fixture() {
   let current = authority, held: Promise<void> | undefined;
   const listeners = new Set<() => void>(), paths: URL[] = [], signals: (AbortSignal | null | undefined)[] = [], starts: any[] = [];
   const episode = (id: string) => ({id, kind: 'episode', title: id, libraryId: 'library', available: true, navigation: {view: 'item', entityId: id}, playback: {itemId: id, startMs: 17000}});
+  const bodies: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
-    const url = new URL(String(input)); paths.push(url); signals.push(init?.signal); await held;
+    const url = new URL(String(input)); paths.push(url); signals.push(init?.signal);
+    if (init?.method === 'PUT') {const body = JSON.parse(String(init.body)); bodies.push(body); return new Response(JSON.stringify({revision: 2, ...body}), {status: 200});}
+    await held;
     const selectedSeason = url.searchParams.get('selectedSeasonId') ?? 's1';
     const next = url.searchParams.get('cursor') === 'next';
     const entries = next ? [episode('e3')] : url.searchParams.get('playState') === 'unplayed' ? [episode('e2')] : [episode('e1'), episode('e2')];
@@ -23,7 +26,7 @@ function fixture() {
   });
   const controller = new NativeTitleController({api, scope: {serverId: 'server', viewerId: 'viewer'}, entry: {id: 'show', libraryId: 'library', kind: 'show', title: 'Actual show'},
     authority, current: () => current, subscribeCurrent(listener) {listeners.add(listener); return () => {listeners.delete(listener);};}, requestId: async () => 'request', playback: {start: async input => {starts.push(input);}}});
-  return {controller, paths, signals, starts, hold: (value: Promise<void>) => {held = value;}, retire: () => {current = {...current, epoch: 'new'}; for (const listener of listeners) listener();}};
+  return {controller, paths, signals, starts, bodies, hold: (value: Promise<void>) => {held = value;}, retire: () => {current = {...current, epoch: 'new'}; for (const listener of listeners) listener();}};
 }
 
 test('title reads canonical show pages, sends Hide watched and retains it through a season change', async () => {
@@ -62,5 +65,16 @@ test('an authority replacement aborts a pending title request and cannot apply i
     assert.equal(d.signals.at(-1)?.aborted, true);
     release(); await pending;
     assert.equal(d.controller.getSnapshot().retired, true); assert.equal(d.controller.getSnapshot().place.hideWatched, false);
+  } finally {d.controller.dispose();}
+});
+
+test('owner show settings saves the exact server settings and reloads the same show page', async () => {
+  const d = fixture();
+  try {
+    await d.controller.open(); const before = d.paths.length;
+    await d.controller.saveSettings({hideSeasons: true, absoluteNumbering: true, ranges: false, newestFirst: false, revision: 1});
+    assert.deepEqual(d.bodies[0], {hideSeasons: true, absoluteNumbering: true, ranges: false, newestFirst: false, revision: 1});
+    assert.equal(d.paths.at(-1)?.pathname.endsWith('/show-workspace'), true);
+    assert.ok(d.paths.length > before, 'the page is read again after the server applied the settings');
   } finally {d.controller.dispose();}
 });

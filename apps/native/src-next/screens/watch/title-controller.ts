@@ -1,10 +1,11 @@
 import {DetailService, type DetailApi, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
-import {ShowWorkspaceService} from '../../../../../packages/client-core/src/show-workspace';
+import {ShowWorkspaceService, saveShowSettings, type ShowSettings} from '../../../../../packages/client-core/src/show-workspace';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './title-memory';
 import {NativeTitlePages} from './title-pages';
+import {NativeTitleEpisodeDetails} from './title-episode';
 
 export type NativeTitleControllerOptions = Readonly<{
   entry: ContentEntry;
@@ -22,6 +23,7 @@ export class NativeTitleController {
   readonly detail: DetailService;
   readonly workspace: ShowWorkspaceService;
   readonly memory: NativeTitleMemory;
+  readonly episode: NativeTitleEpisodeDetails;
   readonly entry: ContentEntry;
   private readonly pages = new NativeTitlePages();
   private ingested: unknown;
@@ -37,6 +39,8 @@ export class NativeTitleController {
     this.detail = new DetailService({api: options.api, scope: options.scope, requestId: options.requestId});
     this.workspace = new ShowWorkspaceService({api: options.api, scope: options.scope});
     this.memory = new NativeTitleMemory(['show', 'season', 'episode'].includes(this.entry.kind));
+    this.episode = new NativeTitleEpisodeDetails({api: options.api, scope: options.scope, requestId: options.requestId,
+      current: () => this.current() && !this.retired, play: (entry, target) => this.options.playback.start({entry, target})});
     this.snapshot = this.read();
     this.off = [this.detail.subscribe(this.changed), this.workspace.subscribe(this.changed), options.subscribeCurrent(() => {if (!this.current()) this.dispose();})];
   }
@@ -99,6 +103,15 @@ export class NativeTitleController {
   };
   moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
   moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
+  /** Owner show settings: the server owns the revision; the page reloads after it. */
+  saveSettings = async (settings: ShowSettings): Promise<void> => {
+    const data = this.workspace.getSnapshot().data;
+    if (!this.current() || !data) return;
+    await saveShowSettings(this.options.api, data.scope.libraryId, data.show.id, settings);
+    if (!this.current()) return;
+    await this.workspace.refresh();
+    this.changed();
+  };
   play = async (entry = this.entry, fromStart = false): Promise<void> => {
     if (!this.current()) return;
     const data = this.detail.getSnapshot().data;
@@ -115,7 +128,7 @@ export class NativeTitleController {
     if (this.retired) return;
     this.retired = true;
     for (const off of this.off) off(); this.off = [];
-    this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.snapshot = this.read();
+    this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.episode.dispose(); this.snapshot = this.read();
     for (const listener of [...this.listeners]) listener(); this.listeners.clear();
   };
 }

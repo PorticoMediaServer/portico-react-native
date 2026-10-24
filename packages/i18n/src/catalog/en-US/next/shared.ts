@@ -183,6 +183,10 @@ export const shared = {
   'next.kit.hdr.hdr10': 'HDR10',
   'next.kit.hdr.hdr10Plus': 'HDR10+',
   'next.kit.hdr.hlg': 'HLG',
+  'next.watch.episodesWillRead': 'Episodes will read',
+  'next.watch.wasSeason': 'was S{season} E{episode}',
+  'next.watch.guestStars': 'Guest stars',
+  'next.watch.asCharacter': 'as {character}',
   'next.kit.object.atmos': 'Atmos',
   'next.kit.object.dtsx': 'DTS:X',
 } as const;

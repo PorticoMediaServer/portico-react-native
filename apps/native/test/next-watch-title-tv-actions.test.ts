@@ -4,17 +4,17 @@ import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
-import {cardText, playbackIdentity, titleFactParts} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
+import {cardText, episodeLabel, playbackIdentity, titleFactParts} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {NativeTitleScreen, TitleRelated} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'Scroll', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
-  '../../../../../packages/client-core/src/presentation/kit-model': {cardText, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
+  '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/artwork': {AmbientArt: 'Ambient'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
   '../../kit/controls': {Button: 'Button', ResumeButton: 'Resume', Chip: 'Chip', Tabs: 'Tabs'}, '../../kit/layout/Hero': {HeroMetadata: 'Facts'},
-  '../../kit/states': {TitleSkeleton: 'Skeleton'}, './TitlePeople': {TitlePeople: 'TitlePeople'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV: true, colors: {}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}}})},
+  '../../kit/states': {TitleSkeleton: 'Skeleton'}, './SeasonsSheet': {NativeSeasonsSheet: 'SeasonsSheet'}, './ShowSettingsSheet': {NativeShowSettingsSheet: 'ShowSettingsSheet'}, './TitleEpisodePlate': {NativeTitleEpisodePlate: 'EpisodePlate'}, './TitlePeople': {TitlePeople: 'TitlePeople'}, '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV: true, colors: {}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}}})},
 });
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
 
@@ -26,7 +26,7 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
       {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}},
       {id: 'watched', enabled: true},
     ], personal: {progressSeconds: 540, watched: false}, metadata: {genres: [], ratings: [], credits: []}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, open: async () => {},
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
     play: async (...args: unknown[]) => {calls.push(['play', ...args]);}, personal: async (...args: unknown[]) => {calls.push(['personal', ...args]);}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
@@ -55,7 +55,7 @@ test('TV Down from the hero buttons skips the strip for the first content row an
     detail: {phase: 'ready', data: {item: entry, actions: [{id: 'play', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}], personal: {progressSeconds: 0},
       metadata: {genres: [], ratings: [], credits: []},
       related: {rows: [{id: 'row-1', heading: 'More like Inside Out', entries: [{id: 'first', kind: 'movie', title: 'First film'}, {id: 'second', kind: 'movie', title: 'Second film'}]}]}}}};
-  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, open: async () => {}, play: async () => {}};
+  const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
   let tree: any;
   const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
