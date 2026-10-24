@@ -170,3 +170,81 @@ test('owner retirement suppresses a late vocabulary reply and disposal aborts th
     assert.equal(abortOwner.line(abortDestination.getSnapshot().personal!.resources[0]!, defaultI18n), undefined);
   } finally {abortOwner.dispose(); abortDestination.dispose();}
 });
+
+test('an observed owner loss retires the owned reader on the render path without notifying', async () => {
+  const calls: Call[] = [];
+  const api = fakeApi(answerViews(() => [viewWire('settled')]), calls);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const ownerFlag = {current: true};
+  const owner = createNativeSavedViewSummaryOwner(testContext(api).context, destination, () => ownerFlag.current);
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    await owner.start(); await tick();
+    assert.equal(owner.line(resource, defaultI18n), lineOf(resource));
+    let notifications = 0;
+    owner.subscribe(() => {notifications++;});
+    const revision = owner.getSnapshot();
+    ownerFlag.current = false;
+    assert.equal(owner.line(resource, defaultI18n), undefined, 'the render path observes the lost owner');
+    assert.equal(notifications, 0, 'render-path retirement emits no notification');
+    assert.equal(owner.getSnapshot(), revision, 'render-path retirement keeps the revision');
+    ownerFlag.current = true;
+    await owner.start();
+    assert.equal(owner.line(resource, defaultI18n), undefined, 're-entry and start cannot revive old words');
+    await destination.select({view: 'views', shape: 'squares'});
+    await tick();
+    assert.equal(owner.line(destination.getSnapshot().personal!.resources[0]!, defaultI18n), undefined, 'the retired owner accepts no later window');
+    assert.equal(destination.getSnapshot().phase, 'ready', 'the borrowed Saved source is untouched');
+  } finally {owner.dispose(); destination.dispose();}
+});
+
+test('a pending owned read aborts promptly on observed owner loss and cannot accept its late reply', async () => {
+  const calls: Call[] = [], gate = deferred<unknown>();
+  const api = fakeApi(path => path.includes('browse-capabilities') ? gate.promise : answerViews(() => [viewWire('pending')])(path), calls);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const ownerFlag = {current: true};
+  const owner = createNativeSavedViewSummaryOwner(testContext(api).context, destination, () => ownerFlag.current);
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    const started = owner.start(); await tick();
+    const capabilityCall = calls.find(call => call.path.includes('browse-capabilities'))!;
+    assert.equal(capabilityCall.signal?.aborted, false);
+    let notifications = 0;
+    owner.subscribe(() => {notifications++;});
+    const revision = owner.getSnapshot();
+    ownerFlag.current = false;
+    assert.equal(owner.line(resource, defaultI18n), undefined);
+    assert.equal(capabilityCall.signal?.aborted, true, 'the owned capability read aborts on the render path');
+    assert.equal(notifications, 0); assert.equal(owner.getSnapshot(), revision);
+    gate.resolve(capability('movies', 'movies'));
+    await started; await tick();
+    assert.equal(owner.line(resource, defaultI18n), undefined, 'a late reply cannot be accepted');
+    ownerFlag.current = true;
+    await owner.start();
+    assert.equal(owner.line(resource, defaultI18n), undefined);
+    assert.equal(destination.getSnapshot().phase, 'ready');
+  } finally {owner.dispose(); destination.dispose();}
+});
+
+test('a genuine authority retirement aborts the pending owned reader read', async () => {
+  const calls: Call[] = [], gate = deferred<unknown>();
+  const api = fakeApi(path => path.includes('browse-capabilities') ? gate.promise : answerViews(() => [viewWire('authority')])(path), calls);
+  const context = testContext(api);
+  const destination = new NativeSavedViewDestination({api, scope, requestId: async () => 'request', current: () => true});
+  const owner = createNativeSavedViewSummaryOwner(context.context, destination, () => true);
+  try {
+    await destination.select({view: 'views'});
+    const resource = destination.getSnapshot().personal!.resources[0]!;
+    const started = owner.start(); await tick();
+    const capabilityCall = calls.find(call => call.path.includes('browse-capabilities'))!;
+    context.live(false); context.emit();
+    assert.equal(capabilityCall.signal?.aborted, true, 'authority retirement aborts the owned reader work');
+    assert.equal(owner.line(resource, defaultI18n), undefined);
+    gate.resolve(capability('movies', 'movies'));
+    await started; await tick();
+    assert.equal(owner.line(resource, defaultI18n), undefined);
+    assert.equal(destination.getSnapshot().phase, 'ready', 'the borrowed Saved source is not disposed by the owner');
+  } finally {owner.dispose(); destination.dispose();}
+});
