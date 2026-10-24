@@ -121,6 +121,45 @@ test('curated diagnostics never read getters, arbitrary props, URLs, objects or 
   assert.deepEqual(curateFlattenedStyle([raw]), {});
 });
 
+test('complete declared style is explicit current registration evidence, never inferred from a partial style', () => {
+  const registry = createNativeMeasurementRegistry(), node = {};
+  const first = registry.register(node, {kind: 'view', flattenedStyle: {opacity: .5}});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  first.update({kind: 'view', flattenedStyle: {}, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, true);
+  first.update({kind: 'view', flattenedStyle: {opacity: .75}});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  for (const flattenedStyle of [undefined, null, [], 'background']) {
+    first.update({kind: 'view', flattenedStyle, declaredStyleComplete: true});
+    assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  }
+  const unsafe: Record<string, unknown> = {backgroundColor: 'url(https://example.invalid/private.png)'};
+  first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  Object.defineProperty(unsafe, 'opacity', {get() {throw new Error('Style getter was read.');}});
+  first.update({kind: 'view', flattenedStyle: unsafe, declaredStyleComplete: true});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+  const current = registry.register(node, {kind: 'view', flattenedStyle: {}, declaredStyleComplete: true});
+  first.update({kind: 'view', flattenedStyle: {opacity: 0}});
+  first.unregister();
+  assert.equal(registry.read(node)?.declaredStyleComplete, true);
+  current.unregister();
+  assert.equal(registry.read(node), undefined);
+});
+
+test('declared shadow offsets curate bounded scalars without retaining objects or reading accessors', () => {
+  const raw = {shadowOffset: {width: -2, height: 3.5}, textShadowOffset: {width: 0, height: 2},
+    textShadowColor: '#07101880', textShadowRadius: 30, textDecorationLine: 'underline'};
+  assert.deepEqual(curateFlattenedStyle(raw), {shadowOffsetX: -2, shadowOffsetY: 3.5,
+    textShadowOffsetX: 0, textShadowOffsetY: 2, textShadowColor: '#07101880', textShadowRadius: 30, textDecorationLine: 'underline'});
+  const offset = {height: 2};
+  Object.defineProperty(offset, 'width', {get() {throw new Error('Offset getter was read.');}});
+  const registry = createNativeMeasurementRegistry(), node = {};
+  registry.register(node, {kind: 'text', flattenedStyle: {textShadowOffset: offset}, declaredStyleComplete: true});
+  assert.deepEqual(registry.read(node)?.flattenedStyle, {});
+  assert.equal(registry.read(node)?.declaredStyleComplete, false);
+});
+
 test('diagnostics cannot supply measured paint/font facts and invalidation does not invent defaults', () => {
   const registry = createNativeMeasurementRegistry(), node = {};
   const lease = registry.register(node, {kind: 'text', flattenedStyle: {opacity: .5, fontFamily: 'Input Font', fontSize: 24}});
@@ -132,6 +171,26 @@ test('diagnostics cannot supply measured paint/font facts and invalidation does 
   lease.update({kind: 'text', flattenedStyle: {fontSize: 30}});
   assert.equal(registry.read(node)?.lines, undefined);
   assert.equal(registry.read(node)?.effectiveOpacity, undefined);
+});
+
+test('capture marks complete current declarations without projecting them over observed facts', async () => {
+  const child = host('RN:View', {x: 10, y: 20, width: 100, height: 40});
+  const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844}, [child]);
+  const registry = createNativeMeasurementRegistry();
+  setNativeObservation(child, {style: {backgroundColor: 'rgba(1, 2, 3, 1)'}, effectiveOpacity: .9});
+  for (const complete of [true, false, undefined]) {
+    registry.register(child, {kind: 'view', flattenedStyle: {backgroundColor: '#edf5fa', opacity: .25},
+      declaredStyleComplete: complete});
+    const measured = await collectTestScene({root, registry, platform: 'android',
+      viewport: {width: 390, height: 844, deviceScaleFactor: 3}});
+    const node = measured.elements.find(element => element.id === 'root.0')!;
+    const diagnostics = node.diagnostics as Record<string, unknown>;
+    assert.deepEqual(diagnostics.flattenedStyle, {backgroundColor: '#edf5fa', opacity: .25});
+    assert.deepEqual(diagnostics.declaredStyle, complete ? {source: 'theme-resolved-stylesheet', complete: true} : undefined);
+    assert.equal((node.style as Record<string, unknown>).backgroundColor, 'rgba(1, 2, 3, 1)');
+    assert.equal(node.effectiveOpacity, .9);
+    assert.deepEqual(node.box, {x: 10, y: 20, width: 100, height: 40});
+  }
 });
 
 test('actual native focus events are lease/epoch bound; stale blur never clears a newer host', () => {

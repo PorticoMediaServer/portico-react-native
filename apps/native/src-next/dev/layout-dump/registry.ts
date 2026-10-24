@@ -6,8 +6,10 @@ export type HostFacts = Readonly<{
   kind: HostKind;
   semanticId?: string;
   role?: string;
-  /** Already flattened by the owning native primitive; diagnostic input, not observed paint. */
+  /** Final theme-resolved StyleSheet.flatten output from this owning primitive. */
   flattenedStyle?: unknown;
+  /** True only for the complete currently evaluated style, never a partial recipe. */
+  declaredStyleComplete?: boolean;
 }>;
 export type ResolvedStyle = Readonly<{
   /** The supplier must observe/resolve these on the native host, not infer them from input style. */
@@ -23,6 +25,7 @@ export type NativeTextLine = Readonly<{
 export type HostObservation = Readonly<{
   kind: HostKind; semanticId?: string; role?: string;
   flattenedStyle: ScalarStyle;
+  declaredStyleComplete: boolean;
   measuredStyle: ScalarStyle;
   effectiveOpacity?: number;
   effectiveBackgroundColor?: string;
@@ -47,7 +50,9 @@ export type HostRegistration = Readonly<{
 const scalarInputs = [
   'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'textAlign', 'textTransform',
   'color', 'backgroundColor', 'opacity', 'borderRadius', 'borderWidth', 'borderColor',
-  'shadowColor', 'shadowOpacity', 'shadowRadius', 'elevation', 'overflow', 'display', 'position', 'zIndex',
+  'shadowColor', 'shadowOpacity', 'shadowRadius', 'shadowOffsetX', 'shadowOffsetY',
+  'textDecorationLine', 'textShadowColor', 'textShadowRadius', 'textShadowOffsetX', 'textShadowOffsetY',
+  'elevation', 'overflow', 'display', 'position', 'zIndex',
   'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight', 'top', 'right', 'bottom', 'left',
   'padding', 'paddingHorizontal', 'paddingVertical', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
   'margin', 'marginHorizontal', 'marginVertical', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
@@ -75,7 +80,25 @@ export function curateFlattenedStyle(value: unknown): ScalarStyle {
     const fact = data(value, key);
     if (finite(fact) || safeText(fact, 512) && !assetLike.test(fact)) out[key] = fact;
   }
+  for (const key of ['shadowOffset', 'textShadowOffset'] as const) {
+    const offset = data(value, key);
+    if (!object(offset) || Array.isArray(offset)) continue;
+    const x = data(offset, 'width'), y = data(offset, 'height');
+    if (finite(x) && finite(y)) {out[`${key}X`] = x; out[`${key}Y`] = y;}
+  }
   return Object.freeze(out);
+}
+
+function completeDeclaredInput(raw: unknown, curated: ScalarStyle): boolean {
+  if (!object(raw) || Array.isArray(raw)) return false;
+  // A dropped unsafe/getter value must not become an omitted RN default later.
+  return scalarInputs.every(key => {
+    const property = Object.getOwnPropertyDescriptor(raw, key);
+    return !property || 'value' in property && (property.value === undefined || key in curated);
+  }) && (['shadowOffset', 'textShadowOffset'] as const).every(key => {
+    const property = Object.getOwnPropertyDescriptor(raw, key);
+    return !property || 'value' in property && (property.value === undefined || `${key}X` in curated && `${key}Y` in curated);
+  });
 }
 
 function textLines(value: unknown): readonly NativeTextLine[] | undefined {
@@ -115,10 +138,13 @@ function observedStyle(raw: ResolvedStyle): Pick<HostObservation, 'measuredStyle
 }
 
 function metadata(facts: HostFacts): HostObservation {
+  const flattenedStyle = curateFlattenedStyle(facts.flattenedStyle);
   return Object.freeze({kind: facts.kind,
     ...(safeText(facts.semanticId) ? {semanticId: facts.semanticId} : {}),
     ...(safeText(facts.role, 80) ? {role: facts.role} : {}),
-    flattenedStyle: curateFlattenedStyle(facts.flattenedStyle), measuredStyle: Object.freeze({})});
+    flattenedStyle,
+    declaredStyleComplete: facts.declaredStyleComplete === true && completeDeclaredInput(facts.flattenedStyle, flattenedStyle),
+    measuredStyle: Object.freeze({})});
 }
 
 /** Registration leases fence ref replacement, unmount and capture-epoch retirement. */
