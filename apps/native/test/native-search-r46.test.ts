@@ -12,6 +12,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const texts = (node: any) => nodes(node).filter(n => n.type === 'Text');
+const label = (node: any) => Array.isArray(node.props.children) ? node.props.children[0] : node.props.children;
 const flatten = (style: any) => Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean).map(flatten)) : style ?? {};
 
 const movie = {id: 'movie-1', kind: 'movie', title: 'Avengers: Endgame', displayTitle: 'Avengers: Endgame', year: 2019, duration: 10860, posterUrl: '/poster/endgame', playback: {itemId: 'movie-1'}, navigation: {view: 'item', entityId: 'movie-1'}};
@@ -74,7 +75,7 @@ test('phone Search draws the frame 7 empty state: 32pt title, bare 44px recent r
   const {tree} = await mount(snapshot, {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'});
 
   // .lt: 32/800 with the drawn 1.15 line box and 12pt gap under it.
-  const heading = texts(tree).find(node => node.props.children === defaultI18n.t('web.shell.search'))!;
+  const heading = texts(tree).find(node => label(node) === defaultI18n.t('web.shell.search'))!;
   const headingStyle = flatten(heading.props.style);
   assert.equal(heading.props.accessibilityRole, 'header');
   assert.equal(headingStyle.fontSize, 32);
@@ -84,9 +85,9 @@ test('phone Search draws the frame 7 empty state: 32pt title, bare 44px recent r
   assert.equal(headingStyle.marginHorizontal, 20);
 
   // .shead: 19/700 "Recent searches" with Clear, on the 24/20/6 box.
-  const recent = texts(tree).find(node => node.props.children === defaultI18n.t('web.search.recent'))!;
+  const recent = texts(tree).find(node => label(node) === defaultI18n.t('web.search.recent'))!;
   assert.equal(flatten(recent.props.style).fontSize, 19);
-  assert.ok(texts(tree).some(node => node.props.children === defaultI18n.t('web.search.clearRecent')));
+  assert.ok(texts(tree).some(node => label(node) === defaultI18n.t('web.search.clearRecent')));
   assert.ok(nodes(tree).some(node => node.props.accessibilityLabel === defaultI18n.t('web.search.clearRecent')));
   const boxes = nodes(tree).filter(node => node.type === 'View' && flatten(node.props.style).marginTop === 24);
   assert.ok(boxes.length >= 2, 'both drawn sections take the .shead margins');
@@ -117,13 +118,15 @@ test('phone Search draws the frame 7 empty state: 32pt title, bare 44px recent r
     assert.deepEqual(tile.props.palette, {first: tint.get(tile.props.covers[0].uri), second: tint.get(tile.props.covers[0].uri)});
   }
   assert.ok(!tiles.some(tile => tile.props.title === 'Western'), 'a genre without its two covers is skipped');
-  assert.ok(texts(tree).some(node => node.props.children === defaultI18n.t('next.search.browseByGenre')));
-  assert.ok(!texts(tree).some(node => node.props.children === defaultI18n.t('next.search.browseInstead')));
+  assert.ok(texts(tree).some(node => label(node) === defaultI18n.t('next.search.browseByGenre')));
+  assert.ok(!texts(tree).some(node => label(node) === defaultI18n.t('next.search.browseInstead')));
   assert.ok(!nodes(tree).some(node => node.type === 'Chip'), 'chips stay hidden before a query');
 });
 
 test('phone Search draws the frame 8 results: counted type chips, the 178px top result and per-type row shapes', async () => {
-  const groups = [group('movies', [movie]), group('shows', [show]), group('episodes', [episode]), group('songs', [song]), group('books', [book])];
+  // The answer reports every requested group, including the ones that matched nothing.
+  const groups = [group('movies', [movie]), group('shows', [show]), group('episodes', [episode]), group('songs', [song]), group('books', [book]),
+    group('people', []), group('artists', []), group('albums', []), group('live-tv', [])];
   const snapshot = {text: 'game', group: 'all', search: {generation: 2, scope: {}, query: {q: 'game'}, phase: 'ready', groups,
     data: {scope: {}, revision: {catalog: 1, viewer: 1}, heading: {key: '', fallback: ''}, query: {q: 'game', sort: 'relevance', direction: 'desc', group: '', groups: [], libraryIds: [], limit: 12, searchMode: 'normalized_prefix', recorded: false},
       groups, capabilities, empty: undefined}, pagination: {cursor: null, canPrevious: false}, error: null},
@@ -132,7 +135,7 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
 
   // .hs/.chip: only the groups that answered with results carry a chip, each with its exact count.
   const chips = nodes(tree).filter(node => node.type === 'Chip');
-  assert.deepEqual(chips.map(chip => chip.props.children), ['All', 'Movies', 'Shows', 'Episodes', 'Songs', 'Audiobooks']);
+  assert.deepEqual(chips.map(chip => label(chip)), ['All', 'Movies', 'Shows', 'Episodes', 'Songs', 'Audiobooks']);
   assert.deepEqual(chips.map(chip => chip.props.count), [5, 1, 1, 1, 1, 1]);
   assert.deepEqual(chips.map(chip => chip.props.selected), [true, false, false, false, false, false]);
   assert.ok(chips.every(chip => chip.props.retry === false));
@@ -144,9 +147,9 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
   assert.deepEqual([flatten(top.props.style).marginTop, flatten(top.props.style).marginHorizontal], [14, 16]);
   const banner = nodes(top.props.children({focused: false, hovered: false, pressed: false, holding: false}));
   assert.equal(banner.find(node => node.type === 'Artwork')!.props.source.uri, '/backdrop/got');
-  assert.ok(texts(banner).some(node => node.props.children === defaultI18n.t('search.topResult')));
-  assert.ok(texts(banner).some(node => node.props.children === 'Game of Thrones'));
-  assert.ok(texts(banner).some(node => node.props.children === defaultI18n.t(topResultKindLabel('shows')!)));
+  assert.ok(texts(banner).some(node => label(node) === defaultI18n.t('search.topResult')));
+  assert.ok(texts(banner).some(node => label(node) === 'Game of Thrones'));
+  assert.ok(texts(banner).some(node => label(node) === defaultI18n.t(topResultKindLabel('shows')!)));
   const play = banner.find(node => node.props.testID === 'search-top-play')!;
   const playStyle = flatten(play.props.style);
   assert.deepEqual([playStyle.width, playStyle.height, playStyle.borderRadius, playStyle.backgroundColor], [46, 46, 23, theme.colors.text]);
@@ -164,10 +167,10 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
     const artStyle = flatten(art.props.style);
     assert.deepEqual([artStyle.width, artStyle.height, artStyle.borderRadius], [width, height, 6], `${id} keeps its drawn art slot`);
     const captions = texts(body).filter(node => flatten(node.props.style).fontSize === 12.5);
-    assert.deepEqual(captions.map(node => node.props.children), homeCardText(entry, false, env).caption.map(part => part.text));
+    assert.deepEqual(captions.map(node => label(node)), homeCardText(entry, false, env).caption.map(part => part.text));
   }
   // The Shows row is omitted: its only result already leads the page as the Top result.
   assert.ok(!nodes(tree).some(node => node.props.testID === `search-result-${nativeSearchEntryKey('shows', show)}`));
-  assert.deepEqual(texts(tree).filter(node => node.props.accessibilityRole === 'header').map(node => node.props.children),
+  assert.deepEqual(texts(tree).filter(node => node.props.accessibilityRole === 'header').map(node => label(node)),
     ['movies', 'episodes', 'songs', 'books'].map(id => defaultI18n.t(searchGroupLabel(id as any))));
 });
