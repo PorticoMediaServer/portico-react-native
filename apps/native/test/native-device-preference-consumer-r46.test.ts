@@ -1,0 +1,149 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {NativeModules} from './react-native-stub.mjs';
+import {NativeQueueStore} from '../src-next/platform/queue-storage';
+import {bindNativeDeviceSettings, nativeDeviceSettings} from '../src-next/platform/device-settings';
+import {nativeDevicePreferences} from '../src-next/screens/settings-live/device-preference-consumer';
+import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
+
+const key = 'preferences:v1';
+const deferred = () => {let resolve!: () => void; const promise = new Promise<void>(done => {resolve = done;}); return {promise, resolve};};
+const device = (extra: Record<string, unknown> = {}) => ({playerEngine: 'automatic', forceStereo: false, disableHdr: false, ...extra});
+type State = {raw: string | null; saves: number; loads: number; beforeSave?: () => Promise<void>; beforeRead?: () => Promise<void>};
+
+async function records(run: (state: State) => Promise<void>, initial = JSON.stringify(device({cardScale: 1.25, serverCache: {kept: true}}))) {
+  const runtime = NativeModules.PorticoRuntime as Record<string, unknown>, old = {read: runtime.loadQueueRecord, write: runtime.saveQueueRecord};
+  const state: State = {raw: initial, saves: 0, loads: 0};
+  runtime.loadQueueRecord = async (recordKey: string) => {assert.equal(recordKey, key); state.loads++; await state.beforeRead?.(); return state.raw;};
+  runtime.saveQueueRecord = async (recordKey: string, next: string) => {assert.equal(recordKey, key); await state.beforeSave?.(); state.raw = next; state.saves++;};
+  try {await run(state);} finally {runtime.loadQueueRecord = old.read; runtime.saveQueueRecord = old.write;}
+}
+
+async function fixture() {
+  const storage = new NativeQueueStore(), listeners = new Set<() => void>();
+  let current = true;
+  let observed = await storage.change(key, raw => ({record: raw, value: raw}));
+  const context = {current: () => current, subscribePreferences: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}} as unknown as NativeShellBootstrapContext;
+  const ports = {storage, readRecord: () => observed, acceptRecord: (raw: unknown) => {observed = raw; for (const listener of [...listeners]) listener();}};
+  const source = bindNativeDeviceSettings(context, ports);
+  return {context, ports, source, retire: () => {current = false;}, listeners};
+}
+
+test('drawn device rows read through the canonical codecs and unbound rows read nothing', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context);
+  assert.equal(nativeDevicePreferences(f.context), consumer, 'one stable facade for the bootstrap context');
+  assert.equal(nativeDeviceSettings(f.context), f.source, 'the consumer borrows the installed source');
+  assert.equal(consumer.read('forceStereo'), false);
+  assert.equal(consumer.read('disableHdr'), false);
+  const loads = state.loads;
+  for (const id of ['tvHdr', 'tvSurround', 'receiveFromDevices', 'reduceMotion', 'textSize', 'layout', 'libraryView'] as const) assert.equal(consumer.read(id), undefined, id);
+  assert.equal(state.loads, loads, 'unbound rows never touch the device record');
+  await f.source.write('forceStereo', true);
+  await f.source.write('disableHdr', true);
+  assert.equal(consumer.read('forceStereo'), true);
+  assert.equal(consumer.read('disableHdr'), true);
+}));
+
+test('a device write resolves only after the canonical save and actual reread', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context), begun = deferred(), durable = deferred();
+  state.beforeSave = async () => {begun.resolve(); await durable.promise;};
+  const before = state.loads;
+  let settled = false;
+  const writing = consumer.write('forceStereo', true).then(value => {settled = true; return value;});
+  await begun.promise;
+  assert.equal(settled, false);
+  assert.equal(consumer.read('forceStereo'), false);
+  assert.equal(JSON.parse(state.raw!).forceStereo, false);
+  durable.resolve();
+  assert.equal(await writing, true);
+  assert.equal(state.loads, before + 2, 'one transaction read and one committed reread');
+  assert.equal(state.saves, 1);
+  assert.deepEqual(JSON.parse(state.raw!), device({forceStereo: true, cardScale: 1.25, serverCache: {kept: true}}));
+  assert.equal(await consumer.write('disableHdr', true), true);
+  assert.deepEqual(JSON.parse(state.raw!), device({forceStereo: true, disableHdr: true, cardScale: 1.25, serverCache: {kept: true}}));
+}));
+
+test('a saved write never echoes the asked value over the committed reread', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context);
+  const runtime = NativeModules.PorticoRuntime as Record<string, unknown>, load = runtime.loadQueueRecord;
+  let reads = 0;
+  runtime.loadQueueRecord = async (recordKey: string) => {assert.equal(recordKey, key); reads++; return reads === 2 ? JSON.stringify(device()) : state.raw;};
+  try {
+    const written = await consumer.write('forceStereo', true);
+    assert.equal(written, false, 'the returned value is the source reread, not the asked value');
+    assert.equal(JSON.parse(state.raw!).forceStereo, true, 'the durable save still committed the asked value');
+    assert.equal(reads, 2);
+  } finally {runtime.loadQueueRecord = load;}
+}));
+
+test('the same source notifies every page subscriber and unsubscribing never retires it', async () => records(async state => {
+  const f = await fixture(), a = nativeDevicePreferences(f.context), b = nativeDevicePreferences(f.context), seen: string[] = [];
+  assert.equal(a, b);
+  const offA = a.subscribe(() => seen.push('a')), offB = b.subscribe(() => seen.push('b'));
+  await a.write('disableHdr', true);
+  assert.deepEqual(seen, ['a', 'b']);
+  seen.length = 0; offA();
+  await b.write('forceStereo', true);
+  assert.deepEqual(seen, ['b']);
+  seen.length = 0; offB();
+  await a.write('forceStereo', false);
+  assert.deepEqual(seen, []);
+  assert.equal(f.listeners.size, 0);
+  assert.equal(nativeDeviceSettings(f.context), f.source);
+  assert.throws(() => bindNativeDeviceSettings(f.context, f.ports), /already_bound/);
+  assert.equal(state.saves, 3);
+}));
+
+test('unsupported and invalid writes never reach the installed source', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context), calls: unknown[] = [], write = f.source.write;
+  f.source.write = async (id, value) => {calls.push([id, value]); return write(id, value);};
+  try {
+    for (const [id, value, expected] of [
+      ['forceStereo', 'stereo', /Invalid setting value/],
+      ['forceStereo', 'asis', /Invalid setting value/],
+      ['disableHdr', 'yes', /Invalid setting value/],
+      ['tvHdr', true, {code: 'unsupported'}],
+      ['tvSurround', false, {code: 'unsupported'}],
+      ['receiveFromDevices', true, {code: 'unsupported'}],
+      ['reduceMotion', true, {code: 'unsupported'}],
+      ['textSize', 'large', {code: 'unsupported'}],
+      ['layout', 'touch', {code: 'unsupported'}],
+      ['libraryView', 'list', {code: 'unsupported'}],
+    ] as const) await assert.rejects(consumer.write(id, value as string | boolean), expected, id);
+    assert.deepEqual(calls, []);
+    assert.equal(state.saves, 0);
+  } finally {f.source.write = write;}
+}));
+
+test('authority retirement blocks late reads, writes and notifications', async () => records(async state => {
+  const f = await fixture(), consumer = nativeDevicePreferences(f.context), seen: string[] = [];
+  const off = consumer.subscribe(() => seen.push('late')), begun = deferred(), release = deferred();
+  state.beforeRead = async () => {begun.resolve(); await release.promise;};
+  const writing = consumer.write('forceStereo', true);
+  await begun.promise;
+  f.retire();
+  release.resolve();
+  await assert.rejects(writing, {name: 'AbortError'});
+  assert.deepEqual(seen, []);
+  assert.equal(state.saves, 0);
+  assert.equal(JSON.parse(state.raw!).forceStereo, false);
+  assert.throws(() => consumer.read('forceStereo'), {name: 'AbortError'});
+  assert.throws(() => consumer.subscribe(() => {}), {name: 'AbortError'});
+  await assert.rejects(consumer.write('disableHdr', true), {name: 'AbortError'});
+  off();
+}));
+
+test('a replacement context gets its own source and facade, never the retired one', async () => records(async state => {
+  const old = await fixture(), oldConsumer = nativeDevicePreferences(old.context);
+  old.retire();
+  assert.throws(() => oldConsumer.read('forceStereo'), {name: 'AbortError'});
+  state.raw = JSON.stringify(device({forceStereo: true, disableHdr: true, cardScale: 1.25, serverCache: {kept: true}}));
+  const next = await fixture(), nextConsumer = nativeDevicePreferences(next.context);
+  assert.notEqual(nextConsumer, oldConsumer);
+  assert.equal(nextConsumer.read('forceStereo'), true);
+  assert.equal(nextConsumer.read('disableHdr'), true);
+  assert.equal(await nextConsumer.write('forceStereo', false), false);
+  assert.equal(nextConsumer.read('forceStereo'), false);
+  assert.equal(JSON.parse(state.raw!).forceStereo, false);
+  assert.throws(() => oldConsumer.read('forceStereo'), {name: 'AbortError'});
+}));

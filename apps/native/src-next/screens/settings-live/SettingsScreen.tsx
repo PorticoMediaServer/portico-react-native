@@ -20,6 +20,7 @@ import {NativeTVKeyboard} from '../destinations';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeSettingsController} from './settings-controller';
+import type {NativeDevicePreferences} from './device-preference-consumer';
 import {Screen, useScreenBack, useScreenEntry} from './Screen';
 
 /** Same icon normalization as settings.html: strip one leading i-, look up, fall back. */
@@ -28,7 +29,7 @@ export function nativeSettingsIcon(name: string): IconName {
   return Object.hasOwn(nextIcons, key) ? key as IconName : 'i-sliders';
 }
 
-export function NativeSettingsScreen({ports, controller, runtime}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime}) {
+export function NativeSettingsScreen({ports, controller, runtime, devicePreferences}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences}) {
   const theme = useTheme(), t = defaultI18n.t, registry = useFocusRegistry();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
@@ -82,26 +83,26 @@ export function NativeSettingsScreen({ports, controller, runtime}: {ports: Nativ
         <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
-            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
-          </> : <SettingsPageBody page={page} ports={ports} controller={controller} runtime={runtime} region={rows} column={column}/>}
+            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
+          </> : <SettingsPageBody page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
         </ScrollView>
       </View>}
     </View>
   </Screen>;
 }
 
-function SettingsPageBody({page, ports, controller, runtime, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; region: string; column: string}) {
+function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column}: {page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = defaultI18n.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
   const [confirmation, setConfirmation] = useState<'signOut' | 'resetRecommendations'>(), [actionBusy, setActionBusy] = useState(false), [actionError, setActionError] = useState<unknown>();
   const cancel = useRef<View>(null);
-  useSyncExternalStore(ports.deviceSettings.subscribe, () => page.sections.flatMap(section => section.rows).filter(row => row.kind === 'composite' && row.storage === 'device').map(row => ports.deviceSettings.read((row as Extract<Row, {kind: 'composite'}>).id)).join('|'));
+  useSyncExternalStore(devicePreferences.subscribe, () => page.sections.flatMap(section => section.rows).filter(row => row.kind === 'composite' && row.storage === 'device').map(row => devicePreferences.read((row as Extract<Row, {kind: 'composite'}>).id)).join('|'));
   useEffect(() => setAdvanced(false), [page.id]);
   const visible = (row: Row) => !('when' in row) || !row.when || state.preferences.effective[row.when.key] === ('equals' in row.when ? row.when.equals : undefined);
   const sections = page.sections.filter(section => !section.advanced || advanced);
   const rowIds = sections.flatMap(section => section.rows.filter(visible).map(settingsRowId));
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
-    if (row.kind === 'composite' && row.storage === 'device') {void ports.deviceSettings.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
+    if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
     const patch = row.kind === 'preference' ? {[row.key]: value} : compositePatch(row.id, value as string | boolean);
     const field = state.preferences.registry.fields.find(value => value.key === Object.keys(patch)[0]);
     if (!field) return;
@@ -121,7 +122,7 @@ function SettingsPageBody({page, ports, controller, runtime, region, column}: {p
         if (row.kind === 'custom') return <React.Fragment key={id}>{ports.renderSettingsPanel(row.id, runtime)}</React.Fragment>;
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
         if (row.kind === 'action') return <SettingsRow key={id} testID={id} label={t(row.label)} first={index === 0} onPress={() => {controller.lifetime.assert(); if (row.id === 'linkTV') ports.accountActions.linkTV(); else setConfirmation(row.id);}}/>;
-        const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : ports.deviceSettings.read(row.id);
+        const value = row.kind === 'preference' ? state.preferences.effective[row.key] : row.storage === 'registry' ? readComposite(row.id, key => state.preferences.effective[key]) : devicePreferences.read(row.id);
         if (value === undefined) return null;
         const scope = settingsScopeLabel(row.scope, theme.isTV ? 'tv' : 'phone');
         return <SettingsRow key={id} testID={id} label={t(row.label)} description={row.help ? t(row.help) : undefined} scope={scope ? t(scope) : undefined} first={index === 0} dependent={!!row.when}
