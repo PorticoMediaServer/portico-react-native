@@ -7,7 +7,7 @@ import {encodedRoutePath, routePath} from '../../../packages/contracts/src/route
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
 import {NativePlaybackRuntime} from '../src-next/platform/playback/runtime.ts';
 import type {NativePlaybackSettings, PlaybackAuthority} from '../src-next/platform/playback/types.ts';
-import {nativeEngineFeatures} from '../src-next/platform/playback/engine-choice.ts';
+import {nativeEngineFeatures, type EngineFeatures} from '../src-next/platform/playback/engine-choice.ts';
 import type {NativePlaybackTransport} from '../src-next/platform/playback/NativePlaybackCoordinator.ts';
 import type {HomeChannel} from '../../../packages/client-core/src/home.ts';
 import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/home-selection/types.ts';
@@ -15,6 +15,7 @@ import type {SelectionContext} from '../../../packages/client-core/src/selection
 import type {VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 import type {Marker} from '../../../packages/client-core/src/playback-v1/types.ts';
 import type {NativeSubtitleFilePicker} from '../src-next/platform/playback/subtitle-file-upload.ts';
+import {externalSubtitlePreparation} from '../src-next/platform/playback/engine-media.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchLease} from '../src-next/shell/watch-outlet.ts';
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -30,6 +31,7 @@ class Engine implements NativePlaybackTransport {
   listener?: (fact: any) => void;
   position = 0;
   acknowledgeSeeks = true;
+  externalReady = false;
   private sequence = 0;
   private leases = 0;
   private key = '';
@@ -53,14 +55,14 @@ class Engine implements NativePlaybackTransport {
     if (!command) return;
     this.listener?.({type, instanceId: 'engine-instance', binding: command.binding, intentId: command.binding.intentId,
       factSequence: ++this.sequence, lastCommandRevision: command.commandRevision, position: this.position, paused: command.paused,
-      effectiveRate: command.paused ? 0 : command.rate, supportedRates: [.5, 1, 1.5, 2], ...extra});
+      effectiveRate: command.paused ? 0 : command.rate, supportedRates: [.5, 1, 1.5, 2], ...(this.externalReady ? {externalPresentationBinding: command.binding} : {}), ...extra});
   }
   get lastCommand() { return this.commands.at(-1)!; }
 }
 
 const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
-function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker) {
+function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false) {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
   const engine = new Engine(), requests: FakeRequest[] = [];
   let serial = 0;
@@ -133,7 +135,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     events: {on(type, listener) { const set = eventListeners.get(type) ?? new Set(); set.add(listener); eventListeners.set(type, set); return () => { set.delete(listener); }; }, onResync(listener) { resyncListeners.add(listener); return () => { resyncListeners.delete(listener); }; }},
     settings: () => settings, subscribeSettings: listener => { settingsListeners.add(listener); return () => { settingsListeners.delete(listener); }; },
     requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: 'native', choose: () => 'native', transport: () => engine},
-    engineFeatures: () => nativeEngineFeatures, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker,
+    engineFeatures: () => features, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker, ...(pictureControls ? {pictureInPictureControls: true as const} : {}),
     timers: {
       setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
@@ -167,6 +169,134 @@ function subtitleResponse(d: ReturnType<typeof fixture>, request: FakeRequest): 
     if (request.method === 'POST' && request.path.endsWith('/subtitles/search')) return {status: 200, headers: {}, body: {version: 1, page: 1, candidates: []}};
     if (request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path) && record(request.body)) return {status: 200, headers: {}, body: {operationId: request.body.operationId, resourceId: 'uploaded-resource', revision: 1, catalogRevision: 2}};
 }
+
+function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number | undefined = 1250) {
+  const burned = new Set<string>();
+  const resource = (sessionId = d.runtime.playback.getSnapshot().session?.id) => ({id: 'rich-resource', sourceId: 'physical-source-1', revision: 3, scope: 'personal', language: 'en', title: 'Actual rich resource',
+    format: 'vobsub', origin: 'sidecar', rights: '', offsetUs: '500000', canManage: true, enabled: true, pinned: true, renderer: sessionId && burned.has(sessionId) ? 'burn_in' : 'client', default: false, forced: false});
+  d.respond(async request => {
+    const match = /^\/v1\/items\/([^/]+)\/playback\/([^/]+)\/subtitles$/.exec(request.path);
+    if (match) {const sessionId = decodeURIComponent(match[2]), selected = resource(sessionId); return {status: 200, headers: {}, body: {version: 1, sessionId, generation: d.runtime.playback.getSnapshot().session!.generation,
+      sourceId: selected.sourceId, revision: burned.has(sessionId) ? 2 : 1, catalogRevision: 1, renderer: selected.renderer, mode: 'track', offAvailable: true, offsetUs: '500000', selected, resources: [selected], discovered: []}};}
+    if (request.method === 'GET' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path)) {
+      const response = subtitleResponse(d, request)!;
+      return {...response, body: {...response.body as object, resources: [resource()]}};
+    }
+    if (request.method === 'POST' && request.path === routePath('create_queue') || /^\/v1\/playback\/sessions(?:\/[^/]+)?$/.test(request.path)) {
+      if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned.add(decodeURIComponent(request.path.split('/').at(-1)!));
+      const response = await d.server.handle(request);
+      const shape = (session: any) => ({...session, presentation: {...session.presentation,
+        subtitle: {trackId: 'rich-resource', kind: 'vobsub', delivery: burned.has(session.id) ? 'burn' : 'device'},
+        subtitles: [{trackId: 'rich-resource', format: 'vobsub', url: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.idx`,
+          companionUrl: `/v1/media/subtitles/grant-${session.id}/rich-resource/3/original.sub`, timeDomain: 'source-relative', ...(offsetMs === undefined ? {} : {offsetMs})}]}});
+      const body = response.body as any;
+      return response.status < 300 && body ? {...response, body: body.session ? {...body, session: shape(body.session)} : body.presentation ? shape(body) : body} : response;
+    }
+    return subtitleResponse(d, request);
+  });
+}
+
+test('the app-local strict transport guards native controller adoption and never restarts an ended session', async () => {
+  for (const retire of ['signal', 'member'] as const) {
+    const d = fixture(), controller = new AbortController(); let current = true;
+    let finish!: (response: FakeResponse) => void, held!: FakeResponse, sent: FakeRequest | undefined;
+    try {
+      await d.start('movie-1');
+      const before = d.runtime.queue.currentSession()!;
+      d.respond(async request => {
+        if (request.method === 'PATCH' && request.path.endsWith('/' + before.id)) {sent = request; held = await d.server.handle(request); return new Promise(resolve => {finish = resolve;});}
+      });
+      const pending = d.runtime.queue.changePlayback({audioTrackId: 'a2'}, {signal: controller.signal, isCurrent: () => current, recoverEnded: false});
+      await settle(); assert.ok(sent);
+      if (retire === 'signal') {controller.abort(); assert.equal(sent.signal?.aborted, true);} else current = false;
+      finish(held); await assert.rejects(pending, {name: 'AbortError'}); await settle();
+      assert.equal(d.runtime.path.controller.getSnapshot().session?.presentation.generation, before.presentation.generation);
+      assert.equal(d.runtime.queue.currentSession()?.presentation.generation, before.presentation.generation);
+      assert.equal(d.engine.commands.some(command => command.binding.generation > before.presentation.generation), false);
+    } finally {d.runtime.dispose();}
+  }
+  const d = fixture();
+  try {
+    await d.start('movie-1'); const original = d.runtime.queue.currentSession()!, sent = d.requests.length;
+    d.respond(request => request.method === 'PATCH' ? {status: 410, headers: {}, body: {error: {code: 'session_ended', message: 'session_ended'}}} : undefined);
+    await assert.rejects(d.runtime.queue.changePlayback({audioTrackId: 'a2'}, {...versionLifetime(), recoverEnded: false}), (error: any) => error.status === 410);
+    assert.equal(d.runtime.queue.currentSession()?.id, original.id);
+    assert.equal(d.requests.slice(sent).some(request => request.method === 'POST' || request.path.endsWith('/timeline')), false);
+  } finally {d.runtime.dispose();}
+});
+
+test('an installed native rich producer receives the actual companion and complete file correction', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}); richSubtitleResponses(d);
+  try {
+    await d.start('movie-1');
+    assert.equal(d.runtime.getSnapshot().subtitles?.plan?.mode, 'track', d.runtime.getSnapshot().subtitles?.error ?? 'actual current rich plan required');
+    const subtitles = d.engine.lastCommand.subtitles;
+    assert.equal(subtitles.mode, 'track'); assert.equal(subtitles.offsetUs, '500000');
+    assert.equal(subtitles.render.kind, 'vobsub'); assert.equal(subtitles.render.offsetMs, 1250); assert.equal(subtitles.render.timeDomain, 'source-relative');
+    assert.match(subtitles.render.url, /\/original.idx$/); assert.match(subtitles.render.companionUrl, /\/original.sub$/);
+    assert.equal(d.runtime.getSnapshot().engine, 'native');
+  } finally {d.runtime.dispose();}
+});
+
+test('PiP replan preserves the actual source/track/file clock then waits for new-generation native acknowledgement', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
+  try {
+    await d.start('movie-1'); d.engine.position = 37; d.engine.emit('progress'); await settle();
+    const source = d.runtime.getSnapshot();
+    assert.equal(source.playback.phase, 'ready'); assert.equal(!!source.playback.pendingSeek, false); assert.equal(!!source.playback.failedSeek, false);
+    assert.equal(!!d.runtime.path.controller.getSnapshot().changing, false); assert.ok(source.pictureInPicture);
+    assert.equal(source.subtitles?.suppressed, false);
+    assert.equal(externalSubtitlePreparation(source.subtitles?.plan, source.session!).kind, 'burn');
+    const pending = d.runtime.requestPictureInPicture(source.fence!, versionLifetime());
+    await settle();
+    const change = d.requests.find(request => request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn');
+    assert.ok(change && record(change.body)); assert.deepEqual(change.body.subtitles, {trackId: 'rich-resource', delivery: 'burn'});
+    assert.equal(change.body.subtitleOffsetMs, 1250, 'complete file correction wins over the separate 500ms plan fallback');
+    assert.equal(change.body.positionMs, 37000); assert.equal(d.runtime.getSnapshot().session?.id, source.session?.id);
+    assert.equal(d.runtime.getSnapshot().session?.versionId, source.session?.versionId);
+    assert.ok(d.runtime.getSnapshot().fence!.generation > source.fence!.generation);
+    assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 0, 'ready/firstFrame without native acknowledgement never requests PiP');
+    d.engine.externalReady = true; d.engine.emit('progress');
+    assert.equal(await pending, true);
+    const request = d.runtime.getSnapshot().pictureInPicture!;
+    assert.equal(request.request, 1); assert.deepEqual(request.binding, d.engine.lastCommand.binding);
+    await d.start('movie-2'); assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 1); assert.equal(d.runtime.getSnapshot().pictureInPicture?.binding, undefined);
+  } finally {d.runtime.dispose();}
+});
+
+test('external source readiness cannot survive caller close or an unknown old-binary acknowledgement', async () => {
+  const d = fixture(false, undefined, nativeEngineFeatures, true);
+  try {
+    await d.start('movie-1');
+    // Current subtitle identity is present but no loaded plan: no invented Off or burn choice.
+    assert.equal(await d.runtime.requestPictureInPicture(d.runtime.getSnapshot().fence!, versionLifetime()), false);
+    assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 0);
+  } finally {d.runtime.dispose();}
+  const rich = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(rich);
+  try {
+    await rich.start('movie-1'); const caller = new AbortController(), generation = rich.runtime.getSnapshot().fence!.generation;
+    const pending = rich.runtime.requestPictureInPicture(rich.runtime.getSnapshot().fence!, {signal: caller.signal, isCurrent: () => !caller.signal.aborted});
+    await settle(); assert.ok(rich.runtime.getSnapshot().fence!.generation > generation); caller.abort(); assert.equal(await pending, false);
+    rich.engine.externalReady = true; rich.engine.emit('progress'); await settle();
+    assert.equal(rich.runtime.getSnapshot().pictureInPicture?.request, 0);
+  } finally {rich.runtime.dispose();}
+});
+
+test('an old binary without an external acknowledgement times out without a PiP request', async () => {
+  const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}, true); richSubtitleResponses(d);
+  try {
+    await d.start('movie-1');
+    const generation = d.runtime.getSnapshot().fence!.generation, sessionId = d.runtime.getSnapshot().session!.id, pending = d.runtime.requestPictureInPicture(d.runtime.getSnapshot().fence!, versionLifetime());
+    await settle(); assert.ok(d.runtime.getSnapshot().fence!.generation > generation);
+    const timers = d.pendingTimers(10000); assert.ok(timers.length >= 1);
+    // Session keepalive and the external-ready deadline share this duration.
+    // Let each actual scheduled callback run; the current session remains owned.
+    for (const timer of timers) timer.run();
+    assert.equal(await pending, false); assert.equal(d.runtime.getSnapshot().pictureInPicture?.request, 0);
+    assert.equal(d.runtime.getSnapshot().session?.id, sessionId);
+    assert.equal(d.requests.filter(request => request.method === 'POST' && request.path === '/v1/playback/sessions').length, 1);
+  } finally {d.runtime.dispose();}
+});
 
 test('subtitle controls use the real source service and retire with its session and authority', async () => {
   const d = fixture();

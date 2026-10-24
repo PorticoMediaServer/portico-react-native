@@ -2,7 +2,7 @@
  * reports about the file. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chapterAt, chaptersOf, deliveriesOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src-next/platform/playback/engine-media.ts';
+import {chapterAt, chaptersOf, deliveriesOf, deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src-next/platform/playback/engine-media.ts';
 
 const all = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
 const absolute = (path: string) => 'https://portico.test' + path;
@@ -126,6 +126,22 @@ test('delivery companion URLs remain grant-bound and absent file timing stays ab
   for (const offsetMs of [NaN, Infinity, '1000']) {
     assert.deepEqual(deliveriesOf(resource({deliveries: [{...delivery, offsetMs, timeDomain: 'source-relative\n'}]})), [{format: 'vobsub', url: delivery.url, companionUrl: delivery.companionUrl}]);
   }
+});
+
+test('external burn preserves actual selected identity and the complete file correction or actual plan fallback', () => {
+  const selected = resource({format: 'vobsub', origin: 'sidecar'}), current = plan(selected, {renderer: 'client', offsetUs: '500000'});
+  const shown = (offsetMs?: number) => ({...v1({subtitle: {trackId: selected.id, kind: 'vobsub', delivery: 'device'}, subtitles: [{trackId: selected.id, format: 'vobsub', url: base + '/original.idx', ...(offsetMs === undefined ? {} : {offsetMs})}]}), versionId: 'v1'});
+  for (const offsetMs of [1250, 0, -2000]) assert.deepEqual(externalSubtitlePreparation(current, shown(offsetMs)), {
+    kind: 'burn', sourceId: 'src', trackId: selected.id, choices: {subtitleTrackId: selected.id, subtitleDelivery: 'burn', subtitleOffsetMs: offsetMs},
+  });
+  assert.equal((externalSubtitlePreparation(current, shown()) as any).choices.subtitleOffsetMs, 500);
+  assert.deepEqual(externalSubtitlePreparation(current, shown(0.5)), {kind: 'unavailable'}, 'the existing integer-ms change wire cannot preserve a fractional file correction exactly');
+  assert.deepEqual(externalSubtitlePreparation({...current, generation: 2}, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation(null, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation({...current, selected: {...selected, enabled: false}}, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation({...current, selected: {...selected, retired: true}}, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation(current, {...shown(), presentation: {...shown().presentation, subtitle: {...shown().presentation.subtitle, trackId: 'different-resource'}}}), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation(null, {...shown(), presentation: {...shown().presentation, subtitle: {...shown().presentation.subtitle, delivery: 'burn'}}}), {kind: 'carried'});
 });
 
 test('formats map to the kinds of the capability document, and chapters are bounded and ordered', () => {
