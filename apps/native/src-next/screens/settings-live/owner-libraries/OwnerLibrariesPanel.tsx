@@ -179,7 +179,7 @@ function LibraryPage({library, document, state, tab, tabChange, t, runtime, serv
         {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu}/>}
         {tab === 'metadata' && <MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/>}
         {tab === 'attention' && <AttentionTab state={state} t={t} more={moreUnmatched}/>}
-        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale} skipped={skipped} cancel={cancel} save={save}/>}
+        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? 'en-US'} skipped={skipped} cancel={cancel} save={save}/>}
         {tab === 'advanced' && <AdvancedTab document={document} t={t} scanAll={scanAll} save={save}/>}
       </View>
     </ScrollView>
