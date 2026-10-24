@@ -180,6 +180,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
     cleanups.push(() => windowSubscription.remove());
     const context: NativeShellBootstrapContext = {...contextBase, playback, watch, get account() {return currentAccount();}};
+    const text = nativeRuntimeRegionText(context);
     bindNativeServerPreferences(context, {read: readers.readPreferences, apply: readers.applyPreferences, accept: next => {
       assertCurrent();
       const confirmed = currentPreferenceSnapshot(preferences, next);
@@ -259,6 +260,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         // parallel read must not overwrite a device setting committed meanwhile.
         const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
         preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
+        text.refreshDeviceRegion();
         account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;
         for (const listener of [...preferenceListeners]) listener();
         publish();
@@ -289,7 +291,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
-    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text: nativeRuntimeRegionText(context),
+    const runtime: RestoredNativeShellRuntime = {...bound, playback, watch, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get skipBackSeconds() {const value = currentPreferences().effective['playback.skipBackMs']; if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference'); return value / 1000;}, home: documentService, memory: new LastLibraryMemory(records), text,
       subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
       artwork: path => {
         if (!path || !current()) return undefined;
