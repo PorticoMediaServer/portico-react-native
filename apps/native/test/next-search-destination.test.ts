@@ -177,7 +177,7 @@ test('privacy-off clears arrived history during an explicit clear, and pause can
 });
 
 test('an arrived read error survives pause/resume until the actual retry gesture', async () => {
-  let reads = 0, fail = true;
+  let reads = 0, fail = false;
   const f = setup(async <T>(path: string) => {
     reads++;
     if (fail) throw Object.assign(new Error('actual read failure'), {status: 503, code: 'unavailable'});
@@ -185,11 +185,13 @@ test('an arrived read error survives pause/resume until the actual retry gesture
   });
   try {
     f.destination.setText('matrix'); f.destination.selectGroup('movies'); await tick();
+    assert.equal(f.destination.getSnapshot().search.phase, 'ready');
+    fail = true; await f.destination.service.revalidate();
     const error = f.destination.getSnapshot().search.error; assert.equal(f.destination.getSnapshot().search.phase, 'error'); assert.ok(error);
     f.destination.pause(); f.destination.resume(); await tick();
-    assert.equal(reads, 1); assert.deepEqual(f.destination.getSnapshot().search.error, error);
+    assert.equal(reads, 2); assert.deepEqual(f.destination.getSnapshot().search.error, error);
     assert.equal(f.destination.getSnapshot().search.phase, 'error');
     fail = false; await f.destination.retry();
-    assert.equal(reads, 2); assert.equal(f.destination.getSnapshot().search.phase, 'ready');
+    assert.equal(reads, 3); assert.equal(f.destination.getSnapshot().search.phase, 'ready');
   } finally {f.destination.dispose();}
 });
