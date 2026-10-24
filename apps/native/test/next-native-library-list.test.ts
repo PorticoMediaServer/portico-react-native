@@ -47,7 +47,9 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     const list = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === defaultI18n.t('next.browse.native.list')); assert.ok(list);
     list.props.onPress(); await app.settle();
     const listHost = app.hosts().find((host: any) => host.props.testID === 'library-list'); assert.ok(listHost);
-    listHost.props.onLayout({nativeEvent: {layout: {width: 390, height: 600}}}); await app.settle();
+    listHost.props.onLayout({nativeEvent: {layout: {width: 390, height: 600}}});
+    // The synthetic native boundary must acknowledge the ScrollView's actual initial contentOffset.
+    listHost.props.onScroll({contentOffset: listHost.props.contentOffset}); await app.settle();
     assert.equal(browseReads, before, 'presentation does not reselect or refetch the arrived Browse source');
     const selectedList = app.hosts().find((host: any) => host.props.accessibilityRole === 'radio' && host.props.accessibilityLabel === defaultI18n.t('next.browse.native.list'));
     assert.equal(selectedList?.props.accessibilityState.checked, true);
