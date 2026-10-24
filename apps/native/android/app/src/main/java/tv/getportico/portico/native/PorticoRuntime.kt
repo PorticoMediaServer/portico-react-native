@@ -151,6 +151,22 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     PorticoTransport.submit(this, identifier, request, limit, "queue_transport", "Too many requests.", promise, binary = true)
   }
 
+  /** Header-first from-start Reading PDF on the same trust/cancel transport. */
+  @ReactMethod
+  fun networkStreamOpen(identifier: String?, url: String?, headers: ReadableMap?, promise: Promise) {
+    val target = PorticoTransport.target(url)
+    val request = if (target != null && target.encodedQuery == null && Regex("^/v1/reading/sessions/[A-Za-z0-9_-]{1,128}/source$").matches(target.encodedPath) &&
+        identifier != null && identifier.isNotEmpty() && identifier.length <= 128) PorticoTransport.request(target, "GET", headers, null) else null
+    if (request == null || request.header("Range") != null || identifier == null) {promise.reject("queue_transport", "Invalid Reading stream request."); return}
+    PorticoTransport.submit(this, identifier, request, 49152L, "queue_transport", "Too many requests.", promise, binary = true, streaming = true)
+  }
+
+  @ReactMethod
+  fun networkStreamRead(identifier: String?, promise: Promise) {
+    if (identifier == null || identifier.isEmpty() || identifier.length > 128) {promise.reject("cancelled", "Reading stream cancelled."); return}
+    PorticoTransport.readStream(this, identifier, promise)
+  }
+
   @ReactMethod
   fun openNetworkStream(identifier: String?, url: String?, headers: ReadableMap?, promise: Promise) =
       PorticoEventStream.open(this, identifier, url, headers, promise)

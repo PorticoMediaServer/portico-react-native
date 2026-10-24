@@ -7,7 +7,7 @@ import {parseEngineFeatures} from './engine-choice';
 import {deviceCapabilityDocument} from './capability-document.ios';
 import type {NativeFacts} from './device-profile';
 import {NativeListeningV1Adapter, type NativeListeningBridge} from './NativeListeningAdapter';
-import type {NativePlaybackTransport} from './NativePlaybackCoordinator';
+import type {NativeBinding, NativePlaybackTransport} from './NativePlaybackCoordinator';
 import {NativePlaybackRuntime} from './runtime';
 import {PlaybackScopeHttp} from './scope-http';
 import {appleSubtitleFilePicker} from './subtitle-file-picker.ios';
@@ -25,7 +25,7 @@ type EngineModule = NativeListeningBridge & {
   features?: unknown;
   purgeAudioCache?: () => Promise<unknown>;
 };
-type NativeSurfaceProps = ViewProps & {lease: string};
+type NativeSurfaceProps = ViewProps & {lease: string; pictureInPictureRequest: number; pictureInPictureBinding: NativeBinding | null};
 let appleSurfaceView: HostComponent<NativeSurfaceProps> | undefined;
 function viewAvailable(name: string): boolean { try { return !!UIManager.hasViewManagerConfig(name); } catch { return false; } }
 function moduleConstants(module: EngineModule) { try { return module.getConstants?.() ?? module; } catch { return module; } }
@@ -77,7 +77,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     subscribe: sink => { const subscription = emitter.addListener('PorticoListeningSnapshot', sink); return () => subscription.remove(); },
   }) : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, subtitleFilePicker: appleSubtitleFilePicker, engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, subtitleFilePicker: appleSubtitleFilePicker, pictureInPictureControls: true, engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
@@ -94,12 +94,14 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
     const bounds = target && [target.x, target.y, target.width, target.height].every(Number.isFinite) && target.width > 0 && target.height > 0 ? target : undefined;
     const visible = !!bounds && !!state.fence && !!state.lease;
     return <SurfaceView ref={surfaceRef} lease={state.lease} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
+      pictureInPictureRequest={state.pictureInPicture?.request ?? 0} pictureInPictureBinding={state.pictureInPicture?.binding ?? null}
       style={{position: 'absolute', left: bounds?.x ?? 0, top: bounds?.y ?? 0, width: bounds?.width ?? 0, height: bounds?.height ?? 0, display: visible ? 'flex' : 'none', opacity: visible ? 1 : 0}} />;
   }
   return {
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, startVersion: runtime.startVersion, selectionPlayback: runtime.selectionPlayback, Surface,
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate,
     subtitleControls: fence => runtime.subtitleControls(fence),
+    prepareExternalPresentation: runtime.prepareExternalPresentation, requestPictureInPicture: runtime.requestPictureInPicture,
     onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, seek: runtime.seek, skip: runtime.skip,
     previous: runtime.previous, next: runtime.next, stop: runtime.stop, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,
     captureVideoSnapshot: runtime.captureVideoSnapshot,
