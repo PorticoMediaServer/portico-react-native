@@ -15,7 +15,7 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 // reused), at most 12 requests in flight and up to 64 waiting, with control work first. The security bounds are
 // unchanged and enforced per task: no redirects, 1 MB controls / 8 MB API GETs / up to 32 MB Reading bytes, 15 s sessions.
 @interface PorticoQueueRequest : NSObject
-@property(nonatomic,strong) NSURLSessionDataTask *task;
+@property(nonatomic,strong) NSURLSessionTask *task;
 @property(nonatomic,strong) NSURLRequest *wire;
 @property(nonatomic,strong) NSMutableData *data;
 @property(nonatomic,strong) NSHTTPURLResponse *response;
@@ -33,6 +33,8 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 @property(nonatomic) BOOL streamEOF;
 @property(nonatomic) BOOL streamPaused;
 @property(nonatomic) BOOL streamRetired;
+@property(nonatomic,strong) NSURLSessionStreamTask *streamNativeTask;
+@property(nonatomic) BOOL streamPullInFlight;
 @property(nonatomic,copy) PorticoTransportResolve streamResolve;
 @property(nonatomic,copy) PorticoTransportReject streamReject;
 @property(nonatomic,copy) NSString *streamTerminalFailure;
@@ -130,13 +132,22 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   request.response=(NSHTTPURLResponse *)response;
   if(request.streamingResponse){
    if(request.streamOpened){completionHandler(NSURLSessionResponseCancel);[request finish:@"network_stream_response_invalid"];return;}
-   request.streamOpened=YES;request.streamPaused=YES;[task suspend];
+   request.streamOpened=YES;
    PorticoTransportResolve resolve=request.resolve;request.resolve=nil;request.reject=nil;
-   completionHandler(NSURLSessionResponseAllow);
+   completionHandler(NSURLSessionResponseBecomeStream);
    resolve(@{@"status":@(request.response.statusCode),@"headers":PorticoQueueResponseHeaders(request.response)});
    return;
   }
   completionHandler(NSURLSessionResponseAllow);
+ }
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didBecomeStreamTask:(NSURLSessionStreamTask *)streamTask {
+ PorticoQueueRequest *request=[self requestFor:dataTask];
+ if(!request){[streamTask cancel];return;}
+ @synchronized(request){
+  if(request.completed){[streamTask cancel];return;}
+  streamTask.taskDescription=request.identifier;request.task=streamTask;request.streamNativeTask=streamTask;
+  [streamTask resume];[request deliverStream];
  }
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
@@ -171,6 +182,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
    request.failureCode=@"network";[request finish:@"The server could not be reached."];return;
   default:break;
  }
+ if(!error&&request.streamNativeTask)return; // EOF belongs to the bounded read callback.
  if(!error&&request.streamingResponse&&request.streamOpened){
   @synchronized(request){if(!request.completed){request.streamEOF=YES;[request deliverStream];}}
   return;
@@ -193,6 +205,19 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
  if(self.streamEOF){
   PorticoTransportResolve resolve=self.streamResolve;self.streamResolve=nil;self.streamReject=nil;
   [self finish:nil];resolve(@{@"done":@YES,@"bodyBase64":@""});return;
+ }
+ if(self.streamNativeTask){
+  if(self.streamPullInFlight)return;
+  self.streamPullInFlight=YES;NSURLSessionStreamTask *task=self.streamNativeTask;
+  [task readDataOfMinLength:1 maxLength:PorticoStreamPullLimit timeout:self.wire.timeoutInterval completionHandler:^(NSData *data,BOOL atEOF,NSError *error){
+   @synchronized(self){
+    if(self.completed||self.streamNativeTask!=task)return;self.streamPullInFlight=NO;
+    if(error){NSURLSession *session=[PorticoQueueTransport sessionFor:self.critical];[(PorticoQueueTransport *)session.delegate URLSession:session task:task didCompleteWithError:error];return;}
+    if(data.length>PorticoStreamPullLimit||(!data.length&&!atEOF)){[self finish:@"network_stream_read_invalid"];return;}
+    [self.data appendData:data];self.streamEOF=atEOF;[self deliverStream];
+   }
+  }];
+  return;
  }
  if(self.streamPaused){self.streamPaused=NO;[self.task resume];}
 }
@@ -227,7 +252,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
    self.resolve(@{@"status":@(self.response.statusCode),@"headers":PorticoQueueResponseHeaders(self.response),self.binaryResponse?@"bodyBase64":@"body":body});
   }
  }
- self.resolve=nil;self.reject=nil;self.task=nil;self.wire=nil;self.data=nil;self.response=nil;
+ self.resolve=nil;self.reject=nil;self.task=nil;self.streamNativeTask=nil;self.wire=nil;self.data=nil;self.response=nil;
  }
 }
 @end
