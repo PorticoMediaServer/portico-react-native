@@ -140,6 +140,7 @@ export async function requestNativeObservations(request: NativeObservationReques
   } catch (error) {
     if (error instanceof NativeObservationError) throw error;
     guard();
+    if (object(error) && own(error, 'code') === 'layout_observation_scope') throw new NativeObservationError('scope-changed');
     throw new NativeObservationError('native-error');
   } finally {
     if (abort) signal?.removeEventListener('abort', abort);

@@ -74,6 +74,14 @@ test('invalid IDs, duplicate IDs and retired fixture refuse before entering nati
   assert.equal(calls, 0);
 });
 
+test('native scope rejection discards the capture without reading or forwarding a native error message', async () => {
+  let reads = 0;
+  const bridge = {observe: async () => {throw {code: 'layout_observation_scope',
+    get message() {reads++; throw new Error('private native detail');}};}};
+  await assert.rejects(requestNativeObservations({...request(response()), bridge}), failure('scope-changed'));
+  assert.equal(reads, 0);
+});
+
 test('fixture retirement and abort discard native results and fence the queued call', async () => {
   let live = true, settle!: (raw: unknown) => void, calls = 0;
   const pending = requestNativeObservations({...request(response()), isCurrent: () => live,
