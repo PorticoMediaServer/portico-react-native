@@ -3,6 +3,7 @@ import {BackHandler, Dimensions, Platform, ScrollView, Text, View} from 'react-n
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
+import {HttpHostedApi} from '../../../../../packages/client-core/src';
 import type {SetupPreview} from '../../../../../packages/client-core/src/setup-code';
 import type {TVConsentApprover} from '../../../../../packages/client-core/src/tv-consent';
 import type {AppServerSession} from '../../../../../packages/client-core/src/app-sessions';
@@ -10,6 +11,9 @@ import {routeOrigin} from '../../../../../packages/client-core/src/route-identit
 import {nativeAccounts} from '../../platform/accounts';
 import {nativeAppSessions, subscribeNativeAppSessions} from '../../platform/app-session-storage';
 import {nativeProfileSelection} from '../../platform/profile-selection';
+import {NativeProfileRecovery, temporaryRecoveryApi} from '../../platform/profile-recovery';
+import {hostedUrl} from '../../platform/account-authority';
+import {nativeNetworkFetch} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
@@ -22,6 +26,7 @@ import {offlineDownloads, offlineOwnerKey} from '../../../platform/offline-downl
 import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
 import {PhonePINEntry} from './PhonePINEntry';
+import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {removeCapturedServerDownloads} from './sign-out-downloads';
 import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 
@@ -37,8 +42,8 @@ export function AccountRoute({route, context}: {route: NativeShellRoute; context
 
 function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; onBack: () => void}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
-  const [forgotPIN, setForgotPIN] = useState(false);
-  const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true);
+  const [forgotPIN, setForgotPIN] = useState(false), [recovery, setRecovery] = useState<{controller: NativeProfileRecovery; id: string; name: string}>();
+  const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true), starting = useRef(false);
   useEffect(() => {alive.current = true; const session = context.session();
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
@@ -47,8 +52,45 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
-  const back = () => {if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  useEffect(() => () => {recovery?.controller.dispose();}, [recovery]);
+  const startRecovery = async () => {
+    const session = context.session(), target = profile;
+    if (busy || starting.current || !session || !target || !context.current()) return;
+    starting.current = true;
+    try {
+      const selected = await nativeAppSessions.selected();
+      if (!selected || !context.current()) return;
+      if (selected.connection.pin.serverId !== session.viewer.serverId
+        || selected.connection.session.sessionFamilyId !== session.sessionFamilyId) return;
+      if (!context.account.profiles.some(value => value.id === target.id)) return;
+      const serverPin = selected.connection.pin;
+      const authorityCurrent = () => {
+        const now = context.session(), live = context.api.getRouteConnection()?.pin;
+        return context.current() && !!now
+          && now.sessionFamilyId === session.sessionFamilyId
+          && now.viewer.serverId === session.viewer.serverId
+          && now.viewer.accountId === session.viewer.accountId
+          && now.viewer.profileId === session.viewer.profileId
+          && now.viewer.authority === session.viewer.authority
+          && !!live && live.serverId === serverPin.serverId && live.publicKey === serverPin.publicKey && live.fingerprint === serverPin.fingerprint;
+      };
+      setRecovery({id: target.id, name: target.name, controller: new NativeProfileRecovery({api: context.api, snapshot: context.account, profileId: target.id, kind: selected.signIn, authorityCurrent,
+        temporary: grant => temporaryRecoveryApi(context.api, grant),
+        portico: async () => {
+          const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
+          const account = await credentials.accessSession();
+          if (!account) throw new Error('Sign in to your Portico Account first.');
+          return {hosted: new HttpHostedApi(hostedUrl, account.accessToken, nativeNetworkFetch), origin: hostedUrl,
+            accountCurrent: () => {const live = credentials.getSnapshot().session; return !!live && live.account.id === account.account.id && live.familyId === account.familyId;}};
+        }})});
+    } catch (failure) {if (alive.current) setError(failure);}
+    finally {starting.current = false;}
+  };
+  const back = () => {if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
   useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busy) back(); return true;}); return () => subscription.remove();});
+  if (recovery) return <PhoneProfileRecovery controller={recovery.controller} profileName={recovery.name} username={context.account.account.username}
+    onOpen={value => {const id = recovery.id; recovery.controller.dispose(); setRecovery(undefined); setPin(value); void choose(id, value);}}
+    onClose={() => {recovery.controller.dispose(); setRecovery(undefined); setPin('');}}/>;
   if (theme.isTV && profile && forgotPIN) return <TVForgotPINHandoff profileName={profile.name}
     url={new URL('/settings/profile', routeOrigin(context.api.baseUrl)).href} body="next.auth.tv.forgotPINBody" onBack={back}/>;
   if (theme.isTV && profile) return <TVProfilePINForm
@@ -57,7 +99,8 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
     onSubmit={value => {void choose(profile.id, value);}} onBack={back}
     onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
   return <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('accounts.profiles.onServer', {server: context.serverName})}
-    beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/> :
+    beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
+      <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> :
       <ProfilePicker profiles={context.account.profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))}
         selectedId={current?.viewer.profileId} showTitle={false} onSelect={id => {const value = context.account.profiles.find(item => item.id === id)!;
           if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>}
