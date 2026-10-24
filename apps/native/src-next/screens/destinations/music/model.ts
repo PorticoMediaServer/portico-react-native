@@ -112,9 +112,13 @@ export class NativeTVMusicController {
     const libraryId = this.options.entry.libraryId;
     if (!libraryId) throw new Error('music_library_required');
     const builder = build(new BrowseQueryBuilder(capabilities)), seen = new Map<string, ContentEntry>();
+    const retired = () => Object.assign(new Error('native_music_retired'), {name: 'AbortError'});
     let total = 0;
     for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
+      // A retired destination or aborted caller must not send, or adopt, another page.
+      if (!this.current() || signal.aborted) throw retired();
       const page = parseBrowseResult(await request(this.options.api, browsePath(libraryId), 'POST', builder.build(), signal));
+      if (!this.current() || signal.aborted) throw retired();
       total = page.pageInfo.total;
       for (const entry of page.entries) if (!seen.has(entry.id)) seen.set(entry.id, entry);
       if (!page.pageInfo.hasMore || !page.pageInfo.nextCursor) return {entries: Object.freeze([...seen.values()]), total, complete: true};

@@ -16,7 +16,7 @@ class Builder {
   build() { return this.body; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls: any[] = [], browseBodies: any[] = [];
@@ -29,6 +29,7 @@ async function controller(entry: any, options: Fixture = {}) {
       const start = body?.cursor ? Number(body.cursor) : 0;
       const rows = songs.slice(start, start + pageSize);
       const nextCursor = start + pageSize < total ? String(start + pageSize) : '';
+      options.onPage?.(start);
       return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: 'r', hasMore: nextCursor !== '', nextCursor}, entries: rows};
     }
     if (String(path).includes('albums')) return {albums, nextCursor: ''};
@@ -48,7 +49,7 @@ async function controller(entry: any, options: Fixture = {}) {
     '../../../../../../packages/contracts/src/routes': {default: {}, encodedRoutePath: (id: string, values: {id: string}) => `/v1/${id}/${values.id}`},
     '../../../../../../packages/client-core/src/server-messages': {default: {}, unreadableServerResponse: 'unreadable'},
   });
-  const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => true}, playback});
+  const value = new NativeTVMusicController({api, entry, lifetime: {scope: {}, current: () => options.current?.() ?? true}, playback});
   return {value, calls, browseBodies};
 }
 
@@ -91,6 +92,17 @@ test('album songs respect the server page cap and continue with the cursor', asy
   assert.equal(state.songDurationSeconds, 27000);
   assert.deepEqual(browseBodies.map(body => body.limit), [100, 100]);
   assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '100']);
+  value.dispose();
+});
+
+test('a retired album lifetime sends no second cursor page', async () => {
+  const many = Array.from({length: 150}, (_, index) => song(`song-${index}`, index + 1, 180, `Track ${index + 1}`));
+  let live = true;
+  const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 150, maximumLimit: 100, pageSize: 100,
+    current: () => live, onPage: start => {if (start === 0) live = false;}});
+  await value.load();
+  assert.equal(browseBodies.length, 1);
+  assert.notEqual(value.getSnapshot().phase, 'ready');
   value.dispose();
 });
 
