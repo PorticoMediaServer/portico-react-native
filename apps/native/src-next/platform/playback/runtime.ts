@@ -995,8 +995,10 @@ export class NativePlaybackRuntime {
   prepareExternalPresentation = async (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime): Promise<NativeBinding | undefined> => {
     if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
     const original = this.currentSession(), playback = this.playback.getSnapshot();
-    if (!original || original.kind !== 'vod' || original.id !== fence.sessionId || !original.queue || original.queue.entryId !== fence.entryId || playback.nativeListening) return;
-    const preparation = externalSubtitlePreparation(this.subtitleService?.getSnapshot().plan, original);
+    if (!original || original.kind !== 'vod' || original.id !== fence.sessionId || !original.queue || original.queue.entryId !== fence.entryId || playback.nativeListening
+      || playback.phase !== 'ready' || playback.pendingSeek || playback.failedSeek || this.path.controller.getSnapshot().changing) return;
+    const subtitles = this.subtitleService?.getSnapshot();
+    const preparation = externalSubtitlePreparation(subtitles?.suppressed ? null : subtitles?.plan, original);
     if (preparation.kind === 'unavailable') return;
     this.externalController?.abort();
     const controller = this.externalController = new AbortController(), epoch = ++this.externalEpoch, start = this.startEpoch;

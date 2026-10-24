@@ -138,6 +138,8 @@ test('external burn preserves actual selected identity and the complete file cor
   assert.deepEqual(externalSubtitlePreparation(current, shown(0.5)), {kind: 'unavailable'}, 'the existing integer-ms change wire cannot preserve a fractional file correction exactly');
   assert.deepEqual(externalSubtitlePreparation({...current, generation: 2}, shown()), {kind: 'unavailable'});
   assert.deepEqual(externalSubtitlePreparation(null, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation({...current, selected: {...selected, enabled: false}}, shown()), {kind: 'unavailable'});
+  assert.deepEqual(externalSubtitlePreparation({...current, selected: {...selected, retired: true}}, shown()), {kind: 'unavailable'});
   assert.deepEqual(externalSubtitlePreparation(current, {...shown(), presentation: {...shown().presentation, subtitle: {...shown().presentation.subtitle, trackId: 'different-resource'}}}), {kind: 'unavailable'});
   assert.deepEqual(externalSubtitlePreparation(null, {...shown(), presentation: {...shown().presentation, subtitle: {...shown().presentation.subtitle, delivery: 'burn'}}}), {kind: 'carried'});
 });

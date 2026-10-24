@@ -113,7 +113,7 @@ export function externalSubtitlePreparation(plan: SubtitlePlan | null | undefine
   if (shown.delivery === 'burn') return {kind: 'carried'};
   if (!['device', 'sidecar'].includes(shown.delivery) || !session.versionId || !plan || plan.sessionId !== session.id || plan.generation !== session.presentation.generation) return {kind: 'unavailable'};
   const resource = plan.mode === 'track' ? plan.selected : plan.resources.find(value => value.id === shown.trackId);
-  if (!resource || resource.id !== shown.trackId || resource.sourceId !== plan.sourceId) return {kind: 'unavailable'};
+  if (!resource || !resource.enabled || resource.retired || resource.id !== shown.trackId || resource.sourceId !== plan.sourceId) return {kind: 'unavailable'};
   const original = chosenOriginal(plan, session);
   const text = session.presentation.subtitles.find(file => file.trackId === shown.trackId && kindOfFormat(file.format) === 'text');
   const fileOffset = original?.offsetMs ?? text?.offsetMs;

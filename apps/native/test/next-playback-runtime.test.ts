@@ -181,7 +181,7 @@ function richSubtitleResponses(d: ReturnType<typeof fixture>, offsetMs: number |
       const response = subtitleResponse(d, request)!;
       return {...response, body: {...response.body as object, resources: [resource()]}};
     }
-    if (request.method === 'POST' && request.path === routePath('create_queue') || /^\/v1\/playback\/sessions\/[^/]+$/.test(request.path)) {
+    if (request.method === 'POST' && request.path === routePath('create_queue') || /^\/v1\/playback\/sessions(?:\/[^/]+)?$/.test(request.path)) {
       if (request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn') burned = true;
       const response = await d.server.handle(request);
       const shape = (session: any) => ({...session, presentation: {...session.presentation,
@@ -228,6 +228,7 @@ test('an installed native rich producer receives the actual companion and comple
   const d = fixture(false, undefined, {...nativeEngineFeatures, subtitleRendering: ['text', 'vobsub']}); richSubtitleResponses(d);
   try {
     await d.start('movie-1');
+    assert.equal(d.runtime.getSnapshot().subtitles?.plan?.mode, 'track', d.runtime.getSnapshot().subtitles?.error ?? 'actual current rich plan required');
     const subtitles = d.engine.lastCommand.subtitles;
     assert.equal(subtitles.mode, 'track'); assert.equal(subtitles.offsetUs, '500000');
     assert.equal(subtitles.render.kind, 'vobsub'); assert.equal(subtitles.render.offsetMs, 1250); assert.equal(subtitles.render.timeDomain, 'source-relative');
