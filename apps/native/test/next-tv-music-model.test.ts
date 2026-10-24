@@ -23,8 +23,8 @@ async function controller(entry: any, options: Fixture = {}) {
   const api = {request: async (path: any) => {
     if (String(path).startsWith('cap:')) return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: 200}};
     if (String(path).startsWith('browse:')) return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start: 0, total, revision: 'r', hasMore: false, nextCursor: ''}, entries: songs};
-    if (String(path).includes('/albums')) return {albums, nextCursor: ''};
-    if (String(path).includes('/similar')) return {data: {entries: similar}};
+    if (String(path).includes('albums')) return {albums, nextCursor: ''};
+    if (String(path).includes('similar')) return {data: {entries: similar}};
     if (String(path).includes('/personal-state')) return {favorite: true};
     throw new Error(`unexpected ${path}`);
   }};
