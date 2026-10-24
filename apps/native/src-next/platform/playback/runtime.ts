@@ -230,6 +230,12 @@ export class NativePlaybackRuntime {
     this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
     this.offs.push(this.o.subscribeSettings(() => { if (this.active()) { this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); } }));
+    this.offs.push(this.choices.subscribe(() => {
+      // Source binding resets these choices while changed() is still selecting
+      // the next source. That path applies once after the new source is ready.
+      if (this.updating || this.transitionEpoch !== undefined || !this.active()) return;
+      this.applyOptions(); this.publish();
+    }));
     this.offs.push(this.o.api.subscribeRoute(() => this.routeChanged()));
     this.offs.push(this.o.events.on('session.updated', event => { if (this.active() && event.resource?.kind === 'session') this.path.transport.sessionUpdated(event.resource.id, event.revision, event.data); }));
     this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
