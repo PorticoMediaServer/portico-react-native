@@ -119,10 +119,13 @@ test('a second Save while the first is in flight sends nothing and cannot edit t
   try {
     let release!: () => void;
     const held = new Promise<void>(resolve => {release = resolve;});
-    fixture.patch = async body => {await held; return fixture.succeed(body);};
+    let started!: () => void;
+    const began = new Promise<void>(resolve => {started = resolve;});
+    fixture.patch = async body => {started(); await held; return fixture.succeed(body);};
     const first = controller.save();
     assert.equal(controller.getSnapshot().busy, true);
     assert.equal(controller.setName('Second try'), false);
+    await began;
     assert.equal(await controller.save(), false);
     assert.equal(fixture.patchCalls.length, 1);
     assert.equal(fixture.requestIds.length, 1);
