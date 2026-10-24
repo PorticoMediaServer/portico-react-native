@@ -9,12 +9,12 @@ const fence = 'resource-fence';
 const viewId = 'view-7';
 const definition = {libraryId: 'library-a', pivot: 'movies', query: null, sort: [{field: 'title', direction: 'asc'}], presentation: 'grid'};
 
-type FixtureView = {id: string; name: string; revision: number; actions: readonly string[]};
+type FixtureView = {id: string; name: string; revision: number; actions: readonly string[]; kind?: 'view' | 'collection'};
 type Call = {path: string; method: string; body?: unknown};
 
 const browse = () => ({pivot: 'movies', applied: {query: null, sort: [{field: 'title', direction: 'asc'}], seek: null}, entries: [],
   pageInfo: {start: 0, total: 0, totalIsLowerBound: false, revision: 'browse-1', hasMore: false, nextCursor: ''}});
-const resourceOf = (view: FixtureView) => ({serverId: scope.serverId, viewerFence: fence, id: view.id, kind: 'view', name: view.name,
+const resourceOf = (view: FixtureView) => ({serverId: scope.serverId, viewerFence: fence, id: view.id, kind: view.kind ?? 'view', name: view.name,
   summary: '', visibility: 'private', revision: view.revision, role: 'owner', entryCount: 0, actions: [...view.actions],
   definition, status: 'ready', invalidComponents: [], pinned: false, pinRevision: 0, shares: []});
 
@@ -56,7 +56,7 @@ class SavedFixture {
       if (!match) throw new Error(`unexpected read ${path}`);
       const view = this.views.get(decodeURIComponent(match[1]!));
       if (!view) throw new Error(`unknown view ${match[1]}`);
-      return {nextCursor: '', resource: resourceOf(view), browse: browse()};
+      return {nextCursor: '', resource: resourceOf(view), browse: browse(), entries: []};
     }
     if (method === 'PATCH') return await this.patch((body ?? {}) as Readonly<Record<string, unknown>>);
     throw new Error(`unexpected ${method} ${path}`);
@@ -518,4 +518,57 @@ test('a resource replacement during a Save discards the late acknowledgement wit
     assert.equal(controller.getSnapshot().closed, true);
     assert.equal(fixture.patchCalls.length, 2);
   } finally {controller.dispose();}
+});
+
+test('a loaded collection that offers update cannot use the Saved-view rename controller', async () => {
+  const {fixture, service, resource} = await open({id: 'collection-3', name: 'Weekend picks', revision: 2, actions: ['update', 'pin'], kind: 'collection'});
+  const controller = createNativeSavedViewRenameController({service, resource, current: () => true});
+  try {
+    assert.equal(resource.kind, 'collection');
+    assert.equal(controller.getSnapshot().canSave, false);
+    assert.equal(controller.setName('Renamed'), true);
+    assert.equal(controller.getSnapshot().canSave, false);
+    assert.equal(await controller.save(), false);
+    assert.equal(fixture.patchCalls.length, 0, 'a non-view resource never reaches a PATCH');
+    assert.equal(controller.getSnapshot().name, 'Renamed', 'the refused draft survives');
+    assert.equal(controller.getSnapshot().closed, false);
+    assert.equal(controller.getSnapshot().error, null);
+    assert.equal(service.getSnapshot().resource?.name, 'Weekend picks');
+    assert.equal(service.getSnapshot().resource?.revision, 2);
+    assert.equal(service.getSnapshot().pending, false);
+  } finally {controller.dispose();}
+});
+
+test('retirement found by a read is latched silently and cannot revive, while actions and service callbacks still publish', async () => {
+  let ownerCurrent = true;
+  const {fixture, service, resource} = await open({id: viewId, name: 'Comfort movies', revision: 4, actions: ['update']});
+  const readOnly = createNativeSavedViewRenameController({service, resource, current: () => ownerCurrent});
+  const active = createNativeSavedViewRenameController({service, resource, current: () => true});
+  const silent: number[] = [];
+  const notified: number[] = [];
+  const stopSilent = readOnly.subscribe(() => silent.push(silent.length + 1));
+  const stopActive = active.subscribe(() => notified.push(notified.length + 1));
+  try {
+    const before = readOnly.getSnapshot();
+    assert.equal(readOnly.getSnapshot(), before, 'an unchanged read returns the cached snapshot');
+    ownerCurrent = false;
+    const retired = readOnly.getSnapshot();
+    assert.equal(retired.retired, true);
+    assert.equal(silent.length, 0, 'a read must not notify its subscribers');
+    assert.equal(readOnly.getSnapshot(), retired, 'the latched retired snapshot stays stable');
+    ownerCurrent = true;
+    assert.equal(readOnly.getSnapshot(), retired, 'owner false-to-true cannot revive retirement');
+    assert.equal(readOnly.setName('Renamed'), false);
+    assert.equal(await readOnly.save(), false);
+    assert.equal(fixture.patchCalls.length, 0);
+    assert.equal(active.setName('Active name'), true);
+    assert.equal(notified.length, 1, 'an explicit action still publishes normally');
+    assert.equal(await service.mutate({action: 'update', summary: 'An unrelated edit'}), true);
+    assert.ok(notified.length > 1, 'a real service callback still publishes normally');
+    assert.equal(silent.length, 0, 'the retired controller stopped its local subscription');
+    assert.equal(readOnly.getSnapshot(), retired, 'the retired snapshot is unchanged by the service callback');
+    assert.equal(active.getSnapshot().closed, false);
+  } finally {
+    stopSilent(); stopActive(); readOnly.dispose(); active.dispose();
+  }
 });

@@ -59,10 +59,12 @@ export function createNativeSavedViewRenameController(options: NativeSavedViewRe
   let retryPending = false;
   let name = resource.name;
 
-  /** The offered update is on the same loaded resource, not a replacement. */
+  /** The offered update is on the same loaded view, not a replacement or another
+   * kind of resource that happens to offer update. */
   const offered = (): boolean => {
+    if (resource.kind !== 'view') return false;
     const loaded = service.getSnapshot().resource;
-    return loaded !== null && loaded.id === resource.id && loaded.kind === resource.kind && loaded.serverId === resource.serverId && loaded.actions.includes('update');
+    return loaded !== null && loaded.kind === 'view' && loaded.id === resource.id && loaded.serverId === resource.serverId && loaded.actions.includes('update');
   };
   const idle = (): boolean => {
     const state = service.getSnapshot();
@@ -77,11 +79,15 @@ export function createNativeSavedViewRenameController(options: NativeSavedViewRe
     value = build();
     for (const listener of [...listeners]) listener();
   };
-  const retire = (): void => {
-    if (disposed || retired) return;
+  const markRetired = (): boolean => {
+    if (disposed || retired) return false;
     retired = true; busy = false; stop();
-    publish();
+    return true;
   };
+  /** Retirement found by a snapshot read is latched without notifying that read's
+   * caller; the cached snapshot stays stable and later reads cannot revive it. */
+  const latch = (): void => { if (markRetired()) value = build(); };
+  const retire = (): void => { if (markRetired()) publish(); };
   /** The owner's lifetime gates every command and every callback. */
   const live = (): boolean => {
     if (!disposed && !retired && !closed && !current()) retire();
@@ -99,7 +105,7 @@ export function createNativeSavedViewRenameController(options: NativeSavedViewRe
   if (!retired) stop = service.subscribe(sync);
 
   const getSnapshot = (): NativeSavedViewRenameSnapshot => {
-    if (!disposed && !retired && !closed && !current()) retire();
+    if (!disposed && !retired && !closed && !current()) latch();
     return value;
   };
   const subscribe = (listener: () => void): (() => void) => {
