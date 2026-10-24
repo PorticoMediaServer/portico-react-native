@@ -32,8 +32,8 @@ function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presen
         <View pointerEvents="box-none" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
           <FocusBoundary modal testID="watch-file-info-tv" style={{position: 'absolute', right: 0, top: 0, bottom: 0, width: 900, paddingTop: 64, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
             <PanelBackground/>
-            <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 33}), {color: theme.colors.textTertiary}]}>{t('next.overlays.fileInfo')}</Text>
-            <Text numberOfLines={2} style={[nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 48}), {color: theme.colors.text, marginTop: 18}]}>{named(value.capture.entry)}</Text>
+            <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 33}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.overlays.fileInfo')}</Text>
+            <Text numberOfLines={2} style={[nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 48}, theme.textScale), {color: theme.colors.text, marginTop: 18}]}>{named(value.capture.entry)}</Text>
             <View style={{flex: 1, marginTop: 30}}>{value.content}</View>
             <View style={{marginTop: 24, height: 72, alignItems: 'flex-start'}}>{action}</View>
           </FocusBoundary>
@@ -44,7 +44,7 @@ function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presen
   return <BottomSheet testID="watch-file-info-phone" open onOpenChange={open => {if (!open) presenters.close();}} title={t('next.overlays.fileInfo')}
     showClose={false} initialFocusRef={done} returnFocusRef={value.anchorRef} scrollable={false} detents={[Math.max(1, window.height - 104)]}
     headerContent={<View style={{paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10}}>
-      <Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}), {color: theme.colors.text}]}>{t('next.overlays.fileInfo')}</Text>
+      <Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{t('next.overlays.fileInfo')}</Text>
       <Text numberOfLines={1} style={[theme.type.caption, {color: theme.colors.textTertiary, flex: 1, fontSize: 14}]}>{named(value.capture.entry)}</Text>{action}
     </View>} contentStyle={{paddingHorizontal: 16, paddingTop: 8, flex: 1}}>{value.content}</BottomSheet>;
 }

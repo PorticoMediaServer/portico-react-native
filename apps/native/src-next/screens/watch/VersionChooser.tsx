@@ -27,9 +27,9 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
           backgroundColor: theme.isTV && focused ? '#edf5fa29' : 'transparent'})}>
         {({focused}) => <>
           {!theme.isTV && index > 0 && <View pointerEvents="none" style={{position: 'absolute', left: 16, right: 0, top: 0, height: 1, backgroundColor: '#3b566873'}}/>}
-          <Text style={[nativeType({size: theme.isTV ? 22 : 15.5, weight: theme.isTV ? 600 : 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}),
+          <Text style={[nativeType({size: theme.isTV ? 22 : 15.5, weight: theme.isTV ? 600 : 700, tracking: theme.isTV ? 0 : -.01, lineHeight: 'normal'}, theme.textScale),
             {color: theme.isTV && !focused ? theme.colors.textSecondary : theme.colors.text}]}>{row.heading}</Text>
-          {!!row.detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}),
+          {!!row.detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: theme.isTV ? 'normal' : 18.2}, theme.textScale),
             {marginTop: theme.isTV ? 2 : 3, color: theme.isTV && !focused ? theme.colors.textTertiary : theme.colors.textSecondary}]}>{row.detail}</Text>}
         </>}
       </Focusable>)}
@@ -39,7 +39,7 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
   if (theme.isTV) {
     const canvas = shellLayout(window.width, window.height, true);
     const key = (label: string) => <View style={{height: 36, minWidth: 44, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: '#edf5fa4d', alignItems: 'center', justifyContent: 'center'}}>
-      <Text style={[nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textSecondary}]}>{label}</Text></View>;
+      <Text style={[nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{label}</Text></View>;
     return <Modal transparent visible animationType="none" onRequestClose={close} statusBarTranslucent navigationBarTranslucent>
       <View style={[StyleSheet.absoluteFill, {backgroundColor: '#0710189e'}]} accessibilityViewIsModal>
         <View pointerEvents="box-none" testID="watch-versions-tv-canvas" style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height, transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
@@ -48,11 +48,11 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
               <Defs><LinearGradient id="watch-versions-panel" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#132836"/><Stop offset="0.6" stopColor="#0d1c27"/><Stop offset="1" stopColor="#0b1822"/></LinearGradient></Defs>
               <Rect width="100%" height="100%" fill="url(#watch-versions-panel)"/>
             </Svg></View>
-            <Text style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}), {color: theme.colors.text}]}>{title}</Text>
-            <Text numberOfLines={2} style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}), {color: theme.colors.text, marginTop: 10, marginBottom: 20}]}>{name}</Text>
+            <Text style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{title}</Text>
+            <Text numberOfLines={2} style={[nativeType({size: 22, weight: 700, tracking: 0, lineHeight: 31.9}, theme.textScale), {color: theme.colors.text, marginTop: 10, marginBottom: 20}]}>{name}</Text>
             <View style={{flex: 1, marginHorizontal: -24, paddingHorizontal: 24}}>{body}</View>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textTertiary}]}>{t('action.play')}</Text>
-              <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>{key(t('title.ok'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.play')}</Text>
+              <View style={{width: 16}}/><View style={{width: 16}}/>{key(t('action.back'))}<Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{t('action.close')}</Text></View>
           </FocusBoundary>
         </View>
       </View>
@@ -60,9 +60,9 @@ export function NativeVersionChooser({value, choose, close}: {value: NativeWatch
   }
   return <BottomSheet open fitContent title={title} testID="watch-versions-phone" showClose={false} scrollable={false} initialFocusRef={done} returnFocusRef={value.anchorRef}
     onOpenChange={open => {if (!open) close();}} headerContent={<View style={{flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 2, paddingBottom: 12}}>
-      <View style={{flex: 1}}><Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}), {color: theme.colors.text}]}>{title}</Text>
-        <Text numberOfLines={1} style={[nativeType({size: 14, weight: 600, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textTertiary, marginTop: 3}]}>{name}</Text></View>
+      <View style={{flex: 1}}><Text style={[nativeType({size: 21, weight: 800, tracking: -.02, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{title}</Text>
+        <Text numberOfLines={1} style={[nativeType({size: 14, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 3}]}>{name}</Text></View>
       <Focusable ref={done} focusId="watch-versions-done" testID="watch-versions-done" onPress={close} style={{paddingLeft: 12, marginTop: 2}}>
-        <Text style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}), {color: theme.colors.textSecondary}]}>{t('next.overlays.done')}</Text></Focusable>
+        <Text style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{t('next.overlays.done')}</Text></Focusable>
     </View>} contentStyle={{paddingHorizontal: 0, paddingTop: 0}}>{body}</BottomSheet>;
 }

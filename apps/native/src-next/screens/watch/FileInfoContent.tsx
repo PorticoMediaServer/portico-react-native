@@ -56,7 +56,7 @@ export function NativeFileInfoContent({model, locations, onManage}: NativeFileIn
     {model.owner && <View style={{marginTop: theme.isTV ? 26 : 16, borderWidth: 1, borderColor: theme.colors.line, borderRadius: 16, overflow: 'hidden'}}>
       <View style={{flexDirection: 'row', alignItems: 'center', padding: theme.isTV ? 24 : 14, gap: 12, backgroundColor: '#153140'}}>
         <Icon name="i-server" size={theme.isTV ? 26 : 20} color={theme.colors.textSecondary}/>
-        <Text style={[nativeType({size: theme.isTV ? 25 : 16, weight: 800, tracking: -.015, lineHeight: 'normal'}), {color: theme.colors.text, flex: 1}]}>{model.owner.heading}</Text>
+        <Text style={[nativeType({size: theme.isTV ? 25 : 16, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, flex: 1}]}>{model.owner.heading}</Text>
         <Text style={[label, {fontSize: theme.isTV ? 18 : 11}]}>{t('next.overlays.native.ownerOnly')}</Text>
       </View>
       <View style={{padding: theme.isTV ? 24 : 14, gap: 12}}>

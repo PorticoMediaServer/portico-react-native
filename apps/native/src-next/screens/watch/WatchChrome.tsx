@@ -83,7 +83,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
   if (theme.isTV && state.panel && props.tvPanelRight !== undefined) return <View testID="watch-tv-panel-backdrop" pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{width, height}}>
     {identity && <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, top: 80}}>
-      <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.015, lineHeight: 52}), {color: theme.colors.text}]}>{identity.title}</Text>
+      <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.015, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
       <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 24, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text>
     </View>}
     <View style={{position: 'absolute', left: 96, right: props.tvPanelRight, bottom: 118}}>
@@ -128,7 +128,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.left ?? 0), right: (compact ? 6 : theme.isTV ? 96 : 54) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
-          {!compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: theme.isTV ? 0 : 8}}><Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 44 : 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}), {color: theme.colors.text}]}>{identity.title}</Text>
+          {!compact && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: theme.isTV ? 0 : 8}}><Text numberOfLines={1} style={[nativeType({size: theme.isTV ? 44 : 16.5, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{identity.title}</Text>
             <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: theme.isTV ? 24 : 13, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join(' ')}</Text></View>}
           <View style={{flex: 1}}/>
           {props.onCast && !theme.isTV && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
