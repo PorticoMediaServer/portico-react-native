@@ -31,6 +31,7 @@ async function setup() {
       navigation: {view: 'playlist', entityId: 'actual-playlist'}}] : [title];
     return {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view, entityId: '', viewerFence: 'Saved-own-fence'},
       revision: {catalog: 9, viewer: 13}, heading: {key: 'saved.title', fallback: ''}, navigation: [{id: view, labelKey: 'saved.title', view}],
+      ...(view === 'playlists' ? {actions: []} : {}),
       query: {sort: 'title', direction: 'asc', category: view === 'watchlist' || view === 'favorites' ? 'all' : '', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [],
       sections: [{id: 'actual-section', type: 'grid', heading: {key: 'saved.title', fallback: ''}, entries, totalCount: 12, nextCursor: ''}]};
   };
