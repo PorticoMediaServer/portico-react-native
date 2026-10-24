@@ -3,6 +3,7 @@ import {ScrollView, Text, View, type View as NativeView} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
+import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
 import {Button} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
@@ -124,10 +125,13 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
   const years = entry.activeBeginYear === undefined ? undefined : entry.activeEndYear !== undefined ? `${entry.activeBeginYear}–${entry.activeEndYear}` : t('title.activeSince', {year: entry.activeBeginYear});
   const facts = [entry.genres?.[0], entry.country, years,
     snapshot.albums.length || snapshot.songTotal ? t('music.onServer', {albums: snapshot.albums.length, songs: snapshot.songTotal ?? 0}) : undefined].filter((value): value is string => !!value);
+  const releases = artistReleaseGroups(snapshot.albums);
+  const albums = releases.find(group => group.id === 'albums')?.entries ?? [];
+  const otherReleases = releases.filter(group => group.id !== 'albums');
   return <View testID="native-tv-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
     <ScrollView contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
-      <View style={{width: 1920, height: 1240}}>
+      <View style={{width: 1920, height: 1040}}>
         <View style={{position: 'absolute', left: 1280, top: 150, zIndex: 2}}>
           <ArtistCircle covers={covers} rings={[40, 80]} initials={[...entry.title.trim()][0] ?? ''} alt={entry.title} size={360} visible/>
         </View>
@@ -141,9 +145,17 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
         <TrackList songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" style={{position: 'absolute', left: 182, top: 666, width: 900, zIndex: 2}}/>
         <SectionHeading title={t('music.albums')} left={1240} top={612}/>
         <View style={{position: 'absolute', left: 1240, top: 672, width: 584, flexDirection: 'row', flexWrap: 'wrap', gap: 32, zIndex: 2}}>
-          {snapshot.albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
+          {albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
         </View>
-        <View style={{position: 'absolute', left: 200, top: 1120, width: 1600, zIndex: 2}}>
+      </View>
+      <View style={{width: 1624, marginLeft: 200, paddingTop: 40, gap: 34}}>
+        {otherReleases.map(group => <View key={group.id}>
+          <SectionHeading title={t(group.label)}/>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, marginTop: 18}}>
+            {group.entries.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
+          </View>
+        </View>)}
+        <View>
           <SectionHeading title={t('music.similarArtists')}/>
           <View style={{flexDirection: 'row', gap: 40, marginTop: 24}}>
             {snapshot.similar.filter(value => value.kind === 'artist').slice(0, 8).map(value => {

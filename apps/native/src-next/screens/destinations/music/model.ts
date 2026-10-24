@@ -10,7 +10,8 @@ import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import type {NativeShellPlaybackAdapter} from '../../../shell/playback';
 import {nativeDestinationLifetime} from '../lifetime';
 
-export type MusicAlbumRow = Readonly<{id: string; libraryId: string; title: string; artist?: Readonly<{id: string; name: string}>; year?: number; posterUrl?: string}>;
+export type MusicAlbumRole = 'album' | 'ep' | 'single' | 'compilation' | 'appearance';
+export type MusicAlbumRow = Readonly<{id: string; libraryId: string; title: string; artist?: Readonly<{id: string; name: string}>; year?: number; posterUrl?: string; role?: MusicAlbumRole}>;
 export type MusicPageEntry = Readonly<{kind: 'album' | 'artist'; entry: ContentEntry}>;
 export type NativeTVMusicSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -38,9 +39,10 @@ const entryList = (value: unknown, max: number): readonly ContentEntry[] => Obje
 const album = (value: unknown): MusicAlbumRow | undefined => {
   if (!obj(value) || !id(value.id) || !id(value.libraryId) || !text(value.title, 2048)) return undefined;
   const artist = id(value.albumArtistId) && text(value.albumArtist, 2048) ? {id: value.albumArtistId, name: value.albumArtist} : undefined;
+  const role = ['album', 'ep', 'single', 'compilation', 'appearance'].includes(value.role as string) ? value.role as MusicAlbumRole : undefined;
   return Object.freeze({id: value.id, libraryId: value.libraryId, title: value.title,
     ...(artist ? {artist} : {}), ...(typeof value.year === 'number' && Number.isSafeInteger(value.year) && value.year > 0 ? {year: value.year} : {}),
-    ...(text(value.posterUrl) && value.posterUrl.startsWith('/') ? {posterUrl: value.posterUrl} : {})});
+    ...(role ? {role} : {}), ...(text(value.posterUrl) && value.posterUrl.startsWith('/') ? {posterUrl: value.posterUrl} : {})});
 };
 const request = async <T>(api: NativeShellBootstrapContext['api'], path: string, method: 'GET' | 'POST', body: unknown, signal: AbortSignal): Promise<T> => {
   const value = await api.request<T>(path, method, body, signal);
