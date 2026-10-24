@@ -9,12 +9,66 @@ const compiled = routes.filter(route => operations.has(route.id)).map(route => (
 const binary = new Map<RouteId, number>([['head_reading_sessions_sessionId_source', 65536], ['get_reading_sessions_sessionId_source', 65536],
   ['get_reading_sessions_sessionId_assets', 32 * 1024 * 1024], ['get_reading_sessions_sessionId_pages_pageIndex', 16 * 1024 * 1024]]);
 /** Generated route identities select the local byte adapter, never an arbitrary URL. */
-export function nativeReadingPolicy(url: string, method: string): Readonly<{binaryLimit?: number}> | undefined {
+export function nativeReadingPolicy(url: string, method: string, headers?: HeadersInit): Readonly<{binaryLimit?: number; sequential?: true}> | undefined {
   const path = new URL(url).pathname, operation = compiled.find(route => route.method === method && route.pattern.test(path));
+  if (operation?.id === 'get_reading_sessions_sessionId_source' && !new Headers(headers).has('Range')) return {sequential: true};
   return operation ? {binaryLimit: binary.get(operation.id)} : undefined;
 }
 type NativeReply = Readonly<{status: number; headers: Record<string, string>; body?: string; bodyBase64?: string}>;
 const invalid = () => new RouteError('invalid_response', 'Invalid native Reading response.');
+
+/** Header-first Reading response on the SAME native request. Every read pulls
+ * <=48KiB; neither Response nor this adapter accumulates the publication. */
+export function nativeReadingStreamResponse(raw: Pick<NativeReply, 'status' | 'headers'>,
+  transport: Readonly<{read: () => Promise<Readonly<{done: boolean; bodyBase64: string}>>; cancel: () => void}>, signal?: AbortSignal): Response {
+  let ended = false, failure: unknown, locked = false, pending = false, used = false;
+  let rejectPending: ((reason: unknown) => void) | undefined;
+  const finish = (error?: unknown) => {
+    if (ended) return;
+    ended = true; failure = error; signal?.removeEventListener('abort', aborted);
+    try {transport.cancel();} catch { /* runtime already invalidated */ }
+    if (error !== undefined) rejectPending?.(error);
+  };
+  const aborted = () => finish(new RouteError('cancelled', 'Connection request cancelled.'));
+  const cancel = async () => {aborted();};
+  const body = {
+    get locked() {return locked;}, cancel,
+    getReader() {
+      if (locked) throw invalid(); locked = true;
+      let released = false;
+      return {
+        async read(): Promise<ReadableStreamReadResult<Uint8Array>> {
+          if (released || pending) throw invalid();
+          if (signal?.aborted) aborted();
+          if (failure !== undefined) throw failure;
+          if (ended) return {done: true, value: undefined};
+          pending = true; used = true;
+          const stopped = new Promise<never>((_resolve, reject) => {rejectPending = reject;});
+          try {
+            const next = await Promise.race([Promise.resolve().then(() => {if (ended) throw failure ?? invalid(); return transport.read();}), stopped]);
+            if (failure !== undefined) throw failure;
+            if (ended || typeof next.done !== 'boolean' || typeof next.bodyBase64 !== 'string') throw invalid();
+            if (next.done) {if (next.bodyBase64 !== '') throw invalid(); finish(); return {done: true, value: undefined};}
+            const text = next.bodyBase64;
+            if (!text || text.length > 65536 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) throw invalid();
+            const bytes = routeBytes(text.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), undefined, 49152);
+            return {done: false, value: bytes};
+          } catch (error) {finish(error); throw error;}
+          finally {pending = false; rejectPending = undefined;}
+        },
+        cancel,
+        releaseLock() {if (pending) throw invalid(); released = true; locked = false;},
+      };
+    },
+  };
+  signal?.addEventListener('abort', aborted, {once: true});
+  if (signal?.aborted) {aborted(); throw failure;}
+  try {
+    const response = new Response(null, {status: raw.status, headers: raw.headers});
+    Object.defineProperties(response, {body: {value: body}, bodyUsed: {get: () => used}});
+    return response;
+  } catch (error) {finish(error); throw error;}
+}
 
 /** A bounded body reader on this response only. Hermes's ordinary fetch Response
  * has no ReadableStream body; the captured facade still consumes actual bytes

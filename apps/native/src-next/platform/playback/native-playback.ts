@@ -33,7 +33,8 @@ import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/pla
 import type {MediaPlayer, PlayerEvent, PlayerObservation, PlayerSource, PlayerState} from '../../../../../packages/client-core/src/playback-v1/port';
 import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packages/client-core/src/playback-v1/observed-playback';
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
-import {PlaybackSessionController, SessionsClient, type SessionChange, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
+import {PlaybackSessionController, SessionsClient, type SessionChange, type SessionChangeContext, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
+import {requireSessionChangeCurrent} from '../../../../../packages/client-core/src/playback-v1/change-context';
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
 import type {Session} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {QueueSessionTransport} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
@@ -431,9 +432,11 @@ export class NativePlayback {
       forget(id: string) { self.dropped(id); },
       reportedSeq: (id: string) => self.seqs.get(id) ?? 0,
       session: (id: string) => self.known.get(id),
-      async change(id: string, change: SessionChange, durationSeconds: number) {
+      async change(id: string, change: SessionChange, durationSeconds: number, context?: SessionChangeContext) {
+        requireSessionChangeCurrent(context);
         if (self.controller.getSnapshot().session?.id !== id) throw new PlaybackApiError(410, 'session_ended', 'never');
-        const updated = await self.controller.change(change);
+        const updated = await self.controller.change(change, context);
+        requireSessionChangeCurrent(context);
         if (!updated) throw new PlaybackApiError(410, 'session_ended', 'never');
         return {session: self.keep(updated), playback: toPlaybackSession(updated, durationSeconds)};
       },

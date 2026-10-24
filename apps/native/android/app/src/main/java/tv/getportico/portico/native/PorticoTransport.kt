@@ -48,13 +48,17 @@ internal object PorticoTransport {
   const val DEFAULT_LIMIT = 1L shl 20
   const val READ_LIMIT = 8L shl 20
 
-  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean, val binary: Boolean) {
+  private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean, val binary: Boolean, val streaming: Boolean) {
     var deadline: ScheduledFuture<*>? = null
     var call: Call? = null
     var completed = false
+    var response: Response? = null
+    var pull: Promise? = null
   }
+  private data class StreamEnd(val owner: Any, val failure: String?, val code: String)
 
   private val entries = HashMap<String, Entry>()
+  private val endedStreams = LinkedHashMap<String, StreamEnd>()
   private val deadlines = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "portico-request-deadlines").apply { isDaemon = true } }
 
   private val client: OkHttpClient by lazy {
@@ -73,6 +77,8 @@ internal object PorticoTransport {
   // Reads retain safe connection alternatives. Writes may only be retried by their app owner.
   private val writeClient: OkHttpClient by lazy { client.newBuilder().retryOnConnectionFailure(false)
       .dispatcher(Dispatcher().apply { maxRequests = 2; maxRequestsPerHost = 2 }).build() }
+  // Same pool, dispatcher, TLS policy and deadline; a from-start source is never replayed.
+  private val streamClient: OkHttpClient by lazy { client.newBuilder().retryOnConnectionFailure(false).build() }
 
   /** A request URL the transport will carry: http or https, no credentials in it, no fragment. */
   fun target(url: String?): HttpUrl? {
@@ -112,17 +118,18 @@ internal object PorticoTransport {
   }
 
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
-  fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false) {
+  fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false, streaming: Boolean = false) {
     val critical = request.method !in setOf("GET", "HEAD")
-    val entry = Entry(identifier, owner, limit, promise, critical, binary)
+    val entry = Entry(identifier, owner, limit, promise, critical, binary, streaming)
     val call: Call
     synchronized(entries) {
-      if (entries.containsKey(identifier) || entries.size >= MAX_ACTIVE + MAX_WAITING || (!critical && entries.values.count { !it.critical } >= 66)) {
+      if (entries.containsKey(identifier) || endedStreams.containsKey(identifier) || entries.size >= MAX_ACTIVE + MAX_WAITING || (!critical && entries.values.count { !it.critical } >= 66) ||
+          streaming && entries.values.any { it.streaming && it.owner === owner }) {
         promise.reject(domain, busy)
         return
       }
       entries[identifier] = entry
-      val transport = if (critical) writeClient else client
+      val transport = if (streaming) streamClient else if (critical) writeClient else client
       call = transport.newCall(request)
       entry.call = call
       entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, 15, TimeUnit.SECONDS)
@@ -137,9 +144,62 @@ internal object PorticoTransport {
           }
 
       override fun onResponse(call: Call, response: Response) {
-        response.use { read(entry, it) }
+        if (entry.streaming) openStream(entry, response) else response.use { read(entry, it) }
       }
     })
+  }
+
+  /** Retain the SAME response after headers; the body is touched only by a pull. */
+  private fun openStream(entry: Entry, response: Response) {
+    if (response.code in intArrayOf(301, 302, 303, 307, 308) && response.header("Location") != null) {
+      response.close(); finish(entry, "Queue control redirects are not allowed.", null); return
+    }
+    val headers = Arguments.createMap()
+    for (name in response.headers.names()) headers.putString(name, response.headers.values(name).joinToString(", "))
+    val result = Arguments.createMap().apply { putInt("status", response.code); putMap("headers", headers) }
+    synchronized(entry) {
+      if (entry.completed) {response.close(); return}
+      entry.response = response
+      entry.promise?.resolve(result)
+      entry.promise = null
+    }
+  }
+
+  /** One pending bounded read of the original HTTP response, never a second request. */
+  fun readStream(owner: Any, identifier: String, promise: Promise) {
+    val entry: Entry?
+    val terminal: StreamEnd?
+    synchronized(entries) {entry = entries[identifier]; terminal = endedStreams[identifier]}
+    if (entry == null) {
+      if (terminal != null && terminal.owner === owner) {
+        if (terminal.failure == null) promise.resolve(streamResult(true, ByteArray(0))) else promise.reject(terminal.code, terminal.failure)
+      } else promise.reject(CANCELLED, "Reading stream cancelled.")
+      return
+    }
+    synchronized(entry) {
+      if (entry.owner !== owner || !entry.streaming || entry.completed || entry.response == null) {promise.reject(CANCELLED, "Reading stream cancelled."); return}
+      if (entry.pull != null) {promise.reject("queue_transport", "A Reading pull is already pending."); return}
+      entry.pull = promise
+    }
+    client.dispatcher.executorService.execute {
+      try {
+        val response = synchronized(entry) {if (entry.completed) null else entry.response}
+        if (response == null) return@execute
+        val buffer = Buffer()
+        val count = response.body?.source()?.read(buffer, 49152) ?: -1L
+        if (count == -1L) {finish(entry, null, streamResult(true, ByteArray(0))); return@execute}
+        if (count < 1 || count > 49152 || buffer.size != count) {finish(entry, "Invalid Reading stream response.", null); return@execute}
+        val result = streamResult(false, buffer.readByteArray())
+        synchronized(entry) {if (!entry.completed) {entry.pull?.resolve(result); entry.pull = null}}
+      } catch (error: IOException) {
+        val code = if (PorticoServerTrust.refusedCertificate(error)) CERTIFICATE else failureCode(error) ?: "queue_transport"
+        finish(entry, "The Reading stream could not be confirmed.", null, code)
+      } catch (_: RuntimeException) {finish(entry, "The Reading stream could not be confirmed.", null)}
+    }
+  }
+
+  private fun streamResult(done: Boolean, bytes: ByteArray) = Arguments.createMap().apply {
+    putBoolean("done", done); putString("bodyBase64", Base64.encodeToString(bytes, Base64.NO_WRAP))
   }
 
   private fun read(entry: Entry, response: Response) {
@@ -212,6 +272,8 @@ internal object PorticoTransport {
 
   private fun finish(entry: Entry, failure: String?, result: Any?, code: String = "queue_transport") {
     val promise: Promise?
+    val pull: Promise?
+    val response: Response?
     synchronized(entry) {
       if (entry.completed) return
       entry.completed = true
@@ -219,18 +281,31 @@ internal object PorticoTransport {
       entry.deadline = null
       promise = entry.promise
       entry.promise = null
+      pull = entry.pull
+      entry.pull = null
+      response = entry.response
+      entry.response = null
     }
-    synchronized(entries) { if (entries[entry.identifier] === entry) entries.remove(entry.identifier) }
+    synchronized(entries) {
+      if (entries[entry.identifier] === entry) entries.remove(entry.identifier)
+      if (entry.streaming) {
+        endedStreams[entry.identifier] = StreamEnd(entry.owner, failure, code)
+        while (endedStreams.size > MAX_ACTIVE + MAX_WAITING) endedStreams.remove(endedStreams.keys.first())
+      }
+    }
     if (failure != null) {
       entry.call?.cancel()
       promise?.reject(code, failure)
+      pull?.reject(code, failure)
     } else {
       promise?.resolve(result)
+      pull?.resolve(result)
     }
+    try {response?.close()} catch (_: RuntimeException) { /* already terminal; all pending promises settled */ }
   }
 
   fun cancel(identifier: String) {
-    val entry = synchronized(entries) { entries[identifier] } ?: return
+    val entry = synchronized(entries) { entries[identifier].also {if (it == null) endedStreams.remove(identifier)} } ?: return
     finish(entry, "Queue request cancelled.", null, CANCELLED)
   }
 
@@ -241,5 +316,6 @@ internal object PorticoTransport {
   fun cancelOwnedBy(owner: Any) {
     val owned = synchronized(entries) { entries.values.filter { it.owner === owner } }
     for (entry in owned) finish(entry, "The app reloaded.", null)
+    synchronized(entries) {endedStreams.entries.removeAll {it.value.owner === owner}}
   }
 }
