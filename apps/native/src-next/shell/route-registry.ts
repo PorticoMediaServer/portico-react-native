@@ -20,8 +20,8 @@ type RendererFactory = (context: NativeShellBootstrapContext) => NativeRouteRend
 export type NativeBoundRoutes = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
   renderWatch: (runtime: NativeShellRuntime) => ReactNode;
-  renderRetained: (runtime: NativeShellRuntime) => ReactNode;
-  renderOverlays: (runtime: NativeShellRuntime) => ReactNode;
+  renderRetained: (runtime: NativeShellRuntime) => readonly ReactNode[] | null;
+  renderOverlays: (runtime: NativeShellRuntime) => readonly ReactNode[] | null;
   scrollToTop: (route: NativeShellRoute) => void;
   back: () => boolean;
   dispose: () => void;
