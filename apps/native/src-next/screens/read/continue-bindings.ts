@@ -1,4 +1,4 @@
-import type {LocalSession, ReadingClient} from '../../../../../packages/client-core/src';
+import {ReadingError, type LocalSession, type ReadingClient} from '../../../../../packages/client-core/src';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {openNativeRead, type NativeReadNavigationContext} from './eligibility';
 
@@ -57,7 +57,13 @@ export class NativeReadingContinueBindings {
     if (!this.resident(row)) return false;
     if (row.item.inventoryAvailable !== true) return false;
     try {return await openNativeRead(this.context, {itemId: row.item.id, sourceId: row.item.sourceId}, this.life.signal);}
-    catch (error) {if (this.life.signal.aborted) return false; throw error;}
+    catch (error) {
+      // Canonical cancellation (retirement or replaced owner) is a refusal, not
+      // a source failure; it never becomes a late navigation on the old owner.
+      const cancelled = error instanceof ReadingError && error.code === 'cancelled' && error.status === undefined;
+      if (this.life.signal.aborted || !this.current() || cancelled) return false;
+      throw error;
+    }
   };
   dispose = (): void => {
     if (this.disposed) return;
