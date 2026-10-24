@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {browseToolbarModel} from '../../../packages/client-core/src/presentation/kit-model';
 import {libraryFilterChange, libraryFilterField} from '../src-next/screens/library/filter-controls';
+import {nativeLibraryCanSave} from '../src-next/screens/library/model';
 import {createTheme} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
@@ -17,7 +18,8 @@ async function fixture(isTV: boolean) {
   const original = {field: 'genre', operator: 'contains-any', value: ['Drama']};
   const staged = {field: 'genre', operator: 'contains-any', value: ['Comedy']};
   const state = {open: true, predicates: [staged], count: {phase: 'ready', value: {total: 19, totalIsLowerBound: false}}, facets: {}};
-  const source = {library: capability.library, capabilities: capability, predicates: [original], sort: {field: 'title', direction: 'asc'}, tab: {id: 'browse', pivot: 'movies'}};
+  const source = {phase: 'ready', library: capability.library, capabilities: capability, predicates: [original], sort: {field: 'title', direction: 'asc'},
+    defaultSort: {field: 'title', direction: 'asc'}, tab: {id: 'browse', pivot: 'movies'}};
   const draft = {getSnapshot: () => state, subscribe() {}, setPredicates: (value: unknown) => calls.push(['predicates', value]), apply: () => {calls.push('apply'); return true;}, clear: () => calls.push('clear'), search() {}, retryFacet() {}};
   const runtime = {text: {t: defaultI18n.t}, getSnapshot: () => ({authority: {serverId: 'server', epoch: 'epoch'}}), reportError: (error: unknown) => {throw error;}};
   const {LibraryFilters} = await screenModule(new URL('../src-next/screens/library/LibraryFilters.tsx', import.meta.url), {
@@ -26,6 +28,7 @@ async function fixture(isTV: boolean) {
     '../../kit/browse': {FilterBuilder: 'FilterBuilder'}, '../../kit/controls': {Button: 'Button'}, '../../kit/focus': {useFocusRegistry: () => ({focus: (address: unknown) => calls.push(['focus', address])})},
     '../../kit/overlays': {BottomSheet: 'BottomSheet', SidePanel: 'SidePanel'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme}, './filter-controls': {libraryFilterChange, libraryFilterField},
+    './model': {nativeLibraryCanSave},
   });
   const tree = host.render(() => LibraryFilters({draft, source, runtime, labels: {field: () => 'Genre'}, owner: true, onClose: () => calls.push('close'), onSave: (value: unknown) => calls.push(['save', value])}));
   return {tree, calls, state, source};
@@ -48,7 +51,7 @@ test('Phone Library filters put Clear all in the heading and save the actual sta
   const {tree, calls, source, state} = await fixture(false);
   assert.equal(tree.type, 'BottomSheet');
   const clear = tree.props.headerAction; assert.equal(clear.props.focusId, 'clear'); clear.props.onPress(); assert.equal(calls[0], 'clear');
-  const save = nodes(tree.props.footer).find(node => node.props.focusId === 'save-view'); save.props.onPress();
+  const save = nodes(tree.props.footer).find(node => node.props.focusId === 'save-view'); assert.equal(save.props.disabled, false); save.props.onPress();
   assert.deepEqual(calls[1], ['save', {predicates: state.predicates, sort: source.sort}]);
   assert.notDeepEqual(state.predicates, source.predicates);
 });

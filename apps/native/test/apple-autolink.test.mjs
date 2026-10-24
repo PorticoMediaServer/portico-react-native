@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync} from 'node:fs';
+import os from 'node:os';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
@@ -14,10 +15,10 @@ const configSource = readFileSync(path.join(root, 'react-native.config.js'), 'ut
 const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 const codegen = require('react-native/scripts/codegen/generate-artifacts-executor/utils.js');
 
-function config(target, packageManifest = manifest) {
+function config(target, packageManifest = manifest, environment = {}) {
   const module = {exports: {}};
   vm.runInNewContext(configSource, {
-    module, __dirname: root, process: {env: {PORTICO_APPLE_TARGET: target}},
+    module, __dirname: root, process: {env: {...environment, PORTICO_APPLE_TARGET: target}},
     require: id => id === './package.json' ? packageManifest : require(id),
   });
   return JSON.parse(JSON.stringify(module.exports));
@@ -26,6 +27,40 @@ function config(target, packageManifest = manifest) {
 test('ordinary iOS and Android keep default autolinking, including declared WebView', () => {
   const installed = {...manifest, dependencies: {...manifest.dependencies, 'react-native-webview': '16.0.0'}};
   for (const target of [undefined, '', 'ios', 'android']) assert.deepEqual(config(target, installed), {});
+});
+
+test('Xcode Apple TV codegen excludes WebView without the Podfile-only environment flag', () => {
+  for (const platform of ['appletvos', 'appletvsimulator']) {
+    assert.deepEqual(config(undefined, manifest, {PLATFORM_NAME: platform}), config('tvos'));
+  }
+  for (const platform of ['iphoneos', 'iphonesimulator', 'macosx', undefined]) {
+    assert.deepEqual(config(undefined, manifest, {PLATFORM_NAME: platform}), {});
+  }
+});
+
+test('real Fabric component generation omits unlinked tvOS WebView in Xcode and Pod paths, keeping iOS', t => {
+  const temporary = mkdtempSync(path.join(os.tmpdir(), 'apple-fabric-provider-'));
+  t.after(() => rmSync(temporary, {recursive: true, force: true}));
+  for (const [platform, generatedAutolink] of [['appletvsimulator', false], ['appletvos', true], ['iphonesimulator', false]]) {
+    const output = path.join(temporary, platform);
+    const env = {...process.env, PLATFORM_NAME: platform};
+    delete env.PORTICO_APPLE_TARGET;
+    if (generatedAutolink) {
+      const cli = require.resolve('@react-native-community/cli/build/bin.js');
+      const actual = execFileSync(process.execPath, [cli, 'config'], {cwd: root, env, encoding: 'utf8'});
+      const target = path.join(output, 'build/generated/autolinking');
+      mkdirSync(target, {recursive: true}); writeFileSync(path.join(target, 'autolinking.json'), actual);
+    }
+    const entry = require.resolve('react-native/scripts/generate-codegen-artifacts.js');
+    execFileSync(process.execPath, [entry, '--path', root, '--outputPath', output, '--targetPlatform', 'ios'], {
+      cwd: root, env: {...env, RCT_SCRIPT_OUTPUT_DIR: output}, encoding: 'utf8',
+    });
+    const provider = readFileSync(path.join(output, 'build/generated/ios/ReactCodegen/RCTThirdPartyComponentsProvider.mm'), 'utf8');
+    assert.match(provider, /NSClassFromString/);
+    assert.match(provider, /RNSVG/); // Other real native components remain installed.
+    if (platform.startsWith('appletv')) assert.doesNotMatch(provider, /RNCWebView/);
+    else assert.match(provider, /@"RNCWebView": NSClassFromString\(@"RNCWebView"\)/);
+  }
 });
 
 test('tvOS writes autolinking into its own project and disables only declared WebView Apple codegen', () => {
