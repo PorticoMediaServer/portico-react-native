@@ -22,11 +22,21 @@ const numericModule = (react: unknown) => screenModule(new URL('../src-next/tv/a
 });
 
 for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use secure platform fields/autofill and only the owner's Submit/Back callbacks`, async () => {
-  const focused: unknown[] = [], events: string[] = [];
+  const focused: unknown[] = [], events: string[] = [], targets = new Map<string, {disabled: boolean; ref: {current: any}}>();
+  let back: (() => boolean) | undefined;
   const {TVCredentialForm} = await screenModule(new URL('../src-next/tv/auth/TVCredentialForm.tsx', import.meta.url), {
-    ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', TextInput: 'TextInput', View: 'View'},
+    ...common, react: {...React, default: React},
+    'react-native': {BackHandler: {addEventListener: (_event: string, listener: () => boolean) => {
+      back = listener; return {remove() {if (back === listener) back = undefined;}};
+    }}, Text: 'Text', TextInput: 'TextInput', View: 'View'},
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region', useFocusRegistry: () => ({focus: (address: unknown) => focused.push(address)}),
-      useFocusTarget: () => ({onFocus() {}, onBlur() {}})},
+      useFocusTarget: ({focusId, disabled, ref}: {focusId: string; disabled: boolean; ref?: {current: any}}) => {
+        let target = targets.get(focusId);
+        if (!target) {target = {disabled, ref: {current: null as any}}; targets.set(focusId, target);}
+        target.disabled = disabled;
+        return {ref: (host: any) => {target!.ref.current = host; if (ref) ref.current = host;},
+          testID: `focus-${focusId}`, onFocus() {}, onBlur() {}};
+      }},
   });
   const props = {kind, serverName: 'Actual local server', username: 'actual-user', password: 'in-memory-only', busy: false,
     usernamePlaceholder: 'auth.email', onUsernameChange() {}, onPasswordChange() {}, onSubmit: () => events.push('submit'), onBack: () => events.push('back')};
@@ -48,18 +58,36 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   assert.equal(input(password).props.showSoftInputOnFocus, undefined, 'the platform keyboard is not suppressed');
   assert.equal(input(password).props.focusable, false, 'native entry begins only after OK on the drawn field');
   assert.ok(nodes(password).some(node => node.type === 'Focusable' && typeof node.props.onPress === 'function'));
-  let keyboardRequests = 0;
-  input(password).props.ref.current = {focus() {keyboardRequests++;}, blur() {}};
+  assert.equal(targets.get('username')!.disabled, true, 'an idle field leaves the stop to its row');
+  assert.equal(targets.get('password')!.disabled, true);
+  assert.equal(typeof input(password).props.ref, 'function');
+  let keyboardRequests = 0, blurs = 0;
+  input(password).props.ref({focus() {keyboardRequests++;}, blur() {blurs++;}});
   assert.equal(keyboardRequests, 0);
   await act(() => {nodes(password).find(node => node.type === 'Focusable').props.onPress(); passwordHost.rerender();});
   assert.equal(input(password).props.focusable, true);
+  assert.equal(targets.get('password')!.disabled, false, 'the editing input keeps the region stop so Down has an origin');
   assert.equal(keyboardRequests, 1, 'OK opens the actual native field once');
   await act(() => {input(username).props.onSubmitEditing(); input(password).props.onSubmitEditing();});
   assert.deepEqual(focused, [{regionId: `tv.auth.${kind}.credentials`, childId: 'password'}, {regionId: `tv.auth.${kind}.credentials`, childId: 'submit'}]);
+  blurs = 0;
+  await act(() => {nodes(password).find(node => node.type === 'Focusable').props.onPress(); passwordHost.rerender();});
+  assert.equal(typeof back, 'function', 'an editing field owns Back while the keyboard is open');
+  await act(() => {assert.equal(back!(), true); passwordHost.rerender();});
+  assert.equal(input(password).props.focusable, false, 'Back dismisses the field instead of leaving the step');
+  assert.equal(targets.get('password')!.disabled, true);
+  assert.equal(blurs, 1, 'Back hides the platform keyboard');
   const buttons = nodes(tree).filter(node => node.type === 'Button');
   assert.equal(buttons.length, 2, 'no provider/signup/forgot-password controls are added');
   buttons[0].props.onPress(); buttons[1].props.onPress();
   assert.deepEqual(events, ['submit', 'back']);
+  props.password = '';
+  await act(() => root.rerender());
+  const empty = nodes(tree).filter(node => node.type === 'Button');
+  empty[0].props.onPress();
+  assert.deepEqual(events, ['submit', 'back'], 'an empty password still refuses Submit');
+  props.password = 'in-memory-only';
+  await act(() => root.rerender());
   assert.equal(tree.props.portico, kind === 'portico', 'only Portico Account renders legal terms');
   assert.equal(tree.props.body, defaultI18n.t(kind === 'local' ? 'auth.direct.lead' : 'auth.accountLead'));
   props.busy = true;
