@@ -163,3 +163,16 @@ test('the TV entry menu owns the captured detail lifetime and its real play, per
     assert.equal(calls.at(-1), 'details');
   } finally {d.dispose();}
 });
+
+test('the shared leaf menu hands the captured item to the playlist picker and closes', async () => {
+  const d = await fixture(), calls: string[] = [];
+  const actions = {fileInfo: async () => {}, entry: {current: () => undefined, subscribe: () => () => {},
+    addToPlaylist: () => {calls.push('playlist');}, dispose: () => {calls.push('dispose');},
+    mutate: async () => {}, play: async () => {}, details: () => {}}};
+  try {
+    d.presenters.openMenu(d.capture, actions);
+    d.presenters.addToPlaylist(d.presenters.getSnapshot()!);
+    assert.deepEqual(calls, ['dispose', 'playlist']);
+    assert.equal(d.presenters.getSnapshot(), undefined);
+  } finally {d.dispose();}
+});

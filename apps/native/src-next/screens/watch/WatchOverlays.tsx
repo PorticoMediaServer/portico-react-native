@@ -112,6 +112,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
     onSelect: () => {void presenters.personal(value, {action: 'favorite', value: !personal.favorite});}});
   if (personal && allows('watched')) items.push({id: 'watched', label: t(show ? watched ? 'entry.markShowUnwatched' : 'entry.markShowWatched' : watched ? 'entry.markUnwatched' : 'entry.markWatched'),
     icon: 'i-check', selected: watched, disabled: value.busy, onSelect: () => {void presenters.personal(value, {action: 'watched', value: !watched});}});
+  if (value.actions?.entry?.addToPlaylist) items.push({id: 'add-to-playlist', label: t('next.overlays.playlist'), icon: 'i-list-plus', onSelect: () => presenters.addToPlaylist(value)});
   if (items.length) items.push({id: 'title-separator', separator: true});
   if (value.actions?.differentVersion) items.push({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
   items.push({id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}});

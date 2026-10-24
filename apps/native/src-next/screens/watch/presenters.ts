@@ -116,6 +116,11 @@ export class NativeWatchPresenters {
     try {await entry.enqueue(placement);}
     catch (error) {if (this.context.current()) this.common.reportError(error, 'detail');}
   };
+  addToPlaylist = (value: NativeWatchOverlay) => {
+    const entry = value.actions?.entry;
+    if (!entry?.addToPlaylist || value.busy || !this.current(value.capture)) return;
+    this.close(); entry.addToPlaylist();
+  };
   goToArtist = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;
     if (!entry?.goToArtist || value.busy || !this.current(value.capture)) return;

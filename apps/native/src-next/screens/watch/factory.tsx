@@ -9,6 +9,7 @@ import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/l
 import type {PlaybackOptions} from '../../../../../packages/client-core/src/playback-v1/types';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
+import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativePlaybackAdapter, NativePlaybackReadLifetime, NativePlaybackStart, NativePlaybackVersionSelection} from '../../platform/playback/types';
 import type {PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
@@ -47,6 +48,7 @@ export type NativeWatchMenuEntry = Readonly<{
   subscribe: (listener: () => void) => () => void;
   play?: () => Promise<void>;
   enqueue?: (placement: 'next' | 'end') => Promise<void>;
+  addToPlaylist?: () => void;
   goToArtist?: () => void;
   mutate: (intent: PersonalIntent) => Promise<void>;
   details?: () => void;
@@ -67,6 +69,8 @@ export type NativeWatchFactoryPorts = Readonly<{
   watch: NativeWatchOutletPort;
   /** Bound by the genuine assembly. Optional only for older descriptor fixtures. */
   player?: NativeWatchHostBindings;
+  /** One authority-local playlist picker, hosted by the Watch module's overlay outlet. */
+  playlistPicker?: MusicPlaylistPickerHandle;
   requestId: () => Promise<string>;
   isTV: boolean;
   /** Bound to Android's real fenced runtime command after it lands on MAIN. */
@@ -221,6 +225,11 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       }} : {}),
       ...(entry.kind === 'song' && entry.artist ? {goToArtist: () => {
         if (current(captured)) ports.title.navigate({id: entry.artist!.id, kind: 'artist', title: entry.artist!.name, ...(entry.libraryId ? {libraryId: entry.libraryId} : {})});
+      }} : {}),
+      ...(ports.playlistPicker && ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind) && entry.available !== false ? {addToPlaylist: () => {
+        if (!current(captured)) return;
+        const operation = new AbortController();
+        ports.playlistPicker!.open(entry.id, {signal: operation.signal, isCurrent: () => current(captured)});
       }} : {}),
       mutate: async (intent: PersonalIntent) => {await detail!.mutate(intent);},
       ...(onTitle ? {} : {details: () => {if (current(captured)) ports.title.navigate(entry);}}),
