@@ -21,6 +21,8 @@ import type {PlaybackChoices} from '../../../../../packages/client-core/src/play
 import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {qualityOptionRequest, type QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {SubtitleService} from '../../../../../packages/client-core/src/subtitles';
+import {forcedChoiceOf, parseSubtitleLines} from '../../../../../packages/client-core/src/subtitle-originals';
+import {forcedImageLinesPath} from './forced-image';
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker} from '../../../../../packages/player-core/src';
@@ -33,7 +35,7 @@ import type {OfflineEntry} from '../../../platform/offline-downloads';
 import {captionStyle} from './caption-style';
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {uploadPickedSubtitle} from './subtitle-file-upload';
-import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
+import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, linesUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
@@ -107,6 +109,7 @@ export class NativePlaybackRuntime {
   private pictureBinding?: NativeBinding;
   private fonts?: SubtitleFonts | 'pending';
   private fontsKey?: string;
+  private forcedImage?: {fence: PlaybackFence; path: string; epoch: number; controller: AbortController; mixed?: boolean};
   private detail?: SourceDetail;
   private detailOff?: () => void;
   private entry?: ContentEntry;
@@ -834,6 +837,7 @@ export class NativePlaybackRuntime {
   }
   private selectSource(key: string): void {
     this.cancelSnapshot();
+    this.clearForcedImage();
     this.externalPresentationBinding = undefined; this.pictureBinding = undefined;
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     this.sourceController?.abort();
@@ -900,14 +904,16 @@ export class NativePlaybackRuntime {
   private applyOptions(): void {
     if (this.retired) return;
     const state = this.playback.getSnapshot(), fence = this.fence(), settings = this.o.settings();
-    if (!state.session || !fence) { this.coordinator.setOptions(1, null, null); return; }
+    if (!state.session || !fence) { this.clearForcedImage(); this.coordinator.setOptions(1, null, null); return; }
     if (fence.kind === 'channel') {
+      this.clearForcedImage();
       this.coordinator.setOptions(1, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
       return;
     }
     const baseRate = this.local(fence).kind === 'audiobook' ? settings.audiobookRate : this.local(fence).kind === 'music' ? 1 : settings.videoRate;
     const rate = this.choices.get('speed', fence.playback, baseRate);
     if (fence.kind === 'local') {
+      this.clearForcedImage();
       this.coordinator.setOptions(rate, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
       return;
     }
@@ -924,6 +930,7 @@ export class NativePlaybackRuntime {
     });
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
     let subtitles: Record<string, unknown> | null = null;
+    let forcedPath: string | undefined;
     const visible = this.displaySubtitles && this.expanded;
     const drawn = deviceDrawnTrack(plan, session), selected = plan?.mode === 'track' && !this.subtitleService?.getSnapshot().suppressed ? plan.selected : null;
     const listUrl = fontsUrlOf(plan, session);
@@ -943,15 +950,51 @@ export class NativePlaybackRuntime {
       const render = engineSubtitleRender(plan, state.session, rendering, path => this.o.api.mediaUrl(path), this.fonts, session);
       if (selected && plan.documentUrl || render) {
         const resource = selected ?? drawn?.resource;
+        if (engine === 'mpv') forcedPath = forcedImageLinesPath(state.session.streamUrl, render, resource, linesUrlOf(plan, session));
         subtitles = {binding, mode: 'track', revision: plan.revision, resourceId: selected?.id ?? drawn?.id, resourceRevision: resource?.revision ?? 1,
           manifestName: resource?.manifestName, origin: resource?.origin ?? 'embedded', language: resource?.language ?? '', title: resource?.title ?? '', offsetUs: selected ? plan.offsetUs : '0',
           ...(selected && plan.documentUrl ? {documentUrl: this.o.api.mediaUrl(plan.documentUrl)} : {}), ...(render ? {render} : {}), refreshRevision: 0, style};
       }
     }
+    this.readForcedImage(fence, forcedPath);
+    if (subtitles && this.forcedImageAvailable(fence) && this.choices.get('forcedOnly', fence.playback, false)) subtitles = {...subtitles, forcedOnly: true};
     this.coordinator.setOptions(rate, null, subtitles);
     const version = this.options?.versions.find(value => value.id === session?.versionId);
     this.path.setAutomatic(session?.presentation.quality.mode === 'automatic' ? {steps: automaticSteps(this.options?.qualities ?? []), originalKbps: version?.bitrateKbps} : null);
   }
+
+  private clearForcedImage(): void {
+    this.forcedImage?.controller.abort(); this.forcedImage = undefined;
+  }
+
+  private forcedImageAvailable(fence: PlaybackFence | undefined): boolean {
+    const read = this.forcedImage, phase = this.playback.getSnapshot().phase;
+    return !!fence && fence.kind === 'queue' && !!read?.mixed && read.epoch === this.sourceEpoch
+      && !read.controller.signal.aborted && sameFence(read.fence, fence) && this.expanded && this.displaySubtitles
+      && this.coordinator.getEngine() === 'mpv' && (phase === 'ready' || phase === 'starting');
+  }
+
+  private readForcedImage(fence: PlaybackFence, path: string | undefined): void {
+    const source = this.sourceController?.signal, previous = this.forcedImage;
+    if (!path || fence.kind !== 'queue' || !source || source.aborted) { this.clearForcedImage(); return; }
+    if (previous?.path === path && previous.epoch === this.sourceEpoch && sameFence(previous.fence, fence)) return;
+    this.clearForcedImage();
+    const read = {fence, path, epoch: this.sourceEpoch, controller: new AbortController(), mixed: undefined as boolean | undefined};
+    this.forcedImage = read;
+    const abort = () => read.controller.abort(); source.addEventListener('abort', abort, {once: true});
+    const current = () => this.active() && this.forcedImage === read && read.epoch === this.sourceEpoch
+      && !read.controller.signal.aborted && this.matches(fence);
+    void this.request<unknown>(path, 'GET', undefined, read.controller.signal).then(raw => {
+      if (!current()) return;
+      read.mixed = forcedChoiceOf(parseSubtitleLines(raw)); this.applyOptions(); this.publish();
+    }).catch(() => { if (current()) {read.mixed = false; this.publish();} })
+      .finally(() => source.removeEventListener('abort', abort));
+  }
+
+  setForcedOnly = (fence: PlaybackFence, on: boolean): boolean => {
+    if (typeof on !== 'boolean' || !this.matches(fence) || !this.forcedImageAvailable(fence)) return false;
+    return this.choices.set('forcedOnly', fence.playback, on, fence);
+  };
 
   private makeSnapshot(sequence: number): NativePlaybackRuntimeSnapshot {
     const playback = this.playback.getSnapshot(), nextFence = this.retired ? undefined : this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
@@ -972,6 +1015,7 @@ export class NativePlaybackRuntime {
       && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
     return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
+      ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
       capabilities: Object.freeze({play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
@@ -1409,7 +1453,7 @@ export class NativePlaybackRuntime {
     }
     this.beginOperation(); this.retired = true; ++this.sourceEpoch; this.externalPresentationBinding = null;
     this.cancelSnapshot(); this.snapshotCapture?.dispose();
-    this.startController?.abort(); this.sourceController?.abort(); this.http.dispose(); this.clearCompletion();
+    this.startController?.abort(); this.sourceController?.abort(); this.clearForcedImage(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
     if (this.routeRecovery) clearTimeout(this.routeRecovery);
     this.subtitleOff?.(); this.subtitleService?.stop(); this.subtitleService = undefined;
