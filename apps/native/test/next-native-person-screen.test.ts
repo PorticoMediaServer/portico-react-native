@@ -40,6 +40,9 @@ test('real App mounts the handheld Person route, exact credit actions and retain
     const heading = header.find(node => node.props.children === 'Actual Person'); assert.ok(heading);
     assert.equal(style(heading.props.style).fontSize, 30, 'phone-detail7 prh h1');
     assert.ok(header.some(node => node.props.children === 'Actual canonical biography'));
+    const circle = header.find((node: any) => node.props?.initials === 'AP');
+    assert.ok(circle, 'the phone person keeps the drawn initials fallback when the server has no portrait');
+    assert.equal(circle.props.size, 96); assert.equal(circle.props.source, undefined, 'no invented photo');
     assert.equal(header.find(node => node.props.testID === 'person-known-movie')!.props.title, entry.displayTitle);
     assert.equal(header.find(node => node.props.testID === 'person-known-fallback-film')!.props.title, fallback.title);
     assert.ok(header.some(node => node.props.testID === 'person-role-all' && node.props.selected));
