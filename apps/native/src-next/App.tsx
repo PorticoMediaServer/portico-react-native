@@ -34,7 +34,7 @@ function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const Shell = RuntimeShell ?? (Platform.isTV ? tvShell ?? TVRoot : phoneShell) ?? RestoredShell;
   const renderNormal = () => KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null;
   const Gate = measurement?.NativePublicMeasurementGate;
-  return <View ref={Gate ? root : undefined} testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{Gate ? <Gate renderNormal={renderNormal} install={install}/> : renderNormal()}</View>;
+  return <View ref={Gate ? root : undefined} collapsable={Gate ? false : undefined} testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{Gate ? <Gate renderNormal={renderNormal} install={install}/> : renderNormal()}</View>;
 }
 
 /** The product restores its actual native session; test/dev hosts may inject an owned runtime. */
