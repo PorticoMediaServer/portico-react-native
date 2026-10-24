@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, Platform, ScrollView, Text, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStructure, settingsScopeLabel, settingsRowId, searchSettings, readComposite, compositePatch, type SettingsPage, type SettingsRow as Row} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {PreferenceScope} from '../../../../../packages/client-core/src/preferences';
 import {COMMON_LANGUAGES, languageName, MAX_LANGUAGES} from '../../../../../packages/client-core/src/presentation/language-list';
@@ -39,7 +40,7 @@ export function nativeSettingsIcon(name: string): IconName {
 }
 
 export function NativeSettingsScreen({ports, controller, runtime, devicePreferences}: {ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences}) {
-  const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry();
+  const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry(), insets = useSafeAreaInsets();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
@@ -85,7 +86,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
   const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
-  return <Screen>
+  return <Screen style={!theme.isTV ? {paddingTop: insets.top + 14} : undefined}>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
         {(!theme.isTV || !searching) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}
