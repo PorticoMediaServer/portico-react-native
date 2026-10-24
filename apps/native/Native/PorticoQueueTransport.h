@@ -32,10 +32,10 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 @property(nonatomic) BOOL streamingResponse;
 @property(nonatomic) BOOL streamOpened;
 @property(nonatomic) BOOL streamEOF;
-@property(nonatomic) BOOL streamPaused;
 @property(nonatomic) BOOL streamRetired;
 @property(nonatomic,strong) id<PorticoReadingStreamDriver> streamDriver;
 @property(nonatomic) BOOL streamPullInFlight;
+@property(nonatomic) uint64_t streamByteCount;
 @property(nonatomic,copy) PorticoTransportResolve streamResolve;
 @property(nonatomic,copy) PorticoTransportReject streamReject;
 @property(nonatomic,copy) NSString *streamTerminalFailure;
@@ -43,6 +43,7 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 @property(nonatomic,copy) NSString *failureCode;
 - (void)finish:(NSString *)failure;
 - (void)transportFailed:(NSError *)error;
+- (void)openStreamResponse:(NSHTTPURLResponse *)response;
 - (void)deliverStream;
 - (void)readStreamOwnedBy:(id)owner resolve:(PorticoTransportResolve)resolve reject:(PorticoTransportReject)reject;
 @end
@@ -89,11 +90,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   } headers:^(NSHTTPURLResponse *response){
    PorticoQueueRequest *current=weakRequest;if(!current)return;
    @synchronized(current){
-    if(current.completed||current.streamOpened)return;
-    if(![response.URL isEqual:current.wire.URL]){[current finish:@"network_stream_response_invalid"];return;}
-    current.response=response;current.streamOpened=YES;
-    PorticoTransportResolve resolve=current.resolve;current.resolve=nil;current.reject=nil;
-    resolve(@{@"status":@(response.statusCode),@"headers":PorticoQueueResponseHeaders(response)});
+    [current openStreamResponse:response];
    }
   } failure:^(NSError *error){PorticoQueueRequest *current=weakRequest;if(current)@synchronized(current){if(!current.completed)[current transportFailed:error];}}];
   return;
@@ -119,7 +116,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   PorticoQueueRequests[request.identifier]=request;[PorticoQueueWaiting addObject:request];[self pump];
   // Include queue residence in the operation's deadline. Cancellation releases admission once.
   NSTimeInterval timeout=request.wire.timeoutInterval;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed)request.failureCode=@"timeout";}[request finish:@"The request took too long."];});
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed){request.failureCode=@"timeout";[request finish:@"The request took too long."];}}});
  }
 }
 /** Caller holds the class lock. */
@@ -161,13 +158,9 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
  @synchronized(request){
   if(request.completed){completionHandler(NSURLSessionResponseCancel);return;}
   request.response=(NSHTTPURLResponse *)response;
-  if(request.streamDriver){completionHandler(NSURLSessionResponseAllow);return;}
   if(request.streamingResponse){
-   if(request.streamOpened){completionHandler(NSURLSessionResponseCancel);[request finish:@"network_stream_response_invalid"];return;}
-   request.streamOpened=YES;request.streamPaused=YES;[task suspend];
-   PorticoTransportResolve resolve=request.resolve;request.resolve=nil;request.reject=nil;
-   completionHandler(NSURLSessionResponseAllow);
-   resolve(@{@"status":@(request.response.statusCode),@"headers":PorticoQueueResponseHeaders(request.response)});
+   if(request.streamDriver)completionHandler(NSURLSessionResponseAllow);
+   else{completionHandler(NSURLSessionResponseCancel);[request finish:@"network_stream_driver_missing"];}
    return;
   }
   completionHandler(NSURLSessionResponseAllow);
@@ -175,22 +168,17 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
  PorticoQueueRequest *request=[self requestFor:task];if(!request)return;
- BOOL over=NO;NSString *streamFailure=@"network_stream_state_invalid";@synchronized(request){
+ BOOL over=NO;@synchronized(request){
   if(request.completed)return;
-  if(request.streamDriver)return; // Foundation AsyncBytes owns decoded body delivery.
   if(request.streamingResponse){
-   // Suspend on every incoming window. A single bounded window also accommodates
-   // already-in-flight delegate bytes; a slow JS consumer cannot grow a body buffer.
-   if(!request.streamPaused){request.streamPaused=YES;[task suspend];}
-   if(!request.streamOpened||request.streamEOF)over=YES;
-   else if(data.length>PorticoStreamChunkLimit){over=YES;streamFailure=@"network_stream_chunk_exceeded";}
-   else if(request.data.length>PorticoStreamChunkLimit||data.length>PorticoStreamChunkLimit-request.data.length){over=YES;streamFailure=@"network_stream_window_exceeded";}
-   else{[request.data appendData:data];[request deliverStream];}
+   // There is no suspended-data-task fallback: only AsyncBytes supplies the body.
+   if(!request.streamDriver)[request finish:@"network_stream_driver_missing"];
+   return;
   }else{
    NSUInteger limit=request.responseLimit?:1048576;if(request.data.length>limit||data.length>limit-request.data.length)over=YES;else [request.data appendData:data];
   }
  }
- if(over)[request finish:request.streamingResponse?streamFailure:@"Queue response exceeded its limit."];
+ if(over)[request finish:@"Queue response exceeded its limit."];
 }
 - (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
  [PorticoServerTrust handleChallenge:challenge completion:completionHandler];
@@ -198,16 +186,22 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  PorticoQueueRequest *request=[self requestFor:task];
  if(request.streamDriver){if(error)[request transportFailed:error];return;}
- if(!error&&request.streamingResponse&&request.streamOpened){
-  @synchronized(request){if(!request.completed){request.streamEOF=YES;[request deliverStream];}}
-  return;
- }
  [request transportFailed:error];
 }
 @end
 
 @implementation PorticoQueueRequest
+- (void)openStreamResponse:(NSHTTPURLResponse *)response {
+ @synchronized(self){
+  if(self.completed||self.streamOpened)return;
+  if(![response.URL isEqual:self.wire.URL]){[self finish:@"network_stream_response_invalid"];return;}
+  self.response=response;self.streamOpened=YES;
+  PorticoTransportResolve resolve=self.resolve;self.resolve=nil;self.reject=nil;
+  resolve(@{@"status":@(response.statusCode),@"headers":PorticoQueueResponseHeaders(response)});
+ }
+}
 - (void)transportFailed:(NSError *)error {
+ @synchronized(self){if(self.completed)return;
  PorticoQueueRequest *request=self;
  if([PorticoServerTrust isRefusal:error]){request.failureCode=@"certificate_untrusted";[request finish:@"The server's certificate is not trusted yet."];return;}
  // What the failure means to the person, as Android reports it: no answer in time, or nothing reached
@@ -219,6 +213,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   default:break;
  }
  [request finish:error?@"The queue request could not be confirmed.":nil];
+ }
 }
 /** Caller holds the request lock. Only a pending pull may resume the upstream task. */
 - (void)deliverStream {
@@ -241,13 +236,18 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
    @synchronized(self){
     if(self.completed||self.streamDriver!=driver)return;self.streamPullInFlight=NO;
     if(error){[self transportFailed:error];return;}
-    if(data.length>PorticoStreamPullLimit||(!data.length&&!atEOF)){[self finish:@"network_stream_read_invalid"];return;}
+    if(data.length>PorticoStreamPullLimit||(!data.length&&!atEOF)||self.streamByteCount>UINT64_MAX-data.length){[self finish:@"network_stream_read_invalid"];return;}
+    self.streamByteCount+=data.length;
+    // Content-Length describes encoded bytes; compare only an identity body.
+    NSString *encoding=nil;for(id key in self.response.allHeaderFields)if([[key description] caseInsensitiveCompare:@"Content-Encoding"]==NSOrderedSame)encoding=[self.response.allHeaderFields[key] description];
+    long long expected=([@[@204,@304] containsObject:@(self.response.statusCode)])?0:self.response.expectedContentLength;
+    if(atEOF&&(!encoding.length||[encoding caseInsensitiveCompare:@"identity"]==NSOrderedSame)&&expected>=0&&self.streamByteCount!=(uint64_t)expected){[self finish:@"network_stream_incomplete"];return;}
     [self.data appendData:data];self.streamEOF=atEOF;[self deliverStream];
    }
   }];
   return;
  }
- if(self.streamPaused){self.streamPaused=NO;[self.task resume];}
+ [self finish:@"network_stream_driver_missing"];
 }
 - (void)readStreamOwnedBy:(id)owner resolve:(PorticoTransportResolve)resolve reject:(PorticoTransportReject)reject {
  @synchronized(self){

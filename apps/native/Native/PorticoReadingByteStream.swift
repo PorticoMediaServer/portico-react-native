@@ -21,22 +21,11 @@ private actor ReadingByteBody {
 
 /** The task delegate forwards the existing certificate policy and never redirects.
  * Callback state belongs to the queue request and is protected by that request's lock. */
-private final class ReadingBytePolicy: NSObject, URLSessionDataDelegate {
+private final class ReadingBytePolicy: NSObject, URLSessionTaskDelegate {
     let attached: (URLSessionTask) -> Void
-    let headers: (HTTPURLResponse) -> Void
     let failure: (Error) -> Void
-    init(attached: @escaping (URLSessionTask) -> Void, headers: @escaping (HTTPURLResponse) -> Void, failure: @escaping (Error) -> Void) {
-        self.attached = attached; self.headers = headers; self.failure = failure
-    }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        attached(dataTask)
-        guard let response = response as? HTTPURLResponse else {
-            completionHandler(.cancel)
-            failure(NSError(domain: "PorticoReadingStream", code: 2, userInfo: [NSLocalizedDescriptionKey: "network_stream_response_invalid"]))
-            return
-        }
-        headers(response); completionHandler(.allow)
+    init(attached: @escaping (URLSessionTask) -> Void, failure: @escaping (Error) -> Void) {
+        self.attached = attached; self.failure = failure
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -74,7 +63,7 @@ final class PorticoReadingByteStream: NSObject, PorticoReadingStreamDriver {
               headers: @escaping (HTTPURLResponse) -> Void, failure: @escaping (Error) -> Void) {
         locked {
             guard !closed, opening == nil else { return }
-            let policy = ReadingBytePolicy(attached: attached, headers: headers, failure: failure)
+            let policy = ReadingBytePolicy(attached: attached, failure: failure)
             self.policy = policy
             opening = Task { [weak self] in
                 guard let self else { return }

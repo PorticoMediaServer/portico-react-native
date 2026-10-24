@@ -257,7 +257,7 @@ RCT_REMAP_METHOD(profileRequest,profileRequest:(NSString *)identifier url:(NSStr
 }
 
 RCT_REMAP_METHOD(cancelQueueRequest,cancelQueueRequest:(NSString *)identifier){
- PorticoQueueRequest *request;@synchronized(PorticoQueueRequest.class){request=PorticoQueueRequests[identifier];}@synchronized(request){if(request.streamingResponse&&request.owner!=self)return;if(!request.completed)request.failureCode=@"cancelled";}[request finish:@"Queue request cancelled."];
+ PorticoQueueRequest *request;@synchronized(PorticoQueueRequest.class){request=PorticoQueueRequests[identifier];}@synchronized(request){if(request.streamingResponse&&request.owner!=self)return;if(!request.completed){request.failureCode=@"cancelled";[request finish:@"Queue request cancelled."];}}
 }
 
 RCT_EXPORT_BLOCKING_SYNCHRONOUS_METHOD(playbackRequestId){return NSUUID.UUID.UUIDString;}

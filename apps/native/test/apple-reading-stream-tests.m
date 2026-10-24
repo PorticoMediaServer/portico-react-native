@@ -24,6 +24,16 @@
 - (void)cancel{_cancels++;_testState=NSURLSessionTaskStateCanceling;}
 @end
 
+@interface ReadingStreamDriver : NSObject<PorticoReadingStreamDriver>
+@property(nonatomic,copy) void (^pending)(NSData *,BOOL,NSError *);
+@property(nonatomic) NSUInteger reads,cancels;
+@end
+@implementation ReadingStreamDriver
+- (void)openWithSession:(NSURLSession *)session request:(NSURLRequest *)request attached:(void (^)(NSURLSessionTask *))attached headers:(void (^)(NSHTTPURLResponse *))headers failure:(void (^)(NSError *))failure {}
+- (void)readWithCompletion:(void (^)(NSData *,BOOL,NSError *))completion {_reads++;_pending=completion;}
+- (void)cancel{_cancels++;_pending=nil;}
+@end
+
 static NSUInteger checks,opened,openRejected;
 static NSDictionary *opening;
 static NSString *openError;
@@ -37,15 +47,15 @@ static PorticoQueueRequest *make(void){
 }
 static ReadingStreamTask *install(PorticoQueueRequest *request){
  ReadingStreamTask *task=[ReadingStreamTask new];task.testID=request.identifier;task.testState=NSURLSessionTaskStateRunning;request.task=task;request.started=YES;
+ request.streamDriver=[ReadingStreamDriver new];
  if(!PorticoQueueRequests)PorticoQueueRequests=[NSMutableDictionary new];
  PorticoQueueRequests[request.identifier]=request;PorticoQueueActive++;PorticoQueueReads++;return task;
 }
 static void headers(ReadingStreamTask *task,NSInteger status){
- __block NSURLSessionResponseDisposition disposition=-1;
- NSHTTPURLResponse *response=[[NSHTTPURLResponse alloc]initWithURL:[NSURL URLWithString:@"https://server.example/v1/reading/sessions/s-1/source"] statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:@{@"Content-Length":@"2147483648",@"Content-Type":@"application/pdf",@"ETag":@"\"revision\""}];
- [transport URLSession:nil dataTask:task didReceiveResponse:response completionHandler:^(NSURLSessionResponseDisposition value){disposition=value;}];
- check(disposition==NSURLSessionResponseAllow,"defensive data-task path retains header bounds");
+ NSHTTPURLResponse *response=[[NSHTTPURLResponse alloc]initWithURL:[NSURL URLWithString:@"https://server.example/v1/reading/sessions/s-1/source"] statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:@{@"Content-Length":status==403?@"6":@"100000",@"Content-Type":@"application/pdf",@"ETag":@"\"revision\""}];
+ [PorticoQueueRequests[task.testID] openStreamResponse:response];
 }
+static void bytes(PorticoQueueRequest *request,NSData *data,BOOL eof,NSError *error){ReadingStreamDriver *driver=(id)request.streamDriver;void (^pending)(NSData *,BOOL,NSError *)=driver.pending;driver.pending=nil;check(pending!=nil,"only an actual pending pull receives bytes");pending(data,eof,error);}
 static void pull(PorticoQueueRequest *request,NSMutableArray *replies,NSMutableArray *errors){
  PorticoReadingStreamRead(request.identifier,owner,^(id value){[replies addObject:value];},^(NSString *code,NSString *message,NSError *error){[errors addObject:code];});
 }
@@ -119,8 +129,9 @@ static void actualCancel(NSUInteger mode) {
   int peer=accept(listener,NULL,NULL);if(peer<0)return;int yes=1;setsockopt(peer,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));
   struct timeval timeout={3,0};setsockopt(peer,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout));
   char request[8192]={0};ssize_t count=0;while(count<(ssize_t)sizeof(request)-1&&!strstr(request,"\r\n\r\n")){ssize_t next=recv(peer,request+count,sizeof(request)-1-count,0);if(next<=0)break;count+=next;}
+  const char *header="HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));
+  if(mode!=1)sendAll(peer,"x",1);
   dispatch_semaphore_signal(accepted);
-  if(mode!=1){const char *header="HTTP/1.1 200 OK\r\nContent-Length: 32\r\nConnection: close\r\n\r\n";sendAll(peer,header,strlen(header));}
   dispatch_semaphore_wait(release,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC));
   char byte;disconnected=recv(peer,&byte,1,0)==0;shutdown(peer,SHUT_RDWR);close(peer);
  });
@@ -133,7 +144,7 @@ static void actualCancel(NSUInteger mode) {
  if(mode!=1){
   BOOL gotHeaders=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
   if(!gotHeaders||state[@"error"])fprintf(stderr,"Cancellation mode=%lu headers=%d nativeResponse=%d error=%s\n",(unsigned long)mode,state[@"headers"]!=nil,request.response!=nil,[state[@"error"] UTF8String]?:"none");
-  check(gotHeaders&&!state[@"error"],"real cancellation response headers");
+  check(gotHeaders&&!state[@"error"],"first upstream byte resolves actual response metadata");
   PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
   @synchronized(request){check(request.streamResolve!=nil&&!request.completed,"real body pull pending without upstream bytes");}
  }
@@ -153,56 +164,64 @@ int main(void){@autoreleasepool{
   __block NSUInteger failures=0;check(!PorticoReadingStreamRequest(@"id",@"https://server.example/v1/reading/sessions/s/source",@{name:@"bytes=0-4"},owner,^(id value){},^(NSString *c,NSString *m,NSError *e){failures++;})&&failures==1,"Range never enters sequential stream");
  }
  PorticoQueueRequest *request=make();ReadingStreamTask *task=install(request);headers(task,200);
- check(opened==1&&!openRejected&&[opening[@"status"]isEqual:@200]&&[opening[@"headers"] count]==3&&!opening[@"bodyBase64"],"open resolves actual headers only");
+ check(opened==1&&!openRejected&&[opening[@"status"]isEqual:@200]&&[opening[@"headers"] count]==3&&!opening[@"bodyBase64"],"open resolves actual metadata only");
  check(request.wire.timeoutInterval==15&&[request.wire.HTTPMethod isEqual:@"GET"]&&!request.wire.HTTPBody&&[[request.wire valueForHTTPHeaderField:@"If-Match"]isEqual:@"\"revision\""],"same deadline, captured precondition and GET request");
- check(task.suspends==1&&task.resumes==0&&request.data.length==0,"defensive data-task headers suspend before demand");
+ check(request.data.length==0&&[(ReadingStreamDriver *)request.streamDriver reads]==0,"metadata never asks the body driver to prefetch");
  NSMutableArray *replies=[NSMutableArray new],*errors=[NSMutableArray new];
- pull(request,replies,errors);check(!replies.count&&!errors.count&&task.resumes==1,"one pull resumes the existing task");
- pull(request,replies,errors);check(errors.count==1&&[errors.lastObject isEqual:@"queue_transport"]&&task.resumes==1,"second pending pull rejects without replacing first");[errors removeAllObjects];
+ pull(request,replies,errors);check(!replies.count&&!errors.count&&[(ReadingStreamDriver *)request.streamDriver reads]==1,"one pull reads the captured driver");
+ pull(request,replies,errors);check(errors.count==1&&[errors.lastObject isEqual:@"queue_transport"]&&[(ReadingStreamDriver *)request.streamDriver reads]==1,"second pending pull rejects without replacing first");[errors removeAllObjects];
  NSMutableData *source=[NSMutableData dataWithLength:100000];for(NSUInteger i=0;i<source.length;i++)((uint8_t *)source.mutableBytes)[i]=(uint8_t)i;
- [transport URLSession:nil dataTask:task didReceiveData:source];
- check(replies.count==1&&task.suspends==2&&request.data.length==100000-49152,"one incoming chunk suspends and delivers at most 48KiB");
- NSMutableData *received=[NSMutableData new];
- while(request.data.length){NSDictionary *last=replies.lastObject;check([last[@"done"]isEqual:@NO],"buffered bytes never claim EOF");[received appendData:[[NSData alloc]initWithBase64EncodedString:last[@"bodyBase64"] options:0]];pull(request,replies,errors);}
- [received appendData:[[NSData alloc]initWithBase64EncodedString:replies.lastObject[@"bodyBase64"] options:0]];
- check([received isEqual:source]&&replies.count==3&&task.resumes==1,"ordered raw bytes survive slicing without premature upstream resume");
- pull(request,replies,errors);check(replies.count==3&&task.resumes==2,"drained body still awaits genuine upstream EOF");
- [transport URLSession:nil task:task didCompleteWithError:nil];
- check([replies.lastObject isEqual:@{@"done":@YES,@"bodyBase64":@""}]&&!errors.count&&request.completed&&!PorticoQueueRequests[request.identifier],"only actual EOF emits done and closes handle");
+ NSMutableData *received=[NSMutableData new];NSUInteger offset=0;
+ while(offset<source.length){
+  NSUInteger length=MIN(PorticoStreamPullLimit,source.length-offset);
+  bytes(request,[source subdataWithRange:NSMakeRange(offset,length)],NO,nil);
+  NSDictionary *reply=replies.lastObject;check([reply[@"done"]isEqual:@NO],"received bytes never claim EOF");
+  [received appendData:[[NSData alloc]initWithBase64EncodedString:reply[@"bodyBase64"] options:0]];
+  check(request.data.length==0&&!request.streamResolve&&!request.streamPullInFlight,"one reply releases all application body state");
+  offset+=length;if(offset<source.length)pull(request,replies,errors);
+ }
+ check([received isEqual:source]&&replies.count==3,"ordered raw bytes survive exact bounded pulls");
+ pull(request,replies,errors);check(replies.count==3,"drained body still awaits genuine upstream EOF");bytes(request,[NSData data],YES,nil);
+ check([replies.lastObject isEqual:@{@"done":@YES,@"bodyBase64":@""}]&&!errors.count&&request.completed&&!PorticoQueueRequests[request.identifier],"only exact upstream EOF closes the handle");
  pull(request,replies,errors);check([errors.lastObject isEqual:@"cancelled"],"closed handle never fabricates another EOF");
 
  request=make();task=install(request);headers(task,403);[replies removeAllObjects];[errors removeAllObjects];
- [transport URLSession:nil dataTask:task didReceiveData:[@"denied" dataUsingEncoding:NSUTF8StringEncoding]];
- check(opened==1&&[opening[@"status"]isEqual:@403]&&!replies.count,"HTTP error headers/body are not replaced with a transport success");
- pull(request,replies,errors);check([replies.lastObject[@"bodyBase64"]isEqual:@"ZGVuaWVk"],"HTTP error body remains original bytes");cancel(request);pull(request,replies,errors);check([errors.lastObject isEqual:@"cancelled"],"cancel after headers reaches the next pull");
+ check(opened==1&&[opening[@"status"]isEqual:@403],"error status is never reinterpreted as success");
+ pull(request,replies,errors);bytes(request,[@"denied" dataUsingEncoding:NSUTF8StringEncoding],YES,nil);
+ check([replies.lastObject[@"bodyBase64"]isEqual:@"ZGVuaWVk"]&&[replies.lastObject[@"done"]isEqual:@NO],"error body remains original bytes");
+ pull(request,replies,errors);check([replies.lastObject[@"done"]isEqual:@YES],"error status still has an exact body end");
 
  for(NSString *domain in @[@"test_refused_certificate",NSURLErrorDomain,@"synthetic_other_failure"]){
   request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];
   NSError *error=[NSError errorWithDomain:domain code:[domain isEqual:NSURLErrorDomain]?NSURLErrorTimedOut:1 userInfo:nil];
-  [transport URLSession:nil task:task didCompleteWithError:error];
-  check(request.completed&&request.streamTerminalFailure&&!request.data&&!request.wire&&!request.task,"post-header failure retains only bounded terminal metadata");
+  [request transportFailed:error];
+  check(request.completed&&request.streamTerminalFailure&&!request.data&&!request.wire&&!request.task&&!request.streamDriver,"post-open failure retains only bounded terminal metadata");
   pull(request,replies,errors);NSString *expected=[domain isEqual:@"test_refused_certificate"]?@"certificate_untrusted":[domain isEqual:NSURLErrorDomain]?@"timeout":@"queue_transport";
-  check(!replies.count&&[errors.lastObject isEqual:expected]&&!PorticoQueueRequests[request.identifier],"next pull sees original failure code, never EOF or retry");
+  check(!replies.count&&[errors.lastObject isEqual:expected]&&!PorticoQueueRequests[request.identifier],"next pull sees original failure, never EOF or retry");
  }
- request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];pull(request,replies,errors);cancel(request);
- check(!replies.count&&[errors.lastObject isEqual:@"cancelled"]&&!PorticoQueueRequests[request.identifier],"pending read is rejected exactly on cancellation");
- [transport URLSession:nil task:task didCompleteWithError:nil];check(!replies.count&&errors.count==1,"late completion after cancellation cannot become EOF");
-
- request=make();task=install(request);cancel(request);check(openRejected==1&&[openError isEqual:@"cancelled"]&&!opened,"pre-header cancellation rejects open");
+ request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];pull(request,replies,errors);
+ ReadingStreamDriver *lateDriver=(id)request.streamDriver;void (^late)(NSData *,BOOL,NSError *)=lateDriver.pending;cancel(request);
+ check(!replies.count&&[errors.lastObject isEqual:@"cancelled"]&&!PorticoQueueRequests[request.identifier],"pending read rejects exactly on cancellation");
+ late([NSData data],YES,nil);[request transportFailed:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil]];
+ check(!replies.count&&errors.count==1&&[request.failureCode isEqual:@"cancelled"],"late EOF/error cannot replace cancellation");
+ request=make();task=install(request);cancel(request);headers(task,200);
+ check(openRejected==1&&[openError isEqual:@"cancelled"]&&!opened,"pre-open cancellation rejects once despite late metadata");
  request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];
  PorticoReadingStreamRead(request.identifier,[NSObject new],^(id value){[replies addObject:value];},^(NSString *c,NSString *m,NSError *e){[errors addObject:c];});
- check([errors.lastObject isEqual:@"cancelled"]&&!request.completed&&!task.resumes,"another runtime owner cannot read or resume this request");
- [PorticoQueueTransport cancelOwnedBy:owner];check(request.completed&&!PorticoQueueRequests[request.identifier],"owner invalidation removes even an unopened read handle");
+ check([errors.lastObject isEqual:@"cancelled"]&&!request.completed&&[(ReadingStreamDriver *)request.streamDriver reads]==0,"another runtime owner cannot consume this request");
+ [PorticoQueueTransport cancelOwnedBy:owner];check(request.completed&&!PorticoQueueRequests[request.identifier],"owner invalidation removes the handle");
 
- for(NSUInteger size=PorticoStreamChunkLimit;size<=PorticoStreamChunkLimit+1;size++){
-  request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];
-  [transport URLSession:nil dataTask:task didReceiveData:[NSMutableData dataWithLength:size]];
-  if(size==PorticoStreamChunkLimit){check(!request.completed&&request.data.length==PorticoStreamChunkLimit,"one upstream window is bounded at one MiB");[transport URLSession:nil dataTask:task didReceiveData:[NSData dataWithBytes:"x" length:1]];}
-  check(request.completed&&!request.data&&task.cancels==1,"oversized or undrained incoming window fails closed");pull(request,replies,errors);check([errors.lastObject isEqual:@"queue_transport"]&&!replies.count,"overflow is an error rather than truncated EOF");
+ for(NSUInteger length=PorticoStreamPullLimit+1;length<=PorticoStreamChunkLimit+1;length=PorticoStreamChunkLimit+1){
+  request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];pull(request,replies,errors);
+  bytes(request,[NSMutableData dataWithLength:length],NO,nil);
+  check(request.completed&&!request.data&&task.cancels==1&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"oversized native delivery fails closed without truncation or EOF");
+  if(length==PorticoStreamChunkLimit+1)break;
  }
+ request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];pull(request,replies,errors);bytes(request,[NSData data],YES,nil);
+ check(!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"premature EOF cannot satisfy declared source length");
  request=make();task=install(request);headers(task,200);[replies removeAllObjects];[errors removeAllObjects];
  __block BOOL followed=YES;[transport URLSession:nil task:task willPerformHTTPRedirection:nil newRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://elsewhere.example"]] completionHandler:^(NSURLRequest *next){followed=next!=nil;}];
- pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects after headers");
+ pull(request,replies,errors);check(!followed&&!replies.count&&[errors.lastObject isEqual:@"queue_transport"],"same transport refuses redirects");
  check(PorticoQueueActive==0&&PorticoQueueReads==0&&!PorticoQueueRequests.count,"all admission slots/handles released exactly once");
  for(NSUInteger attempt=0;attempt<10;attempt++)actualPullStream(attempt%2==1);
  for(NSUInteger mode=1;mode<=3;mode++)actualCancel(mode);
