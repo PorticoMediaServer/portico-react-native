@@ -131,7 +131,9 @@ static void actualCancel(NSUInteger mode) {
  BOOL began=dispatch_semaphore_wait(accepted,dispatch_time(DISPATCH_TIME_NOW,6*NSEC_PER_SEC))==0;
  check(began,"real connection opened before cancellation");
  if(mode!=1){
-  check(waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}})&&!state[@"error"],"real cancellation response headers");
+  BOOL gotHeaders=waitFor(^BOOL{@synchronized(state){return state[@"headers"]||state[@"error"];}});
+  if(!gotHeaders||state[@"error"])fprintf(stderr,"Cancellation mode=%lu headers=%d error=%s\n",(unsigned long)mode,state[@"headers"]!=nil,[state[@"error"] UTF8String]?:"none");
+  check(gotHeaders&&!state[@"error"],"real cancellation response headers");
   PorticoReadingStreamRead(request.identifier,realOwner,^(id value){@synchronized(state){state[@"read"]=value;}},^(NSString *c,NSString *m,NSError *e){@synchronized(state){state[@"error"]=c;}});
   @synchronized(request){check(request.streamResolve!=nil&&!request.completed,"real body pull pending without upstream bytes");}
  }
