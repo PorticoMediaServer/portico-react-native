@@ -17,6 +17,7 @@ export function createNativePersonCreditWindow(context: NativeShellBootstrapCont
   if (context.navigation.getSnapshot().route !== target || seed.phase !== 'ready' || !seed.page || seed.page.person.id !== target.personId) {
     throw new Error('native_person_arrived_page_required');
   }
+  if (seed.pageOrigin !== 'initial') throw new Error('native_person_initial_page_required');
   const first = seed.page;
   let disposed = false;
   const pending = new Set<AbortController>(), cleanups: (() => void)[] = [];

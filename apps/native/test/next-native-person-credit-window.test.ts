@@ -118,3 +118,19 @@ test('Person window owner retirement aborts pending credit traffic and cannot ac
     assert.equal(f.reads.length, 2); window.dispose(); window.dispose();
   } finally {late.resolve(page()); window?.dispose(); await f.close();}
 });
+
+test('Person credit window requires actual initial-request provenance and never renumbers a continuation seed', async () => {
+  const f = await fixture(); let window: ReturnType<typeof createNativePersonCreditWindow> | undefined;
+  try {
+    f.reply(async path => credits(path)); await f.source.load();
+    assert.equal(f.source.getSnapshot().pageOrigin, 'initial');
+    await f.source.next();
+    const continuation = f.source.getSnapshot();
+    assert.equal(continuation.pageOrigin, 'continuation'); assert.equal(continuation.page!.credits[0]!.media.id, 'credit-40');
+    assert.throws(() => createNativePersonCreditWindow(f.context, f.route, f.source), /initial_page_required/);
+    assert.equal(f.reads.length, 2, 'refusing continuation provenance performs no window request');
+    await f.source.select({role: 'all'}); assert.equal(f.source.getSnapshot().pageOrigin, 'initial');
+    window = createNativePersonCreditWindow(f.context, f.route, f.source); await ready(window, 0);
+    assert.equal(window.collection.itemAt(0)!.media.id, 'credit-0'); assert.equal(f.reads.length, 3);
+  } finally {window?.dispose(); await f.close();}
+});
