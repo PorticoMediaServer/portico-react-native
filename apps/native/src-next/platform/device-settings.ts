@@ -8,7 +8,7 @@ type Ports = Readonly<{storage: Pick<NativeQueueStore, 'change'>; readRecord: ()
 const sources = new WeakMap<Owner, NativeDeviceSettings>();
 const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
 const ended = () => Object.assign(new Error('native_device_settings_retired'), {name: 'AbortError'});
-export function nativeDeviceSettingSupported(id: CompositeId): id is NativePlaybackDeviceSetting {
+export function nativeDeviceSettingSupported(id: string): id is NativePlaybackDeviceSetting {
   return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr';
 }
 
