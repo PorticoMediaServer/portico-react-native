@@ -12,8 +12,13 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 /** connect40's `.tvl h1` shadow is declared paint on the one public heading; the
  * comparator measured it missing while the rest of the title box already matched. */
 test('the TV front door title declares connect40 .tvl h1 shadow and no other Text carries one', async () => {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, '__DEV__'),
+    previousRequire = Object.getOwnPropertyDescriptor(globalThis, 'require');
   Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false});
+  Object.defineProperty(globalThis, 'require', {configurable: true, value: (path: string) => {
+    assert.equal(path, '../../../assets/wordmark.png', 'only the drawn wordmark asset is required');
+    return 'wordmark';
+  }});
   let host: ReturnType<typeof createHookHost> | undefined;
   try {
     let tree: any, dimensions = {width: 1920, height: 1080}, theme = createTheme({isTV: true, width: 1920});
@@ -48,5 +53,6 @@ test('the TV front door title declares connect40 .tvl h1 shadow and no other Tex
   } finally {
     host?.unmount();
     if (previous) Object.defineProperty(globalThis, '__DEV__', previous); else delete (globalThis as {__DEV__?: unknown}).__DEV__;
+    if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else delete (globalThis as {require?: unknown}).require;
   }
 });
