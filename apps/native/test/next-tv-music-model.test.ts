@@ -17,10 +17,17 @@ class Builder {
   build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?: any};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls: any[] = [], browseBodies: any[] = [];
+  class FakeLibraryContentService {
+    static entity: any;
+    select = async () => {};
+    getSnapshot = () => ({projection: FakeLibraryContentService.entity ? {entity: FakeLibraryContentService.entity} : null});
+    dispose = () => {};
+  }
+  FakeLibraryContentService.entity = options.artistDetails;
   const playback = {cataloguePlayback: () => ({playSegments: (segments: any, start: any) => {calls.push({segments, options: start}); return Promise.resolve({id: 'queue'});}})};
   const api = {request: async (path: any, _method?: any, body?: any) => {
     if (String(path).startsWith('cap:')) {
@@ -53,7 +60,7 @@ async function controller(entry: any, options: Fixture = {}) {
     '../../../shell/bootstrap': {default: {}},
     '../../../shell/playback': {default: {}},
     './lifetime': {default: {}, nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true})},
-    '../../../../../../packages/client-core/src/library-content': {default: {}, validateContentEntry: (value: any) => value},
+    '../../../../../../packages/client-core/src/library-content': {default: {}, validateContentEntry: (value: any) => value, LibraryContentService: FakeLibraryContentService},
     '../../../../../../packages/client-core/src/browse': {default: {}, BrowseQueryBuilder: Builder, browseCapabilitiesPath: (library: string, pivot: string) => `cap:${library}:${pivot}`, browsePath: (library: string) => `browse:${library}`,
       parseBrowseCapabilities: (value: any) => value, parseBrowseResult: (value: any) => value},
     '../../../../../../packages/client-core/src/container-state': {default: {}, getContainerState: async (_api: any, _kind: any, _id: any) => ({favorite: true}), setContainerFlag: async () => ({favorite: false})},
@@ -89,6 +96,19 @@ test('artist page reads albums, top songs and similar artists from the server', 
   assert.equal(state.albums.length, 1);
   assert.equal(state.albums[0]?.artist?.name, 'Kendrick Lamar');
   assert.deepEqual(state.similar.map((entry: any) => entry.id), ['artist-2']);
+  value.dispose();
+});
+
+test('artist page reads its real entity details for the Details block', async () => {
+  const details = {...artistEntry, country: 'US', activeBeginYear: 2004, activeEndYear: 2017, artistType: 'Group',
+    overview: 'An American rapper.', overviewSource: 'Wikipedia'};
+  const {value} = await controller(artistEntry, {songs: [song('song-1', 1, 180, 'DNA.')], artistDetails: details});
+  await value.load();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(value.getSnapshot().phase, 'ready');
+  assert.equal(value.getSnapshot().artistDetails?.artistType, 'Group');
+  assert.equal(value.getSnapshot().artistDetails?.overview, 'An American rapper.');
+  assert.equal(value.getSnapshot().artistDetails?.country, 'US');
   value.dispose();
 });
 

@@ -124,17 +124,18 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
   const playingId = playback?.playback.itemId;
   const covers = snapshot.albums.flatMap(album => {const source = runtime.artwork(album.posterUrl); return source ? [source] : [];});
-  const years = entry.activeBeginYear === undefined ? undefined : entry.activeEndYear !== undefined ? `${entry.activeBeginYear}–${entry.activeEndYear}` : t('title.activeSince', {year: entry.activeBeginYear});
-  const facts = [entry.genres?.[0], entry.country, years,
+  const artist = snapshot.artistDetails ?? entry;
+  const years = artist.activeBeginYear === undefined ? undefined : artist.activeEndYear !== undefined ? `${artist.activeBeginYear}–${artist.activeEndYear}` : t('title.activeSince', {year: artist.activeBeginYear});
+  const facts = [artist.genres?.[0] ?? entry.genres?.[0], artist.country, years,
     snapshot.albums.length || snapshot.songTotal ? t('music.onServer', {albums: snapshot.albums.length, songs: snapshot.songTotal ?? 0}) : undefined].filter((value): value is string => !!value);
   const releases = artistReleaseGroups(snapshot.albums);
   const albums = releases.find(group => group.id === 'albums')?.entries ?? [];
   const otherReleases = releases.filter(group => group.id !== 'albums');
   const allSongs = snapshot.allSongs;
   const detailFacts: readonly StateFact[] = [
-    ...(entry.country ? [{id: 'country', label: t('title.country'), value: entry.country}] : []),
+    ...(artist.country ? [{id: 'country', label: t('title.country'), value: artist.country}] : []),
     ...(years ? [{id: 'activeYears', label: t('title.activeYears'), value: years}] : []),
-    {id: 'type', label: t('title.albumType'), value: t('title.kind', {kind: 'artist'})},
+    {id: 'type', label: t('title.albumType'), value: artist.artistType ?? t('title.kind', {kind: 'artist'})},
   ];
   return <View testID="native-tv-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
@@ -178,6 +179,10 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
         <View>
           <SectionHeading title={t('title.details')}/>
           <DetailsPanel audience="viewer" facts={detailFacts} style={{marginTop: 18, width: 900}} testID={`music-artist-details-${encodeURIComponent(entry.id)}`}/>
+          {artist.overview ? <View style={{marginTop: 22, width: 900}}>
+            <Text style={[browseType(theme, 22, 400, 0), {color: theme.colors.textSecondary, lineHeight: 34}]}>{artist.overview}</Text>
+            {artist.overviewSource ? <Text style={[browseType(theme, 19, 500), {color: theme.colors.textTertiary, marginTop: 8}]}>{t('title.fromSource', {source: artist.overviewSource})}</Text> : null}
+          </View> : null}
           <View style={{marginTop: 28, flexDirection: 'row', alignItems: 'center', gap: 20}}>
             {allSongs.phase === 'ready'
               ? <SectionHeading title={t('music.allSongs')} detail={allSongs.total === undefined ? undefined : t('title.songCount', {count: allSongs.total})}/>

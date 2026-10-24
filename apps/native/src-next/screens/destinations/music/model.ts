@@ -4,6 +4,7 @@ import {
   BrowseQueryBuilder, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities,
 } from '../../../../../../packages/client-core/src/browse';
 import {getContainerState, setContainerFlag, type ContainerState} from '../../../../../../packages/client-core/src/container-state';
+import {LibraryContentService} from '../../../../../../packages/client-core/src/library-content';
 import {encodedRoutePath} from '../../../../../../packages/contracts/src/routes';
 import {unreadableServerResponse} from '../../../../../../packages/client-core/src/server-messages';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
@@ -23,6 +24,7 @@ export type NativeTVMusicSnapshot = Readonly<{
   similar: readonly ContentEntry[];
   favorite: boolean;
   allSongs: Readonly<{phase: 'idle' | 'loading' | 'ready' | 'error'; songs: readonly ContentEntry[]; total?: number; error?: unknown}>;
+  artistDetails?: ContentEntry;
   error?: unknown;
 }>;
 
@@ -46,7 +48,7 @@ const stageFailure = (stage: 'capabilities' | 'favorite' | 'similar' | 'songs', 
     ...(value && typeof value.retryAfterSeconds === 'number' ? {retryAfterSeconds: value.retryAfterSeconds} : {}),
     ...(value && typeof value.path === 'string' ? {path: value.path} : {})});
 };
-const diagnose = (read: 'capabilities' | 'favorite' | 'similar' | 'songs', method: 'GET' | 'POST', path: string, error: unknown) => {
+const diagnose = (read: 'capabilities' | 'favorite' | 'similar' | 'songs' | 'details', method: 'GET' | 'POST', path: string, error: unknown) => {
   const value = error && typeof error === 'object' ? error as {code?: unknown; status?: unknown; field?: unknown; path?: unknown} : undefined;
   const diagnostic = {read, method, path, ...(value && typeof value.status === 'number' ? {status: value.status} : {}),
     ...(value && typeof value.code === 'string' ? {code: value.code} : {}),
@@ -194,6 +196,9 @@ export class NativeTVMusicController {
       similar: similar.filter(entry => entry.kind === 'album' && entry.id !== this.options.entry.id), favorite});
   }
   private async loadArtist(signal: AbortSignal): Promise<void> {
+    // The Details producer is secondary: it may arrive after the songs and
+    // releases, and its failure leaves the real grid-entry facts in place.
+    void this.artistDetails(signal).then(details => {if (details && this.current() && !signal.aborted) this.publish({artistDetails: details});});
     const [capabilities, favorite, similar, albums] = await Promise.all([
       this.capabilities('songs', signal), this.favoriteState(signal), this.similar(signal), this.artistAlbums(signal),
     ]);
@@ -203,6 +208,28 @@ export class NativeTVMusicController {
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
     this.publish({phase: 'ready', songs: page.entries, songTotal: page.pageInfo.total, albums,
       similar: similar.filter(entry => entry.kind === 'artist' && entry.id !== this.options.entry.id), favorite});
+  }
+  /** The artist page's own entity projection: the server's country, active
+   * years, type and (when present) biography. A details failure leaves the
+   * real grid entry facts in place rather than blanking the page. */
+  private async artistDetails(signal: AbortSignal): Promise<ContentEntry | undefined> {
+    const libraryId = this.options.entry.libraryId;
+    if (!libraryId) return undefined;
+    const path = `/v1/libraries/${encodeURIComponent(libraryId)}/content?view=artist&entityId=${encodeURIComponent(this.options.entry.id)}&limit=1`;
+    const service = new LibraryContentService({api: this.options.api, scope: this.options.lifetime.scope, pageSize: 1});
+    const abort = () => service.dispose();
+    signal.addEventListener('abort', abort, {once: true});
+    try {
+      await service.select({view: 'artist', libraryId, entityId: this.options.entry.id});
+      if (!this.current() || signal.aborted) return undefined;
+      return service.getSnapshot().projection?.entity;
+    } catch (error) {
+      if (!signal.aborted) diagnose('details', 'GET', path, error);
+      return undefined;
+    } finally {
+      signal.removeEventListener('abort', abort);
+      service.dispose();
+    }
   }
   private async artistAlbums(signal: AbortSignal): Promise<readonly MusicAlbumRow[]> {
     const rows: MusicAlbumRow[] = [];
