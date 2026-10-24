@@ -175,5 +175,5 @@ test('phone Search draws the frame 8 results: counted type chips, the 178px top 
   // The Shows row is omitted: its only result already leads the page as the Top result.
   assert.equal(find(props => props.entry === show && props.width === undefined), undefined);
   for (const id of ['movies', 'episodes', 'songs', 'books'])
-    assert.ok(find(props => props.title === defaultI18n.t(searchGroupLabel(id as any))), `${id} keeps its drawn section heading`);
+    assert.ok(texts(tree).some(node => label(node) === defaultI18n.t(searchGroupLabel(id as any))), `${id} keeps its drawn section heading`);
 });
