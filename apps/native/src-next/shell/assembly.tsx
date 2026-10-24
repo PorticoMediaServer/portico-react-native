@@ -312,7 +312,11 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       const route = context.navigation.getSnapshot().route;
       // Instantiate the current module before asking it for retained native views.
       const active = route.kind === 'shell' ? null : render(route);
-      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{routes.renderRetained(runtime)}{active}{routes.renderOverlays(runtime)}</View> : null;
+      return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
+        {(routes.renderRetained(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
+        {active}
+        {(routes.renderOverlays(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
+      </View> : null;
     },
     renderDestination: destination => render({kind: 'shell', destination}),
     renderWatch: () => runtime ? routes.renderWatch(runtime) : null,
