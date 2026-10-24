@@ -363,6 +363,20 @@ internal object PorticoMpvSupport {
     return text to box
   }
 
+  data class CaptionEdges(val background: Int, val outline: Int, val shadow: Int)
+
+  /** Existing mpv edge primitives, only for explicit app appearance. A system
+   * style or old command keeps its already-resolved background and edge rule. */
+  fun mpvCaptionEdges(style: Map<*, *>?, background: Int): CaptionEdges {
+    if (style?.get("useSystemCaptionStyle") == false) {
+      when (style["background"]) {
+        "outline" -> return CaptionEdges(0, 3, 0)
+        "shadow" -> return CaptionEdges(0, 0, 2)
+      }
+    }
+    return CaptionEdges(background, if ((background ushr 24) < 77) 3 else 0, 0)
+  }
+
   /** mpv's floating point red/green/blue/alpha syntax. */
   fun captionColor(color: Int): String = listOf(
       android.graphics.Color.red(color), android.graphics.Color.green(color),

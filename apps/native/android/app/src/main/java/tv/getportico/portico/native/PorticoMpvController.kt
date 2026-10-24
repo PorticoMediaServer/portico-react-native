@@ -1366,12 +1366,13 @@ internal class PorticoMpvController(private val context: Context) {
     // An ASS track retaining its file style ignores these fallback properties
     // through sub-ass-override=scale above, retaining caption size scaling.
     val (text, box) = PorticoMpvSupport.captionColors(context, style)
+    val edge = PorticoMpvSupport.mpvCaptionEdges(style, box)
     core?.set("sub-color", PorticoMpvSupport.captionColor(text))
-    core?.set("sub-back-color", PorticoMpvSupport.captionColor(box))
-    val edge = android.graphics.Color.alpha(box) < 77
-    core?.set("sub-border-style", if (edge) "outline-and-shadow" else "background-box")
-    core?.set("sub-border-size", if (edge) "3" else "0")
-    core?.set("sub-outline-size", if (edge) "3" else "0")
+    core?.set("sub-back-color", PorticoMpvSupport.captionColor(edge.background))
+    core?.set("sub-border-style", if ((edge.background ushr 24) < 77) "outline-and-shadow" else "background-box")
+    core?.set("sub-border-size", edge.outline.toString())
+    core?.set("sub-outline-size", edge.outline.toString())
+    core?.set("sub-shadow-offset", edge.shadow.toString())
     if (!same) overlayListeners.toList().forEach { it() }
   }
 
