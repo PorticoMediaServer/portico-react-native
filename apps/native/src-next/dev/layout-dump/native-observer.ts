@@ -7,6 +7,7 @@ export type NativeObservedHost = Readonly<{
   effectiveOpacity?: number;
   effectiveBackgroundColor?: string;
   textRects?: readonly NativeObservedRect[];
+  textRectsSource?: string;
   windowRect?: NativeObservedRect;
   windowRectSource?: string;
   unavailable: Readonly<Record<string, string>>;
@@ -41,7 +42,8 @@ function normalized(facts: NativeHostFacts): NativeObservedHost {
     ...(typeof focus === 'boolean' ? {focused: focus} : {}),
     ...(typeof opacity === 'number' ? {effectiveOpacity: opacity} : {}),
     ...(typeof background === 'string' ? {effectiveBackgroundColor: background} : {}),
-    ...(Array.isArray(lines) ? {textRects: lines as readonly NativeObservedRect[]} : {}),
+    ...(Array.isArray(lines) ? {textRects: lines as readonly NativeObservedRect[],
+      textRectsSource: 'source' in facts.textLineRects ? facts.textLineRects.source : undefined} : {}),
     ...(window && typeof window === 'object' && !Array.isArray(window) ? {windowRect: window as NativeObservedRect,
       windowRectSource: 'source' in facts.windowRect ? facts.windowRect.source : undefined} : {}),
     unavailable: Object.freeze(missing)});
