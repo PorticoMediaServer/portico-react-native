@@ -4,8 +4,10 @@ import type {NativeObservedRect} from './native-observations.ts';
 type RootGeometry = Readonly<{windowRect: NativeObservedRect; source: string}>;
 type HostGeometry = Readonly<{
   box?: NativeObservedRect;
+  windowRect?: NativeObservedRect;
   boxSource?: string;
   textRects?: readonly NativeObservedRect[];
+  windowTextRects?: readonly NativeObservedRect[];
   textRectsSource?: string;
   unavailable: Readonly<Partial<Record<'box' | 'textRects', string>>>;
 }>;
@@ -47,8 +49,10 @@ export function createNativeWindowGeometry(rootHost: object, observations: Reado
     const box = observed?.windowRect && observed.windowRectSource ? relative(observed.windowRect) : undefined;
     const lines = observed?.textRects && observed.textRectsSource ? observed.textRects.map(relative) : undefined;
     const textRects = lines?.every((line): line is NativeObservedRect => line !== undefined) ? Object.freeze(lines) : undefined;
-    return Object.freeze({box, boxSource: box ? observed?.windowRectSource : undefined,
-      textRects, textRectsSource: textRects ? observed?.textRectsSource : undefined,
+    return Object.freeze({box, windowRect: box ? observed?.windowRect : undefined,
+      boxSource: box ? observed?.windowRectSource : undefined,
+      textRects, windowTextRects: textRects ? observed?.textRects : undefined,
+      textRectsSource: textRects ? observed?.textRectsSource : undefined,
       unavailable: Object.freeze({...(box ? {} : {box: 'Native host window bounds unavailable'}),
         ...(textRects ? {} : {textRects: 'Native window text runs unavailable'})})});
   };

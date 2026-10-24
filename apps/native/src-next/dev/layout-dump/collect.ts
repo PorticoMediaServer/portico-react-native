@@ -1,7 +1,8 @@
 /** Produces the public fidelity contract; validation/comparison stay in server tools/fidelity. */
-import {measureNativeHost, relativeToRoot, type HostRect, type NativeHostReader} from './native-host.ts';
+import {measureNativeHost, type HostRect, type NativeHostReader} from './native-host.ts';
 import type {NativeMeasurementRegistry} from './registry.ts';
 import type {NativeObservedHost, NativeTreeObserver} from './native-observer.ts';
+import {createNativeWindowGeometry} from './native-window-geometry.ts';
 
 export type NativeViewport = Readonly<{width: number; height: number; deviceScaleFactor: number}>;
 export type NativeScreenDiagnostics = Readonly<{fontScale?: number}>;
@@ -22,7 +23,7 @@ type Node = object & NativeHostReader & {
   nodeType?: unknown; nodeName?: unknown; childNodes?: unknown; isConnected?: unknown;
   offsetWidth?: unknown; offsetHeight?: unknown;
 };
-type Element = Record<string, unknown> & {id: string; parent: string | null; box?: HostRect};
+type Element = Record<string, unknown> & {id: string; parent: string | null; box: HostRect | null};
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 // This producer only emits RN dp/pt. Match the canonical sameLogicalExtent
@@ -42,22 +43,8 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   };
   const revision = registry.revision();
   const measuredRoot = await measureNativeHost(root, {signal});
-  const rootBox = 'rect' in measuredRoot ? measuredRoot.rect : undefined;
+  if (signal?.aborted) throw new Error('Native layout capture was cancelled.');
   if ((root as Node).isConnected === false) missing('root', 'isConnected', 'native root is no longer mounted');
-  if (!rootBox) missing('root', 'box', 'native whole-screen root measurement unavailable');
-  const knownViewport = finite(viewport.width) && viewport.width > 0 && finite(viewport.height) && viewport.height > 0
-    && finite(viewport.deviceScaleFactor) && viewport.deviceScaleFactor > 0;
-  const fullViewport = !!rootBox && knownViewport && rootBox.x === 0 && rootBox.y === 0
-    && sameNativeExtent(rootBox.width, viewport.width) && sameNativeExtent(rootBox.height, viewport.height);
-  if (!fullViewport) {
-    const unit = options.platform === 'android' ? 'dp' : 'pt';
-    const api = 'rect' in measuredRoot
-      ? measuredRoot.source === 'bounding-client-rect' ? 'getBoundingClientRect' : 'measureInWindow'
-      : 'unavailable';
-    missing('root', 'fullViewport', rootBox
-      ? `API=${api}; coordinate-space=unknown; logical-unit=${unit}; raw x=${rootBox.x}, y=${rootBox.y}, width=${rootBox.width}, height=${rootBox.height}; window-origin equivalence is not established`
-      : 'native whole-screen root measurement unavailable');
-  }
   const mounted = new Set<object>();
   const nodes = new Map<string, Node>();
   const childRecords = new Map<string, Element[]>();
@@ -90,39 +77,31 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
   }
   if (pending.length) missing('root', 'elements', 'native tree exceeds capture bound');
-  let native: ReadonlyMap<object, NativeObservedHost> = new Map();
-  let scopeCurrent: (() => boolean) | undefined;
-  if (options.observe) {
-    if (!options.isCurrent) throw new Error('A current public fixture guard is required for native observation.');
-    const fixtures = discovered.filter(host => {
-      const facts = registry.read(host);
-      return facts?.kind === 'view' && ['accounts-welcome', 'tv-front-door'].includes(facts.semanticId ?? '');
-    });
-    if (fixtures.length !== 1) missing('root', 'nativeObservation', 'a unique registered public fixture root is required');
-    else {
-      const fixture = fixtures[0], semanticId = registry.read(fixture)!.semanticId;
-      scopeCurrent = () => options.isCurrent!() && registry.read(fixture)?.semanticId === semanticId
-        && (root as Node).isConnected !== false && (fixture as Node).isConnected !== false;
-      if (!scopeCurrent()) throw new Error('The public native fixture retired before observation.');
-      native = await options.observe({root, fixture, hosts: discovered, signal, isCurrent: scopeCurrent});
-      if (signal?.aborted || !scopeCurrent()) throw new Error('The public native fixture retired during observation.');
-    }
-  }
-  const rootGap = unavailable.find(item => item.element === 'root' && item.property === 'fullViewport');
-  const rootWindow = native.get(root)?.windowRect;
-  let nativeWindowCoordinatesVerified = false;
-  if (rootWindow && scopeCurrent) {
-    const readback = await measureNativeHost({measureInWindow: (root as Node).measureInWindow?.bind(root)}, {signal});
-    if (signal?.aborted || !scopeCurrent()) throw new Error('The public native fixture retired during coordinate readback.');
-    const sameRect = (left: HostRect, right: HostRect) => left.x === right.x && left.y === right.y
-      && sameNativeExtent(left.width, right.width) && sameNativeExtent(left.height, right.height);
-    nativeWindowCoordinatesVerified = !!rootBox && 'rect' in readback && sameRect(rootBox, rootWindow)
-      && sameRect(readback.rect, rootWindow) && registry.revision() === revision;
-    if (rootGap) {
-      if (nativeWindowCoordinatesVerified) rootGap.reason = rootGap.reason.replace('coordinate-space=unknown', 'coordinate-space=window (verified same-host API agreement)');
-      rootGap.reason += `; native windowRect source=${native.get(root)?.windowRectSource}, raw=${JSON.stringify(rootWindow)}; same-host measureInWindow readback=${'rect' in readback ? JSON.stringify(readback.rect) : 'unavailable'}; coordinate relationship=${nativeWindowCoordinatesVerified ? 'verified window agreement' : 'unknown'}`;
-    }
-  }
+  if (!options.observe) throw new Error('A scoped native-window observer is required; public layout is diagnostic only.');
+  if (!options.isCurrent) throw new Error('A current public fixture guard is required for native observation.');
+  const fixtures = discovered.filter(host => {
+    const facts = registry.read(host);
+    return facts?.kind === 'view' && ['accounts-welcome', 'tv-front-door'].includes(facts.semanticId ?? '');
+  });
+  if (fixtures.length !== 1) throw new Error('A unique registered public fixture root is required.');
+  const fixture = fixtures[0], semanticId = registry.read(fixture)!.semanticId;
+  const scopeCurrent = () => !signal?.aborted && options.isCurrent!() && registry.read(fixture)?.semanticId === semanticId
+    && (root as Node).isConnected !== false && (fixture as Node).isConnected !== false;
+  if (!scopeCurrent()) throw new Error('The public native fixture retired before observation.');
+  const native: ReadonlyMap<object, NativeObservedHost> = await options.observe({root, fixture, hosts: discovered, signal, isCurrent: scopeCurrent});
+  if (!scopeCurrent()) throw new Error('The public native fixture retired during observation.');
+  const geometry = createNativeWindowGeometry(root, native, scopeCurrent);
+  const nativeRoot = geometry.root();
+  if (!nativeRoot) throw new Error('Current scoped native-window root bounds are unavailable.');
+  const rootBox = nativeRoot.windowRect;
+  const readback = await measureNativeHost({measureInWindow: (root as Node).measureInWindow?.bind(root)}, {signal});
+  if (!scopeCurrent()) throw new Error('The public native fixture retired during coordinate readback.');
+  const knownViewport = finite(viewport.width) && viewport.width > 0 && finite(viewport.height) && viewport.height > 0
+    && finite(viewport.deviceScaleFactor) && viewport.deviceScaleFactor > 0;
+  const fullViewport = knownViewport && rootBox.x === 0 && rootBox.y === 0 && rootBox.width > 0 && rootBox.height > 0
+    && sameNativeExtent(rootBox.width, viewport.width) && sameNativeExtent(rootBox.height, viewport.height);
+  if (!fullViewport) missing('root', 'fullViewport',
+    `API=${nativeRoot.source}; coordinate-space=attached-native-window; raw=${JSON.stringify(rootBox)}; native origin or viewport extent does not match`);
   const walk = async (node: Node, parent: string | null, id: string): Promise<void> => {
     if (signal?.aborted) {missing('root', 'captureState', 'capture cancelled'); return;}
     if (elements.length >= 2000) {missing('root', 'elements', 'native tree exceeds capture bound'); return;}
@@ -140,21 +119,25 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     const image = !input && (/Image|SVG/i.test(tag) || observed?.kind === 'image');
     const text = !input && (observed?.kind === 'text' || /Text|Paragraph/i.test(tag));
     const measured = node === root ? measuredRoot : await measureNativeHost(node, {signal});
-    const box = rootBox && 'rect' in measured ? relativeToRoot(measured.rect, rootBox) : undefined;
-    if (!box) missing(id, 'box', 'native host bounds unavailable');
+    if (!scopeCurrent()) throw new Error('The public native fixture retired while hosts were measured.');
+    const projected = geometry.host(node), box = projected.box;
+    if (!box) missing(id, 'box', unavailableReason('windowRect', projected.unavailable.box ?? 'native host window bounds unavailable'));
     const children = childrenByHost.get(node) ?? [];
     if (childErrors.has(node)) missing(id, 'children', childErrors.get(node)!);
     const elementChildren = children.filter(child => (child as Node).nodeType !== 3);
     const mapped = observed?.semanticId && options.anchors ? Object.getOwnPropertyDescriptor(options.anchors, observed.semanticId)?.value : undefined;
     const frame = typeof mapped === 'string' && /^[A-Za-z0-9._:-]{1,256}$/.test(mapped) ? mapped : undefined;
     if (frame) anchors.set(frame, [...(anchors.get(frame) ?? []), id]);
-    const opacity = snapshot ? snapshot.effectiveOpacity : observed?.effectiveOpacity;
-    const background = snapshot ? snapshot.effectiveBackgroundColor : observed?.effectiveBackgroundColor;
+    const opacity = snapshot?.effectiveOpacity;
+    const background = snapshot?.effectiveBackgroundColor;
+    const diagnostics: Record<string, unknown> = {flattenedStyle: observed?.flattenedStyle ?? {},
+      ...(projected.windowRect ? {nativeWindowRect: projected.windowRect} : {}),
+      ...('rect' in measured ? {publicMeasurement: {api: measured.source, rect: measured.rect}} : {})};
     const record: Element = {id, parent, frame: frame ?? null, tag, role: observed?.role ?? null,
-      leaf: elementChildren.length === 0, box, style: snapshot ? snapshot.style : observed?.measuredStyle ?? {}, focused: null,
+      leaf: elementChildren.length === 0, box: box ?? null, style: snapshot?.style ?? {}, focused: null,
       effectiveOpacity: opacity ?? null,
       effectiveBackgroundColor: background,
-      diagnostics: {flattenedStyle: observed?.flattenedStyle ?? {}}};
+      diagnostics};
     if (record.effectiveOpacity === null) missing(id, 'effectiveOpacity', unavailableReason('effectiveOpacity', 'current native paint opacity has not been observed'));
     if (!record.effectiveBackgroundColor) missing(id, 'effectiveBackgroundColor', unavailableReason('effectiveBackgroundColor', 'ancestor-composited native background has not been observed'));
     if (snapshot) for (const property of ['backgroundColor', 'borderRadius', 'boxShadow']) {
@@ -171,15 +154,11 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
         missing(id, 'textRects', 'actual native Text line geometry is not available');
       } else {
         record.ownText = observed.lines.map(line => line.text).join('');
-        // Local onTextLayout runs cannot establish an ancestor's actual animated transform.
-        const windowRuns = snapshot ? nativeWindowCoordinatesVerified ? snapshot.textRects : undefined
-          : await registry.measureTextRectangles(node, signal);
-        if (rootBox && windowRuns && windowRuns.length === observed.lines.length) {
-          const rects = windowRuns.map(line => relativeToRoot(line, rootBox));
-          record.textRects = rects;
-        } else missing(id, 'textRects', snapshot && !nativeWindowCoordinatesVerified
-          ? 'native window text runs cannot be mapped to the selected host API until same-attachment coordinate agreement is established'
-          : unavailableReason('textLineRects', 'current native window text runs are not observed; host boxes are not text runs'));
+        // Only this admitted native batch supplies geometry, including animated transforms.
+        if (projected.textRects?.length && projected.textRects.length === observed.lines.length) {
+          record.textRects = projected.textRects;
+          diagnostics.nativeWindowTextRects = projected.windowTextRects;
+        } else missing(id, 'textRects', unavailableReason('textLineRects', 'current scoped native window text runs are not observed; host boxes are not text runs'));
         if (record.ownText) strings.push({id: `${id}:text:0`, owner: id, frame: frame ?? null, kind: 'text', text: record.ownText, rects: record.textRects, style: record.style});
       }
       for (const property of ['resolvedFontFamily', 'fontSize', 'fontWeight', 'color']) {
@@ -202,11 +181,11 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
       await walk(elementChildren[index], id, `${id}.${index}`);
     }
   };
-  if (rootBox) await walk(root, null, 'root');
+  await walk(root, null, 'root');
   for (const element of elements) {
     const node = nodes.get(element.id)!;
     const snapshot = native.get(node);
-    const focused = snapshot ? snapshot.focused : registry.actualFocus(node, mounted);
+    const focused = snapshot?.focused;
     element.focused = focused ?? null;
     if (focused === undefined) missing(element.id, 'focused', snapshot?.unavailable.isFocused
       ?? snapshot?.unavailable.nativeObservation ?? 'no native focus event for this mounted capture epoch');
@@ -226,9 +205,14 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   }
   for (const [frame, ids] of anchors) if (ids.length > 1) anchorIssues.push({kind: 'duplicate', frame, elements: ids});
   if (registry.revision() !== revision) missing('root', 'captureState', 'native observations changed while the tree was measured');
+  if (!scopeCurrent()) throw new Error('The public native fixture retired before publication.');
   const fontScale = options.diagnostics?.fontScale;
-  return {version: 1, scope: 'screen', measurement: {renderer: 'react-native', platform: options.platform, coordinateUnit: options.platform === 'android' ? 'dp' : 'pt'},
-    ...(finite(fontScale) && fontScale > 0 ? {diagnostics: {fontScale}} : {}),
-    root: rootBox ? {x: 0, y: 0, width: rootBox.width, height: rootBox.height} : undefined,
+  return {version: 1, scope: 'screen', measurement: {renderer: 'react-native', platform: options.platform,
+    coordinateUnit: options.platform === 'android' ? 'dp' : 'pt', geometrySource: 'native-window'},
+    diagnostics: {...(finite(fontScale) && fontScale > 0 ? {fontScale} : {}),
+      nativeCoordinates: {basis: 'attached-native-window', windowAPI: nativeRoot.source, rootWindow: rootBox,
+        ...('rect' in measuredRoot ? {publicRoot: {api: measuredRoot.source, rect: measuredRoot.rect}} : {}),
+        ...('rect' in readback ? {publicRootReadback: {api: readback.source, rect: readback.rect}} : {})}},
+    root: {x: 0, y: 0, width: rootBox.width, height: rootBox.height},
     viewport: {...viewport}, fullViewport, elements, strings, anchorIssues, repeatedLists: [], unavailable};
 }
