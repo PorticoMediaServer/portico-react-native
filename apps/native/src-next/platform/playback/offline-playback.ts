@@ -1,10 +1,11 @@
 import type {LocalSession, PlaybackApi, PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
+import {localPlaybackFence, type LocalPlaybackFence, type LocalPlaybackScope} from '../../../../../packages/player-core/src';
+import {isLocalSession, LocalPlayback, type LocalMedia, type LocalProgress} from '../../../platform/local-playback';
 import type {OfflineDownloads, OfflineEntry} from '../../../platform/offline-downloads';
 
 /** Captured from the genuine installation session, never a server queue/controller scope. */
-export type NativeOfflineOwner = Readonly<Pick<LocalSession['viewer'], 'authority' | 'serverId' | 'accountId' | 'profileId'> & {sessionFamilyId: string}>;
+export type NativeOfflineOwner = LocalPlaybackScope;
 export type NativeOfflineSource = Readonly<{
   owner: NativeOfflineOwner; entryId: string; itemId: string; preparationId: string;
   artifact: Readonly<{sha256: string; bytes: number}>; media: LocalMedia;
@@ -23,7 +24,7 @@ export class NativeOfflinePlayback {
   private readonly local: LocalPlayback;
   private readonly session: () => LocalSession | undefined;
   private readonly device: Device;
-  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia}>();
+  private readonly sessions = new Map<string, {source: NativeOfflineSource; media: LocalMedia; sessionId: string; generation: number; sequence: number}>();
   private disposed = false;
   constructor(session: () => LocalSession | undefined, device: Device) {
     this.session = session;
@@ -32,11 +33,45 @@ export class NativeOfflinePlayback {
   }
   owner(): NativeOfflineOwner | undefined {
     const session = this.session(), viewer = session?.viewer;
-    if (!session || !viewer || !['local', 'hosted'].includes(viewer.authority)
+    if (!session || !viewer || viewer.authority !== 'local' && viewer.authority !== 'hosted'
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
   }
-  wrap(api: PlaybackApi): PlaybackApi { return this.local.wrap(api); }
+  wrap(api: PlaybackApi): PlaybackApi {
+    const wrapped = this.local.wrap(api);
+    return {...wrapped, progressPlayback: (id, payload) => {
+      // A retry keeps one journal play but creates a new real local session.
+      // Its retired session must not overwrite the new session's observation.
+      if (isLocalSession(id)) {
+        const held = [...this.sessions.values()].find(value => value.sessionId === id && value.generation === payload.generation);
+        if (!held || !held.source.current() || !Number.isSafeInteger(payload.sequence) || payload.sequence <= held.sequence) return Promise.resolve();
+        held.sequence = payload.sequence;
+      }
+      return wrapped.progressPlayback(id, payload);
+    }};
+  }
+  /** Resolve only the native file already admitted for this exact current local
+   * session. A file-looking URL is not itself permission to load a file. */
+  mediaUrl(session: PlaybackSession): string | undefined {
+    const held = this.admitted(session);
+    return held?.media.fileUrl;
+  }
+  private admitted(session: PlaybackSession) {
+    const held = [...this.sessions.values()].find(value => value.sessionId === session.id && value.generation === session.generation);
+    return held && session.mode === 'local' && session.streamUrl === held.media.fileUrl && held.source.current() ? held : undefined;
+  }
+  /** Only an actual admitted session can publish the local identity used by the
+   * existing dock and controls. Paths and receipt payloads stay app-private. */
+  fence(session: PlaybackSession, run: number): LocalPlaybackFence | undefined {
+    const held = this.admitted(session);
+    if (!held) return;
+    const {source, media} = held;
+    try {
+      return localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: source.owner, run},
+        sessionId: session.id, generation: session.generation, itemId: source.itemId,
+        entryId: source.entryId, playId: media.playId, artifact: source.artifact});
+    } catch { return; }
+  }
   async prepare(entry: OfflineEntry, isCurrent: () => boolean): Promise<NativeOfflineSource> {
     const owner = this.owner(), claims = entry.receipt?.claims;
     if (!owner || !claims || !text(entry.id) || !text(entry.itemId) || claims.itemId !== entry.itemId
@@ -69,7 +104,7 @@ export class NativeOfflinePlayback {
       session: () => {
         if (!isCurrent() || !currentEntry()) throw unavailable();
         const session = make();
-        this.sessions.set(media.playId, {source, media});
+        this.sessions.set(media.playId, {source, media, sessionId: session.id, generation: session.generation, sequence: 0});
         while (this.sessions.size > 16) this.sessions.delete(this.sessions.keys().next().value!);
         return session;
       },

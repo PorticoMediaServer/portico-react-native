@@ -11,6 +11,7 @@ import {queueItemInput} from '../../../packages/client-core/src/queue-controller
 import {NativePlaybackCoordinator} from '../src/bridge/NativePlaybackCoordinator.ts';
 import {NativePlayback, automaticSteps} from '../src/player/native-playback.ts';
 import {planEngineOf} from '../src/player/engine-media.ts';
+import {PlaybackOptionsClient} from '../../../packages/client-core/src/playback-v1/options.ts';
 
 const viewer = {serverId: 'server', authority: 'local' as const, accountId: 'account', profileId: 'profile'};
 const settle = async (n = 40) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -239,7 +240,11 @@ test('a session update that is only this device\'s own report asks the server no
 test('Automatic steps down when the engine measures a connection that cannot carry the picture', async () => {
   let now = 0;
   const server = new FakePlaybackServer();
-  const http = fakeHttp(server);
+  const inner = fakeHttp(server), changes: unknown[] = [];
+  const http: typeof inner = {send: request => {
+    if (request.method === 'PATCH' && request.body && typeof request.body === 'object' && 'quality' in request.body) changes.push(request.body.quality);
+    return inner.send(request);
+  }};
   let serial = 0;
   const path = new NativePlayback({http, timers: {now: () => now, setTimer: () => 0, clearTimer: () => {}}, key: () => `k${++serial}-key-0000000000`});
   const playback = new PlaybackService(path.transport, () => `r${++serial}`, {queueRequired: true, deferRecovery: true});
@@ -263,14 +268,16 @@ test('Automatic steps down when the engine measures a connection that cannot car
     const id = playback.getSnapshot().session!.id;
     await playback.changePlayback({quality: {mode: 'automatic'}});
     await settle();
-    const steps = automaticSteps([{mode: 'original'}, {mode: 'automatic'}, {mode: 'fixed', id: '1080p'}, {mode: 'fixed', id: '720p'}]);
-    assert.deepEqual(steps.map(s => s.id), ['1080', '720']);
-    path.setAutomatic({steps, originalKbps: 20_000});
-    // Twelve seconds at 3 Mb/s against a 20 Mb/s original.
+    const offered = await new PlaybackOptionsClient(http).options('movie-1');
+    const steps = automaticSteps(offered.qualities.filter(option => option.id === '1080p-low' || option.id === '720p-low'));
+    assert.deepEqual(steps.map(s => s.id), ['1080p-low', '720p-low']);
+    path.setAutomatic({steps, originalKbps: offered.versions[0]!.bitrateKbps});
+    // Twelve seconds at 3 Mb/s against the actual offered original.
     for (let i = 0; i < 13; i++) { now += 1000; engine.position += 1; engine.fact('progress', {throughputKbps: 3000}); await settle(4); }
     await settle();
-    assert.deepEqual(notices, ['qualityLowered:720'], 'one change, to what the connection carries with room to spare');
+    assert.deepEqual(notices, ['qualityLowered:720p-low'], 'one change, to what the connection carries with room to spare');
+    assert.deepEqual(changes.at(-1), {mode: 'automatic', id: '720p-low'}, 'the exact canonical offered target reaches the real session PATCH');
     assert.equal(playback.getSnapshot().session!.id, id, 'the same session');
-    assert.deepEqual(path.session(id)!.presentation.quality, {mode: 'automatic', id: '720p'});
+    assert.deepEqual(path.session(id)!.presentation.quality, {mode: 'automatic', id: '720p-low'});
   } finally { coordinator.stop(); stop(); unbind(); player.dispose(); path.dispose(); }
 });

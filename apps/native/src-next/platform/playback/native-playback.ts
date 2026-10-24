@@ -27,12 +27,11 @@
  */
 import type {PlaybackApi, PlaybackService, PlaybackSession, PlaybackSnapshot, SessionEndInfo} from '../../../../../packages/client-core/src/index';
 import type {PlayerFailureCode} from '../../../../../packages/client-core/src/client-profile';
-import {AutomaticQuality, fixedQualities, fixedQualityOf, qualityRequest, type FixedQuality} from '../../../../../packages/client-core/src/playback-v1/choices';
+import {AutomaticQuality, fixedQualityOf, qualityRequest, type FixedQuality} from '../../../../../packages/client-core/src/playback-v1/choices';
 import {PlaybackApiError, idempotencyKey, type V1Http, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import type {MediaPlayer, PlayerEvent, PlayerObservation, PlayerSource, PlayerState} from '../../../../../packages/client-core/src/playback-v1/port';
 import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packages/client-core/src/playback-v1/observed-playback';
-import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import {PlaybackSessionController, SessionsClient, type SessionChange, type SessionChangeContext, type StartOptions, type StartTarget, type Timers} from '../../../../../packages/client-core/src/playback-v1/sessions';
 import {requireSessionChangeCurrent} from '../../../../../packages/client-core/src/playback-v1/change-context';
 import {toPlaybackSession} from '../../../../../packages/client-core/src/playback-v1/session-shape';
@@ -509,8 +508,6 @@ export class NativePlayback {
 }
 
 /** The fixed qualities a title's quality menu offers (playback options `qualities`), best first. */
-export function automaticSteps(qualities: readonly QualityOption[]): readonly FixedQuality[] {
-  return fixedQualities.filter(step => qualities.some(q => q.mode === 'fixed' && q.id === step.id + 'p'));
-}
+export {automaticSteps} from '../../../platform/automatic-video-quality';
 
 export type {PlaybackSession};
