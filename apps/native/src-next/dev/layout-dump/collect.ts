@@ -3,11 +3,14 @@ import {measureNativeHost, relativeToRoot, type HostRect, type NativeHostReader}
 import type {NativeMeasurementRegistry} from './registry.ts';
 
 export type NativeViewport = Readonly<{width: number; height: number; deviceScaleFactor: number}>;
+export type NativeScreenDiagnostics = Readonly<{fontScale?: number}>;
 export type NativeCaptureOptions = Readonly<{
   root: object;
   viewport: NativeViewport;
   platform: 'android' | 'ios' | 'tvos';
   registry: NativeMeasurementRegistry;
+  /** Actual platform metadata only; never used for measurement arithmetic. */
+  diagnostics?: NativeScreenDiagnostics;
   /** Explicit public semantic ID to frame anchor; unlisted IDs are not serialized. */
   anchors?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
@@ -143,7 +146,9 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   }
   for (const [frame, ids] of anchors) if (ids.length > 1) anchorIssues.push({kind: 'duplicate', frame, elements: ids});
   if (registry.revision() !== revision) missing('root', 'captureState', 'native observations changed while the tree was measured');
+  const fontScale = options.diagnostics?.fontScale;
   return {version: 1, scope: 'screen', measurement: {renderer: 'react-native', platform: options.platform, coordinateUnit: options.platform === 'android' ? 'dp' : 'pt'},
+    ...(finite(fontScale) && fontScale > 0 ? {diagnostics: {fontScale}} : {}),
     root: rootBox ? {x: 0, y: 0, width: rootBox.width, height: rootBox.height} : undefined,
     viewport: {...viewport}, fullViewport, elements, strings, anchorIssues, repeatedLists: [], unavailable};
 }

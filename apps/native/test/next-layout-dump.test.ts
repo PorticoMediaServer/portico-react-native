@@ -20,6 +20,47 @@ test('native host numbers remain fractional logical window coordinates, never de
   assert.equal('unavailable' in await measureNativeHost({getBoundingClientRect: () => ({x: NaN, y: 0, width: 10, height: 10})}), true);
 });
 
+test('font scaling is optional unscored metadata and never changes logical observations', async () => {
+  const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
+  const options = {root, viewport: {width: 390, height: 844, deviceScaleFactor: 3}, platform: 'android' as const,
+    registry: createNativeMeasurementRegistry()};
+  const baseline = await collectNativeScreen(options);
+  for (const fontScale of [0.85, 1, 1.3, 2]) {
+    const measured = await collectNativeScreen({...options, diagnostics: {fontScale}});
+    assert.deepEqual(measured.diagnostics, {fontScale});
+    const {diagnostics: _, ...observations} = measured;
+    assert.deepEqual(observations, baseline);
+  }
+  for (const fontScale of [undefined, 0, -1, NaN, Infinity]) {
+    assert.deepEqual(await collectNativeScreen({...options, diagnostics: {fontScale}}), baseline);
+  }
+});
+
+test('DEV metadata getter reads fresh font scaling only for an active capture', async () => {
+  const globals = globalThis as typeof globalThis & {__DEV__?: boolean};
+  const original = globals.__DEV__;
+  let installed: ReturnType<typeof installNativeLayoutDump>;
+  let fontScale = 1, reads = 0;
+  try {
+    globals.__DEV__ = true;
+    const root = host('RN:View', {x: 0, y: 0, width: 390, height: 844});
+    installed = installNativeLayoutDump({root: () => root,
+      viewport: () => ({width: 390, height: 844, deviceScaleFactor: 3}), platform: 'android',
+      diagnostics: () => {reads++; return {fontScale};}})!;
+    assert.equal(reads, 0);
+    assert.deepEqual((await installed.capture()).diagnostics, {fontScale: 1});
+    fontScale = 1.4;
+    assert.deepEqual((await installed.capture()).diagnostics, {fontScale: 1.4});
+    installed.dispose();
+    await assert.rejects(installed.capture(), /disposed/);
+    assert.equal(reads, 2);
+  } finally {
+    installed?.dispose();
+    if (original === undefined) delete globals.__DEV__;
+    else globals.__DEV__ = original;
+  }
+});
+
 test('late native callbacks are retired after cancellation or deadline', async () => {
   let callback: ((x: number, y: number, width: number, height: number) => void) | undefined;
   const controller = new AbortController();
@@ -159,7 +200,8 @@ test('DEV entry is inert in production and disposal refuses a late native captur
   try {
     globals.__DEV__ = false;
     assert.equal(registerNativeHost({}, {kind: 'view'}), undefined);
-    assert.equal(installNativeLayoutDump({root() {throw new Error('production read a native root');}, viewport() {throw new Error('production read viewport');}, platform: 'android'}), undefined);
+    assert.equal(installNativeLayoutDump({root() {throw new Error('production read a native root');}, viewport() {throw new Error('production read viewport');},
+      diagnostics() {throw new Error('production read font scaling');}, platform: 'android'}), undefined);
     globals.__DEV__ = true;
     let callback: ((x: number, y: number, width: number, height: number) => void) | undefined;
     const root = {measureInWindow(value: typeof callback) {callback = value;}};
