@@ -58,6 +58,6 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
     width={680} topInset={0} initialFocusRef={initialFocusRef} showClose={false} titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 52.8}}
     style={{paddingTop: 42, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}} footer={footer}>{content}</SidePanel>
     : <BottomSheet testID={panelId} open={state.open} onOpenChange={open => {if (!open) close();}} title={defaultI18n.t('next.browse.native.filters')}
-      headerAction={<Button focusId="clear" variant="text" onPress={draft.clear}>{defaultI18n.t('next.browse.native.clearAll')}</Button>}
-      footer={footer} scrollable={false} detents={[580, 780]} showClose={false}>{content}</BottomSheet>;
+      headerAction={<Button focusId="clear" variant="text" textStyle={theme.platform === 'phone' ? {color: theme.colors.textSecondary} : undefined} onPress={draft.clear}>{defaultI18n.t('next.browse.native.clearAll')}</Button>}
+      footer={footer} scrollable={false} detents={[580, 698]} showClose={false}>{content}</BottomSheet>;
 }
