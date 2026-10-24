@@ -115,6 +115,9 @@ test('TV profile-switch hand-off preserves its current family, selection control
     await act(() => tree.props.onCodeChange('99'));
     await act(() => tree.props.onForgotPIN());
     assert.equal(tree.type, 'Forgot'); assert.equal(tree.props.url, 'https://verified.example/settings/profile');
+    await act(() => {assert.equal([...back.listeners][0]!(), true);});
+    assert.equal(tree.type, 'PIN'); assert.equal(tree.props.code, ''); assert.equal(exited, 0, 'hardware Back returns to the pad, not the previous route');
+    await act(() => tree.props.onForgotPIN());
     await act(() => tree.props.onBack());
     assert.equal(tree.type, 'PIN'); assert.equal(tree.props.code, '');
     assert.equal(context.session(), current); assert.equal(created, 1); assert.equal(disposed, 0); assert.equal(exited, 0);
