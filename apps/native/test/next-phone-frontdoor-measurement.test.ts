@@ -92,6 +92,7 @@ test('production frontdoor never loads measurement code or attaches callbacks an
   const f = await fixture(false);
   try {
     const heading = f.heading(), theme = createTheme({isTV: false, width: 390});
+    assert.equal(nodes(f.tree()).find(node => node.type === 'Image').props.ref, undefined);
     assert.equal(f.imports(), 0); assert.equal(f.tree().props.ref, undefined); assert.equal(heading.props.ref, undefined); assert.equal(heading.props.onLayout, undefined); assert.equal(heading.props.onTextLayout, undefined);
     assert.deepEqual(flatten(heading.props.style), {...nativeType({size: 42, lineHeight: 43.68, weight: 800, tracking: -.04}, theme.textScale), includeFontPadding: false, color: theme.colors.text, marginBottom: 22});
     assert.equal(nodes(f.tree()).filter(node => node.type === 'Text').length, 1, 'no body or wrapper markup is invented');
@@ -100,6 +101,30 @@ test('production frontdoor never loads measurement code or attaches callbacks an
     assert.deepEqual(buttons.map(button => button.props.style), Array(2).fill({alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}));
     assert.deepEqual(f.actions, []); buttons[0].props.onPress(); buttons[1].props.onPress(); assert.deepEqual(f.actions, ['portico', 'local']);
   } finally {f.close();}
+});
+
+test('the existing brand Image owns a DEV lease without changing its asset or presentation', async () => {
+  const f = await fixture(true), first = {}, replacement = {};
+  const image = () => nodes(f.tree()).find(node => node.type === 'Image');
+  try {
+    const {ref, ...props} = image().props;
+    assert.deepEqual(props, {source: 'existing-wordmark', accessibilityLabel: defaultI18n.t('accounts.brand'), resizeMode: 'contain',
+      style: {width: 17 * 512 / 117, height: 17, alignSelf: 'flex-start'}});
+    ref(first);
+    assert.equal(f.registry.read(first)!.kind, 'image');
+    assert.equal(f.registry.read(first)!.semanticId, 'accounts-welcome-wordmark');
+    assert.deepEqual(f.registry.read(first)!.flattenedStyle, {});
+    await f.title('Public translated welcome');
+    assert.equal(image().props.ref, ref);
+    assert.ok(f.registry.read(first));
+    ref(replacement);
+    assert.equal(f.registry.read(first), undefined); assert.ok(f.registry.read(replacement));
+    ref(null); assert.equal(f.registry.read(replacement), undefined);
+    const cleanup = ref(first);
+    cleanup(); assert.equal(f.registry.read(first), undefined);
+    ref(first);
+  } finally {f.close();}
+  assert.equal(f.registry.read(first), undefined);
 });
 
 
