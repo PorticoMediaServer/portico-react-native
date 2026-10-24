@@ -90,6 +90,8 @@ jobs:
         run: |
           swiftc -O -o "$RUNNER_TEMP/portico-url-routes" apps/native/tvos/Portico/PorticoURLRoutes.swift apps/native/test/porticourlroutes-tests.swift
           "$RUNNER_TEMP/portico-url-routes"
+          swiftc -D DEBUG -O -o "$RUNNER_TEMP/portico-url-routes-debug" apps/native/tvos/Portico/PorticoURLRoutes.swift apps/native/test/porticourlroutes-tests.swift
+          "$RUNNER_TEMP/portico-url-routes-debug"
           clang -fobjc-arc -framework Foundation -o "$RUNNER_TEMP/portico-download-attempts" apps/native/test/native-download-attempt-tests.m
           "$RUNNER_TEMP/portico-download-attempts"
           clang -fobjc-arc -framework Foundation -framework Security -o "$RUNNER_TEMP/portico-installation-storage" apps/native/test/native-installation-storage-tests.m
