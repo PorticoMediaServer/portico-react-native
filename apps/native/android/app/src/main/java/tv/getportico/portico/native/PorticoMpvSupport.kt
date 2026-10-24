@@ -335,6 +335,35 @@ internal object PorticoMpvSupport {
     return if (us in -600_000_000L..600_000_000L) (us.toDouble() / 1_000_000).toString() else null
   }
 
+  /** Validate only supplied original pairs. Constructing a sibling request from
+   * an absent companion is never permission to open it. Local artifact custody
+   * is additionally checked by the controller before either file can be opened. */
+  fun vobSubPair(index: String, companion: String?, media: String, resource: String?, revision: Long?): Boolean = try {
+    if (companion == null || listOf(index, companion, media).any { it.length > 8192 }) false else {
+      val idx = java.net.URI(index); val sub = java.net.URI(companion); val source = java.net.URI(media)
+      val scheme = idx.scheme?.lowercase()
+      val paths = listOf(idx.path ?: "", sub.path ?: "")
+      val clean = paths.all { path -> path.startsWith('/') && !path.contains('\\') && !path.contains('%') &&
+          path.none { it.code < 0x20 || it.code == 0x7f } && path.split('/').none { it == "." || it == ".." } }
+      val bare = listOf(idx, sub).all { it.rawUserInfo == null && it.rawQuery == null && it.rawFragment == null }
+      if (!clean || !bare || scheme != sub.scheme?.lowercase() || scheme != source.scheme?.lowercase()
+          || !paths[0].endsWith(".idx") || paths[1] != paths[0].removeSuffix(".idx") + ".sub") false
+      else if (scheme == "file") source.path?.startsWith('/') == true && listOf(idx, sub, source).all { it.rawAuthority.isNullOrEmpty() }
+      else if (scheme != "http" && scheme != "https") false
+      else {
+        val sameOrigin = listOf(idx, sub).all { it.host != null && it.host.equals(source.host, ignoreCase = true) && it.port == source.port }
+        val sourceParts = source.rawPath?.split('/') ?: emptyList()
+        val grant = sourceParts.getOrNull(3)
+        val word = Regex("[A-Za-z0-9_-]+")
+        sameOrigin && source.rawUserInfo == null && sourceParts.size >= 4 && sourceParts[1] == "v1" && sourceParts[2] == "media"
+            && grant != null && word.matches(grant) && resource != null && resource.length <= 8192 && word.matches(resource)
+            && revision != null && revision in 1..9_007_199_254_740_991L
+            && idx.rawPath == "/v1/media/subtitles/$grant/$resource/$revision/original.idx"
+            && sub.rawPath == "/v1/media/subtitles/$grant/$resource/$revision/original.sub"
+      }
+    }
+  } catch (_: Exception) { false }
+
   /** The background of Portico's own caption style: "none", "translucent" (the default) or "opaque". */
   fun styleBackground(style: Map<*, *>?): String {
     val value = style?.get("background") as? String
