@@ -3,11 +3,14 @@ import {measureNativeHost, relativeToRoot, type HostRect, type NativeHostReader}
 import type {NativeMeasurementRegistry} from './registry.ts';
 
 export type NativeViewport = Readonly<{width: number; height: number; deviceScaleFactor: number}>;
+export type NativeScreenDiagnostics = Readonly<{fontScale?: number}>;
 export type NativeCaptureOptions = Readonly<{
   root: object;
   viewport: NativeViewport;
   platform: 'android' | 'ios' | 'tvos';
   registry: NativeMeasurementRegistry;
+  /** Actual platform metadata only; never used for measurement arithmetic. */
+  diagnostics?: NativeScreenDiagnostics;
   /** Explicit public semantic ID to frame anchor; unlisted IDs are not serialized. */
   anchors?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
@@ -24,8 +27,12 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   const {registry, root, viewport, signal} = options;
   const elements: Element[] = [], strings: Record<string, unknown>[] = [];
   const unavailable: {element: string; property: string; reason: string}[] = [];
+  const missingKeys = new Set<string>();
   const anchorIssues: {kind: string; frame: string; elements: string[]}[] = [];
-  const missing = (element: string, property: string, reason: string) => unavailable.push({element, property, reason});
+  const missing = (element: string, property: string, reason: string) => {
+    const key = `${element}\0${property}\0${reason}`;
+    if (!missingKeys.has(key)) {missingKeys.add(key); unavailable.push({element, property, reason});}
+  };
   const revision = registry.revision();
   const measuredRoot = await measureNativeHost(root, {signal});
   const rootBox = 'rect' in measuredRoot ? measuredRoot.rect : undefined;
@@ -90,13 +97,12 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
         missing(id, 'textRects', 'actual native Text line geometry is not available');
       } else {
         record.ownText = observed.lines.map(line => line.text).join('');
-        // Native line coordinates are local. Do not infer an animated transform from shell scale.
-        const nativeLocalSizeKnown = box && finite(node.offsetWidth) && finite(node.offsetHeight)
-          && node.offsetWidth === box.width && node.offsetHeight === box.height;
-        if (nativeLocalSizeKnown) {
-          const rects = observed.lines.map(line => ({x: box.x + line.x, y: box.y + line.y, width: line.width, height: line.height}));
+        // Local onTextLayout runs cannot establish an ancestor's actual animated transform.
+        const windowRuns = await registry.measureTextRectangles(node, signal);
+        if (rootBox && windowRuns && windowRuns.length === observed.lines.length) {
+          const rects = windowRuns.map(line => relativeToRoot(line, rootBox));
           record.textRects = rects;
-        } else missing(id, 'textRects', 'native run-to-window transform is not observed; host boxes are not text runs');
+        } else missing(id, 'textRects', 'current native window text runs are not observed; host boxes are not text runs');
         if (record.ownText) strings.push({id: `${id}:text:0`, owner: id, frame: frame ?? null, kind: 'text', text: record.ownText, rects: record.textRects, style: record.style});
       }
       for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'color']) {
@@ -113,7 +119,10 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
     }
     elements.push(record);
     if (parent !== null) childRecords.set(parent, [...(childRecords.get(parent) ?? []), record]);
-    for (let index = 0; index < elementChildren.length; index++) await walk(elementChildren[index], id, `${id}.${index}`);
+    for (let index = 0; index < elementChildren.length; index++) {
+      if (elements.length >= 2000) {missing('root', 'elements', 'native tree exceeds capture bound'); break;}
+      await walk(elementChildren[index], id, `${id}.${index}`);
+    }
   };
   if (rootBox) await walk(root, null, 'root');
   for (const element of elements) {
@@ -137,7 +146,9 @@ export async function collectNativeScreen(options: NativeCaptureOptions) {
   }
   for (const [frame, ids] of anchors) if (ids.length > 1) anchorIssues.push({kind: 'duplicate', frame, elements: ids});
   if (registry.revision() !== revision) missing('root', 'captureState', 'native observations changed while the tree was measured');
+  const fontScale = options.diagnostics?.fontScale;
   return {version: 1, scope: 'screen', measurement: {renderer: 'react-native', platform: options.platform, coordinateUnit: options.platform === 'android' ? 'dp' : 'pt'},
+    ...(finite(fontScale) && fontScale > 0 ? {diagnostics: {fontScale}} : {}),
     root: rootBox ? {x: 0, y: 0, width: rootBox.width, height: rootBox.height} : undefined,
     viewport: {...viewport}, fullViewport, elements, strings, anchorIssues, repeatedLists: [], unavailable};
 }

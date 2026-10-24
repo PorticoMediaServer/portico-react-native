@@ -38,19 +38,20 @@ export class NativeOfflinePlayback {
       || ![viewer.serverId, viewer.accountId, viewer.profileId, session.sessionFamilyId].every(text)) return;
     return Object.freeze({authority: viewer.authority, serverId: viewer.serverId, accountId: viewer.accountId, profileId: viewer.profileId, sessionFamilyId: session.sessionFamilyId});
   }
-  wrap(api: PlaybackApi): PlaybackApi {
+  wrap(api: PlaybackApi): ReturnType<LocalPlayback['wrap']> {
     const wrapped = this.local.wrap(api);
-    return {...wrapped, progressPlayback: (id, payload) => {
+    const progressPlayback: PlaybackApi['progressPlayback'] = (id, payload) => {
       // A retry keeps one journal play but creates a new real local session.
       // Its retired session must not overwrite the new session's observation.
-      if (isLocalSession(id)) {
-        const held = [...this.sessions.values()].find(value => value.sessionId === id && value.generation === payload.generation);
-        if (!held || !held.journalCurrent() || this.disposed && payload.state === 'playing'
-          || !Number.isSafeInteger(payload.sequence) || payload.sequence <= held.sequence) return Promise.resolve();
-        held.sequence = payload.sequence;
-      }
-      return wrapped.progressPlayback(id, payload);
-    }};
+      const held = [...this.sessions.values()].find(value => value.sessionId === id && value.generation === payload.generation);
+      if (!held || !held.journalCurrent() || this.disposed && payload.state === 'playing'
+        || !Number.isSafeInteger(payload.sequence) || payload.sequence <= held.sequence) return Promise.resolve();
+      held.sequence = payload.sequence;
+      return wrapped.localPlayback.progressPlayback(id, payload);
+    };
+    return Object.assign({...wrapped, progressPlayback: (id: string, payload: Parameters<PlaybackApi['progressPlayback']>[1]) =>
+      isLocalSession(id) ? progressPlayback(id, payload) : wrapped.progressPlayback(id, payload)},
+    {localPlayback: Object.freeze({progressPlayback, stopPlayback: wrapped.localPlayback.stopPlayback})});
   }
   /** Resolve only the native file already admitted for this exact current local
    * session. A file-looking URL is not itself permission to load a file. */

@@ -1,14 +1,15 @@
 /** Import/require this module only in DEV branches. It reads no auth, props or asset state. */
-import {collectNativeScreen, type NativeViewport} from './collect.ts';
+import {collectNativeScreen, type NativeViewport, type NativeScreenDiagnostics} from './collect.ts';
 import {createNativeMeasurementRegistry, type HostFacts} from './registry.ts';
 export type {HostFacts, HostRegistration, NativeTextLine, ResolvedStyle} from './registry.ts';
-export type {NativeViewport} from './collect.ts';
+export type {NativeViewport, NativeScreenDiagnostics} from './collect.ts';
 
 const registry = createNativeMeasurementRegistry();
 const dev = () => typeof __DEV__ !== 'undefined' && __DEV__;
 export type NativeLayoutDumpOptions = Readonly<{
   root: () => object | null;
   viewport: () => NativeViewport;
+  diagnostics?: () => NativeScreenDiagnostics;
   platform: 'android' | 'ios' | 'tvos';
   anchors?: Readonly<Record<string, string>>;
 }>;
@@ -43,7 +44,7 @@ export function installNativeLayoutDump(options: NativeLayoutDumpOptions): Nativ
       pending.add(controller);
       try {
         const measured = await collectNativeScreen({root, viewport: options.viewport(), platform: options.platform,
-          anchors: options.anchors, registry, signal: controller.signal});
+          anchors: options.anchors, diagnostics: options.diagnostics?.(), registry, signal: controller.signal});
         if (controller.signal.aborted) throw new Error('Native layout capture was cancelled or reached its deadline.');
         if (disposed || options.root() !== root) throw new Error('Native root changed before capture completed.');
         return measured;

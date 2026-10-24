@@ -9,6 +9,10 @@ The App owner installs **one** `installNativeLayoutDump(options)` in a DEV-only
 branch, giving it a live whole-screen host getter, actual logical window width
 and height, actual device pixel ratio, platform, and an explicit public semantic
 ID → frame-anchor map. The returned owner supplies `capture()` and `dispose()`.
+Optional `diagnostics: () => ({fontScale: PixelRatio.getFontScale()})` reads
+fresh platform font scaling for each capture. Only a finite positive value is
+emitted in top-level `diagnostics.fontScale`; unknown/invalid values are omitted.
+It is unscored metadata, never part of viewport or geometry/font arithmetic.
 `captureNativeLayoutDump()` calls that owner; the collector itself installs no
 global command endpoint or payload logging. Production entry calls are inert.
 App/Kit imports must additionally be inside `__DEV__` branches so Metro can strip
@@ -26,6 +30,12 @@ The lease provides:
   URLs, arbitrary props and getters are excluded.
 - `recordTextLayout(event.nativeEvent.lines)`: actual native Text line events;
   input registrations reject these without reading them.
+- `observeTextRectangles(reader)`: an optional current native window-space run
+  observer. It supplies actual native run boxes in the same logical dp/pt units.
+  The collector subtracts the measured screen origin; it never infers glyph
+  transforms from a Text host box, shell scale or frame geometry. Without this
+  observation, `textRects` is explicitly unavailable. Do not implement this
+  observer by returning `measureInWindow()` or `getBoundingClientRect()` boxes.
 - `recordResolvedStyle(facts)`: **only** actual observed/resolved native font
   and paint facts. Never pass `StyleSheet.flatten(...)` here.
 - `recordNativeFocus(boolean)`: call only from the actual native focus/blur
@@ -39,9 +49,9 @@ The lease provides:
 The dump walks the public mounted host tree. Input and image internals are
 opaque; raw props, Fiber, auth stores, filenames, image URLs and asset bytes are
 never inspected. Unobserved paint prevents text export. Missing focus/opacity
-are null with explicit unavailability, never false/one guesses. Text runs use
-native Text layout and observed host origins; if a run-to-window transform
-cannot be established, geometry is unavailable rather than a host-box fallback.
+are null with explicit unavailability, never false/one guesses. Native Text
+layout supplies text/line facts; a current native window-run observer supplies
+run boxes. Missing either fact is unavailable rather than a host-box fallback.
 Logical boxes/fonts are not multiplied or divided by device density. An offset
 or mismatched whole-screen root fails `fullViewport`; no frame-specific offset,
 zoom or display setting repairs it.

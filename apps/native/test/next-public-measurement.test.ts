@@ -70,3 +70,24 @@ test('rejected or malformed measurement resolution stays closed and a late initi
     const held = f.predicates[0]; assert.equal(held(), true); f.unmount(); assert.equal(held(), false);
   } finally {f.unmount();}
 });
+
+test('leaving genuine welcome retires capture once and internal Back cannot reopen it', async () => {
+  const f = await fixture();
+  try {
+    f.render(); f.flush(); f.initial('portico://native-layout?specimen=signed-out-welcome'); await tick();
+    const entry = f.render(); f.flush();
+    const held = f.predicates[0];
+    entry.props.onStageChange('welcome'); assert.equal(held(), true);
+    entry.props.onStageChange('address');
+    assert.equal(held(), false); assert.equal(f.disposed(), 1); assert.equal(f.normal(), 0);
+    entry.props.onStageChange('welcome'); f.render(); f.flush();
+    assert.equal(held(), false); assert.equal(f.predicates.length, 1);
+    f.url('portico://native-layout?specimen=signed-out-welcome');
+    const fresh = f.render(); f.flush();
+    assert.notEqual(fresh.props.key, entry.props.key);
+    assert.equal(f.predicates[1](), true);
+    entry.props.onStageChange('credentials');
+    assert.equal(f.predicates[1](), true, 'an old AccountEntry cannot retire the new launch');
+  } finally {f.unmount();}
+  assert.equal(f.disposed(), 2);
+});
