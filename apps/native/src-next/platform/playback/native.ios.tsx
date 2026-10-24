@@ -100,7 +100,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   return {
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, startVersion: runtime.startVersion, selectionPlayback: runtime.selectionPlayback, Surface,
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate,
-    subtitleControls: fence => runtime.subtitleControls(fence),
+    subtitleControls: fence => runtime.subtitleControls(fence), readSession: runtime.readSession,
     prepareExternalPresentation: runtime.prepareExternalPresentation, requestPictureInPicture: runtime.requestPictureInPicture,
     onTransition: runtime.onTransition, toggle: runtime.toggle, replay: runtime.replay, seek: runtime.seek, skip: runtime.skip,
     previous: runtime.previous, next: runtime.next, stop: runtime.stop, restoreBookmark: runtime.restoreBookmark, open: runtime.open, dispose: runtime.dispose,

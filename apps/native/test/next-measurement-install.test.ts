@@ -13,14 +13,14 @@ test('App measurement command borrows only the current public root and live view
   globals.__DEV__ = true;
   let dispose: (() => void) | undefined;
   try {
-    let current = true, width = 390, height = 844, density = 3, reads = 0;
+    let current = true, width = 390, height = 844, density = 3, fontScale = 1.25, reads = 0;
     const root = {nodeType: 1, nodeName: 'RN:View', isConnected: true, childNodes: [],
       getBoundingClientRect: () => ({x: 0, y: 0, width, height})};
     const {installNativePublicMeasurement} = await screenModule(new URL('../src-next/dev/measurement-install.ts', import.meta.url), {
       react: {default: {}}, './layout-dump': collector,
       'react-native': {Platform: {OS: 'android', isTV: false}, Dimensions: {get: (kind: string) => {
         assert.equal(kind, 'window'); return {width, height};
-      }}, PixelRatio: {get: () => density}},
+      }}, PixelRatio: {get: () => density, getFontScale: () => fontScale}},
     });
     dispose = installNativePublicMeasurement(() => {reads++; return root;}, () => current);
     const command = globals.__PORTICO_NATIVE_LAYOUT_DUMP__!;
@@ -28,9 +28,12 @@ test('App measurement command borrows only the current public root and live view
     assert.equal(Object.isFrozen(command), true);
     const first = await command.capture();
     assert.deepEqual(first.viewport, {width: 390, height: 844, deviceScaleFactor: 3});
+    assert.deepEqual(first.diagnostics, {fontScale: 1.25});
     assert.equal(first.fullViewport, true);
-    width = 844; height = 390; density = 2;
-    assert.deepEqual((await command.capture()).viewport, {width, height, deviceScaleFactor: density});
+    width = 844; height = 390; density = 2; fontScale = 0.85;
+    const second = await command.capture();
+    assert.deepEqual(second.viewport, {width, height, deviceScaleFactor: density});
+    assert.deepEqual(second.diagnostics, {fontScale: 0.85});
     assert.throws(() => installNativePublicMeasurement(() => root, () => true), /already installed/);
     current = false;
     const previousReads = reads;

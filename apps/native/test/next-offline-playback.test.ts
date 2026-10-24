@@ -33,6 +33,20 @@ test('the admitted artifact uses the real local session and journal without a se
   assert.deepEqual(x.network,['progress:server-session']);
 });
 
+test('explicit custody retains the actual session generation, sequence and current owner guards', async () => {
+  const x = setup(), source = await x.owner.prepare(x.entry, () => true), session = source.session();
+  await x.api.localPlayback.progressPlayback('server-session', observed);
+  await x.api.localPlayback.stopPlayback('server-session');
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, generation: session.generation + 1});
+  assert.equal(x.progress.length, 0); assert.deepEqual(x.network, []);
+  await x.api.localPlayback.progressPlayback(session.id, observed);
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, positionSeconds: 1});
+  assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.positionSeconds, observed.positionSeconds);
+  x.setSession({...x.getSession()!, sessionFamilyId: 'replacement'});
+  await x.api.localPlayback.progressPlayback(session.id, {...observed, sequence: 2});
+  assert.equal(x.progress.length, 1); assert.deepEqual(x.network, []);
+});
+
 test('a late file read cannot cross a renewed installation family or a retired caller', async () => {
   for (const change of ['family','caller'] as const) {
     const x = setup(); let resolve!: (value:LocalMedia) => void, current = true;

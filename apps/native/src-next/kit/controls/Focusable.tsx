@@ -7,6 +7,7 @@ import {useMotion} from '../useMotion';
 import {colorAlpha, focusScale, type FocusKind} from './control-model';
 import {useFocusedMenu} from './useFocusedMenu';
 import {useFocusTarget} from '../focus';
+import {useNativeObservation} from '../dev-observation';
 
 export type ControlState = PressableStateCallbackType & {focused: boolean; hovered: boolean};
 export type FocusableProps = Omit<PressableProps, 'children'> & {
@@ -47,6 +48,8 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   const {isTV, colors, layers, platform} = useTheme();
   const motion = useMotion();
   const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: disabled || focusable === false, ref});
+  const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: props.accessibilityRole ?? 'button',
+    flattenedStyle: typeof style === 'function' ? undefined : StyleSheet.flatten(style)}, binding.ref);
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const scale = useSharedValue(1);
@@ -64,11 +67,11 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   const ring = useAnimatedStyle(() => ({opacity: halo.value}));
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
-  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={binding.ref} disabled={disabled} focusable={disabled ? false : focusable}
+  return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={disabled} focusable={disabled ? false : focusable}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
     tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}
-    onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event);}}
-    onBlur={event => {binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event);}}
+    onFocus={event => {binding.onFocus(); setFocused(true); onFocus?.(event); observation.recordFocus(event, true);}}
+    onBlur={event => {binding.onBlur(); setFocused(false); pressed.value = 0; onBlur?.(event); observation.recordFocus(event, false);}}
     onHoverIn={event => {setHovered(true); onHoverIn?.(event);}}
     onHoverOut={event => {setHovered(false); onHoverOut?.(event);}}
     onPressIn={event => {pressed.value = withTiming(1, motion.timing('quick')); onPressIn?.(event);}}

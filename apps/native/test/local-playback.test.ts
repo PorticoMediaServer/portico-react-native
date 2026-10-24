@@ -21,12 +21,13 @@ function setup(journal?: {entries: unknown[]}) {
   const local = new LocalPlayback(p => progress.push(p));
   const store = journal ?? {entries: []};
   // As in the app: the device queue is required for server plays, and a journal is kept.
-  const service = new PlaybackService(local.wrap(inner), () => 'r' + Math.random(), {
+  const api = local.wrap(inner);
+  const service = new PlaybackService(api, () => 'r' + Math.random(), {
     queueRequired: true,
     seekTimeoutMs: 1000,
     journal: {load: async () => store.entries as never, save: async entries => { store.entries = entries as unknown[]; }},
   });
-  return {service, local, server, progress, store};
+  return {service, local, api, server, progress, store};
 }
 
 async function playing(x: ReturnType<typeof setup>, at = 50) {
@@ -48,6 +49,23 @@ test('a download plays from its file where the viewer left off, with no queue an
   assert.equal(s.pendingSeek?.positionSeconds, 42);
   assert.equal(s.error, undefined, 'the device queue is not needed');
   assert.deepEqual(x.server, []);
+});
+
+test('explicit local custody projects the actual journal handlers without a server fallback', async () => {
+  const x = setup(), session = x.local.session(media)();
+  const payload = {generation: session.generation, sequence: 1, positionSeconds: 57, state: 'paused' as const};
+  await x.api.localPlayback.progressPlayback(session.id, payload);
+  await x.api.localPlayback.stopPlayback(session.id);
+  assert.equal(x.progress.length, 1); assert.equal(x.progress[0]!.playId, media.playId);
+  assert.equal(x.progress[0]!.positionSeconds, 57);
+  for (const id of ['unowned-session', 'local:unowned:9']) {
+    await x.api.localPlayback.progressPlayback(id, payload);
+    await x.api.localPlayback.stopPlayback(id);
+  }
+  assert.equal(x.progress.length, 1); assert.deepEqual(x.server, []);
+  await x.api.progressPlayback('server-session', payload); await x.api.stopPlayback('server-session');
+  assert.deepEqual(x.server, ['progress server-session', 'stop server-session']);
+  x.service.leave();
 });
 
 test('progress goes to the offline journal, and leaving stops nothing on the server', async () => {

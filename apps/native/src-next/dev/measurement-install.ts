@@ -18,6 +18,7 @@ export function installNativePublicMeasurement(root: () => object | null, isCurr
       const window = Dimensions.get('window');
       return {width: window.width, height: window.height, deviceScaleFactor: PixelRatio.get()};
     },
+    diagnostics: () => ({fontScale: PixelRatio.getFontScale()}),
     platform: Platform.OS === 'android' ? 'android' : Platform.isTV ? 'tvos' : 'ios',
     anchors: {'accounts-welcome-portico': 'primary-action', 'tv-front-door-portico': 'primary-action'},
   });

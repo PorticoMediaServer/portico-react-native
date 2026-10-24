@@ -24,16 +24,16 @@ async function fixture(isTV: boolean) {
     StyleSheet: {create: (value: any) => value, flatten: (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(native.StyleSheet.flatten)) : value ?? {}, absoluteFill: {position: 'absolute', inset: 0}}};
   const themeModule = {useTheme: () => theme, fontFamilies};
   const focus = await screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {
-    react, 'react-native': native, '../theme': themeModule, './registry': registryModule, './useHostRef': {useHostRef},
+    react, 'react-native': native, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, './registry': registryModule, './useHostRef': {useHostRef},
   });
   const focusModule = {...registryModule, ...focus};
   const reanimated = {default: {createAnimatedComponent: (value: any) => value, View: 'AnimatedView'},
     useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(), withTiming: (value: any) => value};
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
-    react, 'react-native': native, 'react-native-reanimated': reanimated, '@portico/design': design, '../theme': themeModule,
+    react, 'react-native': native, 'react-native-reanimated': reanimated, '@portico/design': design, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule,
     '../useMotion': {useMotion: () => ({transforms: false, timing: () => ({duration: 0})})}, './control-model': controlModel, './useFocusedMenu': {useFocusedMenu() {}}, '../focus': focusModule,
   });
-  const shared = {react, 'react-native': native, '@portico/design': design, '../theme': themeModule, '../focus': focusModule,
+  const shared = {react, 'react-native': native, '@portico/design': design, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, '../focus': focusModule,
     '../Icon': {Icon: 'Icon'}, './Focusable': {Focusable}, './control-model': controlModel, './useControlValue': {useControlValue}};
   const {Chip} = await screenModule(new URL('../src-next/kit/controls/Chip.tsx', import.meta.url), shared);
   const {Segmented} = await screenModule(new URL('../src-next/kit/controls/Tabs.tsx', import.meta.url), shared);
@@ -41,7 +41,7 @@ async function fixture(isTV: boolean) {
   const {Button} = await screenModule(new URL('../src-next/kit/controls/Button.tsx', import.meta.url), {...shared, '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({})}});
   const {FilterBuilder} = await screenModule(new URL('../src-next/kit/browse/Filters.tsx', import.meta.url), {
     react, 'react-native': native, '../../../../../packages/i18n/src': {defaultI18n}, '../controls': {Button, Chip, Segmented, TextField, Focusable},
-    '../Icon': {Icon: 'Icon'}, '../focus': focusModule, '../theme': themeModule, './presentation': presentation,
+    '../Icon': {Icon: 'Icon'}, '../focus': focusModule, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, './presentation': presentation,
   });
   return {FilterBuilder, ...focusModule};
 }
