@@ -103,6 +103,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   }
   return {
     runtime, dock: runtime.dock, getSnapshot: runtime.getSnapshot, subscribe: runtime.subscribe, start: runtime.start, startVersion: runtime.startVersion, selectionPlayback: runtime.selectionPlayback, Surface,
+    cataloguePlayback: runtime.cataloguePlayback,
     ...(offlineDevice ? {startOffline: runtime.startOffline} : {}),
     change: runtime.change, chooseQuality: runtime.chooseQuality, setRate: runtime.setRate,
     subtitleControls: fence => runtime.subtitleControls(fence), readSession: runtime.readSession,

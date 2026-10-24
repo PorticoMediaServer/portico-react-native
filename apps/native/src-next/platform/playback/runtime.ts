@@ -615,10 +615,10 @@ export class NativePlaybackRuntime {
     if (!admitted() || !segments.length) throw retired();
     if (placement !== 'next' && placement !== 'end') throw Object.assign(new Error('native_catalogue_placement_invalid'), {code: 'invalid_queue_placement'});
     const valid = () => epoch === this.startEpoch && source === this.sourceEpoch && admitted();
+    if (!valid()) throw retired();
     const scoped = this.selectionScope(lifetime.signal, valid);
     const client = new QueueClient({send: request => this.http.send({...request, signal: scoped.signal})}, this.o.requestId);
     const check = () => {if (!valid()) throw retired();};
-    if (!valid()) throw retired();
     try {
       this.connect(); check();
       const held = this.queue.getSnapshot().view?.queue;
