@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type {BrowseCapabilities} from '../../../packages/client-core/src/browse';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {savedViewSummary} from '../../../packages/client-core/src/presentation/saved-view-summary';
 import {NativeShellNavigation} from '../src-next/shell/routes';
@@ -12,8 +13,8 @@ import {screenModule} from './helpers/screen-harness.mjs';
 const library = {id: 'movies', name: 'Movies', kind: 'movie'};
 const pivot = {id: 'movies', labelKey: 'library.tab.movies', entityKinds: ['movie'], defaultSort: [{field: 'title', direction: 'asc'}],
   supportedViews: ['grid'], browsable: true, sorts: ['title'], filters: ['genre']} as const;
-const capabilities = {library: {...library, defaultView: 'browse', pinned: false}, pivots: [pivot], resolvedPivot: pivot,
-  fields: [{id: 'genre', labelKey: 'filter.genre', type: 'text', operators: ['contains-any'], controlHint: 'facet-list', complexity: 'advanced', cost: 'indexed', applicableKinds: ['movie']}],
+const capabilities: BrowseCapabilities = {library: {...library, defaultView: 'browse', pinned: false}, pivots: [pivot], resolvedPivot: pivot,
+  fields: [{id: 'genre', labelKey: 'filter.genre', type: 'enum', operators: ['contains-any'], controlHint: 'facet-multi-select', complexity: 'advanced', cost: 'indexed', applicableKinds: ['movie']}],
   sorts: [{id: 'title', labelKey: 'sort.title', directions: ['asc', 'desc'], defaultDirection: 'asc', expensive: false, applicableKinds: ['movie']}], quickFilters: [],
   queryLimits: {maximumDepth: 6, maximumClauses: 50, maximumBytes: 8192, maximumSorts: 1, defaultLimit: 40, maximumLimit: 100, cursorTtlMs: 600000}};
 const operationId = '12345678-1234-4123-8123-123456789abc';
