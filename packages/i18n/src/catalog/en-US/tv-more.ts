@@ -1,5 +1,9 @@
-/** tv-more6–9: the TV album and artist pages. */
-export const musicMessages = {
+/** tv-more: the TV Saved landing, album page and artist page. */
+export const tvMoreMessages = {
+  'saved.browseHome': 'Browse Home',
+  'saved.postersHeading': 'Movies and shows',
+  'saved.squaresHeading': 'Music and audiobooks',
+  'saved.holdHint': 'Hold OK on any poster to add it without opening it.',
   'music.topSongs': 'Top songs',
   'music.albums': 'Albums',
   'music.similarArtists': 'Similar artists',
