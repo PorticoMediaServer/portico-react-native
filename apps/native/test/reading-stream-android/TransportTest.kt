@@ -56,11 +56,17 @@ private class Server: AutoCloseable {
       if (path.contains("redirect")) {
         output.write("HTTP/1.1 302 Found\r\nLocation: $origin/never-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()); output.flush(); return
       }
-      output.write("HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: ${data.size}\r\nAccept-Ranges: none\r\nConnection: close\r\n\r\n".toByteArray()); output.flush(); headersPublished.countDown()
+      val chunked = path.contains("chunked")
+      val lengthHeader = if (chunked) "Transfer-Encoding: chunked" else "Content-Length: ${data.size}"
+      output.write("HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n$lengthHeader\r\nAccept-Ranges: none\r\nConnection: close\r\n\r\n".toByteArray()); output.flush(); headersPublished.countDown()
       if (path.contains("held")) bodyAllowed.await(20, TimeUnit.SECONDS)
       val length = if (path.contains("short")) 17 else data.size
       var offset = 0
-      while (offset < length) {val count = minOf(8192, length - offset); output.write(data, offset, count); offset += count}
+      while (offset < length) {val count = minOf(8192, length - offset)
+        if (chunked) output.write("${count.toString(16)}\r\n".toByteArray())
+        output.write(data, offset, count); offset += count
+        if (chunked) output.write("\r\n".toByteArray())}
+      if (chunked) output.write("0\r\n\r\n".toByteArray())
       output.flush()
     } catch (_: IOException) { /* the tested owner/caller may cancel the socket */ }
     catch (_: InterruptedException) {Thread.currentThread().interrupt()}}
@@ -82,14 +88,14 @@ private fun done(result: BridgeMap) = result.values["done"] as Boolean
 fun main() {
   var cases = 0
   try {
-    Server().use {server ->
-      val opened = open(server, "complete").value(); check(opened.values["status"] == 200)
+    for (source in listOf("normal", "chunked")) Server().use {server ->
+      val opened = open(server, "complete-$source", source).value(); check(opened.values["status"] == 200)
       val digest = MessageDigest.getInstance("SHA-256"); var count = 0
-      while (true) {val next = pull("complete").value(); val data = bytes(next)
+      while (true) {val next = pull("complete-$source").value(); val data = bytes(next)
         if (done(next)) {check(data.isEmpty()); break}
         check(data.isNotEmpty() && data.size <= 49152); count += data.size; digest.update(data)}
       check(count == server.data.size); check(digest.digest().contentEquals(MessageDigest.getInstance("SHA-256").digest(server.data))); check(server.requests.get() == 1)
-      check(done(pull("complete").value())); PorticoTransport.cancel("complete"); cases++
+      check(done(pull("complete-$source").value())); PorticoTransport.cancel("complete-$source"); cases++
     }
     Server().use {server ->
       open(server, "cancel", "held").value(); check(server.headersPublished.await(1, TimeUnit.SECONDS))
