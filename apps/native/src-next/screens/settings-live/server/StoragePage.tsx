@@ -53,10 +53,15 @@ export function NativeServerStorage({ports, runtime}: {ports: NativeSettingsLive
   </View>;
 }
 
+function serverFailure(error: unknown, retry: () => void, t: Translate): {title: string; body: string; tone: 'error'; primaryAction: {id: string; label: string; onPress: () => void}} {
+  const p = presentError(error, 'server-console');
+  return {title: p.title, body: p.body, tone: 'error', primaryAction: {id: 'retry', label: t('action.tryAgain'), onPress: retry}};
+}
+
 function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; t: Translate}) {
   const theme = useTheme(), context = ports.context;
   const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => context.api.request<T>(path, method, body, signal)};
-  const report = useRead(() => api.request<unknown>('/v1/admin/storage-usage').then(parseStorageReport), [context]);
+  const report = useRead(() => api.request<unknown>('/v1/admin/storage-usage').then(raw => parseStorageReport(((raw as {result?: unknown}).result ?? raw))), [context]);
   const usage = useRead(() => loadResourceUsage(api), [context]);
   const [chosen, setChosen] = useState<StorageUsage>(), [days, setDays] = useState('30'), [typed, setTyped] = useState(''), [busy, setBusy] = useState(false), [failure, setFailure] = useState<unknown>();
   const close = () => {if (busy) return; setChosen(undefined); setTyped(''); setFailure(undefined);};
@@ -71,7 +76,7 @@ function SpaceTab({ports, runtime, t}: {ports: NativeSettingsLivePorts; runtime:
   const problem = failure === undefined ? undefined : presentError(failure, 'server-console').body;
   const doc: StorageReport | undefined = report.data;
   return <View style={{marginTop: 14}} testID="server-storage-space">
-    {report.error !== undefined && !doc ? <StateView {...runtime.error(report.error, report.reload)}/> : null}
+    {report.error !== undefined && !doc ? <StateView {...serverFailure(report.error, report.reload, t)}/> : null}
     {doc ? <>
       <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('settings.server.diskUsage')}</Text>
       <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('web.maintenance.storageLede')}</Text>

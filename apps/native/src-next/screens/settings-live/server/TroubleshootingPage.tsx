@@ -61,7 +61,7 @@ export function NativeServerTroubleshooting({ports, runtime}: {ports: NativeSett
       <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom: 12}}/>
       <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.troubleshooting')}</Text>
       <Tabs testID="server-troubleshooting-tabs" style={{marginTop: 12, marginHorizontal: -20}} value={tab} onValueChange={setTab} accessibilityLabel={t('settings.server.troubleshooting')}
-        items={[{value: 'messages', label: t('web.logs.messages')}, {value: 'feedback', label: openReports ? `${t('settings.server.feedback')} ${openReports}` : t('settings.server.feedback')}, {value: 'reports', label: t('web.diagnostics.clientReports')}, {value: 'support', label: t('server.support')}]}/>
+        items={[{value: 'messages', label: t('web.logs.messages')}, {value: 'feedback', label: openReports ? `${t('server.feedbackTab')} ${openReports}` : t('server.feedbackTab')}, {value: 'reports', label: t('server.reportsTab')}, {value: 'support', label: t('server.support')}]}/>
       {tab === 'messages' && <MessagesTab api={api} runtime={runtime} t={t}/>}
       {tab === 'feedback' && <FeedbackTab consoleClient={consoleClient} reports={reports.data?.items ?? []} loading={reports.loading} error={reports.error} runtime={runtime} t={t} reload={reports.reload}/>}
       {tab === 'reports' && <ReportsTab api={api} authority={authority} runtime={runtime} t={t}/>}
