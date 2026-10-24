@@ -55,6 +55,9 @@ run boxes. Missing either fact is unavailable rather than a host-box fallback.
 Logical boxes/fonts are not multiplied or divided by device density. An offset
 or mismatched whole-screen root fails `fullViewport`; no frame-specific offset,
 zoom or display setting repairs it.
+RN extent consistency follows the shared `sameLogicalExtent` relation: exact
+equality or an exact float32 projection in either direction. Origins remain
+exactly zero; recorded host/window numbers are never rounded or replaced.
 
 These APIs alone establish no mounted-screen score. Actual App/Kit hooks,
 compatible DEV execution and the shared offline comparator are still required.
