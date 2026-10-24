@@ -6,6 +6,7 @@ import {SEARCH_CHIPS, orderedSearchGroups, searchGroupLabel, topResultKindLabel,
 import {browseType} from '../src-next/kit/browse/presentation';
 import {createTheme} from '../src-next/kit/theme';
 import {homeCardText} from '../src-next/screens/home/model';
+import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles';
 import {nativeSearchEntryKey} from '../src-next/screens/search/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
@@ -49,7 +50,7 @@ async function mount(snapshot: any, landing: any) {
     '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', TextField: 'TextField'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
     '../../kit/states': {GridSkeleton: 'GridSkeleton', StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType}, '../../kit/theme': {useTheme: () => theme},
-    '../home/model': {homeCardText}, './model': {NativeSearchDestination: class {}, nativeSearchEntryKey},
+    '../home/model': {homeCardText}, './model': {NativeSearchDestination: class {}, nativeSearchEntryKey}, './genre-tiles': {nativeSearchGenreTiles},
     './SearchGridCard': {SearchGridCard: 'SearchGridCard'}, './TVSearchScreen': {TVSearchScreen: 'TVSearchScreen'},
     '../../../../../packages/client-core/src/presentation/kit-model': {channelTint},
   });
