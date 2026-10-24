@@ -11,12 +11,17 @@ const effective: PreferenceValues = {
   'playback.creditsSkip': 'off',
   'playback.subtitleSize': 'large',
   'playback.subtitleBackground': 'translucent',
+  'playback.subtitleColor': 'white',
+  'playback.subtitlePosition': 'bottom',
+  'playback.subtitleFont': 'default',
+  'playback.keepSubtitleStyling': true,
+  'playback.useSystemCaptionStyle': false,
 };
 
 test('the native engine receives the server effective settings and the actual device overrides', () => {
   const result = nativePlaybackSettings(effective, {playerEngine: 'native', forceStereo: true, disableHdr: false});
   assert.deepEqual(result, {engine: 'native', overrides: {forceStereo: true, disableHdr: false}, videoRate: 1.25, audiobookRate: 1.5,
-    skips: {intro: 'ask', recap: 'auto', credits: 'off'}, subtitleSize: 'large', subtitleBackground: 'translucent'});
+    skips: {intro: 'ask', recap: 'auto', credits: 'off'}, subtitles: {size: 'large', color: 'white', background: 'translucent', position: 'bottom', font: 'default', keepStyling: true, useSystemCaptionStyle: false}});
 });
 
 test('absent or invalid playback facts are rejected instead of replaced with invented defaults', () => {

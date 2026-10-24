@@ -21,6 +21,7 @@ import type {PlaybackChoices} from '../../../../../packages/client-core/src/play
 import type {QualityOption} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativePlaybackSubtitleControls} from './subtitle-controls';
 import type {NativeSubtitleFilePicker} from './subtitle-file-upload';
+import type {SubtitlePreferences} from '../../../../../packages/client-core/src/preference-effects';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
@@ -51,8 +52,7 @@ export type NativePlaybackSettings = Readonly<{
   engine: EngineSetting; overrides?: CapabilityOverrides;
   videoRate: number; audiobookRate: number;
   skips: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
-  subtitleSize: 'small' | 'medium' | 'large' | 'extra-large';
-  subtitleBackground: 'none' | 'translucent' | 'opaque';
+  subtitles: SubtitlePreferences;
 }>;
 export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
 export type NativePlaybackRuntimeSnapshot = Readonly<{

@@ -908,7 +908,11 @@ export class NativePlaybackRuntime {
     this.path.setRate(rate);
     const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
     this.path.setTracks(session?.presentation.audioTrackId, session?.presentation.subtitle?.trackId ?? null);
-    const style = captionStyle(this.choices.get('subtitleSize', fence.playback, settings.subtitleSize), this.choices.get('subtitleBackground', fence.playback, settings.subtitleBackground));
+    const style = captionStyle({
+      ...settings.subtitles,
+      size: this.choices.get('subtitleSize', fence.playback, settings.subtitles.size),
+      background: this.choices.get('subtitleBackground', fence.playback, settings.subtitles.background),
+    });
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
     let subtitles: Record<string, unknown> | null = null;
     const visible = this.displaySubtitles && this.expanded;
