@@ -8,7 +8,8 @@ import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {LibraryScreen, type NativeLibraryActions, type NativeLibrarySelectionPort} from './LibraryScreen';
 import {NativeLibraryDestination} from './model';
 import {NativeLibraryDirectory} from './directory';
-import {hiddenReadingLibraryOnTV} from '../read/platform';
+import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../read/platform';
+import {NativeReadingLibraryScreen} from '../read/ReadingLibrary';
 import {createNativeLibraryPlaySelection} from './play-selection';
 import {createNativeTVLibraryNamingStore, nativeTVLibraryActions, nativeTVNamingPanelId, NativeTVLibrarySurface} from './tv-library';
 import type {NativeTVLibraryNamingStore} from './tv-library';
@@ -38,6 +39,13 @@ export function createNativeLibraryRenderer(context: NativeShellBootstrapContext
       if (!current() || route.kind !== 'shell' || route.destination.kind !== 'library') return null;
       const id = route.destination.libraryId, library = context.libraries().find(value => value.id === id);
       if (!library || Platform.isTV && hiddenReadingLibraryOnTV(library.kind)) {retireSelected(); return null;}
+      // Book and comic libraries have no browse pivot: their authored producer is
+      // the bounded Reading list (`GET /v1/reading/items`), not generic content.
+      if (isReadingLibraryKind(library.kind)) {
+        if (selected) retireSelected();
+        return <NativeReadingLibraryScreen key={id} context={context} runtime={runtime} libraryId={id} title={library.name}
+          onBack={() => runtime.onDestination({kind: 'libraries'})}/>;
+      }
       if (selected?.id !== id || selected.kind !== library.kind || selected.name !== library.name) {
         retireSelected();
         const destination = new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library,
