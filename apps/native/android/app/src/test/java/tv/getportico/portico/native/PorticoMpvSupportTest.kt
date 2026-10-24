@@ -3,6 +3,7 @@ package tv.getportico.portico.native
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -142,6 +143,18 @@ class PorticoMpvSupportTest {
     for ((name, colour) in colours) assertEquals(colour, support.captionForeground(mapOf("color" to name)))
     assertEquals(0xffffffff.toInt(), support.captionForeground(null))
     assertEquals(0xffffffff.toInt(), support.captionForeground(mapOf("color" to "#123456")))
+  }
+
+  @Test
+  fun actualCaptionFacesPreserveSystemPriorityAndNeverInventRoundedSupport() {
+    val ordinary = Any(); val serif = Any(); val mono = Any(); val system = Any()
+    assertSame(serif, support.captionTypeface(mapOf("font" to "serif"), null, ordinary, serif, mono))
+    assertSame(mono, support.captionTypeface(mapOf("font" to "mono"), null, ordinary, serif, mono))
+    assertSame(ordinary, support.captionTypeface(null, null, ordinary, serif, mono))
+    for (font in listOf("default", "rounded", "file:///unknown.ttf"))
+      assertSame(ordinary, support.captionTypeface(mapOf("font" to font), null, ordinary, serif, mono))
+    for (font in listOf("default", "serif", "mono", "rounded"))
+      assertSame(system, support.captionTypeface(mapOf("font" to font), system, ordinary, serif, mono))
   }
 
   @Test
