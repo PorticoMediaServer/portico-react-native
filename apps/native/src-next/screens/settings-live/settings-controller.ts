@@ -1,5 +1,6 @@
 import {PreferencesReader, type PreferencesApi} from '../../../../../packages/client-core/src/preferences-reader';
 import {currentPreferenceSnapshot, validatePreferencePatch, type DeviceClass, type PreferencePatch, type PreferenceScope, type PreferenceSnapshot} from '../../../../../packages/client-core/src/preferences';
+import {nativeServerPreferences, type NativeServerPreferencesOwner} from '../../platform/server-preferences';
 import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
 
 export type NativeSettingsSnapshot = Readonly<{preferences: PreferenceSnapshot; busy: boolean; error?: unknown; saved: number}>;
@@ -51,3 +52,16 @@ export function createNativeSettingsController(lifetime: NativeScreenLifetime, a
 }
 
 export const nativeSettingsDeviceClass = (isTV: boolean): DeviceClass => isTV ? 'television' : 'mobile';
+
+/** A screen may retire its own scope, never the bootstrap's shared reader. */
+export function createBoundNativeSettingsController(lifetime: NativeScreenLifetime, owner: NativeServerPreferencesOwner): NativeSettingsController {
+  const source = nativeServerPreferences(owner);
+  let unsubscribe = () => {};
+  const controller = new NativeSettingsController(lifetime, {
+    preferences: deviceClass => lifetime.request(() => source.preferences(deviceClass)),
+    applyPreferences: (scope, deviceClass, revision, values) => lifetime.request(() => source.applyPreferences(scope, deviceClass, revision, values)),
+    dispose: () => {unsubscribe(); lifetime.dispose();},
+  }, source.getSnapshot());
+  unsubscribe = source.subscribe(() => {if (lifetime.current()) controller.accept(source.getSnapshot());});
+  return controller;
+}

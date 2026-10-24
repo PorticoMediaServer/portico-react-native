@@ -5,11 +5,15 @@ import {nativeScreenError, nativeScreenServices} from '../native-screen-services
 import {NativeWatchPresenters} from './presenters';
 import {NativeWatchOverlays} from './WatchOverlays';
 import type {NativeWatchModuleBindings} from './module';
+import {NativeWatchExternalRequests} from './external-requests';
 
 /** One real authority-local composition, borrowed by handheld and TV entry.
  * It owns Title/File info overlays; shared feedback is mounted by assembly. */
 export function createNativeWatchBindings(context: NativeShellBootstrapContext): NativeWatchModuleBindings {
   const common = nativeScreenServices(context), presenters = new NativeWatchPresenters(context, common);
+  const requestPictureInPicture = context.playback.requestPictureInPicture;
+  const external = requestPictureInPicture ? new NativeWatchExternalRequests({current: context.current, subscribeCurrent: context.subscribeAuthority,
+    navigation: context.navigation, playback: {getSnapshot: context.playback.getSnapshot, subscribe: context.playback.subscribe, requestPictureInPicture}}, error => common.reportError(error)) : undefined;
   return Object.freeze({
     requestId: common.requestId,
     title: {
@@ -20,6 +24,7 @@ export function createNativeWatchBindings(context: NativeShellBootstrapContext):
     manageFile: presenters.manageFile, openFileInfo: presenters.openFileInfo, openMenu: presenters.openMenu,
     openVersions: presenters.openVersions, startVersion: context.playback.startVersion,
     renderOverlays: runtime => <NativeWatchOverlays presenters={presenters} runtime={runtime} common={common}/>,
-    dispose: presenters.dispose,
+    ...(external ? {onPictureInPicture: (fence: Parameters<NativeWatchExternalRequests['request']>[0]) => {void external.request(fence);}} : {}),
+    dispose: () => {external?.dispose(); presenters.dispose();},
   });
 }
