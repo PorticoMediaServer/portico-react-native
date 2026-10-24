@@ -76,7 +76,7 @@ export interface NativeShellRuntime {
   registerScrollToTop: (destination: ShellDestination, handler: () => void) => () => void;
   /** Registered by the TV shell; assembly dispatches only after topmost holds/player. */
   registerTVRailBack?: (handler: () => boolean) => () => void;
-  /** Destination-scoped; legacy Home callers omit destination. A false result continues navigation Back. */
+  /** Destination-scoped; legacy Home callers omit destination. Other destinations may continue navigation Back when false. */
   registerTVPageBack?: (handler: () => boolean, destination?: ShellDestination) => () => void;
   onArtworkError: (error: unknown, entry: ContentEntry) => void;
   playback?: NativeShellPlaybackAdapter;

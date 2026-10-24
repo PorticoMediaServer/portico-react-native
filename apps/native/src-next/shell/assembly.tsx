@@ -220,7 +220,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       // Menus/selection own Back first, then the player, then the page.
       if (Platform.isTV && tvRailBack?.()) return true;
       const navigation = context.navigation.getSnapshot();
-      if (Platform.isTV && navigation.route.kind === 'shell' && tvPageBack.get(JSON.stringify(navigation.destination))?.()) return true;
+      if (Platform.isTV && navigation.route.kind === 'shell') {
+        const pageBack = tvPageBack.get(JSON.stringify(navigation.destination));
+        if (pageBack) {
+          const consumed = pageBack();
+          // Home's opening state already delegates directly to the OS.
+          if (consumed || navigation.destination.kind === 'home') return consumed;
+        }
+      }
       return context.navigation.back(context.authority());
     }
     return true;
@@ -331,6 +338,6 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       return () => {if (tvPageBack.get(key) === handler) tvPageBack.delete(key);};
     },
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
 }

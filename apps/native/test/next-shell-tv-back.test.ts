@@ -91,6 +91,10 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.equal(back(), true); assert.equal(pageCalls, 1);
   pageConsumes = false;
   assert.equal(back(), false, 'Home opening state falls through to OS on second Back');
+  navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
+  navigation.open({kind: 'shell', destination: {kind: 'home'}}, authority);
+  assert.equal(back(), false, 'Home opening state still delegates to OS despite retained history');
+  assert.deepEqual(navigation.getSnapshot().destination, {kind: 'home'});
   const removeRail = bindings.registerTVRailBack(() => true);
   navigation.open({kind: 'shell', destination: {kind: 'saved'}}, authority);
   assert.equal(back(), true, 'rail Back returns to its actual page even away from Home');
