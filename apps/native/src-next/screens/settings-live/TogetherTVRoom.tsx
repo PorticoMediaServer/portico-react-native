@@ -55,7 +55,10 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
     : currentRead?.phase === 'error' ? runtime.error(currentRead.error, () => media.retry(group.timeline.itemId)).title : identity?.title ?? item?.title ?? t('web.together.loadingTitle');
   const playing = group.timeline.state === 'playing', away = group.host.presence !== 'connected', canControl = group.permissions.canControl;
   const showTransport = canControl && !!group.timeline.currentEntryId;
-  const entryRegion = showTransport || samePlayback ? controls : footer, entryChild = showTransport ? 'transport' : samePlayback ? 'open-player' : 'leave';
+  // Absent means false until the server publishes the advisory permission. The
+  // server still checks the same guards transactionally on the claim itself.
+  const canClaimHost = !group.permissions.isHost && (group.permissions as typeof group.permissions & {canClaimHost?: boolean}).canClaimHost === true;
+  const entryRegion = showTransport || samePlayback || canClaimHost ? controls : footer, entryChild = canClaimHost ? 'claim-host' : showTransport ? 'transport' : samePlayback ? 'open-player' : 'leave';
   const enter = useScreenEntry({regionId: entryRegion, childId: entryChild}, controller.lifetime.current);
   const run = (work: () => Promise<unknown>) => {controller.lifetime.assert(); void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   const deadline = playing ? group.host.pauseAt : group.host.endAt;
@@ -96,7 +99,8 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
         <FocusRegion id={controls} entry={showTransport ? 'transport' : 'open-player'} orientation="horizontal" edges={{left: ids.rail, right: people, down: queueRegion}} onLayout={entryRegion === controls ? enter : undefined} style={{height: 72, flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 26}}>
           {showTransport && <Button focusId="transport" testID="together-transport" disabled={state.busy} icon={playing ? 'i-pause' : 'i-play'} onPress={() => run(() => controller.transport(playing ? 'pause' : 'play'))}>{t(playing ? 'web.together.pauseAll' : 'web.together.playAll')}</Button>}
           {samePlayback && <Button focusId="open-player" testID="together-open-player" variant="glass" icon="i-tv" onPress={() => {const actual = ports.context.playback.getSnapshot(); if (controller.lifetime.current() && actual.fence && sameAuthority(actual.authority, controller.lifetime.authority) && actual.playback.itemId === group.timeline.itemId) ports.context.playback.open(actual.fence);}}>{t('web.together.openPlayer')}</Button>}
-          {!canControl && <Text style={[shellType(22, 400), {color: theme.colors.textTertiary, marginLeft: 14}]}>{t('web.together.pill.hostControls')}</Text>}
+          {canClaimHost && <Button focusId="claim-host" testID="together-claim-host" hasTVPreferredFocus disabled={state.busy} icon="i-people" onPress={() => run(() => controller.makeHost(group.viewerMemberId))}>{t('web.together.becomeHost')}</Button>}
+          {!canControl && !canClaimHost && <Text style={[shellType(22, 400), {color: theme.colors.textTertiary, marginLeft: 14}]}>{t('web.together.pill.hostControls')}</Text>}
         </FocusRegion>
         <Text style={[shellType(20, 700), {color: theme.colors.textTertiary, marginTop: 40, marginBottom: 12}]}>{t('player.queue')}</Text>
         <FocusRegion id={queueRegion} entry={entries[0]?.entryId} edges={{left: ids.rail, right: people, up: controls, down: footer}}>
