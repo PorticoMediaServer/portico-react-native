@@ -15,7 +15,9 @@ const ended = () => Object.assign(new Error('native_server_preferences_retired')
 /** One bootstrap reader and confirmed snapshot. Borrowers own neither its cache
  * nor its lifetime; writes retain the caller's exact server CAS revision. */
 export class NativeServerPreferences {
-  constructor(private readonly owner: NativeServerPreferencesOwner, private readonly ports: Ports) {}
+  private readonly owner: NativeServerPreferencesOwner;
+  private readonly ports: Ports;
+  constructor(owner: NativeServerPreferencesOwner, ports: Ports) {this.owner = owner; this.ports = ports;}
   private assert(deviceClass?: DeviceClass): void {
     if (!this.owner.current()) throw ended();
     if (deviceClass !== undefined && deviceClass !== this.owner.preferences().deviceClass) throw new Error('native_server_preferences_device_class_mismatch');

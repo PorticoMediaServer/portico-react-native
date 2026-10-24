@@ -181,7 +181,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       assertCurrent();
       const confirmed = currentPreferenceSnapshot(preferences, next);
       if (confirmed !== preferences) {preferences = confirmed; for (const listener of preferenceListeners) listener();}
-      return preferences;
+      return confirmed;
     }});
     bindNativeDeviceSettings(context, {storage: records, readRecord: () => installationSettings, acceptRecord: raw => {
       assertCurrent(); installationSettings = raw; for (const listener of [...preferenceListeners]) listener();
