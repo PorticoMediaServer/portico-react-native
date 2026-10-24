@@ -11,7 +11,8 @@ const fields = rows.map(row => ({key: row.key!, type: typeof row.control.default
   default: row.control.default, scopes: ['profile-server'], group: 'reading', labelKey: `preferences.${row.key}`,
   ...(row.control.options ? {allowedValues: row.control.options.map(option => option.value)} : {})}));
 const preferences = parsePreferenceSnapshot({deviceClass: 'mobile', registryRevision: 'fixture', registry: {revision: 'fixture', fields},
-  documents: [{scope: 'profile-server', revision: 1, activeRevision: 1, digest: 'a'.repeat(64), values: {}}],
+  documents: [{scope: 'profile-server', revision: 1, activeRevision: 1, digest: 'a'.repeat(64), values: {}},
+    {scope: 'profile-device-class', revision: 1, activeRevision: 1, digest: 'b'.repeat(64), values: {}}],
   effective: Object.fromEntries(fields.map(field => [field.key, field.default])),
   effectiveSource: Object.fromEntries(fields.map(field => [field.key, 'default'])), clampedFields: []});
 const bytes = Uint8Array.from({length: 2 * 49152 + 17}, (_, i) => i % 251), revision = 'a'.repeat(64);
