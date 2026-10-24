@@ -150,6 +150,9 @@ class PorticoMpvSupportTest {
     assertEquals(.20f, support.captionBottomInset(mapOf("position" to "raised")), 0f)
     assertEquals(.08f, support.captionBottomInset(mapOf("position" to "bottom")), 0f)
     assertEquals(.08f, support.captionBottomInset(null), 0f)
+    assertEquals(144, support.mpvCaptionMargin(mapOf("position" to "raised")))
+    for (style in listOf(null, mapOf("position" to "bottom"), mapOf("position" to "top"), mapOf("position" to "unknown")))
+      assertEquals("same original 58 scaled-pixel margin", 58, support.mpvCaptionMargin(style))
   }
 
   @Test
