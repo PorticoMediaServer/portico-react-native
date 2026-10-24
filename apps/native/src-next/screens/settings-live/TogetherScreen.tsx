@@ -40,7 +40,7 @@ export function NativeTogetherScreen({controller, media, ports, runtime}: {contr
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
-  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason} runtime={runtime}/>;
+  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason} text={runtime.text}/>;
   if (room) return theme.isTV ? <NativeTogetherTVRoom controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
@@ -95,8 +95,8 @@ function TogetherLobbyRegion({controller, region, rail, children}: {controller: 
   return <FocusRegion id={region} entry="start" orientation="free" edges={{left: rail}} onLayout={enter}>{children}</FocusRegion>;
 }
 
-function TogetherEndedScreen({controller, reason, runtime}: {controller: NativeTogetherController; reason: string; runtime: NativeShellRuntime}) {
-  const theme = useTheme(), t = runtime.text.t;
+function TogetherEndedScreen({controller, reason, text}: {controller: NativeTogetherController; reason: string; text: NativeShellRuntime['text']}) {
+  const theme = useTheme(), t = text.t;
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), region = ids.surface('together.ended');
   const [height, setHeight] = useState(0);
   const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'together-ended-lobby'} : undefined, controller.lifetime.current);
