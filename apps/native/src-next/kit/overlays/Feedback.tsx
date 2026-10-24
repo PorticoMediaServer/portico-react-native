@@ -116,13 +116,13 @@ export function ToastHost({toast, onDismiss, bottomOffset = 84, topOffset = 80, 
   </View>;
 }
 
-export function Banner({message, accessibilityLabel, variant = 'quiet', tone = 'warning', icon, action, visible = true, topInset = 0, testID}: BannerProps) {
+export function Banner({message, accessibilityLabel, variant = 'quiet', tone = 'warning', icon, action, visible = true, placement = 'overlay', topInset = 0, testID}: BannerProps) {
   const theme = useTheme();
   const animation = useSurfaceMotion(visible, 'banner');
   const recipe = glassRecipe();
   const toneColor = tone === 'warning' ? theme.colors.amber : tone === 'error' ? theme.colors.danger : tone === 'success' ? theme.colors.healthy : theme.colors.accentStrong;
   if (!animation.present) return null;
-  return <View pointerEvents="box-none" style={{position: 'absolute', top: topInset, left: 0, right: 0, zIndex: theme.layers.notice, alignItems: 'center', paddingHorizontal: theme.isTV ? 96 : 16}}>
+  return <View pointerEvents="box-none" style={placement === 'inline' ? {alignSelf: 'stretch'} : {position: 'absolute', top: topInset, left: 0, right: 0, zIndex: theme.layers.notice, alignItems: 'center', paddingHorizontal: theme.isTV ? 96 : 16}}>
     <Animated.View testID={testID} accessibilityLiveRegion="polite" style={[{flexDirection: 'row', alignItems: 'center', gap: variant === 'quiet' ? 10 : 14, borderRadius: variant === 'quiet' ? 20 : 14, paddingVertical: variant === 'quiet' ? 0 : 10, paddingLeft: variant === 'quiet' ? 14 : 16, paddingRight: action ? 10 : 18, minHeight: theme.isTV ? 64 : 40, backgroundColor: alpha(theme.colors.raised, 0.92), borderWidth: 1, borderColor: alpha(theme.colors.text, 0.1), overflow: 'hidden', maxWidth: theme.isTV ? 1200 : 720}, animation.style]}>
       {recipe.nativeBlur && <BlurView pointerEvents="none" style={StyleSheet.absoluteFill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raised}/>}
       {variant === 'quiet' ? <View accessible={false} style={{width: 7, height: 7, borderRadius: 4, backgroundColor: toneColor}}/> : <Icon name={icon ?? 'i-info'} color={toneColor} size={theme.isTV ? 28 : 20}/>}
