@@ -612,7 +612,7 @@ export class NativePlaybackRuntime {
   readSession = async (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime): Promise<Session | undefined> => {
     if (fence.kind !== 'queue' || !this.matches(fence) || lifetime.signal.aborted || !lifetime.isCurrent()) return;
     const original = this.currentSession(), queue = this.queue.getSnapshot().view?.queue, start = this.startEpoch;
-    if (!original || original.kind !== 'vod' || original.end || !queue || original.queue?.queueId !== queue.id
+    if (!original || original.kind !== 'vod' || original.role !== 'local' || original.state === 'ended' || original.end || !queue || original.queue?.queueId !== queue.id
       || original.queue.entryId !== fence.entryId || original.versionId !== fence.sourceId) return;
     const current = () => {
       const session = this.currentSession(), live = this.fence(), heldQueue = this.queue.getSnapshot().view?.queue;
@@ -624,7 +624,8 @@ export class NativePlaybackRuntime {
     try {
       if (!current()) return;
       const fresh = await new SessionsClient(this.http, this.o.timers).get(original.id, scoped.signal);
-      if (!current() || fresh.id !== original.id || fresh.revision !== original.revision || fresh.kind !== 'vod' || fresh.end
+      if (!current() || fresh.id !== original.id || fresh.revision !== original.revision || fresh.kind !== 'vod'
+        || fresh.role !== original.role || fresh.state === 'ended' || fresh.end
         || fresh.itemId !== original.itemId || fresh.versionId !== original.versionId
         || fresh.presentation.generation !== fence.generation || fresh.queue?.queueId !== queue.id
         || fresh.queue.entryId !== fence.entryId) return;

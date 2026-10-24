@@ -232,7 +232,7 @@ test('session reads discard late responses after caller retirement, viewer repla
 });
 
 test('fresh session reads refuse mismatched response revision, source, generation or occurrence', async () => {
-  for (const mismatch of ['revision', 'source', 'generation', 'occurrence'] as const) {
+  for (const mismatch of ['revision', 'source', 'generation', 'occurrence', 'role', 'ended'] as const) {
     const d = fixture(); await d.start('movie');
     try {
       const held = d.runtime.getSnapshot(), fence = held.fence!, path = encodedRoutePath('get_playback_session', {id: fence.sessionId});
@@ -241,6 +241,7 @@ test('fresh session reads refuse mismatched response revision, source, generatio
         const response = await d.server.handle(request), body = response.body as Record<string, unknown>;
         return {...response, body: {...body,
           ...(mismatch === 'revision' ? {revision: '999'} : mismatch === 'source' ? {versionId: 'other-version'}
+            : mismatch === 'role' ? {role: 'receiver'} : mismatch === 'ended' ? {state: 'ended'}
             : mismatch === 'generation' ? {presentation: {...body.presentation as object, generation: fence.generation + 1}}
             : {queue: {...body.queue as object, entryId: 'other-occurrence'}})}};
       });
