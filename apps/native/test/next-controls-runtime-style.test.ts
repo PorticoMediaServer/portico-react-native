@@ -91,17 +91,17 @@ async function controls(isTV = false, reduce = false) {
   const focusModule = await screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {
     react, 'react-native': {...native, findNodeHandle: () => null, TVFocusGuideView: 'TVFocusGuideView'},
     './useHostRef': await import('../src-next/kit/focus/useHostRef.ts'),
-    '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
+    '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, './registry': await import('../src-next/kit/focus/registry.ts'),
   });
   const {Focusable} = await screenModule(new URL('../src-next/kit/controls/Focusable.tsx', import.meta.url), {
     react, 'react-native': native, 'react-native-reanimated': animated, '@portico/design': {focusSpec},
-    '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
+    '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: () => motion},
     './control-model': controlModel, './useFocusedMenu': {useFocusedMenu}, '../focus': focusModule,
   });
   const {Button} = await screenModule(new URL('../src-next/kit/controls/Button.tsx', import.meta.url), {
     react, 'react-native': native, '@portico/design': {buttonSpec}, './Focusable': {Focusable},
     '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur: false})},
-    '../Icon': {Icon: 'Icon'}, '../theme': {useTheme: () => theme}, './control-model': controlModel,
+    '../Icon': {Icon: 'Icon'}, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': {useTheme: () => theme}, './control-model': controlModel,
   });
   const {PhoneTabBar} = await screenModule(new URL('../src-next/shell/PhoneTabBar.tsx', import.meta.url), {
     react, 'react-native': native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 34})},
