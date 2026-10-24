@@ -23,7 +23,10 @@ export function directoryRows(servers: readonly HostedServer[], currentId?: stri
 }
 
 export type DirectoryFailure = 'other' | 'opening' | 'waiting' | 'unreachable';
-const unreachable: ReadonlySet<ErrorCategory> = new Set(['offline', 'unreachable', 'timeout', 'busy', 'unavailable']);
+/** Route/connection refusals that mean the server could not be reached, not a feature
+ * or resource that is unavailable. Generic `busy`/`unavailable` codes keep their own
+ * error presentation rather than becoming a keep-trying chooser state. */
+const connectionCodes: ReadonlySet<string> = new Set(['server_unavailable', 'route_unavailable']);
 
 /** Which chooser state a connect attempt is in. A silent cancellation is `other`, so the
  * caller returns to the list without drawing a failure. */
@@ -31,7 +34,9 @@ export function directoryFailure(server: HostedServer | undefined, error: unknow
   if (!server) return 'other';
   if (error === undefined) return 'opening';
   const presentation = presentError(error, 'sign-in');
-  if (presentation.silent || !unreachable.has(presentation.category)) return 'other';
+  const connection = presentation.category === 'offline' || presentation.category === 'unreachable' || presentation.category === 'timeout'
+    || presentation.category === 'unavailable' && !!presentation.code && connectionCodes.has(presentation.code);
+  if (presentation.silent || !connection) return 'other';
   return needsOfflineServerDialog(server.presence, true, nowMs) ? 'unreachable' : 'waiting';
 }
 

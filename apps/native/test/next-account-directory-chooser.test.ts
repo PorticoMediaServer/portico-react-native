@@ -49,3 +49,22 @@ test('the offline body names the last online date, or says it has never been onl
   assert.deepEqual(directoryOfflineBody(server('never', {online: false, lastSeenAt: null})), {key: 'web.chooser.unreachableBodyNever'});
   assert.deepEqual(directoryOfflineBody(server('unknown')), {key: 'web.chooser.unreachableBodyNever'});
 });
+
+test('only actual connection failures become chooser states; other refusals keep their own error presentation', () => {
+  const stale = server('stale', {online: false, lastSeenAt: ago(2 * 60 * 60_000)});
+  const recent = server('recent', {online: false, lastSeenAt: ago(5 * 60_000)});
+  const failure = (values: Record<string, unknown>) => Object.assign(new Error('x'), values);
+  for (const error of [
+    failure({status: 401}), failure({status: 403}), failure({status: 409}), failure({status: 426}), failure({status: 429}),
+    failure({code: 'invalid_response'}), failure({code: 'invalid_request'}), failure({code: 'identity_mismatch'}),
+    failure({code: 'server_busy'}), failure({code: 'request_in_progress'}),
+    failure({code: 'metadata_unavailable'}), failure({code: 'web_unavailable'}), failure({code: 'source_unavailable'}),
+    failure({name: 'AbortError'}),
+  ]) assert.equal(directoryFailure(stale, error, now), 'other', String(error.code ?? error.status ?? error.name));
+  for (const code of ['server_unavailable', 'route_unavailable']) {
+    assert.equal(directoryFailure(stale, failure({code}), now), 'unreachable');
+    assert.equal(directoryFailure(recent, failure({code}), now), 'waiting');
+  }
+  assert.equal(directoryFailure(stale, new TypeError('Failed to fetch'), now), 'unreachable');
+  assert.equal(directoryFailure(recent, Object.assign(new Error('x'), {code: 'timeout'}), now), 'waiting');
+});
