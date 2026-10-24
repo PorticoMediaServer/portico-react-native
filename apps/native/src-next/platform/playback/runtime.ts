@@ -563,7 +563,10 @@ export class NativePlaybackRuntime {
   private readonly cataloguePort = Object.freeze({
     playSegments: (segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]> = {}) => this.playCatalogueSegments(segments, options),
     enqueueSegments: (segments: readonly SegmentInput[], placement: 'next' | 'end', lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => {
-      const result = this.enqueueTail.then(() => this.enqueueCatalogueSegments(segments, placement, lifetime));
+      // Capture the queue/source epochs before waiting behind another append: a call queued
+      // for queue A must never adopt a source B that replaced it while it waited.
+      const epoch = this.startEpoch, source = this.sourceEpoch;
+      const result = this.enqueueTail.then(() => this.enqueueCatalogueSegments(segments, placement, lifetime, epoch, source));
       this.enqueueTail = result.catch(() => {});
       return result;
     },
@@ -606,19 +609,21 @@ export class NativePlaybackRuntime {
    * group/follower authority decides whether the append is offered; the queue,
    * CAS and adoption stay here and in the one queue owner. */
   private async enqueueCatalogueSegments(segments: readonly SegmentInput[], placement: 'next' | 'end',
-    lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>): Promise<QueueHeader> {
+    lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>, epoch: number, source: number): Promise<QueueHeader> {
     const admitted = () => !lifetime.signal.aborted && this.currentAuthority() && lifetime.isCurrent();
     const retired = () => Object.assign(new Error('native_catalogue_retired'), {name: 'AbortError'});
     if (!admitted() || !segments.length) throw retired();
-    const epoch = this.startEpoch, source = this.sourceEpoch;
+    if (placement !== 'next' && placement !== 'end') throw Object.assign(new Error('native_catalogue_placement_invalid'), {code: 'invalid_queue_placement'});
     const valid = () => epoch === this.startEpoch && source === this.sourceEpoch && admitted();
     const scoped = this.selectionScope(lifetime.signal, valid);
     const client = new QueueClient({send: request => this.http.send({...request, signal: scoped.signal})}, this.o.requestId);
     const check = () => {if (!valid()) throw retired();};
+    if (!valid()) throw retired();
     try {
       this.connect(); check();
       const held = this.queue.getSnapshot().view?.queue;
       if (!held) {
+        check();
         const created = await client.create(segments, {signal: scoped.signal, retainQueueIds: this.retainedQueueIds()}); check();
         await this.queue.open(created.queue.id, scoped.signal); check();
         this.changed(); return created.queue;
