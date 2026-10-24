@@ -95,6 +95,7 @@ test('App forwards the installed observer to the same public collector and rejec
     await assert.rejects(pending, /scope|retired|cancel/i);
     await assert.rejects(command.capture(), /mounted whole-screen native root/);
     assert.equal(calls.length, 2, 'retired public roots cannot dispatch another native observation');
+    assert.ok(dispose);
     dispose(); dispose = undefined;
     assert.equal(globals.__PORTICO_NATIVE_LAYOUT_DUMP__, undefined);
   } finally {
