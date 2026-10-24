@@ -22,6 +22,8 @@ export type NativeLibrarySnapshot = Readonly<{
   capabilities?: BrowseCapabilities;
   predicates: readonly BrowseNode[];
   queryRevision: number;
+  /** The actual opaque Browse page token, absent until the current query arrives. */
+  revision?: string;
   unfilteredTotal?: BrowseRememberedTotal;
   sort?: BrowseSortSelection;
   defaultSort?: BrowseSortSelection;
@@ -54,6 +56,7 @@ export class NativeLibraryDestination {
   private pendingTab?: LibraryTabId;
   private readonly filters = new Set<NativeLibraryFilterDraft>();
   private readonly totals = new BrowseTotalsMemory();
+  private entries = new WeakSet<ContentEntry>();
 
   constructor(options: NativeLibraryDestination['options']) {
     this.options = options;
@@ -110,8 +113,9 @@ export class NativeLibraryDestination {
     if (!tab) throw new Error('native_library_tab_not_offered');
     if (tab.id === this.state.tab.id && this.state.phase === 'ready') return;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
+    this.entries = new WeakSet();
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, unfilteredTotal: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (tab.shows === 'rows') {
@@ -147,15 +151,23 @@ export class NativeLibraryDestination {
   private pages(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection): FetchPage<ContentEntry> {
     let revision: string | undefined;
     return async (start, count, signal) => {
+      if (!this.current() || this.state.phase !== 'ready' || this.state.tab !== tab || this.state.predicates !== predicates || this.state.sort !== sort) throw cancelled();
       const read = async () => parseBrowseResult(await this.request(browsePath(this.options.library.id), 'POST', this.build(capabilities, tab, predicates, sort, start, count, revision), signal));
       let result;
       try {result = await read();}
       catch (error) {
-        if ((error as {code?: unknown})?.code !== 'stale_continuation' || !revision || signal.aborted) throw error;
-        revision = undefined; result = await read();
+        if ((error as {code?: unknown})?.code === 'stale_continuation' && !signal.aborted && this.state.tab === tab && this.state.predicates === predicates) this.publish({phase: 'error', error});
+        throw error;
       }
       if (result.pivot !== tab.pivot || result.pageInfo.start !== start || result.entries.length > count) throw new Error('native_library_page_mismatch');
-      revision ??= result.pageInfo.revision || undefined;
+      if (!result.pageInfo.revision || revision && result.pageInfo.revision !== revision) {
+        const error = Object.assign(new Error('native_library_revision_changed'), {code: 'stale_continuation'});
+        if (this.state.tab === tab && this.state.predicates === predicates) this.publish({phase: 'error', error});
+        throw error;
+      }
+      revision ??= result.pageInfo.revision;
+      result.entries.forEach(entry => this.entries.add(entry));
+      if (this.state.tab === tab && this.state.predicates === predicates && this.state.revision !== revision) this.publish({revision});
       const base = tab.fixedFilter ?? [];
       const total = this.totals.observe(JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]), result, JSON.stringify(predicates) === JSON.stringify(base));
       if (this.state.tab === tab && this.state.predicates === predicates && this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
@@ -169,8 +181,9 @@ export class NativeLibraryDestination {
     this.build(capabilities, tab, predicates, sort, 0, 1);
     this.retireFilters();
     const next = Object.freeze([...predicates]);
+    this.entries = new WeakSet();
+    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
     collection.invalidate(this.pages(capabilities, tab, next, sort));
-    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, sort, memory: {firstVisibleIndex: 0, offset: 0}});
   };
   setQuick = (id: string, enabled: boolean): void => {
     const preset = this.state.capabilities?.quickFilters.find(value => value.id === id);
@@ -193,6 +206,9 @@ export class NativeLibraryDestination {
     this.filters.add(draft); return draft;
   };
   private retireFilters() {for (const draft of [...this.filters]) draft.dispose();}
+  contains = (entry: ContentEntry): boolean => this.current() && this.state.phase === 'ready' && (this.state.collection
+    ? this.entries.has(entry) && this.state.collection.residentItems().includes(entry)
+    : this.state.discover.appended.some(section => section.entries.includes(entry)));
   remember = (firstVisibleIndex: number, offset: number): void => {
     if (!this.current() || !Number.isSafeInteger(firstVisibleIndex) || firstVisibleIndex < 0 || !Number.isFinite(offset) || offset < 0) return;
     const first = this.state.collection?.itemAt(firstVisibleIndex);
@@ -210,8 +226,9 @@ export class NativeLibraryDestination {
     if (this.disposed) return;
     this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose(); this.totals.clear();
+    this.entries = new WeakSet();
     this.memory = {firstVisibleIndex: 0, offset: 0};
-    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined,
+    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined,
       discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, unfilteredTotal: undefined, error: undefined});
     this.listeners.clear();
   };

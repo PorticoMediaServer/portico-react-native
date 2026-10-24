@@ -67,6 +67,7 @@ test('Library reads the actual ID and vocabulary, with bounded sparse pages even
     const loading = destination.load(); assert.equal(destination.load(), loading, 'focus and OK share the same pending producer read'); await loading; await tick();
     const state = destination.getSnapshot(), collection = state.collection!;
     assert.equal(state.phase, 'ready'); assert.equal(calls[0].path, '/v1/libraries/actual-movies/browse-capabilities?pivot=movies');
+    assert.equal(state.revision, 'catalogue-1', 'selection callers receive the actual opaque page token');
     assert.equal(collection.itemAt(0)?.id, 'actual-0'); assert.equal(collection.getSnapshot().total, 50000);
     collection.ensureRange(48000, 48006); await tick(); await tick();
     assert.ok(collection.itemAt(48000)); assert.ok(collection.resident().items <= 240);
@@ -80,6 +81,50 @@ test('Library reads the actual ID and vocabulary, with bounded sparse pages even
     destination.remember(48000, 32007.75);
     assert.equal(destination.getMemory().offset, 32007.75); assert.equal(changes, 0, 'measured movement within the same visible row does not rerender the page per pixel');
     unsubscribe();
+  } finally {destination.dispose();}
+});
+
+test('a stale Library continuation cannot restart one page without its fence and mix sources', async () => {
+  let changed = false;
+  const reads: BrowseRequestBody[] = [];
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, raw?: unknown): Promise<T> => {
+    if (path.includes('capabilities')) return capabilities as T;
+    const body = raw as BrowseRequestBody; reads.push(body);
+    if (changed && body.range?.revision === 'catalogue-1') throw Object.assign(new Error('changed'), {code: 'stale_continuation'});
+    return {...page(body), pageInfo: {...page(body).pageInfo, revision: changed ? 'catalogue-2' : 'catalogue-1'}} as T;
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load(); await tick(); const old = destination.getSnapshot().collection!.itemAt(0)!;
+    assert.equal(destination.contains(old), true);
+    changed = true; destination.getSnapshot().collection!.ensureRange(48000, 48006); await tick(); await tick();
+    assert.equal(destination.getSnapshot().phase, 'error'); assert.equal(destination.getSnapshot().revision, 'catalogue-1');
+    assert.equal(reads.filter(body => !body.range?.revision).length, 1, 'only the original first page was unfenced');
+    assert.equal(destination.contains(old), false);
+    await destination.load(); await tick();
+    assert.equal(destination.getSnapshot().phase, 'ready'); assert.equal(destination.getSnapshot().revision, 'catalogue-2');
+    assert.equal(destination.contains(old), false, 'explicit refresh never revives a former row object');
+  } finally {destination.dispose();}
+});
+
+test('an applied query change retires old row actions before the replacement visible page arrives', async () => {
+  let hold = false;
+  const pending: {body: BrowseRequestBody; finish: (value: unknown) => void}[] = [];
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, raw?: unknown): Promise<T> => {
+    if (path.includes('capabilities')) return capabilities as T;
+    const body = raw as BrowseRequestBody;
+    if (hold) return new Promise<T>(resolve => {pending.push({body, finish: value => resolve(value as T)});});
+    return page(body) as T;
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load(); await tick(); const collection = destination.getSnapshot().collection!, old = collection.itemAt(0)!;
+    hold = true; destination.setQuery([{field: 'favorite', operator: 'equals', value: true}]); await tick();
+    assert.equal(collection.itemAt(0), old, 'the real visible collection retains its old picture until the new generation arrives');
+    assert.equal(destination.getSnapshot().revision, undefined); assert.equal(destination.contains(old), false);
+    hold = false; pending.forEach(request => request.finish(page(request.body))); await tick();
+    assert.equal(destination.getSnapshot().revision, 'catalogue-1', 'the same catalogue token does not undo the changed query lifetime');
+    assert.equal(destination.contains(old), false); assert.equal(destination.contains(collection.itemAt(0)!), true);
   } finally {destination.dispose();}
 });
 
