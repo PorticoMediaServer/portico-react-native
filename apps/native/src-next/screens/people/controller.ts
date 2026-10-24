@@ -10,6 +10,8 @@ export type NativePersonSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
   group: NativePersonGroup;
   page?: PersonPage;
+  /** Provenance of the actual canonical request, never inferred from row facts. */
+  pageOrigin?: 'initial' | 'continuation';
   error?: unknown;
 }>;
 
@@ -51,7 +53,7 @@ export function createNativePersonController(context: NativeShellBootstrapContex
       if (prior && (page.viewerFence !== prior.viewerFence || page.revision.catalog !== prior.revision.catalog || page.revision.viewer !== prior.revision.viewer)) {
         throw Object.assign(new Error('native_person_page_changed'), {code: 'stale_data'});
       }
-      publish({phase: 'ready', group, page});
+      publish({phase: 'ready', group, page, pageOrigin: cursor === undefined ? 'initial' : 'continuation'});
     } catch (error) {if (live()) publish({phase: 'error', group, error});}
     finally {if (request === controller) request = undefined;}
   };
