@@ -19,9 +19,16 @@ import {NativeVersionChooserController} from '../src-next/screens/watch/version-
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
 
 const {react} = hooks();
+let detailProjection: any = null;
+const detailStub = {DetailService: class {snapshot: any = {phase: 'idle', data: null}; listeners = new Set<() => void>();
+  async select() {this.snapshot = {phase: detailProjection ? 'ready' : 'error', data: detailProjection};}
+  getSnapshot = () => this.snapshot; subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
+  mutate = async (intent: unknown) => {mutations.push(intent);}; dispose = () => {this.snapshot = {phase: 'idle', data: null};};}};
+const mutations: unknown[] = [];
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
   react, '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient},
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http},
+  '../../../../../packages/client-core/src/detail': detailStub,
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo}, './playback-info': {readNativePlaybackInfo},
   './track-identity': {nativeWatchTracks},
@@ -38,7 +45,7 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
   let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string} | undefined};
   let respond = async (_url: URL) => offered as unknown;
-  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [];
+  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
     return new Response(JSON.stringify(await respond(url)), {status: 200});
@@ -48,9 +55,9 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
     playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, ...(readSession ? {readSession} : {})}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
     startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
-    title: {aboutLabel: 'About', navigate() {}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
+    title: {aboutLabel: 'About', navigate(entry: unknown) {navigations.push(entry);}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
-  return {screens, requests, menus, versions, starts, errors,
+  return {screens, requests, menus, versions, starts, errors, navigations,
     holdStart: (held: Promise<void>) => {holdStart = held;},
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
     respond: (value: typeof respond) => {respond = value;},
@@ -203,5 +210,40 @@ test('failure entry excludes only the actual failed grouped version and may leav
     await d.versions[0][1].choose('v1'); assert.equal(d.starts.length, 0);
     await d.versions[0][1].choose('v2'); assert.equal(d.starts[0][1].versionId, 'v2');
     assert.ok(d.starts[0][1].lifetime.signal instanceof AbortSignal);
+  } finally {d.screens.dispose();}
+});
+
+test('menu carries the captured title real personal actions, its own Play target and the title route', async () => {
+  detailProjection = {
+    item: {id: 'episode', kind: 'episode', title: 'Actual episode'}, languages: {audio: [], subtitles: []},
+    scope: {serverId: 'server', libraryId: 'library', itemId: 'episode', viewerFence: 'viewer'}, revision: {catalog: 1, viewer: 1}, markers: [],
+    personal: {watchlisted: false, favorite: false, watched: false, progressSeconds: 30, revision: 1, rating: null, lastPlayedAt: '', status: 'current', conflicts: []},
+    actions: [{id: 'resume', enabled: true, playback: {itemId: 'episode', startSeconds: 30}}, {id: 'watchlist', enabled: true},
+      {id: 'favorite', enabled: true}, {id: 'watched', enabled: true}],
+    metadata: {genres: [], ratings: [], credits: [], status: 'available'},
+  };
+  const d = fixture();
+  try {
+    await d.screens.menu(entry, () => true);
+    const menu = d.menus[0][1];
+    assert.equal(menu.entry.current().personal.watchlisted, false);
+    await menu.entry.play();
+    assert.deepEqual(d.starts[0].target, {itemId: 'episode', startSeconds: 30});
+    await menu.entry.mutate({action: 'favorite', value: true});
+    assert.deepEqual(mutations.at(-1), {action: 'favorite', value: true});
+    menu.entry.details?.();
+    assert.deepEqual(d.navigations, [entry]);
+    menu.entry.dispose();
+  } finally {detailProjection = null; d.screens.dispose();}
+});
+
+test('an unreadable detail keeps the independent File info menu and offers no personal row', async () => {
+  detailProjection = null;
+  const d = fixture();
+  try {
+    await d.screens.menu(entry, () => true);
+    assert.equal(typeof d.menus[0][1].fileInfo, 'function');
+    assert.equal(d.menus[0][1].entry, undefined);
+    assert.equal(d.errors.length, 0, 'the unreadable detail is not a user-facing menu failure');
   } finally {d.screens.dispose();}
 });

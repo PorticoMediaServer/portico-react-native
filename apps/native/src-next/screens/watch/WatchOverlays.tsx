@@ -92,10 +92,27 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (value.phase !== 'menu' && value.phase !== 'file-pending' && value.phase !== 'versions-pending') return <ManageSurface value={value} presenters={presenters} common={common}/>;
   if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
   const entry = value.capture.entry, art = runtime.artwork(entry.posterUrl), subject = named(entry);
+  const detail = value.detail, personal = detail?.personal, tv = Platform.isTV;
+  const playable = tv && !!value.actions?.entry?.play, personalRows = detail?.actions ?? [];
+  const allows = (id: string) => personalRows.some(action => action.id === id && action.enabled);
+  const resuming = (personal?.progressSeconds ?? entry.progressSeconds ?? 0) > 0;
+  const watched = personal?.watched ?? entry.watched ?? false, show = entry.kind === 'show';
   const kindKey = entry.kind === 'movie' ? 'search.kind.movie' : entry.kind === 'show' ? 'search.kind.show' : entry.kind === 'artist' ? 'search.kind.artist' : entry.kind === 'album' ? 'search.kind.album' : undefined;
-  const items: MenuEntry[] = [{id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}}];
-  if (value.actions?.differentVersion) items.unshift({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
-  return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef}
+  const items: MenuEntry[] = [];
+  if (playable) items.push({id: 'play', label: t(resuming ? 'entry.resume' : 'entry.play'), icon: 'i-play', onSelect: () => presenters.playEntry(value)});
+  if (personal && tv && allows('watchlist')) items.push({id: 'watchlist', label: t(personal.watchlisted ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'),
+    icon: personal.watchlisted ? 'i-check' : 'i-plus', selected: personal.watchlisted, disabled: value.busy,
+    onSelect: () => {void presenters.personal(value, {action: 'watchlist', value: !personal.watchlisted});}});
+  if (personal && allows('favorite')) items.push({id: 'favorite', label: t(personal.favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'),
+    icon: personal.favorite ? 'i-heart-f' : 'i-heart', selected: personal.favorite, disabled: value.busy,
+    onSelect: () => {void presenters.personal(value, {action: 'favorite', value: !personal.favorite});}});
+  if (personal && allows('watched')) items.push({id: 'watched', label: t(show ? watched ? 'entry.markShowUnwatched' : 'entry.markShowWatched' : watched ? 'entry.markUnwatched' : 'entry.markWatched'),
+    icon: 'i-check', selected: watched, disabled: value.busy, onSelect: () => {void presenters.personal(value, {action: 'watched', value: !watched});}});
+  if (items.length) items.push({id: 'title-separator', separator: true});
+  if (value.actions?.differentVersion) items.push({id: 'different-version', label: t('next.overlays.differentVersion'), icon: 'i-film', onSelect: () => {void presenters.differentVersion(value);}});
+  items.push({id: 'file-info', label: t('next.overlays.fileInfo'), icon: 'i-info', onSelect: () => {void presenters.fileInfo(value);}});
+  if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
+  return <Menu open testID="watch-title-menu" title={subject} items={items} touchContext={!Platform.isTV} anchorRef={value.anchorRef} returnFocusRef={value.anchorRef}
     touchHeader={<TouchMenuHeader title={subject} artwork={art ? <Artwork source={art} width={40} height={60}/> : undefined} kind={kindKey ? t(kindKey) : undefined} year={entry.year === undefined ? undefined : defaultI18n.number(entry.year, {useGrouping: false})}/>}
     onOpenChange={open => {if (!open) presenters.closeMenu(value);}}/>;
 }

@@ -142,3 +142,24 @@ test('the real menu-to-chooser presenter keeps its sheet until start settles and
     } finally {held.resolve(); d.dispose();}
   }
 });
+
+test('the TV entry menu owns the captured detail lifetime and its real play, personal and details commands', async () => {
+  const d = await fixture(), calls: string[] = [];
+  const actions = {fileInfo: async () => {}, entry: {current: () => undefined, subscribe: () => () => {},
+    play: async () => {calls.push('play');}, mutate: async (intent: unknown) => {calls.push(JSON.stringify(intent));},
+    details: () => {calls.push('details');}, dispose: () => {calls.push('dispose');}}};
+  try {
+    d.presenters.openMenu(d.capture, actions);
+    const menu = d.presenters.getSnapshot()!;
+    assert.equal(menu.phase, 'menu');
+    await d.presenters.personal(menu, {action: 'watched', value: true});
+    assert.deepEqual(calls, [JSON.stringify({action: 'watched', value: true})]);
+    d.presenters.playEntry(d.presenters.getSnapshot()!);
+    assert.equal(d.presenters.getSnapshot(), undefined);
+    assert.deepEqual(calls.slice(1), ['dispose', 'play']);
+    d.presenters.openMenu(d.capture, actions);
+    d.presenters.showDetails(d.presenters.getSnapshot()!);
+    assert.equal(d.presenters.getSnapshot(), undefined);
+    assert.equal(calls.at(-1), 'details');
+  } finally {d.dispose();}
+});

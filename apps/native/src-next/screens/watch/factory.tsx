@@ -1,7 +1,7 @@
 import React, {useSyncExternalStore} from 'react';
 import type {View} from 'react-native';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src';
-import type {DetailScope} from '../../../../../packages/client-core/src/detail';
+import {DetailService, type DetailProjection, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {ManageAction} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
@@ -39,7 +39,17 @@ export type NativeWatchCapture = Readonly<{
   current: () => boolean;
 }>;
 export type NativeVersionStartSelection = NativePlaybackVersionSelection;
-export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>}>;
+/** The real menu producers for the captured entry: one lazy detail read, its
+ * personal actions, the server's own playback target and the title route. */
+export type NativeWatchMenuEntry = Readonly<{
+  current: () => DetailProjection | undefined;
+  subscribe: (listener: () => void) => () => void;
+  play?: () => Promise<void>;
+  mutate: (intent: PersonalIntent) => Promise<void>;
+  details?: () => void;
+  dispose: () => void;
+}>;
+export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; entry?: NativeWatchMenuEntry}>;
 export type NativeVersionDestination = NativeVersionChooserController;
 export type NativeWatchFactoryPorts = Readonly<{
   api: HttpLocalApi;
@@ -174,7 +184,32 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const offered = entry.playback?.itemId === entry.id ? await request(captured, signal => options.options(entry.id, {}, signal)).catch(error => {if (current(captured)) ports.title.reportError(error); return undefined;}) : undefined;
     if (!current(captured)) return;
     const hasVersions = !!ports.openVersions && !!ports.startVersion && !!offered && offered.itemId === entry.id && offered.versions.length >= 2 && new Set(offered.versions.map(version => version.id)).size === offered.versions.length;
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {})}, anchorRef);
+    // The entry's own live detail owns the personal rows, Play/Resume target and
+    // Details route. An unreadable detail keeps the independent File info menu.
+    let detail: DetailService | undefined;
+    if (entry.libraryId) {
+      const candidate = new DetailService({api: ports.api, scope: ports.scope, requestId: ports.requestId});
+      try {await candidate.select({libraryId: entry.libraryId, itemId: entry.id});}
+      catch {candidate.dispose();}
+      if (!current(captured)) {candidate.dispose(); return;}
+      if (!candidate.getSnapshot().data) candidate.dispose(); else detail = candidate;
+    }
+    const projection = detail?.getSnapshot().data;
+    const primary = projection?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over')?.playback ?? entry.playback;
+    const route = ports.navigation.getSnapshot().route, onTitle = route.kind === 'title' && titleKey(route.entry) === titleKey(entry);
+    const menuEntry: NativeWatchMenuEntry | undefined = detail ? Object.freeze({
+      current: () => detail!.getSnapshot().data ?? undefined,
+      subscribe: listener => detail!.subscribe(listener),
+      ...(primary ? {play: async () => {
+        const operation = new AbortController();
+        await ports.playback.start({entry, target: primary, lifetime: {signal: operation.signal, isCurrent: () => current(captured)}});
+      }} : {}),
+      mutate: async (intent: PersonalIntent) => {await detail!.mutate(intent);},
+      ...(onTitle ? {} : {details: () => {if (current(captured)) ports.title.navigate(entry);}}),
+      dispose: () => {detail?.dispose(); detail = undefined;},
+    }) : undefined;
+    if (detail && !current(captured)) {detail.dispose(); return;}
+    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {
