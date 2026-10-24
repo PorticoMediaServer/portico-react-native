@@ -74,7 +74,7 @@ function ProfileRoute({context, onBack}: {context: NativeShellBootstrapContext; 
           && now.viewer.authority === session.viewer.authority
           && !!live && live.serverId === serverPin.serverId && live.publicKey === serverPin.publicKey && live.fingerprint === serverPin.fingerprint;
       };
-      setRecovery({id: target.id, name: target.name, controller: new NativeProfileRecovery({api: context.api, snapshot: context.account, profileId: target.id, kind: selected.signIn, authorityCurrent,
+      setRecovery({id: target.id, name: target.name, controller: new NativeProfileRecovery({api: context.api, snapshot: context.account, profileId: target.id, selectedFamilyId: session.sessionFamilyId, kind: selected.signIn, authorityCurrent,
         temporary: grant => temporaryRecoveryApi(context.api, grant),
         portico: async () => {
           const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
