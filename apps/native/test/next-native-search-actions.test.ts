@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type {SearchEntry, SearchGroup} from '../../../packages/client-core/src/search';
+import type {SearchGroup} from '../../../packages/client-core/src/search';
 import type {NativeShellBootstrapContext, RestoredNativeShellRuntime} from '../src-next/shell/bootstrap';
 import {createNativeSearchController} from '../src-next/screens/search/controller';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
@@ -76,7 +76,7 @@ test('same arrived Search page after pause cannot revive pending Play; a new gen
     f.actions.play(movie, 'movies'); await begun.promise;
     f.source.source.pause(); f.source.source.resume();
     const after = f.source.source.getSnapshot().search;
-    assert.equal(f.item('movies'), movie); assert.equal(after.revision?.catalog, before.revision?.catalog);
+    assert.equal(f.item('movies'), movie); assert.equal(after.data?.revision.catalog, before.data?.revision.catalog);
     assert.notEqual(after.generation, before.generation); assert.equal(signal!.aborted, true, 'original generation retires despite exact resident object and unchanged nav');
     f.queue(undefined); release.resolve(); await f.app.settle();
     assert.equal(f.context.playback.runtime.getSnapshot().fence, undefined, 'late old queue cannot adopt');
