@@ -3,7 +3,7 @@ export type HostRect = Readonly<{x: number; y: number; width: number; height: nu
 export type HostMeasurement = Readonly<{rect: HostRect; source: 'bounding-client-rect' | 'measure-in-window'}>
   | Readonly<{unavailable: string}>;
 
-type HostReader = Readonly<{
+export type NativeHostReader = Readonly<{
   getBoundingClientRect?: () => unknown;
   measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void;
 }>;
@@ -19,7 +19,7 @@ function rect(value: unknown): HostRect | undefined {
 
 /** Coordinates remain in the host API's logical window units. DPR is never applied here. */
 export async function measureNativeHost(
-  host: HostReader | null | undefined,
+  host: NativeHostReader | null | undefined,
   options: Readonly<{signal?: AbortSignal; timeoutMs?: number}> = {},
 ): Promise<HostMeasurement> {
   const {signal} = options;

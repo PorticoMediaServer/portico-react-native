@@ -1,5 +1,5 @@
 /** Produces the public fidelity contract; validation/comparison stay in server tools/fidelity. */
-import {measureNativeHost, relativeToRoot, type HostRect} from './native-host.ts';
+import {measureNativeHost, relativeToRoot, type HostRect, type NativeHostReader} from './native-host.ts';
 import type {NativeMeasurementRegistry} from './registry.ts';
 
 export type NativeViewport = Readonly<{width: number; height: number; deviceScaleFactor: number}>;
@@ -12,7 +12,7 @@ export type NativeCaptureOptions = Readonly<{
   anchors?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
 }>;
-type Node = object & {
+type Node = object & NativeHostReader & {
   nodeType?: unknown; nodeName?: unknown; childNodes?: unknown; isConnected?: unknown;
   offsetWidth?: unknown; offsetHeight?: unknown;
 };
