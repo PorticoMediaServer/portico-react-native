@@ -8,6 +8,13 @@ import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createNativeMeasurementRegistry} from '../src-next/dev/layout-dump/registry';
 
+async function observationModule() {
+  const react = {...React, default: React};
+  const hostRef = await screenModule(new URL('../src-next/kit/focus/useHostRef.ts', import.meta.url), {react});
+  return screenModule(new URL('../src-next/kit/dev-observation.ts', import.meta.url), {react,
+    'react-native': {findNodeHandle: (host: {tag: number}) => host.tag}, './focus/useHostRef': hostRef});
+}
+
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 
 test('the TV front door renders its wordmark and only actual authority-choice callbacks without starting either flow', async () => {
@@ -23,13 +30,14 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
       '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/controls': {Button: 'Button'},
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: (activation: unknown, address: unknown) => entries.push({activation, address})},
-      '../../shell/model': {shellLayout},
+      '../../shell/model': {shellLayout}, '../../kit/dev-observation': await observationModule(),
     });
     const props = {busy: false, onPortico: () => calls.push('portico'), onLocal: () => calls.push('local')};
     host = createHookHost(() => {const provider = TVFrontDoor(props); assert.equal(provider.type, 'Provider'); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     assert.deepEqual(calls, [], 'mounting does not contact Portico Services or a media server');
     const all = nodes(tree), logo = all.find(node => node.type === 'Image');
+    assert.equal(tree.props.ref, undefined, 'the production root has no collector ref');
     assert.equal(logo.props.source, 'wordmark'); assert.equal(logo.props.accessibilityLabel, defaultI18n.t('accounts.brand'));
     const buttons = all.filter(node => node.type === 'Button');
     assert.deepEqual(buttons.map(node => node.props.children), [defaultI18n.t('accounts.signIn.portico'), defaultI18n.t('accounts.signIn.local')]);
@@ -67,7 +75,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
   Object.defineProperty(globalThis, 'require', {configurable: true, value: (path: string) => {
     requires.push(path);
     if (path === '../../../assets/wordmark.png') return 'wordmark';
-    assert.equal(path, '../../dev/layout-dump/index');
+    assert.ok(path === '../../dev/layout-dump/index' || path === '../dev/layout-dump/index');
     return {registerNativeHost: registry.register};
   }});
   let host: ReturnType<typeof createHookHost> | undefined;
@@ -80,11 +88,20 @@ test('DEV TV heading records only native text events, invalidates changed layout
       '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/controls': {Button: 'Button'},
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: () => {}}, '../../shell/model': {shellLayout},
+      '../../kit/dev-observation': await observationModule(),
     });
     const props = {busy: false, onPortico: () => {throw new Error('unexpected sign-in');}, onLocal: () => {throw new Error('unexpected local sign-in');}};
     host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     const heading = () => nodes(tree).find(node => node.props.accessibilityRole === 'header');
+    const root = {tag: 201}, replacementRoot = {tag: 202};
+    tree.props.ref(root);
+    assert.equal(registry.read(root)?.kind, 'view');
+    assert.equal(registry.read(root)?.semanticId, 'tv-front-door');
+    assert.deepEqual(registry.read(root)?.flattenedStyle, {}, 'the root is scope proof, not guessed paint or an anchor');
+    tree.props.ref(replacementRoot);
+    assert.equal(registry.read(root), undefined);
+    assert.equal(registry.read(replacementRoot)?.semanticId, 'tv-front-door');
     assert.equal(nodes(tree).filter(node => node.type === 'Text').length, 1, 'no body node is added');
     const first = {tag: 101}, replacement = {tag: 102};
     heading().props.ref(first);
@@ -119,9 +136,11 @@ test('DEV TV heading records only native text events, invalidates changed layout
     heading().props.onTextLayout(event(replacement.tag));
     await act(() => host!.unmount()); host = undefined;
     assert.equal(registry.read(replacement), undefined);
+    assert.equal(registry.read(replacementRoot), undefined, 'leaving this existing Welcome view retires the fixture root');
     heading().props.onTextLayout(event(replacement.tag));
     assert.equal(registry.read(replacement), undefined, 'late events after unmount cannot recreate a registration');
     assert.ok(requires.includes('../../dev/layout-dump/index'));
+    assert.ok(requires.includes('../dev/layout-dump/index'));
   } finally {
     host?.unmount();
     if (beforeRequire) Object.defineProperty(globalThis, 'require', beforeRequire); else delete (globalThis as {require?: unknown}).require;

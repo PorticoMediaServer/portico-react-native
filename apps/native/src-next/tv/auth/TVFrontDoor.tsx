@@ -8,6 +8,7 @@ import {nativeType, useTheme} from '../../kit/theme';
 import {useDestinationEntryFocus} from '../../screens/destinations/useEntryFocus';
 import {shellLayout} from '../../shell/model';
 import type {HostRegistration} from '../../dev/layout-dump/index';
+import {useNativeObservation} from '../../kit/dev-observation';
 
 /** Only this presenter's public heading is observed; supplied error content and
  * Button internals keep their own owners. No resolved paint/font is inferred. */
@@ -54,7 +55,8 @@ function FrontDoor({busy, error, onPortico, onLocal}: TVFrontDoorProps) {
   const titleStyle = useMemo(() => [nativeType({size: 88, weight: 800, lineHeight: 88, tracking: -.045}, theme.textScale),
     {color: theme.colors.text, marginBottom: 56}], [theme.textScale, theme.colors.text]);
   const measurement = useHeadingMeasurement(title, titleStyle, window.width, window.height);
-  return <View testID="tv-front-door" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  const rootObservation = useNativeObservation<View>({kind: 'view', semanticId: 'tv-front-door'});
+  return <View ref={rootObservation.ref} testID="tv-front-door" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
       transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
       <ColourBackdrop shape="side" fill/>
