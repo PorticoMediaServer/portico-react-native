@@ -21,16 +21,34 @@ import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
 import {StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
-import {useTheme} from '../../kit/theme';
+import {useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
-import {homeHeroBlock, homeRowSpacing, homeRowSubtitle} from './native-home-r46';
 import {authorizedHome, homeCardText, homePlayTarget, pageAtVisibleEnd, platformRows} from './model';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const t = defaultI18n.t;
+
+/**
+ * Phone Home measurements the drawn frame states outside the shared kit:
+ * phone-app.html `.phone .row{margin-top:28px}` and `.phone .row-head .sub{font-size:13px}`
+ * (kit.css's shared row-subtitle role is 14). TV and desktop keep their shipped values.
+ */
+export function homeRowSpacing(theme: Theme) {
+  return theme.isTV ? {marginBottom: 30} : theme.layoutMode === 'phone' ? {marginTop: 28} : {marginBottom: 18};
+}
+
+/** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
+export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
+  return theme.isTV ? (preview ? 588 : 820) : theme.layoutMode === 'phone' ? heroHeight : heroHeight + theme.spec.shelf.homeOverlap;
+}
+
+/** The drawn phone row sub-line is 13 px; the shared rowSubtitle role carries 14. */
+export function homeRowSubtitle(theme: Theme) {
+  return theme.layoutMode === 'phone' ? theme.type.caption : theme.type.rowSubtitle;
+}
 
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
 export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange}: {

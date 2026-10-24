@@ -2,8 +2,30 @@ import React from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {useTheme} from '../../kit/theme';
-import {homeFactStrong, homeFactTag} from './native-home-r46';
+import {useTheme, type Theme} from '../../kit/theme';
+
+/** A hex colour with the drawn alpha; `rgba(237,245,250,.28)` is the same paint. */
+function withAlpha(color: string, value: number): string {
+  const channel = Math.round(Math.min(1, Math.max(0, value)) * 255).toString(16).padStart(2, '0').toUpperCase();
+  return `${color}${channel}`;
+}
+
+/** kit.css `.tag`: 3×9 padding, 1px rgba(237,245,250,.28), radius 6 (TV draws 3×12, 1.5px, radius 8). */
+export function homeFactTag(theme: Theme) {
+  const phone = !theme.isTV;
+  return {
+    paddingHorizontal: phone ? 9 : 12,
+    paddingVertical: 3,
+    borderWidth: phone ? 1 : 1.5,
+    borderRadius: phone ? theme.baseRadii.tag : 8,
+    borderColor: withAlpha(theme.colors.text, phone ? 0.28 : 0.3),
+  } as const;
+}
+
+/** kit.css `.meta strong` draws the 700 face; native supplies one file per weight. */
+export function homeFactStrong(theme: Theme): string {
+  return theme.isTV ? theme.type.bodyStrong.fontFamily ?? '' : theme.type.rowHeading.fontFamily ?? '';
+}
 
 /** The display context stays canonical; continuation timing is a separate genuine projection. */
 export function HomeHeroFacts({facts, continuation}: {facts: readonly FactPart[]; continuation?: CardTextModel}) {
