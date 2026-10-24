@@ -6,11 +6,12 @@ import ReactAppDependencyProvider
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
   /// The allowlist lives in `PorticoURLRoutes` so its grammar can be compiled
-  /// and tested without UIKit. Anything it refuses is not forwarded.
+  /// and tested without UIKit. DEBUG public measurement refusals use a fixed marker;
+  /// ordinary refused URLs are never forwarded.
   func application(_ app: UIApplication, open url: URL,
                    options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-    guard PorticoURLRoutes.allows(url) else { return false }
-    return RCTLinkingManager.application(app, open: url, options: options)
+    guard let route = PorticoURLRoutes.forwarded(url) else { return false }
+    return RCTLinkingManager.application(app, open: route, options: options)
   }
 
   var window: UIWindow?
@@ -39,8 +40,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     let window = UIWindow(windowScene: scene)
     self.window = window
     var launch: [UIApplication.LaunchOptionsKey: Any] = [:]
-    if let url = options.urlContexts.first?.url, PorticoURLRoutes.allows(url) {
-      launch[.url] = url
+    if let url = options.urlContexts.first?.url, let route = PorticoURLRoutes.forwarded(url) {
+      launch[.url] = route
     }
     reactNativeFactory?.startReactNative(withModuleName: "Portico", in: window, launchOptions: launch)
     return window

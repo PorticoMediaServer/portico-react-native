@@ -26,6 +26,19 @@ struct URLRouteTests {
     }
   }
 
+  static func expectForwarded(_ text: String, _ wanted: String?, _ why: String) {
+    guard let url = URL(string: text) else {
+      FileHandle.standardError.write("FAIL unrepresentable forwarding vector: \(why)\n".data(using: .utf8)!)
+      failures += 1
+      return
+    }
+    let actual = PorticoURLRoutes.forwarded(url)?.absoluteString
+    if actual != wanted {
+      FileHandle.standardError.write("FAIL forwarding: \(why) — expected \(wanted ?? "nil"), got \(actual ?? "nil")\n".data(using: .utf8)!)
+      failures += 1
+    }
+  }
+
   static func main() {
     // Malformed fragments are refused, never a crash (an empty key/value split).
     expect("portico://invite#=", false, "empty fragment pair")
@@ -88,6 +101,60 @@ struct URLRouteTests {
     expect("portico://join#code=" + invite + "&server=https%3A%2F%2Fdemo.getportico.tv", true, "the app's join route")
     expect("portico://join#code=" + invite, false, "a join route without the server")
     expect("portico://join?code=" + invite, false, "a join code in the query")
+
+    let publicMeasurement = "portico://native-layout?specimen=signed-out-welcome"
+    let refusedMeasurement = "portico://native-layout"
+#if DEBUG
+    let allowedPublic = true
+    let publicForward: String? = publicMeasurement
+    let refusedForward: String? = refusedMeasurement
+#else
+    let allowedPublic = false
+    let publicForward: String? = nil
+    let refusedForward: String? = nil
+#endif
+    expect(publicMeasurement, allowedPublic, "exact DEBUG public welcome only")
+    expectForwarded(publicMeasurement, publicForward, "exact public welcome forwarding")
+    let malformedMeasurement = [
+      refusedMeasurement,
+      "portico://native-layout?specimen=unknown",
+      "portico://native-layout?specimen=",
+      "portico://native-layout?specimen",
+      publicMeasurement + "&specimen=signed-out-welcome",
+      publicMeasurement + "&server=https://fixture.invalid",
+      publicMeasurement + "&password=synthetic-value",
+      publicMeasurement + "&runtime=injected",
+      publicMeasurement + "&",
+      publicMeasurement + "#",
+      publicMeasurement + "#synthetic-value",
+      "portico://native-layout/?specimen=signed-out-welcome",
+      "portico://native-layout/path?specimen=signed-out-welcome",
+      "portico://user:synthetic-value@native-layout?specimen=signed-out-welcome",
+      "portico://native-layout:1?specimen=signed-out-welcome",
+      "portico://native-layout?%73pecimen=signed-out-welcome",
+      "portico://native-layout?specimen=signed-out-%77elcome",
+      "portico://%6eative-layout?specimen=signed-out-welcome",
+      "portico://NATIVE-LAYOUT?specimen=signed-out-welcome",
+      "PORTICO://native-layout?specimen=signed-out-welcome",
+      "portico://native-layout-bad?specimen=signed-out-welcome",
+      "portico://native-layout%25zz?specimen=signed-out-welcome",
+      "portico:native-layout?specimen=signed-out-welcome",
+      "portico:/native-layout?specimen=signed-out-welcome",
+      "portico:////native-layout?specimen=signed-out-welcome",
+      "portico:%5Cnative-layout?specimen=signed-out-welcome",
+      "https://native-layout?specimen=signed-out-welcome",
+    ]
+    for text in malformedMeasurement {
+      expect(text, false, "malformed measurement is never admitted")
+      expectForwarded(text, refusedForward, "DEBUG measurement refusal strips all caller data")
+    }
+    expectForwarded(refusedMeasurement, refusedForward, "refusal marker is idempotent")
+    for text in ["portico://item/item-id", "portico://play/item-id", "portico://downloads", "portico://account?tab=security", "portico://device", "portico://together/join/ABCD"] {
+      expectForwarded(text, text, "existing ordinary routes are unchanged")
+    }
+    for text in ["portico://unknown", "portico://item/native-layout/path", "https://fixture.invalid/native-layout"] {
+      expectForwarded(text, nil, "ordinary refused URLs are not measurement requests")
+    }
 
     if failures == 0 {
       print("PASS native URL allowlist: Top Shelf item/play forwarded, account-return preserved, traversal/credentials/port/query/fragment/overlong refused")

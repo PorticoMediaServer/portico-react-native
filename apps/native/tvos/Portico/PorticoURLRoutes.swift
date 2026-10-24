@@ -11,6 +11,17 @@ import Foundation
 /// against the signed-in viewer by the JavaScript router before anything opens
 /// or plays; this decides only what is well-formed enough to be worth routing.
 public enum PorticoURLRoutes {
+#if DEBUG
+  private static let publicMeasurement = "portico://native-layout?specimen=signed-out-welcome"
+  private static let refusedMeasurement = URL(string: "portico://native-layout")!
+  private static func isMeasurementAttempt(_ url: URL) -> Bool {
+    let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?.host
+    return host?.lowercased() == "native-layout" || url.absoluteString.range(
+      of: #"^portico:(?:[/\\]|%2f|%5c)*(?:[^/?#]*@)?native-layout"#,
+      options: [.regularExpression, .caseInsensitive]) != nil
+  }
+#endif
+
   /// Identifiers use the same shape the JavaScript router accepts, so a URL that
   /// gets through is one it will recognise rather than silently drop.
   static func safeIdentifier(_ value: String?, limit: Int) -> Bool {
@@ -179,6 +190,16 @@ public enum PorticoURLRoutes {
     return candidate
   }
 
+  /// One forwarding decision for the delegates. A DEBUG measurement refusal must
+  /// reach the strict JS classifier as a fixed public marker, never as a nil URL
+  /// that would select ordinary auth restoration or carry arbitrary caller data.
+  public static func forwarded(_ url: URL) -> URL? {
+#if DEBUG
+    if isMeasurementAttempt(url) { return allows(url) ? url : refusedMeasurement }
+#endif
+    return allows(url) ? url : nil
+  }
+
   /// The single decision the app delegate makes, for warm opens and cold launches alike
   /// (SEC-22: a cold launch's URL is filtered before React Native can read it).
   public static func allows(_ url: URL) -> Bool {
@@ -186,6 +207,9 @@ public enum PorticoURLRoutes {
           parts.scheme == "portico",
           parts.user == nil, parts.password == nil, parts.port == nil
     else { return false }
+#if DEBUG
+    if url.absoluteString == publicMeasurement { return true }
+#endif
     // Only an invitation carries a fragment (its token or code); every other route refuses one.
     if parts.fragment != nil { return isInvite(parts) || isJoin(parts) }
     return isAccountReturn(parts) || isContentRoute(parts) || isDownloads(parts) || isAccount(parts) || isDevice(parts) || isTogetherJoin(parts)
