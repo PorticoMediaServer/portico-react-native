@@ -10,16 +10,27 @@ import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
-import {DetailsPanel, type StateFact} from '../../../kit/states';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
 
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen'>;
+type DetailRow = Readonly<{id: string; label: string; value: string}>;
 const factLine = (text: string) => Object.freeze([{id: 'caption', text, role: 'value' as const}]);
 const noSelection: TrackSelection = {active: false, isSelected: () => false, onToggle: () => {}, onEnter: () => {}, renderControl: () => null};
 const t = defaultI18n.t;
+
+function DetailRows({rows, testID}: {rows: readonly DetailRow[]; testID?: string}) {
+  const theme = useTheme();
+  return <View testID={testID} style={{width: 900, marginTop: 16}}>
+    {rows.map((row, index) => <View key={row.id} style={{flexDirection: 'row', alignItems: 'baseline', gap: 24, paddingVertical: 14,
+      borderTopWidth: index ? 1 : 0, borderColor: theme.colors.line}}>
+      <Text style={[browseType(theme, 22, 600), {width: 220, color: theme.colors.textTertiary}]}>{row.label}</Text>
+      <Text style={[browseType(theme, 22, 400), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
+    </View>)}
+  </View>;
+}
 
 function usePlayback(runtime: NativeShellRuntime) {
   const adapter = runtime.playback;
@@ -132,7 +143,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
   const albums = releases.find(group => group.id === 'albums')?.entries ?? [];
   const otherReleases = releases.filter(group => group.id !== 'albums');
   const allSongs = snapshot.allSongs;
-  const detailFacts: readonly StateFact[] = [
+  const detailFacts: readonly DetailRow[] = [
     ...(artist.country ? [{id: 'country', label: t('title.country'), value: artist.country}] : []),
     ...(years ? [{id: 'activeYears', label: t('title.activeYears'), value: years}] : []),
     {id: 'type', label: t('title.albumType'), value: artist.artistType ?? t('title.kind', {kind: 'artist'})},
@@ -178,7 +189,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
         </View>
         <View>
           <SectionHeading title={t('title.details')}/>
-          <DetailsPanel audience="viewer" facts={detailFacts} style={{marginTop: 18, width: 900}} testID={`music-artist-details-${encodeURIComponent(entry.id)}`}/>
+          <DetailRows rows={detailFacts} testID={`music-artist-details-${encodeURIComponent(entry.id)}`}/>
           {artist.overview ? <View style={{marginTop: 22, width: 900}}>
             <Text style={[browseType(theme, 22, 400, 0), {color: theme.colors.textSecondary, lineHeight: 34}]}>{artist.overview}</Text>
             {artist.overviewSource ? <Text style={[browseType(theme, 19, 500), {color: theme.colors.textTertiary, marginTop: 8}]}>{t('title.fromSource', {source: artist.overviewSource})}</Text> : null}
