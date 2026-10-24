@@ -22,10 +22,12 @@ export type ContentEntry = Readonly<{
   /** The letter a browse page files the entry under (its sort title's, articles already set aside): a key of the page's `positionIndex`. */
   sortLetter?: string;
   missing?:boolean; available?: boolean; watched?:boolean;discNumber?:number;trackNumber?:number;episodeNumber?:number;seasonNumber?:number; duration?: number; progressSeconds?: number; addedAt?: string | null; count?: number;
+  /** A container's watched tally, when the server publishes one. Absent is not zero. */
+  watchedCount?: number; unwatchedCount?: number;
   year?: number; contentRating?: string; genres?: readonly string[]; watchlisted?: boolean;
   /** The album artist; album entities only (M24, behind presence). Absent on older servers. */
   artist?: Readonly<{ id: string; name: string }>;
-  /** A book's author; on book entries, and on an audiobook file (its book's author). */
+  /** Accepted Reading author or a book/audiobook part's semantic author, never parsed from subtitle. */
   author?: string;
   /** How many times the viewer has played a song to the end; song entries only, absent when never played. */
   plays?: number;
@@ -170,6 +172,10 @@ function entry(v: unknown): ContentEntry {
   if (string(v.sortLetter, 8) && v.sortLetter) row.sortLetter = v.sortLetter as string; else left('entry.sortLetter', v.sortLetter);
   if (count(v.count)) row.count = v.count; else left('entry.count', v.count);
   if (count(v.totalAtLeast) && row.count !== undefined) row.countIsLowerBound = true; else left('entry.totalAtLeast', v.totalAtLeast);
+  // A container's tallies stay exact nonnegative counts; absence stays absent, never zero.
+  for (const field of ['watchedCount', 'unwatchedCount'] as const) {
+    if (count(v[field])) row[field] = v[field] as number; else left('entry.' + field, v[field]);
+  }
   for(const flag of ['dateBased','special'] as const)if(typeof v[flag]==='boolean')row[flag]=v[flag] as boolean;
   if(typeof v.watched==='boolean')row.watched=v.watched;else left('entry.watched',v.watched);
   if(typeof v.new==='boolean')row.new=v.new;else left('entry.new',v.new);
@@ -208,7 +214,7 @@ function entry(v: unknown): ContentEntry {
       row.artist = Object.freeze({ id: a.id as string, name: a.name as string });
     }
   }
-  if (string(v.author, 512) && (v.author as string).length > 0) row.author = v.author as string;
+  if (string(v.author, v.kind === 'ebook' || v.kind === 'comic' ? 4096 : 512) && (v.author as string).length > 0) row.author = v.author as string;
   if (typeof v.plays === 'number' && Number.isSafeInteger(v.plays) && v.plays >= 1) row.plays = v.plays; else if (v.plays !== 0) left('entry.plays', v.plays);
   if (v.album !== undefined) {
     const a = v.album;
