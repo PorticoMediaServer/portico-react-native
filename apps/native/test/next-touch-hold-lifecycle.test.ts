@@ -4,7 +4,7 @@ import type {AppStateStatus, GestureResponderEvent} from 'react-native';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTouchHold} from '../src-next/kit/browse/touch-hold.ts';
 
-async function fixture(initialState: AppStateStatus = 'active') {
+async function fixture(initialState: AppStateStatus = 'active', platform = 'android') {
   const host = hooks(), cleanups: (() => void)[] = [];
   const listeners = new Map<string, Set<(state: AppStateStatus) => void>>();
   const appState = {
@@ -23,7 +23,7 @@ async function fixture(initialState: AppStateStatus = 'active') {
   };
   const {useTouchHold} = await screenModule(new URL('../src-next/kit/browse/useTouchHold.ts', import.meta.url), {
     react: {...host.react, useEffect(effect: () => void | (() => void)) {const cleanup = effect(); if (cleanup) cleanups.push(cleanup);}},
-    'react-native': {AppState: appState},
+    'react-native': {AppState: appState, Platform: {OS: platform}},
     './touch-hold': {createTouchHold: (fire: () => void, phase: Parameters<typeof createTouchHold>[1]) => createTouchHold(fire, phase, clock)},
   });
   const touch = host.render(() => useTouchHold(() => {fires++;}, true));
@@ -62,6 +62,14 @@ test('losing Android window focus cancels even while AppState is active', async 
   assert.equal(f.fires(), 0); assert.equal(f.tasks.size, 0); assert.equal(f.touch.consumePress(), true);
   f.start(); f.advance(500); assert.equal(f.fires(), 1);
   f.unmount();
+});
+
+test('iOS and tvOS never register the Android-only blur listener', async () => {
+  for (const platform of ['ios', 'tvos'] as const) {
+    const f = await fixture('active', platform);
+    assert.equal(f.listenerCount(), 1);
+    f.unmount();
+  }
 });
 
 test('unmount removes foreground listeners and retires an already queued timer callback', async () => {
