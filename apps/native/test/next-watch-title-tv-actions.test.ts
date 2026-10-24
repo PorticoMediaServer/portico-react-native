@@ -25,7 +25,10 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
       {id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}},
       {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}},
       {id: 'watched', enabled: true},
-    ], personal: {progressSeconds: 540, watched: false}, metadata: {genres: [], ratings: [], credits: []}}}};
+    ], personal: {progressSeconds: 540, watched: false}, metadata: {genres: [], ratings: [], credits: [
+      {id: 'd1', name: 'Pete Docter', role: 'Director', department: 'directing', provider: 'tmdb'},
+      {id: 'c1', name: 'Amy Poehler', role: 'Joy', department: 'acting', provider: 'tmdb'},
+      {id: 'c2', name: 'Phyllis Smith', role: 'Sadness', department: 'acting', provider: 'tmdb'}]}}}};
   const controller = {getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
     play: async (...args: unknown[]) => {calls.push(['play', ...args]);}, personal: async (...args: unknown[]) => {calls.push(['personal', ...args]);}};
   let tree: any;
@@ -40,6 +43,8 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
     assert.deepEqual(calls.shift(), ['more', entry, anchor]);
     await descendants(tree).find(node => node.props.focusId === 'watch-title-start-over').props.onPress();
     assert.deepEqual(calls.shift(), ['play', entry, true]);
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.directedBy', {names: 'Pete Docter'})));
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.starring', {names: 'Amy Poehler and Phyllis Smith'})));
     const watched = descendants(tree).find(node => node.props.focusId === 'watch-title-watched');
     assert.equal(watched.props.accessibilityLabel, defaultI18n.t('entry.markWatched')); watched.props.onPress();
     assert.deepEqual(calls.shift(), ['personal', {action: 'watched', value: true}]);

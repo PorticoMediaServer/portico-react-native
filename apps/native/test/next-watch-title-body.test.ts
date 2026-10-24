@@ -62,7 +62,7 @@ test('title My List reads actual Detail actions and personal state after the fir
 test('phone details draws the real cast and crew row, its credit lines and the in-progress remaining line', () => {
   const personCalls: string[] = [], entry = {id: 'item', kind: 'movie', title: 'Real film', duration: 5700, progressSeconds: 540};
   const snapshot = {retired: false, entry, place: {tab: 'details', anchor: {itemId: null, offset: 0}}, episodes: [],
-    detail: {phase: 'ready', data: {item: entry, facts: {},
+    detail: {phase: 'ready', data: {item: entry, facts: {contentRating: 'PG-13'},
       actions: [{id: 'resume', enabled: true, playback: {itemId: entry.id, startSeconds: 540}}, {id: 'start_over', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}],
       personal: {progressSeconds: 540, watched: false},
       metadata: {genres: [], ratings: [], status: 'available', credits: [
@@ -81,6 +81,9 @@ test('phone details draws the real cast and crew row, its credit lines and the i
     const remaining = defaultI18n.t('next.kit.remaining', {time: durationText(5160, defaultI18n.t)});
     assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === remaining));
     assert.ok(descendants(tree).some(node => node.type === 'Button' && node.props.icon === 'i-replay'));
+    assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === 'PG-13'), 'the phone facts line draws the rating tag it names');
+    const metadata = descendants(tree).find(node => node.type === 'Facts');
+    assert.equal(metadata.props.facts.some((fact: any) => fact.id === 'content-rating'), false, 'the tag is not repeated inside the plain facts row');
   } finally {host.unmount();}
 });
 

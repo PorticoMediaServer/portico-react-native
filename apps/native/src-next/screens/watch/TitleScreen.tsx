@@ -123,13 +123,18 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const startOver = detail?.actions.some(action => action.id === 'start_over' && action.enabled && action.playback);
   const remainingTitle = duration !== undefined && progress !== undefined ? durationText(Math.max(0, duration - progress), text.t) : undefined;
   const playMenu = theme.isTV ? () => props.more(snapshot.entry, titlePlay) : undefined;
-  const facts = titleFactParts({year: workspace?.show.year ?? detail?.item.year ?? snapshot.entry.year, durationSeconds: show ? undefined : duration,
-    genres: workspace?.show.genres ?? detail?.metadata.genres.map(genre => genre.name) ?? snapshot.entry.genres, contentRating: workspace?.show.contentRating ?? detail?.facts?.contentRating ?? snapshot.entry.contentRating}, text, theme.isTV ? 'video' : 'home-movie');
+  const contentRating = workspace?.show.contentRating ?? detail?.facts?.contentRating ?? snapshot.entry.contentRating;
+  const factSource = titleFactParts({year: workspace?.show.year ?? detail?.item.year ?? snapshot.entry.year, durationSeconds: show ? undefined : duration,
+    genres: workspace?.show.genres ?? detail?.metadata.genres.map(genre => genre.name) ?? snapshot.entry.genres, contentRating}, text, theme.isTV ? 'video' : 'home-movie');
+  // The phone frame draws the rating as its own tag after genre and length; keep it out of the plain facts row.
+  const ratingFact = theme.isTV ? undefined : contentRating ? {id: 'content-rating' as const, text: contentRating, role: 'supplement' as const} : undefined;
+  const facts = theme.isTV ? factSource : [...factSource.filter(fact => fact.id !== 'content-rating'), ...(ratingFact ? [ratingFact] : [])];
   const heroHeight = props.watch ? 0 : theme.isTV ? 660 : Math.min(660, viewport.height * .69), overview = workspace?.show.overview ?? detail?.item.overview ?? snapshot.entry.overview;
   const watching = props.watch?.source, watchIdentity = watching?.subject ? playbackIdentity(watching.subject, 'full', text) : undefined;
   const remaining = watching && Number.isFinite(watching.playback.positionSeconds) && watching.playback.positionSeconds >= 0
     ? durationText(Math.max(0, watching.playback.duration - watching.playback.positionSeconds), text.t) : undefined;
   const shownFacts = props.watch ? [...facts.filter(fact => fact.id !== 'duration'), ...(remaining ? [{id: 'remaining', text: text.t('next.kit.remaining', {time: remaining}), role: 'supplement' as const}] : [])] : facts;
+  const shownRating = props.watch ? undefined : shownFacts.find(fact => fact.id === 'content-rating'), metadataFacts = shownFacts.filter(fact => fact.id !== 'content-rating');
   const episodes = snapshot.episodes;
   const selectedSeason = (snapshot.seasons ?? []).find(season => season.id === workspace?.selected.seasonId);
   const currentSeasonLabel = workspace?.selected.group ? workspace.groups.find(group => group.id === workspace.selected.group)?.title ?? t('title.seasons')
@@ -153,6 +158,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const credits = detail?.metadata.credits ?? [], creditNames = (departments: readonly string[]) =>
     [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
+  const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const listed = new Intl.ListFormat(text.locale ?? 'en-US', {type: 'conjunction'});
   return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView ref={scroll} stickyHeaderIndices={[1]} onScroll={event => {
@@ -165,7 +171,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
         <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : 24}}>
           <Text accessibilityRole="header" numberOfLines={2} style={[nativeType({size: props.watch ? 28 : theme.isTV ? 76 : 40, weight: 800, tracking: props.watch ? -.035 : -.04, lineHeight: props.watch ? 30.8 : theme.isTV ? 84 : 43}, theme.textScale), {color: theme.colors.text, marginBottom: props.watch ? 5 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
-          <HeroMetadata facts={shownFacts}/>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10}}>
+            <HeroMetadata facts={metadataFacts}/>
+            {shownRating ? <View style={{borderWidth: 1, borderColor: theme.colors.lineStrong, borderRadius: 4, paddingHorizontal: 7, paddingVertical: 1}}>
+              <Text style={[theme.type.meta, {color: theme.colors.textSecondary}]}>{shownRating.text}</Text></View> : null}
+          </View>
           <View style={{flexDirection: 'row', gap: 10, marginTop: props.watch ? 16 : 22}}>
             {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={{flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
               icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
@@ -189,6 +199,10 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             </View>
           </View>}
           {!props.watch && overview && <Text numberOfLines={theme.isTV ? 3 : 2} style={[theme.type.body, {color: theme.colors.textSecondary, marginTop: 18}]}>{overview}</Text>}
+          {!props.watch && theme.isTV && (directors.length > 0 || castNames.length > 0) && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 24, rowGap: 6, marginTop: 14}}>
+            {directors.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: listed.format(directors)})}</Text>}
+            {castNames.length > 0 && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.starring', {names: listed.format(castNames.slice(0, 3))})}</Text>}
+          </View>}
         </View>
       </View>
       <View style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
