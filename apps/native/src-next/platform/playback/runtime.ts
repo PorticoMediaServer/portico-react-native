@@ -1,4 +1,4 @@
-import {PlaybackService} from '../../../../../packages/client-core/src/index';
+import {PlaybackService, type PlaybackSession} from '../../../../../packages/client-core/src/index';
 import {DetailService, type DetailProjection} from '../../../../../packages/client-core/src/detail';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {WholeGroupQuery} from '../../../../../packages/client-core/src/presentation/browse-groups';
@@ -519,7 +519,7 @@ export class NativePlaybackRuntime {
       this.bindOffline(source);
       this.expanded = !audioKind(source.metadata.kind);
       this.preparing = true;
-      await this.playback.playLocal(source.itemId, source.session, undefined, {signal: controller.signal, isCurrent: current});
+      await this.playback.playLocal(source.itemId, () => this.makeOfflineSession(source), undefined, {signal: controller.signal, isCurrent: current});
       const session = this.playback.getSnapshot().session;
       accepted = !!session && this.offlineSource === source && !!this.offline.mediaUrl(session);
       if (!accepted) {
@@ -541,6 +541,14 @@ export class NativePlaybackRuntime {
     if (!contentKind) throw new Error(serviceText('downloads.offline.notPlayableHere'));
     this.offlineSource = source; this.entry = undefined; this.options = undefined;
     this.subject = {kind: kindOf(contentKind), item: {id: source.itemId, title: source.metadata.title, kind: contentKind}};
+  }
+
+  private makeOfflineSession(source: NativeOfflineSource): PlaybackSession {
+    const session = source.session();
+    // The real service has already assigned this play's run. Validate and bind
+    // the full local identity before its session can reach the native engine.
+    if (!this.offline?.fence(session, this.playback.getSnapshot().playbackRun)) throw new Error(serviceText('downloads.offline.notPlayableHere'));
+    return session;
   }
 
   private readonly cataloguePort: Pick<V1QueuePlayer, 'playSegments'> = Object.freeze({
@@ -1260,7 +1268,7 @@ export class NativePlaybackRuntime {
             const source = await this.offline.reopen(saved.offline, valid);
             if (!valid()) return;
             this.bindOffline(source);
-            await this.playback.playLocal(source.itemId, source.session, effect.playback.positionSeconds,
+            await this.playback.playLocal(source.itemId, () => this.makeOfflineSession(source), effect.playback.positionSeconds,
               {initialIntent: 'paused', signal: controller.signal, isCurrent: valid});
             if (!valid()) return;
             const local = this.fence();
